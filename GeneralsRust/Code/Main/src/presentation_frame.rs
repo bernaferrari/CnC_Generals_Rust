@@ -52,6 +52,33 @@ impl PresentationVeterancy {
     }
 }
 
+/// Snapshot-owned object kind residual (host ObjectType).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationObjectType {
+    Infantry,
+    Vehicle,
+    Aircraft,
+    Building,
+    Supply,
+    Projectile,
+    Neutral,
+}
+
+impl PresentationObjectType {
+    pub fn from_host(t: crate::game_logic::ObjectType) -> Self {
+        use crate::game_logic::ObjectType as T;
+        match t {
+            T::Infantry => Self::Infantry,
+            T::Vehicle => Self::Vehicle,
+            T::Aircraft => Self::Aircraft,
+            T::Building => Self::Building,
+            T::Supply => Self::Supply,
+            T::Projectile => Self::Projectile,
+            T::Neutral => Self::Neutral,
+        }
+    }
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -129,6 +156,18 @@ pub struct RenderableObject {
     pub special_power_cooldown: f32,
     /// Special power remaining cooldown seconds residual.
     pub special_power_cooldown_remaining: f32,
+    /// Host ObjectType residual (UI / command set feed).
+    pub object_type: PresentationObjectType,
+    /// Applied upgrade tags residual (capped, sorted).
+    pub applied_upgrades: Vec<String>,
+    /// Secondary weapon present residual.
+    pub has_secondary_weapon: bool,
+    /// Secondary weapon range residual (0 when none).
+    pub secondary_weapon_range: f32,
+    /// Secondary weapon damage residual (0 when none).
+    pub secondary_weapon_damage: f32,
+    /// Mine / demo-trap residual present.
+    pub has_mine: bool,
     pub is_structure: bool,
     pub is_unit: bool,
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
@@ -1593,6 +1632,26 @@ impl PresentationFrame {
                 special_power_ready: obj.special_power_ready,
                 special_power_cooldown: obj.special_power_cooldown.max(0.0),
                 special_power_cooldown_remaining: obj.special_power_cooldown_remaining.max(0.0),
+                object_type: PresentationObjectType::from_host(obj.object_type),
+                applied_upgrades: {
+                    const MAX_UPGRADES: usize = 24;
+                    let mut v: Vec<String> = obj.applied_upgrades.iter().cloned().collect();
+                    v.sort();
+                    v.truncate(MAX_UPGRADES);
+                    v
+                },
+                has_secondary_weapon: obj.secondary_weapon.is_some(),
+                secondary_weapon_range: obj
+                    .secondary_weapon
+                    .as_ref()
+                    .map(|w| w.range)
+                    .unwrap_or(0.0),
+                secondary_weapon_damage: obj
+                    .secondary_weapon
+                    .as_ref()
+                    .map(|w| w.damage)
+                    .unwrap_or(0.0),
+                has_mine: obj.mine_data.is_some(),
                 is_structure,
                 is_unit,
                 model_key,
@@ -2030,6 +2089,27 @@ impl PresentationFrame {
             return 0.0;
         }
         (obj.special_power_cooldown_remaining / obj.special_power_cooldown).clamp(0.0, 1.0)
+    }
+
+    /// Objects that have applied at least one upgrade residual.
+    pub fn upgraded_objects(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && !o.applied_upgrades.is_empty())
+            .collect()
+    }
+
+    /// Whether `upgrade` is applied on the object residual.
+    pub fn object_has_upgrade(obj: &RenderableObject, upgrade: &str) -> bool {
+        obj.applied_upgrades.iter().any(|u| u == upgrade)
+    }
+
+    /// Live mine / demo-trap presentation residuals.
+    pub fn mine_objects(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && o.has_mine)
+            .collect()
     }
 
     /// Overlay health/position/destroyed from a GameWorld shadow session.
@@ -2835,6 +2915,53 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn upgrades_object_type_freeze_from_host() {
+        use crate::game_logic::{
+            host_mines::{HostMineData, HostMineKind},
+            KindOf, Team, ThingTemplate, Weapon,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("Overlord");
+        t.set_health(1200.0);
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("Overlord".into(), t);
+        let id = logic
+            .create_object("Overlord", Team::China, glam::Vec3::new(1.0, 0.0, 2.0))
+            .expect("id");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.applied_upgrades.insert("Upgrade_ChinaChainGuns".into());
+            obj.applied_upgrades.insert("Upgrade_Nationalism".into());
+            obj.secondary_weapon = Some(Weapon {
+                damage: 8.0,
+                range: 150.0,
+                min_range: 0.0,
+                reload_time: 0.5,
+                last_fire_time: 0.0,
+                ammo: None,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            obj.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let o = frame.objects.iter().find(|r| r.id == id).expect("o");
+        assert_eq!(o.object_type, PresentationObjectType::Vehicle);
+        assert!(PresentationFrame::object_has_upgrade(
+            o,
+            "Upgrade_ChinaChainGuns"
+        ));
+        assert!(o.applied_upgrades.contains(&"Upgrade_Nationalism".into()));
+        assert!(o.applied_upgrades.windows(2).all(|w| w[0] <= w[1]));
+        assert!(o.has_secondary_weapon);
+        assert!((o.secondary_weapon_range - 150.0).abs() < 0.01);
+        assert!((o.secondary_weapon_damage - 8.0).abs() < 0.01);
+        assert!(o.has_mine);
+        assert_eq!(frame.upgraded_objects().len(), 1);
+        assert_eq!(frame.mine_objects().len(), 1);
     }
 
     #[test]
