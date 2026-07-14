@@ -44,10 +44,21 @@ fn main() {
         && r.input_residual_pack_ok
         && r.drawable_residual_fields_ok
         && r.unit_training_wave79_residual_ok
-        && r.upgrades_cost_time_application_ok;
+        && r.upgrades_cost_time_application_ok
+        // Wave 80 residual honesty (INI-backed superweapon/science residual; never flips playable_claim).
+        && r.command_button_wave80_residual_ok
+        && r.science_rank_wave80_residual_ok
+        && r.superweapon_kindof_wave80_residual_ok
+        && r.special_power_enum_wave80_residual_ok
+        // Wave 81 residual honesty (terrain/pathfinder/locomotor/armor/PUC; never flips playable_claim).
+        && r.terrain_height_sample_wave81_ok
+        && r.pathfinder_wave81_residual_ok
+        && r.locomotor_table_wave81_ok
+        && r.armor_table_wave81_ok
+        && r.puc_flare_table_wave81_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -82,6 +93,15 @@ fn main() {
             r.drawable_residual_fields_ok,
             r.unit_training_wave79_residual_ok,
             r.upgrades_cost_time_application_ok,
+            r.command_button_wave80_residual_ok,
+            r.science_rank_wave80_residual_ok,
+            r.superweapon_kindof_wave80_residual_ok,
+            r.special_power_enum_wave80_residual_ok,
+            r.terrain_height_sample_wave81_ok,
+            r.pathfinder_wave81_residual_ok,
+            r.locomotor_table_wave81_ok,
+            r.armor_table_wave81_ok,
+            r.puc_flare_table_wave81_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );

@@ -888,6 +888,34 @@ pub const PARTICLE_CONNECTOR_INTENSE_LASER: &str = "ParticleUplinkCannon_Intense
 pub const PARTICLE_LASER_BASE_READY_FLARE: &str = "ParticleUplinkCannon_LaserBaseReadyToFire";
 /// Retail ParticleBeamLaserName (ground↔orbit + orbit→target lasers).
 pub const PARTICLE_ORBITAL_LASER_NAME: &str = "ParticleUplinkCannon_OrbitalLaser";
+/// Retail commented ConnectorMediumFlare residual name (FactionBuilding.ini).
+///
+/// Present as residual name table honesty only — retail block is commented out;
+/// host does **not** claim live ParticleSystemManager connector-flare spawn.
+pub const PARTICLE_CONNECTOR_MEDIUM_FLARE: &str =
+    "ParticleUplinkCannon_InnerConnectorMediumFlare";
+/// Retail commented ConnectorIntenseFlare residual name.
+pub const PARTICLE_CONNECTOR_INTENSE_FLARE: &str =
+    "ParticleUplinkCannon_InnerConnectorIntenseFlare";
+
+/// Wave 81 residual name table: intensity key → outer-node flare particle system.
+///
+/// Fail-closed residual pack (not live FX spawn). Order: Light → Medium → Intense.
+pub const PARTICLE_OUTER_NODE_FLARE_NAME_TABLE: &[(&str, &str)] = &[
+    ("Light", PARTICLE_OUTER_NODE_LIGHT_FLARE),
+    ("Medium", PARTICLE_OUTER_NODE_MEDIUM_FLARE),
+    ("Intense", PARTICLE_OUTER_NODE_INTENSE_FLARE),
+];
+
+/// Wave 81 residual name table: ready / connector / orbital particle system names.
+pub const PARTICLE_UPLINK_FLARE_LASER_NAME_TABLE: &[(&str, &str)] = &[
+    ("LaserBaseReady", PARTICLE_LASER_BASE_READY_FLARE),
+    ("ConnectorMediumLaser", PARTICLE_CONNECTOR_MEDIUM_LASER),
+    ("ConnectorIntenseLaser", PARTICLE_CONNECTOR_INTENSE_LASER),
+    ("OrbitalLaser", PARTICLE_ORBITAL_LASER_NAME),
+    ("ConnectorMediumFlare", PARTICLE_CONNECTOR_MEDIUM_FLARE),
+    ("ConnectorIntenseFlare", PARTICLE_CONNECTOR_INTENSE_FLARE),
+];
 /// Retail BeginChargeTime = 5000 ms → 150 frames @ 30 FPS.
 /// Outer nodes begin Light flare residual before ready-to-fire.
 pub const PARTICLE_BEGIN_CHARGE_FRAMES: u32 = (5000 * 30) / 1000;
@@ -2078,6 +2106,43 @@ pub fn honesty_particle_outer_node_flare_pack() -> bool {
         && ParticleIntensity::Medium.connector_laser_name() == PARTICLE_CONNECTOR_MEDIUM_LASER
         && ParticleIntensity::Intense.connector_laser_name() == PARTICLE_CONNECTOR_INTENSE_LASER
         && ParticleIntensity::Light.connector_laser_name().is_empty()
+}
+
+/// Wave 81 residual honesty: PUC outer-node flare particle system name tables deepen.
+///
+/// Extends Wave 50 flare pack with structured intensity/name residual tables and
+/// commented ConnectorMedium/Intense flare residual names from FactionBuilding.ini.
+/// Fail-closed: not full ParticleSystemManager spawn / W3D bone-world FX attach.
+pub fn honesty_particle_outer_node_flare_name_table_wave81() -> bool {
+    honesty_particle_outer_node_flare_pack()
+        && PARTICLE_OUTER_NODE_FLARE_NAME_TABLE.len() == 3
+        && PARTICLE_OUTER_NODE_FLARE_NAME_TABLE[0]
+            == ("Light", PARTICLE_OUTER_NODE_LIGHT_FLARE)
+        && PARTICLE_OUTER_NODE_FLARE_NAME_TABLE[1]
+            == ("Medium", PARTICLE_OUTER_NODE_MEDIUM_FLARE)
+        && PARTICLE_OUTER_NODE_FLARE_NAME_TABLE[2]
+            == ("Intense", PARTICLE_OUTER_NODE_INTENSE_FLARE)
+        && PARTICLE_UPLINK_FLARE_LASER_NAME_TABLE.len() == 6
+        && PARTICLE_UPLINK_FLARE_LASER_NAME_TABLE
+            .iter()
+            .any(|(k, v)| *k == "LaserBaseReady" && *v == PARTICLE_LASER_BASE_READY_FLARE)
+        && PARTICLE_UPLINK_FLARE_LASER_NAME_TABLE
+            .iter()
+            .any(|(k, v)| *k == "OrbitalLaser" && *v == PARTICLE_ORBITAL_LASER_NAME)
+        && PARTICLE_CONNECTOR_MEDIUM_FLARE
+            == "ParticleUplinkCannon_InnerConnectorMediumFlare"
+        && PARTICLE_CONNECTOR_INTENSE_FLARE
+            == "ParticleUplinkCannon_InnerConnectorIntenseFlare"
+        // Intensity enum residual maps through the name table.
+        && ParticleIntensity::Light.outer_flare_name()
+            == PARTICLE_OUTER_NODE_FLARE_NAME_TABLE[0].1
+        && ParticleIntensity::Medium.outer_flare_name()
+            == PARTICLE_OUTER_NODE_FLARE_NAME_TABLE[1].1
+        && ParticleIntensity::Intense.outer_flare_name()
+            == PARTICLE_OUTER_NODE_FLARE_NAME_TABLE[2].1
+        && PARTICLE_OUTER_EFFECT_BONE_NAME == "FX"
+        && particle_outer_node_bone_name(0) == "FX01"
+        && particle_outer_node_bone_name(4) == "FX05"
 }
 
 /// Honesty: PUC SlowDeath / InstantDeath residual pack (FactionBuilding.ini).
@@ -15054,6 +15119,23 @@ mod tests {
             assert_eq!(f.connector_lasers_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
         }
         assert!(reg.honesty_beam_outer_node_flare_pack_ok());
+    }
+
+    #[test]
+    fn particle_uplink_outer_node_flare_name_table_wave81_honesty() {
+        assert!(honesty_particle_outer_node_flare_name_table_wave81());
+        assert_eq!(PARTICLE_OUTER_NODE_FLARE_NAME_TABLE.len(), 3);
+        assert_eq!(PARTICLE_UPLINK_FLARE_LASER_NAME_TABLE.len(), 6);
+        assert_eq!(
+            PARTICLE_CONNECTOR_MEDIUM_FLARE,
+            "ParticleUplinkCannon_InnerConnectorMediumFlare"
+        );
+        assert_eq!(
+            PARTICLE_CONNECTOR_INTENSE_FLARE,
+            "ParticleUplinkCannon_InnerConnectorIntenseFlare"
+        );
+        assert_eq!(particle_outer_node_bone_name(0), "FX01");
+        assert_eq!(particle_outer_node_bone_name(4), "FX05");
     }
 
     #[test]

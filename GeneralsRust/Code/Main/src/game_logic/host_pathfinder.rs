@@ -102,6 +102,60 @@ pub const PATHFINDER_CAN_DETECT_WHILE_CONTAINED: bool = false;
 /// Residual: Pathfinder has no SpecialAbility pack/unpack residual.
 pub const PATHFINDER_HAS_PACK_UNPACK: bool = false;
 
+// --- Wave 81 residual deepen (AmericaInfantry.ini Pathfinder body / locomotor) ---
+
+/// Retail SET_NORMAL locomotor residual (shared with Colonel Burton ground).
+pub const PATHFINDER_LOCOMOTOR: &str = "ColonelBurtonGroundLocomotor";
+/// Retail ColonelBurtonGroundLocomotor Speed residual (dist/sec).
+pub const PATHFINDER_LOCOMOTOR_SPEED: f32 = 30.0;
+/// Retail SpeedDamaged residual.
+pub const PATHFINDER_LOCOMOTOR_SPEED_DAMAGED: f32 = 20.0;
+/// Retail TurnRate residual (degrees/sec).
+pub const PATHFINDER_LOCOMOTOR_TURN_RATE_DEG: f32 = 500.0;
+/// Retail Acceleration residual (dist/sec²).
+pub const PATHFINDER_LOCOMOTOR_ACCEL: f32 = 100.0;
+/// Retail AccelerationDamaged residual.
+pub const PATHFINDER_LOCOMOTOR_ACCEL_DAMAGED: f32 = 50.0;
+
+/// Retail ArmorSet Conditions=None residual.
+pub const PATHFINDER_ARMOR: &str = "HumanArmor";
+/// Retail ArmorSet PLAYER_UPGRADE residual.
+pub const PATHFINDER_ARMOR_CHEM_SUIT: &str = "ChemSuitHumanArmor";
+/// Retail DamageFX residual.
+pub const PATHFINDER_DAMAGE_FX: &str = "InfantryDamageFX";
+
+/// Retail BuildTime residual (seconds).
+pub const PATHFINDER_BUILD_TIME_SEC: f32 = 10.0;
+/// Retail ExperienceValue residual (Vet0..Heroic).
+pub const PATHFINDER_EXPERIENCE_VALUE: [u32; 4] = [40, 40, 60, 80];
+/// Retail ExperienceRequired residual (levels 0..3).
+pub const PATHFINDER_EXPERIENCE_REQUIRED: [u32; 4] = [0, 50, 100, 200];
+/// Retail IsTrainable residual.
+pub const PATHFINDER_IS_TRAINABLE: bool = true;
+/// Retail CrushableLevel residual (infantry = 0).
+pub const PATHFINDER_CRUSHABLE_LEVEL: u32 = 0;
+/// Retail TransportSlotCount residual.
+pub const PATHFINDER_TRANSPORT_SLOT_COUNT: u32 = 1;
+
+// AutoFindHealingUpdate residual (ModuleTag_04)
+/// Retail AutoFindHealingUpdate ScanRate residual (msec).
+pub const PATHFINDER_HEAL_SCAN_RATE_MS: u32 = 1_000;
+/// ScanRate 1000 ms → 30 frames @ 30 FPS.
+pub const PATHFINDER_HEAL_SCAN_RATE_FRAMES: u32 = 30;
+/// Retail ScanRange residual.
+pub const PATHFINDER_HEAL_SCAN_RANGE: f32 = 300.0;
+/// Retail NeverHeal residual (skip heal above this health fraction).
+pub const PATHFINDER_HEAL_NEVER_FRACTION: f32 = 0.85;
+/// Retail AlwaysHeal residual (force heal below this health fraction).
+pub const PATHFINDER_HEAL_ALWAYS_FRACTION: f32 = 0.25;
+
+/// Retail AIUpdate MoodAttackCheckRate residual (msec).
+pub const PATHFINDER_MOOD_ATTACK_CHECK_RATE_MS: u32 = 250;
+/// MoodAttackCheckRate 250 ms → 8 frames (round half-up: 7.5 → 8).
+pub const PATHFINDER_MOOD_ATTACK_CHECK_RATE_FRAMES: u32 = 8;
+/// Retail PhysicsBehavior Mass residual.
+pub const PATHFINDER_PHYSICS_MASS: f32 = 5.0;
+
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn pathfinder_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -279,6 +333,43 @@ pub fn honesty_pathfinder_residual_pack_ok() -> bool {
         && honesty_pathfinder_science_gate_residual_ok()
 }
 
+/// Wave 81 residual honesty: Pathfinder body / locomotor / heal residual deepen.
+///
+/// AmericaInfantry.ini: ColonelBurtonGroundLocomotor, HumanArmor, BuildTime 10,
+/// ExperienceValue/Required, AutoFindHealingUpdate, Physics mass.
+/// Fail-closed: not full AIUpdate AutoAcquire Stealthed matrix / W3D model draw.
+pub fn honesty_pathfinder_residual_pack_wave81() -> bool {
+    PATHFINDER_LOCOMOTOR == "ColonelBurtonGroundLocomotor"
+        && (PATHFINDER_LOCOMOTOR_SPEED - 30.0).abs() < 0.01
+        && (PATHFINDER_LOCOMOTOR_SPEED_DAMAGED - 20.0).abs() < 0.01
+        && (PATHFINDER_LOCOMOTOR_TURN_RATE_DEG - 500.0).abs() < 0.01
+        && (PATHFINDER_LOCOMOTOR_ACCEL - 100.0).abs() < 0.01
+        && (PATHFINDER_LOCOMOTOR_ACCEL_DAMAGED - 50.0).abs() < 0.01
+        && PATHFINDER_LOCOMOTOR_SPEED > PATHFINDER_LOCOMOTOR_SPEED_DAMAGED
+        && PATHFINDER_ARMOR == "HumanArmor"
+        && PATHFINDER_ARMOR_CHEM_SUIT == "ChemSuitHumanArmor"
+        && PATHFINDER_DAMAGE_FX == "InfantryDamageFX"
+        && (PATHFINDER_BUILD_TIME_SEC - 10.0).abs() < 0.01
+        && PATHFINDER_EXPERIENCE_VALUE == [40, 40, 60, 80]
+        && PATHFINDER_EXPERIENCE_REQUIRED == [0, 50, 100, 200]
+        && PATHFINDER_IS_TRAINABLE
+        && PATHFINDER_CRUSHABLE_LEVEL == 0
+        && PATHFINDER_TRANSPORT_SLOT_COUNT == 1
+        && PATHFINDER_HEAL_SCAN_RATE_MS == 1_000
+        && PATHFINDER_HEAL_SCAN_RATE_FRAMES
+            == pathfinder_ms_to_frames(PATHFINDER_HEAL_SCAN_RATE_MS)
+        && (PATHFINDER_HEAL_SCAN_RANGE - 300.0).abs() < 0.01
+        && (PATHFINDER_HEAL_NEVER_FRACTION - 0.85).abs() < 0.001
+        && (PATHFINDER_HEAL_ALWAYS_FRACTION - 0.25).abs() < 0.001
+        && PATHFINDER_HEAL_ALWAYS_FRACTION < PATHFINDER_HEAL_NEVER_FRACTION
+        && PATHFINDER_MOOD_ATTACK_CHECK_RATE_MS == 250
+        && PATHFINDER_MOOD_ATTACK_CHECK_RATE_FRAMES
+            == pathfinder_ms_to_frames(PATHFINDER_MOOD_ATTACK_CHECK_RATE_MS)
+        && (PATHFINDER_PHYSICS_MASS - 5.0).abs() < 0.01
+        // Wave 54 base pack still holds under deepen.
+        && honesty_pathfinder_residual_pack_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,6 +434,15 @@ mod tests {
         assert_eq!(pathfinder_ms_to_frames(0), 0);
         assert!((pathfinder_sniper_damage(false) - 100.0).abs() < 0.01);
         assert!((pathfinder_sniper_damage(true) - 125.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn pathfinder_residual_pack_wave81_honesty() {
+        assert!(honesty_pathfinder_residual_pack_wave81());
+        assert_eq!(PATHFINDER_LOCOMOTOR, "ColonelBurtonGroundLocomotor");
+        assert_eq!(PATHFINDER_ARMOR, "HumanArmor");
+        assert_eq!(pathfinder_ms_to_frames(1_000), 30);
+        assert_eq!(pathfinder_ms_to_frames(250), 8);
     }
 
     #[test]

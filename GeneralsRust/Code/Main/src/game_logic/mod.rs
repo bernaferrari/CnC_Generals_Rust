@@ -17,6 +17,7 @@ pub mod host_booby_trap;
 pub mod host_bunker_buster;
 pub mod host_car_bomb;
 pub mod host_cash_bounty;
+pub mod host_command_button_residual;
 pub mod host_cia_intelligence;
 pub mod host_cleanup_area;
 pub mod host_colonel_burton;
@@ -59,6 +60,7 @@ pub mod host_rng_residual;
 pub mod host_overlord_addons;
 pub mod host_overlord_gun;
 pub mod host_paradrop;
+pub mod host_armor_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -73,13 +75,16 @@ pub mod host_rocket_buggy;
 pub mod host_rpg_trooper;
 pub mod host_saboteur;
 pub mod host_scorpion;
+pub mod host_science_rank;
 pub mod host_scud_launcher;
 pub mod host_sentry_drone;
 pub mod host_slave_drones;
 pub mod host_sneak_attack;
+pub mod host_special_power_enum_residual;
 pub mod host_spy_satellite;
 pub mod host_stealth_fighter;
 pub mod host_strategy_center;
+pub mod host_superweapon_kindof;
 pub mod host_supply_drop_zone;
 pub mod host_tank_hunter;
 pub mod host_technical;
@@ -193,6 +198,10 @@ pub use host_cash_bounty::{
     CASH_BOUNTY1_PERCENT, CASH_BOUNTY2_PERCENT, CASH_BOUNTY3_PERCENT, SCIENCE_CASH_BOUNTY1,
     SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
 };
+pub use host_command_button_residual::honesty_command_button_superweapon_residual_pack_wave80;
+pub use host_science_rank::honesty_science_rank_residual_pack_wave80;
+pub use host_special_power_enum_residual::honesty_special_power_enum_residual_pack_wave80;
+pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
     HostCiaIntelligence, HostCiaIntelligenceRegistry, HostCiaIntelligenceSpiedUnit,
     CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,

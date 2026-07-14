@@ -1,3 +1,104 @@
+## Residual Host Playability — Wave 80: CommandButton / SCIENCE rank / KindOf / SpecialPower enum residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; INI-backed superweapon/science residual):**
+1. **CommandButton superweapon residual pack** (`host_command_button_residual`):
+   - Retail CommandButton.ini TextLabel / DescriptLabel / ButtonImage /
+     RadiusCursorType / CursorName residual for all **10** `HostSuperweaponKind`s.
+   - Daisy **DAISYCUTTER** / A10 **A10STRIKE** / Scud **SCUDSTORM** /
+     Nuke **NUCLEARMISSILE** / Anthrax **ANTHRAXBOMB** / Spectre **SPECTREGUNSHIP** /
+     Carpet **CARPETBOMB** / Artillery **ARTILLERYBARRAGE** / Cruise **NUCLEARMISSILE**.
+   - Particle Uplink residual uses **CursorName=ParticleUplinkCannon** (no RadiusCursor).
+   - Shortcut command/text residual names frozen per kind.
+   - Honesty: `honesty_command_button_superweapon_residual_pack_wave80`.
+2. **SCIENCE rank residual table completeness** (`host_science_rank`):
+   - Full retail Rank.ini residual table ranks **1–5**:
+     SkillPointsNeeded **0 / 800 / 1500 / 2500 / 5000**.
+     SciencePurchasePointsGranted **1 / 1 / 1 / 1 / 3**.
+     SciencesGranted SCIENCE_Rank1…Rank5; RankName INI:RankLevel1…5.
+   - Cumulative SPP through rank 5 = **7**; skill→rank lookup residual.
+   - Honesty: `honesty_science_rank_residual_pack_wave80`.
+3. **Object KindOf residual packs for common superweapon buildings**
+   (`host_superweapon_kindof`):
+   - AmericaParticleCannonUplink / GLAScudStorm / ChinaNuclearMissileLauncher.
+   - Shared tokens: PRELOAD STRUCTURE SELECTABLE IMMOBILE CAPTURABLE
+     FS_TECHNOLOGY FS_SUPERWEAPON MP_COUNT_FOR_VICTORY.
+   - Economy residual: BuildCost **5000**, BuildTime **60**s, MaxHealth **4000**.
+   - Particle/Nuke: POWERED + SCORE + EnergyProduction **-10**.
+   - Scud: SCORE_CREATE, no POWERED, EnergyProduction **0**.
+   - Honesty: `honesty_superweapon_kindof_residual_pack_wave80`.
+4. **SpecialPower enum residual discriminants** (`host_special_power_enum_residual`):
+   - C++ `s_bitNameList` residual table length **67** (SPECIALPOWER_COUNT).
+   - HostSuperweaponKind → SPECIAL_* name + ordinal residual
+     (Daisy **1**, Carpet **3**, Neutron **8**, Anthrax **14**, Scud **15**,
+     A10 **18**, Artillery **20**, Particle **36**, Spectre **42**, Cruise **63**).
+   - Host `command_system::SpecialPowerType` → C++ SPECIAL_* bridge residual.
+   - Honesty: `honesty_special_power_enum_residual_pack_wave80`.
+5. Tests / gates:
+   - Unit honesty tests for all four wave80 residual packs.
+   - shell_smoke: cmdbtn80/rank80/kindof80/spenum80 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     cmdbtn80=true rank80=true kindof80=true spenum80=true
+
+**Still residual (fail-closed, not claimed):**
+- Full CommandButton INI parse / Science-swap cameo matrix / CursorManager GPU
+- Full RankInfoStore live INI load / GeneralsExperience skill-point UI
+- Full ThingTemplate KindOf bit matrix / MaxSimultaneousOfType SW restriction UI
+- Full SpecialPowerStore Xfer rebind / SpecialPowerMask bit ops host-wide
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 81: terrain/pathfinder/locomotor/armor/PUC residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal to Wave 80 command-button/science):**
+1. **Map height sample residual deepen** (`game_logic/terrain`):
+   - `MAP_HEIGHT_SAMPLE_XY_FACTOR` **10** / `MAP_HEIGHT_SAMPLE_SCALE` **0.625** residual.
+   - Raw 8-bit sample → world Z (`raw_height_sample_to_world`) + bilinear corner blend residual.
+   - Pathfinding cell-center offset residual **0.5**.
+   - Honesty: `honesty_map_height_sample_residual_pack_wave81`.
+2. **Pathfinder residual peels deepen** (`host_pathfinder`):
+   - Locomotor **ColonelBurtonGroundLocomotor** Speed **30** / Damaged **20** / Turn **500** / Accel **100**.
+   - Armor **HumanArmor** / ChemSuit **ChemSuitHumanArmor** / DamageFX **InfantryDamageFX**.
+   - BuildTime **10**s, ExperienceValue **40/40/60/80**, ExperienceRequired **0/50/100/200**.
+   - AutoFindHealing ScanRate **1000**ms→**30**f / Range **300** / Never **0.85** / Always **0.25**.
+   - MoodAttackCheckRate **250**ms→**8**f, Physics Mass **5**.
+   - Honesty: `honesty_pathfinder_residual_pack_wave81` (includes Wave 54 base pack).
+3. **Locomotor residual tables for common units** (`locomotor_bootstrap`):
+   - Extended seed residual table (12 names): Pathfinder/Burton, Tomahawk, ScudLauncher,
+     QuadCannon, RaptorJet + golden infantry/vehicle set.
+   - Template → locomotor name residual bindings for Pathfinder / Tomahawk / Scud / Quad / Raptor.
+   - `ensure_host_locomotor_store` always fills missing known seeds (no early exit after BasicHuman).
+   - Honesty: `honesty_locomotor_residual_table_wave81`.
+4. **Armor residual table honesty** (`host_armor_residual`):
+   - **ProjectileArmor**: DEFAULT **25%**, LASER **100%**, SMALL_ARMS/GATTLING **25%**,
+     FALLING/MICROWAVE/HAZARD_CLEANUP/POISON/RADIATION/FLAME **0%**, SUBDUAL_MISSILE **100%**.
+   - **HazardousMaterialArmor**: DEFAULT **0%**, HAZARD_CLEANUP **100%**, FLAME **0%**.
+   - Seed-if-missing into `TheArmorStore`; verify via `adjust_damage` residual matrix.
+   - Honesty: `honesty_armor_residual_table_wave81`.
+5. **PUC outer-node flare particle name tables deepen** (`special_power_strikes`):
+   - Structured intensity → OuterNodeLight/Medium/Intense flare residual table.
+   - Connector laser / LaserBaseReady / OrbitalLaser residual name table.
+   - Commented ConnectorMedium/Intense flare residual names
+     (`ParticleUplinkCannon_InnerConnector*Flare`).
+   - FX01..FX05 bone residual honesty.
+   - Honesty: `honesty_particle_outer_node_flare_name_table_wave81`.
+6. Tests / gates:
+   - shell_smoke: height81/path81/loco81/armor81/puc81 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     height81=true path81=true loco81=true armor81=true puc81=true
+
+**Still residual (fail-closed, not claimed):**
+- Full SAGE HeightMap bridge/cliff bilinear / live HeightMapData decode matrix
+- Full Pathfinder AIUpdate AutoAcquire Stealthed / W3D model draw
+- Full multi-surface / SET_PANIC / pitch-roll Locomotor.ini matrix
+- Full Armor.ini multi-template / ArmorSet upgrade graph / ActiveBody swap
+- Full ParticleSystemManager outer-node FX attach / W3D bone-world extract
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 79: minimap/selection/input/drawable/training/upgrade residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal to Wave 78 special powers):**

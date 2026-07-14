@@ -36,6 +36,36 @@ pub const SCORPION_LOCOMOTOR: &str = "ScorpionLocomotor";
 pub const BATTLE_MASTER_LOCOMOTOR: &str = "BattleMasterLocomotor";
 pub const TECHNICAL_LOCOMOTOR: &str = "TechnicalLocomotor";
 
+// --- Wave 81 common-unit locomotor residual deepen ---
+/// Retail Pathfinder / Colonel Burton ground residual.
+pub const COLONEL_BURTON_GROUND_LOCOMOTOR: &str = "ColonelBurtonGroundLocomotor";
+/// Retail AmericaVehicleTomahawk residual.
+pub const TOMAHAWK_LOCOMOTOR: &str = "TomahawkLocomotor";
+/// Retail GLAVehicleSCUDLauncher residual.
+pub const SCUD_LAUNCHER_LOCOMOTOR: &str = "ScudLauncherLocomotor";
+/// Retail GLAVehicleQuadCannon residual.
+pub const QUAD_CANNON_LOCOMOTOR: &str = "QuadCannonLocomotor";
+/// Retail AmericaJetRaptor residual.
+pub const RAPTOR_JET_LOCOMOTOR: &str = "RaptorJetLocomotor";
+
+/// Wave 81 residual seed table: (name, Speed, Acceleration, TurnRate deg).
+/// Values match retail Locomotor.ini for common host units.
+pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
+    (BASIC_HUMAN_LOCOMOTOR, 20.0, 100.0, 500.0),
+    (REDGUARD_LOCOMOTOR, 25.0, 100.0, 500.0),
+    (HUMVEE_LOCOMOTOR, 60.0, 1000.0, 180.0),
+    (CRUSADER_LOCOMOTOR, 30.0, 1000.0, 180.0),
+    (SCORPION_LOCOMOTOR, 40.0, 1000.0, 180.0),
+    (BATTLE_MASTER_LOCOMOTOR, 25.0, 1000.0, 180.0),
+    (TECHNICAL_LOCOMOTOR, 90.0, 100.0, 180.0),
+    // Wave 81 deepen:
+    (COLONEL_BURTON_GROUND_LOCOMOTOR, 30.0, 100.0, 500.0),
+    (TOMAHAWK_LOCOMOTOR, 30.0, 1000.0, 180.0),
+    (SCUD_LAUNCHER_LOCOMOTOR, 20.0, 160.0, 50.0),
+    (QUAD_CANNON_LOCOMOTOR, 40.0, 1000.0, 180.0),
+    (RAPTOR_JET_LOCOMOTOR, 175.0, 120.0, 120.0),
+];
+
 /// Logic FPS used by C++ Locomotor.ini unit conversion (Speed / 30 → dist/frame).
 const LOGIC_FPS: f32 = 30.0;
 
@@ -54,20 +84,15 @@ pub struct HostMovementStats {
 ///
 /// Returns how many templates were added by this call (seed + filesystem load).
 pub fn ensure_host_locomotor_store() -> usize {
-    // Fast path: already have BasicHumanLocomotor from archive load or prior seed.
-    if store_has(BASIC_HUMAN_LOCOMOTOR) {
-        BOOTSTRAP_ATTEMPTED.store(true, Ordering::Relaxed);
-        return 0;
-    }
-
     let mut added = 0usize;
 
-    // Prefer real INI data when extracted game data is on disk.
-    if !BOOTSTRAP_ATTEMPTED.swap(true, Ordering::Relaxed) || !store_has(BASIC_HUMAN_LOCOMOTOR) {
+    // Prefer real INI data when extracted game data is on disk (once).
+    if !BOOTSTRAP_ATTEMPTED.swap(true, Ordering::Relaxed) {
         added += try_load_locomotor_ini_from_disk();
     }
 
-    // Always guarantee golden-unit locomotors even without game data.
+    // Always fill missing golden / Wave 81 common-unit locomotors.
+    // (INI load may have BasicHuman but omit some residual names.)
     added += seed_known_host_locomotors();
     added
 }
@@ -78,6 +103,14 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
     match template_name {
         // USA infantry (AmericaInfantryRanger → BasicHumanLocomotor)
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(BASIC_HUMAN_LOCOMOTOR),
+        // Pathfinder / Colonel Burton share ground locomotor residual (Wave 81).
+        "USA_Pathfinder"
+        | "AmericaInfantryPathfinder"
+        | "AirF_AmericaInfantryPathfinder"
+        | "SupW_AmericaInfantryPathfinder"
+        | "Lazr_AmericaInfantryPathfinder"
+        | "USA_ColonelBurton"
+        | "AmericaInfantryColonelBurton" => Some(COLONEL_BURTON_GROUND_LOCOMOTOR),
         // GLA infantry (GLAInfantryRebel → BasicHumanLocomotor)
         "GLA_Soldier" | "GLA_Rebel" | "GLAInfantryRebel" => Some(BASIC_HUMAN_LOCOMOTOR),
         // China infantry (ChinaInfantryRedguard → RedguardLocomotor @ 25)
@@ -85,13 +118,65 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
         // USA vehicles
         "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_LOCOMOTOR),
         "USA_Crusader" | "USA_CrusaderTank" | "AmericaTankCrusader" => Some(CRUSADER_LOCOMOTOR),
+        "USA_Tomahawk" | "AmericaVehicleTomahawk" => Some(TOMAHAWK_LOCOMOTOR),
         // GLA vehicles
         "GLA_Technical" | "GLAVehicleTechnical" => Some(TECHNICAL_LOCOMOTOR),
         "GLA_Scorpion" | "GLA_ScorpionTank" | "GLATankScorpion" => Some(SCORPION_LOCOMOTOR),
+        "GLA_ScudLauncher" | "GLAVehicleSCUDLauncher" | "GLAVehicleScudLauncher" => {
+            Some(SCUD_LAUNCHER_LOCOMOTOR)
+        }
+        "GLA_QuadCannon" | "GLAVehicleQuadCannon" => Some(QUAD_CANNON_LOCOMOTOR),
         // China vehicles
         "China_BattleTank" | "ChinaTankBattleMaster" => Some(BATTLE_MASTER_LOCOMOTOR),
+        // USA aircraft residual
+        "USA_Raptor" | "AmericaJetRaptor" => Some(RAPTOR_JET_LOCOMOTOR),
         _ => None,
     }
+}
+
+/// Wave 81 residual honesty: common-unit locomotor seed residual table.
+///
+/// Ensures golden + Wave 81 deepen names are present with retail Speed residual.
+/// Fail-closed: not full multi-surface / SET_PANIC / pitch-roll matrix.
+pub fn honesty_locomotor_residual_table_wave81() -> bool {
+    let _ = ensure_host_locomotor_store();
+    if HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() < 12 {
+        return false;
+    }
+    // Core + Wave 81 names present in table.
+    let names_ok = [
+        BASIC_HUMAN_LOCOMOTOR,
+        COLONEL_BURTON_GROUND_LOCOMOTOR,
+        TOMAHAWK_LOCOMOTOR,
+        SCUD_LAUNCHER_LOCOMOTOR,
+        QUAD_CANNON_LOCOMOTOR,
+        RAPTOR_JET_LOCOMOTOR,
+        TECHNICAL_LOCOMOTOR,
+        HUMVEE_LOCOMOTOR,
+    ]
+    .iter()
+    .all(|n| HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.iter().any(|(name, ..)| name == n));
+    if !names_ok {
+        return false;
+    }
+    // Seeded / loaded templates resolve retail speeds.
+    let speed_ok = |name: &str, expected: f32| {
+        movement_from_store(name)
+            .map(|m| (m.max_speed - expected).abs() < 0.5)
+            .unwrap_or(false)
+    };
+    names_ok
+        && speed_ok(BASIC_HUMAN_LOCOMOTOR, 20.0)
+        && speed_ok(COLONEL_BURTON_GROUND_LOCOMOTOR, 30.0)
+        && speed_ok(TOMAHAWK_LOCOMOTOR, 30.0)
+        && speed_ok(SCUD_LAUNCHER_LOCOMOTOR, 20.0)
+        && speed_ok(QUAD_CANNON_LOCOMOTOR, 40.0)
+        && speed_ok(RAPTOR_JET_LOCOMOTOR, 175.0)
+        && locomotor_name_for_unit("AmericaInfantryPathfinder")
+            == Some(COLONEL_BURTON_GROUND_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaVehicleTomahawk") == Some(TOMAHAWK_LOCOMOTOR)
+        && locomotor_name_for_unit("GLAVehicleQuadCannon") == Some(QUAD_CANNON_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaJetRaptor") == Some(RAPTOR_JET_LOCOMOTOR)
 }
 
 /// Resolve host Movement stats from the Locomotor catalog by template name.
@@ -207,27 +292,10 @@ fn locomotor_ini_candidate_paths() -> Vec<PathBuf> {
 /// Seed minimal retail-ish stats for host golden units when INI is unavailable.
 ///
 /// Values match retail Locomotor.ini Speed / Acceleration / TurnRate (dist/sec).
+/// Wave 81: uses [`HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE`] (golden + common deepen).
 fn seed_known_host_locomotors() -> usize {
-    // Retail Locomotor.ini values (dist/sec, dist/sec², degrees/sec).
-    let seeds: &[(&str, f32, f32, f32)] = &[
-        // BasicHumanLocomotor — AmericaInfantryRanger / GLA Rebel
-        (BASIC_HUMAN_LOCOMOTOR, 20.0, 100.0, 500.0),
-        // RedguardLocomotor — China Red Guard (~25% faster than basic human)
-        (REDGUARD_LOCOMOTOR, 25.0, 100.0, 500.0),
-        // HumveeLocomotor
-        (HUMVEE_LOCOMOTOR, 60.0, 1000.0, 180.0),
-        // CrusaderLocomotor
-        (CRUSADER_LOCOMOTOR, 30.0, 1000.0, 180.0),
-        // ScorpionLocomotor
-        (SCORPION_LOCOMOTOR, 40.0, 1000.0, 180.0),
-        // BattleMasterLocomotor
-        (BATTLE_MASTER_LOCOMOTOR, 25.0, 1000.0, 180.0),
-        // TechnicalLocomotor
-        (TECHNICAL_LOCOMOTOR, 90.0, 100.0, 180.0),
-    ];
-
     let mut added = 0usize;
-    for &(name, speed, accel, turn_deg) in seeds {
+    for &(name, speed, accel, turn_deg) in HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE {
         if store_has(name) {
             continue;
         }
@@ -235,7 +303,13 @@ fn seed_known_host_locomotors() -> usize {
         props.insert("Speed".to_string(), format!("{}", speed));
         props.insert("Acceleration".to_string(), format!("{}", accel));
         props.insert("TurnRate".to_string(), format!("{}", turn_deg));
-        props.insert("Surfaces".to_string(), "GROUND".to_string());
+        // Raptor is AIR residual; others GROUND (host seed surfaces residual only).
+        let surfaces = if name == RAPTOR_JET_LOCOMOTOR {
+            "AIR"
+        } else {
+            "GROUND"
+        };
+        props.insert("Surfaces".to_string(), surfaces.to_string());
         match parse_locomotor_template_definition(name, &props) {
             Ok(template) => match get_locomotor_store_mut().add_template(template) {
                 Ok(()) => {
@@ -350,6 +424,22 @@ mod tests {
             locomotor_name_for_unit("China_Soldier"),
             Some(REDGUARD_LOCOMOTOR)
         );
+        assert_eq!(
+            locomotor_name_for_unit("AmericaInfantryPathfinder"),
+            Some(COLONEL_BURTON_GROUND_LOCOMOTOR)
+        );
+        assert_eq!(
+            locomotor_name_for_unit("AmericaVehicleTomahawk"),
+            Some(TOMAHAWK_LOCOMOTOR)
+        );
+    }
+
+    #[test]
+    fn locomotor_residual_table_wave81_honesty() {
+        assert!(honesty_locomotor_residual_table_wave81());
+        assert!(HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() >= 12);
+        assert!(store_has(COLONEL_BURTON_GROUND_LOCOMOTOR));
+        assert!(store_has(RAPTOR_JET_LOCOMOTOR));
     }
 
     #[test]
