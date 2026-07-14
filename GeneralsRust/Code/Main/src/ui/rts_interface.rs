@@ -114,10 +114,21 @@ impl Renderable for RTSInterface {
 /// Unit command panel (context-sensitive command grid).
 ///
 /// Selection identity is presentation-fed so command enablement can use snapshot HP.
+/// Snapshot-owned command button residual for the unit command panel.
+///
+/// Fail-closed: not full CommandSet INI / WND button art parity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitCommandButton {
+    pub command_name: String,
+    pub enabled: bool,
+}
+
 pub struct UnitCommandPanel {
     visible: bool,
     selection_panel: ControlBarSelectionPanelState,
     selected_ids: Vec<ObjectId>,
+    /// Commands derived from PresentationFrame selection residual.
+    commands: Vec<UnitCommandButton>,
 }
 
 impl Default for UnitCommandPanel {
@@ -132,6 +143,7 @@ impl UnitCommandPanel {
             visible: false,
             selection_panel: ControlBarSelectionPanelState::default(),
             selected_ids: Vec::new(),
+            commands: Vec::new(),
         }
     }
 
@@ -152,6 +164,18 @@ impl UnitCommandPanel {
                 .collect();
         }
         self.visible = self.selection_panel.visible && !self.selected_ids.is_empty();
+    }
+
+    /// Replace command buttons from presentation residual (no live GameLogic).
+    pub fn apply_commands(&mut self, commands: Vec<UnitCommandButton>) {
+        self.commands = commands;
+        if !self.commands.is_empty() {
+            self.visible = true;
+        }
+    }
+
+    pub fn commands(&self) -> &[UnitCommandButton] {
+        &self.commands
     }
 
     pub fn selection_panel(&self) -> &ControlBarSelectionPanelState {

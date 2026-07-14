@@ -53,7 +53,7 @@ pub use minimap_panel::{update_minimap_state, BeaconDot, MinimapClickEvent, Mini
 pub use options_menu::{GraphicsQuality, OptionsMenu, OptionsTab, Resolution};
 pub use pause_menu::{PauseMenu, PauseMenuAction};
 pub use quit_dialog::QuitDialog;
-pub use rts_interface::{BuildingInterface, RTSInterface, UnitCommandPanel};
+pub use rts_interface::{BuildingInterface, RTSInterface, UnitCommandButton, UnitCommandPanel};
 pub use save_load_menu::{SaveGameEntry, SaveLoadMenu, SaveLoadMode};
 pub use skirmish_menu::{GameRules, GameSlot, PlayerColor, PlayerType, SkirmishMenu, MAX_SLOTS};
 pub use themes::{Colors, GeneralsTheme, UITheme};
