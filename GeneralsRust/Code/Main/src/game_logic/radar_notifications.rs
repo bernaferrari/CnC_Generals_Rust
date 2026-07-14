@@ -49,6 +49,11 @@ impl RadarNotifications {
             guard.drain(..).collect()
         }
     }
+
+    /// Non-destructive copy for presentation freeze (UI drain remains authoritative).
+    pub fn snapshot(&self) -> Vec<RadarEntry> {
+        self.queue.lock().iter().cloned().collect()
+    }
 }
 
 static GLOBAL_RADAR_NOTIFICATIONS: OnceLock<RadarNotifications> = OnceLock::new();

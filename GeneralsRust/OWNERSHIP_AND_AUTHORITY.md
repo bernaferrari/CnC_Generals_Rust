@@ -124,7 +124,7 @@ Host still executes AI decision, pathfinding step, and combat resolution mid-fra
 `EntityId` map, delta sync (health/transform/economy), and `WorldMutation` damage
 parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime: `GENERALS_GAMEWORLD_SHADOW=1` holds a session on `CnCGameEngine`.
 `Object::take_damage_from` records `host_damage_log / host_heal_log / host_owner_log` events drained each tick.
-Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow maps spawns and applies Destroy mutations. `WorldMutation::Spawn` exists for the mutation channel.
+Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow maps spawns and applies Destroy mutations. `host_spawn_log` applies via `WorldMutation::Spawn` (sole shadow create) then host→entity map.
 
 Presentation: when engine holds a shadow session, `PresentationFrame` is built from host then `overlay_gameworld_shadow` so HP/pose/supplies prefer GameWorld.
 Move channel: `SetTransform` mutations + `apply_host_positions_as_transforms`.
@@ -377,3 +377,5 @@ Still residual (not claimed by shell_smoke):
 With a presentation frame, GameClient uses `update_drawables_local` (no OBJECT_REGISTRY shroud bind).
 
 - Client: `update_presentation_shell` for presentation path; soft WND via GENERALS_RUNTIME_HOST_WND.
+
+- Presentation freezes pending radar texts as `PresentationEvent::RadarMessage` (UI drain remains authoritative).
