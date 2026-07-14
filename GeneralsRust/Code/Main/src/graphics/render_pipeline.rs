@@ -816,7 +816,7 @@ impl RenderPipeline {
         if render_world_scene && !shell_scene {
             // Refresh minimap terrain base on map/world updates, then refresh FOW overlay.
             if let Some(gl) = game_logic {
-                if let Err(e) = self.refresh_minimap_terrain_base(gl) {
+                if let Err(e) = self.refresh_minimap_terrain_base(Some(gl)) {
                     error!("Failed to refresh minimap terrain base: {}", e);
                 }
             }
@@ -2537,11 +2537,14 @@ impl RenderPipeline {
         &mut self,
         device: &Arc<wgpu::Device>,
         queue: &Arc<wgpu::Queue>,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) -> Result<bool> {
         #[cfg(feature = "game_client")]
         {
-            let Some(heightmap) = game_logic.terrain_heightmap_snapshot() else {
+            let Some(gl) = game_logic else {
+                return Ok(false);
+            };
+            let Some(heightmap) = gl.terrain_heightmap_snapshot() else {
                 return Ok(false);
             };
             let heightmap_resolution = (heightmap.width, heightmap.height);
@@ -2558,13 +2561,13 @@ impl RenderPipeline {
                         .as_ref()
                         .map(std::path::PathBuf::from)
                 })
-                .or_else(|| game_logic.heightmap_hint().map(|p| p.to_path_buf()));
+                .or_else(|| gl.heightmap_hint().map(|p| p.to_path_buf()));
             let source_hint_ref = source_hint_owned.as_deref();
             let world_bounds = self
                 .presentation_frame
                 .as_ref()
                 .map(|p| p.world_env.world_bounds_vec3())
-                .unwrap_or_else(|| game_logic.world_bounds());
+                .unwrap_or_else(|| gl.world_bounds());
             let world_size = (
                 (world_bounds.1.x - world_bounds.0.x).abs().max(1.0),
                 (world_bounds.1.z - world_bounds.0.z).abs().max(1.0),
@@ -2582,7 +2585,7 @@ impl RenderPipeline {
                         })?;
                     let source_tile_classes: Vec<
                         game_client::terrain::terrain_visual::TerrainSourceTileClass,
-                    > = game_logic
+                    > = gl
                         .terrain_texture_classes_snapshot()
                         .into_iter()
                         .map(
@@ -2640,7 +2643,7 @@ impl RenderPipeline {
 
     /// Sync map roads/bridges into the terrain-road render path.
     /// Prefers frozen `PresentationWorldEnv` road/bridge segments when present.
-    pub fn sync_runtime_map_roads(&mut self, game_logic: &GameLogic) -> Result<()> {
+    pub fn sync_runtime_map_roads(&mut self, game_logic: Option<&GameLogic>) -> Result<()> {
         #[cfg(feature = "game_client")]
         {
             let (road_segments, bridge_segments) = if let Some(env) = self
@@ -2675,28 +2678,27 @@ impl RenderPipeline {
                     .map(|b| (b.start, b.end, b.width, b.template_name.clone()))
                     .collect();
                 (roads, bridges)
-            } else {
-                let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
-                    game_logic
-                        .terrain_road_segments_snapshot()
-                        .into_iter()
-                        .map(|segment| {
-                            game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
-                                start: [segment.from.x, segment.from.z, segment.from.y],
-                                end: [segment.to.x, segment.to.z, segment.to.y],
-                                width: segment.width,
-                                template_name: segment.template_name,
-                                width_in_texture: segment.width_in_texture,
-                                road_type_id: segment.road_type_id,
-                                start_is_angled: segment.start_is_angled,
-                                start_is_join: segment.start_is_join,
-                                end_is_angled: segment.end_is_angled,
-                                end_is_join: segment.end_is_join,
-                                curve_radius: segment.curve_radius,
-                            }
-                        })
-                        .collect();
-                let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = game_logic
+            } else if let Some(gl) = game_logic {
+                let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> = gl
+                    .terrain_road_segments_snapshot()
+                    .into_iter()
+                    .map(
+                        |segment| game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
+                            start: [segment.from.x, segment.from.z, segment.from.y],
+                            end: [segment.to.x, segment.to.z, segment.to.y],
+                            width: segment.width,
+                            template_name: segment.template_name,
+                            width_in_texture: segment.width_in_texture,
+                            road_type_id: segment.road_type_id,
+                            start_is_angled: segment.start_is_angled,
+                            start_is_join: segment.start_is_join,
+                            end_is_angled: segment.end_is_angled,
+                            end_is_join: segment.end_is_join,
+                            curve_radius: segment.curve_radius,
+                        },
+                    )
+                    .collect();
+                let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = gl
                     .terrain_bridge_segments_snapshot()
                     .into_iter()
                     .map(|(start, end, width, template_name)| {
@@ -2704,6 +2706,8 @@ impl RenderPipeline {
                     })
                     .collect();
                 (roads, bridges)
+            } else {
+                return Ok(());
             };
             if road_segments.is_empty() && bridge_segments.is_empty() {
                 return Ok(());
@@ -2823,7 +2827,7 @@ impl RenderPipeline {
         }
     }
 
-    fn refresh_minimap_terrain_base(&mut self, game_logic: &GameLogic) -> Result<()> {
+    fn refresh_minimap_terrain_base(&mut self, game_logic: Option<&GameLogic>) -> Result<()> {
         let Some(renderer) = self.minimap_renderer.as_mut() else {
             return Ok(());
         };
@@ -2849,7 +2853,7 @@ impl RenderPipeline {
     }
 
     fn build_minimap_terrain_base_texture(
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
         dimensions: MinimapDimensions,
         bounds_override: Option<(Vec3, Vec3)>,
         height_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
@@ -2860,7 +2864,11 @@ impl RenderPipeline {
         let mut heights = vec![0.0f32; pixel_count];
         let mut has_sample = false;
 
-        let (world_min, world_max) = bounds_override.unwrap_or_else(|| game_logic.world_bounds());
+        let (world_min, world_max) = bounds_override.unwrap_or_else(|| {
+            game_logic
+                .map(|g| g.world_bounds())
+                .unwrap_or((Vec3::new(-500.0, 0.0, -500.0), Vec3::new(500.0, 0.0, 500.0)))
+        });
         let world_span_x = (world_max.x - world_min.x).max(1.0);
         let world_span_z = (world_max.z - world_min.z).max(1.0);
 
@@ -2883,7 +2891,7 @@ impl RenderPipeline {
                     height_env.and_then(|e| e.sample_height(world.x, world.z))
                 } else {
                     // Live fallback only when presentation height residual is absent.
-                    game_logic.terrain_height_at(world)
+                    game_logic.and_then(|g| g.terrain_height_at(world))
                 };
                 if let Some(h) = sample {
                     heights[idx(x, y)] = h;
@@ -4582,6 +4590,19 @@ mod tests {
             cnc.contains("last_presentation_frame.is_some()")
                 && cnc.contains("Some(&self.game_logic)"),
             "engine must pass None when presentation snapshot exists"
+        );
+    }
+    #[test]
+    fn minimap_roads_heightmap_take_optional_game_logic() {
+        let src = include_str!("render_pipeline.rs");
+        assert!(src.contains(
+            "fn refresh_minimap_terrain_base(&mut self, game_logic: Option<&GameLogic>)"
+        ));
+        assert!(src
+            .contains("pub fn sync_runtime_map_roads(&mut self, game_logic: Option<&GameLogic>)"));
+        assert!(
+            src.contains("game_logic: Option<&GameLogic>,")
+                && src.contains("load_heightmap_from_runtime_terrain")
         );
     }
 
