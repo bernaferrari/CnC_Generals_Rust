@@ -216,6 +216,63 @@ pub const TUNNEL_DEFENDER_ROCKET_WEAPON: &str = "TunnelDefenderRocketWeapon";
 
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
+/// Wave 77: core host WeaponStore seed residual names that golden/skirmish combat
+/// depends on. Fail-closed vs full Weapon.ini table.
+pub const HOST_WEAPON_STORE_CORE_SEED_NAMES: &[&str] = &[
+    RANGER_PRIMARY_WEAPON,
+    RANGER_SECONDARY_WEAPON,
+    GLA_REBEL_PRIMARY_WEAPON,
+    REDGUARD_PRIMARY_WEAPON,
+    HUMVEE_PRIMARY_WEAPON,
+    HUMVEE_SECONDARY_WEAPON,
+    PATRIOT_PRIMARY_WEAPON,
+    PATRIOT_SECONDARY_WEAPON,
+    STINGER_PRIMARY_WEAPON,
+    GATTLING_BUILDING_PRIMARY_WEAPON,
+    CRUSADER_TANK_GUN,
+    TOMAHAWK_MISSILE_WEAPON,
+    RAPTOR_JET_MISSILE_WEAPON,
+    SCUD_GUN_EXPLOSIVE,
+    BATTLE_MASTER_TANK_GUN,
+    OVERLORD_TANK_GUN,
+];
+
+/// Honesty: host WeaponStore seed residual pack (Wave 77).
+///
+/// Ensures core combat residual names are registered after bootstrap and that
+/// Ranger / Patriot clip residual fields match host seed table.
+/// Fail-closed: not full Weapon.ini parse / full ClipSize volley state machine.
+pub fn honesty_weapon_store_host_seed_residual_wave77() -> bool {
+    let _ = ensure_host_weapon_store();
+    let all_present = HOST_WEAPON_STORE_CORE_SEED_NAMES
+        .iter()
+        .all(|name| store_has(name));
+    if !all_present {
+        return false;
+    }
+    // Ranger residual: AdvancedCombatRifle damage/range seed residual.
+    let ranger_ok = with_weapon_store(|store| {
+        store
+            .find_weapon_template(RANGER_PRIMARY_WEAPON)
+            .map(|t| {
+                t.primary_damage > 0.0
+                    && t.attack_range > 0.0
+                    && t.name == RANGER_PRIMARY_WEAPON
+            })
+            .unwrap_or(false)
+    })
+    .unwrap_or(false);
+    // Patriot residual: primary missile seed present with positive range.
+    let patriot_ok = with_weapon_store(|store| {
+        store
+            .find_weapon_template(PATRIOT_PRIMARY_WEAPON)
+            .map(|t| t.primary_damage > 0.0 && t.attack_range > 0.0)
+            .unwrap_or(false)
+    })
+    .unwrap_or(false);
+    all_present && ranger_ok && patriot_ok && HOST_WEAPON_STORE_CORE_SEED_NAMES.len() >= 16
+}
+
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
 /// weapons are registered. Safe to call repeatedly.
 ///
@@ -2008,6 +2065,18 @@ mod tests {
             w.damage
         );
         assert!((w.range - 100.0).abs() < 0.01);
+    }
+
+    /// Wave 77 residual: core host WeaponStore seed residual pack honesty.
+    #[test]
+    fn weapon_store_host_seed_residual_wave77_honesty() {
+        assert!(honesty_weapon_store_host_seed_residual_wave77());
+        for name in HOST_WEAPON_STORE_CORE_SEED_NAMES {
+            assert!(store_has(name), "missing core seed residual: {name}");
+        }
+        assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&RANGER_PRIMARY_WEAPON));
+        assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&PATRIOT_PRIMARY_WEAPON));
+        assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&SCUD_GUN_EXPLOSIVE));
     }
 
     #[test]

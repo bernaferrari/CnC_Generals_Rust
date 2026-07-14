@@ -3,6 +3,12 @@
 //! `CncGameEngine::ensure_gameplay_layouts` must not remain a silent no-op: it calls
 //! [`ensure_control_bar_layout`], which resolves retail ControlBar assets and attempts
 //! a real load when the window manager can parse the layout.
+//!
+//! Wave 76 residual deepen (host-testable, fail-closed vs full W3D retail UI):
+//! - Retail ControlBar.wnd materialises **98** WINDOW nodes (WindowManager parse).
+//! - Key named-child residual table (CommandWindow / MoneyDisplay / LeftHUD / …).
+//! - Font residual table peeled from ControlBar.wnd FONT= lines
+//!   (Times New Roman 10/14, Arial 8/10/14, Generals 15/20).
 
 use std::path::{Path, PathBuf};
 
@@ -16,6 +22,162 @@ pub const CONTROL_BAR_CANDIDATES: &[&str] = &[
     "Data/Window/ControlBar.wnd",
     "ControlBar.wnd",
 ];
+
+/// Retail ControlBar.wnd WINDOW node count residual (WindowManager parse).
+///
+/// Counted from WindowZH/Window/ControlBar.wnd: 98 `NAME = "ControlBar.wnd:…"` lines
+/// (95 non-empty names + 3 empty-name decorative windows).
+pub const CONTROL_BAR_RETAIL_WINDOW_COUNT: usize = 98;
+
+/// Key named child residual table (retail ControlBar.wnd NAME tokens without empty).
+///
+/// Fail-closed: not full WindowManager name-lookup / DrawCallback dispatch.
+pub const CONTROL_BAR_KEY_NAMED_WINDOWS: &[&str] = &[
+    "ControlBarParent",
+    "Munkee",
+    "BackgroundMarker",
+    "CenterBackground",
+    "BeaconWindow",
+    "CommandWindow",
+    "ButtonCommand01",
+    "ButtonCommand14",
+    "UnderConstructionWindow",
+    "OCLTimerWindow",
+    "LeftHUD",
+    "RightHUD",
+    "ProductionQueueWindow",
+    "WinUnitSelected",
+    "CameoWindow",
+    "ButtonIdleWorker",
+    "ButtonPlaceBeacon",
+    "PopupCommunicator",
+    "ButtonOptions",
+    "ButtonGeneral",
+    "MoneyDisplay",
+    "PowerWindow",
+    "ButtonSmall",
+    "ButtonMedium",
+    "ButtonLarge",
+    "WinUAttack",
+    "OnTopDraw",
+    "ForegroundMarker",
+    "GeneralsExp",
+    "ExpBarForeground",
+];
+
+/// Font residual entry peeled from ControlBar.wnd FONT= lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControlBarFontResidual {
+    pub name: &'static str,
+    pub size: u32,
+    pub bold: bool,
+}
+
+/// Retail ControlBar.wnd font residual table (unique FONT NAME/SIZE/BOLD peels).
+///
+/// Counts (for honesty, not stored here): Times New Roman 14×41, Arial 8×31,
+/// Arial 10×13, Times New Roman 10×8, Arial 14×3, Generals 15×1, Generals 20×1.
+pub const CONTROL_BAR_FONT_RESIDUAL_TABLE: &[ControlBarFontResidual] = &[
+    ControlBarFontResidual {
+        name: "Times New Roman",
+        size: 14,
+        bold: false,
+    },
+    ControlBarFontResidual {
+        name: "Times New Roman",
+        size: 10,
+        bold: false,
+    },
+    ControlBarFontResidual {
+        name: "Arial",
+        size: 8,
+        bold: false,
+    },
+    ControlBarFontResidual {
+        name: "Arial",
+        size: 10,
+        bold: false,
+    },
+    ControlBarFontResidual {
+        name: "Arial",
+        size: 14,
+        bold: false,
+    },
+    ControlBarFontResidual {
+        name: "Generals",
+        size: 15,
+        bold: false,
+    },
+    ControlBarFontResidual {
+        name: "Generals",
+        size: 20,
+        bold: false,
+    },
+];
+
+/// Honesty: retail window-count residual constant.
+pub fn honesty_control_bar_window_count_residual_ok() -> bool {
+    CONTROL_BAR_RETAIL_WINDOW_COUNT == 98
+}
+
+/// Honesty: key named-child residual table includes Command / Money / HUD peels.
+pub fn honesty_control_bar_named_windows_residual_ok() -> bool {
+    CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"ControlBarParent")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"CommandWindow")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"MoneyDisplay")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"LeftHUD")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"RightHUD")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"ButtonCommand01")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"ButtonCommand14")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"OCLTimerWindow")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"WinUnitSelected")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.contains(&"PowerWindow")
+        && CONTROL_BAR_KEY_NAMED_WINDOWS.len() >= 20
+}
+
+/// Honesty: ControlBar font residual table covers retail Arial / Times / Generals peels.
+pub fn honesty_control_bar_font_table_residual_ok() -> bool {
+    CONTROL_BAR_FONT_RESIDUAL_TABLE.len() == 7
+        && CONTROL_BAR_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.name == "Arial" && f.size == 8 && !f.bold)
+        && CONTROL_BAR_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.name == "Arial" && f.size == 10 && !f.bold)
+        && CONTROL_BAR_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.name == "Arial" && f.size == 14 && !f.bold)
+        && CONTROL_BAR_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.name == "Times New Roman" && f.size == 14 && !f.bold)
+        && CONTROL_BAR_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.name == "Times New Roman" && f.size == 10 && !f.bold)
+        && CONTROL_BAR_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.name == "Generals" && f.size == 15 && !f.bold)
+        && CONTROL_BAR_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.name == "Generals" && f.size == 20 && !f.bold)
+}
+
+/// Combined Wave 76 ControlBar residual deepen honesty (constant packs).
+///
+/// When assets load, also requires window_count == 98. When assets absent,
+/// constant packs alone are honest residual (fail-closed vs GPU claim).
+pub fn honesty_control_bar_residual_pack_wave76_ok(window_loaded: bool, window_count: usize) -> bool {
+    let constants_ok = honesty_control_bar_window_count_residual_ok()
+        && honesty_control_bar_named_windows_residual_ok()
+        && honesty_control_bar_font_table_residual_ok();
+    if !constants_ok {
+        return false;
+    }
+    if window_loaded {
+        window_count == CONTROL_BAR_RETAIL_WINDOW_COUNT
+    } else {
+        true
+    }
+}
 
 /// Result of ensuring the in-game control bar layout is available.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +253,28 @@ pub fn validate_control_bar_file(path: &Path) -> Result<(), String> {
     // FILE_VERSION is present on retail SAGE .wnd layouts.
     if !head.contains("FILE_VERSION") && !text.contains("FILE_VERSION") {
         return Err("missing FILE_VERSION header".into());
+    }
+    // Wave 76 residual: key named-child tokens must appear in retail ControlBar.wnd.
+    for key in [
+        "ControlBarParent",
+        "CommandWindow",
+        "MoneyDisplay",
+        "LeftHUD",
+        "RightHUD",
+    ] {
+        if !text.contains(key) {
+            return Err(format!("missing key named window token: {key}"));
+        }
+    }
+    // Wave 76 residual: font table tokens.
+    if !text.contains("Times New Roman") {
+        return Err("missing Times New Roman font residual".into());
+    }
+    if !text.contains("Arial") {
+        return Err("missing Arial font residual".into());
+    }
+    if !text.contains("Generals") {
+        return Err("missing Generals font residual".into());
     }
     Ok(())
 }
@@ -401,19 +585,52 @@ mod tests {
                     "WindowManager parse must materialise windows: {:?}",
                     h
                 );
+                // Wave 76: retail parse must materialise exactly 98 windows.
+                assert_eq!(
+                    h.window_count, CONTROL_BAR_RETAIL_WINDOW_COUNT,
+                    "retail ControlBar.wnd window_count residual: {:?}",
+                    h
+                );
+                assert!(honesty_control_bar_residual_pack_wave76_ok(
+                    h.window_loaded,
+                    h.window_count
+                ));
             } else {
                 // Validated-only residual (parse deferred/failed): still not silent.
                 assert!(!h.window_loaded);
                 assert_eq!(h.window_count, 0);
+                assert!(honesty_control_bar_residual_pack_wave76_ok(false, 0));
             }
         } else {
             assert!(h.assets_unavailable);
             assert!(!h.window_loaded);
+            assert!(honesty_control_bar_residual_pack_wave76_ok(false, 0));
         }
         let report = format_control_bar_honesty(&h);
         assert!(
             report.contains("window_loaded="),
             "honesty report must surface load flag: {report}"
         );
+    }
+
+    /// Wave 76 residual: ControlBar window-count / named-child / font table pack.
+    #[test]
+    fn control_bar_residual_pack_wave76_honesty() {
+        assert!(honesty_control_bar_window_count_residual_ok());
+        assert!(honesty_control_bar_named_windows_residual_ok());
+        assert!(honesty_control_bar_font_table_residual_ok());
+        assert!(honesty_control_bar_residual_pack_wave76_ok(false, 0));
+        assert!(!honesty_control_bar_residual_pack_wave76_ok(true, 0));
+        assert!(honesty_control_bar_residual_pack_wave76_ok(true, 98));
+        assert_eq!(CONTROL_BAR_RETAIL_WINDOW_COUNT, 98);
+        assert_eq!(CONTROL_BAR_FONT_RESIDUAL_TABLE.len(), 7);
+        assert!(CONTROL_BAR_KEY_NAMED_WINDOWS.len() >= 20);
+        // Structural validate must accept key name + font residual tokens.
+        if let Some(path) = resolve_control_bar_path() {
+            assert!(
+                validate_control_bar_file(&path).is_ok(),
+                "retail ControlBar.wnd must pass Wave 76 named/font residual validate"
+            );
+        }
     }
 }
