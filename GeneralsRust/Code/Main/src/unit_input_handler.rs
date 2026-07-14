@@ -344,6 +344,18 @@ impl UnitInputHandler {
         &mut self.unit_control
     }
 
+    /// Install presentation snapshot into the unit control pick path.
+    pub fn set_presentation_frame(
+        &mut self,
+        frame: Option<crate::presentation_frame::PresentationFrame>,
+    ) {
+        self.unit_control.set_presentation_frame(frame);
+    }
+
+    pub fn presentation_frame(&self) -> Option<&crate::presentation_frame::PresentationFrame> {
+        self.unit_control.presentation_frame()
+    }
+
     /// Handle window events that affect input
     pub fn handle_window_event(&mut self, event: &winit::event::WindowEvent) {
         if let winit::event::WindowEvent::Resized(new_size) = event {

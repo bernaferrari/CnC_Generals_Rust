@@ -8640,6 +8640,17 @@ impl CnCGameEngine {
         let prioritize_enemy_targets = command_context && has_selected_units;
         let mut best: Option<(ObjectId, u8, f32)> = None; // (id, priority, distance)
 
+        // Prefer immutable presentation identity when the dual-tick snapshot is available.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return crate::unit_control::UnitControlSystem::pick_object_id_at_world_from_presentation(
+                frame,
+                position,
+                player_team,
+                prioritize_enemy_targets,
+                BASE_SELECTION_RADIUS,
+            );
+        }
+
         for (&id, obj) in game_logic.get_objects() {
             if !obj.is_alive() {
                 continue;
