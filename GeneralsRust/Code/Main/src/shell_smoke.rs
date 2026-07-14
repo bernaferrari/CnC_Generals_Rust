@@ -952,7 +952,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && seed_pres.dual_tick.applies >= 1
         && pres.dual_tick.applies >= 1;
     let gameworld_shadow_ok = {
-        let (_w, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&logic);
+        let (_w, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&mut logic);
         probe.full_match()
     };
     let damage_authority_env_ok = crate::gameworld_shadow::gameworld_damage_authority_enabled();
