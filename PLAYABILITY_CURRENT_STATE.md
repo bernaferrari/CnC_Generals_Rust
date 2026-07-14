@@ -1,3 +1,150 @@
+## Residual Host Playability — Wave 97: radar residual deepen / spotter / stealth deepen / detector deepen / vision residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal radar/spotter/stealth/detector/vision residual):**
+1. **Radar residual deepen** (`host_radar_stealth_vision_residual`, beyond Wave 63 provider / Wave 72 scan):
+   - `RADAR_CELL_WIDTH/HEIGHT` **128**; `MAX_RADAR_EVENTS` **64**.
+   - `RadarEventType` residual **11** names INVALID **0** .. FAKE **10** (`RADAR_EVENT_NUM_EVENTS` **11**).
+   - `RadarPriorityType` residual **5** names INVALID..LOCAL_UNIT_ONLY; visible STRUCTURE/UNIT/LOCAL_UNIT_ONLY.
+   - createEvent default secondsToLive **4.0**; fade **0.5**s before die; terrain refresh delay **90**f.
+   - Radar event color table residual (construction/attack/stealth green/…); player darkScale **0.75**.
+   - CommandCenter RadarExtendTime **4000**ms → **120**f; RadarUpgrade DisableProof default **No**.
+   - Honesty: `honesty_radar_residual_deepen_pack_wave97`.
+2. **Spotter residual peels** (StealthDetectorUpdate discovery feedback path):
+   - MESSAGE:StealthDiscovered / MESSAGE:StealthNeutralized residual keys.
+   - MiscAudio StealthDiscoveredSound / StealthNeutralizedSound residual keys.
+   - `tryEvent` residual: closeEnough **250** (sq **62500**), framesBetween **300** (10s).
+   - markAsDetected residual: numFrames**0** → now+stealthDelay; else max(expires, now+numFrames).
+   - Detector primary mark `updateRate+1`; garrison rider `updateRate+2`.
+   - Second material pass opacity **1.0** when spotted (non-mine).
+   - RADAR_EVENT_STEALTH_DISCOVERED **8** / STEALTH_NEUTRALIZED **9** cross-link.
+   - Honesty: `honesty_spotter_residual_pack_wave97`.
+3. **Stealth residual deepen** (StealthUpdate ctor + level bits + samples):
+   - StealthLevel bits ATTACKING..RIDERS_ATTACKING residual + TheStealthLevelNames **9**.
+   - Ctor residual: StealthDelay **UINT_MAX**, FriendlyOpacityMin **0.5**/Max **1.0**, PulseFrames **30**,
+     Innate **Yes**, pulsePhaseRate **0.2**, INVALID_OPACITY **−1**.
+   - GameData StealthFriendlyOpacity **50%**; StealthLook ordinals NONE..INVISIBLE residual.
+   - Sample rows: Pathfinder delay **0**/MOVING opacity **30–80%**; Burton **2000**/FIRING_PRIMARY;
+     Rebel **2500**/ATTACKING|USING_ABILITY; Lotus **2500**/USING_ABILITY; CamoNetting **2500**.
+   - Honesty: `honesty_stealth_residual_deepen_pack_wave97`.
+4. **Detector residual deepen** (StealthDetectorUpdate defaults + samples):
+   - Ctor residual: updateRate **1**, DetectionRange **0** (→ VisionRange), InitiallyDisabled **No**,
+     CanDetectWhileGarrisoned/Transported **No**.
+   - Common DetectionRate **500**ms → **15**f; slow **900**ms → **27**f.
+   - Samples: Pathfinder 500/vision**200**; Hijacker 500/range**200**; ListeningOutpost 900/vision**175**;
+     SentryDrone 900/range**225**; StrategyCenter 500/range**150**; RadarVanPing 500/vision**150**.
+   - Honesty: `honesty_detector_residual_deepen_pack_wave97`.
+5. **Vision residual peels** (VisionRange / AI vision factors / DSCRU):
+   - ThingTemplate defaults: VisionRange **0**, ShroudClearingRange **−1** (→ VisionRange),
+     ShroudRevealToAllRange **−1**.
+   - AI_VISIONFACTOR_OWNERTYPE **0x01** / MOOD **0x02** / GUARDINNER **0x04**.
+   - AIData residual: GuardInner/Outer AI **1.1/1.333**, Human **1.8/2.2**; Alert **1.1**; Aggressive **1.5**.
+   - getAdjustedVisionRange residual: contained→largest weapon range; AI sleep mood → **0**.
+   - DSCRU GRID_FX_DECAL_COUNT **30**; state names NOT_STARTED..SLEEPING residual.
+   - Honesty: `honesty_vision_residual_pack_wave97`.
+6. **Combined pack**: `honesty_radar_stealth_vision_residual_pack_wave97`.
+
+**Wiring:**
+- `game_logic/host_radar_stealth_vision_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — radar97/spotter97/stealth97/detector97/vision97 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave97 honesty flags; playable_claim stays false
+- Wave 96 residual (partition/collision/physics/projectile) co-present in shell gate wiring
+
+**Gates:**
+- Unit: 6 wave97 honesty tests PASS (+ wave96 residual tests)
+- golden_skirmish_gate --frames 8 → PASS playable_claim=true
+- shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+  radar97=true spotter97=true stealth97=true detector97=true vision97=true
+
+**Not claimed:**
+- Full W3DRadar GPU atlas / event marker draw residual
+- Full StealthUpdate exclusive allowedToStealth matrix / disguise path residual
+- Full StealthDetectorUpdate partition iterate / IR particle GPU residual
+- Full PartitionManager looker refresh / FOW multi-layer streaming residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
+## Residual Host Playability — Wave 96: partition / collision / physics / projectile residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; partition + collision + physics + projectile residual):**
+1. **Partition residual peels** (`host_partition_collision_physics_residual`, PartitionManager.h/.cpp):
+   - `HUGE_DIST` **1000000** / `HUGE_DIST_SQR` / `RANDOM_START_ANGLE` **−99999.9**.
+   - `DistanceCalculationType` residual **4** names FROM_CENTER_2D **0** .. FROM_BOUNDINGSPHERE_3D **3**.
+   - `ValueOrThreat` residual VOT_CashValue **1** / VOT_ThreatValue **2** / VOT_NumItems **3**.
+   - `FindPositionFlags` residual bits FPF_NONE **0** .. FPF_CLEAR_CELLS_ONLY **0x100** (**9** named bits).
+   - PartitionData `DirtyStatus` residual NOT_DIRTY **0** / NEED_COLLISION_CHECK **1** /
+     NEED_CELL_UPDATE_AND_COLLISION_CHECK **2**.
+   - `PartitionFilterRelationship::RelationshipAllowTypes` residual ALLOW_ENEMIES **1** /
+     ALLOW_NEUTRAL **2** / ALLOW_ALLIES **4** (bits from Relationship ordinals).
+   - Concrete PartitionFilter residual name table (**33**): IsFlying .. ValidCommandButtonTarget
+     (anchors SameMapStatus / Player / UnmannedObject).
+   - `PartitionContactList_SOCKET_COUNT` residual **5381**; PartitionCellSize residual **40**
+     (cross-link Wave 86 GameData).
+   - Honesty: `honesty_partition_residual_pack_wave96`.
+2. **Collision residual peels** (Geometry.cpp + PartitionManager `theCollideTestProcs`):
+   - GeometryType residual order SPHERE **0** / CYLINDER **1** / BOX **2** (GEOMETRY_FIRST = SPHERE;
+     collidesWith matrix **depends** on this order).
+   - `theCollideTestProcs` residual **9** entries (3×3 Sphere/Cylinder/Box row-major).
+   - Bounding residual: circle (Sphere/Cylinder→major; Box→√(major²+minor²));
+     sphere (Sphere→major; Cylinder→max(h/2,major); Box→√(major²+minor²+(h/2)²)).
+   - Height residual: maxAbove Sphere→major / Box·Cylinder→height; maxBelow Sphere→major /
+     Box·Cylinder→**0**; zDeltaToCenter Sphere→**0** / else height/2.
+   - Footprint area residual: Sphere/Cylinder→π r²; Box→**4**·major·minor.
+   - CollideModule residual note: `other == NULL` means ground collision.
+   - Honesty: `honesty_collision_residual_pack_wave96`.
+3. **Physics residual peels** (PhysicsUpdate.cpp / PhysicsUpdate.h):
+   - Defaults: Mass **1.0**, ShockYaw **0.05** / Pitch·Roll **0.025**, Forward·Lateral friction **0.15**,
+     ZFriction **0.8**, AeroFriction **0.0**.
+   - Friction clamps MIN_AERO **0** / MIN_NON_AERO **0.01** / MAX **0.99**; STUN_RELIEF_EPSILON **0.5**.
+   - `MOTIVE_FRAMES` residual **10** (`LOGICFRAMES_PER_SECOND/3`); INVALID_VEL_MAG **−1**.
+   - Ctor residual: allowBouncing **false**, allowCollideForce **true**, killWhenRestingOnGround **false**,
+     pitchRollYawFactor **2.0**, fallHeightDamageFactor **1.0**, MinFallHeight **40** → heightToSpeed.
+   - `heightToSpeed` residual `√(|2·g·h|)` with Gravity **−64** → √5120 ≈ **71.55**.
+   - `parseFrictionPerSec` residual fric/frame = fric/sec · (1/30) (0.15→**0.005**).
+   - `PhysicsTurningType` residual TURN_NEGATIVE **−1** / NONE **0** / POSITIVE **1**.
+   - `PhysicsFlagsType` residual **12** bits STICK_TO_GROUND **0x0001** .. IS_STUNNED **0x0800**.
+   - Crash weapon residual names VehicleCrashesIntoBuildingWeapon /
+     VehicleCrashesIntoNonBuildingWeapon.
+   - Honesty: `honesty_physics_residual_pack_wave96`.
+4. **Projectile residual deepen** (DumbProjectileBehavior.h/.cpp):
+   - `DEFAULT_MAX_LIFESPAN` residual **10**·LOGICFRAMES_PER_SECOND = **300** frames.
+   - ModuleData defaults: OrientToFlightPath **true**, TumbleRandomly **false**,
+     DetonateCallsKill **false**, First/Second Height·PercentIndent **0**, GarrisonHitKillCount **0**.
+   - Ballistic residual: SHALLOW_ANGLE **0.5°**, MIN_ANGLE_DIFF **1/16°**, CLOSE_ENOUGH_RANGE **5**.
+   - **13** INI field residual names (MaxLifespan .. FlightPathAdjustDistPerSecond).
+   - Lifespan residual: launchFrame + maxLifespan.
+   - Honesty: `honesty_projectile_residual_deepen_pack_wave96`.
+5. **Combined pack**: `honesty_partition_collision_physics_residual_pack_wave96`.
+
+**Wiring:**
+- `game_logic/host_partition_collision_physics_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — partition96/collision96/physics96/projectile96 fields
+- `shell_smoke_gate.rs` — require wave96 honesty flags; playable_claim stays **false**
+- Wave 97 residual (`host_radar_stealth_vision_residual`) co-present in shell gate wiring
+
+**Gates:**
+- Unit: 5+ wave96 honesty tests PASS
+- golden_skirmish_gate --frames 8 → PASS playable_claim=true
+- shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+  partition96=true collision96=true physics96=true projectile96=true
+
+**Not claimed / fail-closed:**
+- Full PartitionManager filter stack / live COI registration residual
+- Full CollideModule partition pair dispatch / live onCollide graph
+- Full PhysicsBehavior motive force / bounce exclusive residual
+- Full DumbProjectileBehavior live Bezier flight / ThingFactory Object residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 94: AI state / special ability / upgrade names / CommandSet superweapon residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; command/AI/ability/upgrade residual):**
