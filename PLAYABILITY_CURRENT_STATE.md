@@ -1,3 +1,54 @@
+## Residual Host Playability — Wave 84: KindOf/WeaponSlot/Veterancy/Relationship/Geometry/Shadow enum residual tables (2026-07-13)
+
+**Closed (host-testable residual peels; C++ type-name / bit-name table honesty):**
+1. **KindOf residual bit-name table** (`host_enum_table_residual`):
+   - Freezes C++ `KindOfMaskType::s_bitNameList` (KindOf.cpp) / KindOf.h enum order.
+   - `KINDOF_COUNT` residual **116** (ALLOW_SURRENDER off — no PRISON / CAN_SURRENDER bits).
+   - Anchors: STRUCTURE **7**, INFANTRY **8**, VEHICLE **9**, AIRCRAFT **10**,
+     COMMANDCENTER **14**, PROJECTILE **22**, NO_COLLIDE **27**, FS_FACTORY **58**,
+     HERO **85**, FS_SUPERWEAPON **90**, BOOBY_TRAP **97**, EMP_HARDENED **112**,
+     IGNORE_DOCKING_BONES **115** (last).
+   - Honesty: `honesty_kindof_enum_table_wave84`.
+2. **WeaponSlot residual table**:
+   - Freezes C++ `TheWeaponSlotTypeNames` (WeaponSet.h) / GameType.h.
+   - `WEAPONSLOT_COUNT` residual **3**: PRIMARY **0** / SECONDARY **1** / TERTIARY **2**.
+   - Honesty: `honesty_weapon_slot_enum_table_wave84`.
+3. **Veterancy residual level table**:
+   - Freezes C++ `TheVeterancyNames` (GameCommon.cpp) / GameCommon.h.
+   - `LEVEL_COUNT` residual **4**: REGULAR **0** / VETERAN **1** / ELITE **2** / HEROIC **3**.
+   - Fail-closed: ROOKIE is not a C++ name (REGULAR is level 0).
+   - Honesty: `honesty_veterancy_level_enum_table_wave84`.
+4. **Relationship residual table**:
+   - Freezes C++ `TheRelationshipNames` (GameCommon.cpp).
+   - ENEMIES **0** / NEUTRAL **1** / ALLIES **2** (order is not alphabetical).
+   - Fail-closed: NEUTRALS plural is not the C++ name.
+   - Honesty: `honesty_relationship_enum_table_wave84`.
+5. **Geometry residual type table**:
+   - Freezes C++ `GeometryNames` (Geometry.h).
+   - `GEOMETRY_NUM_TYPES` residual **3**: SPHERE **0** / CYLINDER **1** / BOX **2**.
+   - Honesty: `honesty_geometry_type_enum_table_wave84`.
+6. **Shadow residual type table**:
+   - Freezes C++ `TheShadowNames` (Shadow.h) bit-name list (**7** entries).
+   - SHADOW_NONE **0** not named; bit 0 = SHADOW_DECAL **0x01** … ADDITIVE_DECAL **0x40**.
+   - Honesty: `honesty_shadow_type_enum_table_wave84`.
+7. Tests / gates:
+   - Combined honesty: `honesty_enum_table_residual_pack_wave84`.
+   - shell_smoke: kindof84/wslot84/vet84/rel84/geom84/shadow84 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     kindof84=true wslot84=true vet84=true rel84=true geom84=true shadow84=true
+
+**Still residual (fail-closed, not claimed):**
+- Full KindOf mask runtime on every ThingTemplate / isKindOf combat filters
+- Full WeaponSet fire/slot selection / TERTIARY weapon combat residual matrix
+- Full veterancy XP thresholds / health bonus application residual
+- Full relationship matrix Player/Team wiring beyond name table
+- Full GeometryInfo collision / partition residual
+- Full Shadow volume/decal GPU draw residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 83: production/supply/dozer/capture/power/command residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal structure/economy residual):**
