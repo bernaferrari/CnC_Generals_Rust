@@ -4761,6 +4761,10 @@ impl GameLogic {
                         obj.status.under_construction = false;
                         obj.health.current = obj.health.maximum;
                         crate::game_logic::host_heal_log::record(id, obj.health.current);
+                        crate::game_logic::host_construction_log::record(
+                            id,
+                            obj.template_name.clone(),
+                        );
                         completed_structures.push(id);
                     } else {
                         obj.health.current =

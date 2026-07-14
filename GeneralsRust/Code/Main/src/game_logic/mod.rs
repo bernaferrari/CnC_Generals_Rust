@@ -8,6 +8,7 @@ pub mod host_damage_log;
 pub mod host_heal_log;
 pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
 pub mod host_attack_log;
+pub mod host_construction_log;
 pub mod host_destroy_log;
 pub mod host_economy_log;
 pub mod host_move_log;
