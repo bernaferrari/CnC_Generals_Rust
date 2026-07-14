@@ -68,10 +68,23 @@ fn main() {
         && r.dozer_build_wave83_ok
         && r.capture_building_wave83_ok
         && r.power_plant_wave83_ok
-        && r.command_center_wave83_ok;
+        && r.command_center_wave83_ok
+        // Wave 84 residual honesty (KindOf/WeaponSlot/Veterancy/Relationship/Geometry/Shadow tables; never flips playable_claim).
+        && r.kindof_wave84_ok
+        && r.weapon_slot_wave84_ok
+        && r.veterancy_wave84_ok
+        && r.relationship_wave84_ok
+        && r.geometry_wave84_ok
+        && r.shadow_wave84_ok
+        // Wave 85 residual honesty (faction/skirmish residual; never flips playable_claim).
+        && r.faction_side_wave85_ok
+        && r.player_template_wave85_ok
+        && r.starting_cash_wave85_ok
+        && r.skirmish_ai_personality_wave85_ok
+        && r.victory_condition_wave85_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} kindof84={} wslot84={} vet84={} rel84={} geom84={} shadow84={} faction85={} ptpl85={} cash85={} aiperson85={} victory85={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -126,6 +139,17 @@ fn main() {
             r.capture_building_wave83_ok,
             r.power_plant_wave83_ok,
             r.command_center_wave83_ok,
+            r.kindof_wave84_ok,
+            r.weapon_slot_wave84_ok,
+            r.veterancy_wave84_ok,
+            r.relationship_wave84_ok,
+            r.geometry_wave84_ok,
+            r.shadow_wave84_ok,
+            r.faction_side_wave85_ok,
+            r.player_template_wave85_ok,
+            r.starting_cash_wave85_ok,
+            r.skirmish_ai_personality_wave85_ok,
+            r.victory_condition_wave85_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );

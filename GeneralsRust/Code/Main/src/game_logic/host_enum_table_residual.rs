@@ -1,6 +1,8 @@
-//! Wave 82: residual enum / bit-name table honesty packs.
+//! Wave 82 + Wave 84: residual enum / bit-name table honesty packs.
 //!
 //! Freezes C++ ordered name tables used by INI parsers and save/load:
+//!
+//! Wave 82:
 //! - DamageTypeFlags::s_bitNameList (Damage.cpp) — DAMAGE_NUM_TYPES **38**
 //! - TheDeathNames (Damage.h DEFINE_DEATH_NAMES) — DEATH_NUM_TYPES **21**
 //! - ModelConditionFlags::s_bitNameList (BitFlags.cpp) — MODELCONDITION_COUNT **117**
@@ -8,10 +10,19 @@
 //! - TheWeaponBonusNames (Weapon.h, ALLOW_DEMORALIZE off) — COUNT **27**
 //! - ObjectStatusMaskType::s_bitNameList (ObjectStatusTypes.cpp) — COUNT **45**
 //!
+//! Wave 84:
+//! - KindOfMaskType::s_bitNameList (KindOf.cpp) — KINDOF_COUNT **116** (ALLOW_SURRENDER off)
+//! - TheWeaponSlotTypeNames (WeaponSet.h) — WEAPONSLOT_COUNT **3**
+//! - TheVeterancyNames (GameCommon.cpp) — LEVEL_COUNT **4**
+//! - TheRelationshipNames (GameCommon.cpp) — ENEMIES/NEUTRAL/ALLIES **3**
+//! - GeometryNames (Geometry.h) — GEOMETRY_NUM_TYPES **3**
+//! - TheShadowNames (Shadow.h) — bit-name list **7**
+//!
 //! Fail-closed:
 //! - Not full armor/weapon combat application of every discriminant
 //! - Not full W3D MODELCONDITION anim draw matrix
 //! - Not full ObjectStatus Xfer rebind / StatusBitsUpgrade matrix
+//! - Not full KindOf mask runtime / WeaponSet fire matrix / Geometry collision
 //! - Shell `playable_claim` stays false; network deferred
 
 // ---------------------------------------------------------------------------
@@ -598,4 +609,560 @@ mod tests {
     fn enum_table_residual_pack_wave82_honesty() {
         assert!(honesty_enum_table_residual_pack_wave82());
     }
+
+    #[test]
+    fn kindof_enum_table_wave84_honesty() {
+        assert!(honesty_kindof_enum_table_wave84());
+        assert_eq!(kindof_bit_name_index("FS_SUPERWEAPON"), Some(90));
+        assert_eq!(KINDOF_COUNT, 116);
+        assert!(!KINDOF_BIT_NAME_LIST.contains(&"PRISON"));
+    }
+
+    #[test]
+    fn weapon_slot_enum_table_wave84_honesty() {
+        assert!(honesty_weapon_slot_enum_table_wave84());
+        assert_eq!(weapon_slot_type_name_index("TERTIARY"), Some(2));
+    }
+
+    #[test]
+    fn veterancy_level_enum_table_wave84_honesty() {
+        assert!(honesty_veterancy_level_enum_table_wave84());
+        assert_eq!(veterancy_level_name_index("HEROIC"), Some(3));
+        assert!(veterancy_level_name_index("ROOKIE").is_none());
+    }
+
+    #[test]
+    fn relationship_enum_table_wave84_honesty() {
+        assert!(honesty_relationship_enum_table_wave84());
+        assert_eq!(relationship_name_index("ALLIES"), Some(2));
+        assert_eq!(relationship_name_index("ENEMIES"), Some(0));
+    }
+
+    #[test]
+    fn geometry_type_enum_table_wave84_honesty() {
+        assert!(honesty_geometry_type_enum_table_wave84());
+        assert_eq!(geometry_type_name_index("CYLINDER"), Some(1));
+        assert_eq!(geometry_type_name_index("BOX"), Some(2));
+    }
+
+    #[test]
+    fn shadow_type_enum_table_wave84_honesty() {
+        assert!(honesty_shadow_type_enum_table_wave84());
+        assert_eq!(shadow_type_bit_value("SHADOW_VOLUME"), Some(0x02));
+        assert!(shadow_type_name_index("SHADOW_NONE").is_none());
+    }
+
+    #[test]
+    fn enum_table_residual_pack_wave84_honesty() {
+        assert!(honesty_enum_table_residual_pack_wave84());
+    }
+}
+
+// ===========================================================================
+// Wave 84: KindOf / WeaponSlot / Veterancy / Relationship / Geometry / Shadow
+// ===========================================================================
+//
+// Freezes additional C++ ordered name tables used by INI parsers and save/load:
+// - KindOfMaskType::s_bitNameList (KindOf.cpp) — KINDOF_COUNT **116** (ALLOW_SURRENDER off)
+// - TheWeaponSlotTypeNames (WeaponSet.h) — WEAPONSLOT_COUNT **3**
+// - TheVeterancyNames (GameCommon.cpp) — LEVEL_COUNT **4**
+// - TheRelationshipNames (GameCommon.cpp) — ENEMIES/NEUTRAL/ALLIES **3**
+// - GeometryNames (Geometry.h) — GEOMETRY_NUM_TYPES **3**
+// - TheShadowNames (Shadow.h) — bit-name list **7** (SHADOW_NONE not named; bit 0 = DECAL)
+//
+// Fail-closed:
+// - Not full KindOf mask runtime on every ThingTemplate
+// - Not full WeaponSet fire/slot selection matrix
+// - Not full veterancy XP thresholds / health bonus application
+// - Not full relationship matrix Player/Team wiring
+// - Not full GeometryInfo collision / partition residual
+// - Not full Shadow volume/decal GPU draw residual
+// - Shell `playable_claim` stays false; network deferred
+
+// ---------------------------------------------------------------------------
+// KindOf residual bit-name table (KindOf.cpp; ALLOW_SURRENDER off)
+// ---------------------------------------------------------------------------
+
+/// C++ `KINDOF_COUNT` residual with ALLOW_SURRENDER off (KindOf.h).
+pub const KINDOF_COUNT: u32 = 116;
+
+/// Ordered C++ `KindOfMaskType::s_bitNameList` residual (excluding trailing NULL).
+///
+/// PRISON / COLLECTS_PRISON_BOUNTY / POW_TRUCK / CAN_SURRENDER are ifdef'd out
+/// under ALLOW_SURRENDER (off for retail ZH).
+pub const KINDOF_BIT_NAME_LIST: &[&str] = &[
+    "OBSTACLE",
+    "SELECTABLE",
+    "IMMOBILE",
+    "CAN_ATTACK",
+    "STICK_TO_TERRAIN_SLOPE",
+    "CAN_CAST_REFLECTIONS",
+    "SHRUBBERY",
+    "STRUCTURE",
+    "INFANTRY",
+    "VEHICLE",
+    "AIRCRAFT",
+    "HUGE_VEHICLE",
+    "DOZER",
+    "HARVESTER",
+    "COMMANDCENTER",
+    "LINEBUILD",
+    "SALVAGER",
+    "WEAPON_SALVAGER",
+    "TRANSPORT",
+    "BRIDGE",
+    "LANDMARK_BRIDGE",
+    "BRIDGE_TOWER",
+    "PROJECTILE",
+    "PRELOAD",
+    "NO_GARRISON",
+    "WAVEGUIDE",
+    "WAVE_EFFECT",
+    "NO_COLLIDE",
+    "REPAIR_PAD",
+    "HEAL_PAD",
+    "STEALTH_GARRISON",
+    "CASH_GENERATOR",
+    "DRAWABLE_ONLY",
+    "MP_COUNT_FOR_VICTORY",
+    "REBUILD_HOLE",
+    "SCORE",
+    "SCORE_CREATE",
+    "SCORE_DESTROY",
+    "NO_HEAL_ICON",
+    "CAN_RAPPEL",
+    "PARACHUTABLE",
+    "CAN_BE_REPULSED",
+    "MOB_NEXUS",
+    "IGNORED_IN_GUI",
+    "CRATE",
+    "CAPTURABLE",
+    "CLEARED_BY_BUILD",
+    "SMALL_MISSILE",
+    "ALWAYS_VISIBLE",
+    "UNATTACKABLE",
+    "MINE",
+    "CLEANUP_HAZARD",
+    "PORTABLE_STRUCTURE",
+    "ALWAYS_SELECTABLE",
+    "ATTACK_NEEDS_LINE_OF_SIGHT",
+    "WALK_ON_TOP_OF_WALL",
+    "DEFENSIVE_WALL",
+    "FS_POWER",
+    "FS_FACTORY",
+    "FS_BASE_DEFENSE",
+    "FS_TECHNOLOGY",
+    "AIRCRAFT_PATH_AROUND",
+    "LOW_OVERLAPPABLE",
+    "FORCEATTACKABLE",
+    "AUTO_RALLYPOINT",
+    "TECH_BUILDING",
+    "POWERED",
+    "PRODUCED_AT_HELIPAD",
+    "DRONE",
+    "CAN_SEE_THROUGH_STRUCTURE",
+    "BALLISTIC_MISSILE",
+    "CLICK_THROUGH",
+    "SUPPLY_SOURCE_ON_PREVIEW",
+    "PARACHUTE",
+    "GARRISONABLE_UNTIL_DESTROYED",
+    "BOAT",
+    "IMMUNE_TO_CAPTURE",
+    "HULK",
+    "SHOW_PORTRAIT_WHEN_CONTROLLED",
+    "SPAWNS_ARE_THE_WEAPONS",
+    "CANNOT_BUILD_NEAR_SUPPLIES",
+    "SUPPLY_SOURCE",
+    "REVEAL_TO_ALL",
+    "DISGUISER",
+    "INERT",
+    "HERO",
+    "IGNORES_SELECT_ALL",
+    "DONT_AUTO_CRUSH_INFANTRY",
+    "CLIFF_JUMPER",
+    "FS_SUPPLY_DROPZONE",
+    "FS_SUPERWEAPON",
+    "FS_BLACK_MARKET",
+    "FS_SUPPLY_CENTER",
+    "FS_STRATEGY_CENTER",
+    "MONEY_HACKER",
+    "ARMOR_SALVAGER",
+    "REVEALS_ENEMY_PATHS",
+    "BOOBY_TRAP",
+    "FS_FAKE",
+    "FS_INTERNET_CENTER",
+    "BLAST_CRATER",
+    "PROP",
+    "OPTIMIZED_TREE",
+    "FS_ADVANCED_TECH",
+    "FS_BARRACKS",
+    "FS_WARFACTORY",
+    "FS_AIRFIELD",
+    "AIRCRAFT_CARRIER",
+    "NO_SELECT",
+    "REJECT_UNMANNED",
+    "CANNOT_RETALIATE",
+    "TECH_BASE_DEFENSE",
+    "EMP_HARDENED",
+    "DEMOTRAP",
+    "CONSERVATIVE_BUILDING",
+    "IGNORE_DOCKING_BONES",
+];
+
+/// C++ KINDOF_STRUCTURE residual ordinal.
+pub const KINDOF_STRUCTURE: u32 = 7;
+/// C++ KINDOF_INFANTRY residual ordinal.
+pub const KINDOF_INFANTRY: u32 = 8;
+/// C++ KINDOF_VEHICLE residual ordinal.
+pub const KINDOF_VEHICLE: u32 = 9;
+/// C++ KINDOF_AIRCRAFT residual ordinal.
+pub const KINDOF_AIRCRAFT: u32 = 10;
+/// C++ KINDOF_COMMANDCENTER residual ordinal.
+pub const KINDOF_COMMANDCENTER: u32 = 14;
+/// C++ KINDOF_PROJECTILE residual ordinal.
+pub const KINDOF_PROJECTILE: u32 = 22;
+/// C++ KINDOF_NO_COLLIDE residual ordinal.
+pub const KINDOF_NO_COLLIDE: u32 = 27;
+/// C++ KINDOF_FS_FACTORY residual ordinal.
+pub const KINDOF_FS_FACTORY: u32 = 58;
+/// C++ KINDOF_HERO residual ordinal.
+pub const KINDOF_HERO: u32 = 85;
+/// C++ KINDOF_FS_SUPERWEAPON residual ordinal.
+pub const KINDOF_FS_SUPERWEAPON: u32 = 90;
+/// C++ KINDOF_BOOBY_TRAP residual ordinal.
+pub const KINDOF_BOOBY_TRAP: u32 = 97;
+/// C++ KINDOF_EMP_HARDENED residual ordinal.
+pub const KINDOF_EMP_HARDENED: u32 = 112;
+/// C++ KINDOF_IGNORE_DOCKING_BONES residual ordinal (last).
+pub const KINDOF_IGNORE_DOCKING_BONES: u32 = 115;
+
+/// Lookup KindOf bit-name index residual.
+pub fn kindof_bit_name_index(name: &str) -> Option<usize> {
+    KINDOF_BIT_NAME_LIST
+        .iter()
+        .position(|&n| n.eq_ignore_ascii_case(name))
+}
+
+/// Wave 84 honesty: full KindOf residual bit-name table pack.
+pub fn honesty_kindof_enum_table_wave84() -> bool {
+    KINDOF_COUNT == 116
+        && KINDOF_BIT_NAME_LIST.len() == 116
+        && KINDOF_BIT_NAME_LIST[0] == "OBSTACLE"
+        && KINDOF_BIT_NAME_LIST[1] == "SELECTABLE"
+        && KINDOF_BIT_NAME_LIST[7] == "STRUCTURE"
+        && KINDOF_BIT_NAME_LIST[8] == "INFANTRY"
+        && KINDOF_BIT_NAME_LIST[9] == "VEHICLE"
+        && KINDOF_BIT_NAME_LIST[10] == "AIRCRAFT"
+        && KINDOF_BIT_NAME_LIST[14] == "COMMANDCENTER"
+        && KINDOF_BIT_NAME_LIST[22] == "PROJECTILE"
+        && KINDOF_BIT_NAME_LIST[27] == "NO_COLLIDE"
+        && KINDOF_BIT_NAME_LIST[50] == "MINE"
+        && KINDOF_BIT_NAME_LIST[51] == "CLEANUP_HAZARD"
+        && KINDOF_BIT_NAME_LIST[57] == "FS_POWER"
+        && KINDOF_BIT_NAME_LIST[58] == "FS_FACTORY"
+        && KINDOF_BIT_NAME_LIST[85] == "HERO"
+        && KINDOF_BIT_NAME_LIST[90] == "FS_SUPERWEAPON"
+        && KINDOF_BIT_NAME_LIST[97] == "BOOBY_TRAP"
+        && KINDOF_BIT_NAME_LIST[112] == "EMP_HARDENED"
+        && KINDOF_BIT_NAME_LIST[115] == "IGNORE_DOCKING_BONES"
+        // ALLOW_SURRENDER residual absent (no PRISON between COMMANDCENTER and LINEBUILD).
+        && !KINDOF_BIT_NAME_LIST.contains(&"PRISON")
+        && !KINDOF_BIT_NAME_LIST.contains(&"CAN_SURRENDER")
+        && KINDOF_BIT_NAME_LIST[14] == "COMMANDCENTER"
+        && KINDOF_BIT_NAME_LIST[15] == "LINEBUILD"
+        // Anchor constants match ordinals.
+        && KINDOF_STRUCTURE == 7
+        && KINDOF_INFANTRY == 8
+        && KINDOF_VEHICLE == 9
+        && KINDOF_AIRCRAFT == 10
+        && KINDOF_COMMANDCENTER == 14
+        && KINDOF_PROJECTILE == 22
+        && KINDOF_NO_COLLIDE == 27
+        && KINDOF_FS_FACTORY == 58
+        && KINDOF_HERO == 85
+        && KINDOF_FS_SUPERWEAPON == 90
+        && KINDOF_BOOBY_TRAP == 97
+        && KINDOF_EMP_HARDENED == 112
+        && KINDOF_IGNORE_DOCKING_BONES == 115
+        && kindof_bit_name_index("STRUCTURE") == Some(7)
+        && kindof_bit_name_index("INFANTRY") == Some(8)
+        && kindof_bit_name_index("FS_SUPERWEAPON") == Some(90)
+        && kindof_bit_name_index("IGNORE_DOCKING_BONES") == Some(115)
+        // FS_* residual cluster sample.
+        && kindof_bit_name_index("FS_BARRACKS") == Some(104)
+        && kindof_bit_name_index("FS_WARFACTORY") == Some(105)
+        && kindof_bit_name_index("FS_AIRFIELD") == Some(106)
+        && {
+            let mut names: Vec<&str> = KINDOF_BIT_NAME_LIST.to_vec();
+            names.sort_unstable();
+            names.windows(2).all(|w| w[0] != w[1])
+        }
+}
+
+// ---------------------------------------------------------------------------
+// WeaponSlot residual table (WeaponSet.h TheWeaponSlotTypeNames)
+// ---------------------------------------------------------------------------
+
+/// C++ `WEAPONSLOT_COUNT` residual (GameType.h).
+pub const WEAPONSLOT_COUNT: u32 = 3;
+
+/// Ordered C++ `TheWeaponSlotTypeNames` residual (PRIMARY/SECONDARY/TERTIARY).
+pub const WEAPON_SLOT_TYPE_NAME_LIST: &[&str] = &["PRIMARY", "SECONDARY", "TERTIARY"];
+
+/// C++ PRIMARY_WEAPON residual ordinal.
+pub const PRIMARY_WEAPON: u32 = 0;
+/// C++ SECONDARY_WEAPON residual ordinal.
+pub const SECONDARY_WEAPON: u32 = 1;
+/// C++ TERTIARY_WEAPON residual ordinal.
+pub const TERTIARY_WEAPON: u32 = 2;
+
+/// Lookup WeaponSlotType name index residual.
+pub fn weapon_slot_type_name_index(name: &str) -> Option<usize> {
+    WEAPON_SLOT_TYPE_NAME_LIST
+        .iter()
+        .position(|&n| n.eq_ignore_ascii_case(name))
+}
+
+/// Wave 84 honesty: WeaponSlot residual type table pack.
+pub fn honesty_weapon_slot_enum_table_wave84() -> bool {
+    WEAPONSLOT_COUNT == 3
+        && WEAPON_SLOT_TYPE_NAME_LIST.len() == 3
+        && WEAPON_SLOT_TYPE_NAME_LIST[0] == "PRIMARY"
+        && WEAPON_SLOT_TYPE_NAME_LIST[1] == "SECONDARY"
+        && WEAPON_SLOT_TYPE_NAME_LIST[2] == "TERTIARY"
+        && PRIMARY_WEAPON == 0
+        && SECONDARY_WEAPON == 1
+        && TERTIARY_WEAPON == 2
+        && weapon_slot_type_name_index("PRIMARY") == Some(0)
+        && weapon_slot_type_name_index("SECONDARY") == Some(1)
+        && weapon_slot_type_name_index("TERTIARY") == Some(2)
+        && weapon_slot_type_name_index("primary") == Some(0)
+        // Fail-closed: no fourth slot residual.
+        && weapon_slot_type_name_index("QUATERNARY").is_none()
+}
+
+// ---------------------------------------------------------------------------
+// Veterancy residual level table (GameCommon.cpp TheVeterancyNames)
+// ---------------------------------------------------------------------------
+
+/// C++ `LEVEL_COUNT` residual (GameCommon.h).
+pub const VETERANCY_LEVEL_COUNT: u32 = 4;
+
+/// Ordered C++ `TheVeterancyNames` residual (REGULAR/VETERAN/ELITE/HEROIC).
+pub const VETERANCY_LEVEL_NAME_LIST: &[&str] = &["REGULAR", "VETERAN", "ELITE", "HEROIC"];
+
+/// C++ LEVEL_REGULAR residual ordinal.
+pub const LEVEL_REGULAR: u32 = 0;
+/// C++ LEVEL_VETERAN residual ordinal.
+pub const LEVEL_VETERAN: u32 = 1;
+/// C++ LEVEL_ELITE residual ordinal.
+pub const LEVEL_ELITE: u32 = 2;
+/// C++ LEVEL_HEROIC residual ordinal.
+pub const LEVEL_HEROIC: u32 = 3;
+
+/// Lookup VeterancyLevel name index residual.
+pub fn veterancy_level_name_index(name: &str) -> Option<usize> {
+    VETERANCY_LEVEL_NAME_LIST
+        .iter()
+        .position(|&n| n.eq_ignore_ascii_case(name))
+}
+
+/// Wave 84 honesty: Veterancy residual level table pack.
+pub fn honesty_veterancy_level_enum_table_wave84() -> bool {
+    VETERANCY_LEVEL_COUNT == 4
+        && VETERANCY_LEVEL_NAME_LIST.len() == 4
+        && VETERANCY_LEVEL_NAME_LIST[0] == "REGULAR"
+        && VETERANCY_LEVEL_NAME_LIST[1] == "VETERAN"
+        && VETERANCY_LEVEL_NAME_LIST[2] == "ELITE"
+        && VETERANCY_LEVEL_NAME_LIST[3] == "HEROIC"
+        && LEVEL_REGULAR == 0
+        && LEVEL_VETERAN == 1
+        && LEVEL_ELITE == 2
+        && LEVEL_HEROIC == 3
+        && veterancy_level_name_index("REGULAR") == Some(0)
+        && veterancy_level_name_index("VETERAN") == Some(1)
+        && veterancy_level_name_index("ELITE") == Some(2)
+        && veterancy_level_name_index("HEROIC") == Some(3)
+        // Fail-closed: ROOKIE is not a C++ name (REGULAR is level 0).
+        && veterancy_level_name_index("ROOKIE").is_none()
+}
+
+// ---------------------------------------------------------------------------
+// Relationship residual table (GameCommon.cpp TheRelationshipNames)
+// ---------------------------------------------------------------------------
+
+/// C++ Relationship residual count (ENEMIES/NEUTRAL/ALLIES).
+pub const RELATIONSHIP_COUNT: u32 = 3;
+
+/// Ordered C++ `TheRelationshipNames` residual.
+///
+/// Note order is ENEMIES=0, NEUTRAL=1, ALLIES=2 (not alphabetical).
+pub const RELATIONSHIP_NAME_LIST: &[&str] = &["ENEMIES", "NEUTRAL", "ALLIES"];
+
+/// C++ ENEMIES residual ordinal.
+pub const RELATIONSHIP_ENEMIES: u32 = 0;
+/// C++ NEUTRAL residual ordinal.
+pub const RELATIONSHIP_NEUTRAL: u32 = 1;
+/// C++ ALLIES residual ordinal.
+pub const RELATIONSHIP_ALLIES: u32 = 2;
+
+/// Lookup Relationship name index residual.
+pub fn relationship_name_index(name: &str) -> Option<usize> {
+    RELATIONSHIP_NAME_LIST
+        .iter()
+        .position(|&n| n.eq_ignore_ascii_case(name))
+}
+
+/// Wave 84 honesty: Relationship residual table pack.
+pub fn honesty_relationship_enum_table_wave84() -> bool {
+    RELATIONSHIP_COUNT == 3
+        && RELATIONSHIP_NAME_LIST.len() == 3
+        && RELATIONSHIP_NAME_LIST[0] == "ENEMIES"
+        && RELATIONSHIP_NAME_LIST[1] == "NEUTRAL"
+        && RELATIONSHIP_NAME_LIST[2] == "ALLIES"
+        && RELATIONSHIP_ENEMIES == 0
+        && RELATIONSHIP_NEUTRAL == 1
+        && RELATIONSHIP_ALLIES == 2
+        && relationship_name_index("ENEMIES") == Some(0)
+        && relationship_name_index("NEUTRAL") == Some(1)
+        && relationship_name_index("ALLIES") == Some(2)
+        // Fail-closed: NEUTRALS plural is not the C++ name (NEUTRAL singular).
+        && relationship_name_index("NEUTRALS").is_none()
+        && relationship_name_index("FRIENDLY").is_none()
+}
+
+// ---------------------------------------------------------------------------
+// Geometry residual type table (Geometry.h GeometryNames)
+// ---------------------------------------------------------------------------
+
+/// C++ `GEOMETRY_NUM_TYPES` residual.
+pub const GEOMETRY_NUM_TYPES: u32 = 3;
+
+/// Ordered C++ `GeometryNames` residual (SPHERE/CYLINDER/BOX).
+pub const GEOMETRY_TYPE_NAME_LIST: &[&str] = &["SPHERE", "CYLINDER", "BOX"];
+
+/// C++ GEOMETRY_SPHERE residual ordinal.
+pub const GEOMETRY_SPHERE: u32 = 0;
+/// C++ GEOMETRY_CYLINDER residual ordinal.
+pub const GEOMETRY_CYLINDER: u32 = 1;
+/// C++ GEOMETRY_BOX residual ordinal.
+pub const GEOMETRY_BOX: u32 = 2;
+
+/// Lookup GeometryType name index residual.
+pub fn geometry_type_name_index(name: &str) -> Option<usize> {
+    GEOMETRY_TYPE_NAME_LIST
+        .iter()
+        .position(|&n| n.eq_ignore_ascii_case(name))
+}
+
+/// Wave 84 honesty: Geometry residual type table pack.
+pub fn honesty_geometry_type_enum_table_wave84() -> bool {
+    GEOMETRY_NUM_TYPES == 3
+        && GEOMETRY_TYPE_NAME_LIST.len() == 3
+        && GEOMETRY_TYPE_NAME_LIST[0] == "SPHERE"
+        && GEOMETRY_TYPE_NAME_LIST[1] == "CYLINDER"
+        && GEOMETRY_TYPE_NAME_LIST[2] == "BOX"
+        && GEOMETRY_SPHERE == 0
+        && GEOMETRY_CYLINDER == 1
+        && GEOMETRY_BOX == 2
+        && geometry_type_name_index("SPHERE") == Some(0)
+        && geometry_type_name_index("CYLINDER") == Some(1)
+        && geometry_type_name_index("BOX") == Some(2)
+        // Fail-closed: no capsule/mesh residual geometry type.
+        && geometry_type_name_index("CAPSULE").is_none()
+}
+
+// ---------------------------------------------------------------------------
+// Shadow residual type table (Shadow.h TheShadowNames)
+// ---------------------------------------------------------------------------
+
+/// C++ TheShadowNames residual count (bit-name list; SHADOW_NONE is not listed).
+pub const SHADOW_TYPE_NAME_COUNT: u32 = 7;
+
+/// Ordered C++ `TheShadowNames` residual (bit 0 = SHADOW_DECAL value 0x01).
+///
+/// parseBitString maps name index i → bit (1 << i). SHADOW_NONE (0) is absent.
+pub const SHADOW_TYPE_NAME_LIST: &[&str] = &[
+    "SHADOW_DECAL",
+    "SHADOW_VOLUME",
+    "SHADOW_PROJECTION",
+    "SHADOW_DYNAMIC_PROJECTION",
+    "SHADOW_DIRECTIONAL_PROJECTION",
+    "SHADOW_ALPHA_DECAL",
+    "SHADOW_ADDITIVE_DECAL",
+];
+
+/// C++ SHADOW_NONE residual value (not in name list).
+pub const SHADOW_NONE: u32 = 0x0000_0000;
+/// C++ SHADOW_DECAL residual bit value.
+pub const SHADOW_DECAL: u32 = 0x0000_0001;
+/// C++ SHADOW_VOLUME residual bit value.
+pub const SHADOW_VOLUME: u32 = 0x0000_0002;
+/// C++ SHADOW_PROJECTION residual bit value.
+pub const SHADOW_PROJECTION: u32 = 0x0000_0004;
+/// C++ SHADOW_DYNAMIC_PROJECTION residual bit value.
+pub const SHADOW_DYNAMIC_PROJECTION: u32 = 0x0000_0008;
+/// C++ SHADOW_DIRECTIONAL_PROJECTION residual bit value.
+pub const SHADOW_DIRECTIONAL_PROJECTION: u32 = 0x0000_0010;
+/// C++ SHADOW_ALPHA_DECAL residual bit value.
+pub const SHADOW_ALPHA_DECAL: u32 = 0x0000_0020;
+/// C++ SHADOW_ADDITIVE_DECAL residual bit value.
+pub const SHADOW_ADDITIVE_DECAL: u32 = 0x0000_0040;
+
+/// Lookup ShadowType bit-name index residual (bit = 1 << index).
+pub fn shadow_type_name_index(name: &str) -> Option<usize> {
+    SHADOW_TYPE_NAME_LIST
+        .iter()
+        .position(|&n| n.eq_ignore_ascii_case(name))
+}
+
+/// Residual: convert TheShadowNames index to C++ ShadowType bit value.
+pub fn shadow_type_bit_value(name: &str) -> Option<u32> {
+    shadow_type_name_index(name).map(|i| 1u32 << i)
+}
+
+/// Wave 84 honesty: Shadow residual type table pack.
+pub fn honesty_shadow_type_enum_table_wave84() -> bool {
+    SHADOW_TYPE_NAME_COUNT == 7
+        && SHADOW_TYPE_NAME_LIST.len() == 7
+        && SHADOW_TYPE_NAME_LIST[0] == "SHADOW_DECAL"
+        && SHADOW_TYPE_NAME_LIST[1] == "SHADOW_VOLUME"
+        && SHADOW_TYPE_NAME_LIST[2] == "SHADOW_PROJECTION"
+        && SHADOW_TYPE_NAME_LIST[3] == "SHADOW_DYNAMIC_PROJECTION"
+        && SHADOW_TYPE_NAME_LIST[4] == "SHADOW_DIRECTIONAL_PROJECTION"
+        && SHADOW_TYPE_NAME_LIST[5] == "SHADOW_ALPHA_DECAL"
+        && SHADOW_TYPE_NAME_LIST[6] == "SHADOW_ADDITIVE_DECAL"
+        // Bit values match C++ ShadowType enum.
+        && SHADOW_NONE == 0
+        && SHADOW_DECAL == 0x01
+        && SHADOW_VOLUME == 0x02
+        && SHADOW_PROJECTION == 0x04
+        && SHADOW_DYNAMIC_PROJECTION == 0x08
+        && SHADOW_DIRECTIONAL_PROJECTION == 0x10
+        && SHADOW_ALPHA_DECAL == 0x20
+        && SHADOW_ADDITIVE_DECAL == 0x40
+        && shadow_type_bit_value("SHADOW_DECAL") == Some(0x01)
+        && shadow_type_bit_value("SHADOW_VOLUME") == Some(0x02)
+        && shadow_type_bit_value("SHADOW_ADDITIVE_DECAL") == Some(0x40)
+        // SHADOW_NONE is not a named bit residual.
+        && shadow_type_name_index("SHADOW_NONE").is_none()
+        && {
+            let mut names: Vec<&str> = SHADOW_TYPE_NAME_LIST.to_vec();
+            names.sort_unstable();
+            names.windows(2).all(|w| w[0] != w[1])
+        }
+}
+
+// ---------------------------------------------------------------------------
+// Combined Wave 84 residual pack
+// ---------------------------------------------------------------------------
+
+/// Wave 84 honesty: all six residual type-name table peels.
+pub fn honesty_enum_table_residual_pack_wave84() -> bool {
+    honesty_kindof_enum_table_wave84()
+        && honesty_weapon_slot_enum_table_wave84()
+        && honesty_veterancy_level_enum_table_wave84()
+        && honesty_relationship_enum_table_wave84()
+        && honesty_geometry_type_enum_table_wave84()
+        && honesty_shadow_type_enum_table_wave84()
 }
