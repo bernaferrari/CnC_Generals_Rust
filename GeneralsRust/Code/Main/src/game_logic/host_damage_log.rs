@@ -21,6 +21,7 @@ pub struct HostDamageEvent {
 
 thread_local! {
     static LOG: RefCell<Vec<HostDamageEvent>> = RefCell::new(Vec::new());
+    static LAST_DRAIN: RefCell<Vec<HostDamageEvent>> = RefCell::new(Vec::new());
 }
 
 /// Record a damage event (called from Object::take_damage_from).
@@ -40,7 +41,11 @@ pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed
 
 /// Drain all events since last drain (order preserved).
 pub fn drain() -> Vec<HostDamageEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    LOG.with(|log| {
+        let v = std::mem::take(&mut *log.borrow_mut());
+        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
+        v
+    })
 }
 
 /// Peek count without draining (tests).
@@ -51,6 +56,12 @@ pub fn len() -> usize {
 /// Clear without returning (test isolation).
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
+    LAST_DRAIN.with(|last| last.borrow_mut().clear());
+}
+
+/// Events from the most recent `drain()` (PresentationFrame after shadow session).
+pub fn last_drain_snapshot() -> Vec<HostDamageEvent> {
+    LAST_DRAIN.with(|last| last.borrow().clone())
 }
 
 #[cfg(test)]
@@ -68,5 +79,6 @@ mod tests {
         assert_eq!(v[0].target, ObjectId(1));
         assert_eq!(v[1].destroyed, true);
         assert!(drain().is_empty());
+        assert_eq!(last_drain_snapshot().len(), 2);
     }
 }
