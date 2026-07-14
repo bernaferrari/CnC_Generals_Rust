@@ -426,6 +426,93 @@ pub fn plan_demo_plus_fire_hits(
     hits
 }
 
+
+// --- Wave 69 residual honesty peels (retail death weapons / upgrade) ---
+
+/// Logic frames per second residual.
+pub const DEMO_SUICIDE_LOGIC_FPS: f32 = 30.0;
+
+/// Convert residual msec → logic frames @ 30 FPS.
+pub fn demo_suicide_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * DEMO_SUICIDE_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Retail Demo_DestroyedWeapon DamageType residual.
+pub const DEMO_DESTROYED_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail Demo_DestroyedWeapon DeathType residual.
+pub const DEMO_DESTROYED_DEATH_TYPE: &str = "NORMAL";
+/// Retail PlusFire DamageType residual.
+pub const DEMO_PLUS_FIRE_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail PlusFire DeathType residual.
+pub const DEMO_PLUS_FIRE_DEATH_TYPE: &str = "SUICIDED";
+/// Retail PlusFire AttackRange residual.
+pub const DEMO_PLUS_FIRE_ATTACK_RANGE: f32 = 5.0;
+/// Retail FireFX residual name.
+pub const DEMO_PLUS_FIRE_FX: &str = "WeaponFX_DemoSuicideDynamitePackDetonationPlusFire";
+/// Retail Demo_Upgrade_SuicideBomb BuildCost residual.
+pub const DEMO_SUICIDE_BOMB_UPGRADE_COST: u32 = 2_000;
+/// Retail BuildTime residual (seconds).
+pub const DEMO_SUICIDE_BOMB_UPGRADE_TIME_SEC: f32 = 30.0;
+/// Retail BuildTime → frames.
+pub const DEMO_SUICIDE_BOMB_UPGRADE_TIME_FRAMES: u32 = 900;
+/// Retail ClipSize residual (one-shot).
+pub const DEMO_SUICIDE_CLIP_SIZE: u32 = 1;
+
+/// Wave 69 residual honesty: Demo_DestroyedWeapon residual peel.
+pub fn honesty_demo_suicide_destroyed_weapon_residual_ok() -> bool {
+    DEMO_DESTROYED_WEAPON == "Demo_DestroyedWeapon"
+        && (DEMO_DESTROYED_PRIMARY_DAMAGE - 50.0).abs() < 0.01
+        && (DEMO_DESTROYED_PRIMARY_RADIUS - 60.0).abs() < 0.01
+        && (DEMO_DESTROYED_SECONDARY_DAMAGE - 10.0).abs() < 0.01
+        && (DEMO_DESTROYED_SECONDARY_RADIUS - 70.0).abs() < 0.01
+        && DEMO_DESTROYED_DAMAGE_TYPE == "EXPLOSION"
+        && DEMO_DESTROYED_DEATH_TYPE == "NORMAL"
+        && DEMO_SUICIDE_CLIP_SIZE == 1
+        && DEMO_SUICIDE_BOMB_AUDIO == "CarBomberDie"
+        && (demo_destroyed_damage_at(0.0) - 50.0).abs() < 0.01
+        && (demo_destroyed_damage_at(65.0) - 10.0).abs() < 0.01
+        && demo_destroyed_damage_at(71.0).abs() < 0.01
+}
+
+/// Wave 69 residual honesty: PlusFire SUICIDED weapon residual peel.
+pub fn honesty_demo_suicide_plus_fire_weapon_residual_ok() -> bool {
+    DEMO_SUICIDE_DYNAMITE_PLUS_FIRE == "Demo_SuicideDynamitePackPlusFire"
+        && (DEMO_PLUS_FIRE_PRIMARY_DAMAGE - 500.0).abs() < 0.01
+        && (DEMO_PLUS_FIRE_PRIMARY_RADIUS - 18.0).abs() < 0.01
+        && (DEMO_PLUS_FIRE_SECONDARY_DAMAGE - 300.0).abs() < 0.01
+        && (DEMO_PLUS_FIRE_SECONDARY_RADIUS - 50.0).abs() < 0.01
+        && (DEMO_PLUS_FIRE_ATTACK_RANGE - 5.0).abs() < 0.01
+        && DEMO_PLUS_FIRE_DAMAGE_TYPE == "EXPLOSION"
+        && DEMO_PLUS_FIRE_DEATH_TYPE == "SUICIDED"
+        && DEMO_PLUS_FIRE_FX == "WeaponFX_DemoSuicideDynamitePackDetonationPlusFire"
+        && (demo_plus_fire_damage_at(0.0) - 500.0).abs() < 0.01
+        && (demo_plus_fire_damage_at(25.0) - 300.0).abs() < 0.01
+}
+
+/// Wave 69 residual honesty: SuicideBomb upgrade residual peel.
+pub fn honesty_demo_suicide_upgrade_residual_ok() -> bool {
+    UPGRADE_DEMO_SUICIDE_BOMB == "Demo_Upgrade_SuicideBomb"
+        && is_demo_suicide_bomb_upgrade(UPGRADE_DEMO_SUICIDE_BOMB)
+        && DEMO_SUICIDE_BOMB_UPGRADE_COST == 2_000
+        && (DEMO_SUICIDE_BOMB_UPGRADE_TIME_SEC - 30.0).abs() < 0.01
+        && DEMO_SUICIDE_BOMB_UPGRADE_TIME_FRAMES
+            == ((DEMO_SUICIDE_BOMB_UPGRADE_TIME_SEC * DEMO_SUICIDE_LOGIC_FPS).round() as u32)
+        && DEMO_SUICIDE_BOMB_UPGRADE_TIME_FRAMES == 900
+        && DEMO_COMMAND_TERTIARY_SUICIDE == "Demo_Command_TertiarySuicide"
+        && is_demo_suicide_bomb_eligible_template("Demo_GLAInfantryRebel")
+        && !is_demo_suicide_bomb_eligible_template("GLAInfantryRebel")
+}
+
+/// Combined Wave 69 Demo Suicide Bomb residual honesty pack.
+pub fn honesty_demo_suicide_bomb_residual_pack_ok() -> bool {
+    honesty_demo_suicide_destroyed_weapon_residual_ok()
+        && honesty_demo_suicide_plus_fire_weapon_residual_ok()
+        && honesty_demo_suicide_upgrade_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,5 +659,17 @@ mod tests {
         );
         assert_eq!(plus2.len(), 1);
         assert!((plus2[0].damage - 300.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn demo_suicide_bomb_residual_pack_honesty_wave69() {
+        assert_eq!(demo_suicide_ms_to_frames(30_000), 900);
+        assert!(honesty_demo_suicide_destroyed_weapon_residual_ok());
+        assert!(honesty_demo_suicide_plus_fire_weapon_residual_ok());
+        assert!(honesty_demo_suicide_upgrade_residual_ok());
+        assert!(honesty_demo_suicide_bomb_residual_pack_ok());
+        assert_eq!(DEMO_SUICIDE_BOMB_UPGRADE_COST, 2_000);
+        assert_eq!(DEMO_PLUS_FIRE_DEATH_TYPE, "SUICIDED");
+        assert_eq!(DEMO_DESTROYED_DEATH_TYPE, "NORMAL");
     }
 }

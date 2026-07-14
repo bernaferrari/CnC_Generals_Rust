@@ -349,6 +349,115 @@ pub fn is_legal_combat_cycle_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
+
+// --- Wave 69 residual honesty peels (retail rider weapons / body) ---
+
+/// Logic frames per second residual.
+pub const COMBAT_CYCLE_LOGIC_FPS: f32 = 30.0;
+
+/// Convert residual msec → logic frames @ 30 FPS.
+pub fn combat_cycle_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * COMBAT_CYCLE_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Retail rebel biker MG DelayBetweenShots residual (msec).
+pub const REBEL_MG_DELAY_MS: u32 = 100;
+/// Retail rebel ClipReloadTime residual (msec).
+pub const REBEL_MG_CLIP_RELOAD_MS: u32 = 700;
+/// Retail rebel DamageType residual.
+pub const REBEL_MG_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail RPG DelayBetweenShots residual (msec).
+pub const RPG_DELAY_MS: u32 = 1_000;
+/// Retail RPG DamageType residual.
+pub const RPG_DAMAGE_TYPE: &str = "INFANTRY_MISSILE";
+/// Retail Kell DelayBetweenShots residual (msec).
+pub const KELL_DELAY_MS: u32 = 750;
+/// Retail Kell DamageType residual.
+pub const KELL_DAMAGE_TYPE: &str = "SNIPER";
+/// Retail SuicideBikeBomb DamageType residual.
+pub const SUICIDE_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail SuicideBikeBomb DeathType residual.
+pub const SUICIDE_DEATH_TYPE: &str = "SUICIDED";
+
+/// Retail Combat Bike body residual (GLAVehicleCombatBike).
+pub const COMBAT_CYCLE_MAX_HEALTH: f32 = 100.0;
+pub const COMBAT_CYCLE_BUILD_COST: u32 = 500;
+pub const COMBAT_CYCLE_BUILD_TIME_SEC: f32 = 4.0;
+pub const COMBAT_CYCLE_BUILD_TIME_FRAMES: u32 = 120;
+pub const COMBAT_CYCLE_VISION_RANGE: f32 = 180.0;
+pub const COMBAT_CYCLE_SHROUD_CLEARING_RANGE: f32 = 300.0;
+pub const COMBAT_CYCLE_LOCOMOTOR_SPEED: f32 = 120.0;
+pub const COMBAT_CYCLE_LOCOMOTOR_SPEED_DAMAGED: f32 = 90.0;
+/// Retail InitialPayload residual name.
+pub const COMBAT_CYCLE_INITIAL_PAYLOAD: &str = "GLAInfantryRebel";
+
+/// Wave 69 residual honesty: rider weapon residual peel.
+pub fn honesty_combat_cycle_weapon_residual_ok() -> bool {
+    REBEL_BIKER_MG == "GLARebelBikerMachineGun"
+        && TUNNEL_DEFENDER_BIKER_ROCKET == "TunnelDefenderBikerRocketWeapon"
+        && BIKER_KELL_SNIPER == "GLABikerKellSniperRifle"
+        && SUICIDE_BIKE_BOMB == "SuicideBikeBomb"
+        && (REBEL_MG_DAMAGE - 8.0).abs() < 0.01
+        && (REBEL_MG_RANGE - 150.0).abs() < 0.01
+        && REBEL_MG_DELAY_MS == 100
+        && REBEL_MG_DELAY_FRAMES == combat_cycle_ms_to_frames(REBEL_MG_DELAY_MS)
+        && REBEL_MG_DELAY_FRAMES == 3
+        && REBEL_MG_CLIP == 6
+        && REBEL_MG_CLIP_RELOAD_MS == 700
+        && REBEL_MG_DAMAGE_TYPE == "SMALL_ARMS"
+        && (RPG_DAMAGE - 40.0).abs() < 0.01
+        && (RPG_RANGE - 175.0).abs() < 0.01
+        && (RPG_MIN_RANGE - 5.0).abs() < 0.01
+        && (RPG_SPLASH - 5.0).abs() < 0.01
+        && RPG_DELAY_MS == 1_000
+        && RPG_DELAY_FRAMES == combat_cycle_ms_to_frames(RPG_DELAY_MS)
+        && RPG_DELAY_FRAMES == 30
+        && RPG_DAMAGE_TYPE == "INFANTRY_MISSILE"
+        && (KELL_DAMAGE - 180.0).abs() < 0.01
+        && (KELL_RANGE - 225.0).abs() < 0.01
+        && KELL_DELAY_MS == 750
+        && KELL_DELAY_FRAMES == combat_cycle_ms_to_frames(KELL_DELAY_MS)
+        && KELL_DELAY_FRAMES == 23
+        && KELL_DAMAGE_TYPE == "SNIPER"
+        && (SUICIDE_PRIMARY_DAMAGE - 700.0).abs() < 0.01
+        && (SUICIDE_PRIMARY_RADIUS - 20.0).abs() < 0.01
+        && (SUICIDE_SECONDARY_DAMAGE - 100.0).abs() < 0.01
+        && (SUICIDE_SECONDARY_RADIUS - 50.0).abs() < 0.01
+        && (SUICIDE_ATTACK_RANGE - 5.0).abs() < 0.01
+        && SUICIDE_DAMAGE_TYPE == "EXPLOSION"
+        && SUICIDE_DEATH_TYPE == "SUICIDED"
+        && combat_cycle_weapon_for_rider(CombatCycleRider::Rebel).is_some()
+        && combat_cycle_weapon_for_rider(CombatCycleRider::Worker).is_none()
+        && (suicide_bike_damage_at(10.0) - 700.0).abs() < 0.01
+}
+
+/// Wave 69 residual honesty: combat cycle body residual peel.
+pub fn honesty_combat_cycle_body_residual_ok() -> bool {
+    (COMBAT_CYCLE_MAX_HEALTH - 100.0).abs() < 0.01
+        && COMBAT_CYCLE_BUILD_COST == 500
+        && (COMBAT_CYCLE_BUILD_TIME_SEC - 4.0).abs() < 0.01
+        && COMBAT_CYCLE_BUILD_TIME_FRAMES
+            == ((COMBAT_CYCLE_BUILD_TIME_SEC * COMBAT_CYCLE_LOGIC_FPS).round() as u32)
+        && COMBAT_CYCLE_BUILD_TIME_FRAMES == 120
+        && (COMBAT_CYCLE_VISION_RANGE - 180.0).abs() < 0.01
+        && (COMBAT_CYCLE_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && COMBAT_CYCLE_TRANSPORT_SLOTS == 1
+        && (COMBAT_CYCLE_LOCOMOTOR_SPEED - 120.0).abs() < 0.01
+        && (COMBAT_CYCLE_LOCOMOTOR_SPEED_DAMAGED - 90.0).abs() < 0.01
+        && COMBAT_CYCLE_INITIAL_PAYLOAD == "GLAInfantryRebel"
+        && default_spawn_rider() == CombatCycleRider::Rebel
+        && is_combat_cycle_template("GLAVehicleCombatBike")
+        && !is_combat_cycle_template("GLARebelBikerMachineGun")
+}
+
+/// Combined Wave 69 Combat Cycle residual honesty pack.
+pub fn honesty_combat_cycle_residual_pack_ok() -> bool {
+    honesty_combat_cycle_weapon_residual_ok() && honesty_combat_cycle_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,5 +552,18 @@ mod tests {
     #[test]
     fn transport_slots() {
         assert_eq!(COMBAT_CYCLE_TRANSPORT_SLOTS, 1);
+    }
+
+    #[test]
+    fn combat_cycle_residual_pack_honesty_wave69() {
+        assert_eq!(combat_cycle_ms_to_frames(100), 3);
+        assert_eq!(combat_cycle_ms_to_frames(750), 23);
+        assert_eq!(combat_cycle_ms_to_frames(1000), 30);
+        assert!(honesty_combat_cycle_weapon_residual_ok());
+        assert!(honesty_combat_cycle_body_residual_ok());
+        assert!(honesty_combat_cycle_residual_pack_ok());
+        assert_eq!(COMBAT_CYCLE_BUILD_TIME_FRAMES, 120);
+        assert_eq!(REBEL_MG_DAMAGE_TYPE, "SMALL_ARMS");
+        assert_eq!(SUICIDE_DEATH_TYPE, "SUICIDED");
     }
 }

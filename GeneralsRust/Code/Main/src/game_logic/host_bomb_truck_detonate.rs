@@ -417,6 +417,131 @@ impl HostBombTruckDetonateRegistry {
     }
 }
 
+
+// --- Wave 69 residual honesty peels (retail death weapons / poison / upgrades) ---
+
+/// Retail default death weapon name residual.
+pub const BOMB_TRUCK_DEFAULT_DAMAGE_WEAPON: &str = "BombTruckDefaultBombDamage";
+/// Retail HE death weapon name residual.
+pub const BOMB_TRUCK_HE_DAMAGE_WEAPON: &str = "BombTruckHighExplosionBombDamage";
+/// Retail DamageType residual.
+pub const BOMB_TRUCK_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail DeathType residual.
+pub const BOMB_TRUCK_DEATH_TYPE: &str = "EXPLODED";
+/// Retail poison field lifetime residual (msec).
+pub const BOMB_TRUCK_POISON_DURATION_MS: u32 = 30_000;
+/// Retail poison DelayBetweenShots residual (msec).
+pub const BOMB_TRUCK_POISON_TICK_MS: u32 = 500;
+/// Retail HE object-upgrade BuildCost residual.
+pub const BOMB_TRUCK_HE_UPGRADE_COST: u32 = 500;
+/// Retail HE object-upgrade BuildTime residual (seconds).
+pub const BOMB_TRUCK_HE_UPGRADE_TIME_SEC: f32 = 5.0;
+/// HE upgrade → frames.
+pub const BOMB_TRUCK_HE_UPGRADE_TIME_FRAMES: u32 = 150;
+/// Retail Bio object-upgrade BuildCost residual.
+pub const BOMB_TRUCK_BIO_UPGRADE_COST: u32 = 500;
+/// Retail Bio object-upgrade BuildTime residual (seconds).
+pub const BOMB_TRUCK_BIO_UPGRADE_TIME_SEC: f32 = 5.0;
+/// Bio upgrade → frames.
+pub const BOMB_TRUCK_BIO_UPGRADE_TIME_FRAMES: u32 = 150;
+/// Retail body residual (shared with disguise host).
+pub const BOMB_TRUCK_MAX_HEALTH: f32 = 220.0;
+pub const BOMB_TRUCK_BUILD_COST: u32 = 1_200;
+pub const BOMB_TRUCK_BUILD_TIME_SEC: f32 = 15.0;
+pub const BOMB_TRUCK_BUILD_TIME_FRAMES: u32 = 450;
+pub const BOMB_TRUCK_VISION_RANGE: f32 = 150.0;
+pub const BOMB_TRUCK_SHROUD_CLEARING_RANGE: f32 = 200.0;
+pub const BOMB_TRUCK_TRANSPORT_SLOT_COUNT: u32 = 3;
+
+/// Convert residual msec → logic frames @ 30 FPS.
+pub fn bomb_truck_detonate_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * BOMB_TRUCK_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Wave 69 residual honesty: default/HE death weapon residual peel.
+pub fn honesty_bomb_truck_detonate_weapon_residual_ok() -> bool {
+    BOMB_TRUCK_DEFAULT_DAMAGE_WEAPON == "BombTruckDefaultBombDamage"
+        && BOMB_TRUCK_HE_DAMAGE_WEAPON == "BombTruckHighExplosionBombDamage"
+        && (BOMB_TRUCK_DEFAULT_PRIMARY_DAMAGE - 1000.0).abs() < 0.01
+        && (BOMB_TRUCK_DEFAULT_PRIMARY_RADIUS - 40.0).abs() < 0.01
+        && (BOMB_TRUCK_DEFAULT_SECONDARY_DAMAGE - 100.0).abs() < 0.01
+        && (BOMB_TRUCK_DEFAULT_SECONDARY_RADIUS - 65.0).abs() < 0.01
+        && (BOMB_TRUCK_HE_PRIMARY_DAMAGE - 2000.0).abs() < 0.01
+        && (BOMB_TRUCK_HE_PRIMARY_RADIUS - 50.0).abs() < 0.01
+        && (BOMB_TRUCK_HE_SECONDARY_DAMAGE - 200.0).abs() < 0.01
+        && (BOMB_TRUCK_HE_SECONDARY_RADIUS - 85.0).abs() < 0.01
+        && BOMB_TRUCK_DAMAGE_TYPE == "EXPLOSION"
+        && BOMB_TRUCK_DEATH_TYPE == "EXPLODED"
+        && (bomb_truck_blast_damage_at(BombTruckDetonationProfile::Default, 0.0) - 1000.0).abs()
+            < 0.01
+        && (bomb_truck_blast_damage_at(BombTruckDetonationProfile::HighExplosive, 0.0) - 2000.0)
+            .abs()
+            < 0.01
+        && bomb_truck_blast_damage_at(BombTruckDetonationProfile::Default, 70.0) <= 0.0
+}
+
+/// Wave 69 residual honesty: Bio poison field residual peel.
+pub fn honesty_bomb_truck_detonate_poison_residual_ok() -> bool {
+    (BOMB_TRUCK_POISON_DAMAGE - 2.0).abs() < 0.01
+        && (BOMB_TRUCK_POISON_DAMAGE_UPGRADED - 2.5).abs() < 0.01
+        && (BOMB_TRUCK_POISON_RADIUS - 80.0).abs() < 0.01
+        && BOMB_TRUCK_POISON_TICK_MS == 500
+        && BOMB_TRUCK_POISON_TICK_FRAMES
+            == bomb_truck_detonate_ms_to_frames(BOMB_TRUCK_POISON_TICK_MS)
+        && BOMB_TRUCK_POISON_TICK_FRAMES == 15
+        && BOMB_TRUCK_POISON_DURATION_MS == 30_000
+        && BOMB_TRUCK_POISON_DURATION_FRAMES
+            == bomb_truck_detonate_ms_to_frames(BOMB_TRUCK_POISON_DURATION_MS)
+        && BOMB_TRUCK_POISON_DURATION_FRAMES == 900
+        && BOMB_TRUCK_POISON_AUDIO == "ToxicPoolAmbientLoop"
+        && BombTruckDetonationProfile::Bio.spawns_poison()
+        && BombTruckDetonationProfile::Anthrax.poison_upgraded()
+}
+
+/// Wave 69 residual honesty: HE/Bio upgrade residual peel.
+pub fn honesty_bomb_truck_detonate_upgrade_residual_ok() -> bool {
+    UPGRADE_BOMB_TRUCK_HE == "Upgrade_GLABombTruckHighExplosiveBomb"
+        && UPGRADE_BOMB_TRUCK_BIO == "Upgrade_GLABombTruckBioBomb"
+        && UPGRADE_GLA_ANTHRAX_BETA == "Upgrade_GLAAnthraxBeta"
+        && BOMB_TRUCK_HE_UPGRADE_COST == 500
+        && (BOMB_TRUCK_HE_UPGRADE_TIME_SEC - 5.0).abs() < 0.01
+        && BOMB_TRUCK_HE_UPGRADE_TIME_FRAMES
+            == ((BOMB_TRUCK_HE_UPGRADE_TIME_SEC * BOMB_TRUCK_LOGIC_FPS).round() as u32)
+        && BOMB_TRUCK_HE_UPGRADE_TIME_FRAMES == 150
+        && BOMB_TRUCK_BIO_UPGRADE_COST == 500
+        && (BOMB_TRUCK_BIO_UPGRADE_TIME_SEC - 5.0).abs() < 0.01
+        && BOMB_TRUCK_BIO_UPGRADE_TIME_FRAMES == 150
+        && BOMB_TRUCK_DEFAULT_DETONATE_AUDIO == "BombTruckDefaultBombDetonation"
+        && BOMB_TRUCK_HE_DETONATE_AUDIO == "BombTruckHighExplosiveBomb"
+        && BOMB_TRUCK_BIO_DETONATE_AUDIO == "BombTruckBioBomb"
+}
+
+/// Wave 69 residual honesty: bomb truck body residual peel.
+pub fn honesty_bomb_truck_detonate_body_residual_ok() -> bool {
+    (BOMB_TRUCK_MAX_HEALTH - 220.0).abs() < 0.01
+        && BOMB_TRUCK_BUILD_COST == 1_200
+        && (BOMB_TRUCK_BUILD_TIME_SEC - 15.0).abs() < 0.01
+        && BOMB_TRUCK_BUILD_TIME_FRAMES
+            == ((BOMB_TRUCK_BUILD_TIME_SEC * BOMB_TRUCK_LOGIC_FPS).round() as u32)
+        && BOMB_TRUCK_BUILD_TIME_FRAMES == 450
+        && (BOMB_TRUCK_VISION_RANGE - 150.0).abs() < 0.01
+        && (BOMB_TRUCK_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
+        && BOMB_TRUCK_TRANSPORT_SLOT_COUNT == 3
+        && is_bomb_truck_template("GLAVehicleBombTruck")
+        && !is_bomb_truck_template("BombTruckDefaultBombDamage")
+}
+
+/// Combined Wave 69 Bomb Truck detonate residual honesty pack.
+pub fn honesty_bomb_truck_detonate_residual_pack_ok() -> bool {
+    honesty_bomb_truck_detonate_weapon_residual_ok()
+        && honesty_bomb_truck_detonate_poison_residual_ok()
+        && honesty_bomb_truck_detonate_upgrade_residual_ok()
+        && honesty_bomb_truck_detonate_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,5 +616,18 @@ mod tests {
         reg.record_tick_complete(id, 2.0, 1, 0, 0);
         assert!(reg.honesty_bio_damage_ok());
         assert!(reg.honesty_host_path_ok());
+    }
+
+    #[test]
+    fn bomb_truck_detonate_residual_pack_honesty_wave69() {
+        assert_eq!(bomb_truck_detonate_ms_to_frames(500), 15);
+        assert_eq!(bomb_truck_detonate_ms_to_frames(30_000), 900);
+        assert!(honesty_bomb_truck_detonate_weapon_residual_ok());
+        assert!(honesty_bomb_truck_detonate_poison_residual_ok());
+        assert!(honesty_bomb_truck_detonate_upgrade_residual_ok());
+        assert!(honesty_bomb_truck_detonate_body_residual_ok());
+        assert!(honesty_bomb_truck_detonate_residual_pack_ok());
+        assert_eq!(BOMB_TRUCK_BUILD_TIME_FRAMES, 450);
+        assert_eq!(BOMB_TRUCK_DAMAGE_TYPE, "EXPLOSION");
     }
 }
