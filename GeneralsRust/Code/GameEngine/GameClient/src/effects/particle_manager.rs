@@ -646,10 +646,7 @@ impl ParticleSystemManager {
     ///
     /// Looks up existing templates first, then falls back to
     /// [`crate::effects::particle_presets::get_preset_by_name`].
-    pub fn ensure_preset_template(
-        &mut self,
-        name: &str,
-    ) -> Option<Arc<ParticleSystemTemplate>> {
+    pub fn ensure_preset_template(&mut self, name: &str) -> Option<Arc<ParticleSystemTemplate>> {
         if let Some(existing) = self.find_template(name) {
             return Some(existing);
         }
