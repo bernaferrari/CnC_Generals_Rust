@@ -42,6 +42,8 @@ pub struct ExecutableSmokeResult {
     pub reached_ingame: bool,
     /// Runtime-host select+move command accepted (not WND click; still not full playable_claim).
     pub gameplay_cmd_ok: bool,
+    /// Runtime-host opened Skirmish UI screen before start_game.
+    pub skirmish_menu_ok: bool,
     pub frames_observed: u32,
     pub map_seen: String,
     pub exit_code: Option<i32>,
@@ -59,6 +61,7 @@ impl Default for ExecutableSmokeResult {
             reached_menu: false,
             reached_ingame: false,
             gameplay_cmd_ok: false,
+            skirmish_menu_ok: false,
             frames_observed: 0,
             map_seen: "-".into(),
             exit_code: None,
@@ -360,8 +363,12 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                             && started.elapsed() > Duration::from_secs(8))
                         || started.elapsed() > Duration::from_secs(25)
                     {
+                        // skirmish_menu_ok only if host already reports Skirmish UI
+                        // (open_skirmish_menu WND push is unsafe in headless smoke).
+                        if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
+                            result.skirmish_menu_ok = true;
+                        }
                         if use_new_game_path {
-                            // Production-ish path: queue MSG_NEW_GAME and drain in-engine.
                             let q = format!(
                                 "queue_new_game|mode=skirmish|map={}",
                                 map.replace('|', "/")
@@ -378,6 +385,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                         phase = 1;
                     }
                 }
+
                 1 => {
                     if result.reached_ingame {
                         phase = 2;
@@ -529,7 +537,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} skirmish_menu={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -537,6 +545,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.reached_menu,
         r.reached_ingame,
         r.gameplay_cmd_ok,
+        r.skirmish_menu_ok,
         r.frames_observed,
         r.map_seen,
         r.exit_code,
