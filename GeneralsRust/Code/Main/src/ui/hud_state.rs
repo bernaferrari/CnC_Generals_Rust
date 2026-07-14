@@ -154,6 +154,24 @@ pub struct GameUIState {
     pub pending_music_stop: bool,
     /// Pending popup message texts residual from PresentationFrame.
     pub pending_popup_messages: Vec<String>,
+    /// Script time-freeze residual from PresentationFrame.
+    pub script_time_frozen: bool,
+    /// Script camera time-freeze residual from PresentationFrame.
+    pub script_camera_time_frozen: bool,
+    /// Combined sim freeze residual (script + camera).
+    pub time_frozen_for_simulation: bool,
+    /// Pending script FPS limit residual.
+    pub script_fps_limit: Option<i32>,
+    /// Pending view guardband residual (x,y bias).
+    pub view_guardband: Option<(f32, f32)>,
+    /// Pending camera focus residual.
+    pub camera_focus: Option<[f32; 3]>,
+    /// Pending BW mode residual (enabled, frames).
+    pub camera_bw_mode: Option<(bool, i32)>,
+    /// Pending camera shaker residual (amplitude, duration, radius).
+    pub camera_shakers: Vec<(f32, f32, f32)>,
+    /// Pending camera motion-blur request count residual.
+    pub camera_motion_blur_count: usize,
     pub radar_enabled: bool,
     pub radar_forced: bool,
     pub objectives: Vec<ObjectiveDisplay>,
@@ -204,6 +222,15 @@ impl Default for GameUIState {
             pending_radar_movie: None,
             pending_music_stop: false,
             pending_popup_messages: Vec::new(),
+            script_time_frozen: false,
+            script_camera_time_frozen: false,
+            time_frozen_for_simulation: false,
+            script_fps_limit: None,
+            view_guardband: None,
+            camera_focus: None,
+            camera_bw_mode: None,
+            camera_shakers: Vec::new(),
+            camera_motion_blur_count: 0,
             radar_enabled: true,
             radar_forced: false,
             objectives: Vec::new(),
