@@ -1,3 +1,65 @@
+## Residual Host Playability — Wave 85: faction side / player template / starting cash / AI personality / victory residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal skirmish-lobby / multiplayer setup residual):**
+1. **Faction side residual table** (`host_faction_skirmish_residual`):
+   - Freezes retail `PlayerTemplate.ini` side table (**15** templates, declaration order).
+   - Playable residual **13** (excludes Civilian/Observer); OldFaction playable **3**
+     (America/China/GLA); ZH general + Boss residual **10**.
+   - BaseSide residual: America→**USA**, China→**China**, GLA→**GLA**;
+     ZH generals retain base side (AirF/Lazr/SupW→USA, Tank/Infa/Nuke→China,
+     Chem/Demo/Slth→GLA, Boss→China).
+   - PreferredColor residual: America **R0 G0 B255**, China **R255 G0 B0**,
+     GLA **R0 G255 B0**.
+   - MAX_PLAYER_COUNT residual **16** (GameCommon.h).
+   - Honesty: `honesty_faction_side_residual_table_wave85`.
+2. **Player template residual peels**:
+   - StartingBuilding / StartingUnit0 residual for base + all ZH generals
+     (AmericaCommandCenter + AmericaVehicleDozer; GLA uses GLAInfantryWorker;
+     prefixed SupW_/Lazr_/AirF_/Tank_/Infa_/Nuke_/Chem_/Demo_/Slth_/Boss_).
+   - IntrinsicSciences residual SCIENCE_AMERICA / SCIENCE_CHINA / SCIENCE_GLA.
+   - SpecialPowerShortcutButtonCount residual **10** default; SuperWeapon/AirForce **11**;
+     Boss **9**.
+   - Honesty: `honesty_player_template_residual_pack_wave85`.
+3. **Starting cash residual (+ difficulty health residual)**:
+   - GameData DefaultStartingCash **10000** (matches `GameLogic::DEFAULT_STARTING_MONEY`).
+   - multiplayer.ini MultiplayerStartingMoneyChoice residual ordered list:
+     **5000 / 10000 (Default) / 20000 / 50000**.
+   - PlayerTemplate StartMoney residual **0** (lobby cash wins).
+   - HumanSoloPlayerHealthBonus residual by difficulty: Easy **150%** / Normal **100%** /
+     Hard **80%** (Brutal host maps to Hard residual).
+   - Honesty: `honesty_starting_cash_residual_pack_wave85`.
+4. **Skirmish AI personality residual peels** (AIData SideInfo):
+   - ResourceGatherers residual: America/China (and USA/China generals) **2**;
+     GLA (and GLA generals) **5** — Easy/Normal/Hard equal per side in retail.
+   - BaseDefenseStructure1 residual: AmericaPatriotBattery / ChinaGattlingCannon /
+     GLAStingerSite (+ general-prefixed defenses).
+   - SkillSet1 first-science residual anchors: SCIENCE_PaladinTank / SCIENCE_NukeLauncher /
+     SCIENCE_ScudLauncher.
+   - Host AIPersonality residual: USA→Aggressive, China→Defensive, GLA→Rush,
+     Neutral→Balanced (`ai.rs for_team`).
+   - Honesty: `honesty_skirmish_ai_personality_residual_pack_wave85`.
+5. **Victory condition residual peels**:
+   - VictoryType bits residual: NOBUILDINGS **1**, NOUNITS **2**; default both set (**3**).
+   - `hasSinglePlayerBeenDefeated` residual matrix: both→hasAnyObjects; NOUNITS→hasAnyUnits;
+     NOBUILDINGS→hasAnyBuildings (MP_COUNT_FOR_VICTORY mask residual not fully claimed).
+   - Honesty: `honesty_victory_condition_residual_pack_wave85`.
+6. Tests / gates:
+   - Combined honesty: `honesty_faction_skirmish_residual_pack_wave85`.
+   - shell_smoke: faction85/ptpl85/cash85/aiperson85/victory85 honesty flags wired
+     (playable_claim stays false)
+   - Unit: 6 wave85 honesty tests PASS
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     faction85=true ptpl85=true cash85=true aiperson85=true victory85=true
+
+**Still residual (fail-closed, not claimed):**
+- Full PlayerTemplateStore INI parse / ControlBarScheme side binding matrix
+- Full MultiplayerSettings live lobby combo / SkirmishPreferences starting-cash wiring
+- Full AIPlayer SideInfo skill-set purchase / SkirmishBuildList dozer path residual
+- Full VictoryConditions multiplayer killPlayer / alliance reveal / observer residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 84: KindOf/WeaponSlot/Veterancy/Relationship/Geometry/Shadow enum residual tables (2026-07-13)
 
 **Closed (host-testable residual peels; C++ type-name / bit-name table honesty):**
