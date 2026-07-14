@@ -1307,6 +1307,39 @@ impl PresentationWorldEnv {
     }
 }
 
+/// Snapshot-owned in-flight projectile for presentation/client observe path.
+/// Fail-closed: not full W3D projectile mesh / trail GPU parity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationProjectile {
+    pub id: ObjectId,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub target_position: Vec3,
+    pub shooter_id: ObjectId,
+    pub target_id: Option<ObjectId>,
+    pub damage: f32,
+    pub lifetime: f32,
+    pub max_lifetime: f32,
+    pub is_homing: bool,
+}
+
+impl PresentationProjectile {
+    pub fn from_combat(p: &crate::game_logic::combat::Projectile) -> Self {
+        Self {
+            id: p.id,
+            position: p.position,
+            velocity: p.velocity,
+            target_position: p.target_position,
+            shooter_id: p.shooter_id,
+            target_id: p.target_id,
+            damage: p.damage,
+            lifetime: p.lifetime,
+            max_lifetime: p.max_lifetime,
+            is_homing: p.is_homing,
+        }
+    }
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -1333,6 +1366,9 @@ pub struct PresentationFrame {
     /// Frozen so WGPU laser segment pack does not re-read live host mid-render.
     /// Fail-closed: not full SegLineRenderer GPU texture draw.
     pub laser_beams: Vec<PresentationLaserBeam>,
+    /// In-flight combat projectiles frozen from host CombatSystem.
+    /// Fail-closed: not full W3D projectile draw / trail mesh.
+    pub projectiles: Vec<PresentationProjectile>,
     /// InGameUI floating cash / caption texts frozen from host residual registries.
     /// Fail-closed: not full DisplayString GPU / Unicode GameText draw.
     pub floating_texts: Vec<PresentationFloatingText>,
@@ -1438,6 +1474,13 @@ impl PresentationFrame {
                 let (gh, from_terrain) = sample_presentation_ground_height(logic, mid);
                 PresentationLaserBeam::from_host_laser_with_terrain(l, i as u32, gh, from_terrain)
             })
+            .collect();
+
+        let projectiles: Vec<PresentationProjectile> = logic
+            .combat_system()
+            .projectiles_snapshot()
+            .into_iter()
+            .map(PresentationProjectile::from_combat)
             .collect();
 
         // InGameUI floating text + MoneyPickUp Anim2D residual: freeze host registries.
@@ -1584,6 +1627,7 @@ impl PresentationFrame {
             fow_grid,
             particle_systems,
             laser_beams,
+            projectiles,
             floating_texts,
             world_anims,
             dual_tick,
@@ -2490,6 +2534,33 @@ mod tests {
             }),
             "expected EconomyChanged: {:?}",
             frame.events
+        );
+    }
+
+    #[test]
+    fn projectiles_freeze_from_combat_system() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let weapon = crate::game_logic::Weapon::default();
+        let pid = logic.combat_system_mut().fire_projectile(
+            glam::Vec3::new(0.0, 0.0, 0.0),
+            glam::Vec3::new(100.0, 0.0, 0.0),
+            &weapon,
+            crate::game_logic::ObjectId(1),
+            Some(crate::game_logic::ObjectId(2)),
+            200.0,
+        );
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.projectiles.iter().any(|p| p.id == pid),
+            "expected projectile {pid:?} in {:?}",
+            frame.projectiles.iter().map(|p| p.id).collect::<Vec<_>>()
+        );
+        assert!(
+            frame
+                .projectiles
+                .iter()
+                .any(|p| (p.target_position.x - 100.0).abs() < 0.1),
+            "target pos frozen"
         );
     }
 

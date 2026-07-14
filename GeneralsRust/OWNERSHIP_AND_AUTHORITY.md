@@ -315,7 +315,7 @@ Still residual (not claimed by shell_smoke):
 **Closed (W3DLaserDraw Line3D segment presentation + CPU WGPU pack — partial):**
 
 1. Host residual still builds `HostLaserLine3DSegment` descriptors (arc / tile / skim).
-2. `PresentationFrame.laser_beams` freezes active Patriot assist lasers + Line3D segments
+2. `PresentationFrame.laser_beams / projectiles` freezes active Patriot assist lasers + Line3D segments
    at build time (`PresentationLaserBeam` / `PresentationLaserSegment`).
 3. `graphics::laser_segment_upload::LaserSegmentUpload` packs interleaved CPU vertices
    (pos + uv + color) ready for WGPU buffer write; honesty flags for empty/geometry/upload-ready.
