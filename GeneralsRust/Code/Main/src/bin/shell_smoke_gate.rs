@@ -94,10 +94,24 @@ fn main() {
         && r.bridge_wave87_ok
         && r.tunnel_wave87_ok
         && r.garrison_wave87_ok
-        && r.transport_wave87_ok;
+        && r.transport_wave87_ok
+        // Wave 88 residual honesty (FX/OCL/particle/audio/cursor name tables; never flips playable_claim).
+        && r.radius_cursor_wave88_ok
+        && r.mouse_cursor_wave88_ok
+        && r.superweapon_fxlist_wave88_ok
+        && r.superweapon_ocl_wave88_ok
+        && r.superweapon_particle_wave88_ok
+        && r.superweapon_audio_wave88_ok
+        // Wave 89 residual honesty (rank/exp/hotkey/chat/replay/options; never flips playable_claim).
+        && r.rank_skill_wave89_ok
+        && r.experience_wave89_ok
+        && r.hotkey_wave89_ok
+        && r.chat_wave89_ok
+        && r.replay_wave89_ok
+        && r.options_wave89_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} kindof84={} wslot84={} vet84={} rel84={} geom84={} shadow84={} faction85={} ptpl85={} cash85={} aiperson85={} victory85={} cam86={} world86={} mpopt86={} mapsel86={} crate86={} weather87={} water87={} bridge87={} tunnel87={} garrison87={} transport87={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} kindof84={} wslot84={} vet84={} rel84={} geom84={} shadow84={} faction85={} ptpl85={} cash85={} aiperson85={} victory85={} cam86={} world86={} mpopt86={} mapsel86={} crate86={} weather87={} water87={} bridge87={} tunnel87={} garrison87={} transport87={} radius88={} mouse88={} fxlist88={} ocl88={} particle88={} audio88={} rank89={} exp89={} hotkey89={} chat89={} replay89={} options89={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -174,6 +188,18 @@ fn main() {
             r.tunnel_wave87_ok,
             r.garrison_wave87_ok,
             r.transport_wave87_ok,
+            r.radius_cursor_wave88_ok,
+            r.mouse_cursor_wave88_ok,
+            r.superweapon_fxlist_wave88_ok,
+            r.superweapon_ocl_wave88_ok,
+            r.superweapon_particle_wave88_ok,
+            r.superweapon_audio_wave88_ok,
+            r.rank_skill_wave89_ok,
+            r.experience_wave89_ok,
+            r.hotkey_wave89_ok,
+            r.chat_wave89_ok,
+            r.replay_wave89_ok,
+            r.options_wave89_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );
