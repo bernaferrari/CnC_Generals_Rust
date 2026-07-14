@@ -11919,17 +11919,31 @@ impl GameLogic {
                 object.weapon = Some(rebel_weapon(ap));
             }
 
-            // Host residual: USA Ranger PRIMARY rifle residual (+ secondary flashbang if set).
+            // Host residual: USA Ranger PRIMARY rifle residual.
+            // FlashBang secondary is PLAYER_UPGRADE only (Upgrade_AmericaRangerFlashBangGrenade)
+            // — parity with neutron shells / rocket pods: residual map may name the weapon,
+            // but create strips it unless research is unlocked or template explicitly seeds it.
             // Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
             if crate::game_logic::host_ranger::is_ranger_template(template_name) {
                 use crate::game_logic::host_ranger::{
                     has_flashbang_equipped, ranger_flashbang_weapon, ranger_rifle_weapon,
+                    UPGRADE_AMERICA_FLASHBANG,
                 };
                 object.weapon = Some(ranger_rifle_weapon());
-                // Secondary only when store-bound (secondary_weapon_name) or upgrade tag.
-                if object.secondary_weapon.is_some()
-                    || has_flashbang_equipped(false, &object.applied_upgrades)
+                let has_flashbang = has_flashbang_equipped(false, &object.applied_upgrades)
+                    || self.players.values().any(|p| {
+                        p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG)
+                    });
+                if has_flashbang {
+                    object.secondary_weapon = Some(ranger_flashbang_weapon());
+                    object.apply_upgrade_tag(UPGRADE_AMERICA_FLASHBANG);
+                } else if object.thing.template.secondary_weapon_name.is_none()
+                    && object.thing.template.secondary_weapon.is_none()
                 {
+                    // Strip residual map auto-equip; keep explicit test/seed secondaries.
+                    object.secondary_weapon = None;
+                } else if object.secondary_weapon.is_some() {
+                    // Explicit seed/test secondary — normalize to residual flashbang stats.
                     object.secondary_weapon = Some(ranger_flashbang_weapon());
                 }
             }

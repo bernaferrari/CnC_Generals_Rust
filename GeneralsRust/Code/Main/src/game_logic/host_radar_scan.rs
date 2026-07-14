@@ -322,6 +322,11 @@ pub fn honesty_radar_scan_dynamic_shroud_constants_ok() -> bool {
             == RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES
         && (RADAR_SCAN_STEALTH_DETECTION_RANGE - 150.0).abs() < 0.001
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_radar_scan_residual_pack_ok() -> bool {
+    honesty_radar_scan_dynamic_shroud_constants_ok()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -407,4 +412,13 @@ mod tests {
         // Deletion lifetime aligns with end of shrink window.
         assert_eq!(RADAR_SCAN_DURATION_FRAMES, 300);
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn radar_scan_residual_pack_honesty_wave71() {
+        assert!(honesty_radar_scan_residual_pack_ok());
+        assert_eq!(RADAR_SCAN_DURATION_FRAMES, 300);
+        assert_eq!(RADAR_SCAN_SHRINK_DELAY_FRAMES, 225);
+        assert_eq!(RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES, 15);
+    }
+
 }

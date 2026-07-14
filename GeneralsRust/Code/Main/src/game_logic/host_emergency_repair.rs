@@ -211,6 +211,11 @@ pub fn honesty_emergency_repair_residual_ok() -> bool {
         && SUPERWEAPON_EMERGENCY_REPAIR == "SuperweaponEmergencyRepair"
         && !EMERGENCY_REPAIR_ACTIVATE_AUDIO.is_empty()
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_emergency_repair_residual_pack_ok() -> bool {
+    honesty_emergency_repair_residual_ok()
+}
+
 
 /// One active residual Emergency Repair activation bookkeeping entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -411,4 +416,13 @@ mod tests {
         assert_eq!(reg.heal_count(), 2);
         assert!((reg.heal_amount_total() - 200.0).abs() < 0.01);
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn emergency_repair_residual_pack_honesty_wave71() {
+        assert!(honesty_emergency_repair_residual_pack_ok());
+        assert_eq!(EMERGENCY_REPAIR_LEVEL1_HEAL, 100.0);
+        assert_eq!(EMERGENCY_REPAIR_LEVEL3_HEAL, 300.0);
+        assert_eq!(EMERGENCY_REPAIR_RELOAD_TIME_FRAMES, 7200);
+    }
+
 }

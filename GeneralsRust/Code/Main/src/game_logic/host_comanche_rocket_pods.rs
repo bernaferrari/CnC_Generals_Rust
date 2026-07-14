@@ -153,6 +153,11 @@ pub fn honesty_comanche_rocket_pod_clip_residual_ok() -> bool {
         && (ROCKET_POD_PRIMARY_RADIUS - 5.0).abs() < 0.01
         && (ROCKET_POD_SECONDARY_RADIUS - 40.0).abs() < 0.01
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_comanche_rocket_pods_residual_pack_ok() -> bool {
+    honesty_comanche_rocket_pod_clip_residual_ok()
+}
+
 
 /// Whether template is a residual Comanche that receives rocket pods / combat residual.
 ///
@@ -441,4 +446,13 @@ mod tests {
         let b = rocket_pod_scatter_offset(20);
         assert!((a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01);
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn comanche_rocket_pods_residual_pack_honesty_wave71() {
+        assert!(honesty_comanche_rocket_pods_residual_pack_ok());
+        assert_eq!(ROCKET_POD_CLIP_SIZE, 20);
+        assert_eq!(ROCKET_POD_CLIP_RELOAD_FRAMES, 900);
+        assert_eq!(ROCKET_POD_SCATTER_TARGETS.len(), 20);
+    }
+
 }

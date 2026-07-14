@@ -300,6 +300,11 @@ pub fn honesty_frenzy_residual_ok() -> bool {
         && SUPERWEAPON_FRENZY == "SuperweaponFrenzy"
         && !FRENZY_ACTIVATE_AUDIO.is_empty()
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_frenzy_residual_pack_ok() -> bool {
+    honesty_frenzy_residual_ok()
+}
+
 
 /// One active residual Frenzy activation bookkeeping entry (honesty / debug).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -489,4 +494,13 @@ mod tests {
         assert_eq!(reg.activation_count(), 1);
         assert_eq!(reg.buff_count(), 2);
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn frenzy_residual_pack_honesty_wave71() {
+        assert!(honesty_frenzy_residual_pack_ok());
+        assert_eq!(FRENZY_LEVEL1_DURATION_FRAMES, 300);
+        assert_eq!(FRENZY_LEVEL3_DURATION_FRAMES, 900);
+        assert!((FRENZY_LEVEL2_DAMAGE_MULT - 1.20).abs() < 0.001);
+    }
+
 }

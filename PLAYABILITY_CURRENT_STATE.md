@@ -1,3 +1,70 @@
+## Residual Host Playability — Wave 71: heal/repair/frenzy residual packs + flashbang fix (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Heal residual pack** (`host_heal`):
+   - Ambulance AutoHeal residual: infantry **4**/s, vehicle **5**/s, radius **100**,
+     delay **1000**ms; TransportContain slots **3**, HealthRegen **25%**/s,
+     DamagePercentToUnits **10%**.
+   - Honesty: `honesty_heal_residual_pack_ok` (wraps ambulance auto-heal constants).
+2. **Repair residual pack** (`host_repair`):
+   - Dozer RepairHealthPercentPerSecond **2%**; RepairDock TimeForFullHeal **5000**ms → **150**f;
+     NumberApproachPositions **5**; TechRepairPad; BoredTime **5000**ms / range **150**.
+   - Honesty: `honesty_repair_residual_pack_ok`.
+3. **Emergency Repair residual pack** (`host_emergency_repair`):
+   - Level heals **100/200/300**, radius **100**, ReloadTime **240000**ms → **7200**f,
+     science SCIENCE_EmergencyRepair1/2/3, RepairCloud, KindOf VEHICLE.
+   - Honesty: `honesty_emergency_repair_residual_pack_ok`.
+4. **Propaganda residual pack** (`host_propaganda`):
+   - Radius **150**, Delay **2000**ms → **60**f, heal **2%**/upgraded **4%**,
+     ENTHUSIASTIC/SUBLIMINAL discriminants **8/15**, ROF **125%**.
+   - Honesty: `honesty_propaganda_residual_pack_ok`.
+5. **Frenzy residual pack** (`host_frenzy`):
+   - Damage mult **110/120/130%**, duration **300/600/900**f, radius **200**,
+     science SCIENCE_Frenzy1/2/3, FrenzyCloud, CAN_ATTACK / !STRUCTURE.
+   - Honesty: `honesty_frenzy_residual_pack_ok`.
+6. **Spy Satellite residual pack** (`host_spy_satellite`):
+   - DynamicShroud grow/shrink residual: vision **300**, duration **13000**ms → **390**f,
+     grow **1000**ms → **30**f, shrink delay **10000**ms → **300**f / **5000**ms → **150**f,
+     stealth detect **500**ms → **15**f.
+   - Honesty: `honesty_spy_satellite_residual_pack_ok`.
+7. **Radar Scan residual pack** (`host_radar_scan`):
+   - RadarVanPing residual: vision **150**, duration **10000**ms → **300**f,
+     shrink delay **7500**ms → **225**f / **2500**ms → **75**f, stealth **500**ms → **15**f.
+   - Honesty: `honesty_radar_scan_residual_pack_ok`.
+8. **Sentry Drone residual pack** (`host_sentry_drone`):
+   - Detector range **225** / rate **900**ms → **27**f; gun **8**/range **150**/delay **6**f;
+     pack/unpack **30**f; stealth delay **60**f.
+   - Honesty: `honesty_sentry_drone_residual_pack_ok`.
+9. **Point Defense residual pack** (`host_point_defense`):
+   - Paladin/Avenger/KingRaptor/Chinook PDL ScanRate/ScanRange/VelocityPredict residual.
+   - Honesty: `honesty_point_defense_residual_pack_ok`.
+10. **Overlord Addons residual pack** (`host_overlord_addons`):
+    - Addon slot table + ConflictsWith exclusivity; contain slots **1**; Helix transport **5**.
+    - Honesty: `honesty_overlord_addons_residual_pack_ok`.
+11. **Comanche Rocket Pods residual pack** (`host_comanche_rocket_pods`):
+    - ClipSize **20**, ScatterTargetScalar **50**, reload **900**f, dual-radius splash.
+    - Honesty: `honesty_comanche_rocket_pods_residual_pack_ok`.
+12. **Deliver Payload residual pack** (`host_deliver_payload`):
+    - Supply drop OCL residual (payload **6**, drop delay **11**f, door **15**f) +
+      DropVariance + VisiblePayload A10 + crate geometry pack.
+    - Honesty: `honesty_deliver_payload_residual_pack_ok`.
+13. **Base Defense residual pack** (`host_base_defense`):
+    - Patriot ground/air/assist residual + laser punch-through **1.3** / arc segments **20**.
+    - Honesty: `honesty_base_defense_residual_pack_ok`.
+14. **FlashBang upgrade fix** (`game_logic` create_object):
+    - Ranger secondary is PLAYER_UPGRADE only (parity with neutron shells / rocket pods):
+      residual map may name flashbang, but create strips it unless research unlocked or
+      template explicitly seeds `secondary_weapon_name`. Research still equips via
+      `apply_flashbang_unlock_to_team`. Fixes
+      `flashbang_upgrade_queue_complete_equips_ranger_secondary`.
+15. Tests / gates (not log-only):
+   - `heal_residual_pack_honesty_wave71` / repair / emergency_repair / propaganda /
+     frenzy / spy_satellite / radar_scan / sentry_drone / point_defense /
+     overlord_addons / comanche_rocket_pods / deliver_payload / base_defense
+   - `flashbang_upgrade_queue_complete_equips_ranger_secondary` + flashbang suite
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
 ## Residual Host Playability — Wave 70: helix-napalm/inferno/leaflet/minigunner residual packs (2026-07-13)
 
 **Closed (host-testable residual peels):**

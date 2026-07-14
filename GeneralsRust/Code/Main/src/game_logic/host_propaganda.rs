@@ -226,6 +226,11 @@ pub fn honesty_propaganda_residual_ok() -> bool {
         && PROPAGANDA_PULSE_FX == "FX_PropagandaTowerPropagandaPulse"
         && PROPAGANDA_UPGRADED_PULSE_FX == "FX_PropagandaTowerSubliminalPulse"
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_propaganda_residual_pack_ok() -> bool {
+    honesty_propaganda_residual_ok()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -330,4 +335,13 @@ mod tests {
         assert!(excl.try_claim(target, tower_b));
         assert_eq!(excl.claimed_tower(target), Some(tower_b));
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn propaganda_residual_pack_honesty_wave71() {
+        assert!(honesty_propaganda_residual_pack_ok());
+        assert_eq!(HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES, 60);
+        assert!((HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC - 0.02).abs() < 0.0001);
+        assert_eq!(WEAPON_BONUS_ENTHUSIASTIC, 8);
+    }
+
 }
