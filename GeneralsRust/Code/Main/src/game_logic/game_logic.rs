@@ -5059,6 +5059,11 @@ impl GameLogic {
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.ai_state = ai_state_override.unwrap_or(AIState::Moving);
                     obj.status.moving = true;
+                    // Final destination for shadow move channel (not intermediate waypoint).
+                    crate::game_logic::host_move_log::record(
+                        object_id,
+                        Some([target_position.x, target_position.y, target_position.z]),
+                    );
                 } else {
                     obj.move_to(target_position);
                     if let Some(state) = ai_state_override {
