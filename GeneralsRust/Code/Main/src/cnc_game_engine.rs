@@ -8293,17 +8293,24 @@ impl CnCGameEngine {
         };
         let player_team = player.team;
 
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != player_team {
-                continue;
+        // Prefer presentation XZ pose/selectable/structure residual when dual-tick snapshot exists.
+        let boxed: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z)
+        } else {
+            let mut live = Vec::new();
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team != player_team || !obj.is_selectable() {
+                    continue;
+                }
+                let pos = obj.get_position();
+                if pos.x < min_x || pos.x > max_x || pos.z < min_z || pos.z > max_z {
+                    continue;
+                }
+                live.push(id);
             }
-            if !obj.is_selectable() {
-                continue;
-            }
-            let pos = obj.get_position();
-            if pos.x < min_x || pos.x > max_x || pos.z < min_z || pos.z > max_z {
-                continue;
-            }
+            live
+        };
+        for id in boxed {
             if !selection.contains(&id) {
                 selection.push(id);
             }
