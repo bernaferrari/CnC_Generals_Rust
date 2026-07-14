@@ -41,6 +41,10 @@ pub struct RenderableObject {
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
     /// mesh pass does not re-read live ThingTemplate during GPU collect.
     pub model_key: Option<String>,
+    /// Mesh scale residual (Object INI Scale; common combat units retail **1.0**).
+    /// Snapshot-owned so the unit mesh pass does not re-read live template Scale.
+    /// Fail-closed: not full draw-scale bone / animation scale matrix.
+    pub mesh_scale: f32,
     /// Cull / selection radius for presentation-only draw (no live GameLogic re-read).
     pub selection_radius: f32,
     /// True when bridged to GameEngine ObjectFactory (`engine_object_id`).
@@ -63,6 +67,8 @@ pub struct UnitRenderInput {
     pub id: ObjectId,
     pub template_name: String,
     pub model_key: String,
+    /// Mesh scale residual frozen from presentation (default 1.0).
+    pub mesh_scale: f32,
     pub team: Team,
     pub team_color: [f32; 4],
     pub position: Vec3,
@@ -87,6 +93,11 @@ impl UnitRenderInput {
             id: ro.id,
             template_name: ro.template_name.clone(),
             model_key,
+            mesh_scale: if ro.mesh_scale > 0.0 {
+                ro.mesh_scale
+            } else {
+                1.0
+            },
             team: ro.team,
             team_color: ro.team_color,
             position: ro.position,
@@ -976,6 +987,9 @@ impl PresentationFrame {
             let model_key = Some(crate::assets::mesh_asset_resolve::model_key_from_template(
                 obj.get_template(),
             ));
+            // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
+            let mesh_scale =
+                crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
             let fow_visibility = if fow_shell_bypass {
                 ObjectVisibility::FULLY_VISIBLE
             } else {
@@ -997,6 +1011,7 @@ impl PresentationFrame {
                 is_structure,
                 is_unit,
                 model_key,
+                mesh_scale,
                 selection_radius: obj.selection_radius.max(5.0),
                 engine_bridged: obj.engine_object_id.is_some(),
                 fow_visibility,
@@ -1373,6 +1388,18 @@ impl PresentationFrame {
     pub fn spectre_orbit_decal_presentation_residual_ok(&self) -> bool {
         let _ = self;
         honesty_spectre_orbit_decal_presentation_ok()
+    }
+
+    /// Honesty: mesh scale residual frozen on objects / unit render inputs (Wave 75).
+    ///
+    /// Common combat units retail-default to **1.0**. Empty snapshot is honest.
+    /// Fail-closed: not full Object INI Scale field / draw-scale bone matrix.
+    pub fn mesh_scale_presentation_residual_ok(&self) -> bool {
+        crate::assets::mesh_asset_resolve::honesty_mesh_scale_residual_ok()
+            && self.objects.iter().all(|o| o.mesh_scale.is_finite() && o.mesh_scale > 0.0)
+            && self.unit_render_inputs().iter().all(|u| {
+                u.mesh_scale.is_finite() && u.mesh_scale > 0.0
+            })
     }
 
     /// Note a dual-tick apply on this snapshot (HUD / shell multi-consumer path).
@@ -1944,6 +1971,42 @@ mod tests {
         let inputs = snap.unit_render_inputs();
         let unit = inputs.iter().find(|u| u.id == id).expect("unit input");
         assert_eq!(unit.model_key.to_ascii_lowercase(), "airanger_s");
+        // Wave 75: combat unit mesh scale residual freezes at 1.0.
+        assert!(
+            (ro.mesh_scale - 1.0).abs() < 0.001,
+            "USA_Ranger mesh_scale residual must be 1.0, got {}",
+            ro.mesh_scale
+        );
+        assert!((unit.mesh_scale - 1.0).abs() < 0.001);
+        assert!(snap.mesh_scale_presentation_residual_ok());
+    }
+
+    #[test]
+    fn mesh_scale_presentation_residual_wave75() {
+        assert!(crate::assets::mesh_asset_resolve::honesty_mesh_scale_residual_ok());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MeshScalePres");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        if !logic.templates.contains_key("USA_Humvee") {
+            let mut t = ThingTemplate::new("USA_Humvee");
+            t.set_health(240.0);
+            t.set_model("avhummer");
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("USA_Humvee".into(), t);
+        }
+        let id = logic
+            .create_object("USA_Humvee", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("humvee");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(snap.mesh_scale_presentation_residual_ok());
+        let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
+        assert!((ro.mesh_scale - 1.0).abs() < 0.001);
+        let unit = snap
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .expect("unit input");
+        assert!((unit.mesh_scale - 1.0).abs() < 0.001);
     }
 
     #[test]

@@ -32,11 +32,23 @@
 //! - `game_text_csf_str_ok` — CSF/STR parse + retail `$%d` printf + DisplayString measure
 //! - `display_string_measure_ok` — monospaced glyph measure residual on floating-text pack
 //! - `rng_stream_residual_ok` — GameLogic/GameClient RandomValue ADC stream residual
+//! - `mesh_asset_residual_ok` — W3D mesh resolve residual (keys/scale/search; no GPU)
+//! - `rng_residual_pack_ok` — Wave 72 host RNG residual pack honesty
+//! - `special_power_wave72_residual_ok` — Daisy/A10 special-power residual pack
+//! - `special_power_wave73_residual_ok` — Spectre/Nuke/SupW residual pack
+//! - `spectre_orbit_decal_presentation_ok` — Wave 73 presentation Spectre decal residual
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
-use crate::game_logic::host_rng_residual::exercise_host_rng_residual;
+use crate::assets::mesh_asset_resolve::honesty_mesh_asset_residual_ok;
+use crate::game_logic::host_rng_residual::{
+    exercise_host_rng_residual, honesty_rng_residual_pack_ok,
+};
+use crate::game_logic::special_power_strikes::{
+    honesty_special_power_residual_pack_ok, honesty_special_power_residual_pack_wave73_ok,
+};
 use crate::game_logic::GameLogic;
+use crate::presentation_frame::honesty_spectre_orbit_decal_presentation_ok;
 use crate::gameplay_layout::{
     control_bar_layout_honesty, format_control_bar_honesty, GameplayLayoutStatus,
 };
@@ -119,6 +131,17 @@ pub struct ShellSmokeResult {
     pub display_string_measure_ok: bool,
     /// GameLogic/GameClient RandomValue ADC stream residual honesty.
     pub rng_stream_residual_ok: bool,
+    /// W3D mesh asset resolve residual (common keys / scale / search / basename).
+    /// Host-testable; does **not** claim live GPU upload or retail material parity.
+    pub mesh_asset_residual_ok: bool,
+    /// Wave 72 host RNG residual pack honesty (seed table / pure index / stream).
+    pub rng_residual_pack_ok: bool,
+    /// Wave 72 special-power residual pack (DaisyCutter / A10 / free pack).
+    pub special_power_wave72_residual_ok: bool,
+    /// Wave 73 Spectre/Nuke/SupW special-power residual pack honesty.
+    pub special_power_wave73_residual_ok: bool,
+    /// Wave 73 presentation Spectre orbit decal residual honesty.
+    pub spectre_orbit_decal_presentation_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -373,6 +396,14 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let anim2d_collection_residual_ok = honesty_anim2d_collection_residual();
     // GameLogic / GameClient RandomValue ADC stream residual.
     let rng_stream_residual_ok = exercise_host_rng_residual(0x5A6E_2710).honesty_ok();
+    // Wave 75 mesh / wave 72–73 residual honesty (host-testable, no GPU claim).
+    let mesh_asset_residual_ok = honesty_mesh_asset_residual_ok();
+    let rng_residual_pack_ok = honesty_rng_residual_pack_ok();
+    let special_power_wave72_residual_ok = honesty_special_power_residual_pack_ok();
+    let special_power_wave73_residual_ok = honesty_special_power_residual_pack_wave73_ok();
+    let spectre_orbit_decal_presentation_ok = honesty_spectre_orbit_decal_presentation_ok()
+        && presentation_ok
+        && pres.spectre_orbit_decal_presentation_residual_ok();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -527,6 +558,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         game_text_csf_str_ok,
         display_string_measure_ok,
         rng_stream_residual_ok,
+        mesh_asset_residual_ok,
+        rng_residual_pack_ok,
+        special_power_wave72_residual_ok,
+        special_power_wave73_residual_ok,
+        spectre_orbit_decal_presentation_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -538,7 +574,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -645,6 +681,31 @@ mod tests {
         assert!(
             r.rng_stream_residual_ok,
             "RNG stream residual: {}",
+            r.detail
+        );
+        assert!(
+            r.mesh_asset_residual_ok,
+            "mesh asset residual: {}",
+            r.detail
+        );
+        assert!(
+            r.rng_residual_pack_ok,
+            "RNG residual pack wave72: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave72_residual_ok,
+            "special power residual pack wave72: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave73_residual_ok,
+            "special power residual pack wave73: {}",
+            r.detail
+        );
+        assert!(
+            r.spectre_orbit_decal_presentation_ok,
+            "spectre orbit decal presentation residual: {}",
             r.detail
         );
         assert!(

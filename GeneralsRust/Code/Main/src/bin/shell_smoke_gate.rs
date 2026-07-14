@@ -15,10 +15,16 @@ fn main() {
         && r.screen_skirmish_ok
         && r.dual_tick_presentation_ok
         && r.minimap_fow_presentation_ok
-        && r.laser_segment_upload_ok;
+        && r.laser_segment_upload_ok
+        // Wave 75 residual honesty (host-testable; never flips playable_claim).
+        && r.mesh_asset_residual_ok
+        && r.rng_residual_pack_ok
+        && r.special_power_wave72_residual_ok
+        && r.special_power_wave73_residual_ok
+        && r.spectre_orbit_decal_presentation_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} spectre_decal={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -30,6 +36,10 @@ fn main() {
             r.selection_consumers_ok,
             r.minimap_fow_presentation_ok,
             r.laser_segment_upload_ok,
+            r.mesh_asset_residual_ok,
+            r.special_power_wave72_residual_ok,
+            r.special_power_wave73_residual_ok,
+            r.spectre_orbit_decal_presentation_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );
