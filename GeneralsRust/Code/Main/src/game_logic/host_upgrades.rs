@@ -327,6 +327,23 @@ impl HostUpgradeRegistry {
         self.queued_this_frame.clear();
     }
 
+    /// Snapshot research completed this logic frame (for PresentationFrame freeze).
+    /// Does not drain — cleared at next `clear_frame_events` / update start.
+    pub fn completed_this_frame_snapshot(&self) -> Vec<HostUpgradeResearch> {
+        self.completed_this_frame
+            .iter()
+            .filter_map(|id| self.entries.get(id).cloned())
+            .collect()
+    }
+
+    /// Snapshot research queued this logic frame (presentation residual).
+    pub fn queued_this_frame_snapshot(&self) -> Vec<HostUpgradeResearch> {
+        self.queued_this_frame
+            .iter()
+            .filter_map(|id| self.entries.get(id).cloned())
+            .collect()
+    }
+
     /// Next allocator id (for save/load residual).
     pub fn next_id(&self) -> u32 {
         self.next_id

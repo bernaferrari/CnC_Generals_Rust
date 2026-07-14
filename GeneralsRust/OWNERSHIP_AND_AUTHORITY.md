@@ -126,6 +126,8 @@ parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime: `GENERALS_GA
 `Object::take_damage_from` records `host_damage_log / host_heal_log / host_owner_log` events drained each tick.
 Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow maps spawns and applies Destroy mutations. `host_spawn_log` applies via `WorldMutation::Spawn` (sole shadow create) then host→entity map.
 
+Production log: `drain` retains `last_drain_snapshot` for PresentationEvent::ProductionComplete after shadow session.
+
 Presentation: when engine holds a shadow session, `PresentationFrame` is built from host then `overlay_gameworld_shadow` so HP/pose/supplies prefer GameWorld.
 Move channel: `SetTransform` mutations + `apply_host_positions_as_transforms`.
 
