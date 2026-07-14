@@ -786,6 +786,11 @@ impl GameHUD {
     }
 
     /// Convenience helper for generic info text
+    /// Test/honesty: number of active HUD messages.
+    pub fn message_count_for_test(&self) -> usize {
+        self.messages.len()
+    }
+
     pub fn push_info_message(&mut self, text: &str) {
         self.add_message(text, MessageType::Info);
     }
