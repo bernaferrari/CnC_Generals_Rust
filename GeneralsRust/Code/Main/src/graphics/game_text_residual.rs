@@ -33,6 +33,10 @@
 //! - Label-count residual honesty when the live file parses
 //! - Missing asset → empty table honesty (not a boot UI claim)
 //!
+//! Wave 68 residual closed (host-testable, fail-closed vs boot UI):
+//! - Group numeral GameText key residual `NUMBER:%d` (MAX_GROUPS **10**)
+//! - Formation letter key residual `LABEL:FORMATION` used by W3DDisplayStringManager
+//!
 //! Still residual:
 //! - Full multi-locale CSF/STR load for all LanguageId paths at runtime boot UI
 //! - Full DisplayString GPU font raster / WW3D StretchRect submit
@@ -51,6 +55,13 @@ pub const GUI_ADD_CASH_RETAIL_TEMPLATE: &str = "$%d";
 pub const GUI_BACK_KEY: &str = "GUI:Back";
 /// Retail English CSF value for `GUI:Back`.
 pub const GUI_BACK_RETAIL: &str = "BACK";
+
+/// C++ W3DDisplayStringManager MAX_GROUPS residual (standard build).
+pub const GAME_TEXT_MAX_GROUPS: u32 = 10;
+/// C++ group numeral GameText key format residual (`NUMBER:%d`).
+pub const GAME_TEXT_GROUP_NUMERAL_KEY_PREFIX: &str = "NUMBER:";
+/// C++ formation letter GameText key residual.
+pub const GAME_TEXT_FORMATION_LETTER_KEY: &str = "LABEL:FORMATION";
 
 /// Host DisplayString monospaced glyph residual (font8x8 family extents).
 pub const DISPLAY_STRING_GLYPH_WIDTH: u32 = 8;
@@ -733,6 +744,44 @@ pub fn honesty_english_csf_pack_load() -> bool {
             .any(|p| p.contains("English") && p.ends_with("generals.csf"))
 }
 
+
+/// Format C++ group numeral GameText key residual: `NUMBER:N`.
+pub fn game_text_group_numeral_key(numeral: u32) -> String {
+    format!("{GAME_TEXT_GROUP_NUMERAL_KEY_PREFIX}{numeral}")
+}
+
+/// Whether a group numeral is in residual MAX_GROUPS range [0, MAX_GROUPS).
+pub fn game_text_group_numeral_in_range(numeral: i32) -> bool {
+    numeral >= 0 && (numeral as u32) < GAME_TEXT_MAX_GROUPS
+}
+
+/// Wave 68 residual honesty: group numeral + formation letter GameText keys.
+pub fn honesty_game_text_group_numeral_keys() -> bool {
+    if GAME_TEXT_MAX_GROUPS != 10 {
+        return false;
+    }
+    if GAME_TEXT_FORMATION_LETTER_KEY != "LABEL:FORMATION" {
+        return false;
+    }
+    if GAME_TEXT_GROUP_NUMERAL_KEY_PREFIX != "NUMBER:" {
+        return false;
+    }
+    for i in 0..GAME_TEXT_MAX_GROUPS {
+        let key = game_text_group_numeral_key(i);
+        if key != format!("NUMBER:{i}") {
+            return false;
+        }
+        if !game_text_group_numeral_in_range(i as i32) {
+            return false;
+        }
+    }
+    if game_text_group_numeral_in_range(-1) || game_text_group_numeral_in_range(10) {
+        return false;
+    }
+    true
+}
+
+
 /// Host-testable residual exercise: STR + CSF + printf + DisplayString measure.
 ///
 /// Prefer live English CSF when assets are present; always honest with synthetic
@@ -931,6 +980,19 @@ mod tests {
         }
         assert!(ex.honesty.honesty_ok());
         assert_eq!(ex.formatted_caption, "$150");
+    }
+
+    #[test]
+    fn game_text_group_numeral_keys_residual_honesty() {
+        assert!(honesty_game_text_group_numeral_keys());
+        assert_eq!(GAME_TEXT_MAX_GROUPS, 10);
+        assert_eq!(game_text_group_numeral_key(0), "NUMBER:0");
+        assert_eq!(game_text_group_numeral_key(9), "NUMBER:9");
+        assert_eq!(GAME_TEXT_FORMATION_LETTER_KEY, "LABEL:FORMATION");
+        assert!(game_text_group_numeral_in_range(0));
+        assert!(game_text_group_numeral_in_range(9));
+        assert!(!game_text_group_numeral_in_range(10));
+        assert!(!game_text_group_numeral_in_range(-1));
     }
 
     #[test]

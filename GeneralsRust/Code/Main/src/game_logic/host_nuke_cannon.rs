@@ -8,6 +8,19 @@
 //!   `MediumRadiationFieldWeapon`: 15 dmg / radius 50 / 750ms ticks / 30s lifetime.
 //! - Neutron Shell secondary remains `host_neutron_shell` residual (not re-opened).
 //!
+//! Wave 67 residual pack (retail ChinaVehicle.ini NukeLauncher / Weapon.ini /
+//! Locomotor.ini):
+//! - Weapon residual: DamageType **EXPLOSION**, DeathType **EXPLODED**,
+//!   ScatterRadiusVsInfantry **30**, WeaponSpeed **200**, Projectile **NukeCannonShell**,
+//!   FireFX **WeaponFX_NukeCannonMuzzleFlash**, DetonationFX **WeaponFX_NukeCannon**,
+//!   DetonationOCL **OCL_RadiationFieldMedium**, ClipSize **0**,
+//!   Delay **10000**ms → **300**f.
+//! - Body residual: MaxHealth **240**, Vision **180**, Shroud **350**,
+//!   BuildCost **1600**, BuildTime **20**s → **600**f, TransportSlotCount **10**,
+//!   TurretTurnRate **80**, Locomotor Speed **20**/Damaged **18**, Geometry BOX
+//!   **32**/**10**/**17**.
+//! - Radiation residual: tick **750**ms → **23**f, lifetime **30000**ms → **900**f.
+//!
 //! Fail-closed honesty:
 //! - Not full NukeCannonShell DumbProjectileBehavior lob path
 //! - Not full DeployStyleAIUpdate unpack / pack animation matrix
@@ -24,6 +37,9 @@ pub use crate::game_logic::host_neutron_shell::{
     NUKE_CANNON_PRIMARY_WEAPON, UPGRADE_CHINA_NEUTRON_SHELLS,
 };
 
+/// Logic frames per second (host fixed step).
+pub const NUKE_CANNON_LOGIC_FPS: f32 = 30.0;
+
 /// Retail NukeCannonGun PrimaryDamage.
 pub const NUKE_CANNON_PRIMARY_DAMAGE: f32 = 400.0;
 /// Retail NukeCannonGun PrimaryDamageRadius.
@@ -36,15 +52,39 @@ pub const NUKE_CANNON_SECONDARY_RADIUS: f32 = 60.0;
 pub const NUKE_CANNON_ATTACK_RANGE: f32 = 350.0;
 /// Retail MinimumAttackRange.
 pub const NUKE_CANNON_MIN_RANGE: f32 = 150.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const NUKE_CANNON_DELAY_MS: u32 = 10_000;
 /// Retail DelayBetweenShots 10000ms → 300 frames @ 30 FPS.
 pub const NUKE_CANNON_DELAY_FRAMES: u32 = 300;
+/// Retail ScatterRadiusVsInfantry residual.
+pub const NUKE_CANNON_SCATTER_VS_INFANTRY: f32 = 30.0;
+/// Retail DamageType residual.
+pub const NUKE_CANNON_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail DeathType residual.
+pub const NUKE_CANNON_DEATH_TYPE: &str = "EXPLODED";
+/// Retail WeaponSpeed residual.
+pub const NUKE_CANNON_WEAPON_SPEED: f32 = 200.0;
+/// Retail ProjectileObject residual.
+pub const NUKE_CANNON_PROJECTILE: &str = "NukeCannonShell";
+/// Retail FireFX residual.
+pub const NUKE_CANNON_FIRE_FX: &str = "WeaponFX_NukeCannonMuzzleFlash";
+/// Retail ProjectileDetonationFX residual.
+pub const NUKE_CANNON_DETONATION_FX: &str = "WeaponFX_NukeCannon";
+/// Retail ProjectileDetonationOCL residual.
+pub const NUKE_CANNON_DETONATION_OCL: &str = "OCL_RadiationFieldMedium";
+/// Retail ClipSize residual (0 == infinite).
+pub const NUKE_CANNON_CLIP_SIZE: u32 = 0;
 
 /// Retail MediumRadiationFieldWeapon PrimaryDamage.
 pub const MEDIUM_RADIATION_DAMAGE_PER_TICK: f32 = 15.0;
 /// Retail MediumRadiationFieldWeapon PrimaryDamageRadius.
 pub const MEDIUM_RADIATION_RADIUS: f32 = 50.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const MEDIUM_RADIATION_TICK_INTERVAL_MS: u32 = 750;
 /// Retail DelayBetweenShots 750ms → ~23 frames @ 30 FPS.
 pub const MEDIUM_RADIATION_TICK_INTERVAL_FRAMES: u32 = 23;
+/// Retail LifetimeUpdate residual (msec).
+pub const MEDIUM_RADIATION_DURATION_MS: u32 = 30_000;
 /// Retail LifetimeUpdate Min/MaxLifetime 30000ms → 900 frames @ 30 FPS.
 pub const MEDIUM_RADIATION_DURATION_FRAMES: u32 = 900;
 
@@ -52,6 +92,45 @@ pub const MEDIUM_RADIATION_DURATION_FRAMES: u32 = 900;
 pub const NUKE_CANNON_FIRE_AUDIO: &str = "NukeCannonWeapon";
 /// Residual radiation ambient.
 pub const MEDIUM_RADIATION_AUDIO: &str = "RadiationPoolAmbientLoop";
+
+// --- Body residual (ChinaVehicleNukeLauncher) ---
+
+/// Retail MaxHealth residual.
+pub const NUKE_CANNON_MAX_HEALTH: f32 = 240.0;
+/// Retail VisionRange residual.
+pub const NUKE_CANNON_VISION_RANGE: f32 = 180.0;
+/// Retail ShroudClearingRange residual.
+pub const NUKE_CANNON_SHROUD_CLEARING_RANGE: f32 = 350.0;
+/// Retail BuildCost residual.
+pub const NUKE_CANNON_BUILD_COST: u32 = 1_600;
+/// Retail BuildTime residual (seconds).
+pub const NUKE_CANNON_BUILD_TIME_SEC: f32 = 20.0;
+/// BuildTime 20s → 600 frames @ 30 FPS.
+pub const NUKE_CANNON_BUILD_TIME_FRAMES: u32 = 600;
+/// Retail TransportSlotCount residual.
+pub const NUKE_CANNON_TRANSPORT_SLOT_COUNT: u32 = 10;
+/// Retail TurretTurnRate residual (deg/sec).
+pub const NUKE_CANNON_TURRET_TURN_RATE: f32 = 80.0;
+/// Retail ChinaNukeCannonLocomotor Speed residual.
+pub const NUKE_CANNON_LOCOMOTOR_SPEED: f32 = 20.0;
+/// Retail ChinaNukeCannonLocomotor SpeedDamaged residual.
+pub const NUKE_CANNON_LOCOMOTOR_SPEED_DAMAGED: f32 = 18.0;
+/// Retail Geometry BOX MajorRadius residual.
+pub const NUKE_CANNON_GEOMETRY_MAJOR: f32 = 32.0;
+/// Retail Geometry BOX MinorRadius residual.
+pub const NUKE_CANNON_GEOMETRY_MINOR: f32 = 10.0;
+/// Retail GeometryHeight residual.
+pub const NUKE_CANNON_GEOMETRY_HEIGHT: f32 = 17.0;
+/// Retail ExperienceValue residual.
+pub const NUKE_CANNON_EXPERIENCE_VALUE: [u32; 4] = [50, 100, 200, 400];
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn nuke_cannon_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * NUKE_CANNON_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Whether residual primary fire should apply Nuke Cannon area + radiation.
 ///
@@ -285,6 +364,79 @@ impl HostNukeCannonRegistry {
     }
 }
 
+
+// --- Wave 67 residual honesty packs ---
+
+/// Wave 67 residual honesty: Nuke Cannon weapon residual peel.
+pub fn honesty_nuke_cannon_weapon_residual_ok() -> bool {
+    NUKE_CANNON_PRIMARY_WEAPON == "NukeCannonGun"
+        && (NUKE_CANNON_PRIMARY_DAMAGE - 400.0).abs() < 0.01
+        && (NUKE_CANNON_PRIMARY_RADIUS - 50.0).abs() < 0.01
+        && (NUKE_CANNON_SECONDARY_DAMAGE - 20.0).abs() < 0.01
+        && (NUKE_CANNON_SECONDARY_RADIUS - 60.0).abs() < 0.01
+        && (NUKE_CANNON_ATTACK_RANGE - 350.0).abs() < 0.01
+        && (NUKE_CANNON_MIN_RANGE - 150.0).abs() < 0.01
+        && NUKE_CANNON_DELAY_MS == 10_000
+        && NUKE_CANNON_DELAY_FRAMES == nuke_cannon_ms_to_frames(NUKE_CANNON_DELAY_MS)
+        && NUKE_CANNON_DELAY_FRAMES == 300
+        && (NUKE_CANNON_SCATTER_VS_INFANTRY - 30.0).abs() < 0.01
+        && NUKE_CANNON_DAMAGE_TYPE == "EXPLOSION"
+        && NUKE_CANNON_DEATH_TYPE == "EXPLODED"
+        && (NUKE_CANNON_WEAPON_SPEED - 200.0).abs() < 0.01
+        && NUKE_CANNON_PROJECTILE == "NukeCannonShell"
+        && NUKE_CANNON_FIRE_FX == "WeaponFX_NukeCannonMuzzleFlash"
+        && NUKE_CANNON_DETONATION_FX == "WeaponFX_NukeCannon"
+        && NUKE_CANNON_DETONATION_OCL == "OCL_RadiationFieldMedium"
+        && NUKE_CANNON_CLIP_SIZE == 0
+        && NUKE_CANNON_FIRE_AUDIO == "NukeCannonWeapon"
+        && (nuke_cannon_primary_damage_at(0.0) - 400.0).abs() < 0.01
+        && (nuke_cannon_primary_damage_at(55.0) - 20.0).abs() < 0.01
+}
+
+/// Wave 67 residual honesty: medium radiation residual peel.
+pub fn honesty_nuke_cannon_radiation_residual_ok() -> bool {
+    (MEDIUM_RADIATION_DAMAGE_PER_TICK - 15.0).abs() < 0.01
+        && (MEDIUM_RADIATION_RADIUS - 50.0).abs() < 0.01
+        && MEDIUM_RADIATION_TICK_INTERVAL_MS == 750
+        && MEDIUM_RADIATION_TICK_INTERVAL_FRAMES
+            == nuke_cannon_ms_to_frames(MEDIUM_RADIATION_TICK_INTERVAL_MS)
+        && MEDIUM_RADIATION_TICK_INTERVAL_FRAMES == 23
+        && MEDIUM_RADIATION_DURATION_MS == 30_000
+        && MEDIUM_RADIATION_DURATION_FRAMES
+            == nuke_cannon_ms_to_frames(MEDIUM_RADIATION_DURATION_MS)
+        && MEDIUM_RADIATION_DURATION_FRAMES == 900
+        && MEDIUM_RADIATION_AUDIO == "RadiationPoolAmbientLoop"
+}
+
+/// Wave 67 residual honesty: Nuke Cannon body residual peel.
+pub fn honesty_nuke_cannon_body_residual_ok() -> bool {
+    (NUKE_CANNON_MAX_HEALTH - 240.0).abs() < 0.01
+        && (NUKE_CANNON_VISION_RANGE - 180.0).abs() < 0.01
+        && (NUKE_CANNON_SHROUD_CLEARING_RANGE - 350.0).abs() < 0.01
+        && NUKE_CANNON_BUILD_COST == 1_600
+        && (NUKE_CANNON_BUILD_TIME_SEC - 20.0).abs() < 0.01
+        && NUKE_CANNON_BUILD_TIME_FRAMES
+            == (NUKE_CANNON_BUILD_TIME_SEC * NUKE_CANNON_LOGIC_FPS).round() as u32
+        && NUKE_CANNON_BUILD_TIME_FRAMES == 600
+        && NUKE_CANNON_TRANSPORT_SLOT_COUNT == 10
+        && (NUKE_CANNON_TURRET_TURN_RATE - 80.0).abs() < 0.01
+        && (NUKE_CANNON_LOCOMOTOR_SPEED - 20.0).abs() < 0.01
+        && (NUKE_CANNON_LOCOMOTOR_SPEED_DAMAGED - 18.0).abs() < 0.01
+        && (NUKE_CANNON_GEOMETRY_MAJOR - 32.0).abs() < 0.01
+        && (NUKE_CANNON_GEOMETRY_MINOR - 10.0).abs() < 0.01
+        && (NUKE_CANNON_GEOMETRY_HEIGHT - 17.0).abs() < 0.01
+        && NUKE_CANNON_EXPERIENCE_VALUE == [50, 100, 200, 400]
+        && is_nuke_cannon_template("ChinaVehicleNukeCannon")
+        && !is_nuke_cannon_template("NukeCannonShell")
+}
+
+/// Combined Wave 67 Nuke Cannon residual honesty pack.
+pub fn honesty_nuke_cannon_residual_pack_ok() -> bool {
+    honesty_nuke_cannon_weapon_residual_ok()
+        && honesty_nuke_cannon_radiation_residual_ok()
+        && honesty_nuke_cannon_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,5 +498,19 @@ mod tests {
     fn reexports_nuke_cannon_template() {
         assert!(is_nuke_cannon_template("ChinaVehicleNukeCannon"));
         assert!(!is_nuke_cannon_template("NukeCannonShell"));
+    }
+
+    #[test]
+    fn nuke_cannon_residual_pack_honesty_wave67() {
+        assert!(honesty_nuke_cannon_weapon_residual_ok());
+        assert!(honesty_nuke_cannon_radiation_residual_ok());
+        assert!(honesty_nuke_cannon_body_residual_ok());
+        assert!(honesty_nuke_cannon_residual_pack_ok());
+        assert_eq!(nuke_cannon_ms_to_frames(10_000), 300);
+        assert_eq!(nuke_cannon_ms_to_frames(750), 23);
+        assert_eq!(NUKE_CANNON_BUILD_TIME_FRAMES, 600);
+        assert_eq!(NUKE_CANNON_PROJECTILE, "NukeCannonShell");
+        assert_eq!(NUKE_CANNON_DETONATION_OCL, "OCL_RadiationFieldMedium");
+        assert_eq!(NUKE_CANNON_TRANSPORT_SLOT_COUNT, 10);
     }
 }

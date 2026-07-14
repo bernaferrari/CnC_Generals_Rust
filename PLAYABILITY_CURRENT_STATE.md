@@ -1,3 +1,204 @@
+## Residual Host Playability — Wave 68: black-market/booby/listening + graphics residual (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Black Market residual pack** (`host_black_market`):
+   - AutoDeposit residual: DepositAmount **20**, DepositTiming **2000**ms → **60**f,
+     InitialCaptureBonus **0**.
+   - Body residual: MaxHealth **1000**, BuildCost **2500**, BuildTime **30**s → **900**f,
+     Vision/Shroud **200**, EnergyProduction **0**, Prerequisite GLAPalace,
+     KindOf FS_BLACK_MARKET, CommandSet GLABlackMarketCommandSet.
+   - Geometry residual BOX **35**/ **35**/ **35**; Hole GLAHoleBlackMarket **500** hp;
+     FortifiedStructure armor upgrade residual.
+   - Flammable residual: AflameDuration **5000**ms → **150**f, Damage **5** /
+     Delay **500**ms → **15**f; death FX FX_StructureSmallDeath.
+   - Floating text residual: GUI:AddCash, Z lift **10**, alpha **230**.
+   - Honesty: `honesty_black_market_residual_pack_ok` + layer honesty tests.
+2. **Booby Trap residual pack** (`host_booby_trap`):
+   - Weapon residual: Primary **200**/r**5**, Secondary **50**/r**15**,
+     DamageType EXPLOSION, DeathType EXPLODED; GeometryBasedDamageWeapon/FX.
+   - Ability residual: StartAbilityRange **5**, ReloadTime **7500**ms → **225**f,
+     MaxSpecialObjects **100**, SpecialObjectsPersistent **Yes**, Enum SPECIAL_BOOBY_TRAP.
+   - Upgrade residual: BuildCost **1000**, BuildTime **30**s → **900**f,
+     ResearchSound RebelVoiceUpgradeBoobyTrap.
+   - Object residual: Vision/Shroud **25**, MaxHealth **1**, KindOf BOOBY_TRAP
+     NO_COLLIDE MINE, Geometry CYLINDER **8**/ **8**, StealthDelay **0**,
+     InnateStealth **Yes**, Physics Mass **5**.
+   - Honesty: `honesty_booby_trap_residual_pack_ok` + layer honesty tests.
+3. **Listening Outpost residual pack** (`host_listening_outpost`):
+   - Detector residual: DetectionRate **900**ms → **27**f, DetectionRange **300**,
+     IRPing / IRPingLoud / IRLenzflare.
+   - Transport residual: Slots **2**, ExitDelay **250**ms → **8**f, NumberOfExitPaths **3**,
+     HealthRegen **10%**/s, DamagePercentToUnits **10%**, InitialPayload TankHunter × **2**,
+     PassengersAllowedToFire **Yes**, ArmedRidersUpgradeMyWeaponSet **Yes**.
+   - Stealth residual: StealthDelay **2000**ms → **60**f, Forbidden MOVING RIDERS_ATTACKING,
+     InnateStealth **Yes**, FriendlyOpacityMin **50%**.
+   - Body residual: MaxHealth **240**, BuildCost **800**, BuildTime **15**s → **450**f,
+     Vision **250**, Shroud **500**, Locomotor Speed **40**/Damaged **30**,
+     Geometry BOX **20**/ **10**/ **22**, Prerequisite ChinaWarFactory.
+   - Dummy weapon residual: ListeningOutpostUpgradedDummyWeapon dmg **0.1** / range **90** /
+     Delay **1000**ms → **30**f.
+   - Honesty: `honesty_listening_outpost_residual_pack_ok` + layer honesty tests.
+4. **Graphics residual deepen**:
+   - DisplayStringManager free-resource residual (`floating_text_layout`): cleanup **60**f,
+     batch **10**/update, checkpoint walk, freeDisplayString checkpoint clear;
+     MAX_GROUPS **10**. Honesty: `honesty_display_string_manager_free_pool`.
+   - Anim2DCollection MoneyPickUp images list residual (`world_anim_layout`):
+     Animation2D.ini template count **14**, MoneyPickUp Image list SCPDollar000..030
+     (**31** names) stored on template; NumberImages matches list length.
+     Honesty: `honesty_anim2d_ini_template_count_and_money_pickup_images`.
+   - Laser MaxIntensityLifetime residual (`laser_segment_upload`): omitted → **0** frames;
+     commented sample **2000**ms → **60**f; Fade sample **250**ms → **8**f.
+     Honesty: `honesty_laser_max_intensity_duration_residual`.
+   - GameText group numeral residual (`game_text_residual`): `NUMBER:0`..`NUMBER:9`,
+     `LABEL:FORMATION`, MAX_GROUPS **10**. Honesty: `honesty_game_text_group_numeral_keys`.
+5. Tests / gates (not log-only):
+   - `black_market_residual_pack_honesty` / deposit / body / geometry_hole / floating_text / flammable_death
+   - `booby_trap_residual_pack_honesty` / weapon / ability / upgrade / object
+   - `listening_outpost_residual_pack_honesty` / detector / transport / stealth / body / dummy_weapon
+   - `display_string_manager_free_pool_residual_honesty`
+   - `anim2d_ini_template_count_and_money_pickup_images_residual`
+   - `laser_max_intensity_duration_residual_honesty`
+   - `game_text_group_numeral_keys_residual_honesty`
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
+## Residual Host Playability — Wave 67: usa-tanks/raptor/mig/nuke/battlemaster residual packs (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **USA tanks residual pack** (`host_usa_tanks`):
+   - Weapon residual: PrimaryDamage **60**/radius **5**/range **150**, ScatterVsInfantry **10**,
+     DamageType **ARMOR_PIERCING**, Delay **2000**ms → **60**f, Projectile **GenericTankShell**,
+     FireFX **WeaponFX_GenericTankGunNoTracer**, Crusader speed **400** / Paladin **300**.
+   - Body residual: Crusader HP **480**/cost **900**/10s→**300**f; Paladin HP **500**/cost **1100**/
+     12s→**360**f; Vision **150**/Shroud **300**, slots **3**, Turret **180**, Speed **30**/25.
+   - Composite Armor residual: AddMaxHealth **100** + ADD_CURRENT_HEALTH_TOO.
+   - Honesty: `honesty_usa_tanks_residual_pack_ok` + weapon/body/composite tests.
+2. **Raptor residual pack** (`host_raptor`):
+   - Weapon residual: DamageType **JET_MISSILES**, DeathType **EXPLODED**, Scatter **10**,
+     Projectile **RaptorJetMissile**, DetonationFX **WeaponFX_JetMissileDetonation**,
+     AutoReloadsClip **RETURN_TO_BASE**, AntiAir **Yes**/Infantry **No**, Clip **4**/reload **240**f;
+     King Clip **6**/reload **60**f.
+   - Body residual: MaxHealth **160**, Vision **200**, Shroud **400**, BuildCost **1400**,
+     BuildTime **20**s → **600**f, Locomotor Speed **175**/Damaged **120**/Min **60**.
+   - Honesty: `honesty_raptor_residual_pack_ok` + weapon/body tests.
+3. **MiG residual pack** (`host_mig`):
+   - Weapon residual: DamageType **JET_MISSILES**/Death **BURNED**, Projectile **NapalmMissile**,
+     FireFX **WeaponFX_NapalmMissile**, Clip **2**/reload **8000**ms→**240**f; BlackNapalm
+     secondary **50**/reload **2000**ms→**60**f.
+   - Body residual: MaxHealth **160**, Vision **200**, Shroud **300**, BuildCost **1200**,
+     BuildTime **10**s → **300**f, Locomotor Speed **160**/Min **60**.
+   - Aircraft Armor residual: Upgrade_ChinaAircraftArmor AddMaxHealth **40**.
+   - Honesty: `honesty_mig_residual_pack_ok` + weapon/body tests.
+4. **Nuke Cannon residual pack** (`host_nuke_cannon`):
+   - Weapon residual: DamageType **EXPLOSION**, Scatter **30**, WeaponSpeed **200**,
+     Projectile **NukeCannonShell**, FireFX **WeaponFX_NukeCannonMuzzleFlash**,
+     DetonationOCL **OCL_RadiationFieldMedium**, Delay **10000**ms → **300**f.
+   - Radiation residual: tick **750**ms → **23**f, lifetime **30000**ms → **900**f.
+   - Body residual: MaxHealth **240**, Vision **180**, Shroud **350**, BuildCost **1600**,
+     BuildTime **20**s → **600**f, slots **10**, Turret **80**, Speed **20**/18.
+   - Honesty: `honesty_nuke_cannon_residual_pack_ok` + weapon/radiation/body tests.
+5. **Battlemaster residual pack** (`host_battlemaster`):
+   - Weapon residual: DamageType **ARMOR_PIERCING**, Scatter **10**, Projectile
+     **BattleMasterTankShell**, FireFX **WeaponFX_GenericTankGunNoTracerSmall**,
+     Uranium DAMAGE **125%**.
+   - Horde residual: ExactMatch **Yes**, Radius **75**, Count **5**, Update **1000**ms→**30**f;
+     ROF stack floor delays **40**/**32**.
+   - Body residual: MaxHealth **400**, Vision **150**, Shroud **300**, BuildCost **800**,
+     BuildTime **10**s → **300**f, Turret **120**, Speed **25**/Nuclear **35**.
+   - Honesty: `honesty_battlemaster_residual_pack_ok` + weapon/horde/body tests.
+6. **Red Guard residual pack** (`host_red_guard`):
+   - Weapon residual: DamageType **SMALL_ARMS**, radius **0**, FireFX
+     **WeaponFX_GenericMachineGunFire**; Bayonet MELEE **10000**/range **2**/1900ms→**57**f/
+     PreAttack **1400**ms→**42**f.
+   - Horde residual: ExactMatch **No**, KindOf **INFANTRY**, Radius **30**, Count **5**;
+     ROF stack delays **20**/**16**.
+   - Body residual: MaxHealth **120**, Vision **100**, Shroud **200**, BuildCost **300**,
+     BuildTime **10**s → **300**f, Speed **25**/15; Capture StartRange **5**/Unpack **90**f.
+   - Honesty: `honesty_red_guard_residual_pack_ok` + weapon/horde/body tests.
+7. **Tank Hunter residual pack** (`host_tank_hunter`):
+   - Weapon residual: DamageType **INFANTRY_MISSILE**, Scatter **10**, Projectile
+     **TankHunterMissile**, FireFX **FX_BuggyMissileIgnition**, DetonationFX
+     **WeaponFX_RocketBuggyMissileDetonation**, AutoReloadsClip **Yes**.
+   - TNT residual: 500/10 + 150/50, Reload **7500**ms→**225**f, Lifetime **10000**ms→**300**f,
+     FireSound **BombTruckDefaultBombDetonation**.
+   - Body residual: MaxHealth **100**, Vision **150**, Shroud **400**, BuildCost **300**,
+     BuildTime **5**s → **150**f, Speed **20**/10, Geometry r**10**/h**12**.
+   - Honesty: `honesty_tank_hunter_residual_pack_ok` + weapon/tnt/body tests.
+8. Tests / gates (not log-only):
+   - `usa_tanks_residual_pack_honesty_wave67` / raptor / mig / nuke_cannon /
+     battlemaster / red_guard / tank_hunter residual pack honesty
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
+## Residual Host Playability — Wave 66: marauder/ranger/avenger/bunker/cia residual packs (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Marauder residual pack** (`host_marauder`):
+   - Weapon residual: dmg **60**/radius **5**/range **170**, DamageType ARMOR_PIERCING,
+     ScatterVsInfantry **10**, Delay **2000**/**1500**/**750**ms → **60**/**45**/**23**f,
+     tier2 ClipSize **2** / ClipReload **100**ms → **3**f, speeds **300**/**400**/**500**,
+     FireFX WeaponFX_GenericTankGunNoTracer, Projectile MarauderTankShell.
+   - Body residual: MaxHealth **500**, Vision **125**, Shroud **300**, BuildCost **800**,
+     BuildTime **10**s → **300**f, TransportSlotCount **3**, SCIENCE_MarauderTank,
+     Locomotor Speed **40**/Damaged **30**.
+   - Honesty: `honesty_marauder_residual_pack_ok` + layer honesty tests.
+2. **Ranger residual pack** (`host_ranger`):
+   - Rifle residual: dmg **5**/radius **0**/range **100**, Delay **100**ms → **3**f,
+     ClipSize **3**, ClipReload **700**ms → **21**f, DamageType SMALL_ARMS.
+   - Flashbang residual: Primary **35**/r**10** + Secondary **10**/r**40**, range **175**,
+     min **20**, ClipReload **2000**ms → **60**f, DamageType SURRENDER, Scatter **4**,
+     AllowAttackGarrisonedBldgs **Yes**.
+   - Body residual: MaxHealth **180**, Vision **100**, Shroud **400**, BuildCost **225**,
+     BuildTime **5**s → **150**f, TransportSlotCount **1**, BasicHuman Speed **20**/Damaged **10**.
+   - Honesty: `honesty_ranger_residual_pack_ok` + layer honesty tests.
+3. **Avenger residual pack** (`host_avenger`):
+   - Designator residual: DamageType STATUS / FAERIE_FIRE, duration **200**ms → **6**f,
+     range **200**, Delay **200**ms → **6**f, ROF mult **150%**.
+   - Air laser residual: dmg **10**/range **300**/Delay **200**ms → **6**f,
+     AntiGround **No**, AntiAirborneVehicle **Yes**, AntiAirborneInfantry **No**.
+   - Body residual: MaxHealth **300**, Vision **150**, Shroud **300**, BuildCost **2000**,
+     BuildTime **10**s → **300**f, TransportSlotCount **3**, Speed **30**/Damaged **20**,
+     PDL ScanRange **200** (AvengerPointDefenseLaserOne/Two).
+   - Honesty: `honesty_avenger_residual_pack_ok` + layer honesty tests.
+4. **Bunker Buster residual pack** (`host_bunker_buster`):
+   - Missile residual: StealthJetMissileWeapon dmg **100**/r**5**/range **220**/min **60**,
+     Delay **200**ms → **6**f, ClipSize **2**, ClipReload **8000**ms → **240**f,
+     DamageType STEALTHJET_MISSILES.
+   - Behavior residual: Upgrade_AmericaBunkerBusters, occupant **400**/r**10**,
+     shockwave **10**/r**50**, Seismic **200**/mag **5**, structure mult **1.5**.
+   - Body residual: MaxHealth **120**, Vision **180**, Shroud **300**, BuildCost **1600**,
+     BuildTime **25**s → **750**f, SCIENCE_StealthFighter.
+   - Honesty: `honesty_bunker_buster_residual_pack_ok` + layer honesty tests.
+5. **CIA Intelligence residual pack** (`host_cia_intelligence`):
+   - SpecialPower residual: SuperweaponCIAIntelligence Reload **300000**ms → **9000**f,
+     Enum SPECIAL_CIA_INTELLIGENCE, ShortcutPower **Yes**, Academy ACT_SUPERPOWER.
+   - Duration residual: Base **30000**ms → **900**f, BonusPerCaptured **10000**ms → **300**f,
+     Max **240000**ms → **7200**f, default FOW vision radius **150**.
+   - Honesty: `honesty_cia_intelligence_residual_pack_ok` + layer honesty tests.
+6. **Bomb Truck disguise residual pack** (`host_bomb_truck_disguise`):
+   - Ability residual: SpecialAbilityDisguiseAsVehicle, DisguisesAsTeam **Yes**,
+     RevealDistance **100**, Transition **2000**ms → **60**f, RevealTransition **1000**ms → **30**f,
+     FX_BombTruckDisguise / FX_BombTruckDisguiseReveal.
+   - Body residual: MaxHealth **220**, Vision **150**, Shroud **200**, BuildCost **1200**,
+     BuildTime **15**s → **450**f, TransportSlotCount **3**, Speed **50**/Damaged **50**.
+   - Honesty: `honesty_bomb_truck_disguise_residual_pack_ok` + layer honesty tests.
+7. **Cash Bounty residual pack** (`host_cash_bounty`):
+   - Science residual: SCIENCE_CashBounty1/2/3 → **5%**/**10%**/**20%**, PointCost **1**,
+     prereq chain GLA+Rank3 → Bounty1 → Bounty2 → Bounty3.
+   - SpecialPower residual: SpecialAbilityCashBounty1/2/3, Enum SPECIAL_CASH_BOUNTY.
+   - Floating text residual: GUI:AddCash, Z lift **10**, yellow RGBA (255,255,0,255).
+   - Honesty: `honesty_cash_bounty_residual_pack_ok` + layer honesty tests.
+8. Tests / gates (not log-only):
+   - `marauder_residual_pack_honesty_wave66` / weapon / body
+   - `ranger_residual_pack_honesty_wave66` / rifle / flashbang / body
+   - `avenger_residual_pack_honesty_wave66` / designator / air_laser / body
+   - `bunker_buster_residual_pack_honesty_wave66` / missile / behavior / body
+   - `cia_intelligence_residual_pack_honesty_wave66` / special_power / duration
+   - `bomb_truck_disguise_residual_pack_honesty_wave66` / ability / body
+   - `cash_bounty_residual_pack_honesty_wave66` / science / special_power / floating_text
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
 ## Residual Host Playability — Wave 64: tunnel/oil/crate/technical/troop residual packs (2026-07-13)
 
 **Closed (host-testable residual peels):**

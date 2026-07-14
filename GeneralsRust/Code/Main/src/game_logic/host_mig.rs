@@ -16,6 +16,18 @@
 //!   + SmallRadiationField residual.
 //! - AA residual: AntiAirborneVehicle = Yes (can_target_air).
 //!
+//! Wave 67 residual pack (retail ChinaAir.ini / Weapon.ini / Locomotor.ini):
+//! - Weapon residual: DamageType **JET_MISSILES**, DeathType **BURNED**,
+//!   Projectile **NapalmMissile**, FireFX **WeaponFX_NapalmMissile**,
+//!   AutoReloadsClip **RETURN_TO_BASE**, ClipSize **2**, ClipReload **8000**ms → **240**f.
+//! - BlackNapalm residual: SecondaryDamage **50**, DeathType **EXPLODED**,
+//!   ClipReload **2000**ms → **60**f (upgrade path).
+//! - Body residual: MaxHealth **160**, Vision **200**, Shroud **300**,
+//!   BuildCost **1200**, BuildTime **10**s → **300**f, TransportSlotCount **0**,
+//!   Geometry BOX **14**/**7**/**5**, Locomotor Speed **160**/Min **60**.
+//! - Aircraft Armor residual: Upgrade_ChinaAircraftArmor AddMaxHealth **40**
+//!   + ADD_CURRENT_HEALTH_TOO.
+//!
 //! Fail-closed honesty:
 //! - Not full JetAIUpdate RETURN_TO_BASE / ClipReload airfield rearm matrix
 //! - Not full HistoricBonus FirestormSmallCreationWeapon multi-missile matrix
@@ -24,6 +36,9 @@
 
 use super::Weapon;
 use std::collections::HashSet;
+
+/// Logic frames per second (host fixed step).
+pub const MIG_LOGIC_FPS: f32 = 30.0;
 
 /// Retail standard MiG primary weapon.
 pub const NAPALM_MISSILE_WEAPON: &str = "NapalmMissileWeapon";
@@ -37,6 +52,8 @@ pub const NUKE_NUKE_MISSILE_WEAPON: &str = "Nuke_NukeMissileWeapon";
 pub const UPGRADE_CHINA_BLACK_NAPALM: &str = "Upgrade_ChinaBlackNapalm";
 /// Retail Upgrade_ChinaTacticalNukeMig.
 pub const UPGRADE_CHINA_TACTICAL_NUKE_MIG: &str = "Upgrade_ChinaTacticalNukeMig";
+/// Retail Upgrade_ChinaAircraftArmor.
+pub const UPGRADE_CHINA_AIRCRAFT_ARMOR: &str = "Upgrade_ChinaAircraftArmor";
 
 /// Standard NapalmMissileWeapon PrimaryDamage.
 pub const MIG_PRIMARY_DAMAGE: f32 = 75.0;
@@ -52,12 +69,34 @@ pub const MIG_SECONDARY_RADIUS: f32 = 30.0;
 pub const MIG_RANGE: f32 = 320.0;
 /// Standard MinimumAttackRange.
 pub const MIG_MIN_RANGE: f32 = 80.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const MIG_DELAY_MS: u32 = 300;
 /// DelayBetweenShots 300ms → 9 frames @ 30 FPS.
 pub const MIG_DELAY_FRAMES: u32 = 9;
 /// ClipSize honesty (RETURN_TO_BASE rearm fail-closed).
 pub const MIG_CLIP_SIZE: u32 = 2;
+/// Retail ClipReloadTime residual (msec, standard napalm).
+pub const MIG_CLIP_RELOAD_MS: u32 = 8_000;
 /// ClipReloadTime 8000ms → 240 frames honesty residual.
 pub const MIG_CLIP_RELOAD_FRAMES: u32 = 240;
+/// Retail BlackNapalm ClipReloadTime residual (msec).
+pub const MIG_BLACK_CLIP_RELOAD_MS: u32 = 2_000;
+/// BlackNapalm ClipReloadTime 2000ms → 60 frames honesty residual.
+pub const MIG_BLACK_CLIP_RELOAD_FRAMES: u32 = 60;
+/// Retail DamageType residual (standard napalm).
+pub const MIG_DAMAGE_TYPE: &str = "JET_MISSILES";
+/// Retail DeathType residual (standard napalm).
+pub const MIG_DEATH_TYPE: &str = "BURNED";
+/// Retail BlackNapalm DamageType residual.
+pub const MIG_BLACK_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail BlackNapalm DeathType residual.
+pub const MIG_BLACK_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ProjectileObject residual.
+pub const MIG_PROJECTILE: &str = "NapalmMissile";
+/// Retail FireFX residual.
+pub const MIG_FIRE_FX: &str = "WeaponFX_NapalmMissile";
+/// Retail AutoReloadsClip residual.
+pub const MIG_AUTO_RELOADS_CLIP: &str = "RETURN_TO_BASE";
 
 /// Nuke_MiGMissileWeapon PrimaryDamage.
 pub const NUKE_MIG_PRIMARY_DAMAGE: f32 = 100.0;
@@ -74,6 +113,49 @@ pub const NUKE_TACTICAL_SECONDARY_RADIUS: f32 = 60.0;
 pub const MIG_PROJECTILE_SPEED: f32 = 1000.0;
 /// Residual fire audio.
 pub const MIG_FIRE_AUDIO: &str = "MigJetNapalmWeapon";
+
+// --- Body residual (ChinaJetMIG) ---
+
+/// Retail MaxHealth residual.
+pub const MIG_MAX_HEALTH: f32 = 160.0;
+/// Retail Aircraft Armor AddMaxHealth residual.
+pub const MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH: f32 = 40.0;
+/// Retail Aircraft Armor ChangeType residual.
+pub const MIG_AIRCRAFT_ARMOR_CHANGE_TYPE: &str = "ADD_CURRENT_HEALTH_TOO";
+/// Retail VisionRange residual.
+pub const MIG_VISION_RANGE: f32 = 200.0;
+/// Retail ShroudClearingRange residual.
+pub const MIG_SHROUD_CLEARING_RANGE: f32 = 300.0;
+/// Retail BuildCost residual.
+pub const MIG_BUILD_COST: u32 = 1_200;
+/// Retail BuildTime residual (seconds).
+pub const MIG_BUILD_TIME_SEC: f32 = 10.0;
+/// BuildTime 10s → 300 frames @ 30 FPS.
+pub const MIG_BUILD_TIME_FRAMES: u32 = 300;
+/// Retail TransportSlotCount residual.
+pub const MIG_TRANSPORT_SLOT_COUNT: u32 = 0;
+/// Retail Geometry BOX MajorRadius residual.
+pub const MIG_GEOMETRY_MAJOR: f32 = 14.0;
+/// Retail Geometry BOX MinorRadius residual.
+pub const MIG_GEOMETRY_MINOR: f32 = 7.0;
+/// Retail GeometryHeight residual.
+pub const MIG_GEOMETRY_HEIGHT: f32 = 5.0;
+/// Retail MIGLocomotor Speed residual.
+pub const MIG_LOCOMOTOR_SPEED: f32 = 160.0;
+/// Retail MIGLocomotor MinSpeed residual.
+pub const MIG_LOCOMOTOR_MIN_SPEED: f32 = 60.0;
+/// Retail ExperienceValue residual.
+pub const MIG_EXPERIENCE_VALUE: [u32; 4] = [50, 50, 100, 150];
+/// Retail ExperienceRequired residual.
+pub const MIG_EXPERIENCE_REQUIRED: [u32; 4] = [0, 100, 200, 400];
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn mig_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * MIG_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Residual loadout kind for damage / field selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,6 +372,97 @@ pub fn is_legal_mig_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
+
+/// Apply Aircraft Armor residual: +AddMaxHealth current+max (ADD_CURRENT_HEALTH_TOO).
+pub fn apply_mig_aircraft_armor_health(
+    max_health: &mut f32,
+    current: &mut f32,
+    maximum: &mut f32,
+) {
+    *max_health = (*max_health + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
+    *maximum = (*maximum + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
+    *current = (*current + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
+}
+
+// --- Wave 67 residual honesty packs ---
+
+/// Wave 67 residual honesty: MiG weapon / loadout residual peel.
+pub fn honesty_mig_weapon_residual_ok() -> bool {
+    NAPALM_MISSILE_WEAPON == "NapalmMissileWeapon"
+        && BLACK_NAPALM_MISSILE_WEAPON == "BlackNapalmMissileWeapon"
+        && (MIG_PRIMARY_DAMAGE - 75.0).abs() < 0.01
+        && (MIG_PRIMARY_RADIUS - 5.0).abs() < 0.01
+        && (MIG_SECONDARY_DAMAGE - 40.0).abs() < 0.01
+        && (MIG_BLACK_SECONDARY_DAMAGE - 50.0).abs() < 0.01
+        && (MIG_SECONDARY_RADIUS - 30.0).abs() < 0.01
+        && (MIG_RANGE - 320.0).abs() < 0.01
+        && (MIG_MIN_RANGE - 80.0).abs() < 0.01
+        && MIG_DELAY_MS == 300
+        && MIG_DELAY_FRAMES == mig_ms_to_frames(MIG_DELAY_MS)
+        && MIG_DELAY_FRAMES == 9
+        && MIG_CLIP_SIZE == 2
+        && MIG_CLIP_RELOAD_MS == 8_000
+        && MIG_CLIP_RELOAD_FRAMES == mig_ms_to_frames(MIG_CLIP_RELOAD_MS)
+        && MIG_BLACK_CLIP_RELOAD_MS == 2_000
+        && MIG_BLACK_CLIP_RELOAD_FRAMES == mig_ms_to_frames(MIG_BLACK_CLIP_RELOAD_MS)
+        && MIG_DAMAGE_TYPE == "JET_MISSILES"
+        && MIG_DEATH_TYPE == "BURNED"
+        && MIG_BLACK_DAMAGE_TYPE == "EXPLOSION"
+        && MIG_BLACK_DEATH_TYPE == "EXPLODED"
+        && MIG_PROJECTILE == "NapalmMissile"
+        && MIG_FIRE_FX == "WeaponFX_NapalmMissile"
+        && MIG_AUTO_RELOADS_CLIP == "RETURN_TO_BASE"
+        && MIG_FIRE_AUDIO == "MigJetNapalmWeapon"
+        && (NUKE_MIG_PRIMARY_DAMAGE - 100.0).abs() < 0.01
+        && (NUKE_TACTICAL_PRIMARY_DAMAGE - 150.0).abs() < 0.01
+        && (NUKE_TACTICAL_PRIMARY_RADIUS - 50.0).abs() < 0.01
+        && (NUKE_TACTICAL_SECONDARY_DAMAGE - 50.0).abs() < 0.01
+        && (NUKE_TACTICAL_SECONDARY_RADIUS - 60.0).abs() < 0.01
+        && {
+            let w = mig_weapon(MigLoadout::Standard);
+            (w.damage - 75.0).abs() < 0.01
+                && w.can_target_air
+                && w.ammo == Some(2)
+                && mig_spawns_fire_field(MigLoadout::Standard)
+                && mig_fire_field_upgraded(MigLoadout::BlackNapalm)
+                && mig_spawns_radiation(MigLoadout::NukeBase)
+        }
+}
+
+/// Wave 67 residual honesty: MiG body / aircraft-armor residual peel.
+pub fn honesty_mig_body_residual_ok() -> bool {
+    (MIG_MAX_HEALTH - 160.0).abs() < 0.01
+        && (MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH - 40.0).abs() < 0.01
+        && MIG_AIRCRAFT_ARMOR_CHANGE_TYPE == "ADD_CURRENT_HEALTH_TOO"
+        && UPGRADE_CHINA_AIRCRAFT_ARMOR == "Upgrade_ChinaAircraftArmor"
+        && (MIG_VISION_RANGE - 200.0).abs() < 0.01
+        && (MIG_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && MIG_BUILD_COST == 1_200
+        && (MIG_BUILD_TIME_SEC - 10.0).abs() < 0.01
+        && MIG_BUILD_TIME_FRAMES == (MIG_BUILD_TIME_SEC * MIG_LOGIC_FPS).round() as u32
+        && MIG_BUILD_TIME_FRAMES == 300
+        && MIG_TRANSPORT_SLOT_COUNT == 0
+        && (MIG_GEOMETRY_MAJOR - 14.0).abs() < 0.01
+        && (MIG_GEOMETRY_MINOR - 7.0).abs() < 0.01
+        && (MIG_GEOMETRY_HEIGHT - 5.0).abs() < 0.01
+        && (MIG_LOCOMOTOR_SPEED - 160.0).abs() < 0.01
+        && (MIG_LOCOMOTOR_MIN_SPEED - 60.0).abs() < 0.01
+        && MIG_EXPERIENCE_VALUE == [50, 50, 100, 150]
+        && MIG_EXPERIENCE_REQUIRED == [0, 100, 200, 400]
+        && {
+            let mut max_h = 160.0_f32;
+            let mut cur = 100.0_f32;
+            let mut maximum = 160.0_f32;
+            apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
+            (max_h - 200.0).abs() < 0.01 && (cur - 140.0).abs() < 0.01
+        }
+}
+
+/// Combined Wave 67 MiG residual honesty pack.
+pub fn honesty_mig_residual_pack_ok() -> bool {
+    honesty_mig_weapon_residual_ok() && honesty_mig_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,5 +518,18 @@ mod tests {
         assert!(mig_fire_field_upgraded(MigLoadout::BlackNapalm));
         assert!(mig_spawns_radiation(MigLoadout::NukeBase));
         assert!(!mig_spawns_fire_field(MigLoadout::NukeBase));
+    }
+
+    #[test]
+    fn mig_residual_pack_honesty_wave67() {
+        assert!(honesty_mig_weapon_residual_ok());
+        assert!(honesty_mig_body_residual_ok());
+        assert!(honesty_mig_residual_pack_ok());
+        assert_eq!(mig_ms_to_frames(300), 9);
+        assert_eq!(mig_ms_to_frames(8_000), 240);
+        assert_eq!(MIG_BUILD_TIME_FRAMES, 300);
+        assert_eq!(MIG_AUTO_RELOADS_CLIP, "RETURN_TO_BASE");
+        assert_eq!(MIG_PROJECTILE, "NapalmMissile");
+        assert!((MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH - 40.0).abs() < 0.01);
     }
 }
