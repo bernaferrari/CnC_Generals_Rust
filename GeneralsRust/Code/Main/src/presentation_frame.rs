@@ -2904,12 +2904,14 @@ impl PresentationFrame {
     /// so a prior live `update_ui_state` walk cannot leave stale identity when a frame
     /// is available.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
-        use crate::ui::{color_for_player, MinimapDot};
+        use crate::game_logic::victory::PlayerOutcome;
+        use crate::ui::{color_for_player, BuildQueueEntry, MinimapDot};
 
         ui.credits = self.local_supplies as i32;
-        ui.power_generated = self.local_power.max(0);
-        ui.power_used = 0;
-        ui.max_power = self.local_power.max(0).max(1);
+        // Prefer produced/consumed residual when present (energy bar parity).
+        ui.power_generated = self.local_power_produced.max(self.local_power).max(0);
+        ui.power_used = self.local_power_consumed.max(0);
+        ui.max_power = ui.power_generated.max(1);
         ui.player_id = self.local_player_id;
         ui.selected_units = self.selected.clone();
         ui.match_over = self.match_over;
@@ -2917,6 +2919,58 @@ impl PresentationFrame {
         // ControlBar/WND selection panel health must come from snapshot, not live re-read.
         ui.selection_panel =
             crate::ui::ControlBarSelectionPanelState::from_unit_infos(&ui.selected_unit_infos);
+
+        // Victory residual from snapshot events (no live evaluate_victory re-read).
+        if self.match_over {
+            let winner = self.events.iter().find_map(|e| match e {
+                PresentationEvent::Victory { winner_player } => *winner_player,
+                _ => None,
+            });
+            ui.player_outcome = Some(match winner {
+                Some(id) if id == self.local_player_id => PlayerOutcome::Won,
+                Some(_) => PlayerOutcome::Lost,
+                None => {
+                    if self
+                        .victory_label
+                        .as_deref()
+                        .is_some_and(|s| s.to_ascii_lowercase().contains("draw"))
+                    {
+                        PlayerOutcome::Draw
+                    } else if self
+                        .victory_label
+                        .as_deref()
+                        .is_some_and(|s| s.to_ascii_lowercase().contains("winner"))
+                    {
+                        // Fail-closed: label without winner id → treat as unknown draw residual.
+                        PlayerOutcome::Draw
+                    } else {
+                        PlayerOutcome::Draw
+                    }
+                }
+            });
+        }
+
+        // Structure production + under-construction residual for build-queue HUD strip.
+        let mut build_queue = Vec::new();
+        for o in self.objects.iter().filter(|o| !o.destroyed) {
+            if o.under_construction {
+                build_queue.push(BuildQueueEntry {
+                    template_name: o.template_name.clone(),
+                    percent_complete: o.construction_percent.clamp(0.0, 1.0),
+                    time_remaining: (1.0 - o.construction_percent.clamp(0.0, 1.0)) * 30.0,
+                });
+            }
+            for item in &o.production_queue {
+                build_queue.push(BuildQueueEntry {
+                    template_name: item.template_name.clone(),
+                    percent_complete: item.progress.clamp(0.0, 1.0),
+                    time_remaining: (item.total_time * (1.0 - item.progress.clamp(0.0, 1.0)))
+                        .max(0.0),
+                });
+            }
+        }
+        build_queue.truncate(16);
+        ui.build_queue = build_queue;
 
         // Minimap dots from snapshot positions/teams (normalized into frame bounds).
         let alive: Vec<&RenderableObject> = self.objects.iter().filter(|o| !o.destroyed).collect();
@@ -2963,6 +3017,38 @@ impl PresentationFrame {
     }
 
     /// Resource triple for GameHud::update_resources (credits, power, max_power).
+    /// Drive VictoryScreen visibility/type from snapshot residual (no live GameLogic).
+    ///
+    /// Fail-closed: does not rebuild full VictorySummary statistics tables.
+    pub fn apply_to_victory_screen(&self, screen: &mut crate::ui::VictoryScreen) {
+        if !self.match_over {
+            return;
+        }
+        let winner = self.events.iter().find_map(|e| match e {
+            PresentationEvent::Victory { winner_player } => *winner_player,
+            _ => None,
+        });
+        match winner {
+            Some(id) if id == self.local_player_id => screen.set_victory(id),
+            Some(_) => screen.set_defeat(),
+            None => {
+                let label = self
+                    .victory_label
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if label.contains("defeat") || label.contains("lost") {
+                    screen.set_defeat();
+                } else if label.contains("winner") && !label.contains("draw") {
+                    // Label-only winner residual without player id → draw fail-closed.
+                    screen.set_draw();
+                } else {
+                    screen.set_draw();
+                }
+            }
+        }
+    }
+
     pub fn hud_resource_triple(&self) -> (i32, i32, i32) {
         let credits = self.local_supplies as i32;
         let power = self.local_power.max(0);
@@ -5209,6 +5295,91 @@ mod tests {
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
         );
+    }
+
+    #[test]
+    fn presentation_feeds_victory_and_construction() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType, ProductionItem},
+            victory::PlayerOutcome,
+            KindOf, Player, Resources, Team, ThingTemplate,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "VHuman", true));
+        logic.add_player(Player::new(1, Team::China, "VAI", false));
+        let mut tb = ThingTemplate::new("VBarracks");
+        tb.set_health(1000.0);
+        tb.add_kind_of(KindOf::Structure);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("VBarracks".into(), tb);
+        let mut tc = ThingTemplate::new("VConstruct");
+        tc.set_health(500.0);
+        tc.add_kind_of(KindOf::Structure);
+        logic.templates.insert("VConstruct".into(), tc);
+        let barracks = logic
+            .create_object("VBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("b");
+        let constructing = logic
+            .create_object("VConstruct", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("c");
+        if let Some(o) = logic.get_object_mut(barracks) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            let mut bd = BuildingData::new(BuildingType::Barracks);
+            bd.production_queue.push(ProductionItem {
+                template_name: "Ranger".into(),
+                progress: 0.25,
+                total_time: 20.0,
+                cost: Resources {
+                    supplies: 100,
+                    power: 0,
+                },
+            });
+            o.building_data = Some(bd);
+        }
+        if let Some(o) = logic.get_object_mut(constructing) {
+            o.status.under_construction = true;
+            o.construction_percent = 0.4;
+            o.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.is_local = true;
+            p.power_produced = 80;
+            p.power_consumed = 30;
+        }
+        // Mark match over via victory event residual (build_with_victory path).
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        frame.match_over = true;
+        frame.victory_label = Some("Winner(0)".into());
+        frame.events.push(PresentationEvent::Victory {
+            winner_player: Some(0),
+        });
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert!(ui.match_over);
+        assert_eq!(ui.player_outcome, Some(PlayerOutcome::Won));
+        assert_eq!(ui.power_generated, 80);
+        assert_eq!(ui.power_used, 30);
+        assert!(
+            ui.build_queue
+                .iter()
+                .any(|b| b.template_name == "Ranger" && (b.percent_complete - 0.25).abs() < 0.01),
+            "expected production queue residual: {:?}",
+            ui.build_queue
+        );
+        assert!(
+            ui.build_queue
+                .iter()
+                .any(|b| b.template_name == "VConstruct" && (b.percent_complete - 0.4).abs() < 0.01),
+            "expected under-construction residual: {:?}",
+            ui.build_queue
+        );
+
+        let mut screen = crate::ui::VictoryScreen::new();
+        frame.apply_to_victory_screen(&mut screen);
+        use crate::ui::Renderable;
+        assert!(screen.is_visible());
     }
 
     #[test]
