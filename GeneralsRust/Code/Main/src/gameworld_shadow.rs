@@ -1962,6 +1962,44 @@ mod tests {
     }
 
     #[test]
+    fn steal_cash_logs_economy_for_both_sides() {
+        crate::game_logic::host_economy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("StealLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        // Ensure two teams with cash.
+        let mut usa = None;
+        let mut gla = None;
+        for (pid, p) in logic.get_players() {
+            if p.team == Team::USA {
+                usa = Some(*pid);
+            }
+            if p.team == Team::GLA {
+                gla = Some(*pid);
+            }
+        }
+        let (Some(usa), Some(gla)) = (usa, gla) else {
+            return;
+        };
+        {
+            let p = logic.get_players_mut().get_mut(&gla).unwrap();
+            p.resources.supplies = 500;
+        }
+        {
+            let p = logic.get_players_mut().get_mut(&usa).unwrap();
+            p.resources.supplies = 100;
+        }
+        crate::game_logic::host_economy_log::clear();
+        let stolen = logic.steal_cash_from_team(Team::GLA, Team::USA, 50);
+        assert_eq!(stolen, 50);
+        let ev = crate::game_logic::host_economy_log::drain();
+        assert!(
+            ev.iter().any(|e| e.player_id == gla) && ev.iter().any(|e| e.player_id == usa),
+            "steal must log src+dest economy: {ev:?}"
+        );
+    }
+
+    #[test]
     fn credit_supplies_logs_economy_channel() {
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();
