@@ -78,7 +78,19 @@ Production enqueue records `host_production_log`; completions spawn via `host_sp
 
 ## Presentation residual (unit mesh)
 
-When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPipeline::execute`. `collect_render_items` drives the main unit mesh pass from `unit_render_inputs` only (`debug_last_live_unit_identity_reads == 0`). Live `game_logic.get_objects()` remains only for boot/loading frames without a snapshot. Terrain/prewarm prefer frozen `PresentationWorldEnv` and fall back to live map metadata if absent.
+When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPipeline::execute`. `collect_render_items` drives the main unit mesh pass from `unit_render_inputs` only. Minimap base / map roads / runtime heightmap helpers take `Option<&GameLogic>` and prefer `PresentationWorldEnv` (bounds, height samples, road segments) when the frame is set (`debug_last_live_unit_identity_reads == 0`). Live `game_logic.get_objects()` remains only for boot/loading frames without a snapshot. Terrain/prewarm prefer frozen `PresentationWorldEnv` and fall back to live map metadata if absent.
+
+## GameWorld last-writer surface (current)
+
+| Concern | Last writer | Host still executes |
+|---------|-------------|---------------------|
+| HP / destroy | GameWorld mutations + writeback | mid-frame combat apply then log |
+| Supplies / power | GameWorld economy mutations | spend/gain then log |
+| Attack target | shadow SetAttackTarget + writeback | set_target / AI launch_attack |
+| Move destination | shadow SetMoveTarget + writeback | move_to / pathfinding |
+| World pose (render) | shadow overlay / SetTransform | path integration mid-frame |
+| Production enqueue | host_production_log (probe) | enqueue_production + create_object spawn |
+| AI decisions / path step / projectile integrate | — | **Main only** |
 
 ## Still Main mid-frame (not sole GameWorld)
 

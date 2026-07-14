@@ -7277,7 +7277,7 @@ impl CnCGameEngine {
             match render_pipeline.load_heightmap_from_runtime_terrain(
                 &graphics_system.device_arc(),
                 &graphics_system.queue_arc(),
-                game_logic,
+                Some(game_logic),
             ) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -7295,7 +7295,7 @@ impl CnCGameEngine {
             }
         }
 
-        if let Err(err) = render_pipeline.sync_runtime_map_roads(game_logic) {
+        if let Err(err) = render_pipeline.sync_runtime_map_roads(Some(game_logic)) {
             warn!(
                 "Failed to sync runtime map roads for '{}': {}",
                 map_name, err
