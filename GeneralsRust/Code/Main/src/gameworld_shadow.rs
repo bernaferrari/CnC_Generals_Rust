@@ -689,6 +689,34 @@ impl GameWorldShadow {
 
     /// Apply drained host damage events as GameWorld mutations (order preserved).
     /// Returns (queued, applied_after_flush).
+    pub fn queue_set_health_for_host(&mut self, host_id: ObjectId, health: f32) -> bool {
+        let Some(&eid) = self.host_to_entity.get(&host_id.0) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetHealth {
+                target: eid,
+                health,
+            });
+        true
+    }
+
+    pub fn apply_host_heal_events(
+        &mut self,
+        events: &[crate::game_logic::host_heal_log::HostHealEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_health_for_host(ev.target, ev.health) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_damage_events(
         &mut self,
         events: &[crate::game_logic::host_damage_log::HostDamageEvent],
@@ -893,6 +921,7 @@ pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldSh
     }
     // Drain host damage log so it does not grow unbounded when no session is held.
     let events = crate::game_logic::host_damage_log::drain();
+    let _heals = crate::game_logic::host_heal_log::drain();
     let _spawns = crate::game_logic::host_spawn_log::drain();
     let _destroys = crate::game_logic::host_destroy_log::drain();
     let _atks = crate::game_logic::host_attack_log::drain();
@@ -925,18 +954,20 @@ pub fn shadow_session_after_host_tick(
     logic: &mut GameLogic,
 ) -> GameWorldShadowProbe {
     let events = crate::game_logic::host_damage_log::drain();
+    let heal_events = crate::game_logic::host_heal_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
     let auth = gameworld_damage_authority_enabled();
-    // Keep pre-tick shadow HP when we will re-apply events as mutations.
-    let write_health = !(auth && !events.is_empty());
+    // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
+    let write_health = !(auth && (!events.is_empty() || !heal_events.is_empty()));
     shadow.sync_from_host_with(logic, write_health);
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
+    let _heals = shadow.apply_host_heal_events(&heal_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
         let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
@@ -1786,6 +1817,38 @@ mod tests {
             "authority final {host_final} vs mid-frame host {host_mid}"
         );
         assert!(host_final < pre);
+    }
+
+    #[test]
+    fn host_heal_log_feeds_set_health_mutation() {
+        crate::game_logic::host_heal_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HealLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "HealT", 100.0);
+        let id = logic
+            .create_object("HealT", Team::USA, glam::Vec3::ZERO)
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            o.health.current = 40.0;
+        }
+        let mut shadow = GameWorldShadow::new(4096);
+        shadow.sync_from_host(&logic);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            o.health.current = 70.0;
+            crate::game_logic::host_heal_log::record(id, 70.0);
+        }
+        let heals = crate::game_logic::host_heal_log::drain();
+        let n = shadow.apply_host_heal_events(&heals);
+        assert_eq!(n, 1);
+        let probe = shadow.probe(&mut logic);
+        assert!(
+            probe.health_match,
+            "heal SetHealth should match host: {}",
+            probe.detail
+        );
     }
 
     #[test]

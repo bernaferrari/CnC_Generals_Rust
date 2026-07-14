@@ -4730,10 +4730,12 @@ impl GameLogic {
                         obj.construction_percent = 1.0;
                         obj.status.under_construction = false;
                         obj.health.current = obj.health.maximum;
+                        crate::game_logic::host_heal_log::record(id, obj.health.current);
                         completed_structures.push(id);
                     } else {
                         obj.health.current =
                             obj.health.maximum * (0.1 + 0.9 * obj.construction_percent);
+                        crate::game_logic::host_heal_log::record(id, obj.health.current);
                     }
                 }
                 obj.tick_timers(dt);
@@ -9670,6 +9672,7 @@ impl GameLogic {
             obj.max_health = max_h;
             obj.health.current = cur;
             obj.health.maximum = maximum;
+            crate::game_logic::host_heal_log::record(obj.id, obj.health.current);
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR);
             affected = affected.saturating_add(1);
@@ -12688,15 +12691,18 @@ impl GameLogic {
                         .with_priority(200),
                 );
 
-                // Phase 1: Destroy the corresponding GameEngine ObjectFactory object.
-                if let Some(engine_id) = obj.engine_object_id {
-                    if let Ok(mut factory) = get_object_factory().write() {
-                        if let Err(e) = factory.destroy_object(engine_id) {
-                            log::debug!(
-                                "ObjectFactory destroy_object({}) failed: {}",
-                                engine_id,
-                                e
-                            );
+                // Phase 1: Destroy the corresponding GameEngine ObjectFactory object
+                // only when the dual-world bridge is explicitly enabled.
+                if crate::gameworld_shadow::engine_object_bridge_enabled() {
+                    if let Some(engine_id) = obj.engine_object_id {
+                        if let Ok(mut factory) = get_object_factory().write() {
+                            if let Err(e) = factory.destroy_object(engine_id) {
+                                log::debug!(
+                                    "ObjectFactory destroy_object({}) failed: {}",
+                                    engine_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
@@ -20945,6 +20951,7 @@ impl GameLogic {
                 master.health.current = (before + heal).min(max_hp);
                 let gained = master.health.current - before;
                 if gained > 0.0 {
+                    crate::game_logic::host_heal_log::record(mid, master.health.current);
                     self.battle_drone_residual_repairs =
                         self.battle_drone_residual_repairs.saturating_add(1);
                     self.battle_drone_residual_repair_amount += gained;
@@ -27814,6 +27821,12 @@ impl GameLogic {
                 }
                 if result.structure_damage_applied > 0.0 {
                     obj.health.current = new_struct_hp;
+                    crate::game_logic::host_damage_log::record(
+                        obj.id,
+                        result.structure_damage_applied,
+                        None,
+                        new_struct_hp <= 0.0,
+                    );
                     if new_struct_hp <= 0.0 {
                         obj.health.current = 0.0;
                         obj.status.destroyed = true;
