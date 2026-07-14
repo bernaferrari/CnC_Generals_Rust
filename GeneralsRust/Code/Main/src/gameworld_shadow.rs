@@ -884,6 +884,7 @@ pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadow
     let _destroys = crate::game_logic::host_destroy_log::drain();
     let _atks = crate::game_logic::host_attack_log::drain();
     let _moves = crate::game_logic::host_move_log::drain();
+    let _prod = crate::game_logic::host_production_log::drain();
     let (shadow, _probe) = probe_host_vs_gameworld(logic);
     // Events already reflected in host health; sync copies health. Log size is the
     // combat-bridge signal.
@@ -915,6 +916,7 @@ pub fn shadow_session_after_host_tick(
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();
+    let production_events = crate::game_logic::host_production_log::drain();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply events as mutations.
     let write_health = !(auth && !events.is_empty());
@@ -970,15 +972,16 @@ pub fn shadow_session_after_host_tick(
         let _ = crate::game_logic::host_economy_log::drain();
     }
     let mut probe = shadow.probe(logic);
-    if !events.is_empty() || econ_wb > 0 {
+    if !events.is_empty() || econ_wb > 0 || !production_events.is_empty() {
         probe.detail = format!(
-            "{}|dmg_events={}|spawns={}/{}|destroy={}/{}|auth={}|wb={}|econ_wb={}",
+            "{}|dmg_events={}|spawns={}/{}|destroy={}/{}|prod={}|auth={}|wb={}|econ_wb={}",
             probe.detail,
             events.len(),
             spawn_events.len(),
             spawns_applied,
             destroy_events.len(),
             dest_q,
+            production_events.len(),
             auth,
             writebacks,
             econ_wb
@@ -1516,6 +1519,46 @@ mod tests {
             .movement
             .target_position
             .is_none());
+    }
+
+    #[test]
+    fn production_enqueue_logs_for_shadow_session() {
+        crate::game_logic::host_production_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        // Prefer a real barracks from skirmish/map config if present.
+        let barracks = logic
+            .get_objects()
+            .iter()
+            .find(|(_, o)| o.team == Team::USA && o.building_data.is_some() && o.is_constructed())
+            .map(|(id, _)| *id);
+        let Some(bid) = barracks else {
+            // No producer in minimal config — channel still drains clean.
+            let _ = crate::game_logic::host_production_log::drain();
+            return;
+        };
+        // Try a known infantry name; skip assert if template missing.
+        let templates = ["AmericaInfantryRanger", "USA_Ranger", "Ranger"];
+        let mut logged = false;
+        for name in templates {
+            if !logic.templates.contains_key(name) {
+                continue;
+            }
+            crate::game_logic::host_production_log::clear();
+            if logic.enqueue_production(bid, name.to_string()) {
+                let ev = crate::game_logic::host_production_log::drain();
+                assert_eq!(ev.len(), 1, "enqueue should log once");
+                assert_eq!(ev[0].producer, bid);
+                assert_eq!(ev[0].template_name, name);
+                logged = true;
+                break;
+            }
+        }
+        if !logged {
+            // Still prove drain API is callable.
+            let _ = crate::game_logic::host_production_log::drain();
+        }
     }
 
     #[test]

@@ -64,6 +64,18 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | `executable_smoke_gate` | Real binary Menu→InGame + runtime-host select/move (`gameplay_cmd`); **not** WND click path (`playable_claim=false`) |
 | `shell_smoke_gate` | Headless host skirmish stack; not windowed WND |
 
+## Frame phase order (InGame logic tick)
+
+1. `GameLogic::update` (AI, production, movement, combat modules mid-frame)
+2. Dual-crate tick (**off** by default)
+3. Projectiles + pathfinding side systems
+4. `process_commands` (player/AI command queue)
+5. `GameWorldShadow` session (drain logs → mutations → HP/cash/pose/target writeback)
+6. `PresentationFrame::build_from_logic` + shadow overlay
+7. Client/HUD consumers of snapshot
+
+Production enqueue records `host_production_log`; completions spawn via `host_spawn_log`.
+
 ## Presentation residual (unit mesh)
 
 When `PresentationFrame` is set, `RenderPipeline::collect_render_items` drives the main unit mesh pass from `unit_render_inputs` only (`debug_last_live_unit_identity_reads == 0`). Live `game_logic.get_objects()` remains only for boot/loading frames without a snapshot. Terrain/prewarm prefer frozen `PresentationWorldEnv` and fall back to live map metadata if absent.
