@@ -156,10 +156,21 @@ fn main() {
         && r.spotter_wave97_ok
         && r.stealth_deepen_wave97_ok
         && r.detector_deepen_wave97_ok
-        && r.vision_wave97_ok;
+        && r.vision_wave97_ok
+        // Wave 98 residual honesty (dock/contain/exit/heal; never flips playable_claim).
+        && r.dock_wave98_ok
+        && r.contain_wave98_ok
+        && r.exit_wave98_ok
+        && r.heal_wave98_ok
+        // Wave 99 residual honesty (production/buildable/prereq/command-button/control-bar; never flips playable_claim).
+        && r.production_deepen_wave99_ok
+        && r.buildable_wave99_ok
+        && r.prerequisite_wave99_ok
+        && r.command_button_deepen_wave99_ok
+        && r.control_bar_deepen_wave99_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} kindof84={} wslot84={} vet84={} rel84={} geom84={} shadow84={} faction85={} ptpl85={} cash85={} aiperson85={} victory85={} cam86={} world86={} mpopt86={} mapsel86={} crate86={} weather87={} water87={} bridge87={} tunnel87={} garrison87={} transport87={} radius88={} mouse88={} fxlist88={} ocl88={} particle88={} audio88={} rank89={} exp89={} hotkey89={} chat89={} replay89={} options89={} gamespeed90={} framerate90={} debug90={} lang90={} credits90={} tooltip91={} helpbox91={} message91={} eva91={} video91={} briefing91={} weapon92={} armor92={} body92={} loco92={} science92={} particle93={} drawable93={} shadow93={} terrain_tex93={} road93={} ai_state94={} special_ability94={} upgrade_names94={} command_set94={} script_action95={} script_cond95={} map_object95={} waypoint95={} team95={} player95={} partition96={} collision96={} physics96={} projectile96={} radar97={} spotter97={} stealth97={} detector97={} vision97={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} kindof84={} wslot84={} vet84={} rel84={} geom84={} shadow84={} faction85={} ptpl85={} cash85={} aiperson85={} victory85={} cam86={} world86={} mpopt86={} mapsel86={} crate86={} weather87={} water87={} bridge87={} tunnel87={} garrison87={} transport87={} radius88={} mouse88={} fxlist88={} ocl88={} particle88={} audio88={} rank89={} exp89={} hotkey89={} chat89={} replay89={} options89={} gamespeed90={} framerate90={} debug90={} lang90={} credits90={} tooltip91={} helpbox91={} message91={} eva91={} video91={} briefing91={} weapon92={} armor92={} body92={} loco92={} science92={} particle93={} drawable93={} shadow93={} terrain_tex93={} road93={} ai_state94={} special_ability94={} upgrade_names94={} command_set94={} script_action95={} script_cond95={} map_object95={} waypoint95={} team95={} player95={} partition96={} collision96={} physics96={} projectile96={} radar97={} spotter97={} stealth97={} detector97={} vision97={} dock98={} contain98={} exit98={} heal98={} production99={} buildable99={} prereq99={} cmdbtn99={} controlbar99={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -288,6 +299,15 @@ fn main() {
             r.stealth_deepen_wave97_ok,
             r.detector_deepen_wave97_ok,
             r.vision_wave97_ok,
+            r.dock_wave98_ok,
+            r.contain_wave98_ok,
+            r.exit_wave98_ok,
+            r.heal_wave98_ok,
+            r.production_deepen_wave99_ok,
+            r.buildable_wave99_ok,
+            r.prerequisite_wave99_ok,
+            r.command_button_deepen_wave99_ok,
+            r.control_bar_deepen_wave99_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );
