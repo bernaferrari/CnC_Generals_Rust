@@ -19,6 +19,7 @@ fn main() {
         && r.minimap_fow_presentation_ok
         && r.laser_segment_upload_ok
         && r.projectile_segment_upload_ok
+        && r.move_line_upload_ok
         // Wave 75 residual honesty (host-testable; never flips playable_claim).
         && r.mesh_asset_residual_ok
         && r.rng_residual_pack_ok
