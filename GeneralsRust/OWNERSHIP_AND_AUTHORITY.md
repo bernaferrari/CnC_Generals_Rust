@@ -62,6 +62,8 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 `EntityId` map, delta sync (health/transform/economy), and `WorldMutation` damage
 parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime: `GENERALS_GAMEWORLD_SHADOW=1` holds a session on `CnCGameEngine`.
 `Object::take_damage_from` records `host_damage_log` events drained each tick.
+Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow maps spawns and applies Destroy mutations. `WorldMutation::Spawn` exists for the mutation channel.
+
 Still not production authority for the full sim.
 
 ### Damage authority cutover (opt-in)
