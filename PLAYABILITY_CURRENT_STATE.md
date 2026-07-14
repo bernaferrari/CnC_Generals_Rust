@@ -119,6 +119,72 @@
 - Golden playable_claim remains **true**
 - Network residual deferred
 
+## Residual Host Playability — Wave 104: Object/GameLogic register/Drawable create residual peels (2026-07-14)
+
+**Closed (host-testable residual peels; toward live ThingFactory Objects; orthogonal to Waves 100–103):**
+1. **Object residual status-mask state machine** (`host_object_register_drawable_residual_wave104`):
+   - ObjectStatusMask residual set/clear/test bitset (Wave 82 ordinal → bit mask).
+   - Ctor applies `objectStatusMask` pre-onCreate; onCreate may OR bits without blowing ctor mask.
+   - `m_modulesReady` residual gate after helpers+behaviors.
+   - Honesty: `honesty_object_status_state_machine_residual_wave104`.
+2. **Object create residual order** (Object.cpp ctor + ThingFactory::newObject):
+   - **11** ordered steps: CTOR_STATUS_MASK → ALLOCATE_OBJECT_ID → HELPERS_FIRST →
+     BEHAVIOR_MODULES → ON_OBJECT_CREATED → MODULES_READY → RADAR_ADD →
+     GAMELOGIC_REGISTER → TF_CREATE_ON_CREATE → PARTITION_REGISTER → INIT_OBJECT.
+   - Deepens Wave 101 post-create: GameLogic::registerObject is **inside** Object ctor
+     (before CreateModule::onCreate).
+   - Host counters for allocateObjectID (start **1**) + step applications.
+   - Honesty: `honesty_object_create_order_residual_wave104`.
+3. **ActiveBody MaxHealth residual pack application** on Object residual spawn:
+   - BodyDamageType residual **4** (PRISTINE/DAMAGED/REALLYDAMAGED/RUBBLE).
+   - MaxHealthChangeType residual **4** (SAME_CURRENTHEALTH/PRESERVE_RATIO/
+     ADD_CURRENT_HEALTH_TOO/FULLY_HEAL).
+   - GlobalData default thresholds: UnitDamaged **0.5** / UnitReallyDamaged **0.1**;
+     YELLOW_DAMAGE_PERCENT **0.25**.
+   - Spawn from Wave 92 MaxHealth table (e.g. Crusader **480**, Ranger **180**, Scorpion **370**).
+   - setMaxHealth residual change-type paths.
+   - Honesty: `honesty_active_body_max_health_apply_residual_wave104`.
+4. **Drawable residual create bookkeeping** (not full W3D draw):
+   - Drawable ctor residual steps: statusBits → list links null → registerDrawable →
+     allocDrawableID → prepend drawable list → opacity **1.0** → unbound object.
+   - INVALID_DRAWABLE_ID **0**; next ID starts **1**; DRAWABLE_STATUS cross-link Wave 100.
+   - Host doubly-linked prepend/remove residual registry.
+   - Honesty: `honesty_drawable_create_residual_wave104`.
+5. **GameLogic::registerObject m_objList residual**:
+   - **3** steps: PREPEND_OBJ_LIST → LOOKUP_TABLE_ADD → SLEEPY_WAKE_FRAME.
+   - Object::prependToList/removeFromList/isInList doubly-linked residual.
+   - Lookup vector grow residual; sleepy when==0 → now (frame 0 → **1**).
+   - Honesty: `honesty_gamelogic_register_object_residual_wave104`.
+6. **Cross-link + combined**:
+   - `honesty_object_register_drawable_crosslink_wave104`
+   - `honesty_object_register_drawable_residual_pack_wave104`
+
+**Wiring:**
+- `game_logic/host_object_register_drawable_residual_wave104.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — object_status104/object_create104/active_body104/
+  drawable_create104/register_object104 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave104 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave104 tests PASS (7)
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  object_status104=true object_create104=true active_body104=true
+  drawable_create104=true register_object104=true
+
+**Not claimed:**
+- Full live BehaviorModule createProc / exclusive module graph residual
+- Full ActiveBody attemptDamage / ArmorSet / particle damage FX residual
+- Full W3D Drawable draw / DrawModule residual
+- Full sleepy-update heap residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 103: weapon/armor/locomotor/special-power/KindOf residual peels (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal to Waves 101/102 ThingFactory/graphics):**
