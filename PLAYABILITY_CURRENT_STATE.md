@@ -1,3 +1,67 @@
+## Residual Host Playability — Wave 77: AI/weapon/FOW/ground-height/audio residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal to Wave 76 ControlBar/script):**
+1. **SpecialPower audio residual name tables** (`special_power_strikes`):
+   - Retail SpecialPower.ini `InitiateSound` / `InitiateAtLocationSound` residual
+     name tables on `HostSuperweaponKind`:
+     - ScudStorm → **ScudStormInitiated** (source); empty at-location.
+     - ArtilleryBarrage → **FireArtilleryCannonSound** (source); empty at-location.
+     - CruiseMissile → **AirRaidSiren** (source + at-location).
+     - NeutronMissile → empty InitiateSound (commented in retail) + **AirRaidSiren** at-location.
+     - Daisy/A10/PUC/Anthrax/Spectre/Carpet → empty residual (no retail fields).
+   - `activate_audio()` remains special-power template labels for host residual queues.
+   - Honesty: `honesty_special_power_audio_name_table_wave77` +
+     `honesty_special_power_residual_pack_wave77_ok`.
+2. **FOW residual honesty pack** (`fow_rendering`):
+   - CELL buckets **0/1/2** + R8 terrain overlay **0/128/255** residual.
+   - Default cell size **50** world units residual.
+   - Inactive fail-open + fully-visible shell/observer + from_snapshot pad residual.
+   - ObjectVisibility FOW encoding residual (VISIBLE / FOGGED α**0.3** / HIDDEN).
+   - Honesty: `honesty_fow_residual_pack_wave77`.
+3. **Presentation ground-height residual deepen** (`presentation_frame`):
+   - `RenderableObject.ground_height` / `ground_height_from_terrain` frozen at
+     object XY via `sample_presentation_ground_height` (default-0 when no map).
+   - Does **not** rewrite `position.y` (locomotor ground clamp residual separate).
+   - Honesty: `ground_height_presentation_residual_ok`.
+4. **WeaponStore delayed-damage Snapshot residual** (`weapon/weapon_store`):
+   - `WeaponDelayedDamageSnapshotResidual` freezes template name + frame +
+     source/victim + position for save/load bookkeeping consistency.
+   - `delayed_damage_snapshot_residual()` +
+     `honesty_weapon_store_delayed_damage_residual_ok`.
+   - Fail-closed: not full C++ WeaponStore Xfer (templates not reloaded here).
+5. **Host WeaponStore seed residual pack** (`weapon_bootstrap`):
+   - Core golden/skirmish seed name table residual (**16+** names: Ranger,
+     Patriot, Stinger, Humvee, tanks, Raptor, SCUD, Overlord, …).
+   - Honesty: `honesty_weapon_store_host_seed_residual_wave77`.
+6. **AI skirmish residual pack** (`ai_skirmish_activity`):
+   - AIPlayer/AIData defaults residual: StructureSeconds **10** → **300**f,
+     TeamSeconds **2** → **60**f, ResourcesPoor **2000** / Wealthy **5000**,
+     structures/teams poor/wealthy mods **2.0**, RebuildDelay **5**s,
+     SkirmishBaseDefenseExtraDistance **50**.
+   - Honesty: `honesty_ai_skirmish_residual_pack_wave77`.
+7. Tests / gates:
+   - `special_power_audio_name_table_wave77_honesty` /
+     `fow_residual_pack_wave77_honesty` /
+     `ground_height_presentation_residual_wave77` /
+     `delayed_damage_snapshot_residual_wave77_honesty` /
+     `weapon_store_host_seed_residual_wave77_honesty` /
+     `ai_skirmish_residual_pack_wave77_honesty`
+   - shell_smoke: sp77/fow77/gh77/weapon77/ai77 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     sp77=true fow77=true gh77=true weapon77=true ai77=true
+
+**Still residual (fail-closed, not claimed):**
+- Full Miles positional InitiateSound playback / AudioEventRTS live event load
+- Full SAGE multi-layer FOW dirty-rect shroud texture streaming
+- Full HeightMap bilinear / bridge-aware sample + locomotor Y ground clamp
+- Full C++ WeaponStore delayed-damage Xfer / dealDamageInternal rebind after load
+- Full Weapon.ini parse / ClipSize in-clip volley state machine
+- Full AI.ini side build list / live dozer pathfinding matrix
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 76: science-tier / ControlBar / font / vanish-alpha / ScriptEngine residual (2026-07-13)
 
 **Closed (host-testable residual peels):**
