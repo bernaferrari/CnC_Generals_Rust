@@ -24,11 +24,12 @@ pub fn record(object: ObjectId, team: Team) {
 }
 
 pub fn drain() -> Vec<HostOwnerEvent> {
-    LOG.with(|log| {
-        let v = std::mem::take(&mut *log.borrow_mut());
+    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
+    // Keep last non-empty batch for PresentationFrame after shadow session.
+    if !v.is_empty() {
         LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
-        v
-    })
+    }
+    v
 }
 
 pub fn clear() {
@@ -36,7 +37,12 @@ pub fn clear() {
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
 }
 
-/// Events from the most recent `drain()` (PresentationFrame after shadow session).
+/// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
+pub fn take_last_drain() -> Vec<HostOwnerEvent> {
+    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
+}
+
+/// Non-destructive peek (tests).
 pub fn last_drain_snapshot() -> Vec<HostOwnerEvent> {
     LAST_DRAIN.with(|last| last.borrow().clone())
 }

@@ -176,6 +176,17 @@ pub enum PresentationEvent {
         source: Option<ObjectId>,
         destroyed: bool,
     },
+    /// Absolute HP write this frame (heal / construction finish residual).
+    HealApplied {
+        target: ObjectId,
+        health: f32,
+    },
+    /// Player supplies/power absolute after host economy mutation.
+    EconomyChanged {
+        player_id: u32,
+        supplies: u32,
+        power_available: i32,
+    },
     Victory {
         winner_player: Option<u32>,
     },
@@ -1461,7 +1472,7 @@ impl PresentationFrame {
             });
         }
         // Shadow session drains production before presentation; freeze last drain batch.
-        for ev in crate::game_logic::host_production_log::last_drain_snapshot() {
+        for ev in crate::game_logic::host_production_log::take_last_drain() {
             if let crate::game_logic::host_production_log::HostProductionEvent::Complete {
                 producer,
                 template_name,
@@ -1475,13 +1486,13 @@ impl PresentationFrame {
                 });
             }
         }
-        for ev in crate::game_logic::host_owner_log::last_drain_snapshot() {
+        for ev in crate::game_logic::host_owner_log::take_last_drain() {
             events.push(PresentationEvent::OwnerChanged {
                 id: ev.object,
                 team: ev.team,
             });
         }
-        for ev in crate::game_logic::host_attack_log::last_drain_snapshot() {
+        for ev in crate::game_logic::host_attack_log::take_last_drain() {
             if ev.target.is_some() {
                 events.push(PresentationEvent::AttackTargeted {
                     attacker: ev.attacker,
@@ -1489,7 +1500,7 @@ impl PresentationFrame {
                 });
             }
         }
-        for ev in crate::game_logic::host_move_log::last_drain_snapshot() {
+        for ev in crate::game_logic::host_move_log::take_last_drain() {
             if let Some(destination) = ev.destination {
                 events.push(PresentationEvent::MoveOrdered {
                     unit: ev.unit,
@@ -1497,12 +1508,25 @@ impl PresentationFrame {
                 });
             }
         }
-        for ev in crate::game_logic::host_damage_log::last_drain_snapshot() {
+        for ev in crate::game_logic::host_damage_log::take_last_drain() {
             events.push(PresentationEvent::DamageApplied {
                 target: ev.target,
                 amount: ev.amount,
                 source: ev.source,
                 destroyed: ev.destroyed,
+            });
+        }
+        for ev in crate::game_logic::host_heal_log::take_last_drain() {
+            events.push(PresentationEvent::HealApplied {
+                target: ev.target,
+                health: ev.health,
+            });
+        }
+        for ev in crate::game_logic::host_economy_log::take_last_drain() {
+            events.push(PresentationEvent::EconomyChanged {
+                player_id: ev.player_id,
+                supplies: ev.supplies,
+                power_available: ev.power_available,
             });
         }
         for pid in logic.combat_particles().spawned_this_frame() {
@@ -2141,6 +2165,19 @@ impl PresentationFrame {
                         hud.push_info_message(&format!("-{} HP #{}", *amount as i32, target.0));
                     }
                 }
+                PresentationEvent::HealApplied { target, health } => {
+                    hud.push_info_message(&format!("Heal #{} -> {:.0} HP", target.0, health));
+                }
+                PresentationEvent::EconomyChanged {
+                    player_id,
+                    supplies,
+                    power_available,
+                } => {
+                    hud.push_info_message(&format!(
+                        "Economy P{}: ${} power={}",
+                        player_id, supplies, power_available
+                    ));
+                }
                 PresentationEvent::ObjectDestroyed { id, .. } => {
                     hud.push_info_message(&format!("Destroyed: #{}", id.0));
                 }
@@ -2191,6 +2228,8 @@ impl PresentationFrame {
                         None
                     }
                 }
+                PresentationEvent::HealApplied { target, .. } => Some(("UnitHeal", Some(*target))),
+                PresentationEvent::EconomyChanged { .. } => Some(("MoneyTick", None)),
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),
                 PresentationEvent::RadarMessage { .. }
                 | PresentationEvent::OwnerChanged { .. }
@@ -2389,6 +2428,49 @@ mod tests {
         let n = frame.apply_events_to_audio(&mut logic);
         assert!(n >= 1, "expected audio queue from AttackTargeted, n={n}");
         assert!(logic.queued_audio_event_count_for_test() >= 1);
+    }
+
+    #[test]
+    fn heal_applied_freezes_from_last_drain() {
+        crate::game_logic::host_heal_log::clear();
+        crate::game_logic::host_heal_log::record(crate::game_logic::ObjectId(3), 88.0);
+        let _ = crate::game_logic::host_heal_log::drain();
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::HealApplied { target, health }
+                    if target.0 == 3 && (*health - 88.0).abs() < 0.01
+                )
+            }),
+            "expected HealApplied: {:?}",
+            frame.events
+        );
+    }
+
+    #[test]
+    fn economy_changed_freezes_from_last_drain() {
+        crate::game_logic::host_economy_log::clear();
+        crate::game_logic::host_economy_log::record(0, 12345, 7);
+        let _ = crate::game_logic::host_economy_log::drain();
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::EconomyChanged {
+                        player_id: 0,
+                        supplies: 12345,
+                        power_available: 7
+                    }
+                )
+            }),
+            "expected EconomyChanged: {:?}",
+            frame.events
+        );
     }
 
     #[test]

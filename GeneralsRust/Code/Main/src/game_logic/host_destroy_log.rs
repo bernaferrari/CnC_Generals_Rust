@@ -18,11 +18,12 @@ pub fn record(id: ObjectId) {
 }
 
 pub fn drain() -> Vec<HostDestroyEvent> {
-    LOG.with(|log| {
-        let v = std::mem::take(&mut *log.borrow_mut());
+    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
+    // Keep last non-empty batch for PresentationFrame after shadow session.
+    if !v.is_empty() {
         LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
-        v
-    })
+    }
+    v
 }
 
 pub fn clear() {
