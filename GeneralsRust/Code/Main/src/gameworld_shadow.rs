@@ -1423,6 +1423,46 @@ mod tests {
     }
 
     #[test]
+    fn attack_target_logs_host_attack_event() {
+        crate::game_logic::host_attack_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AtkLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "AtkA", 100.0);
+        ensure_template(&mut logic, "AtkB", 100.0);
+        if let Some(t) = logic.templates.get_mut("AtkA") {
+            t.add_kind_of(KindOf::Infantry);
+        }
+        let a = logic
+            .create_object("AtkA", Team::USA, glam::Vec3::ZERO)
+            .expect("a");
+        let b = logic
+            .create_object("AtkB", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("b");
+        {
+            let o = logic.get_objects_mut().get_mut(&a).unwrap();
+            // Ensure can_attack path: weapon or kind
+            o.attack_target(b);
+        }
+        let events = crate::game_logic::host_attack_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.attacker == a && e.target == Some(b)),
+            "attack_target must log host_attack event: {events:?}"
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&a).unwrap();
+            o.stop_attack();
+        }
+        let clears = crate::game_logic::host_attack_log::drain();
+        assert!(
+            clears.iter().any(|e| e.attacker == a && e.target.is_none()),
+            "stop_attack must clear attack log: {clears:?}"
+        );
+    }
+
+    #[test]
     fn attack_log_feeds_set_attack_target_mutation() {
         crate::game_logic::host_attack_log::clear();
         let mut logic = GameLogic::new();
