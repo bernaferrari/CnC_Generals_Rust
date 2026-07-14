@@ -1590,6 +1590,14 @@ pub struct PresentationFrame {
     pub radar_forced: bool,
     /// Mission objectives residual (ObjectiveDisplay clone).
     pub objectives: Vec<crate::ui::objectives::ObjectiveDisplay>,
+    /// Pending script movie name residual.
+    pub pending_movie: Option<String>,
+    /// Pending radar movie name residual.
+    pub pending_radar_movie: Option<String>,
+    /// Pending music-stop request residual.
+    pub pending_music_stop: bool,
+    /// Pending popup message texts residual (fail-closed layout).
+    pub pending_popup_messages: Vec<String>,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
@@ -2070,6 +2078,15 @@ impl PresentationFrame {
             },
             radar_forced: logic.radar_forced(),
             objectives: logic.mission_objectives().to_vec(),
+            pending_movie: logic.peek_pending_movie().map(|s| s.to_string()),
+            pending_radar_movie: logic.peek_pending_radar_movie().map(|s| s.to_string()),
+            pending_music_stop: logic.peek_pending_music_stop(),
+            pending_popup_messages: logic
+                .peek_pending_popup_messages()
+                .iter()
+                .map(|p| p.message.clone())
+                .take(16)
+                .collect(),
             fow_shell_bypass,
             fow_grid,
             particle_systems,
@@ -3054,6 +3071,10 @@ impl PresentationFrame {
         ui.radar_enabled = self.radar_ui_enabled;
         ui.radar_forced = self.radar_forced;
         ui.objectives = self.objectives.clone();
+        ui.pending_movie = self.pending_movie.clone();
+        ui.pending_radar_movie = self.pending_radar_movie.clone();
+        ui.pending_music_stop = self.pending_music_stop;
+        ui.pending_popup_messages = self.pending_popup_messages.clone();
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
@@ -4699,6 +4720,34 @@ mod tests {
             "expected ProductionComplete: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn presentation_feeds_media_queue() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.queue_pending_movie("EALogo.bik");
+        logic.queue_pending_radar_movie("RadarIntro.bik");
+        logic.queue_pending_music_stop();
+        logic.queue_pending_popup_message("General, hold the line!");
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.pending_movie.as_deref(), Some("EALogo.bik"));
+        assert_eq!(frame.pending_radar_movie.as_deref(), Some("RadarIntro.bik"));
+        assert!(frame.pending_music_stop);
+        assert!(frame
+            .pending_popup_messages
+            .iter()
+            .any(|m| m.contains("hold the line")));
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert_eq!(ui.pending_movie.as_deref(), Some("EALogo.bik"));
+        assert_eq!(ui.pending_radar_movie.as_deref(), Some("RadarIntro.bik"));
+        assert!(ui.pending_music_stop);
+        assert!(ui
+            .pending_popup_messages
+            .iter()
+            .any(|m| m.contains("hold the line")));
     }
 
     #[test]

@@ -146,6 +146,14 @@ pub struct GameUIState {
     pub cinematic_letterbox: bool,
     pub cinematic_text: Option<String>,
     pub military_caption: Option<String>,
+    /// Pending script movie residual from PresentationFrame.
+    pub pending_movie: Option<String>,
+    /// Pending radar movie residual from PresentationFrame.
+    pub pending_radar_movie: Option<String>,
+    /// Pending music-stop residual from PresentationFrame.
+    pub pending_music_stop: bool,
+    /// Pending popup message texts residual from PresentationFrame.
+    pub pending_popup_messages: Vec<String>,
     pub radar_enabled: bool,
     pub radar_forced: bool,
     pub objectives: Vec<ObjectiveDisplay>,
@@ -192,6 +200,10 @@ impl Default for GameUIState {
             cinematic_letterbox: false,
             cinematic_text: None,
             military_caption: None,
+            pending_movie: None,
+            pending_radar_movie: None,
+            pending_music_stop: false,
+            pending_popup_messages: Vec::new(),
             radar_enabled: true,
             radar_forced: false,
             objectives: Vec::new(),
