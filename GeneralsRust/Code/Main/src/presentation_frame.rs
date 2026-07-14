@@ -31,6 +31,12 @@ pub struct RenderableObject {
     pub team_color: [f32; 4],
     pub position: Vec3,
     pub orientation: f32,
+    /// Current movement order destination (host Movement::target_position).
+    pub move_destination: Option<Vec3>,
+    /// Attack target object id when set.
+    pub attack_target: Option<ObjectId>,
+    /// Path waypoints residual (capped) for line pack / debug draw.
+    pub path_waypoints: Vec<Vec3>,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
@@ -1426,6 +1432,9 @@ impl PresentationFrame {
                 // Use accessors so presentation matches authoritative transform state.
                 position: pos,
                 orientation: obj.get_orientation(),
+                move_destination: obj.movement.target_position,
+                attack_target: obj.target,
+                path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
@@ -1772,6 +1781,7 @@ impl PresentationFrame {
             {
                 obj.position = pos;
                 obj.orientation = ent.transform.orientation;
+                obj.move_destination = ent.move_target.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
                 obj.health_current = h;
                 obj.destroyed = destroyed;
                 updated += 1;
@@ -2535,6 +2545,35 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn move_destination_freezes_from_host_movement() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = crate::game_logic::ThingTemplate::new("MoveDestU");
+        t.set_health(40.0);
+        t.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic.templates.insert("MoveDestU".into(), t);
+        let id = logic
+            .create_object(
+                "MoveDestU",
+                crate::game_logic::Team::USA,
+                glam::Vec3::new(1.0, 0.0, 1.0),
+            )
+            .expect("u");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.movement.target_position = Some(glam::Vec3::new(9.0, 0.0, 4.0));
+            obj.target = Some(crate::game_logic::ObjectId(99));
+            obj.movement.path = vec![
+                glam::Vec3::new(1.0, 0.0, 1.0),
+                glam::Vec3::new(9.0, 0.0, 4.0),
+            ];
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert_eq!(ro.move_destination, Some(glam::Vec3::new(9.0, 0.0, 4.0)));
+        assert_eq!(ro.attack_target, Some(crate::game_logic::ObjectId(99)));
+        assert_eq!(ro.path_waypoints.len(), 2);
     }
 
     #[test]
