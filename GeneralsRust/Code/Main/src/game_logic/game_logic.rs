@@ -2349,8 +2349,11 @@ impl GameLogic {
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
-        if let Ok(mut factory) = get_object_factory().write() {
-            let _ = factory.clear_all_objects();
+        // Dual-world factory clear only when bridge is enabled (default host owns Main store).
+        if crate::gameworld_shadow::engine_object_bridge_enabled() {
+            if let Ok(mut factory) = get_object_factory().write() {
+                let _ = factory.clear_all_objects();
+            }
         }
         self.objects.clear();
         self.players.clear();
@@ -3776,6 +3779,10 @@ impl GameLogic {
                 object.position.y,
                 object.position.z + ground_height,
             );
+            // Dual-world registry write only when bridge is enabled.
+            if !crate::gameworld_shadow::engine_object_bridge_enabled() {
+                continue;
+            }
             let Some(object_id) = tracker.get_object_id(name).ok().flatten() else {
                 continue;
             };
@@ -11322,6 +11329,9 @@ impl GameLogic {
     }
 
     fn check_bridge_disabled_statuses(&self) {
+        if !crate::gameworld_shadow::engine_object_bridge_enabled() {
+            return;
+        }
         let engine_ids: Vec<u32> = self
             .objects
             .values()
