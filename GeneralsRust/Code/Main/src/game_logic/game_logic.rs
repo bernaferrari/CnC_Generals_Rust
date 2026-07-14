@@ -1954,6 +1954,25 @@ impl GameLogic {
     }
 
     /// Current mission objective displays (campaign residual / UI snapshot source).
+
+    /// Upsert a mission objective residual for presentation/UI freeze.
+    pub fn upsert_mission_objective(&mut self, objective: crate::ui::objectives::ObjectiveDisplay) {
+        if let Some(id) = objective.id.as_ref() {
+            let key = id.to_ascii_lowercase();
+            if let Some(&idx) = self.objective_lookup.get(&key) {
+                if let Some(slot) = self.mission_objectives.get_mut(idx) {
+                    *slot = objective;
+                    return;
+                }
+            }
+            self.mission_objectives.push(objective);
+            let idx = self.mission_objectives.len().saturating_sub(1);
+            self.objective_lookup.insert(key, idx);
+        } else {
+            self.mission_objectives.push(objective);
+        }
+    }
+
     pub fn mission_objectives(&self) -> &[ObjectiveDisplay] {
         &self.mission_objectives
     }
