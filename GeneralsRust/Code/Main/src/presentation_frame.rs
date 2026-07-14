@@ -3206,6 +3206,33 @@ impl PresentationFrame {
             panel.special_power_cooldown_remaining,
         );
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
+        let ready_sp: Vec<String> = self
+            .selected_unit_display_infos()
+            .iter()
+            .filter_map(|info| {
+                self.objects
+                    .iter()
+                    .find(|o| o.id == info.object_id && o.special_power_ready)
+                    .map(|o| o.template_name.clone())
+            })
+            .collect();
+        // Also include any selected renderable with ready SP (selection flags path).
+        let mut ready_sp = ready_sp;
+        for o in self
+            .objects
+            .iter()
+            .filter(|o| o.selected && o.special_power_ready)
+        {
+            if !ready_sp.iter().any(|n| n == &o.template_name) {
+                ready_sp.push(o.template_name.clone());
+            }
+        }
+        control_bar.sync_radar_queues_and_specials_from_presentation(
+            self.local_radar_count,
+            self.local_radar_disabled,
+            &self.local_queued_upgrades,
+            &ready_sp,
+        );
     }
 
     /// Selection IDs for multi-consumer apply (player list or object.selected flags).
@@ -5182,6 +5209,61 @@ mod tests {
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
         );
+    }
+
+    #[test]
+    fn presentation_feeds_control_bar_radar_and_queues() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "RadarP", true));
+        let mut t = ThingTemplate::new("RadarVan");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("RadarVan".into(), t);
+        let id = logic
+            .create_object("RadarVan", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.is_local = true;
+            p.is_alive = true;
+            p.selected_objects = vec![id];
+            p.radar_count = 3;
+            p.radar_disabled = false;
+            p.queued_upgrades
+                .insert("Upgrade_AmericaAdvancedTraining".into());
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.special_power_ready = true;
+            o.special_power_cooldown_remaining = 0.0;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.local_radar_count, 3);
+        assert!(frame
+            .local_queued_upgrades
+            .iter()
+            .any(|u| u.contains("AdvancedTraining")));
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame.apply_to_control_bar(&mut bar);
+            assert_eq!(bar.presentation_radar_count(), 3);
+            assert!(!bar.presentation_radar_disabled());
+            assert!(bar
+                .presentation_queued_upgrades()
+                .iter()
+                .any(|u| u.contains("AdvancedTraining")));
+            assert!(
+                !bar.get_special_power_shortcuts().is_empty(),
+                "expected special power shortcuts from ready selection"
+            );
+            assert_eq!(
+                bar.get_special_power_shortcuts()[0].availability,
+                game_client::gui::control_bar::CommandAvailability::Available
+            );
+        }
     }
 
     #[test]
