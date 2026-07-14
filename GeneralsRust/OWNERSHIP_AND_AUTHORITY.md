@@ -123,7 +123,7 @@ Host still executes AI decision, pathfinding step, and combat resolution mid-fra
 `gameworld_shadow` maintains a `GameWorldShadow` session: stable host `ObjectId`→
 `EntityId` map, delta sync (health/transform/economy), and `WorldMutation` damage
 parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime: `GENERALS_GAMEWORLD_SHADOW=1` holds a session on `CnCGameEngine`.
-`Object::take_damage_from` records `host_damage_log / host_heal_log` events drained each tick.
+`Object::take_damage_from` records `host_damage_log / host_heal_log / host_owner_log` events drained each tick.
 Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow maps spawns and applies Destroy mutations. `WorldMutation::Spawn` exists for the mutation channel.
 
 Presentation: when engine holds a shadow session, `PresentationFrame` is built from host then `overlay_gameworld_shadow` so HP/pose/supplies prefer GameWorld.
