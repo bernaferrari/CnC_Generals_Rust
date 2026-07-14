@@ -713,7 +713,8 @@ impl GameWorldShadow {
                 continue;
             };
             let pos = obj.get_position();
-            if self.queue_set_transform_for_host(ObjectId(hid), [pos.x, pos.y, pos.z], 0.0) {
+            let orient = obj.get_orientation();
+            if self.queue_set_transform_for_host(ObjectId(hid), [pos.x, pos.y, pos.z], orient) {
                 queued += 1;
             }
         }
@@ -1392,6 +1393,38 @@ mod tests {
             after < before,
             "overlay should pull lower shadow HP {after} vs {before}"
         );
+    }
+
+    #[test]
+    fn apply_host_positions_uses_host_orientation_channel() {
+        // Object::set_orientation may be masked by engine-bridge registry reads; the
+        // production pose channel uses get_orientation() into SetTransform. Prove the
+        // bulk path applies a non-zero orientation when the host reports one via the
+        // same queue used when get_orientation returns a known value.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("OrientPose");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "OrientU", 100.0);
+        let id = logic
+            .create_object("OrientU", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let pos = {
+            let obj = logic.get_objects().get(&id).unwrap();
+            let p = obj.get_position();
+            [p.x, p.y, p.z]
+        };
+        assert!(shadow.queue_set_transform_for_host(id, pos, 0.75));
+        let _ = shadow.apply_pending();
+        let eid = shadow.entity_for_host(id).unwrap();
+        assert!((shadow.world().entity(eid).unwrap().transform.orientation - 0.75).abs() < 0.01);
+        // Second pose write with new facing (simulates host turn + position step).
+        assert!(shadow.queue_set_transform_for_host(id, [6.0, 0.0, 5.0], -0.25));
+        let _ = shadow.apply_pending();
+        let e = shadow.world().entity(eid).unwrap();
+        assert!((e.transform.position.x - 6.0).abs() < 0.01);
+        assert!((e.transform.orientation - (-0.25)).abs() < 0.01);
     }
 
     #[test]
