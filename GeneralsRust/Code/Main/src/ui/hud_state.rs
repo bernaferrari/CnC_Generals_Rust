@@ -275,6 +275,12 @@ pub struct UnitDisplayInfo {
     pub health_maximum: f32,
     pub unit_type: String,
     pub current_order: String,
+    /// C++ SSChevron* residual from presentation veterancy.
+    pub veterancy_overlay: Option<String>,
+    /// First production queue item progress 0..1 (structures).
+    pub production_progress: Option<f32>,
+    /// First production queue template name (structures).
+    pub production_template: Option<String>,
 }
 
 /// ControlBar / WND selection panel display (portrait + health strip).
@@ -291,6 +297,14 @@ pub struct ControlBarSelectionPanelState {
     pub selected_count: usize,
     pub primary_object_id: Option<ObjectId>,
     pub unit_infos: Vec<UnitDisplayInfo>,
+    /// Primary selection C++ SSChevron* residual.
+    pub veterancy_overlay: Option<String>,
+    /// Primary production progress residual (first queue item).
+    pub production_progress: Option<f32>,
+    /// Primary production template residual (first queue item).
+    pub production_template: Option<String>,
+    /// Full production queue residual for selected structure (capped).
+    pub production_queue: Vec<(String, f32)>,
 }
 
 impl ControlBarSelectionPanelState {
@@ -308,6 +322,15 @@ impl ControlBarSelectionPanelState {
             selected_count: infos.len(),
             primary_object_id: Some(primary.object_id),
             unit_infos: infos.to_vec(),
+            veterancy_overlay: primary.veterancy_overlay.clone(),
+            production_progress: primary.production_progress,
+            production_template: primary.production_template.clone(),
+            production_queue: primary
+                .production_template
+                .as_ref()
+                .zip(primary.production_progress)
+                .map(|(t, p)| vec![(t.clone(), p)])
+                .unwrap_or_default(),
         }
     }
 

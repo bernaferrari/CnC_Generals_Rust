@@ -79,6 +79,10 @@ pub struct PortraitDisplayState {
     pub health_maximum: f32,
     /// Number of selected objects reflected on the selection panel.
     pub selected_count: usize,
+    /// First production queue item progress from PresentationFrame (0..1).
+    pub production_progress: Option<f32>,
+    /// First production queue template from PresentationFrame.
+    pub production_template: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -2229,6 +2233,8 @@ impl ControlBar {
             health_current: 0.0,
             health_maximum: 0.0,
             selected_count: 1,
+            production_progress: None,
+            production_template: None,
         };
     }
 
@@ -2279,21 +2285,58 @@ impl ControlBar {
         health_current: f32,
         health_maximum: f32,
         selected_count: usize,
+        veterancy_overlay: Option<&str>,
+        production_progress: Option<f32>,
+        production_template: Option<&str>,
+        production_queue: &[(String, f32)],
     ) {
         match primary_template_name {
             Some(name) if !name.is_empty() && selected_count > 0 => {
                 self.portrait_state = PortraitDisplayState {
                     portrait_image: name.to_string(),
-                    veterancy_overlay: self.portrait_state.veterancy_overlay.clone(),
+                    veterancy_overlay: veterancy_overlay.map(str::to_string),
                     upgrade_cameos: std::mem::take(&mut self.portrait_state.upgrade_cameos),
                     is_visible: true,
                     health_current,
                     health_maximum: health_maximum.max(1.0),
                     selected_count,
+                    production_progress,
+                    production_template: production_template.map(str::to_string),
                 };
+                // Feed construction queue residual from presentation snapshot (no OBJECT_REGISTRY).
+                if let Ok(mut context) = self.context.write() {
+                    context.construction_queue = production_queue
+                        .iter()
+                        .map(|(template_name, progress)| ProductionItem {
+                            template_name: template_name.clone(),
+                            production_type: ProductionType::Unit,
+                            progress: *progress,
+                            cost: std::collections::HashMap::new(),
+                            build_time: 0.0,
+                        })
+                        .collect();
+                    context.ui_dirty = true;
+                }
+                self.displayed_queue_count = production_queue.len();
+                self.build_queue_data = production_queue
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (template_name, _))| BuildQueueEntry {
+                        production_type: QueueProductionType::Unit,
+                        production_id: idx as u32,
+                        upgrade_name: template_name.clone(),
+                    })
+                    .collect();
+                self.mark_ui_dirty();
             }
             _ => {
                 self.portrait_state = PortraitDisplayState::default();
+                if let Ok(mut context) = self.context.write() {
+                    context.construction_queue.clear();
+                    context.ui_dirty = true;
+                }
+                self.build_queue_data.clear();
+                self.displayed_queue_count = 0;
             }
         }
     }
