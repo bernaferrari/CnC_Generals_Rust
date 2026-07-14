@@ -10,6 +10,7 @@ pub struct HostDestroyEvent {
 
 thread_local! {
     static LOG: RefCell<Vec<HostDestroyEvent>> = RefCell::new(Vec::new());
+    static LAST_DRAIN: RefCell<Vec<HostDestroyEvent>> = RefCell::new(Vec::new());
 }
 
 pub fn record(id: ObjectId) {
@@ -17,13 +18,23 @@ pub fn record(id: ObjectId) {
 }
 
 pub fn drain() -> Vec<HostDestroyEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    LOG.with(|log| {
+        let v = std::mem::take(&mut *log.borrow_mut());
+        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
+        v
+    })
 }
 
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
+    LAST_DRAIN.with(|last| last.borrow_mut().clear());
 }
 
 pub fn len() -> usize {
     LOG.with(|log| log.borrow().len())
+}
+
+/// Events from the most recent `drain()` (presentation residual after shadow).
+pub fn last_drain_snapshot() -> Vec<HostDestroyEvent> {
+    LAST_DRAIN.with(|last| last.borrow().clone())
 }
