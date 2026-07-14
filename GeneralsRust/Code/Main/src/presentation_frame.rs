@@ -141,6 +141,19 @@ pub enum PresentationEvent {
         id: ObjectId,
         template: String,
     },
+    /// Host research finished this frame (name + player).
+    UpgradeComplete {
+        name: String,
+        player_id: u32,
+        team: Team,
+        units_affected: u32,
+    },
+    /// Factory production finished (spawned unit).
+    ProductionComplete {
+        producer: ObjectId,
+        template: String,
+        spawned: ObjectId,
+    },
     Victory {
         winner_player: Option<u32>,
     },
@@ -1417,6 +1430,29 @@ impl PresentationFrame {
                 template: ev.template_name,
             });
         }
+        for up in logic.host_upgrades().completed_this_frame_snapshot() {
+            events.push(PresentationEvent::UpgradeComplete {
+                name: up.name,
+                player_id: up.player_id,
+                team: up.team,
+                units_affected: up.units_affected,
+            });
+        }
+        // Shadow session drains production before presentation; freeze last drain batch.
+        for ev in crate::game_logic::host_production_log::last_drain_snapshot() {
+            if let crate::game_logic::host_production_log::HostProductionEvent::Complete {
+                producer,
+                template_name,
+                spawned,
+            } = ev
+            {
+                events.push(PresentationEvent::ProductionComplete {
+                    producer,
+                    template: template_name,
+                    spawned,
+                });
+            }
+        }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2125,6 +2161,58 @@ mod tests {
     use super::*;
     use crate::game_logic::{GameMode, KindOf, Player, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+    #[test]
+    fn upgrade_complete_freezes_into_presentation_events() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        // Direct registry complete without full research path.
+        let _ = logic
+            .host_upgrades_mut()
+            .record_complete("CaptureBuilding", 0, 1, 3);
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::UpgradeComplete {
+                        name,
+                        player_id: 0,
+                        units_affected: 3,
+                        ..
+                    } if name.to_ascii_lowercase().contains("capture")
+                )
+            }),
+            "expected UpgradeComplete: {:?}",
+            frame.events
+        );
+    }
+
+    #[test]
+    fn production_complete_freezes_from_last_drain() {
+        crate::game_logic::host_production_log::clear();
+        crate::game_logic::host_production_log::record_complete(
+            crate::game_logic::ObjectId(1),
+            "TestRanger",
+            crate::game_logic::ObjectId(9),
+        );
+        let _ = crate::game_logic::host_production_log::drain(); // simulate shadow session
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::ProductionComplete {
+                        producer,
+                        template,
+                        spawned
+                    } if producer.0 == 1 && spawned.0 == 9 && template == "TestRanger"
+                )
+            }),
+            "expected ProductionComplete: {:?}",
+            frame.events
+        );
+    }
 
     #[test]
     fn construction_complete_freezes_into_presentation_events() {
