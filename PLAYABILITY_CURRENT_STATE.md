@@ -1,3 +1,79 @@
+## Residual Host Playability — Wave 86: GameData camera/FPS/world + multiplayer options + map selection + crate deepen residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal GameData / lobby / map / crate residual):**
+1. **GameData camera / FPS residual pack** (`host_gamedata_lobby_residual`):
+   - UseFPSLimit residual **Yes**; FramesPerSecondLimit residual **30**.
+   - CameraPitch **37.5** / Yaw **0** / Height **232** / Max **310** / Min **120**.
+   - CameraAdjustSpeed **0.3**; ScrollAmountCutoff **50**; EnforceMaxCameraHeight **No**.
+   - KeyboardCameraRotateSpeed **0.1**; CameraAudibleRadius **250**.
+   - Honesty: `honesty_gamedata_camera_fps_residual_pack_wave86`.
+2. **GameData world constants residual pack**:
+   - Scroll factors: Horizontal **1.6** / Vertical **2.0** / Keyboard **2.0**.
+   - Gravity **-64**; PartitionCellSize **40**; TerrainHeightAtEdgeOfMap **100**.
+   - DefaultOcclusionDelay **3000**ms → **90**f; DefaultStructureRubbleHeight **10**.
+   - UnitDamagedThreshold **0.7** / ReallyDamaged **0.35**; MovementPenaltyDamageState **REALLYDAMAGED**.
+   - MinDistFromEdgeOfMapForBuild **30**; SupplyBuildBorder **20**; AllowedHeightVariationForBuilding **10**.
+   - SellPercentage **50%** (sell refund residual); StealthFriendlyOpacity **50%**.
+   - BaseRegenHealthPercentPerSecond **0.3%** / BaseRegenDelay **3000**ms → **90**f.
+   - UnlookPersistDuration **5000**ms → **150**f.
+   - ShroudColor white; ClearAlpha **255** / FogAlpha **127** / ShroudAlpha **0**.
+   - MaxParticleCount **2500**; MaxFieldParticleCount **30**; MaxLineBuildObjects **50**.
+   - CommandCenterHealRange **500** / HealAmount **0.01** per logic frame.
+   - Honesty: `honesty_gamedata_world_constants_residual_pack_wave86`.
+3. **Multiplayer options residual pack** (host-only; not network play):
+   - MultiplayerSettings: StartCountdownTimer **5**s; MaxBeaconsPerPlayer **3**; UseShroud **No**.
+   - ShowRandomPlayerTemplate / StartPos / Color residual **Yes**.
+   - MultiplayerColor residual table **8** (Gold/Red/Blue/Green/Orange/SkyBlue/Purple/Pink)
+     with day/night RGB (Purple+Pink distinct night).
+   - Beacon placement residual: allowed when count < MaxBeaconsPerPlayer.
+   - Honesty: `honesty_multiplayer_options_residual_pack_wave86`.
+4. **Map selection residual pack**:
+   - ShellMapName residual `Maps\ShellMapMD\ShellMapMD.map`; default MapName **Assault.map**.
+   - Default skirmish map residual **Defcon6** (`MAP:Defcon6`, 6 players).
+   - Official MapCache sample anchors (8): AlpineAssault 2p / ArmoredFury 6p / Defcon6 6p /
+     TournamentCity 6p / TournamentContinent 4p / TournamentPlains 2p /
+     BarrenBadlands 2p / BitterWinter 2p.
+   - Host player-count support residual: 2..numPlayers for multiplayer maps.
+   - Honesty: `honesty_map_selection_residual_pack_wave86`.
+5. **Crate residual deepen pack**:
+   - SalvageCrateCollide: WeaponChance **100%** / LevelChance **25%** / MoneyChance **75%**
+     (level+money=100%); Min/MaxMoney **25/75**; PickupScience **SCIENCE_GLA**;
+     KilledByType **SALVAGER**; DeletionUpdate lifetime **30000–35000**ms.
+   - Dollar crate matrix residual: 100/200/1000/1500/2500 + SupplyDropZone **250**.
+   - EliteTankCrateData CreationChance **0.75**; HeroicTankCrateData **1.0**.
+   - SmallLevelUp EffectRange **100** / MediumLevelUp **250**.
+   - 2FreeCrusadersCrate UnitCount **2** / UnitName **AmericaTankCrusader**.
+   - Honesty: `honesty_crate_residual_deepen_pack_wave86`.
+6. Combined: `honesty_gamedata_lobby_residual_pack_wave86`.
+
+**Still residual (fail-closed, not claimed):**
+- Full GlobalData live INI reload / View camera GPU path residual
+- Full MultiplayerSettings live lobby combo / network matchmaking residual
+- Full MapCache.ini parse / MapSelect UI GPU residual
+- Full SalvageCrateCollide W3D subobject / weapon-set upgrade matrix
+- Shell `playable_claim` / network residual (network deferred)
+
+---
+
+## Residual Host Playability — Wave 87: weather/water/bridge/tunnel/garrison/transport residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal environment + contain residual; co-shipped with Wave 86 wiring):**
+1. **Weather residual pack** (`host_env_contain_residual`) — Weather.ini / Snow defaults honesty.
+2. **Water residual pack** — Water.ini WaterSet MORNING..NIGHT + WaterTransparency defaults.
+3. **Bridge residual pack** — BridgeBehavior scaffold speeds; BridgeTowerType / BRIDGE_MAX_TOWERS.
+4. **Tunnel residual deepen** — TunnelContain / MaxTunnelCapacity deepen residual.
+5. **Garrison residual pack** — GarrisonContain bunker/firebase/civilian building residual.
+6. **Transport residual pack** — TransportContain slot tables + host unit transport residual.
+7. Combined: `honesty_env_contain_residual_pack_wave87`.
+
+**Still residual (fail-closed, not claimed):**
+- Full SnowManager GPU / W3DWater reflection / BridgeBehavior motion residual
+- Full TunnelTracker multi-index / GarrisonContain fire-point bone matrix
+- Full TransportContain exit-door residual matrix
+- Shell `playable_claim` / network residual (network deferred)
+
+---
+
 ## Residual Host Playability — Wave 85: faction side / player template / starting cash / AI personality / victory residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal skirmish-lobby / multiplayer setup residual):**
