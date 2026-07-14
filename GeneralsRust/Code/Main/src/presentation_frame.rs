@@ -2207,6 +2207,26 @@ impl PresentationFrame {
     /// If only structures are hit, keep a single structure when exactly one is present.
     /// Filter stored ids to alive selectable friendlies (control-group recall residual).
     /// Script camera-slave residual: first non-destroyed object matching template (case-insensitive).
+    /// Control-group double-tap residual: average XZ pose of listed alive objects.
+    pub fn centroid_of_ids(&self, ids: &[ObjectId]) -> Option<glam::Vec3> {
+        let mut sum = glam::Vec3::ZERO;
+        let mut n = 0u32;
+        for id in ids {
+            if let Some(o) = self.objects.iter().find(|o| o.id == *id) {
+                if o.destroyed {
+                    continue;
+                }
+                sum += o.position;
+                n += 1;
+            }
+        }
+        if n == 0 {
+            None
+        } else {
+            Some(sum / n as f32)
+        }
+    }
+
     pub fn first_alive_position_for_template(&self, template_name: &str) -> Option<glam::Vec3> {
         self.objects
             .iter()
@@ -3120,6 +3140,29 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn centroid_of_ids_from_presentation() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("Ranger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Ranger".into(), t);
+        let a = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(10.0, 0.0, 6.0))
+            .unwrap();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let c = frame.centroid_of_ids(&[a, b]).expect("c");
+        assert!((c.x - 5.0).abs() < 0.01);
+        assert!((c.z - 3.0).abs() < 0.01);
+        assert!(frame.centroid_of_ids(&[]).is_none());
+        assert!(frame.centroid_of_ids(&[ObjectId(99999)]).is_none());
     }
 
     #[test]

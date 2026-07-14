@@ -1236,6 +1236,8 @@ pub struct CnCGameEngine {
     // Game state
     selected_objects: Vec<ObjectId>,
     control_groups: HashMap<u8, Vec<ObjectId>>,
+    /// Last control-group digit select (group, Instant) for double-tap camera jump residual.
+    last_control_group_select: Option<(u8, Instant)>,
     current_player_id: u32,
     game_paused: bool,
 
@@ -4314,6 +4316,7 @@ impl CnCGameEngine {
             mmb_anchor: None,
             selected_objects: Vec::new(),
             control_groups: HashMap::new(),
+            last_control_group_select: None,
             current_player_id: 0,
             game_paused: false,
             show_debug_info: debug_overlay,
@@ -8054,8 +8057,44 @@ impl CnCGameEngine {
 
                     self.game_logic
                         .select_objects(self.current_player_id, selection.clone());
-                    self.selected_objects = selection;
+                    self.selected_objects = selection.clone();
                     self.play_sound_effect(SoundType::Select);
+
+                    // Double-tap residual: second press of same group within 500ms centers camera.
+                    let now = Instant::now();
+                    let double_tap = matches!(
+                        self.last_control_group_select,
+                        Some((g, t)) if g == group_num && now.duration_since(t).as_millis() < 500
+                    );
+                    self.last_control_group_select = Some((group_num, now));
+                    if double_tap && !selection.is_empty() {
+                        let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame.centroid_of_ids(&selection)
+                        } else {
+                            let mut sum = Vec3::ZERO;
+                            let mut n = 0u32;
+                            for id in &selection {
+                                if let Some(obj) = self.game_logic.find_object(*id) {
+                                    sum += obj.get_position();
+                                    n += 1;
+                                }
+                            }
+                            if n == 0 {
+                                None
+                            } else {
+                                Some(sum / n as f32)
+                            }
+                        };
+                        if let Some(center) = center {
+                            let clamped = self.clamp_to_world_bounds(center);
+                            self.camera_target.x = clamped.x;
+                            self.camera_target.z = clamped.z;
+                            info!(
+                                "Control group {} double-tap camera jump to {:?}",
+                                group_num, clamped
+                            );
+                        }
+                    }
                 }
             }
             Key::Character(c)
