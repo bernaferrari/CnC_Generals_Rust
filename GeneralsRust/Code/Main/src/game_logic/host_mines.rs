@@ -495,6 +495,42 @@ pub const SUPERWEAPON_CLUSTER_MINES_RELOAD_MS: u32 = 240_000;
 /// ReloadTime 240000ms → 7200 frames @ 30 FPS.
 pub const SUPERWEAPON_CLUSTER_MINES_RELOAD_FRAMES: u32 = 7_200;
 
+// --- Wave 78: ClusterMines DeliveryDecal / ViewObject / science residual deepen ---
+/// Retail SuperweaponClusterMines special-power template residual name.
+pub const SUPERWEAPON_CLUSTER_MINES: &str = "SuperweaponClusterMines";
+/// Retail SUPERWEAPON_ClusterMines OCL residual name.
+pub const CLUSTER_MINES_OCL: &str = "SUPERWEAPON_ClusterMines";
+/// Retail SCIENCE_ClusterMines residual.
+pub const SCIENCE_CLUSTER_MINES: &str = "SCIENCE_ClusterMines";
+/// Retail SciencePurchasePointCost residual.
+pub const CLUSTER_MINES_SCIENCE_POINT_COST: u32 = 1;
+/// Retail SCIENCE_ClusterMines PrerequisiteSciences residual tokens.
+pub const CLUSTER_MINES_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_CHINA", "SCIENCE_Rank3"];
+/// Retail SuperweaponClusterMines ViewObjectDuration residual (msec).
+pub const CLUSTER_MINES_VIEW_OBJECT_DURATION_MS: u32 = 30_000;
+/// ViewObjectDuration 30000ms → 900 frames @ 30 FPS.
+pub const CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES: u32 = 900;
+/// Retail SuperweaponClusterMines ViewObjectRange residual.
+pub const CLUSTER_MINES_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail DeliverPayload DropOffset residual (X/Y/Z).
+pub const CLUSTER_MINES_DROP_OFFSET: (f32, f32, f32) = (0.0, 0.0, -2.0);
+/// Retail DeliverPayload MaxAttempts residual.
+pub const CLUSTER_MINES_MAX_ATTEMPTS: u32 = 4;
+/// Retail DeliveryDecal Texture residual.
+pub const CLUSTER_MINES_DECAL_TEXTURE: &str = "SCCClusterMines_China";
+/// Retail DeliveryDecal Style residual.
+pub const CLUSTER_MINES_DECAL_STYLE: &str = "SHADOW_ALPHA_DECAL";
+/// Retail DeliveryDecal OpacityMin residual (percent).
+pub const CLUSTER_MINES_DECAL_OPACITY_MIN_PCT: u32 = 25;
+/// Retail DeliveryDecal OpacityMax residual (percent).
+pub const CLUSTER_MINES_DECAL_OPACITY_MAX_PCT: u32 = 50;
+/// Retail DeliveryDecal OpacityThrobTime residual (msec).
+pub const CLUSTER_MINES_DECAL_THROB_MS: u32 = 500;
+/// Retail DeliveryDecal Color residual (R:255 G:156 B:0 A:255).
+pub const CLUSTER_MINES_DECAL_COLOR: (u8, u8, u8, u8) = (255, 156, 0, 255);
+/// Retail Payload count residual (`Payload = ClusterMinesBomb 1`).
+pub const CLUSTER_MINES_PAYLOAD_COUNT: u32 = 1;
+
 /// DozerMineDisarmingWeapon / WorkerMineDisarmingWeapon AttackRange residual.
 pub const DOZER_MINE_CLEAR_RANGE: f32 = 5.0;
 
@@ -799,6 +835,33 @@ pub fn honesty_mines_residual_pack_ok() -> bool {
         && honesty_cluster_mines_ocl_residual_ok()
 }
 
+/// Wave 78 residual honesty: ClusterMines DeliveryDecal / ViewObject / science residual deepen.
+///
+/// Fail-closed: not full OCL ClusterMinesBomb aircraft path / GenerateMinefieldBehavior SmartBorder.
+pub fn honesty_cluster_mines_residual_pack_wave78() -> bool {
+    SUPERWEAPON_CLUSTER_MINES == "SuperweaponClusterMines"
+        && CLUSTER_MINES_OCL == "SUPERWEAPON_ClusterMines"
+        && SCIENCE_CLUSTER_MINES == "SCIENCE_ClusterMines"
+        && CLUSTER_MINES_SCIENCE_POINT_COST == 1
+        && CLUSTER_MINES_PREREQ_SCIENCES == ["SCIENCE_CHINA", "SCIENCE_Rank3"]
+        && CLUSTER_MINES_VIEW_OBJECT_DURATION_MS == 30_000
+        && CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES == 900
+        && mine_ms_to_frames(CLUSTER_MINES_VIEW_OBJECT_DURATION_MS)
+            == CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES
+        && (CLUSTER_MINES_VIEW_OBJECT_RANGE - 250.0).abs() < 0.01
+        && CLUSTER_MINES_DROP_OFFSET == (0.0, 0.0, -2.0)
+        && CLUSTER_MINES_MAX_ATTEMPTS == 4
+        && CLUSTER_MINES_DECAL_TEXTURE == "SCCClusterMines_China"
+        && CLUSTER_MINES_DECAL_STYLE == "SHADOW_ALPHA_DECAL"
+        && CLUSTER_MINES_DECAL_OPACITY_MIN_PCT == 25
+        && CLUSTER_MINES_DECAL_OPACITY_MAX_PCT == 50
+        && CLUSTER_MINES_DECAL_THROB_MS == 500
+        && CLUSTER_MINES_DECAL_COLOR == (255, 156, 0, 255)
+        && CLUSTER_MINES_PAYLOAD_COUNT == 1
+        && (CLUSTER_MINES_DELIVERY_DECAL_RADIUS - CLUSTER_MINES_RADIUS_CURSOR).abs() < 0.01
+        && honesty_cluster_mines_ocl_residual_ok()
+}
+
 /// Simple distance falloff: full damage inside half-radius, linear to edge.
 pub fn damage_at_distance(base_damage: f32, radius: f32, distance: f32) -> f32 {
     if radius <= 0.0 || distance > radius {
@@ -1026,6 +1089,19 @@ mod tests {
         // Z variance residual is 0
         assert!((hi.y - center.y).abs() < 0.01);
     }
+
+    #[test]
+    fn cluster_mines_residual_pack_wave78_honesty() {
+        assert!(honesty_cluster_mines_residual_pack_wave78());
+        assert_eq!(CLUSTER_MINES_DECAL_TEXTURE, "SCCClusterMines_China");
+        assert_eq!(CLUSTER_MINES_DECAL_COLOR, (255, 156, 0, 255));
+        assert_eq!(SCIENCE_CLUSTER_MINES, "SCIENCE_ClusterMines");
+        assert_eq!(CLUSTER_MINES_MAX_ATTEMPTS, 4);
+        assert_eq!(CLUSTER_MINES_DROP_OFFSET, (0.0, 0.0, -2.0));
+        assert_eq!(CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES, 900);
+        assert_eq!(CLUSTER_MINES_SCIENCE_POINT_COST, 1);
+    }
+
 
     #[test]
     fn mines_residual_pack_honesty() {

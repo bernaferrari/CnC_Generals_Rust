@@ -3,14 +3,30 @@
 //! This module provides the bridge between the RTS input system and the
 //! unit control system, handling mouse clicks, keyboard commands, and
 //! translating them into unit actions.
+//!
+//! Wave 79 residual: drag-select threshold + double-click residual honesty pack
+//! (host-testable; not full retail MessageStream / GUIEdit drag matrix).
 
 use crate::game_logic::{GameLogic, Team};
 use crate::input_system::{ButtonState, RtsCommand, RtsInputSystem};
-use crate::unit_control::UnitControlSystem;
+use crate::unit_control::{UnitControlSystem, DOUBLE_CLICK_THRESHOLD_SECS};
 use glam::Vec2;
 use std::sync::Arc;
 use std::sync::Mutex as AsyncMutex;
 use winit::keyboard::{Key, NamedKey};
+
+/// Screen-pixel residual: drag distance above this becomes box selection (not click).
+pub const DRAG_SELECT_THRESHOLD_PX: f32 = 5.0;
+
+/// Wave 79 input residual honesty pack (drag threshold + double-click gate).
+///
+/// Fail-closed: not full C++ InGameUI drag / MessageDispatcher remapping.
+pub fn honesty_input_residual_pack_wave79() -> bool {
+    (DRAG_SELECT_THRESHOLD_PX - 5.0).abs() < 0.001
+        && (DOUBLE_CLICK_THRESHOLD_SECS - 0.3).abs() < 0.001
+        && DRAG_SELECT_THRESHOLD_PX > 0.0
+        && DOUBLE_CLICK_THRESHOLD_SECS > 0.0
+}
 
 /// Integration handler for unit control input
 pub struct UnitInputHandler {
@@ -101,7 +117,7 @@ impl UnitInputHandler {
                 if let Some(start_pos) = self.drag_start_pos {
                     let drag_distance = (mouse_pos - start_pos).length();
 
-                    if drag_distance > 5.0 {
+                    if drag_distance > DRAG_SELECT_THRESHOLD_PX {
                         // This was a drag operation - handle box selection
                         self.unit_control
                             .handle_box_selection(start_pos, mouse_pos, shift_pressed, game_logic)
@@ -133,7 +149,7 @@ impl UnitInputHandler {
         // Update drag selection visuals
         if let Some(start_pos) = self.drag_start_pos {
             let drag_distance = (mouse_pos - start_pos).length();
-            if drag_distance > 5.0 {
+            if drag_distance > DRAG_SELECT_THRESHOLD_PX {
                 self.drag_in_progress = true;
                 // Update selection box in input system for rendering
                 input_system.get_selection_mut().selection_box_start = Some(start_pos);
@@ -442,5 +458,10 @@ mod tests {
     fn get_selection_box_none_when_not_dragging() {
         let handler = UnitInputHandler::new((1280.0, 720.0), Team::USA, 0);
         assert_eq!(handler.get_selection_box(), None);
+    }
+
+    #[test]
+    fn input_residual_pack_wave79_honesty() {
+        assert!(honesty_input_residual_pack_wave79());
     }
 }

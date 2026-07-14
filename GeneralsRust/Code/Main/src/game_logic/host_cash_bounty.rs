@@ -73,6 +73,125 @@ pub const CASH_BOUNTY2_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_CashBounty1", "SCI
 /// Retail SCIENCE_CashBounty3 PrerequisiteSciences residual tokens.
 pub const CASH_BOUNTY3_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_CashBounty2", "SCIENCE_Rank3"];
 
+// --- Wave 78: CashBounty science-tier enum + DisplayName residual deepen ---
+/// Retail SCIENCE_CashBounty1 DisplayName residual.
+pub const CASH_BOUNTY1_DISPLAY_NAME: &str = "SCIENCE:GLACashBounty1";
+/// Retail SCIENCE_CashBounty2 DisplayName residual.
+pub const CASH_BOUNTY2_DISPLAY_NAME: &str = "SCIENCE:GLACashBounty2";
+/// Retail SCIENCE_CashBounty3 DisplayName residual.
+pub const CASH_BOUNTY3_DISPLAY_NAME: &str = "SCIENCE:GLACashBounty3";
+/// Retail shared Description residual for CashBounty sciences.
+pub const CASH_BOUNTY_DESCRIPTION: &str = "CONTROLBAR:ToolTipGLAScienceCashBounty";
+/// Retail CashBountyPower ModuleTag residual names on GLA Palace (FactionBuilding.ini).
+pub const CASH_BOUNTY1_MODULE_TAG: &str = "ModuleTag_15";
+/// Retail CashBountyPower ModuleTag residual for tier 2.
+pub const CASH_BOUNTY2_MODULE_TAG: &str = "ModuleTag_16";
+/// Retail CashBountyPower ModuleTag residual for tier 3.
+pub const CASH_BOUNTY3_MODULE_TAG: &str = "ModuleTag_17";
+/// Retail IsGrantable residual (all CashBounty sciences).
+pub const CASH_BOUNTY_IS_GRANTABLE: bool = true;
+
+/// Residual Cash Bounty science tier (Bounty 5% / 10% / 20%).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum CashBountyScienceTier {
+    #[default]
+    Level1,
+    Level2,
+    Level3,
+}
+
+impl CashBountyScienceTier {
+    /// Retail CashBountyPower Bounty percent residual for this tier.
+    pub fn percent(self) -> f32 {
+        match self {
+            CashBountyScienceTier::Level1 => CASH_BOUNTY1_PERCENT,
+            CashBountyScienceTier::Level2 => CASH_BOUNTY2_PERCENT,
+            CashBountyScienceTier::Level3 => CASH_BOUNTY3_PERCENT,
+        }
+    }
+
+    /// Retail Bounty percent string residual ("5%" / "10%" / "20%").
+    pub fn percent_str(self) -> &'static str {
+        match self {
+            CashBountyScienceTier::Level1 => CASH_BOUNTY1_PERCENT_STR,
+            CashBountyScienceTier::Level2 => CASH_BOUNTY2_PERCENT_STR,
+            CashBountyScienceTier::Level3 => CASH_BOUNTY3_PERCENT_STR,
+        }
+    }
+
+    /// Retail science residual name for this tier.
+    pub fn science_name(self) -> &'static str {
+        match self {
+            CashBountyScienceTier::Level1 => SCIENCE_CASH_BOUNTY1,
+            CashBountyScienceTier::Level2 => SCIENCE_CASH_BOUNTY2,
+            CashBountyScienceTier::Level3 => SCIENCE_CASH_BOUNTY3,
+        }
+    }
+
+    /// Retail SpecialAbility template residual name for this tier.
+    pub fn special_ability_name(self) -> &'static str {
+        match self {
+            CashBountyScienceTier::Level1 => SPECIAL_ABILITY_CASH_BOUNTY1,
+            CashBountyScienceTier::Level2 => SPECIAL_ABILITY_CASH_BOUNTY2,
+            CashBountyScienceTier::Level3 => SPECIAL_ABILITY_CASH_BOUNTY3,
+        }
+    }
+
+    /// Retail DisplayName residual for this tier.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            CashBountyScienceTier::Level1 => CASH_BOUNTY1_DISPLAY_NAME,
+            CashBountyScienceTier::Level2 => CASH_BOUNTY2_DISPLAY_NAME,
+            CashBountyScienceTier::Level3 => CASH_BOUNTY3_DISPLAY_NAME,
+        }
+    }
+
+    /// Retail CashBountyPower ModuleTag residual for this tier.
+    pub fn module_tag(self) -> &'static str {
+        match self {
+            CashBountyScienceTier::Level1 => CASH_BOUNTY1_MODULE_TAG,
+            CashBountyScienceTier::Level2 => CASH_BOUNTY2_MODULE_TAG,
+            CashBountyScienceTier::Level3 => CASH_BOUNTY3_MODULE_TAG,
+        }
+    }
+
+    /// Map SCIENCE_CashBounty1/2/3 (or ability name residual) to tier.
+    pub fn from_science_name(name: &str) -> Option<Self> {
+        let n = normalize_science_identity(name);
+        if n.contains("cashbounty3") {
+            Some(CashBountyScienceTier::Level3)
+        } else if n.contains("cashbounty2") {
+            Some(CashBountyScienceTier::Level2)
+        } else if n.contains("cashbounty1") || n == "cashbounty" {
+            Some(CashBountyScienceTier::Level1)
+        } else {
+            None
+        }
+    }
+
+    /// Select highest unlocked CashBounty science tier from a science name list.
+    pub fn highest_from_sciences<'a, I>(sciences: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut best = CashBountyScienceTier::Level1;
+        for s in sciences {
+            if let Some(t) = Self::from_science_name(s) {
+                best = match (best, t) {
+                    (_, CashBountyScienceTier::Level3) | (CashBountyScienceTier::Level3, _) => {
+                        CashBountyScienceTier::Level3
+                    }
+                    (_, CashBountyScienceTier::Level2) | (CashBountyScienceTier::Level2, _) => {
+                        CashBountyScienceTier::Level2
+                    }
+                    _ => CashBountyScienceTier::Level1,
+                };
+            }
+        }
+        best
+    }
+}
+
 /// Normalize science/upgrade identity (alphanumeric lower).
 pub fn normalize_science_identity(name: &str) -> String {
     name.chars()
@@ -295,6 +414,42 @@ pub fn honesty_cash_bounty_residual_pack_ok() -> bool {
         && honesty_cash_bounty_floating_text_residual_ok()
 }
 
+/// Wave 78 residual honesty: CashBountyScienceTier enum + DisplayName / ModuleTag residual.
+///
+/// Fail-closed: not full CashBountyPower module-on-palace science gate matrix.
+pub fn honesty_cash_bounty_residual_pack_wave78() -> bool {
+    CashBountyScienceTier::Level1.percent() == CASH_BOUNTY1_PERCENT
+        && CashBountyScienceTier::Level2.percent() == CASH_BOUNTY2_PERCENT
+        && CashBountyScienceTier::Level3.percent() == CASH_BOUNTY3_PERCENT
+        && CashBountyScienceTier::Level1.percent_str() == "5%"
+        && CashBountyScienceTier::Level2.percent_str() == "10%"
+        && CashBountyScienceTier::Level3.percent_str() == "20%"
+        && CashBountyScienceTier::Level1.science_name() == SCIENCE_CASH_BOUNTY1
+        && CashBountyScienceTier::Level2.science_name() == SCIENCE_CASH_BOUNTY2
+        && CashBountyScienceTier::Level3.science_name() == SCIENCE_CASH_BOUNTY3
+        && CashBountyScienceTier::Level1.special_ability_name() == SPECIAL_ABILITY_CASH_BOUNTY1
+        && CashBountyScienceTier::Level2.special_ability_name() == SPECIAL_ABILITY_CASH_BOUNTY2
+        && CashBountyScienceTier::Level3.special_ability_name() == SPECIAL_ABILITY_CASH_BOUNTY3
+        && CashBountyScienceTier::Level1.display_name() == CASH_BOUNTY1_DISPLAY_NAME
+        && CashBountyScienceTier::Level2.display_name() == CASH_BOUNTY2_DISPLAY_NAME
+        && CashBountyScienceTier::Level3.display_name() == CASH_BOUNTY3_DISPLAY_NAME
+        && CashBountyScienceTier::Level1.module_tag() == "ModuleTag_15"
+        && CashBountyScienceTier::Level2.module_tag() == "ModuleTag_16"
+        && CashBountyScienceTier::Level3.module_tag() == "ModuleTag_17"
+        && CASH_BOUNTY_DESCRIPTION == "CONTROLBAR:ToolTipGLAScienceCashBounty"
+        && CASH_BOUNTY_IS_GRANTABLE
+        && CashBountyScienceTier::from_science_name("SCIENCE_CashBounty1")
+            == Some(CashBountyScienceTier::Level1)
+        && CashBountyScienceTier::from_science_name("SpecialAbilityCashBounty3")
+            == Some(CashBountyScienceTier::Level3)
+        && CashBountyScienceTier::highest_from_sciences([
+            SCIENCE_CASH_BOUNTY1,
+            SCIENCE_CASH_BOUNTY3,
+        ]) == CashBountyScienceTier::Level3
+        && compute_bounty_award(1000, CashBountyScienceTier::Level3.percent()) == 200
+        && honesty_cash_bounty_residual_pack_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,4 +525,24 @@ mod tests {
         assert_eq!(CASH_BOUNTY_SCIENCE_POINT_COST, 1);
         assert_eq!(CASH_BOUNTY3_PERCENT_STR, "20%");
     }
+
+    #[test]
+    fn cash_bounty_residual_pack_wave78_honesty() {
+        assert!(honesty_cash_bounty_residual_pack_wave78());
+        assert_eq!(CashBountyScienceTier::Level2.percent_str(), "10%");
+        assert_eq!(
+            CashBountyScienceTier::Level3.display_name(),
+            "SCIENCE:GLACashBounty3"
+        );
+        assert_eq!(CashBountyScienceTier::Level1.module_tag(), "ModuleTag_15");
+        assert_eq!(
+            CashBountyScienceTier::highest_from_sciences([
+                SCIENCE_CASH_BOUNTY1,
+                SCIENCE_CASH_BOUNTY2,
+            ]),
+            CashBountyScienceTier::Level2
+        );
+        assert!(CASH_BOUNTY_IS_GRANTABLE);
+    }
+
 }

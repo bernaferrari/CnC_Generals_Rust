@@ -2701,6 +2701,15 @@ impl Object {
     }
 
     pub fn gain_experience(&mut self, amount: f32) {
+        // Wave 79: AdvancedTraining ExperienceScalarUpgrade residual application.
+        // C++ AddXPScalar 1.0 → double XP when the upgrade tag is present.
+        let amount = if self.has_advanced_training_xp_scalar() {
+            crate::game_logic::host_unit_training::residual_xp_gain_with_advanced_training(
+                amount, true,
+            )
+        } else {
+            amount
+        };
         self.experience.current += amount;
 
         // C++ parity: veterancy thresholds are per-template (Object::ExperienceValues
@@ -2732,12 +2741,20 @@ impl Object {
     ///   Heroic:  +30% dmg, +60% RoF, +50% HP
     /// Returns (health_multiplier, damage_multiplier, rof_multiplier).
     fn veterancy_bonuses(level: VeterancyLevel) -> (f32, f32, f32) {
-        match level {
-            VeterancyLevel::Rookie => (1.0, 1.0, 1.0),
-            VeterancyLevel::Veteran => (1.2, 1.1, 1.0 / 1.2), // +20% RoF
-            VeterancyLevel::Elite => (1.3, 1.2, 1.0 / 1.4),   // +40% RoF
-            VeterancyLevel::Heroic => (1.5, 1.3, 1.0 / 1.6),  // +60% RoF
-        }
+        crate::game_logic::host_unit_training::veterancy_bonus_multipliers(level)
+    }
+
+    /// Wave 79: true when AdvancedTraining ExperienceScalar residual tag is present.
+    pub fn has_advanced_training_xp_scalar(&self) -> bool {
+        use crate::game_logic::host_unit_training::{
+            is_advanced_training_upgrade, UPGRADE_AMERICA_ADVANCED_TRAINING,
+        };
+        self.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
+            || self.has_upgrade_tag("UpgradeAdvancedTraining")
+            || self
+                .applied_upgrades
+                .iter()
+                .any(|u| is_advanced_training_upgrade(u))
     }
 
     fn apply_veterancy_bonuses(
