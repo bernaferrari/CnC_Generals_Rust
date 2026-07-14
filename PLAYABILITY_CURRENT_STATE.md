@@ -1,3 +1,75 @@
+## Residual Host Playability — Wave 87: weather/water/bridge/tunnel/garrison/transport residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal environment + contain residual):**
+1. **Weather residual pack** (`host_env_contain_residual`):
+   - Freezes retail `Weather.ini` / C++ `WeatherSetting` snow defaults.
+   - SnowEnabled **No**; texture **ExSnowFlake.tga**; BoxDimensions **200** /
+     Density **1**; FrequencyScaleX/Y **0.0533/0.0275**; Amplitude **5**;
+     Velocity **4**; PointSize **1** / Max **64** / Min **0**; PointSprites **Yes**;
+     QuadSize **0.5**; SnowManager noise table **64×64**.
+   - Honesty: `honesty_weather_residual_pack_wave87`.
+2. **Water residual pack**:
+   - Freezes C++ `TimeOfDay` residual: INVALID **0** / MORNING **1** / AFTERNOON **2** /
+     EVENING **3** / NIGHT **4** / COUNT **5**; names NONE/MORNING/AFTERNOON/EVENING/NIGHT.
+   - WaterTransparency residual: Depth **3.0**, MinOpacity **1.0**, texture
+     **TWWater01.tga**, Additive **No**, RadarColor **R140 G140 B255**.
+   - WaterSet residual table MORNING..NIGHT: WaterRepeatCount **32**, day scroll
+     **0.002**, night scroll **0**; sky textures TSCloudWis / TSCloudSun / TSStarFeld;
+     Diffuse anchors (175/185/225/100); EVENING transparent alpha **96**.
+   - Honesty: `honesty_water_residual_pack_wave87`.
+3. **Bridge residual pack**:
+   - BridgeTowerType residual: FROM_LEFT **0** / FROM_RIGHT **1** / TO_LEFT **2** /
+     TO_RIGHT **3** / BRIDGE_MAX_TOWERS **4**.
+   - MAX_BRIDGE_BODY_FX **3**; Lateral/VerticalScaffoldSpeed defaults **1.0**.
+   - Honesty: `honesty_bridge_residual_pack_wave87`.
+4. **Tunnel residual deepen** (beyond Wave 64):
+   - Wave 64 anchors still hold: MaxTunnelCapacity **10**, TimeForFullHeal
+     **5000**ms → **150**f.
+   - Deepen: CONTAIN_MAX_UNKNOWN **-1**; KickOutOnCapture **No**; ImmuneToClear **Yes**;
+     isGarrisonable **No** / isBustable **Yes** / isTunnelContain **Yes**.
+   - Nemesis expiry residual **4×LOGICFRAMES** = **120**f.
+   - Heal sliver residual: `max_health / frames_for_full_heal` until complete.
+   - Honesty: `honesty_tunnel_residual_deepen_wave87`.
+5. **Garrison residual pack**:
+   - MAX_GARRISON_POINTS **40**; conditions PRISTINE/DAMAGED/REALLY_DAMAGED **0/1/2**
+     (COUNT **3**); GARRISON_INDEX_INVALID **-1**.
+   - MUZZLE_FLASH_LIFETIME residual **LOGICFRAMES/7** = **4**f.
+   - ContainMax residual: bunker/palace **5**, FireBase **4**, civilian **10**.
+   - Bunker ImmuneToClear **Yes**; FireBase IsEnclosing **No** + DamagePercent **100%**.
+   - Enter/Exit audio residual GarrisonEnter / GarrisonExit.
+   - Honesty: `honesty_garrison_residual_pack_wave87`.
+6. **Transport residual pack**:
+   - TransportContainModuleData defaults: Slots **0**, ScatterNearby **Yes**,
+     HealthRegen **0**, ExitDelay **0**, GoAggressive **No**, ResetMood **Yes**.
+   - OpenContain defaults: ExitPaths **1**, PassengersFire **No**, DoorOpenTime **1**.
+   - Cross-unit slot residual table: Humvee/Technical **5**, TroopCrawler/Chinook/
+     BattleBus **8**, ListeningOutpost **2**, Ambulance **3**.
+   - ExitDelay residual: Humvee **250**ms→**8**f, Chinook **100**ms→**3**f.
+   - HealthRegen residual formula: `max * regen%/100 * SECONDS_PER_LOGICFRAME`
+     (Ambulance **25%**, TroopCrawler/ListeningOutpost **10%**).
+   - Honesty: `honesty_transport_residual_pack_wave87`.
+7. Tests / gates:
+   - Combined honesty: `honesty_env_contain_residual_pack_wave87`.
+   - shell_smoke: weather87/water87/bridge87/tunnel87/garrison87/transport87
+     honesty flags wired (playable_claim stays false)
+   - Unit: 7 wave87 honesty tests PASS
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     weather87=true water87=true bridge87=true tunnel87=true garrison87=true
+     transport87=true (plus wave86 cam/world/mpopt/mapsel/crate)
+
+**Still residual (fail-closed, not claimed):**
+- Full SnowManager GPU point-sprite / noise-table residual
+- Full W3DWater reflection / skybox mesh residual
+- Full BridgeBehavior scaffolding motion / dozer repair path residual
+- Full TunnelTracker last-tunnel cave-in / CaveSystem multi-index residual
+- Full GarrisonContain fire-point bone matrix / mobile garrison residual
+- Full TransportContain exit-door / extra-slots-in-use residual matrix
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+---
+
 ## Residual Host Playability — Wave 86: GameData camera/FPS/world + multiplayer options + map selection + crate deepen residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal GameData / lobby / map / crate residual):**
@@ -51,25 +123,6 @@
 - Full MultiplayerSettings live lobby combo / network matchmaking residual
 - Full MapCache.ini parse / MapSelect UI GPU residual
 - Full SalvageCrateCollide W3D subobject / weapon-set upgrade matrix
-- Shell `playable_claim` / network residual (network deferred)
-
----
-
-## Residual Host Playability — Wave 87: weather/water/bridge/tunnel/garrison/transport residual peels (2026-07-13)
-
-**Closed (host-testable residual peels; orthogonal environment + contain residual; co-shipped with Wave 86 wiring):**
-1. **Weather residual pack** (`host_env_contain_residual`) — Weather.ini / Snow defaults honesty.
-2. **Water residual pack** — Water.ini WaterSet MORNING..NIGHT + WaterTransparency defaults.
-3. **Bridge residual pack** — BridgeBehavior scaffold speeds; BridgeTowerType / BRIDGE_MAX_TOWERS.
-4. **Tunnel residual deepen** — TunnelContain / MaxTunnelCapacity deepen residual.
-5. **Garrison residual pack** — GarrisonContain bunker/firebase/civilian building residual.
-6. **Transport residual pack** — TransportContain slot tables + host unit transport residual.
-7. Combined: `honesty_env_contain_residual_pack_wave87`.
-
-**Still residual (fail-closed, not claimed):**
-- Full SnowManager GPU / W3DWater reflection / BridgeBehavior motion residual
-- Full TunnelTracker multi-index / GarrisonContain fire-point bone matrix
-- Full TransportContain exit-door residual matrix
 - Shell `playable_claim` / network residual (network deferred)
 
 ---
