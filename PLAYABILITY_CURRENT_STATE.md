@@ -1,3 +1,179 @@
+## Residual Host Playability — Wave 102: DisplayString/Anim2D/laser/CSF presentation residual peels (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal graphics residual toward GPU):**
+1. **DisplayString residual deepen** (`floating_text_layout`):
+   - FontCharsClass spacing residual table: `CHAR_BUFFER_LEN` **32768**, ASCII array **256**,
+     PixelOverlap formula `clamp((-font_height)/8, 0, 4)`, Get_Char_Spacing =
+     Width − PixelOverlap − CharOverhang; monospaced Width=8 → spacing=8.
+   - ASCII printable 0x20..0x7E spacing residual table (**95** entries).
+   - StretchRect submit residual bookkeeping: shadow+text Draw_Sentence host counters,
+     optional hotkey submit, Render residual; `gpu_stretch_rect_submitted=false` always.
+   - Honesty: `honesty_display_string_residual_deepen_pack_wave102`.
+2. **Anim2D residual deepen** (`world_anim_layout`):
+   - Full Animation2D.ini template residual table (**14** names) with mode / delay_ms /
+     randomize / NumberImages / image-prefix / start-index metadata (not just MoneyPickUp).
+   - Collection `init_with_retail_templates` residual registers all 14 with residual metadata.
+   - Honesty: `honesty_anim2d_residual_deepen_pack_wave102`.
+3. **Laser SegLine residual deepen** (`laser_segment_upload`):
+   - Soft-edge UV atlas residual texture bind expand: TextureMapMode UNIFORM_WIDTH **0** /
+     TILED **2**, UVOffsetDeltaPerMS = rate×0.001, CurrentUVOffset advance residual,
+     atlas bind table EXNoise02 / EXBinaryStream32 / EXLaser.
+   - Multi-beam soft-edge residual cross-link retained.
+   - Honesty: `honesty_laser_segliner_residual_deepen_pack_wave102`.
+4. **Multi-locale CSF residual deepen** (`game_text_residual`):
+   - Expanded pack-load residual for all **10** LanguageId (primary 5 + UK/JA/Jabber/KO/Unknown).
+   - Fail-closed empty-table honesty when assets absent (CI).
+   - Honesty: `honesty_csf_multi_locale_residual_deepen_pack_wave102`.
+5. **Presentation residual deepen** (`presentation_frame`):
+   - Dual-tick residual deepen: selected_count + particle_count consistency;
+     deepen pack cross-links floating/world-anim/laser/spectre/mesh/ground residual.
+   - Honesty: `honesty_presentation_residual_deepen_pack_wave102`.
+6. **Wiring**:
+   - shell_smoke: display102/anim2d102/laser102/csf102/pres102 flags (playable_claim stays false)
+   - shell_smoke_gate requires wave102 honesty flags
+7. **Tests / gates**:
+   - Unit wave102 honesty tests PASS
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false with display102=true…pres102=true
+
+**Still residual (fail-closed, not claimed):**
+- Full DisplayString GPU font atlas raster / WW3D StretchRect submit
+- Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
+- Full SegLineRenderer wgpu write_buffer / atlas sampler bind
+- Full multi-locale CSF GameTextManager boot UI for all LanguageId
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 103: weapon/armor/locomotor/special-power/KindOf residual peels (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal to Waves 101/102 ThingFactory/graphics):**
+1. **Weapon residual deepen** (`weapon_bootstrap`, beyond Wave 92):
+   - **16** deepen residual names: NukeCannon / Inferno / Aurora / FireBase /
+     SentryDrone / Hellfire / JarmenKell / TunnelDefender / MiniGunner /
+     Overlord / BattleMaster / Comanche AT + rocket pods / Avenger AA /
+     SCUD toxin / BlackNapalm.
+   - Key damage/range residual (e.g. NukeCannon **400**/r**350**, JarmenKell
+     **180**/r**225**, Overlord **80**/r**175**, MiniGunner **10**/r**125**).
+   - Honesty: `honesty_weapon_store_deepen_residual_wave103`.
+2. **Armor residual expand** (`host_armor_residual`, beyond Wave 92):
+   - HazMatHumanArmor / ChemSuitHumanArmor / DozerArmor / UpgradedTankArmor /
+     HumveeArmor / DragonTankArmor / ToxinTruckArmor / ComancheArmor /
+     StructureArmorTough residual.
+   - Key Armor.ini scalars: HazMat POISON **0%** / FLAME **25%**; Dragon FLAME
+     **0%**; ToxinTruck POISON **0%**; Humvee JET_MISSILES **30%**; StructureTough
+     EXPLOSION **80%**; Comanche EXPLOSION **130%**.
+   - Honesty: `honesty_armor_residual_expand_wave103`.
+3. **Locomotor residual expand** (`locomotor_bootstrap`, beyond Wave 92):
+   - **14** new residual names: BombTruck / TroopCrawler / RadarVan / ToxinTruck /
+     Chinook / A10 / B52 / CombatBike / POWTruck / NuclearBattleMaster /
+     JarmenKell / BlackLotus / Saboteur / MissileDefender.
+   - Retail Speed residual (e.g. Chinook **150**, CombatBike **120**, B52 **125**,
+     BombTruck **50**, MissileDefender **20**).
+   - Unit template → SET_NORMAL name residual binding expanded.
+   - Honesty: `honesty_locomotor_residual_expand_wave103`.
+4. **SpecialPower superweapon residual deepen** (`host_game_logic_residual_wave103`):
+   - **20** SpecialPower.ini Superweapon residual rows (template / Enum / ReloadTime)
+     for powers incomplete on HostSuperweaponKind (MOAB / EMP / Napalm /
+     BlackMarketNuke / TerrorCell / CrateDrop / Frenzy / CashHack / DirtyNuke /
+     Leaflet / SpySatellite / SpyDrone / RadarVan / EmergencyRepair / GPS / CIA /
+     SneakAttack / Ambush / Baikonur / SupW PUC).
+   - Enum cross-link to Wave 80 SPECIAL_POWER_BIT_NAME_LIST; ReloadTime → frames.
+   - Honesty: `honesty_special_power_superweapon_residual_deepen_wave103`.
+5. **Object residual KindOf packs** for more unit types:
+   - **17** common unit/structure KindOf residual packs (Ranger / Rebel / Redguard /
+     Crusader / BattleMaster / Scorpion / Humvee / Technical / Raptor / Comanche /
+     Helix / Overlord / Tomahawk / Hacker / CommandCenter / WarFactory / Barracks).
+   - KindOf token residual + BuildCost / BuildTime / MaxHealth residual anchors.
+   - Honesty: `honesty_object_kindof_residual_pack_wave103`.
+6. **Combined pack**: `honesty_game_logic_residual_pack_wave103`.
+
+**Wiring:**
+- `game_logic/host_game_logic_residual_wave103.rs` (new — SP deepen + KindOf + combined)
+- `game_logic/weapon_bootstrap.rs` — Wave 103 weapon deepen honesty
+- `game_logic/host_armor_residual.rs` — Wave 103 armor expand
+- `game_logic/locomotor_bootstrap.rs` — Wave 103 locomotor expand
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — weapon103/armor103/loco103/sp103/kindof103 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave103 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave103 tests PASS
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  weapon103=true armor103=true loco103=true sp103=true kindof103=true
+
+**Not claimed:**
+- Full Weapon.ini / Armor.ini / Locomotor.ini archive parse residual
+- Full SpecialPowerStore SharedSyncedTimer / PublicTimer UI residual
+- Full ThingTemplate KindOf bit matrix / live Object INI parse residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
+## Residual Host Playability — Wave 101: ModuleFactory / ThingFactory create / Partition register residual peels (2026-07-14)
+
+- Co-present Wave 100 residual (`host_thing_factory_module_xfer_residual`) deepen
+
+**Closed (host-testable residual peels; orthogonal ModuleFactory / ThingFactory create / Partition register):**
+1. **ModuleFactory residual deepen** (`host_thing_factory_module_xfer_residual`, beyond Wave 100 type tables):
+   - Expanded sample ModuleFactory residual table **≥24** (Wave 100 had **9**).
+   - Multi-interface mask composition residual: OpenContain / TunnelContain / MinefieldBehavior /
+     AutoHealBehavior / PhysicsBehavior / BridgeBehavior / SpawnBehavior / FXListDie / etc.
+   - `module_interface_compose_mask_residual` OR-fold + popcount residual.
+   - `ModuleFactoryRegistryResidual` host bookkeeping: addModule / findModuleInterfaceMask /
+     m_moduleDataList push / dtor clear residual counters.
+   - ModuleData hash residual: NameKey `SOCKET_COUNT` **45007**, `calcHashForString`
+     `(result<<5)+result+byte`, decorated-name bucket residual.
+   - Empty-name findModule residual still **0**.
+   - Honesty: `honesty_module_factory_residual_deepen_pack_wave101`.
+2. **ThingFactory create residual deepen** (newObject post-create bookkeeping):
+   - Post-create residual steps **5**: GAMELOGIC_CREATE / TEAM_ASSIGN / ON_CREATE_MODULES /
+     PARTITION_REGISTER / INIT_OBJECT.
+   - `ThingFactoryCreateResidualCounters` residual: null-template reject, drawable-only reject,
+     build-variation resolve, create/team/onCreate/partition/init counters + live_object_count.
+   - Template `copyFrom` residual: preserves name / template_id / next_link; copies payload;
+     `setCopiedFromDefault` residual armor/weapons/modules flags.
+   - `findTemplate` residual: case-sensitive name table lookup + AsciiString hash residual
+     (`calcHashForString`) honesty; missing+check crash residual flag.
+   - Honesty: `honesty_thing_factory_create_residual_deepen_pack_wave101`.
+3. **PartitionManager register residual** (host counters; cell size cross-link Wave 96):
+   - `PartitionCellSize` residual **40** linked to register residual.
+   - registerObject residual steps **5**: SANITY_NULL / REJECT_ALREADY_REG / ALLOC /
+     LINK_MODULE_LIST / ATTACH_TO_OBJECT.
+   - unRegisterObject residual steps **6** including GHOST_FOG_HOLD.
+   - `PartitionRegisterResidualCounters` residual bookkeeping + world→cell residual.
+   - Honesty: `honesty_partition_register_residual_pack_wave101`.
+4. **Cross-link pack**: CREATE interface + TunnelContain CREATE + post-create order + cell 40.
+   - Honesty: `honesty_thing_factory_module_partition_crosslink_wave101`.
+5. **Combined pack**: `honesty_thing_factory_module_partition_residual_pack_wave101`
+   (includes Wave 100 deepen packs still holding).
+6. Tests / gates:
+   - Unit: residual_pack_honesty_wave101* tests
+   - shell_smoke: module_factory101/thing_factory101/partition_register101/mf_crosslink101
+     honesty flags wired (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     module_factory101=true thing_factory101=true partition_register101=true mf_crosslink101=true
+
+**Wiring:**
+- `game_logic/host_thing_factory_module_xfer_residual.rs` — Wave 101 deepen sections
+- `game_logic/mod.rs` — pub use Wave 101 honesty packs
+- `shell_smoke.rs` — module_factory101/thing_factory101/partition_register101/mf_crosslink101
+- `shell_smoke_gate.rs` — require Wave 101 honesty flags; playable_claim stays false
+- Co-present Wave 100 residual packs in shell gate wiring
+
+**Still residual (fail-closed, not claimed):**
+- Full live ThingFactory Object GPU / CreateModule instance graph residual
+- Full live BehaviorModule createProc / exclusive module graph residual
+- Full PartitionData attach / shroud ghost exclusive residual
+- Full XferSave/XferLoad file I/O / deep CRC network residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+
 ## Residual Host Playability — Wave 100: ThingFactory residual deepen / Module type tables / Xfer residual deepen peels (2026-07-14)
 
 - Co-present Wave 99 residual (`host_production_buildable_command_residual`) in shell gate wiring

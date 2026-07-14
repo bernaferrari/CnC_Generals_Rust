@@ -79,6 +79,7 @@ pub mod host_partition_collision_physics_residual;
 pub mod host_dock_contain_exit_heal_residual;
 pub mod host_production_buildable_command_residual;
 pub mod host_thing_factory_module_xfer_residual;
+pub mod host_game_logic_residual_wave103;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -320,11 +321,24 @@ pub use host_production_buildable_command_residual::{
     honesty_production_residual_deepen_pack_wave99,
 };
 pub use host_thing_factory_module_xfer_residual::{
+    honesty_module_factory_residual_deepen_pack_wave101,
     honesty_module_type_table_residual_pack_wave100,
+    honesty_partition_register_residual_pack_wave101,
+    honesty_thing_factory_create_residual_deepen_pack_wave101,
+    honesty_thing_factory_module_partition_crosslink_wave101,
+    honesty_thing_factory_module_partition_residual_pack_wave101,
     honesty_thing_factory_module_xfer_residual_pack_wave100,
     honesty_thing_factory_residual_deepen_pack_wave100,
     honesty_thing_factory_spawn_crosslink_wave100, honesty_xfer_residual_deepen_pack_wave100,
 };
+pub use host_game_logic_residual_wave103::{
+    honesty_game_logic_residual_pack_wave103,
+    honesty_object_kindof_residual_pack_wave103,
+    honesty_special_power_superweapon_residual_deepen_wave103,
+};
+pub use host_armor_residual::honesty_armor_residual_expand_wave103;
+pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
+pub use weapon_bootstrap::honesty_weapon_store_deepen_residual_wave103;
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
     HostCiaIntelligence, HostCiaIntelligenceRegistry, HostCiaIntelligenceSpiedUnit,
