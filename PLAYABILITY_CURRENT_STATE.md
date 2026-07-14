@@ -1,3 +1,70 @@
+## Residual Host Playability — Wave 93: particle emit-rate / drawable opacity+shroud / shadow deepen / terrain texture / road residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal render/terrain residual):**
+1. **Particle system residual deepen** (`host_render_terrain_residual`, ParticleSys.h/.cpp + ParticleSystem.ini + GameData.ini):
+   - ParticlePriorityType residual: INVALID **0** .. ALWAYS_RENDER **13**; NUM_PARTICLE_PRIORITIES **14**.
+   - Priority names NONE/WEAPON_EXPLOSION..ALWAYS_RENDER residual.
+   - Ctor residual: priority LOWEST, SystemLifetime **0** (forever), countCoeff/delayCoeff **1.0**, IsOneShot **No**.
+   - Wind residual angle change **0.15** / min **0.15** / max **0.45**; DEFAULT_VOLUME_PARTICLE_DEPTH **0**.
+   - MaxParticleCount retail **2500** (ctor **0** before INI).
+   - Sample TsingMaTrailSmoke: BurstDelay **40**, BurstCount **0..2**, InitialDelay **20**, forever system.
+   - Emit-rate formula residual: `REAL_TO_INT(burstCount)*countCoeff`, delay frames `*delayCoeff`.
+   - Honesty: `honesty_particle_system_emit_rate_residual_deepen_pack_wave93`.
+2. **Drawable residual deepen** (opacity + shroud; beyond Wave 79 StealthLook ordinals):
+   - StealthLook residual 6 ordinals NONE..INVISIBLE.
+   - explicitOpacity default **1.0**; StealthFriendlyOpacity **0.5** (ctor + GameData 50%).
+   - `getEffectiveOpacity` = explicit * effectiveStealth residual.
+   - `setEffectiveOpacity` pulse residual (floor + margin*pf); sentinel **−1** leaves floor.
+   - DrawableStatus bits NONE/MIRROR/SHADOWS/TINT_LOCKED/NO_STATE_PARTICLES/NO_SAVE residual.
+   - shroudClearFrame default **0**; heat-vision second-pass opacity on/off residual.
+   - Honesty: `honesty_drawable_opacity_shroud_residual_deepen_pack_wave93`.
+3. **Shadow residual deepen** (beyond Wave 84 ShadowType enum table):
+   - MAX_SHADOW_LIGHTS **1**; m_shadowColor ARGB **0x7fa0a0a0**.
+   - addShadow default type SHADOW_VOLUME **0x02**.
+   - ShadowType bits DECAL..ADDITIVE_DECAL residual; Drawable STATUS_SHADOWS **0x02** cross-link.
+   - Honesty: `honesty_shadow_residual_deepen_pack_wave93`.
+4. **Terrain texture residual peels** (TerrainTex/TileData/TerrainTypes + Terrain.ini):
+   - TILE_OFFSET **8**; TILE_PIXEL_EXTENT **64**; TEXTURE_WIDTH **2048**.
+   - Mip extents **32/16/8**; cloud slide x **−0.02**/s, y **1.5×x**.
+   - terrainTypeNames residual **38** rows (NONE..URBAN; INI string labels).
+   - FieldParse Texture/BlendEdges/Class/RestrictConstruction residual.
+   - Sample AsphaltType1 / GrassRockTransitionType1 residual rows.
+   - Honesty: `honesty_terrain_texture_residual_pack_wave93`.
+5. **Road residual peels** (TerrainRoads/W3DRoadBuffer + Roads.ini + GameData.ini):
+   - DEFAULT_ROAD_SCALE **8**; MAX_SEG_VERTEX **500**; MAX_SEG_INDEX **2000**.
+   - NUM_CORNERS **4**; NUM_JOINS **8** (SEGMENT..ALPHA_JOIN).
+   - FieldParse Texture/RoadWidth/RoadWidthInTexture; ctor widths **0**; id counter starts **1**.
+   - MaxRoad Segments **4000** / Vertex **3000** / Index **5000** / Types **100** (ctor 0).
+   - Sample TwoLane **35**/0.9, FourLane **60**/0.9, Cobblestone **30**, GrassStrip **8**.
+   - Honesty: `honesty_road_residual_pack_wave93`.
+
+**Wiring:**
+- `game_logic/host_render_terrain_residual.rs` (new; co-shipped in Wave 92 commit for green gate)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — particle93/drawable93/shadow93/terrain_tex93/road93 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave93 honesty flags; playable_claim stays false
+- Combined pack: `honesty_render_terrain_residual_pack_wave93`
+
+**Gates:**
+- Unit: 6 wave93 honesty tests PASS
+- golden_skirmish_gate --frames 8 → PASS playable_claim=true
+- shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+  particle93=true drawable93=true shadow93=true terrain_tex93=true road93=true
+  (plus concurrent wave92 weapon/armor/body/loco/science)
+
+**Not claimed:**
+- Full ParticleSystemManager LOD cull / GPU particle draw residual
+- Full Drawable W3D material pass / heat-vision GPU residual
+- Full volumetric shadow stencil / projected shadow GPU residual
+- Full TerrainTextureClass atlas update / CloudMap GPU residual
+- Full W3DRoadBuffer mesh bake / DX8 VB residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 92: weapon/armor/body/locomotor/science residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; combat/sim residual deepen):**
@@ -45,8 +112,7 @@
 - `game_logic/mod.rs` — module + pub use honesty
 - `shell_smoke.rs` — weapon92/armor92/body92/loco92/science92 fields + detail tokens
 - `shell_smoke_gate.rs` — require wave92 honesty flags; playable_claim stays false
-- Wave 93 render/terrain residual co-shipped for green shell gate wiring
-  (`host_render_terrain_residual.rs`)
+- Wave 93 render/terrain residual module co-shipped; closed in dedicated Wave 93 section
 
 **Gates:**
 - Unit: 6 wave92 honesty tests PASS (+ wave93 residual co-ship tests)
@@ -60,72 +126,6 @@
 - Full ActiveBody ArmorSet swap / MaxHealthUpgrade exclusive modules
 - Full multi-surface SET_PANIC / pitch-roll locomotor matrix residual
 - Full ScienceStore NameKey purchase cost / prereq graph evaluation residual
-- shell playable_claim / network (deferred)
-
-**Honesty rules preserved:**
-- Shell playable_claim remains **false**
-- Golden playable_claim remains **true**
-- Network residual deferred
-
-## Residual Host Playability — Wave 93: particle emit-rate / drawable opacity+shroud / shadow deepen / terrain texture / road residual peels (2026-07-13)
-
-**Closed (host-testable residual peels; orthogonal render/terrain residual):**
-1. **Particle system residual deepen** (`host_render_terrain_residual`, ParticleSys.h/.cpp + ParticleSystem.ini + GameData.ini):
-   - ParticlePriorityType residual: INVALID **0** .. ALWAYS_RENDER **13**; NUM_PARTICLE_PRIORITIES **14**.
-   - Priority names NONE/WEAPON_EXPLOSION..ALWAYS_RENDER residual.
-   - Ctor residual: priority LOWEST, SystemLifetime **0** (forever), countCoeff/delayCoeff **1.0**, IsOneShot **No**.
-   - Wind residual angle change **0.15** / min **0.15** / max **0.45**; DEFAULT_VOLUME_PARTICLE_DEPTH **0**.
-   - MaxParticleCount retail **2500** (ctor **0** before INI).
-   - Sample TsingMaTrailSmoke: BurstDelay **40**, BurstCount **0..2**, InitialDelay **20**, forever system.
-   - Emit-rate formula residual: `REAL_TO_INT(burstCount)*countCoeff`, delay frames `*delayCoeff`.
-   - Honesty: `honesty_particle_system_emit_rate_residual_deepen_pack_wave93`.
-2. **Drawable residual deepen** (opacity + shroud; beyond Wave 79 StealthLook ordinals):
-   - StealthLook residual 6 ordinals NONE..INVISIBLE.
-   - explicitOpacity default **1.0**; StealthFriendlyOpacity **0.5** (ctor + GameData 50%).
-   - `getEffectiveOpacity` = explicit * effectiveStealth residual.
-   - `setEffectiveOpacity` pulse residual (floor + margin*pf); sentinel **−1** leaves floor.
-   - DrawableStatus bits NONE/MIRROR/SHADOWS/TINT_LOCKED/NO_STATE_PARTICLES/NO_SAVE residual.
-   - shroudClearFrame default **0**; heat-vision second-pass opacity on/off residual.
-   - Honesty: `honesty_drawable_opacity_shroud_residual_deepen_pack_wave93`.
-3. **Shadow residual deepen** (beyond Wave 84 ShadowType enum table):
-   - MAX_SHADOW_LIGHTS **1**; m_shadowColor ARGB **0x7fa0a0a0**.
-   - addShadow default type SHADOW_VOLUME **0x02**.
-   - ShadowType bits DECAL..ADDITIVE_DECAL residual; Drawable STATUS_SHADOWS **0x02** cross-link.
-   - Honesty: `honesty_shadow_residual_deepen_pack_wave93`.
-4. **Terrain texture residual peels** (TerrainTex/TileData/TerrainTypes + Terrain.ini):
-   - TILE_OFFSET **8**; TILE_PIXEL_EXTENT **64**; TEXTURE_WIDTH **2048**.
-   - Mip extents **32/16/8**; cloud slide x **−0.02**/s, y **1.5×x**.
-   - terrainTypeNames residual **38** rows (NONE..URBAN; INI string labels).
-   - FieldParse Texture/BlendEdges/Class/RestrictConstruction residual.
-   - Sample AsphaltType1 / GrassRockTransitionType1 residual rows.
-   - Honesty: `honesty_terrain_texture_residual_pack_wave93`.
-5. **Road residual peels** (TerrainRoads/W3DRoadBuffer + Roads.ini + GameData.ini):
-   - DEFAULT_ROAD_SCALE **8**; MAX_SEG_VERTEX **500**; MAX_SEG_INDEX **2000**.
-   - NUM_CORNERS **4**; NUM_JOINS **8** (SEGMENT..ALPHA_JOIN).
-   - FieldParse Texture/RoadWidth/RoadWidthInTexture; ctor widths **0**; id counter starts **1**.
-   - MaxRoad Segments **4000** / Vertex **3000** / Index **5000** / Types **100** (ctor 0).
-   - Sample TwoLane **35**/0.9, FourLane **60**/0.9, Cobblestone **30**, GrassStrip **8**.
-   - Honesty: `honesty_road_residual_pack_wave93`.
-
-**Wiring:**
-- `game_logic/host_render_terrain_residual.rs` (new)
-- `game_logic/mod.rs` — module + pub use honesty
-- `shell_smoke.rs` — particle93/drawable93/shadow93/terrain_tex93/road93 fields + detail tokens
-- `shell_smoke_gate.rs` — require wave93 honesty flags; playable_claim stays false
-- Combined pack: `honesty_render_terrain_residual_pack_wave93`
-
-**Gates:**
-- Unit: 6 wave93 honesty tests
-- golden_skirmish_gate --frames 8 → playable_claim=true
-- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
-  particle93=true drawable93=true shadow93=true terrain_tex93=true road93=true
-
-**Not claimed:**
-- Full ParticleSystemManager LOD cull / GPU particle draw residual
-- Full Drawable W3D material pass / heat-vision GPU residual
-- Full volumetric shadow stencil / projected shadow GPU residual
-- Full TerrainTextureClass atlas update / CloudMap GPU residual
-- Full W3DRoadBuffer mesh bake / DX8 VB residual
 - shell playable_claim / network (deferred)
 
 **Honesty rules preserved:**
