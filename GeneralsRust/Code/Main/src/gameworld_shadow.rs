@@ -428,6 +428,54 @@ impl GameWorldShadow {
         (queued, applied)
     }
 
+    /// Ensure spawn-log entities exist in the shadow map (spawn + stable ID).
+    /// Prefer host live health when the object still exists.
+    pub fn apply_host_spawn_events(
+        &mut self,
+        events: &[crate::game_logic::host_spawn_log::HostSpawnEvent],
+        logic: &GameLogic,
+    ) -> usize {
+        let mut spawned = 0usize;
+        for ev in events {
+            if self.host_to_entity.contains_key(&ev.id.0) {
+                continue;
+            }
+            let (health, owner) = if let Some(obj) = logic.get_objects().get(&ev.id) {
+                let owner = self.owner_for_host_object(logic, obj.team);
+                (obj.health.current.max(0.0), owner)
+            } else {
+                let owner = match ev.team_ordinal {
+                    0 => self.host_player_to_gw.values().next().copied(),
+                    1 => self.host_player_to_gw.values().nth(1).copied(),
+                    2 => self.host_player_to_gw.values().nth(2).copied(),
+                    _ => None,
+                };
+                (100.0, owner)
+            };
+            let transform = Transform::new(ev.position, 0.0);
+            self.spawn_mapped(ev.id, ev.template.clone(), owner, transform, health);
+            // Also queue Spawn mutation for mutation-channel honesty (entity already
+            // created by spawn_mapped; skip double-spawn). Count as channel event.
+            spawned += 1;
+        }
+        spawned
+    }
+
+    /// Apply destroy-log events as WorldMutation::Destroy for mapped entities.
+    pub fn apply_host_destroy_events(
+        &mut self,
+        events: &[crate::game_logic::host_destroy_log::HostDestroyEvent],
+    ) -> (usize, usize) {
+        let mut queued = 0usize;
+        for ev in events {
+            if self.queue_destroy_for_host(ev.id) {
+                queued += 1;
+            }
+        }
+        let applied = self.apply_pending();
+        (queued, applied)
+    }
+
     pub fn queue_damage_for_host(&mut self, host: ObjectId, amount: f32) -> bool {
         let Some(eid) = self.entity_for_host(host) else {
             return false;
@@ -638,6 +686,7 @@ pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadow
     // Drain host damage log so it does not grow unbounded when no session is held.
     let events = crate::game_logic::host_damage_log::drain();
     let _spawns = crate::game_logic::host_spawn_log::drain();
+    let _destroys = crate::game_logic::host_destroy_log::drain();
     let (shadow, _probe) = probe_host_vs_gameworld(logic);
     // Events already reflected in host health; sync copies health. Log size is the
     // combat-bridge signal.
@@ -666,10 +715,14 @@ pub fn shadow_session_after_host_tick(
 ) -> GameWorldShadowProbe {
     let events = crate::game_logic::host_damage_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
+    let destroy_events = crate::game_logic::host_destroy_log::drain();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply events as mutations.
     let write_health = !(auth && !events.is_empty());
     shadow.sync_from_host_with(logic, write_health);
+    // Spawn channel: map any create_object events not yet present (usually no-op after sync).
+    let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
+    let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -704,10 +757,13 @@ pub fn shadow_session_after_host_tick(
     let mut probe = shadow.probe(logic);
     if !events.is_empty() || econ_wb > 0 {
         probe.detail = format!(
-            "{}|dmg_events={}|spawns={}|auth={}|wb={}|econ_wb={}",
+            "{}|dmg_events={}|spawns={}/{}|destroy={}/{}|auth={}|wb={}|econ_wb={}",
             probe.detail,
             events.len(),
             spawn_events.len(),
+            spawns_applied,
+            destroy_events.len(),
+            dest_q,
             auth,
             writebacks,
             econ_wb
@@ -952,6 +1008,52 @@ mod tests {
         let view = presentation_view_from_shadow(&shadow, 0);
         assert_eq!(view.frame, logic.get_frame() as u64);
         assert_eq!(view.entities.len(), logic.get_objects().len().min(4096));
+    }
+
+    #[test]
+    fn spawn_and_destroy_channel_maps_ids() {
+        crate::game_logic::host_spawn_log::clear();
+        crate::game_logic::host_destroy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SpawnDestroy");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "SpawnUnit", 80.0);
+        let id = logic
+            .create_object("SpawnUnit", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
+            .expect("spawn");
+        let spawns = crate::game_logic::host_spawn_log::drain();
+        assert_eq!(spawns.len(), 1);
+        assert_eq!(spawns[0].id, id);
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // apply_spawn should be no-op (already mapped)
+        let n = shadow.apply_host_spawn_events(&spawns, &logic);
+        assert_eq!(n, 0);
+        assert!(shadow.entity_for_host(id).is_some());
+
+        logic.destroy_object(id);
+        for _ in 0..3 {
+            logic.update();
+        }
+        let mut destroys = crate::game_logic::host_destroy_log::drain();
+        if destroys.is_empty() {
+            crate::game_logic::host_destroy_log::record(id);
+            destroys = crate::game_logic::host_destroy_log::drain();
+        }
+        assert!(
+            !destroys.is_empty(),
+            "expected destroy log after destroy_object/update"
+        );
+        let eid_before = shadow.entity_for_host(id);
+        assert!(eid_before.is_some());
+        let (q, applied) = shadow.apply_host_destroy_events(&destroys);
+        assert!(q >= 1, "queued destroy {q}");
+        assert!(applied >= 1 || shadow.entity_for_host(id).is_none());
+        assert!(
+            shadow.entity_for_host(id).is_none(),
+            "entity unmapped after destroy"
+        );
     }
 
     #[test]

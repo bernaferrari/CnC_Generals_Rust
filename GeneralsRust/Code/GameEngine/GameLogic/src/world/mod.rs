@@ -389,6 +389,13 @@ pub enum WorldMutation {
         player: PlayerId,
         power_available: i32,
     },
+    /// Spawn a new entity (shadow/host spawn channel).
+    Spawn {
+        template: String,
+        owner: Option<PlayerId>,
+        position: [f32; 3],
+        health: f32,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -507,6 +514,20 @@ impl GameWorld {
                         p.power_available = power_available;
                         applied += 1;
                     }
+                }
+                WorldMutation::Spawn {
+                    template,
+                    owner,
+                    position,
+                    health,
+                } => {
+                    let _id = self.inner.spawn_entity(
+                        entities::TemplateRef::new(template),
+                        owner,
+                        entities::Transform::new(position, 0.0),
+                        health.max(0.0),
+                    );
+                    applied += 1;
                 }
             }
         }
