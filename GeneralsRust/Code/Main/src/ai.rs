@@ -960,9 +960,41 @@ impl AIPlayer {
                 Vec3::ZERO
             };
 
-            // Command all units to attack-move to enemy base (production path).
+            // Prefer a concrete attackable enemy (set_target → host_attack_log →
+            // GameWorld shadow channel). Fall back to attack-move on base center.
+            let enemy_team = self
+                .enemy_player_id
+                .and_then(|eid| game_logic.get_player(eid).map(|p| p.team));
+            let focus_enemy = enemy_team.and_then(|eteam| {
+                game_logic
+                    .get_objects()
+                    .iter()
+                    .filter(|(_, o)| {
+                        o.team == eteam
+                            && o.is_alive()
+                            && o.is_kind_of(crate::game_logic::KindOf::Attackable)
+                    })
+                    .min_by(|(_, a), (_, b)| {
+                        let da = a.get_position().distance(enemy_base);
+                        let db = b.get_position().distance(enemy_base);
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(id, _)| *id)
+            });
+
             for &unit_id in &attack_units {
-                if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                if let Some(focus) = focus_enemy {
+                    if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                        // set_target logs host_attack_log for shadow session.
+                        unit.set_target(Some(focus));
+                    }
+                    if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                        if unit.is_mobile() {
+                            unit.move_to(enemy_base);
+                            unit.ai_state = AIState::AttackMoving;
+                        }
+                    }
+                } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
                     unit.move_to(enemy_base);
                     unit.ai_state = AIState::AttackMoving;
                 }
@@ -1336,5 +1368,65 @@ mod cpp_parity_tests {
         assert_eq!(b.rebuild_count, 0);
         assert!(!b.is_built);
         assert!(!b.template_name.is_empty());
+    }
+
+    #[test]
+    fn launch_attack_sets_target_and_logs_host_attack() {
+        use crate::game_logic::host_attack_log;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+        host_attack_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiAtk");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for (name, team, x) in [("AiAtkU", Team::USA, 0.0f32), ("AiAtkE", Team::GLA, 80.0)] {
+            if !logic.templates.contains_key(name) {
+                let mut tmpl = ThingTemplate::new(name);
+                tmpl.set_health(100.0);
+                tmpl.add_kind_of(KindOf::Infantry);
+                tmpl.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), tmpl);
+            }
+            let _ = logic.create_object(name, team, glam::Vec3::new(x, 0.0, 0.0));
+        }
+        let usa_id = logic
+            .get_players()
+            .iter()
+            .find(|(_, p)| p.team == Team::USA)
+            .map(|(id, _)| *id)
+            .unwrap_or(0);
+        let gla_id = logic
+            .get_players()
+            .iter()
+            .find(|(_, p)| p.team == Team::GLA)
+            .map(|(id, _)| *id);
+        let mut ai = AIPlayer::new(usa_id, Team::USA, AIDifficulty::Medium);
+        ai.enemy_player_id = gla_id;
+        ai.is_active = true;
+        let usa_unit = logic
+            .get_objects()
+            .iter()
+            .find(|(_, o)| o.team == Team::USA && o.is_alive())
+            .map(|(id, _)| *id)
+            .expect("usa unit");
+        if let Some(o) = logic.get_objects_mut().get_mut(&usa_unit) {
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            });
+        }
+        ai.launch_attack(&mut logic, 1000.0);
+        let logged = host_attack_log::drain();
+        let has_target = logic
+            .get_objects()
+            .get(&usa_unit)
+            .map(|o| o.target.is_some())
+            .unwrap_or(false);
+        assert!(
+            has_target && !logged.is_empty(),
+            "launch_attack must set_target and host_attack_log (got target={has_target} log={})",
+            logged.len()
+        );
     }
 }
