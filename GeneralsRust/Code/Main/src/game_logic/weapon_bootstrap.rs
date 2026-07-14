@@ -273,6 +273,77 @@ pub fn honesty_weapon_store_host_seed_residual_wave77() -> bool {
     all_present && ranger_ok && patriot_ok && HOST_WEAPON_STORE_CORE_SEED_NAMES.len() >= 16
 }
 
+/// Wave 92 residual deepen: common ZH weapons beyond Wave 77 core seed names.
+///
+/// Host-testable residual for Marauder / Gattling / Comanche / Dragon / Scorpion
+/// / Buggy / Pathfinder / MissileDefender / Paladin / Helix / Technical residual
+/// damage/range tables. Fail-closed: not full Weapon.ini / full bonus condition matrix.
+pub const HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92: &[&str] = &[
+    MARAUDER_TANK_GUN,
+    GATTLING_TANK_GUN,
+    COMANCHE_PRIMARY_WEAPON,
+    DRAGON_TANK_FLAME_WEAPON,
+    SCORPION_TANK_GUN,
+    BUGGY_ROCKET_WEAPON,
+    PATHFINDER_SNIPER_WEAPON,
+    MISSILE_DEFENDER_MISSILE_WEAPON,
+    PALADIN_TANK_GUN,
+    HELIX_MINIGUN_WEAPON,
+    TECHNICAL_MACHINE_GUN,
+    QUAD_CANNON_GUN,
+    TOXIN_TRUCK_GUN,
+    NAPALM_MISSILE_WEAPON,
+    STEALTH_JET_MISSILE_WEAPON,
+    TANK_HUNTER_PRIMARY_WEAPON,
+];
+
+/// Honesty: Wave 92 weapon template residual deepen pack.
+///
+/// Ensures deepen residual names are registered after bootstrap and that key
+/// damage/range residual scalars match host seed table / Weapon.ini.
+pub fn honesty_weapon_store_deepen_residual_wave92() -> bool {
+    let _ = ensure_host_weapon_store();
+    if !honesty_weapon_store_host_seed_residual_wave77() {
+        return false;
+    }
+    let all_present = HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92
+        .iter()
+        .all(|name| store_has(name));
+    if !all_present || HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.len() < 16 {
+        return false;
+    }
+    // Key residual damage/range scalars (Weapon.ini + host seed).
+    let check = |name: &str, dmg: f32, range: f32| {
+        with_weapon_store(|store| {
+            store
+                .find_weapon_template(name)
+                .map(|t| {
+                    (t.primary_damage - dmg).abs() < 0.05 && (t.attack_range - range).abs() < 0.05
+                })
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+    };
+    check(MARAUDER_TANK_GUN, 60.0, 170.0)
+        && check(GATTLING_TANK_GUN, 15.0, 150.0)
+        && check(COMANCHE_PRIMARY_WEAPON, 6.0, 200.0)
+        && check(DRAGON_TANK_FLAME_WEAPON, 10.0, 75.0)
+        && check(SCORPION_TANK_GUN, 20.0, 150.0)
+        && check(BUGGY_ROCKET_WEAPON, 20.0, 300.0)
+        && check(PATHFINDER_SNIPER_WEAPON, 100.0, 300.0)
+        && check(MISSILE_DEFENDER_MISSILE_WEAPON, 40.0, 175.0)
+        && check(PALADIN_TANK_GUN, 60.0, 150.0)
+        && check(HELIX_MINIGUN_WEAPON, 6.0, 115.0)
+        && check(TECHNICAL_MACHINE_GUN, 10.0, 150.0)
+        && check(QUAD_CANNON_GUN, 10.0, 150.0)
+        && check(TANK_HUNTER_PRIMARY_WEAPON, 40.0, 175.0)
+        && check(CRUSADER_TANK_GUN, 60.0, 150.0)
+        && check(TOMAHAWK_MISSILE_WEAPON, 150.0, 350.0)
+        && check(TOXIN_TRUCK_GUN, 10.0, 100.0)
+        && check(NAPALM_MISSILE_WEAPON, 75.0, 320.0)
+        && check(STEALTH_JET_MISSILE_WEAPON, 100.0, 220.0)
+}
+
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
 /// weapons are registered. Safe to call repeatedly.
 ///
@@ -2077,6 +2148,17 @@ mod tests {
         assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&RANGER_PRIMARY_WEAPON));
         assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&PATRIOT_PRIMARY_WEAPON));
         assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&SCUD_GUN_EXPLOSIVE));
+    }
+
+    #[test]
+    fn weapon_store_deepen_residual_wave92_honesty() {
+        assert!(honesty_weapon_store_deepen_residual_wave92());
+        for name in HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92 {
+            assert!(store_has(name), "missing deepen seed residual: {name}");
+        }
+        assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&MARAUDER_TANK_GUN));
+        assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&PATHFINDER_SNIPER_WEAPON));
+        assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&DRAGON_TANK_FLAME_WEAPON));
     }
 
     #[test]

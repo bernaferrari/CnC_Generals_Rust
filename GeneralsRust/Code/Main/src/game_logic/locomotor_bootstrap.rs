@@ -48,7 +48,35 @@ pub const QUAD_CANNON_LOCOMOTOR: &str = "QuadCannonLocomotor";
 /// Retail AmericaJetRaptor residual.
 pub const RAPTOR_JET_LOCOMOTOR: &str = "RaptorJetLocomotor";
 
-/// Wave 81 residual seed table: (name, Speed, Acceleration, TurnRate deg).
+// --- Wave 92 common-unit locomotor residual expand ---
+/// Retail ChinaTankOverlord residual.
+pub const OVERLORD_LOCOMOTOR: &str = "OverlordLocomotor";
+/// Retail GLATankMarauder residual.
+pub const MARAUDER_LOCOMOTOR: &str = "MarauderLocomotor";
+/// Retail ChinaTankDragon residual.
+pub const DRAGON_LOCOMOTOR: &str = "DragonLocomotor";
+/// Retail AmericaVehicleComanche residual.
+pub const COMANCHE_LOCOMOTOR: &str = "ComancheLocomotor";
+/// Retail ChinaJetMIG residual.
+pub const MIG_LOCOMOTOR: &str = "MIGLocomotor";
+/// Retail GLAVehicleRocketBuggy residual.
+pub const ROCKET_BUGGY_LOCOMOTOR: &str = "RocketBuggyLocomotor";
+/// Retail GLAVehicleBattleBus residual.
+pub const BATTLE_BUS_LOCOMOTOR: &str = "BattleBusLocomotor";
+/// Retail SupplyTruck residual.
+pub const SUPPLY_TRUCK_LOCOMOTOR: &str = "SupplyTruckLocomotor";
+/// Retail AmericaVehicleAvenger residual.
+pub const AVENGER_LOCOMOTOR: &str = "AvengerLocomotor";
+/// Retail ChinaTankGattling residual.
+pub const GATTLING_TANK_LOCOMOTOR: &str = "GattlingTankLocomotor";
+/// Retail ChinaVehicleInfernoCannon residual.
+pub const INFERNO_LOCOMOTOR: &str = "InfernoLocomotor";
+/// Retail AmericaVehicleDozer residual.
+pub const AMERICA_DOZER_LOCOMOTOR: &str = "AmericaVehicleDozerLocomotor";
+/// Retail ChinaVehicleHelix residual.
+pub const HELIX_LOCOMOTOR: &str = "HelixLocomotor";
+
+/// Wave 81/92 residual seed table: (name, Speed, Acceleration, TurnRate deg).
 /// Values match retail Locomotor.ini for common host units.
 pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
     (BASIC_HUMAN_LOCOMOTOR, 20.0, 100.0, 500.0),
@@ -64,6 +92,20 @@ pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
     (SCUD_LAUNCHER_LOCOMOTOR, 20.0, 160.0, 50.0),
     (QUAD_CANNON_LOCOMOTOR, 40.0, 1000.0, 180.0),
     (RAPTOR_JET_LOCOMOTOR, 175.0, 120.0, 120.0),
+    // Wave 92 expand:
+    (OVERLORD_LOCOMOTOR, 20.0, 15.0, 60.0),
+    (MARAUDER_LOCOMOTOR, 40.0, 1000.0, 180.0),
+    (DRAGON_LOCOMOTOR, 30.0, 1000.0, 180.0),
+    (COMANCHE_LOCOMOTOR, 120.0, 60.0, 180.0),
+    (MIG_LOCOMOTOR, 160.0, 110.0, 120.0),
+    (ROCKET_BUGGY_LOCOMOTOR, 90.0, 90.0, 180.0),
+    (BATTLE_BUS_LOCOMOTOR, 70.0, 1000.0, 90.0),
+    (SUPPLY_TRUCK_LOCOMOTOR, 40.0, 240.0, 90.0),
+    (AVENGER_LOCOMOTOR, 30.0, 1000.0, 180.0),
+    (GATTLING_TANK_LOCOMOTOR, 40.0, 1000.0, 180.0),
+    (INFERNO_LOCOMOTOR, 30.0, 1000.0, 120.0),
+    (AMERICA_DOZER_LOCOMOTOR, 30.0, 30.0, 90.0),
+    (HELIX_LOCOMOTOR, 75.0, 60.0, 180.0),
 ];
 
 /// Logic FPS used by C++ Locomotor.ini unit conversion (Speed / 30 → dist/frame).
@@ -119,6 +161,8 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
         "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_LOCOMOTOR),
         "USA_Crusader" | "USA_CrusaderTank" | "AmericaTankCrusader" => Some(CRUSADER_LOCOMOTOR),
         "USA_Tomahawk" | "AmericaVehicleTomahawk" => Some(TOMAHAWK_LOCOMOTOR),
+        "USA_Avenger" | "AmericaVehicleAvenger" | "AmericaTankAvenger" => Some(AVENGER_LOCOMOTOR),
+        "USA_Dozer" | "AmericaVehicleDozer" | "AmericaDozer" => Some(AMERICA_DOZER_LOCOMOTOR),
         // GLA vehicles
         "GLA_Technical" | "GLAVehicleTechnical" => Some(TECHNICAL_LOCOMOTOR),
         "GLA_Scorpion" | "GLA_ScorpionTank" | "GLATankScorpion" => Some(SCORPION_LOCOMOTOR),
@@ -126,10 +170,25 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
             Some(SCUD_LAUNCHER_LOCOMOTOR)
         }
         "GLA_QuadCannon" | "GLAVehicleQuadCannon" => Some(QUAD_CANNON_LOCOMOTOR),
+        "GLA_Marauder" | "GLATankMarauder" => Some(MARAUDER_LOCOMOTOR),
+        "GLA_RocketBuggy" | "GLAVehicleRocketBuggy" => Some(ROCKET_BUGGY_LOCOMOTOR),
+        "GLA_BattleBus" | "GLAVehicleBattleBus" => Some(BATTLE_BUS_LOCOMOTOR),
         // China vehicles
         "China_BattleTank" | "ChinaTankBattleMaster" => Some(BATTLE_MASTER_LOCOMOTOR),
+        "China_Overlord" | "ChinaTankOverlord" => Some(OVERLORD_LOCOMOTOR),
+        "China_Dragon" | "ChinaTankDragon" => Some(DRAGON_LOCOMOTOR),
+        "China_Gattling" | "ChinaTankGattling" => Some(GATTLING_TANK_LOCOMOTOR),
+        "China_Inferno" | "ChinaVehicleInfernoCannon" => Some(INFERNO_LOCOMOTOR),
         // USA aircraft residual
         "USA_Raptor" | "AmericaJetRaptor" => Some(RAPTOR_JET_LOCOMOTOR),
+        "USA_Comanche" | "AmericaVehicleComanche" => Some(COMANCHE_LOCOMOTOR),
+        // China aircraft residual
+        "China_MIG" | "ChinaJetMIG" | "ChinaJetMiG" => Some(MIG_LOCOMOTOR),
+        "China_Helix" | "ChinaVehicleHelix" => Some(HELIX_LOCOMOTOR),
+        // Supply trucks (all factions share residual)
+        "AmericaVehicleSupplyTruck" | "ChinaVehicleSupplyTruck" | "GLAVehicleSupplyTruck" => {
+            Some(SUPPLY_TRUCK_LOCOMOTOR)
+        }
         _ => None,
     }
 }
@@ -177,6 +236,68 @@ pub fn honesty_locomotor_residual_table_wave81() -> bool {
         && locomotor_name_for_unit("AmericaVehicleTomahawk") == Some(TOMAHAWK_LOCOMOTOR)
         && locomotor_name_for_unit("GLAVehicleQuadCannon") == Some(QUAD_CANNON_LOCOMOTOR)
         && locomotor_name_for_unit("AmericaJetRaptor") == Some(RAPTOR_JET_LOCOMOTOR)
+}
+
+/// Wave 92 residual honesty: expand common-unit locomotor residual names.
+///
+/// Adds Overlord / Marauder / Dragon / Comanche / MIG / RocketBuggy / BattleBus /
+/// SupplyTruck / Avenger / GattlingTank / Inferno / Dozer / Helix residual.
+/// Fail-closed: not full multi-surface / SET_PANIC / pitch-roll matrix.
+pub fn honesty_locomotor_residual_expand_wave92() -> bool {
+    let _ = ensure_host_locomotor_store();
+    // Wave 81 base + Wave 92 expand (≥ 25 rows).
+    if HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() < 25 {
+        return false;
+    }
+    let wave92_names = [
+        OVERLORD_LOCOMOTOR,
+        MARAUDER_LOCOMOTOR,
+        DRAGON_LOCOMOTOR,
+        COMANCHE_LOCOMOTOR,
+        MIG_LOCOMOTOR,
+        ROCKET_BUGGY_LOCOMOTOR,
+        BATTLE_BUS_LOCOMOTOR,
+        SUPPLY_TRUCK_LOCOMOTOR,
+        AVENGER_LOCOMOTOR,
+        GATTLING_TANK_LOCOMOTOR,
+        INFERNO_LOCOMOTOR,
+        AMERICA_DOZER_LOCOMOTOR,
+        HELIX_LOCOMOTOR,
+    ];
+    let names_ok = wave92_names
+        .iter()
+        .all(|n| HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.iter().any(|(name, ..)| name == n));
+    if !names_ok {
+        return false;
+    }
+    let speed_ok = |name: &str, expected: f32| {
+        movement_from_store(name)
+            .map(|m| (m.max_speed - expected).abs() < 0.5)
+            .unwrap_or(false)
+    };
+    names_ok
+        && speed_ok(OVERLORD_LOCOMOTOR, 20.0)
+        && speed_ok(MARAUDER_LOCOMOTOR, 40.0)
+        && speed_ok(DRAGON_LOCOMOTOR, 30.0)
+        && speed_ok(COMANCHE_LOCOMOTOR, 120.0)
+        && speed_ok(MIG_LOCOMOTOR, 160.0)
+        && speed_ok(ROCKET_BUGGY_LOCOMOTOR, 90.0)
+        && speed_ok(BATTLE_BUS_LOCOMOTOR, 70.0)
+        && speed_ok(SUPPLY_TRUCK_LOCOMOTOR, 40.0)
+        && speed_ok(AVENGER_LOCOMOTOR, 30.0)
+        && speed_ok(GATTLING_TANK_LOCOMOTOR, 40.0)
+        && speed_ok(INFERNO_LOCOMOTOR, 30.0)
+        && speed_ok(AMERICA_DOZER_LOCOMOTOR, 30.0)
+        && speed_ok(HELIX_LOCOMOTOR, 75.0)
+        && locomotor_name_for_unit("ChinaTankOverlord") == Some(OVERLORD_LOCOMOTOR)
+        && locomotor_name_for_unit("GLATankMarauder") == Some(MARAUDER_LOCOMOTOR)
+        && locomotor_name_for_unit("ChinaTankDragon") == Some(DRAGON_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaVehicleComanche") == Some(COMANCHE_LOCOMOTOR)
+        && locomotor_name_for_unit("ChinaJetMIG") == Some(MIG_LOCOMOTOR)
+        && locomotor_name_for_unit("GLAVehicleRocketBuggy") == Some(ROCKET_BUGGY_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaTankAvenger") == Some(AVENGER_LOCOMOTOR)
+        && locomotor_name_for_unit("ChinaVehicleHelix") == Some(HELIX_LOCOMOTOR)
+        && honesty_locomotor_residual_table_wave81()
 }
 
 /// Resolve host Movement stats from the Locomotor catalog by template name.
@@ -303,8 +424,12 @@ fn seed_known_host_locomotors() -> usize {
         props.insert("Speed".to_string(), format!("{}", speed));
         props.insert("Acceleration".to_string(), format!("{}", accel));
         props.insert("TurnRate".to_string(), format!("{}", turn_deg));
-        // Raptor is AIR residual; others GROUND (host seed surfaces residual only).
-        let surfaces = if name == RAPTOR_JET_LOCOMOTOR {
+        // Air residual locomotors; others GROUND (host seed surfaces residual only).
+        let surfaces = if name == RAPTOR_JET_LOCOMOTOR
+            || name == COMANCHE_LOCOMOTOR
+            || name == MIG_LOCOMOTOR
+            || name == HELIX_LOCOMOTOR
+        {
             "AIR"
         } else {
             "GROUND"
@@ -440,6 +565,24 @@ mod tests {
         assert!(HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() >= 12);
         assert!(store_has(COLONEL_BURTON_GROUND_LOCOMOTOR));
         assert!(store_has(RAPTOR_JET_LOCOMOTOR));
+    }
+
+    #[test]
+    fn locomotor_residual_expand_wave92_honesty() {
+        assert!(honesty_locomotor_residual_expand_wave92());
+        assert!(HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() >= 25);
+        assert!(store_has(OVERLORD_LOCOMOTOR));
+        assert!(store_has(COMANCHE_LOCOMOTOR));
+        assert!(store_has(MIG_LOCOMOTOR));
+        assert!(store_has(HELIX_LOCOMOTOR));
+        assert_eq!(
+            locomotor_name_for_unit("ChinaTankOverlord"),
+            Some(OVERLORD_LOCOMOTOR)
+        );
+        assert_eq!(
+            locomotor_name_for_unit("AmericaVehicleComanche"),
+            Some(COMANCHE_LOCOMOTOR)
+        );
     }
 
     #[test]
