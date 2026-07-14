@@ -1031,4 +1031,14 @@ mod tests {
     fn mines_residual_pack_honesty() {
         assert!(honesty_mines_residual_pack_ok());
     }
+
+    /// Wave 72 residual pack honesty gate (wrapper residual_pack_ok).
+    #[test]
+    fn mines_residual_pack_honesty_wave72() {
+        assert!(honesty_mines_residual_pack_ok());
+        assert!(honesty_demo_trap_mode_residual_ok());
+        assert!(honesty_cluster_mines_ocl_residual_ok());
+        assert_eq!(BURTON_MAX_REMOTE_CHARGES, 8);
+        assert_eq!(SUPERWEAPON_CLUSTER_MINES_RELOAD_FRAMES, 7_200);
+    }
 }

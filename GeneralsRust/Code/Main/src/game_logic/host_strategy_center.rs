@@ -2440,4 +2440,16 @@ mod tests {
         assert!(honesty_strategy_center_body_residual_ok());
         assert!(honesty_strategy_center_residual_pack_ok());
     }
+
+    /// Wave 72 residual pack honesty gate (wrapper residual_pack_ok).
+    #[test]
+    fn strategy_center_residual_pack_honesty_wave72() {
+        assert!(honesty_strategy_center_residual_pack_ok());
+        assert!(honesty_strategy_center_battle_plan_params_residual_ok());
+        assert!(honesty_strategy_center_pack_unpack_times_residual_ok());
+        assert!(honesty_strategy_center_paralyze_residual_ok());
+        assert!(honesty_strategy_center_body_residual_ok());
+        assert_eq!(BATTLE_PLAN_PARALYZE_FRAMES, 150);
+        assert!((BOMBARDMENT_DAMAGE_MULT - 1.20).abs() < 0.001);
+    }
 }

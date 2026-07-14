@@ -1409,4 +1409,16 @@ mod camo_netting_and_gamma_tests {
         assert!(honesty_upgrades_stealth_forbidden_residual_ok());
         assert!(honesty_upgrades_residual_pack_ok());
     }
+
+    /// Wave 72 residual pack honesty gate (wrapper residual_pack_ok).
+    #[test]
+    fn upgrades_residual_pack_honesty_wave72() {
+        assert!(honesty_upgrades_residual_pack_ok());
+        assert!(honesty_upgrades_cost_residual_ok());
+        assert!(honesty_upgrades_time_residual_ok());
+        assert!(honesty_upgrades_stealth_forbidden_residual_ok());
+        assert_eq!(HostUpgradeKind::SupplyLines.retail_build_cost(), 800);
+        assert_eq!(HostUpgradeKind::Camouflage.retail_research_frames(), 1800);
+        assert_eq!(CAMOUFLAGE_STEALTH_DELAY_FRAMES, 75);
+    }
 }

@@ -445,6 +445,17 @@ mod tests {
         assert!(honesty_emp_pulse_residual_pack_ok());
     }
 
+    /// Wave 72 residual pack honesty gate (wrapper residual_pack_ok).
+    #[test]
+    fn emp_pulse_residual_pack_honesty_wave72() {
+        assert!(honesty_emp_pulse_residual_pack_ok());
+        assert!(honesty_emp_pulse_duration_radius_residual_ok());
+        assert!(honesty_emp_hardened_name_list_residual_ok());
+        assert_eq!(EMP_PULSE_DISABLED_DURATION_FRAMES, 900);
+        assert_eq!(SUPERWEAPON_EMP_PULSE_RELOAD_FRAMES, 10_800);
+        assert!((HOST_EMP_PULSE_RADIUS - 200.0).abs() < 0.01);
+    }
+
     #[test]
     fn honesty_activate_counters_on_record() {
         let mut reg = HostEmpPulseRegistry::new();
