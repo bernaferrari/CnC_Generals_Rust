@@ -1641,6 +1641,21 @@ mod tests {
     use glam::Vec3;
 
     #[test]
+    fn presentation_path_prefers_local_drawable_tick() {
+        let cnc = include_str!("cnc_game_engine.rs");
+        assert!(
+            cnc.contains("update_drawables_local")
+                && cnc.contains("last_presentation_frame.is_some()"),
+            "InGame with presentation must avoid OBJECT_REGISTRY drawable bind"
+        );
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        assert!(
+            gc.contains("fn update_drawables_local"),
+            "GameClient must expose local drawable tick"
+        );
+    }
+
+    #[test]
     fn host_smoke_applies_skirmish_and_advances_frames() {
         let r = run_shell_smoke(8);
         assert!(r.host_constructed, "host only after apply: {}", r.detail);
