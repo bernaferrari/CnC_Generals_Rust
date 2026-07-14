@@ -344,6 +344,77 @@ pub fn honesty_weapon_store_deepen_residual_wave92() -> bool {
         && check(STEALTH_JET_MISSILE_WEAPON, 100.0, 220.0)
 }
 
+/// Wave 103 residual deepen: more Weapon.ini residual names beyond Wave 92.
+///
+/// Host-testable residual for NukeCannon / Inferno / Aurora / FireBase /
+/// SentryDrone / Hellfire / JarmenKell / TunnelDefender / MiniGunner /
+/// Overlord / BattleMaster / Comanche AT+pods / Avenger AA / SCUD toxin /
+/// BlackNapalm residual damage/range tables.
+/// Fail-closed: not full Weapon.ini / full ClipSize volley state machine.
+pub const HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103: &[&str] = &[
+    NUKE_CANNON_PRIMARY_WEAPON,
+    INFERNO_CANNON_PRIMARY_WEAPON,
+    AURORA_BOMB_PRIMARY_WEAPON,
+    FIRE_BASE_HOWITZER_WEAPON,
+    SENTRY_DRONE_GUN_WEAPON,
+    HELLFIRE_MISSILE_WEAPON,
+    JARMEN_KELL_RIFLE,
+    TUNNEL_DEFENDER_ROCKET_WEAPON,
+    MINIGUNNER_GUN,
+    OVERLORD_TANK_GUN,
+    BATTLE_MASTER_TANK_GUN,
+    COMANCHE_ANTITANK_WEAPON,
+    COMANCHE_ROCKET_POD_WEAPON,
+    AVENGER_AIR_LASER,
+    SCUD_GUN_TOXIN,
+    BLACK_NAPALM_MISSILE_WEAPON,
+];
+
+/// Honesty: Wave 103 weapon template residual deepen pack.
+///
+/// Ensures deepen residual names are registered after bootstrap and that key
+/// damage/range residual scalars match host seed table / Weapon.ini.
+/// Fail-closed: not full Weapon.ini parse / multi-bonus condition matrix.
+pub fn honesty_weapon_store_deepen_residual_wave103() -> bool {
+    let _ = ensure_host_weapon_store();
+    if !honesty_weapon_store_deepen_residual_wave92() {
+        return false;
+    }
+    let all_present = HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103
+        .iter()
+        .all(|name| store_has(name));
+    if !all_present || HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.len() < 16 {
+        return false;
+    }
+    let check = |name: &str, dmg: f32, range: f32| {
+        with_weapon_store(|store| {
+            store
+                .find_weapon_template(name)
+                .map(|t| {
+                    (t.primary_damage - dmg).abs() < 0.05 && (t.attack_range - range).abs() < 0.05
+                })
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+    };
+    check(NUKE_CANNON_PRIMARY_WEAPON, 400.0, 350.0)
+        && check(INFERNO_CANNON_PRIMARY_WEAPON, 30.0, 300.0)
+        && check(AURORA_BOMB_PRIMARY_WEAPON, 400.0, 300.0)
+        && check(FIRE_BASE_HOWITZER_WEAPON, 75.0, 275.0)
+        && check(SENTRY_DRONE_GUN_WEAPON, 8.0, 150.0)
+        && check(HELLFIRE_MISSILE_WEAPON, 40.0, 150.0)
+        && check(JARMEN_KELL_RIFLE, 180.0, 225.0)
+        && check(TUNNEL_DEFENDER_ROCKET_WEAPON, 40.0, 175.0)
+        && check(MINIGUNNER_GUN, 10.0, 125.0)
+        && check(OVERLORD_TANK_GUN, 80.0, 175.0)
+        && check(BATTLE_MASTER_TANK_GUN, 60.0, 150.0)
+        && check(COMANCHE_ANTITANK_WEAPON, 50.0, 200.0)
+        && check(COMANCHE_ROCKET_POD_WEAPON, 30.0, 200.0)
+        && check(AVENGER_AIR_LASER, 10.0, 300.0)
+        && check(SCUD_GUN_TOXIN, 200.0, 350.0)
+        && check(BLACK_NAPALM_MISSILE_WEAPON, 75.0, 320.0)
+}
+
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
 /// weapons are registered. Safe to call repeatedly.
 ///
@@ -2159,6 +2230,17 @@ mod tests {
         assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&MARAUDER_TANK_GUN));
         assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&PATHFINDER_SNIPER_WEAPON));
         assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&DRAGON_TANK_FLAME_WEAPON));
+    }
+
+    #[test]
+    fn weapon_store_deepen_residual_pack_honesty_wave103() {
+        assert!(honesty_weapon_store_deepen_residual_wave103());
+        for name in HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103 {
+            assert!(store_has(name), "missing wave103 deepen seed residual: {name}");
+        }
+        assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&NUKE_CANNON_PRIMARY_WEAPON));
+        assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&JARMEN_KELL_RIFLE));
+        assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&OVERLORD_TANK_GUN));
     }
 
     #[test]

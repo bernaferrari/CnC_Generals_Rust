@@ -44,6 +44,13 @@
 //! - DisplayString vanish-rate **integer color-alpha** residual
 //!   (`updateFloatingText` REAL_TO_INT amount subtract on A channel)
 //!
+//! Wave 102 residual closed (host-testable, fail-closed vs GPU):
+//! - FontCharsClass monospaced spacing residual table (CHAR_BUFFER_LEN **32768**,
+//!   ASCII array **256**, PixelOverlap formula clamp 0..4, Get_Char_Spacing =
+//!   Width − PixelOverlap − CharOverhang; host monospaced Width=8 → spacing=8)
+//! - StretchRect submit residual bookkeeping (shadow + text Draw_Sentence host
+//!   counters; `gpu_stretch_rect_submitted=false` always — not live GPU claim)
+//!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
 //! - Full multi-locale CSF/STR Unicode GameText table load at boot
@@ -1371,6 +1378,335 @@ pub fn pack_floating_text_and_mark_ready(frame: &PresentationFrame) -> FloatingT
     pack
 }
 
+// ---------------------------------------------------------------------------
+// Wave 102: FontCharsClass spacing residual table + StretchRect submit bookkeeping
+// ---------------------------------------------------------------------------
+
+/// C++ `FontCharsClass` CHAR_BUFFER_LEN residual (render2dsentence.h).
+pub const FONT_CHARS_CHAR_BUFFER_LEN: u32 = 32768;
+/// C++ ASCIICharArray size residual (**256** entries for 8-bit chars).
+pub const FONT_CHARS_ASCII_ARRAY_SIZE: u32 = 256;
+/// Host monospaced residual glyph Width for DisplayString measure (font8x8 family).
+pub const FONT_CHARS_MONO_GLYPH_WIDTH: u32 = 8;
+/// Host monospaced residual CharOverhang (GDI tmOverhang residual often 0 for UI).
+pub const FONT_CHARS_MONO_CHAR_OVERHANG: i32 = 0;
+/// Host monospaced residual PixelOverlap for floating-text point size 8.
+///
+/// C++ `PixelOverlap = clamp((-font_height)/8, 0, 4)`. Host monospaced measure
+/// residual uses PixelOverlap **0** so spacing = Width − 0 − 0 = **8** matches
+/// the 8px monospaced getWidth walk. Fail-closed vs live GDI font metrics.
+pub const FONT_CHARS_MONO_PIXEL_OVERLAP: i32 = 0;
+/// Floating-text / DisplayString residual point size (Arial 8).
+pub const FONT_CHARS_FLOATING_TEXT_POINT_SIZE: i32 = 8;
+/// PixelOverlap clamp max residual (C++ `if (PixelOverlap>4) PixelOverlap = 4`).
+pub const FONT_CHARS_PIXEL_OVERLAP_CLAMP_MAX: i32 = 4;
+
+/// C++ PixelOverlap residual formula: `clamp((-font_height)/8, 0, 4)`.
+///
+/// Host residual accepts signed font height (GDI creates negative lfHeight).
+/// Fail-closed: not live GDI CreateFont / GetTextMetrics.
+#[inline]
+pub fn font_chars_pixel_overlap_residual(font_height: i32) -> i32 {
+    let mut overlap = (-font_height) / 8;
+    if overlap < 0 {
+        overlap = 0;
+    }
+    if overlap > FONT_CHARS_PIXEL_OVERLAP_CLAMP_MAX {
+        overlap = FONT_CHARS_PIXEL_OVERLAP_CLAMP_MAX;
+    }
+    overlap
+}
+
+/// C++ `FontCharsClass::Get_Char_Width` residual: Width or 0 when missing.
+#[inline]
+pub fn font_chars_get_char_width_residual(glyph_width: u32, present: bool) -> u32 {
+    if present {
+        glyph_width
+    } else {
+        0
+    }
+}
+
+/// C++ `FontCharsClass::Get_Char_Spacing` residual:
+/// `Width != 0 ? Width - PixelOverlap - CharOverhang : 0`.
+///
+/// Fail-closed vs live GDI Store_GDI_Char / atlas sample.
+#[inline]
+pub fn font_chars_get_char_spacing_residual(
+    glyph_width: u32,
+    pixel_overlap: i32,
+    char_overhang: i32,
+) -> i32 {
+    if glyph_width == 0 {
+        return 0;
+    }
+    glyph_width as i32 - pixel_overlap - char_overhang
+}
+
+/// Host monospaced spacing residual for one glyph (Width=8, overlap=0, overhang=0).
+#[inline]
+pub fn font_chars_mono_char_spacing_residual() -> i32 {
+    font_chars_get_char_spacing_residual(
+        FONT_CHARS_MONO_GLYPH_WIDTH,
+        FONT_CHARS_MONO_PIXEL_OVERLAP,
+        FONT_CHARS_MONO_CHAR_OVERHANG,
+    )
+}
+
+/// Residual ASCII spacing table entry (codepoint → spacing).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FontCharsSpacingEntry {
+    pub codepoint: u8,
+    pub width: u32,
+    pub spacing: i32,
+}
+
+/// Host monospaced FontChars ASCII spacing residual table for printable 0x20..0x7E.
+///
+/// Every present glyph has Width **8** and spacing **8** under monospaced residual.
+/// Missing glyph residual (0 width) is not listed. Fail-closed vs live GDI widths.
+pub fn font_chars_mono_ascii_spacing_table_residual() -> Vec<FontCharsSpacingEntry> {
+    let spacing = font_chars_mono_char_spacing_residual();
+    (0x20u8..=0x7Eu8)
+        .map(|cp| FontCharsSpacingEntry {
+            codepoint: cp,
+            width: FONT_CHARS_MONO_GLYPH_WIDTH,
+            spacing,
+        })
+        .collect()
+}
+
+/// Honesty: FontCharsClass spacing residual table pack (Wave 102).
+pub fn honesty_font_chars_spacing_residual_table_wave102() -> bool {
+    if FONT_CHARS_CHAR_BUFFER_LEN != 32768 {
+        return false;
+    }
+    if FONT_CHARS_ASCII_ARRAY_SIZE != 256 {
+        return false;
+    }
+    if FONT_CHARS_MONO_GLYPH_WIDTH != 8 {
+        return false;
+    }
+    if FONT_CHARS_MONO_PIXEL_OVERLAP != 0 || FONT_CHARS_MONO_CHAR_OVERHANG != 0 {
+        return false;
+    }
+    if FONT_CHARS_FLOATING_TEXT_POINT_SIZE != 8 {
+        return false;
+    }
+    if FONT_CHARS_PIXEL_OVERLAP_CLAMP_MAX != 4 {
+        return false;
+    }
+    // PixelOverlap formula residual samples.
+    if font_chars_pixel_overlap_residual(0) != 0 {
+        return false;
+    }
+    if font_chars_pixel_overlap_residual(-8) != 1 {
+        // (-(-8))/8 = 1
+        return false;
+    }
+    if font_chars_pixel_overlap_residual(-32) != 4 {
+        // 32/8 = 4 (at clamp max)
+        return false;
+    }
+    if font_chars_pixel_overlap_residual(-40) != 4 {
+        // 40/8 = 5 → clamp 4
+        return false;
+    }
+    if font_chars_pixel_overlap_residual(8) != 0 {
+        // positive height residual → 0
+        return false;
+    }
+    // Get_Char_Width residual.
+    if font_chars_get_char_width_residual(8, true) != 8 {
+        return false;
+    }
+    if font_chars_get_char_width_residual(8, false) != 0 {
+        return false;
+    }
+    // Get_Char_Spacing residual: missing width → 0; mono → 8.
+    if font_chars_get_char_spacing_residual(0, 1, 0) != 0 {
+        return false;
+    }
+    if font_chars_get_char_spacing_residual(10, 1, 1) != 8 {
+        return false;
+    }
+    if font_chars_mono_char_spacing_residual() != 8 {
+        return false;
+    }
+    // ASCII spacing table residual: 95 printable glyphs (0x20..0x7E).
+    let table = font_chars_mono_ascii_spacing_table_residual();
+    if table.len() != 95 {
+        return false;
+    }
+    if table[0].codepoint != b' ' || table[0].spacing != 8 || table[0].width != 8 {
+        return false;
+    }
+    if table.last().map(|e| e.codepoint) != Some(b'~') {
+        return false;
+    }
+    // Cross-link: monospaced getWidth residual uses same 8px spacing.
+    if display_string_get_width("A", -1) != FONT_CHARS_MONO_GLYPH_WIDTH {
+        return false;
+    }
+    if display_string_get_width("+$150", -1)
+        != (5 * FONT_CHARS_MONO_GLYPH_WIDTH)
+    {
+        return false;
+    }
+    true
+}
+
+/// StretchRect / Draw_Sentence submit residual bookkeeping (host counters only).
+///
+/// C++ `W3DDisplayString::draw` residual when rebuilt:
+/// 1. Draw_Sentence(dropColor) at shadow offset
+/// 2. Draw_Sentence(textColor) at text pos
+/// 3. optional hotkey Draw_Sentence
+/// 4. m_textRenderer.Render() (StretchRect path residual)
+/// Fail-closed: `gpu_stretch_rect_submitted` is always **false** (no live GPU).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DisplayStringStretchRectSubmitResidual {
+    /// True when non-empty text would draw.
+    pub drew: bool,
+    /// True when sentence polys / submit residual would rebuild.
+    pub rebuilt: bool,
+    /// Host counter: shadow Draw_Sentence residual submits (0 or 1).
+    pub shadow_submit_count: u32,
+    /// Host counter: text Draw_Sentence residual submits (0 or 1).
+    pub text_submit_count: u32,
+    /// Host counter: hotkey Draw_Sentence residual submits (0 or 1).
+    pub hotkey_submit_count: u32,
+    /// Host counter: final Render residual invokes (0 or 1 when drew).
+    pub render_submit_count: u32,
+    /// Total Draw_Sentence residual submits (shadow+text+hotkey).
+    pub draw_sentence_submit_total: u32,
+    /// Always false — host never claims live StretchRect / GPU write.
+    pub gpu_stretch_rect_submitted: bool,
+}
+
+/// Build StretchRect submit residual bookkeeping from draw residual fields.
+///
+/// Fail-closed vs live WW3D StretchRect / texture atlas raster.
+pub fn display_string_stretch_rect_submit_residual(
+    text: &str,
+    text_or_font_dirty: bool,
+    pos_or_color_changed: bool,
+    use_hotkey: bool,
+    hotkey_found: bool,
+) -> DisplayStringStretchRectSubmitResidual {
+    if text.is_empty() {
+        return DisplayStringStretchRectSubmitResidual {
+            drew: false,
+            rebuilt: false,
+            shadow_submit_count: 0,
+            text_submit_count: 0,
+            hotkey_submit_count: 0,
+            render_submit_count: 0,
+            draw_sentence_submit_total: 0,
+            gpu_stretch_rect_submitted: false,
+        };
+    }
+    let rebuilt = text_or_font_dirty || pos_or_color_changed;
+    // C++ only resets/rebuilds quads when rebuilt; Render() always runs when drew.
+    let shadow = if rebuilt { 1 } else { 0 };
+    let text_sub = if rebuilt { 1 } else { 0 };
+    let hotkey = if rebuilt && use_hotkey && hotkey_found {
+        1
+    } else {
+        0
+    };
+    let total = shadow + text_sub + hotkey;
+    DisplayStringStretchRectSubmitResidual {
+        drew: true,
+        rebuilt,
+        shadow_submit_count: shadow,
+        text_submit_count: text_sub,
+        hotkey_submit_count: hotkey,
+        render_submit_count: 1,
+        draw_sentence_submit_total: total,
+        gpu_stretch_rect_submitted: false,
+    }
+}
+
+/// Honesty: StretchRect submit residual bookkeeping (Wave 102).
+pub fn honesty_display_string_stretch_rect_submit_residual_wave102() -> bool {
+    // Empty early-out residual.
+    let empty = display_string_stretch_rect_submit_residual("", true, true, false, false);
+    if empty.drew || empty.rebuilt || empty.draw_sentence_submit_total != 0 {
+        return false;
+    }
+    if empty.gpu_stretch_rect_submitted {
+        return false;
+    }
+    // Rebuild path: shadow + text = 2 submits; Render = 1; no GPU claim.
+    let rebuild = display_string_stretch_rect_submit_residual("+$100", true, false, false, false);
+    if !rebuild.drew
+        || !rebuild.rebuilt
+        || rebuild.shadow_submit_count != 1
+        || rebuild.text_submit_count != 1
+        || rebuild.hotkey_submit_count != 0
+        || rebuild.render_submit_count != 1
+        || rebuild.draw_sentence_submit_total != 2
+        || rebuild.gpu_stretch_rect_submitted
+    {
+        return false;
+    }
+    // No rebuild residual: Draw_Sentence counters stay 0 but Render still runs.
+    let stable = display_string_stretch_rect_submit_residual("+$100", false, false, false, false);
+    if !stable.drew
+        || stable.rebuilt
+        || stable.draw_sentence_submit_total != 0
+        || stable.render_submit_count != 1
+        || stable.gpu_stretch_rect_submitted
+    {
+        return false;
+    }
+    // Hotkey residual adds third Draw_Sentence on rebuild.
+    let hk = display_string_stretch_rect_submit_residual("&Build", true, false, true, true);
+    if hk.draw_sentence_submit_total != 3 || hk.hotkey_submit_count != 1 {
+        return false;
+    }
+    // Hotkey flag without found residual → no hotkey submit.
+    let hk_miss = display_string_stretch_rect_submit_residual("Build", true, false, true, false);
+    if hk_miss.hotkey_submit_count != 0 || hk_miss.draw_sentence_submit_total != 2 {
+        return false;
+    }
+    // Cross-link draw residual: rebuilt when dirty / pos-color change.
+    let sample = display_string_draw(
+        "+$100",
+        10,
+        20,
+        (0, 255, 0, 255),
+        (0, 0, 0, 255),
+        0,
+        0,
+        (0, 0, 0, 0),
+        (0, 0, 0, 0),
+        true,
+    );
+    if !sample.drew || !sample.rebuilt {
+        return false;
+    }
+    let from_draw = display_string_stretch_rect_submit_residual(
+        "+$100",
+        true,
+        true,
+        false,
+        false,
+    );
+    from_draw.drew
+        && from_draw.rebuilt
+        && from_draw.draw_sentence_submit_total == 2
+        && !from_draw.gpu_stretch_rect_submitted
+}
+
+/// Combined Wave 102 DisplayString residual honesty pack.
+pub fn honesty_display_string_residual_deepen_pack_wave102() -> bool {
+    honesty_font_chars_spacing_residual_table_wave102()
+        && honesty_display_string_stretch_rect_submit_residual_wave102()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1787,5 +2123,28 @@ mod tests {
         assert_eq!(t.vanish_color_alpha_u8_at(15, 255), 255); // past=5 → amount 0
         assert_eq!(t.vanish_color_alpha_u8_at(20, 255), 254); // past=10 → amount 1
         assert_eq!(t.color_with_vanish_alpha_at(20), (0, 255, 0, 254));
+    }
+
+    /// Wave 102 residual: FontChars spacing table + StretchRect submit bookkeeping.
+    #[test]
+    fn display_string_residual_deepen_wave102_honesty() {
+        assert!(honesty_font_chars_spacing_residual_table_wave102());
+        assert!(honesty_display_string_stretch_rect_submit_residual_wave102());
+        assert!(honesty_display_string_residual_deepen_pack_wave102());
+        assert_eq!(FONT_CHARS_CHAR_BUFFER_LEN, 32768);
+        assert_eq!(FONT_CHARS_ASCII_ARRAY_SIZE, 256);
+        assert_eq!(font_chars_mono_char_spacing_residual(), 8);
+        assert_eq!(font_chars_pixel_overlap_residual(-8), 1);
+        assert_eq!(font_chars_pixel_overlap_residual(-40), 4);
+        let table = font_chars_mono_ascii_spacing_table_residual();
+        assert_eq!(table.len(), 95);
+        assert_eq!(table[0].codepoint, b' ');
+        assert_eq!(table[0].spacing, 8);
+
+        let rebuild = display_string_stretch_rect_submit_residual("+$1", true, false, false, false);
+        assert_eq!(rebuild.draw_sentence_submit_total, 2);
+        assert!(!rebuild.gpu_stretch_rect_submitted);
+        let empty = display_string_stretch_rect_submit_residual("", true, true, true, true);
+        assert!(!empty.drew && empty.draw_sentence_submit_total == 0);
     }
 }

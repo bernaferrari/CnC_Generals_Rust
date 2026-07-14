@@ -32,6 +32,12 @@
 //! - Anim2DCollection `findTemplate("MoneyPickUp")` after residual init path
 //!   returns the template with full image list residual bind
 //!
+//! Wave 102 residual closed (host-testable, fail-closed vs GPU):
+//! - Full Animation2D.ini template residual table (all **14** names + mode /
+//!   delay_ms / randomize / NumberImages / image-prefix residual metadata)
+//! - Anim2DCollection init residual registers all 14 templates with residual
+//!   metadata (not just MoneyPickUp image list)
+//!
 //! Still residual:
 //! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
 //! - WORLD_ANIM_FADE_ON_EXPIRE live Display surface blend
@@ -114,6 +120,315 @@ pub const ANIM2D_INI_TEMPLATE_NAMES: [&str; 14] = [
     "Enthusiastic",
     "Subliminal",
 ];
+
+/// Wave 102: Animation2D.ini template residual metadata (not just MoneyPickUp).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Anim2DIniTemplateMeta {
+    pub name: &'static str,
+    pub mode_name: &'static str,
+    pub anim_delay_ms: u32,
+    pub randomize_start_frame: bool,
+    pub num_images: u16,
+    pub image_prefix: &'static str,
+    /// Starting index for sequential image residual (`SCPClock043` → 43).
+    pub image_start_index: u16,
+}
+
+/// Full retail Animation2D.ini template residual table (order as in INI).
+pub const ANIM2D_INI_TEMPLATE_TABLE: [Anim2DIniTemplateMeta; 14] = [
+    Anim2DIniTemplateMeta {
+        name: "DefaultHeal",
+        mode_name: "LOOP",
+        anim_delay_ms: 30,
+        randomize_start_frame: true,
+        num_images: 16,
+        image_prefix: "SCPCross",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "StructureHeal",
+        mode_name: "PING_PONG",
+        anim_delay_ms: 60,
+        randomize_start_frame: true,
+        num_images: 10,
+        image_prefix: "SCPWrench",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "VehicleHeal",
+        mode_name: "PING_PONG",
+        anim_delay_ms: 60,
+        randomize_start_frame: true,
+        num_images: 10,
+        image_prefix: "SCPWrench",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "MoneyPickUp",
+        mode_name: "LOOP",
+        anim_delay_ms: 30,
+        randomize_start_frame: false,
+        num_images: 31,
+        image_prefix: "SCPDollar",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "LevelGainedAnimation",
+        mode_name: "LOOP",
+        anim_delay_ms: 30,
+        randomize_start_frame: false,
+        num_images: 21,
+        image_prefix: "SCPChev",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "GetHealedAnimation",
+        mode_name: "LOOP",
+        anim_delay_ms: 30,
+        randomize_start_frame: false,
+        num_images: 21,
+        image_prefix: "SCPHeal",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "BombTimed",
+        mode_name: "ONCE",
+        anim_delay_ms: 1000,
+        randomize_start_frame: false,
+        num_images: 21,
+        image_prefix: "SCPClock",
+        image_start_index: 43,
+    },
+    Anim2DIniTemplateMeta {
+        name: "BombRemote",
+        mode_name: "LOOP",
+        anim_delay_ms: 1000,
+        randomize_start_frame: false,
+        num_images: 2,
+        image_prefix: "SCPClock",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "CarBomb",
+        mode_name: "LOOP",
+        anim_delay_ms: 1000,
+        randomize_start_frame: false,
+        num_images: 2,
+        image_prefix: "SCPClock",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "Disabled",
+        mode_name: "LOOP",
+        anim_delay_ms: 66,
+        randomize_start_frame: false,
+        num_images: 16,
+        image_prefix: "SCPLightning",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "AmmoFull",
+        mode_name: "LOOP",
+        anim_delay_ms: 60,
+        randomize_start_frame: false,
+        num_images: 1,
+        image_prefix: "SCPAmmoFull",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "AmmoEmpty",
+        mode_name: "LOOP",
+        anim_delay_ms: 60,
+        randomize_start_frame: false,
+        num_images: 1,
+        image_prefix: "SCPAmmoEmpty",
+        image_start_index: 0,
+    },
+    Anim2DIniTemplateMeta {
+        name: "Enthusiastic",
+        mode_name: "PING_PONG",
+        anim_delay_ms: 100,
+        randomize_start_frame: true,
+        num_images: 9,
+        image_prefix: "SCPCross",
+        image_start_index: 3,
+    },
+    Anim2DIniTemplateMeta {
+        name: "Subliminal",
+        mode_name: "PING_PONG",
+        anim_delay_ms: 100,
+        randomize_start_frame: true,
+        num_images: 9,
+        image_prefix: "SCPCrossB",
+        image_start_index: 3,
+    },
+];
+
+/// Lookup residual metadata for an Animation2D.ini template name.
+pub fn anim2d_ini_template_meta(name: &str) -> Option<&'static Anim2DIniTemplateMeta> {
+    ANIM2D_INI_TEMPLATE_TABLE.iter().find(|m| m.name == name)
+}
+
+/// Build residual image name list from prefix + count + start index.
+///
+/// Single-image templates (AmmoFull/AmmoEmpty) use the prefix as the full name
+/// (no numeric suffix). Fail-closed vs live ImageCollection load.
+pub fn anim2d_residual_image_list(
+    prefix: &str,
+    num_images: u16,
+    start_index: u16,
+) -> Vec<String> {
+    if num_images == 0 {
+        return Vec::new();
+    }
+    // Single non-sequential residual names.
+    if num_images == 1 && (prefix == "SCPAmmoFull" || prefix == "SCPAmmoEmpty") {
+        return vec![prefix.to_string()];
+    }
+    (0..num_images)
+        .map(|i| format!("{prefix}{:03}", start_index + i))
+        .collect()
+}
+
+/// Wave 102 residual honesty: full Animation2D.ini template name + metadata table.
+pub fn honesty_anim2d_full_template_table_residual_wave102() -> bool {
+    if ANIM2D_INI_TEMPLATE_COUNT != 14 {
+        return false;
+    }
+    if ANIM2D_INI_TEMPLATE_NAMES.len() != 14 || ANIM2D_INI_TEMPLATE_TABLE.len() != 14 {
+        return false;
+    }
+    for (i, name) in ANIM2D_INI_TEMPLATE_NAMES.iter().enumerate() {
+        let meta = &ANIM2D_INI_TEMPLATE_TABLE[i];
+        if meta.name != *name {
+            return false;
+        }
+    }
+    // Spot-check retail residual samples.
+    let money = anim2d_ini_template_meta("MoneyPickUp").expect("money");
+    if money.mode_name != "LOOP"
+        || money.anim_delay_ms != 30
+        || money.randomize_start_frame
+        || money.num_images != 31
+        || money.image_prefix != "SCPDollar"
+    {
+        return false;
+    }
+    let struct_heal = anim2d_ini_template_meta("StructureHeal").expect("struct");
+    if struct_heal.mode_name != "PING_PONG"
+        || struct_heal.anim_delay_ms != 60
+        || !struct_heal.randomize_start_frame
+        || struct_heal.num_images != 10
+    {
+        return false;
+    }
+    let bomb = anim2d_ini_template_meta("BombTimed").expect("bomb");
+    if bomb.mode_name != "ONCE"
+        || bomb.anim_delay_ms != 1000
+        || bomb.num_images != 21
+        || bomb.image_start_index != 43
+    {
+        return false;
+    }
+    let ammo = anim2d_ini_template_meta("AmmoFull").expect("ammo");
+    if ammo.num_images != 1 || ammo.image_prefix != "SCPAmmoFull" {
+        return false;
+    }
+    // Residual image list samples.
+    let list = anim2d_residual_image_list("SCPCross", 3, 0);
+    if list != ["SCPCross000", "SCPCross001", "SCPCross002"] {
+        return false;
+    }
+    let clock = anim2d_residual_image_list("SCPClock", 2, 43);
+    if clock != ["SCPClock043", "SCPClock044"] {
+        return false;
+    }
+    let ammo_list = anim2d_residual_image_list("SCPAmmoFull", 1, 0);
+    if ammo_list != ["SCPAmmoFull"] {
+        return false;
+    }
+    // Enthusiastic residual starts at SCPCross003.
+    let enth = anim2d_ini_template_meta("Enthusiastic").expect("enth");
+    let enth_imgs = anim2d_residual_image_list(enth.image_prefix, enth.num_images, enth.image_start_index);
+    if enth_imgs.len() != 9 || enth_imgs[0] != "SCPCross003" || enth_imgs[8] != "SCPCross011" {
+        return false;
+    }
+    true
+}
+
+/// Wave 102 residual honesty: Collection init registers all 14 templates.
+pub fn honesty_anim2d_collection_init_residual_wave102() -> bool {
+    if !honesty_anim2d_full_template_table_residual_wave102() {
+        return false;
+    }
+    if ANIM2D_COLLECTION_INI_PATH != "Data/INI/Animation2D.ini" {
+        return false;
+    }
+    let mut col = Anim2DCollectionResidual::new();
+    if col.find_template("MoneyPickUp").is_some() {
+        return false;
+    }
+    col.init_with_retail_templates();
+    if !col.init_path_recorded {
+        return false;
+    }
+    if col.template_count() as u32 != ANIM2D_INI_TEMPLATE_COUNT {
+        return false;
+    }
+    for meta in &ANIM2D_INI_TEMPLATE_TABLE {
+        let Some(id) = col.find_template(meta.name) else {
+            return false;
+        };
+        let Some(t) = col.templates.get(&id) else {
+            return false;
+        };
+        if t.num_frames != meta.num_images {
+            return false;
+        }
+        if t.randomize_start_frame != meta.randomize_start_frame {
+            return false;
+        }
+        if t.anim_mode_name != meta.mode_name {
+            return false;
+        }
+        if t.anim_delay_ms != meta.anim_delay_ms {
+            return false;
+        }
+        if t.image_prefix != meta.image_prefix {
+            return false;
+        }
+        if t.images.len() as u16 != meta.num_images {
+            return false;
+        }
+    }
+    // MoneyPickUp full image list residual bind retained.
+    let money_id = col.find_template("MoneyPickUp").unwrap();
+    let money = col.templates.get(&money_id).unwrap();
+    if money.images.first().map(String::as_str) != Some("SCPDollar000") {
+        return false;
+    }
+    if money.images.last().map(String::as_str) != Some("SCPDollar030") {
+        return false;
+    }
+    // Head-insert residual: last registered name is head (Subliminal).
+    if col.template_head.map(|id| col.templates.get(&id).map(|t| t.name.as_str()))
+        != Some(Some("Subliminal"))
+    {
+        return false;
+    }
+    // Unknown miss residual.
+    if col.find_template("NoSuchTemplate").is_some() {
+        return false;
+    }
+    true
+}
+
+/// Combined Wave 102 Anim2D residual honesty pack.
+pub fn honesty_anim2d_residual_deepen_pack_wave102() -> bool {
+    honesty_anim2d_full_template_table_residual_wave102()
+        && honesty_anim2d_collection_init_residual_wave102()
+        && honesty_anim2d_ini_template_count_and_money_pickup_images()
+}
 
 /// C++ `Anim2DMode` residual (Anim2D.h discriminants; keep order).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -679,16 +994,22 @@ pub type Anim2DTemplateId = u32;
 /// Host residual Anim2D instance id (collection instance list node).
 pub type Anim2DInstanceId = u32;
 
-/// Host residual Anim2DTemplate entry (name + next link only).
+/// Host residual Anim2DTemplate entry (name + retail metadata residual).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Anim2DTemplateResidual {
     pub id: Anim2DTemplateId,
     pub name: String,
-    /// MoneyPickUp RandomizeStartFrame residual (No for retail MoneyPickUp).
+    /// RandomizeStartFrame residual (MoneyPickUp = No; heal icons often Yes).
     pub randomize_start_frame: bool,
     pub num_frames: u16,
-    /// Wave 68: Image list residual (`SCPDollar000`.. for MoneyPickUp).
+    /// Wave 68/74: Image list residual (`SCPDollar000`.. for MoneyPickUp).
     pub images: Vec<String>,
+    /// Wave 102: AnimationMode residual name (`LOOP` / `PING_PONG` / `ONCE`).
+    pub anim_mode_name: String,
+    /// Wave 102: AnimationDelay residual in milliseconds.
+    pub anim_delay_ms: u32,
+    /// Wave 102: Image name prefix residual (`SCPDollar` / `SCPCross` / ...).
+    pub image_prefix: String,
 }
 
 /// Host residual Anim2D instance entry for collection update residual.
@@ -744,24 +1065,45 @@ impl Anim2DCollectionResidual {
     }
 
     /// C++ `newTemplate`: allocate, assign name, head-insert into template list.
+    ///
+    /// Wave 102: fills residual metadata from `ANIM2D_INI_TEMPLATE_TABLE` when
+    /// the name matches a retail Animation2D.ini template.
     pub fn new_template(&mut self, name: &str) -> Anim2DTemplateId {
         let id = self.next_template_id.saturating_add(1).max(1);
         self.next_template_id = id;
-        let randomize = if name == "MoneyPickUp" {
-            MONEY_PICKUP_RANDOMIZE_START_FRAME
-        } else {
-            false
-        };
-        let (num_frames, images) = if name == "MoneyPickUp" {
+        let meta = anim2d_ini_template_meta(name);
+        let (randomize, num_frames, images, mode_name, delay_ms, prefix) = if let Some(m) = meta {
+            let images = if name == "MoneyPickUp" {
+                MONEY_PICKUP_IMAGE_LIST
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect()
+            } else {
+                // Residual image names from prefix + NumberImages when sequential.
+                anim2d_residual_image_list(m.image_prefix, m.num_images, m.image_start_index)
+            };
             (
+                m.randomize_start_frame,
+                m.num_images,
+                images,
+                m.mode_name.to_string(),
+                m.anim_delay_ms,
+                m.image_prefix.to_string(),
+            )
+        } else if name == "MoneyPickUp" {
+            (
+                MONEY_PICKUP_RANDOMIZE_START_FRAME,
                 MONEY_PICKUP_NUM_FRAMES,
                 MONEY_PICKUP_IMAGE_LIST
                     .iter()
                     .map(|s| (*s).to_string())
                     .collect(),
+                "LOOP".to_string(),
+                MONEY_PICKUP_ANIM_DELAY_MS,
+                MONEY_PICKUP_IMAGE_PREFIX.to_string(),
             )
         } else {
-            (1, Vec::new())
+            (false, 1, Vec::new(), "LOOP".to_string(), 30, String::new())
         };
         self.templates.insert(
             id,
@@ -771,12 +1113,28 @@ impl Anim2DCollectionResidual {
                 randomize_start_frame: randomize,
                 num_frames,
                 images,
+                anim_mode_name: mode_name,
+                anim_delay_ms: delay_ms,
+                image_prefix: prefix,
             },
         );
         // Head-insert.
         self.template_next.insert(id, self.template_head);
         self.template_head = Some(id);
         id
+    }
+
+    /// Wave 102: Collection init residual — record INI path + register all 14
+    /// Animation2D.ini templates with residual metadata.
+    ///
+    /// Fail-closed: not full live INI parse / Image atlas load.
+    pub fn init_with_retail_templates(&mut self) {
+        self.init();
+        for name in ANIM2D_INI_TEMPLATE_NAMES {
+            if self.find_template(name).is_none() {
+                self.new_template(name);
+            }
+        }
     }
 
     /// C++ `findTemplate`: linear search template list by name.
@@ -1468,5 +1826,38 @@ mod tests {
         for (frame, name) in money_pickup_image_list_bind_residual() {
             assert_eq!(t.images[frame as usize], name);
         }
+    }
+
+    /// Wave 102 residual: full Animation2D.ini template table + Collection init.
+    #[test]
+    fn anim2d_full_template_table_and_collection_init_wave102() {
+        assert!(honesty_anim2d_full_template_table_residual_wave102());
+        assert!(honesty_anim2d_collection_init_residual_wave102());
+        assert!(honesty_anim2d_residual_deepen_pack_wave102());
+        assert_eq!(ANIM2D_INI_TEMPLATE_TABLE.len(), 14);
+        assert_eq!(ANIM2D_INI_TEMPLATE_TABLE[3].name, "MoneyPickUp");
+        assert_eq!(ANIM2D_INI_TEMPLATE_TABLE[3].num_images, 31);
+        assert_eq!(ANIM2D_INI_TEMPLATE_TABLE[6].mode_name, "ONCE"); // BombTimed
+        assert_eq!(ANIM2D_INI_TEMPLATE_TABLE[6].image_start_index, 43);
+
+        let mut col = Anim2DCollectionResidual::new();
+        col.init_with_retail_templates();
+        assert_eq!(col.template_count(), 14);
+        let bomb = col.find_template("BombTimed").expect("bomb");
+        let t = &col.templates[&bomb];
+        assert_eq!(t.anim_mode_name, "ONCE");
+        assert_eq!(t.anim_delay_ms, 1000);
+        assert_eq!(t.images[0], "SCPClock043");
+        assert_eq!(t.images.len(), 21);
+
+        let enth = col.find_template("Enthusiastic").expect("enth");
+        let t = &col.templates[&enth];
+        assert!(t.randomize_start_frame);
+        assert_eq!(t.anim_mode_name, "PING_PONG");
+        assert_eq!(t.images[0], "SCPCross003");
+        assert_eq!(t.images[8], "SCPCross011");
+
+        let ammo = col.find_template("AmmoFull").expect("ammo");
+        assert_eq!(col.templates[&ammo].images, vec!["SCPAmmoFull".to_string()]);
     }
 }
