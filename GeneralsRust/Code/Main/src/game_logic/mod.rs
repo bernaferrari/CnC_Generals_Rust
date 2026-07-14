@@ -78,6 +78,7 @@ pub mod host_radar_stealth_vision_residual;
 pub mod host_partition_collision_physics_residual;
 pub mod host_dock_contain_exit_heal_residual;
 pub mod host_production_buildable_command_residual;
+pub mod host_thing_factory_module_xfer_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -317,6 +318,12 @@ pub use host_production_buildable_command_residual::{
     honesty_control_bar_residual_deepen_pack_wave99, honesty_prerequisite_residual_pack_wave99,
     honesty_production_buildable_command_residual_pack_wave99,
     honesty_production_residual_deepen_pack_wave99,
+};
+pub use host_thing_factory_module_xfer_residual::{
+    honesty_module_type_table_residual_pack_wave100,
+    honesty_thing_factory_module_xfer_residual_pack_wave100,
+    honesty_thing_factory_residual_deepen_pack_wave100,
+    honesty_thing_factory_spawn_crosslink_wave100, honesty_xfer_residual_deepen_pack_wave100,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
