@@ -528,6 +528,8 @@ pub enum PresentationFloatingTextKind {
     CashBounty,
     /// MoneyCrateCollide pickup floating cash.
     MoneyCrate,
+    /// Combat HP damage residual (from DamageApplied events).
+    CombatDamage,
 }
 
 /// Snapshot-owned InGameUI::addFloatingText residual for dual-tick consumers.
@@ -1439,7 +1441,7 @@ impl PresentationFrame {
             .collect();
 
         // InGameUI floating text + MoneyPickUp Anim2D residual: freeze host registries.
-        let floating_texts = collect_presentation_floating_texts(logic);
+        let mut floating_texts = collect_presentation_floating_texts(logic);
         let world_anims = collect_presentation_world_anims(logic);
 
         let mut events = Vec::new();
@@ -1515,6 +1517,24 @@ impl PresentationFrame {
                 source: ev.source,
                 destroyed: ev.destroyed,
             });
+            if ev.amount > 0.0 && !ev.destroyed {
+                let pos = logic
+                    .get_objects()
+                    .get(&ev.target)
+                    .map(|o| o.get_position())
+                    .unwrap_or(Vec3::ZERO);
+                let frame = logic.get_frame();
+                floating_texts.push(PresentationFloatingText::from_parts(
+                    PresentationFloatingTextKind::CombatDamage,
+                    format!("-{}", ev.amount as i32),
+                    "GUI:CombatDamage".into(),
+                    pos + Vec3::new(0.0, 8.0, 0.0),
+                    (255, 64, 64, 255),
+                    ev.amount.max(0.0) as u32,
+                    frame,
+                    ev.source.unwrap_or(ev.target),
+                ));
+            }
         }
         for ev in crate::game_logic::host_heal_log::take_last_drain() {
             events.push(PresentationEvent::HealApplied {
@@ -2470,6 +2490,32 @@ mod tests {
             }),
             "expected EconomyChanged: {:?}",
             frame.events
+        );
+    }
+
+    #[test]
+    fn combat_damage_spawns_floating_text() {
+        crate::game_logic::host_damage_log::clear();
+        crate::game_logic::host_damage_log::record(
+            crate::game_logic::ObjectId(11),
+            25.0,
+            Some(crate::game_logic::ObjectId(1)),
+            false,
+        );
+        let _ = crate::game_logic::host_damage_log::drain();
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.floating_texts.iter().any(|t| {
+                matches!(t.kind, PresentationFloatingTextKind::CombatDamage)
+                    && t.text.contains("25")
+            }),
+            "expected combat floating text: {:?}",
+            frame
+                .floating_texts
+                .iter()
+                .map(|t| (&t.kind, &t.text))
+                .collect::<Vec<_>>()
         );
     }
 
