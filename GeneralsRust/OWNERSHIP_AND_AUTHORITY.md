@@ -375,3 +375,5 @@ Still residual (not claimed by shell_smoke):
 
 
 With a presentation frame, GameClient uses `update_drawables_local` (no OBJECT_REGISTRY shroud bind).
+
+- Client: `update_presentation_shell` for presentation path; soft WND via GENERALS_RUNTIME_HOST_WND.

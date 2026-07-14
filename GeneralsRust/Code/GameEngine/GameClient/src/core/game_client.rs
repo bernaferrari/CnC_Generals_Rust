@@ -3272,6 +3272,24 @@ impl GameClient {
         Ok(())
     }
 
+    /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
+    ///
+    /// C++ `GameClient::update` also runs input/audio/full drawable shroud iteration.
+    /// Main already owns those; this residual covers shell visibility + UI + local
+    /// drawable modules for the presentation-only path.
+    pub fn update_presentation_shell(&mut self, delta_time: f32) -> GameClientResult<()> {
+        if !self.initialized {
+            return Err(GameClientError::InvalidOperation(
+                "GameClient not initialized".to_string(),
+            ));
+        }
+        self.ensure_shell_visible()?;
+        self.update_pre_draw_ui()?;
+        self.update_drawables_local(delta_time)?;
+        self.update_post_draw_ui()?;
+        Ok(())
+    }
+
     pub fn update_drawables(&mut self, delta_time: f32) -> GameClientResult<()> {
         let frame = self.frame;
         let local_player_index = self.local_player_id;
