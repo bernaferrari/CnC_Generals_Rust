@@ -169,6 +169,13 @@ pub enum PresentationEvent {
         unit: ObjectId,
         destination: [f32; 3],
     },
+    /// Post-armor HP damage applied this frame (host_damage_log).
+    DamageApplied {
+        target: ObjectId,
+        amount: f32,
+        source: Option<ObjectId>,
+        destroyed: bool,
+    },
     Victory {
         winner_player: Option<u32>,
     },
@@ -1490,6 +1497,14 @@ impl PresentationFrame {
                 });
             }
         }
+        for ev in crate::game_logic::host_damage_log::last_drain_snapshot() {
+            events.push(PresentationEvent::DamageApplied {
+                target: ev.target,
+                amount: ev.amount,
+                source: ev.source,
+                destroyed: ev.destroyed,
+            });
+        }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2114,6 +2129,18 @@ impl PresentationFrame {
                         unit.0, destination[0], destination[2]
                     ));
                 }
+                PresentationEvent::DamageApplied {
+                    target,
+                    amount,
+                    destroyed,
+                    ..
+                } => {
+                    if *destroyed {
+                        hud.push_info_message(&format!("Destroyed: #{}", target.0));
+                    } else if *amount > 0.0 {
+                        hud.push_info_message(&format!("-{} HP #{}", *amount as i32, target.0));
+                    }
+                }
                 PresentationEvent::ObjectDestroyed { id, .. } => {
                     hud.push_info_message(&format!("Destroyed: #{}", id.0));
                 }
@@ -2135,23 +2162,43 @@ impl PresentationFrame {
         use crate::game_logic::AudioEventRequest;
         let mut n = 0usize;
         for ev in &self.events {
-            let (kind, obj) = match ev {
-                PresentationEvent::ObjectDestroyed { id, .. } => ("UnitDie", Some(*id)),
+            let mapped: Option<(&str, Option<crate::game_logic::ObjectId>)> = match ev {
+                PresentationEvent::ObjectDestroyed { id, .. } => Some(("UnitDie", Some(*id))),
                 PresentationEvent::ConstructionComplete { id, .. } => {
-                    ("BuildingComplete", Some(*id))
+                    Some(("BuildingComplete", Some(*id)))
                 }
-                PresentationEvent::UpgradeComplete { .. } => ("UpgradeComplete", None),
+                PresentationEvent::UpgradeComplete { .. } => Some(("UpgradeComplete", None)),
                 PresentationEvent::ProductionComplete { spawned, .. } => {
-                    ("UnitReady", Some(*spawned))
+                    Some(("UnitReady", Some(*spawned)))
                 }
                 PresentationEvent::AttackTargeted { attacker, .. } => {
-                    ("WeaponFire", Some(*attacker))
+                    Some(("WeaponFire", Some(*attacker)))
                 }
-                PresentationEvent::Victory { .. } => ("Victory", None),
+                PresentationEvent::DamageApplied {
+                    target,
+                    destroyed: true,
+                    ..
+                } => Some(("UnitDie", Some(*target))),
+                PresentationEvent::DamageApplied {
+                    target,
+                    amount,
+                    destroyed: false,
+                    ..
+                } => {
+                    if *amount > 0.0 {
+                        Some(("WeaponHit", Some(*target)))
+                    } else {
+                        None
+                    }
+                }
+                PresentationEvent::Victory { .. } => Some(("Victory", None)),
                 PresentationEvent::RadarMessage { .. }
                 | PresentationEvent::OwnerChanged { .. }
                 | PresentationEvent::MoveOrdered { .. }
-                | PresentationEvent::ParticleSystemSpawned { .. } => continue,
+                | PresentationEvent::ParticleSystemSpawned { .. } => None,
+            };
+            let Some((kind, obj)) = mapped else {
+                continue;
             };
             let mut req = AudioEventRequest::new(kind);
             if let Some(id) = obj {
@@ -2342,6 +2389,35 @@ mod tests {
         let n = frame.apply_events_to_audio(&mut logic);
         assert!(n >= 1, "expected audio queue from AttackTargeted, n={n}");
         assert!(logic.queued_audio_event_count_for_test() >= 1);
+    }
+
+    #[test]
+    fn damage_applied_freezes_from_last_drain() {
+        crate::game_logic::host_damage_log::clear();
+        crate::game_logic::host_damage_log::record(
+            crate::game_logic::ObjectId(8),
+            12.5,
+            Some(crate::game_logic::ObjectId(1)),
+            false,
+        );
+        let _ = crate::game_logic::host_damage_log::drain();
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::DamageApplied {
+                        target,
+                        amount,
+                        destroyed: false,
+                        ..
+                    } if target.0 == 8 && (*amount - 12.5).abs() < 0.01
+                )
+            }),
+            "expected DamageApplied: {:?}",
+            frame.events
+        );
     }
 
     #[test]
