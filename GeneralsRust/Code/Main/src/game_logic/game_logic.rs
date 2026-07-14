@@ -35718,6 +35718,75 @@ impl GameLogic {
             .or_else(|| self.team_base_position(team))
     }
 
+    pub fn peek_pending_camera_focus(&self) -> Option<Vec3> {
+        self.pending_camera_focus
+    }
+
+    pub fn peek_pending_view_guardband(
+        &self,
+    ) -> Option<&crate::game_logic::mission_scripts::ViewGuardbandRequest> {
+        self.pending_view_guardband.as_ref()
+    }
+
+    pub fn peek_pending_script_fps_limit(&self) -> Option<i32> {
+        self.pending_script_fps_limit
+    }
+
+    pub fn peek_pending_camera_bw_mode(
+        &self,
+    ) -> Option<&crate::game_logic::mission_scripts::CameraBwModeRequest> {
+        self.pending_camera_bw_mode.as_ref()
+    }
+
+    pub fn peek_pending_camera_add_shakers(
+        &self,
+    ) -> &[crate::game_logic::mission_scripts::CameraAddShakerRequest] {
+        &self.pending_camera_add_shakers
+    }
+
+    pub fn peek_pending_camera_motion_blur_count(&self) -> usize {
+        self.pending_camera_motion_blur.len()
+    }
+
+    pub fn queue_pending_camera_focus(&mut self, pos: Vec3) {
+        self.pending_camera_focus = Some(pos);
+    }
+
+    pub fn queue_pending_view_guardband(&mut self, x_bias: f32, y_bias: f32) {
+        self.pending_view_guardband =
+            Some(crate::game_logic::mission_scripts::ViewGuardbandRequest { x_bias, y_bias });
+    }
+
+    pub fn queue_pending_script_fps_limit(&mut self, fps: i32) {
+        self.pending_script_fps_limit = Some(fps);
+    }
+
+    pub fn queue_pending_camera_bw_mode(&mut self, enabled: bool, frames: i32) {
+        self.pending_camera_bw_mode =
+            Some(crate::game_logic::mission_scripts::CameraBwModeRequest { enabled, frames });
+    }
+
+    pub fn queue_pending_camera_shaker(
+        &mut self,
+        position: Vec3,
+        amplitude: f32,
+        duration_seconds: f32,
+        radius: f32,
+    ) {
+        self.pending_camera_add_shakers.push(
+            crate::game_logic::mission_scripts::CameraAddShakerRequest {
+                position,
+                amplitude,
+                duration_seconds,
+                radius,
+            },
+        );
+    }
+
+    pub fn set_script_time_frozen_for_test(&mut self, frozen: bool) {
+        self.script_time_frozen_by_script = frozen;
+    }
+
     pub fn take_camera_focus_request(&mut self) -> Option<Vec3> {
         self.pending_camera_focus.take()
     }
