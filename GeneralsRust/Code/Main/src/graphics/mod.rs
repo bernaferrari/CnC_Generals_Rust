@@ -5,12 +5,14 @@
 ** Module declarations for C++ SAGE engine equivalent structures
 */
 
+pub mod attack_line_upload;
 pub mod floating_text_layout;
 pub mod fow_uniform_integration;
 pub mod game_text_residual;
 pub mod graphics_system;
 pub mod laser_segment_upload;
 pub mod move_line_upload;
+pub use attack_line_upload::AttackLineUpload;
 pub mod projectile_segment_upload;
 pub use move_line_upload::MoveLineUpload;
 pub use projectile_segment_upload::ProjectileSegmentUpload;

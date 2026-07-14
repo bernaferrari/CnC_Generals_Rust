@@ -1782,6 +1782,9 @@ impl PresentationFrame {
                 obj.position = pos;
                 obj.orientation = ent.transform.orientation;
                 obj.move_destination = ent.move_target.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
+                obj.attack_target = ent
+                    .attack_target
+                    .and_then(|tid| shadow.host_for_entity(tid));
                 obj.health_current = h;
                 obj.destroyed = destroyed;
                 updated += 1;
