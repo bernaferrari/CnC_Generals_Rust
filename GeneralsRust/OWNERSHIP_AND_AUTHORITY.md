@@ -64,10 +64,13 @@ When `PresentationFrame` is set, render prefers snapshot for:
 
 Still live-`GameLogic` residual during execute (acceptable fail-closed):
 - Live unit fallback when no presentation frame (boot/loading)
-- Terrain heightmap GPU load (`terrain_heightmap_snapshot`)
-- Road/bridge mesh bake snapshots
-- Startup model prewarm candidate list from map metadata objects
+- Full heightmap GPU payload (`terrain_heightmap_snapshot`) — too large for per-frame freeze;
+  bounds/hint prefer presentation; load is map-start only
+- Road/bridge bake prefers presentation segments; live snapshot only if env empty
+- Startup model prewarm prefers capped `prewarm_template_names` on presentation
 - Asset/mesh resolve (filesystem/GPU, not sim identity)
+- `engine_object_id` / OBJECT_REGISTRY bridge remains opt-in (`GENERALS_BRIDGE_ENGINE_OBJECTS`);
+  combat path keeps Main objects authoritative without dual registry by default
 
 Executable smoke (`executable_smoke_gate` / behavior_gate step 8) boots the real
 `generals` binary via runtime host and proves Menu→InGame. `playable_claim`
