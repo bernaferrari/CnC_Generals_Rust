@@ -159,6 +159,11 @@ pub enum PresentationEvent {
         id: ObjectId,
         team: Team,
     },
+    /// Attack target set this frame (host_attack_log).
+    AttackTargeted {
+        attacker: ObjectId,
+        target: Option<ObjectId>,
+    },
     Victory {
         winner_player: Option<u32>,
     },
@@ -1464,6 +1469,14 @@ impl PresentationFrame {
                 team: ev.team,
             });
         }
+        for ev in crate::game_logic::host_attack_log::last_drain_snapshot() {
+            if ev.target.is_some() {
+                events.push(PresentationEvent::AttackTargeted {
+                    attacker: ev.attacker,
+                    target: ev.target,
+                });
+            }
+        }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2077,6 +2090,11 @@ impl PresentationFrame {
                 PresentationEvent::OwnerChanged { id, team } => {
                     hud.push_info_message(&format!("Ownership changed: #{} -> {:?}", id.0, team));
                 }
+                PresentationEvent::AttackTargeted { attacker, target } => {
+                    if let Some(t) = target {
+                        hud.push_info_message(&format!("Attack: #{} -> #{}", attacker.0, t.0));
+                    }
+                }
                 PresentationEvent::ObjectDestroyed { id, .. } => {
                     hud.push_info_message(&format!("Destroyed: #{}", id.0));
                 }
@@ -2254,6 +2272,31 @@ mod tests {
             hud.message_count_for_test() > before,
             "hud should receive presentation events (before={before}, after={})",
             hud.message_count_for_test()
+        );
+    }
+
+    #[test]
+    fn attack_targeted_freezes_from_last_drain() {
+        crate::game_logic::host_attack_log::clear();
+        crate::game_logic::host_attack_log::record(
+            crate::game_logic::ObjectId(2),
+            Some(crate::game_logic::ObjectId(5)),
+        );
+        let _ = crate::game_logic::host_attack_log::drain();
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::AttackTargeted {
+                        attacker,
+                        target: Some(t)
+                    } if attacker.0 == 2 && t.0 == 5
+                )
+            }),
+            "expected AttackTargeted: {:?}",
+            frame.events
         );
     }
 
