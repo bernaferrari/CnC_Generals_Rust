@@ -50,8 +50,7 @@ pub const SUPERWEAPON_EMP_PULSE_RELOAD_FRAMES: u32 = 10_800;
 pub const EMP_PULSE_DISABLED_DURATION_MS: u32 = 30_000;
 
 /// Logic-frame residual of DisabledDuration (ms * 30 / 1000) = 900 frames.
-pub const EMP_PULSE_DISABLED_DURATION_FRAMES: u32 =
-    (EMP_PULSE_DISABLED_DURATION_MS * 30) / 1000;
+pub const EMP_PULSE_DISABLED_DURATION_FRAMES: u32 = (EMP_PULSE_DISABLED_DURATION_MS * 30) / 1000;
 
 /// Activate / impact audio residual (SoundEffects.ini EMPPulseWhoosh / FXList).
 pub const EMP_PULSE_ACTIVATE_AUDIO: &str = "EMPPulseWhoosh";
@@ -194,12 +193,10 @@ pub fn honesty_emp_pulse_duration_radius_residual_ok() -> bool {
     (HOST_EMP_PULSE_RADIUS - 200.0).abs() < 0.01
         && (SUPERWEAPON_EMP_PULSE_RADIUS_CURSOR - 200.0).abs() < 0.01
         && EMP_PULSE_DISABLED_DURATION_MS == 30_000
-        && EMP_PULSE_DISABLED_DURATION_FRAMES
-            == emp_ms_to_frames(EMP_PULSE_DISABLED_DURATION_MS)
+        && EMP_PULSE_DISABLED_DURATION_FRAMES == emp_ms_to_frames(EMP_PULSE_DISABLED_DURATION_MS)
         && EMP_PULSE_DISABLED_DURATION_FRAMES == 900
         && SUPERWEAPON_EMP_PULSE_RELOAD_MS == 360_000
-        && SUPERWEAPON_EMP_PULSE_RELOAD_FRAMES
-            == emp_ms_to_frames(SUPERWEAPON_EMP_PULSE_RELOAD_MS)
+        && SUPERWEAPON_EMP_PULSE_RELOAD_FRAMES == emp_ms_to_frames(SUPERWEAPON_EMP_PULSE_RELOAD_MS)
 }
 
 /// Wave 51 residual honesty: EffectSpheroid scale / tint / lifetime residual.

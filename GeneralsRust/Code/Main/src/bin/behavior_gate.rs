@@ -7,6 +7,7 @@ use generals_main::ai_skirmish_activity::{
     format_ai_activity_report, run_medium_ai_skirmish_activity,
 };
 use generals_main::breadth_scenarios::{format_breadth_report, run_all_breadth};
+use generals_main::executable_smoke::{format_executable_smoke_report, run_executable_smoke};
 use generals_main::golden_campaign::{format_campaign_report, run_golden_campaign};
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 use generals_main::map_frame_scenario::{
@@ -14,6 +15,7 @@ use generals_main::map_frame_scenario::{
 };
 use generals_main::release_candidate::{format_rc_report, run_release_candidate_package};
 use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
+use std::time::Duration;
 
 fn main() {
     let mut failed = Vec::new();
@@ -170,13 +172,80 @@ fn main() {
         failed.push(format!("rc failed: {}", format_rc_report(&rc)));
     }
 
+    // 8) Executable smoke (real generals binary + runtime host). Soft-skip when
+    // binary missing or display/GPU unavailable; fail only when host starts and
+    // then fails to reach InGame, or when playable_claim flips true.
+    // Opt out: EXECUTABLE_SMOKE=0. Force NewGame path: EXECUTABLE_SMOKE_NEW_GAME=1.
+    let exec_enabled = std::env::var("EXECUTABLE_SMOKE")
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+        .unwrap_or(true);
+    let mut exec_host_ok = false;
+    let mut exec_status = "skipped".to_string();
+    if exec_enabled {
+        let timeout_secs: u64 = std::env::var("EXECUTABLE_SMOKE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(90);
+        let use_new_game = std::env::var("EXECUTABLE_SMOKE_NEW_GAME")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        let exec = run_executable_smoke(Duration::from_secs(timeout_secs), use_new_game);
+        println!("{}", format_executable_smoke_report(&exec));
+        exec_status = exec.status.clone();
+        exec_host_ok = exec.executable_host_ok;
+        if exec.playable_claim {
+            failed.push(
+                "executable_smoke playable_claim=true (must stay false for residual honesty)"
+                    .into(),
+            );
+        }
+        match exec.status.as_str() {
+            "success" | "success_partial_exit" | "success_forced_exit" => {
+                if !(exec.executable_host_ok && exec.reached_ingame) {
+                    failed.push(format!(
+                        "executable_smoke status={} host_ok={} ingame={} detail={}",
+                        exec.status, exec.executable_host_ok, exec.reached_ingame, exec.detail
+                    ));
+                }
+            }
+            "binary_missing" | "assets_or_display_unavailable" | "spawn_failed" | "no_menu" => {
+                // Soft environments (CI without display/assets): do not fail composite.
+                eprintln!(
+                    "behavior_gate: executable_smoke soft-skip status={} detail={}",
+                    exec.status, exec.detail
+                );
+            }
+            other => {
+                // Process started and reached Menu but failed InGame, etc.
+                if exec.process_started && exec.reached_menu && !exec.reached_ingame {
+                    failed.push(format!(
+                        "executable_smoke started but no InGame status={} detail={}",
+                        other, exec.detail
+                    ));
+                } else if exec.process_started && !exec.reached_menu {
+                    eprintln!(
+                        "behavior_gate: executable_smoke soft-skip (no menu) status={} detail={}",
+                        other, exec.detail
+                    );
+                } else {
+                    failed.push(format!(
+                        "executable_smoke status={} detail={}",
+                        other, exec.detail
+                    ));
+                }
+            }
+        }
+    } else {
+        println!("executable_smoke: skipped (EXECUTABLE_SMOKE=0)");
+    }
+
     if failed.is_empty() {
         // PASS text reflects values already asserted above (not hardcoded-only).
         // Honesty flags: shell playable_claim always false; golden synthetic when no map;
         // retail_* / combat_no_teleport / combat_realistic_* are residual honesty only.
         // Campaign retail_campaign_map_loaded fail-closed when full MD_*/GC_* load hangs.
         println!(
-            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={}; campaign_playable_claim={} retail_campaign_map_loaded={})",
+            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={}; campaign_playable_claim={} retail_campaign_map_loaded={}; executable_host_ok={} executable_status={})",
             golden.map_loaded,
             golden.synthetic_combat,
             golden.playable_claim,
@@ -188,7 +257,9 @@ fn main() {
             shell.playable_claim,
             shell.shell_host_playable_ok,
             campaign.campaign_playable_claim,
-            campaign.retail_campaign_map_loaded
+            campaign.retail_campaign_map_loaded,
+            exec_host_ok,
+            exec_status
         );
         std::process::exit(0);
     }

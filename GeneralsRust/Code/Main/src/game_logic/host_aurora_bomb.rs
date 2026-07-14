@@ -544,7 +544,8 @@ impl HostAuroraBombRegistry {
     ) -> Vec<HostAuroraBombImpactPlan> {
         let mut plans = Vec::new();
         for mission in self.missions.values() {
-            if mission.phase != HostAuroraBombPhase::Queued || current_frame < mission.impact_frame {
+            if mission.phase != HostAuroraBombPhase::Queued || current_frame < mission.impact_frame
+            {
                 continue;
             }
             let mut hits = Vec::new();
@@ -603,9 +604,7 @@ impl HostAuroraBombRegistry {
                 mission.objects_destroyed = objects_destroyed;
                 self.completion_count = self.completion_count.saturating_add(1);
                 self.damage_dealt += damage_dealt.max(0.0);
-                self.objects_destroyed = self
-                    .objects_destroyed
-                    .saturating_add(objects_destroyed);
+                self.objects_destroyed = self.objects_destroyed.saturating_add(objects_destroyed);
                 self.completed_this_frame.push(mission_id);
             }
         }
@@ -985,7 +984,11 @@ mod tests {
         let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
         // Enemy + friend at epicenter; source excluded; far outside primary+flame.
-        assert_eq!(plans[0].hits.len(), 2, "enemy + ally at epicenter (ALLIES residual)");
+        assert_eq!(
+            plans[0].hits.len(),
+            2,
+            "enemy + ally at epicenter (ALLIES residual)"
+        );
         let enemy = plans[0]
             .hits
             .iter()
@@ -1036,8 +1039,14 @@ mod tests {
         let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
         let hits = &plans[0].hits;
-        let mid = hits.iter().find(|h| h.target_id == ObjectId(11)).expect("mid ally");
-        let epic = hits.iter().find(|h| h.target_id == ObjectId(13)).expect("epic enemy");
+        let mid = hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(11))
+            .expect("mid ally");
+        let epic = hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(13))
+            .expect("epic enemy");
         assert!(
             !hits.iter().any(|h| h.target_id == ObjectId(12)),
             "ally beyond primary+flame radius must not take residual damage"

@@ -395,7 +395,6 @@ impl HostInfernoFireZoneRegistry {
     }
 }
 
-
 // --- Wave 70 residual honesty peels ---
 
 /// Convert residual msec → logic frames @ 30 FPS.

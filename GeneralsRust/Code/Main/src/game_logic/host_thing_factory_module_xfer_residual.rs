@@ -215,8 +215,8 @@ pub const NUM_DRAWABLE_MODULE_TYPES: usize = 2;
 
 /// Ordered C++ ModuleType residual names.
 pub const MODULE_TYPE_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "MODULETYPE_BEHAVIOR",       // 0
-    "MODULETYPE_DRAW",           // 1
+    "MODULETYPE_BEHAVIOR",      // 0
+    "MODULETYPE_DRAW",          // 1
     "MODULETYPE_CLIENT_UPDATE", // 2
 ];
 
@@ -236,17 +236,17 @@ pub const MODULE_INTERFACE_CLIENT_UPDATE: u32 = 0x0000_0800;
 
 /// Ordered ModuleInterfaceType residual names (bit index 0..11).
 pub const MODULE_INTERFACE_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "UPDATE",         // bit 0  0x0001
-    "DIE",            // bit 1  0x0002
-    "DAMAGE",         // bit 2  0x0004
-    "CREATE",         // bit 3  0x0008
-    "COLLIDE",        // bit 4  0x0010
-    "BODY",           // bit 5  0x0020
-    "CONTAIN",        // bit 6  0x0040
-    "UPGRADE",        // bit 7  0x0080
-    "SPECIAL_POWER",  // bit 8  0x0100
-    "DESTROY",        // bit 9  0x0200
-    "DRAW",           // bit 10 0x0400
+    "UPDATE",        // bit 0  0x0001
+    "DIE",           // bit 1  0x0002
+    "DAMAGE",        // bit 2  0x0004
+    "CREATE",        // bit 3  0x0008
+    "COLLIDE",       // bit 4  0x0010
+    "BODY",          // bit 5  0x0020
+    "CONTAIN",       // bit 6  0x0040
+    "UPGRADE",       // bit 7  0x0080
+    "SPECIAL_POWER", // bit 8  0x0100
+    "DESTROY",       // bit 9  0x0200
+    "DRAW",          // bit 10 0x0400
     "CLIENT_UPDATE", // bit 11 0x0800
 ];
 
@@ -345,20 +345,16 @@ pub fn honesty_module_type_table_residual_pack_wave100() -> bool {
             == (LAST_DRAWABLE_MODULE_TYPE - FIRST_DRAWABLE_MODULE_TYPE + 1) as usize
         && NUM_DRAWABLE_MODULE_TYPES == 2
         && MODULE_TYPE_NAME_TABLE_RESIDUAL.len() == 3
-        && residual_name_index(MODULE_TYPE_NAME_TABLE_RESIDUAL, "MODULETYPE_BEHAVIOR")
-            == Some(0)
+        && residual_name_index(MODULE_TYPE_NAME_TABLE_RESIDUAL, "MODULETYPE_BEHAVIOR") == Some(0)
         && residual_name_index(MODULE_TYPE_NAME_TABLE_RESIDUAL, "MODULETYPE_DRAW") == Some(1)
-        && residual_name_index(
-            MODULE_TYPE_NAME_TABLE_RESIDUAL,
-            "MODULETYPE_CLIENT_UPDATE",
-        ) == Some(2)
+        && residual_name_index(MODULE_TYPE_NAME_TABLE_RESIDUAL, "MODULETYPE_CLIENT_UPDATE")
+            == Some(2)
         && MODULE_INTERFACE_NUM_FLAGS == 12
         && MODULE_INTERFACE_NAME_TABLE_RESIDUAL.len() == 12
         && residual_name_index(MODULE_INTERFACE_NAME_TABLE_RESIDUAL, "UPDATE") == Some(0)
         && residual_name_index(MODULE_INTERFACE_NAME_TABLE_RESIDUAL, "BODY") == Some(5)
         && residual_name_index(MODULE_INTERFACE_NAME_TABLE_RESIDUAL, "DRAW") == Some(10)
-        && residual_name_index(MODULE_INTERFACE_NAME_TABLE_RESIDUAL, "CLIENT_UPDATE")
-            == Some(11)
+        && residual_name_index(MODULE_INTERFACE_NAME_TABLE_RESIDUAL, "CLIENT_UPDATE") == Some(11)
         && MODULE_INTERFACE_UPDATE == 0x1
         && MODULE_INTERFACE_DIE == 0x2
         && MODULE_INTERFACE_DAMAGE == 0x4
@@ -389,8 +385,7 @@ pub fn honesty_module_type_table_residual_pack_wave100() -> bool {
         && MODULE_FACTORY_SAMPLE_TABLE_RESIDUAL[7].module_type == MODULE_TYPE_DRAW
         && MODULE_FACTORY_SAMPLE_TABLE_RESIDUAL[7].interface_mask == MODULE_INTERFACE_DRAW
         && MODULE_FACTORY_SAMPLE_TABLE_RESIDUAL[8].module_type == MODULE_TYPE_CLIENT_UPDATE
-        && MODULE_FACTORY_SAMPLE_TABLE_RESIDUAL[8].interface_mask
-            == MODULE_INTERFACE_CLIENT_UPDATE
+        && MODULE_FACTORY_SAMPLE_TABLE_RESIDUAL[8].interface_mask == MODULE_INTERFACE_CLIENT_UPDATE
 }
 
 // ---------------------------------------------------------------------------
@@ -415,24 +410,24 @@ pub const XFER_MODE_NAME_TABLE_RESIDUAL: &[&str] = &[
 
 /// C++ `XferStatus` residual ordered names (Xfer.h; excluding Rust-only InvalidData).
 pub const XFER_STATUS_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "XFER_STATUS_INVALID",  // 0
-    "XFER_OK",              // 1
-    "XFER_EOF",             // 2
-    "XFER_FILE_NOT_FOUND",  // 3
-    "XFER_FILE_NOT_OPEN",   // 4
-    "XFER_FILE_ALREADY_OPEN", // 5
-    "XFER_READ_ERROR",      // 6
-    "XFER_WRITE_ERROR",     // 7
-    "XFER_MODE_UNKNOWN",    // 8
-    "XFER_SKIP_ERROR",      // 9
+    "XFER_STATUS_INVALID",     // 0
+    "XFER_OK",                 // 1
+    "XFER_EOF",                // 2
+    "XFER_FILE_NOT_FOUND",     // 3
+    "XFER_FILE_NOT_OPEN",      // 4
+    "XFER_FILE_ALREADY_OPEN",  // 5
+    "XFER_READ_ERROR",         // 6
+    "XFER_WRITE_ERROR",        // 7
+    "XFER_MODE_UNKNOWN",       // 8
+    "XFER_SKIP_ERROR",         // 9
     "XFER_BEGIN_END_MISMATCH", // 10
-    "XFER_OUT_OF_MEMORY",   // 11
-    "XFER_STRING_ERROR",    // 12
-    "XFER_INVALID_VERSION", // 13
+    "XFER_OUT_OF_MEMORY",      // 11
+    "XFER_STRING_ERROR",       // 12
+    "XFER_INVALID_VERSION",    // 13
     "XFER_INVALID_PARAMETERS", // 14
-    "XFER_LIST_NOT_EMPTY",  // 15
-    "XFER_UNKNOWN_STRING",  // 16
-    "XFER_ERROR_UNKNOWN",   // 17
+    "XFER_LIST_NOT_EMPTY",     // 15
+    "XFER_UNKNOWN_STRING",     // 16
+    "XFER_ERROR_UNKNOWN",      // 17
 ];
 
 /// C++ `NUM_XFER_STATUS` residual (statuses 0..17 → count **18**).
@@ -527,9 +522,7 @@ pub fn xfer_version_check_residual(version: u8, current_version: u8) -> Result<u
 pub fn xfer_crc_add_residual(crc: u32, val: u32) -> u32 {
     let val = val.to_be();
     let hibit = if (crc & 0x8000_0000) != 0 { 1u32 } else { 0u32 };
-    crc.wrapping_shl(1)
-        .wrapping_add(val)
-        .wrapping_add(hibit)
+    crc.wrapping_shl(1).wrapping_add(val).wrapping_add(hibit)
 }
 
 /// Wave 100 honesty: Xfer residual deepen pack.
@@ -955,11 +948,7 @@ impl ModuleFactoryRegistryResidual {
     }
 
     /// C++ `findModuleInterfaceMask` residual: empty → 0; else table lookup.
-    pub fn find_module_interface_mask_residual(
-        &mut self,
-        name: &str,
-        module_type: u32,
-    ) -> i32 {
+    pub fn find_module_interface_mask_residual(&mut self, name: &str, module_type: u32) -> i32 {
         if name.is_empty() {
             self.find_module_misses = self.find_module_misses.saturating_add(1);
             self.last_interface_mask = 0;
@@ -1122,11 +1111,11 @@ pub fn honesty_module_factory_residual_deepen_pack_wave101() -> bool {
 
 /// C++ `newObject` post-create residual bookkeeping step names (subset of Wave 100 pipeline).
 pub const THING_FACTORY_POST_CREATE_STEPS_WAVE101: &[&str] = &[
-    "GAMELOGIC_CREATE",  // TheGameLogic->friend_createObject(tmplate, statusBits, team)
-    "TEAM_ASSIGN",       // Object ctor takes Team* (statusBits applied pre-onCreate)
+    "GAMELOGIC_CREATE", // TheGameLogic->friend_createObject(tmplate, statusBits, team)
+    "TEAM_ASSIGN",      // Object ctor takes Team* (statusBits applied pre-onCreate)
     "ON_CREATE_MODULES", // CreateModuleInterface::onCreate loop
     "PARTITION_REGISTER", // ThePartitionManager->registerObject
-    "INIT_OBJECT",       // obj->initObject
+    "INIT_OBJECT",      // obj->initObject
 ];
 
 /// Host residual counters for ThingFactory::newObject post-create path.
@@ -1173,8 +1162,7 @@ impl ThingFactoryCreateResidualCounters {
             return false;
         }
         // GAMELOGIC_CREATE
-        self.gamelogic_create_applications =
-            self.gamelogic_create_applications.saturating_add(1);
+        self.gamelogic_create_applications = self.gamelogic_create_applications.saturating_add(1);
         // TEAM_ASSIGN residual (team pointer applied in Object ctor)
         if team_present {
             self.team_assign_applications = self.team_assign_applications.saturating_add(1);
@@ -1249,10 +1237,7 @@ pub fn thing_factory_template_name_hash_residual(name: &str) -> u32 {
 /// Host residual findTemplate by exact name (case-sensitive; C++ AsciiString exact).
 /// Returns index into residual name table, or None.
 #[inline]
-pub fn thing_factory_find_template_by_name_residual(
-    table: &[&str],
-    name: &str,
-) -> Option<usize> {
+pub fn thing_factory_find_template_by_name_residual(table: &[&str], name: &str) -> Option<usize> {
     if name.is_empty() {
         return None;
     }
@@ -1368,21 +1353,21 @@ pub const PARTITION_REGISTER_CELL_SIZE_RESIDUAL: f32 = 40.0;
 
 /// C++ `PartitionManager::registerObject` residual step names.
 pub const PARTITION_REGISTER_OBJECT_STEPS_WAVE101: &[&str] = &[
-    "SANITY_NULL",           // object == NULL → return
-    "REJECT_ALREADY_REG",    // friend_getPartitionData() != NULL → return
-    "ALLOC_PARTITION_DATA",  // newInstance(PartitionData)
-    "LINK_MODULE_LIST",      // prepend to m_moduleList
-    "ATTACH_TO_OBJECT",      // mod->attachToObject(object)
+    "SANITY_NULL",          // object == NULL → return
+    "REJECT_ALREADY_REG",   // friend_getPartitionData() != NULL → return
+    "ALLOC_PARTITION_DATA", // newInstance(PartitionData)
+    "LINK_MODULE_LIST",     // prepend to m_moduleList
+    "ATTACH_TO_OBJECT",     // mod->attachToObject(object)
 ];
 
 /// C++ `PartitionManager::unRegisterObject` residual step names (happy path, no ghost).
 pub const PARTITION_UNREGISTER_OBJECT_STEPS_WAVE101: &[&str] = &[
-    "SANITY_NULL",            // object == NULL → return
-    "SANITY_NO_PARTDATA",     // friend_getPartitionData() == NULL → return
-    "GHOST_FOG_HOLD",         // ghost seen residual may defer delete
-    "DETACH_FROM_OBJECT",     // mod->detachFromObject()
-    "UNLINK_MODULE_LIST",     // remove from m_moduleList
-    "DELETE_PARTITION_DATA",  // mod->deleteInstance()
+    "SANITY_NULL",           // object == NULL → return
+    "SANITY_NO_PARTDATA",    // friend_getPartitionData() == NULL → return
+    "GHOST_FOG_HOLD",        // ghost seen residual may defer delete
+    "DETACH_FROM_OBJECT",    // mod->detachFromObject()
+    "UNLINK_MODULE_LIST",    // remove from m_moduleList
+    "DELETE_PARTITION_DATA", // mod->deleteInstance()
 ];
 
 /// Host residual PartitionManager register bookkeeping.
@@ -1441,8 +1426,7 @@ impl PartitionRegisterResidualCounters {
         }
         if ghost_fog_hold {
             // C++ keeps PartitionData for fogged ghost; object pointer cleared.
-            self.ghost_fog_hold_applications =
-                self.ghost_fog_hold_applications.saturating_add(1);
+            self.ghost_fog_hold_applications = self.ghost_fog_hold_applications.saturating_add(1);
             // live count still drops from "object registered" view
             self.registered_live_count = self.registered_live_count.saturating_sub(1);
             return true;

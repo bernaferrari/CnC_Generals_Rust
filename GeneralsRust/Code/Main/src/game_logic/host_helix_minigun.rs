@@ -156,8 +156,7 @@ pub fn honesty_helix_minigun_body_residual_ok() -> bool {
         && (HELIX_SHROUD_CLEARING_RANGE - 600.0).abs() < 0.01
         && HELIX_BUILD_COST == 1_500
         && (HELIX_BUILD_TIME_SEC - 20.0).abs() < 0.01
-        && HELIX_BUILD_TIME_FRAMES
-            == ((HELIX_BUILD_TIME_SEC * HELIX_LOGIC_FPS).round() as u32)
+        && HELIX_BUILD_TIME_FRAMES == ((HELIX_BUILD_TIME_SEC * HELIX_LOGIC_FPS).round() as u32)
         && HELIX_BUILD_TIME_FRAMES == 600
         && should_apply_helix_minigun_residual(true, 0)
         && !should_apply_helix_minigun_residual(true, 1)

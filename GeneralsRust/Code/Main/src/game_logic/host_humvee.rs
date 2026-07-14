@@ -177,11 +177,7 @@ pub fn is_humvee_template(template_name: &str) -> bool {
 }
 
 /// Prefer air TOW residual when Humvee has TOW upgrade and target is aircraft.
-pub fn humvee_prefer_air_tow(
-    is_humvee: bool,
-    has_tow_upgrade: bool,
-    target_is_air: bool,
-) -> bool {
+pub fn humvee_prefer_air_tow(is_humvee: bool, has_tow_upgrade: bool, target_is_air: bool) -> bool {
     is_humvee && has_tow_upgrade && target_is_air
 }
 
@@ -192,9 +188,7 @@ pub fn is_humvee_tow_upgrade_name(name: &str) -> bool {
         .filter(|c| c.is_ascii_alphanumeric())
         .flat_map(|c| c.to_lowercase())
         .collect::<String>();
-    n == "upgradeamericatowmissile"
-        || n == "upgrade_americatowmissile"
-        || n.ends_with("towmissile")
+    n == "upgradeamericatowmissile" || n == "upgrade_americatowmissile" || n.ends_with("towmissile")
 }
 
 /// Reload time seconds residual for delay frames @ 30 FPS.

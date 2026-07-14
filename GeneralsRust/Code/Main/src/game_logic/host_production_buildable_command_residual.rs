@@ -46,8 +46,11 @@ pub const PRODUCTION_TYPE_UNIT: u32 = 1;
 pub const PRODUCTION_TYPE_UPGRADE: u32 = 2;
 
 /// Ordered C++ `ProductionType` residual names.
-pub const PRODUCTION_TYPE_NAME_TABLE_RESIDUAL: &[&str] =
-    &["PRODUCTION_INVALID", "PRODUCTION_UNIT", "PRODUCTION_UPGRADE"];
+pub const PRODUCTION_TYPE_NAME_TABLE_RESIDUAL: &[&str] = &[
+    "PRODUCTION_INVALID",
+    "PRODUCTION_UNIT",
+    "PRODUCTION_UPGRADE",
+];
 
 /// C++ ProductionUpdateModuleData default MaxQueueEntries residual.
 pub const PRODUCTION_MAX_QUEUE_ENTRIES_DEEPEN: usize = 9;
@@ -87,7 +90,8 @@ pub const PRODUCTION_ENTRY_QUANTITY_CTOR: i32 = 0;
 /// C++ ProductionUpdateModuleData default DisabledTypesToProcess residual bit:
 /// MAKE_DISABLED_MASK(DISABLED_HELD) — DISABLED_HELD ordinal **3** → bit **0x08**.
 pub const PRODUCTION_DISABLED_HELD_ORDINAL: u32 = 3;
-pub const PRODUCTION_DISABLED_TYPES_TO_PROCESS_HELD_BIT: u32 = 1 << PRODUCTION_DISABLED_HELD_ORDINAL;
+pub const PRODUCTION_DISABLED_TYPES_TO_PROCESS_HELD_BIT: u32 =
+    1 << PRODUCTION_DISABLED_HELD_ORDINAL;
 
 /// ProductionUpdate INI field residual names (buildFieldParse).
 pub const PRODUCTION_UPDATE_INI_FIELD_NAMES: &[&str] = &[
@@ -229,13 +233,13 @@ pub const BSTATUS_ONLY_BY_AI: u32 = 3;
 
 /// C++ `CanMakeType` residual ordered names.
 pub const CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "CANMAKE_OK",                    // 0
-    "CANMAKE_NO_PREREQ",             // 1
-    "CANMAKE_NO_MONEY",              // 2
-    "CANMAKE_FACTORY_IS_DISABLED",   // 3
-    "CANMAKE_QUEUE_FULL",            // 4
-    "CANMAKE_PARKING_PLACES_FULL",   // 5
-    "CANMAKE_MAXED_OUT_FOR_PLAYER",  // 6
+    "CANMAKE_OK",                   // 0
+    "CANMAKE_NO_PREREQ",            // 1
+    "CANMAKE_NO_MONEY",             // 2
+    "CANMAKE_FACTORY_IS_DISABLED",  // 3
+    "CANMAKE_QUEUE_FULL",           // 4
+    "CANMAKE_PARKING_PLACES_FULL",  // 5
+    "CANMAKE_MAXED_OUT_FOR_PLAYER", // 6
 ];
 
 pub const CANMAKE_OK: u32 = 0;
@@ -248,14 +252,14 @@ pub const CANMAKE_MAXED_OUT_FOR_PLAYER: u32 = 6;
 
 /// C++ `LegalBuildCode` residual ordered names.
 pub const LEGAL_BUILD_CODE_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "LBC_OK",                   // 0
-    "LBC_RESTRICTED_TERRAIN",   // 1
-    "LBC_NOT_FLAT_ENOUGH",      // 2
-    "LBC_OBJECTS_IN_THE_WAY",   // 3
-    "LBC_NO_CLEAR_PATH",        // 4
-    "LBC_SHROUD",               // 5
-    "LBC_TOO_CLOSE_TO_SUPPLIES",// 6
-    "LBC_GENERIC_FAILURE",      // 7
+    "LBC_OK",                    // 0
+    "LBC_RESTRICTED_TERRAIN",    // 1
+    "LBC_NOT_FLAT_ENOUGH",       // 2
+    "LBC_OBJECTS_IN_THE_WAY",    // 3
+    "LBC_NO_CLEAR_PATH",         // 4
+    "LBC_SHROUD",                // 5
+    "LBC_TOO_CLOSE_TO_SUPPLIES", // 6
+    "LBC_GENERIC_FAILURE",       // 7
 ];
 
 pub const LBC_OK: u32 = 0;
@@ -323,8 +327,7 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_OK") == Some(0)
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_PREREQ") == Some(1)
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_MONEY") == Some(2)
-        && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_QUEUE_FULL")
-            == Some(4)
+        && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_QUEUE_FULL") == Some(4)
         && residual_name_index(
             CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL,
             "CANMAKE_MAXED_OUT_FOR_PLAYER",
@@ -491,70 +494,70 @@ pub const GUI_COMMAND_NUM_COMMANDS_RESIDUAL: usize = 35;
 
 /// Ordered C++ TheGuiCommandNames residual (ALLOW_SURRENDER off retail ZH).
 pub const GUI_COMMAND_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "NONE",                                   // 0
-    "DOZER_CONSTRUCT",                        // 1
-    "DOZER_CONSTRUCT_CANCEL",                 // 2
-    "UNIT_BUILD",                             // 3
-    "CANCEL_UNIT_BUILD",                      // 4
-    "PLAYER_UPGRADE",                         // 5
-    "OBJECT_UPGRADE",                         // 6
-    "CANCEL_UPGRADE",                         // 7
-    "ATTACK_MOVE",                            // 8
-    "GUARD",                                  // 9
-    "GUARD_WITHOUT_PURSUIT",                  // 10
-    "GUARD_FLYING_UNITS_ONLY",                // 11
-    "STOP",                                   // 12
-    "WAYPOINTS",                              // 13
-    "EXIT_CONTAINER",                         // 14
-    "EVACUATE",                               // 15
-    "EXECUTE_RAILED_TRANSPORT",               // 16
-    "BEACON_DELETE",                          // 17
-    "SET_RALLY_POINT",                        // 18
-    "SELL",                                   // 19
-    "FIRE_WEAPON",                            // 20
-    "SPECIAL_POWER",                          // 21
-    "PURCHASE_SCIENCE",                       // 22
-    "HACK_INTERNET",                          // 23
-    "TOGGLE_OVERCHARGE",                      // 24
-    "COMBATDROP",                             // 25
-    "SWITCH_WEAPON",                          // 26
-    "HIJACK_VEHICLE",                         // 27
-    "CONVERT_TO_CARBOMB",                     // 28
-    "SABOTAGE_BUILDING",                      // 29
-    "PLACE_BEACON",                           // 30
-    "SPECIAL_POWER_FROM_SHORTCUT",            // 31
-    "SPECIAL_POWER_CONSTRUCT",                // 32
-    "SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT",  // 33
-    "SELECT_ALL_UNITS_OF_TYPE",               // 34
+    "NONE",                                  // 0
+    "DOZER_CONSTRUCT",                       // 1
+    "DOZER_CONSTRUCT_CANCEL",                // 2
+    "UNIT_BUILD",                            // 3
+    "CANCEL_UNIT_BUILD",                     // 4
+    "PLAYER_UPGRADE",                        // 5
+    "OBJECT_UPGRADE",                        // 6
+    "CANCEL_UPGRADE",                        // 7
+    "ATTACK_MOVE",                           // 8
+    "GUARD",                                 // 9
+    "GUARD_WITHOUT_PURSUIT",                 // 10
+    "GUARD_FLYING_UNITS_ONLY",               // 11
+    "STOP",                                  // 12
+    "WAYPOINTS",                             // 13
+    "EXIT_CONTAINER",                        // 14
+    "EVACUATE",                              // 15
+    "EXECUTE_RAILED_TRANSPORT",              // 16
+    "BEACON_DELETE",                         // 17
+    "SET_RALLY_POINT",                       // 18
+    "SELL",                                  // 19
+    "FIRE_WEAPON",                           // 20
+    "SPECIAL_POWER",                         // 21
+    "PURCHASE_SCIENCE",                      // 22
+    "HACK_INTERNET",                         // 23
+    "TOGGLE_OVERCHARGE",                     // 24
+    "COMBATDROP",                            // 25
+    "SWITCH_WEAPON",                         // 26
+    "HIJACK_VEHICLE",                        // 27
+    "CONVERT_TO_CARBOMB",                    // 28
+    "SABOTAGE_BUILDING",                     // 29
+    "PLACE_BEACON",                          // 30
+    "SPECIAL_POWER_FROM_SHORTCUT",           // 31
+    "SPECIAL_POWER_CONSTRUCT",               // 32
+    "SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT", // 33
+    "SELECT_ALL_UNITS_OF_TYPE",              // 34
 ];
 
 /// C++ CommandOption residual ordered bit-names (TheCommandOptionNames, bit index).
 /// Bit 3 is "unused-reserved" when ALLOW_SURRENDER is off.
 pub const COMMAND_OPTION_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "NEED_TARGET_ENEMY_OBJECT",   // bit 0  0x00000001
-    "NEED_TARGET_NEUTRAL_OBJECT", // bit 1  0x00000002
-    "NEED_TARGET_ALLY_OBJECT",    // bit 2  0x00000004
-    "unused-reserved",            // bit 3  0x00000008
-    "ALLOW_SHRUBBERY_TARGET",     // bit 4  0x00000010
-    "NEED_TARGET_POS",            // bit 5  0x00000020
-    "NEED_UPGRADE",               // bit 6  0x00000040
-    "NEED_SPECIAL_POWER_SCIENCE", // bit 7  0x00000080
-    "OK_FOR_MULTI_SELECT",        // bit 8  0x00000100
-    "CONTEXTMODE_COMMAND",        // bit 9  0x00000200
-    "CHECK_LIKE",                 // bit 10 0x00000400
-    "ALLOW_MINE_TARGET",          // bit 11 0x00000800
-    "ATTACK_OBJECTS_POSITION",    // bit 12 0x00001000
-    "OPTION_ONE",                 // bit 13 0x00002000
-    "OPTION_TWO",                 // bit 14 0x00004000
-    "OPTION_THREE",               // bit 15 0x00008000
-    "NOT_QUEUEABLE",              // bit 16 0x00010000
-    "SINGLE_USE_COMMAND",         // bit 17 0x00020000
-    "---DO-NOT-USE---",           // bit 18 0x00040000 COMMAND_FIRED_BY_SCRIPT
-    "SCRIPT_ONLY",                // bit 19 0x00080000
-    "IGNORES_UNDERPOWERED",       // bit 20 0x00100000
+    "NEED_TARGET_ENEMY_OBJECT",     // bit 0  0x00000001
+    "NEED_TARGET_NEUTRAL_OBJECT",   // bit 1  0x00000002
+    "NEED_TARGET_ALLY_OBJECT",      // bit 2  0x00000004
+    "unused-reserved",              // bit 3  0x00000008
+    "ALLOW_SHRUBBERY_TARGET",       // bit 4  0x00000010
+    "NEED_TARGET_POS",              // bit 5  0x00000020
+    "NEED_UPGRADE",                 // bit 6  0x00000040
+    "NEED_SPECIAL_POWER_SCIENCE",   // bit 7  0x00000080
+    "OK_FOR_MULTI_SELECT",          // bit 8  0x00000100
+    "CONTEXTMODE_COMMAND",          // bit 9  0x00000200
+    "CHECK_LIKE",                   // bit 10 0x00000400
+    "ALLOW_MINE_TARGET",            // bit 11 0x00000800
+    "ATTACK_OBJECTS_POSITION",      // bit 12 0x00001000
+    "OPTION_ONE",                   // bit 13 0x00002000
+    "OPTION_TWO",                   // bit 14 0x00004000
+    "OPTION_THREE",                 // bit 15 0x00008000
+    "NOT_QUEUEABLE",                // bit 16 0x00010000
+    "SINGLE_USE_COMMAND",           // bit 17 0x00020000
+    "---DO-NOT-USE---",             // bit 18 0x00040000 COMMAND_FIRED_BY_SCRIPT
+    "SCRIPT_ONLY",                  // bit 19 0x00080000
+    "IGNORES_UNDERPOWERED",         // bit 20 0x00100000
     "USES_MINE_CLEARING_WEAPONSET", // bit 21 0x00200000
-    "CAN_USE_WAYPOINTS",          // bit 22 0x00400000
-    "MUST_BE_STOPPED",            // bit 23 0x00800000
+    "CAN_USE_WAYPOINTS",            // bit 22 0x00400000
+    "MUST_BE_STOPPED",              // bit 23 0x00800000
 ];
 
 pub const COMMAND_OPTION_NEED_TARGET_ENEMY_OBJECT: u32 = 0x0000_0001;
@@ -576,8 +579,7 @@ pub const COMMAND_OPTION_NEED_TARGET_MASK: u32 = 0x0000_0001 // enemy
     | 0x0000_0020 // pos
     | 0x0000_0200; // contextmode
 /// C++ COMMAND_OPTION_NEED_OBJECT_TARGET composite residual.
-pub const COMMAND_OPTION_NEED_OBJECT_TARGET_MASK: u32 =
-    0x0000_0001 | 0x0000_0002 | 0x0000_0004;
+pub const COMMAND_OPTION_NEED_OBJECT_TARGET_MASK: u32 = 0x0000_0001 | 0x0000_0002 | 0x0000_0004;
 
 /// C++ CommandButtonMappedBorderType residual count.
 pub const COMMAND_BUTTON_BORDER_COUNT: usize = 5;
@@ -624,27 +626,21 @@ pub fn honesty_command_button_residual_deepen_pack_wave99() -> bool {
         && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "DOZER_CONSTRUCT") == Some(1)
         && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "UNIT_BUILD") == Some(3)
         && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "SPECIAL_POWER") == Some(21)
-        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "PURCHASE_SCIENCE")
-            == Some(22)
+        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "PURCHASE_SCIENCE") == Some(22)
         && residual_name_index(
             GUI_COMMAND_NAME_TABLE_RESIDUAL,
             "SPECIAL_POWER_FROM_SHORTCUT",
         ) == Some(31)
-        && residual_name_index(
-            GUI_COMMAND_NAME_TABLE_RESIDUAL,
-            "SELECT_ALL_UNITS_OF_TYPE",
-        ) == Some(34)
+        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "SELECT_ALL_UNITS_OF_TYPE")
+            == Some(34)
         && COMMAND_OPTION_NAME_TABLE_RESIDUAL.len() == 24
         && residual_name_index(
             COMMAND_OPTION_NAME_TABLE_RESIDUAL,
             "NEED_TARGET_ENEMY_OBJECT",
         ) == Some(0)
-        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "NEED_TARGET_POS")
-            == Some(5)
-        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "NOT_QUEUEABLE")
-            == Some(16)
-        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "MUST_BE_STOPPED")
-            == Some(23)
+        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "NEED_TARGET_POS") == Some(5)
+        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "NOT_QUEUEABLE") == Some(16)
+        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "MUST_BE_STOPPED") == Some(23)
         && COMMAND_OPTION_NEED_TARGET_ENEMY_OBJECT == 0x1
         && COMMAND_OPTION_NEED_TARGET_POS == 0x20
         && COMMAND_OPTION_NOT_QUEUEABLE == 0x1_0000
@@ -691,15 +687,15 @@ pub const NUM_CB_CONTEXTS_RESIDUAL: usize = 9;
 
 /// Ordered ControlBarContext residual names.
 pub const CONTROL_BAR_CONTEXT_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "CB_CONTEXT_NONE",                 // 0
-    "CB_CONTEXT_COMMAND",              // 1
-    "CB_CONTEXT_STRUCTURE_INVENTORY",  // 2
-    "CB_CONTEXT_BEACON",               // 3
-    "CB_CONTEXT_UNDER_CONSTRUCTION",   // 4
-    "CB_CONTEXT_MULTI_SELECT",         // 5
-    "CB_CONTEXT_OBSERVER_INFO",        // 6
-    "CB_CONTEXT_OBSERVER_LIST",        // 7
-    "CB_CONTEXT_OCL_TIMER",            // 8
+    "CB_CONTEXT_NONE",                // 0
+    "CB_CONTEXT_COMMAND",             // 1
+    "CB_CONTEXT_STRUCTURE_INVENTORY", // 2
+    "CB_CONTEXT_BEACON",              // 3
+    "CB_CONTEXT_UNDER_CONSTRUCTION",  // 4
+    "CB_CONTEXT_MULTI_SELECT",        // 5
+    "CB_CONTEXT_OBSERVER_INFO",       // 6
+    "CB_CONTEXT_OBSERVER_LIST",       // 7
+    "CB_CONTEXT_OCL_TIMER",           // 8
 ];
 
 /// Visible ButtonCommand residual names 01..14.

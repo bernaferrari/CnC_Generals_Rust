@@ -23,7 +23,7 @@
 //! matrix (Chinook 60), or multiplayer upgrade replication.
 //! WorkerShoes residual lives in `host_gla_worker` (speed + supply boost 8).
 
-use super::{Team, ObjectId};
+use super::{ObjectId, Team};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -347,10 +347,7 @@ impl HostUpgradeRegistry {
         for entry in entries {
             max_id = max_id.max(entry.id);
             if entry.phase == HostUpgradePhase::Queued {
-                let key = (
-                    entry.player_id,
-                    normalize_upgrade_identity(&entry.name),
-                );
+                let key = (entry.player_id, normalize_upgrade_identity(&entry.name));
                 self.pending_index.insert(key, entry.id);
             }
             self.entries.insert(entry.id, entry);
@@ -546,11 +543,7 @@ impl HostUpgradeRegistry {
 pub fn is_flashbang_unit_template(name: &str) -> bool {
     matches!(
         name,
-        "USA_Ranger"
-            | "GoldenRanger"
-            | "AmericaInfantryRanger"
-            | "TestRanger"
-            | "TestInfantry"
+        "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" | "TestRanger" | "TestInfantry"
     ) || {
         let n = name.to_ascii_lowercase();
         n.contains("ranger") && !n.contains("humvee")
@@ -802,8 +795,7 @@ pub const CAMOUFLAGE_STEALTH_DELAY_FRAMES: u32 = 75; // 2500ms @ 30 FPS
 /// Retail Rebel Camouflage StealthForbiddenConditions residual tokens.
 pub const CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS: &str = "ATTACKING USING_ABILITY";
 /// Retail CamoNetting structure StealthForbiddenConditions residual tokens.
-pub const CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS: &str =
-    "ATTACKING USING_ABILITY TAKING_DAMAGE";
+pub const CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS: &str = "ATTACKING USING_ABILITY TAKING_DAMAGE";
 
 /// Host residual of Camouflage infantry StealthUpdate::allowedToStealth.
 ///
@@ -934,10 +926,7 @@ impl HostCamoStealthLook {
     /// C++: VISIBLE_DETECTED / VISIBLE_FRIENDLY_DETECTED → secondMaterialPassOpacity=1
     /// (mines excluded — host residual structures never mines).
     pub fn heat_vision_active(self) -> bool {
-        matches!(
-            self,
-            Self::VisibleFriendlyDetected | Self::VisibleDetected
-        )
+        matches!(self, Self::VisibleFriendlyDetected | Self::VisibleDetected)
     }
 }
 
@@ -1050,8 +1039,10 @@ pub fn camo_netting_sub_object_state(
     let look = camo_netting_stealth_look(stealthed, detected, observer_is_friendly);
     let heat = camo_netting_heat_vision_opacity(look) > 0.5;
     let opacity = if upgrade_applied {
-        friendly_opacity
-            .clamp(CAMO_NETTING_FRIENDLY_OPACITY_MIN, CAMO_NETTING_FRIENDLY_OPACITY_MAX)
+        friendly_opacity.clamp(
+            CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+            CAMO_NETTING_FRIENDLY_OPACITY_MAX,
+        )
     } else {
         CAMO_NETTING_FRIENDLY_OPACITY_MAX
     };
@@ -1184,7 +1175,6 @@ pub fn is_anthrax_gamma_unit_template(name: &str) -> bool {
         || is_bomb_truck_template(name)
 }
 
-
 // --- Wave 62 residual honesty packs (upgrade cost/time + stealth forbidden) ---
 
 /// Retail Upgrade.ini BuildCost residual honesty pack.
@@ -1254,13 +1244,7 @@ pub fn honesty_upgrades_residual_pack_ok() -> bool {
 /// residual matrix; host research path remains 1-frame residual.
 pub fn honesty_upgrades_cost_time_application_wave79_ok() -> bool {
     let mut reg = HostUpgradeRegistry::new();
-    let id = reg.record_queue(
-        UPGRADE_AMERICA_SUPPLY_LINES,
-        Team::USA,
-        0,
-        10,
-        None,
-    );
+    let id = reg.record_queue(UPGRADE_AMERICA_SUPPLY_LINES, Team::USA, 0, 10, None);
     let entry = reg.get(id).expect("queued");
     entry.build_cost_paid == HostUpgradeKind::SupplyLines.retail_build_cost()
         && entry.build_cost_paid == 800

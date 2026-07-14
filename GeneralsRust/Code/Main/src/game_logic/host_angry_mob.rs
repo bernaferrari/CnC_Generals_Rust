@@ -111,11 +111,7 @@ pub fn is_legal_angry_mob_damage_target(
     under_construction: bool,
     is_attackable_or_combat_kind: bool,
 ) -> bool {
-    is_alive
-        && !same_team
-        && !is_self
-        && !under_construction
-        && is_attackable_or_combat_kind
+    is_alive && !same_team && !is_self && !under_construction && is_attackable_or_combat_kind
 }
 
 /// 2D distance check residual (C++ FROM_CENTER_2D).
@@ -170,7 +166,12 @@ pub struct HostAngryMobState {
 }
 
 impl HostAngryMobState {
-    pub fn new(object_id: ObjectId, team: super::Team, position: Vec3, activate_frame: u32) -> Self {
+    pub fn new(
+        object_id: ObjectId,
+        team: super::Team,
+        position: Vec3,
+        activate_frame: u32,
+    ) -> Self {
         Self {
             object_id,
             team,
@@ -252,11 +253,7 @@ impl HostAngryMobRegistry {
     }
 
     /// Ensure living nexus objects are tracked; drop dead / removed.
-    pub fn sync_mobs(
-        &mut self,
-        living: &[(ObjectId, super::Team, Vec3)],
-        current_frame: u32,
-    ) {
+    pub fn sync_mobs(&mut self, living: &[(ObjectId, super::Team, Vec3)], current_frame: u32) {
         let living_ids: std::collections::HashSet<ObjectId> =
             living.iter().map(|(id, _, _)| *id).collect();
         self.active.retain(|m| living_ids.contains(&m.object_id));
@@ -280,10 +277,12 @@ impl HostAngryMobRegistry {
             if !mob.is_due_expand(current_frame) {
                 continue;
             }
-            mob.member_count = mob.member_count.saturating_add(1).min(ANGRY_MOB_MAX_MEMBERS);
+            mob.member_count = mob
+                .member_count
+                .saturating_add(1)
+                .min(ANGRY_MOB_MAX_MEMBERS);
             mob.expands = mob.expands.saturating_add(1);
-            mob.next_expand_frame =
-                current_frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
+            mob.next_expand_frame = current_frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
             self.expands = self.expands.saturating_add(1);
             expanded = expanded.saturating_add(1);
             if mob.member_count >= ANGRY_MOB_MAX_MEMBERS {
@@ -399,7 +398,6 @@ impl HostAngryMobRegistry {
             .map(|m| m.member_count)
     }
 }
-
 
 // --- Wave 69 residual honesty peels (retail weapon / body / upgrade) ---
 
@@ -528,8 +526,12 @@ mod tests {
         assert!(is_angry_mob_nexus_template("TestAngryMob"));
         assert!(is_angry_mob_nexus_template("GLAAngryMob"));
         assert!(!is_angry_mob_nexus_template("GLAInfantryAngryMobPistol01"));
-        assert!(!is_angry_mob_nexus_template("GLAAngryMobRockProjectileObject"));
-        assert!(!is_angry_mob_nexus_template("GLAAngryMobMolotovCocktailProjectileObject"));
+        assert!(!is_angry_mob_nexus_template(
+            "GLAAngryMobRockProjectileObject"
+        ));
+        assert!(!is_angry_mob_nexus_template(
+            "GLAAngryMobMolotovCocktailProjectileObject"
+        ));
         assert!(!is_angry_mob_nexus_template("GLAAngryMobPistolWeapon"));
         assert!(!is_angry_mob_nexus_template("USA_Ranger"));
         assert!(!is_angry_mob_nexus_template("GLAInfantryRebel"));
@@ -583,22 +585,12 @@ mod tests {
         let enemy_id = ObjectId(2);
         let far_id = ObjectId(3);
 
-        reg.sync_mobs(
-            &[(mob_id, Team::GLA, Vec3::new(0.0, 0.0, 0.0))],
-            0,
-        );
+        reg.sync_mobs(&[(mob_id, Team::GLA, Vec3::new(0.0, 0.0, 0.0))], 0);
         assert_eq!(reg.active_count(), 1);
         assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_INITIAL_MEMBERS));
 
         let candidates = vec![
-            (
-                mob_id,
-                Vec3::ZERO,
-                Team::GLA,
-                true,
-                true,
-                false,
-            ),
+            (mob_id, Vec3::ZERO, Team::GLA, true, true, false),
             (
                 enemy_id,
                 Vec3::new(50.0, 0.0, 0.0),
@@ -621,9 +613,7 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].hits.len(), 1);
         assert_eq!(plans[0].hits[0].target_id, enemy_id);
-        assert!(
-            (plans[0].hits[0].damage - angry_mob_damage_for_tick(5, false)).abs() < 0.01
-        );
+        assert!((plans[0].hits[0].damage - angry_mob_damage_for_tick(5, false)).abs() < 0.01);
 
         reg.record_tick_complete(mob_id, plans[0].hits[0].damage, 1, 0, 0, true);
         assert!(reg.honesty_damage_ok());

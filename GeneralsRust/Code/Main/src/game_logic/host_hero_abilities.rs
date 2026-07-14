@@ -284,12 +284,7 @@ pub fn is_legal_disable_vehicle_target(
     already_hacked: bool,
     unmanned: bool,
 ) -> bool {
-    is_alive
-        && is_vehicle
-        && !is_airborne
-        && is_enemy
-        && !already_hacked
-        && !unmanned
+    is_alive && is_vehicle && !is_airborne && is_enemy && !already_hacked && !unmanned
 }
 
 /// Legal residual Black Lotus CaptureBuilding target (enemy structure).
@@ -366,11 +361,7 @@ pub fn is_legal_black_market_emergency_steal(
     is_enemy: bool,
     is_black_market: bool,
 ) -> bool {
-    BLACK_MARKET_CASH_HACK_LEGAL
-        && is_alive
-        && !under_construction
-        && is_enemy
-        && is_black_market
+    BLACK_MARKET_CASH_HACK_LEGAL && is_alive && !under_construction && is_enemy && is_black_market
 }
 
 /// Retail CashHack steal amount for residual science tier.
@@ -483,8 +474,7 @@ impl HostHeroAbilityRegistry {
     /// Record cash steal that specifically targeted a black market (emergency residual).
     pub fn record_black_market_emergency_steal(&mut self, amount: u32) {
         self.record_cash_steal(amount);
-        self.black_market_emergency_steals =
-            self.black_market_emergency_steals.saturating_add(1);
+        self.black_market_emergency_steals = self.black_market_emergency_steals.saturating_add(1);
     }
 
     pub fn record_vehicle_disable(&mut self) {
@@ -729,7 +719,9 @@ mod tests {
         assert!(!is_black_lotus_template("ChinaInfantryHacker"));
         assert!(!is_black_lotus_template("ChinaInfantryRedguard"));
         assert!(!is_black_lotus_template("BlackLotusVoiceHackCash"));
-        assert!(!is_black_lotus_template("SpecialAbilityBlackLotusStealCashHack"));
+        assert!(!is_black_lotus_template(
+            "SpecialAbilityBlackLotusStealCashHack"
+        ));
         assert!(!is_black_lotus_template("TestTank"));
         assert!(can_activate_black_lotus_ability(true, true));
         assert!(!can_activate_black_lotus_ability(true, false));
@@ -792,6 +784,8 @@ mod tests {
         assert!(reg.honesty_cash_steal_ok());
         assert_eq!(reg.black_market_emergency_steals, 1);
         assert_eq!(reg.cash_stolen_total, 1_000);
-        assert!(is_legal_black_market_emergency_steal(true, false, true, true));
+        assert!(is_legal_black_market_emergency_steal(
+            true, false, true, true
+        ));
     }
 }

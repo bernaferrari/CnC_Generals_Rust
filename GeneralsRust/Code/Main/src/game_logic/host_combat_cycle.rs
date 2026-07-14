@@ -349,7 +349,6 @@ pub fn is_legal_combat_cycle_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
-
 // --- Wave 69 residual honesty peels (retail rider weapons / body) ---
 
 /// Logic frames per second residual.
@@ -476,7 +475,9 @@ mod tests {
         assert!(!is_combat_cycle_template("TunnelDefenderBikerRocketWeapon"));
         assert!(!is_combat_cycle_template("GLAVehicleRocketBuggy"));
         assert!(!is_combat_cycle_template("USA_Ranger"));
-        assert!(!is_combat_cycle_template("Command_ConstructGLAVehicleCombatBike"));
+        assert!(!is_combat_cycle_template(
+            "Command_ConstructGLAVehicleCombatBike"
+        ));
     }
 
     #[test]

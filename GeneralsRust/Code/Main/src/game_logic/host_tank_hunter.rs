@@ -172,9 +172,7 @@ pub fn is_tank_hunter_template(template_name: &str) -> bool {
     {
         return false;
     }
-    n.contains("tankhunter")
-        || n.contains("tank_hunter")
-        || n == "testtankhunter"
+    n.contains("tankhunter") || n.contains("tank_hunter") || n == "testtankhunter"
 }
 
 /// Combined ROF multiplier residual (HORDE * NATIONALISM when both active).
@@ -300,7 +298,6 @@ pub fn tank_hunter_is_in_horde(nearby: u32) -> bool {
     is_in_infantry_horde(nearby)
 }
 
-
 // --- Wave 67 residual honesty packs ---
 
 /// Wave 67 residual honesty: Tank Hunter RPG weapon residual peel.
@@ -311,8 +308,7 @@ pub fn honesty_tank_hunter_weapon_residual_ok() -> bool {
         && (TANK_HUNTER_RANGE - 175.0).abs() < 0.01
         && (TANK_HUNTER_MIN_RANGE - 5.0).abs() < 0.01
         && TANK_HUNTER_BASE_DELAY_MS == 1_000
-        && TANK_HUNTER_BASE_DELAY_FRAMES
-            == tank_hunter_ms_to_frames(TANK_HUNTER_BASE_DELAY_MS)
+        && TANK_HUNTER_BASE_DELAY_FRAMES == tank_hunter_ms_to_frames(TANK_HUNTER_BASE_DELAY_MS)
         && TANK_HUNTER_BASE_DELAY_FRAMES == 30
         && (TANK_HUNTER_PROJECTILE_SPEED - 600.0).abs() < 0.01
         && (TANK_HUNTER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
@@ -395,7 +391,9 @@ mod tests {
         assert!(is_tank_hunter_template("Nuke_ChinaInfantryTankHunter"));
         assert!(is_tank_hunter_template("Infa_ChinaInfantryTankHunter"));
         assert!(is_tank_hunter_template("TestTankHunter"));
-        assert!(!is_tank_hunter_template("ChinaInfantryTankHunterMissileLauncher"));
+        assert!(!is_tank_hunter_template(
+            "ChinaInfantryTankHunterMissileLauncher"
+        ));
         assert!(!is_tank_hunter_template("TankHunterMissile"));
         assert!(!is_tank_hunter_template("TNTStickyBomb"));
         assert!(!is_tank_hunter_template("TNTDetonationWeapon"));

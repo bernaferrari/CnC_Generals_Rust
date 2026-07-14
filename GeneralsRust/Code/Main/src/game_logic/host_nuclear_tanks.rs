@@ -446,8 +446,9 @@ impl HostNuclearTanksRegistry {
             zone.next_tick_frame = current_frame.saturating_add(SMALL_RADIATION_TICK_FRAMES);
         }
         self.radiation_total_damage += total_damage;
-        self.radiation_damage_applications =
-            self.radiation_damage_applications.saturating_add(applications);
+        self.radiation_damage_applications = self
+            .radiation_damage_applications
+            .saturating_add(applications);
         self.radiation_objects_destroyed =
             self.radiation_objects_destroyed.saturating_add(destroyed);
     }
@@ -476,7 +477,6 @@ impl HostNuclearTanksRegistry {
         self.honesty_upgrade_ok() || self.honesty_death_ok() || self.radiation_zones_spawned > 0
     }
 }
-
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn nuclear_tanks_ms_to_frames(ms: u32) -> u32 {
@@ -592,12 +592,7 @@ mod tests {
         assert!(!has_nuclear_tanks_upgrade(&HashSet::new()));
 
         let mut reg = HostNuclearTanksRegistry::new();
-        let id = reg.spawn_radiation_zone(
-            ObjectId(1),
-            Team::China,
-            Vec3::ZERO,
-            10,
-        );
+        let id = reg.spawn_radiation_zone(ObjectId(1), Team::China, Vec3::ZERO, 10);
         assert_eq!(id, 0);
         assert!(reg.honesty_host_path_ok());
         assert!(reg.honesty_radiation_ok() || reg.radiation_zones_spawned > 0);

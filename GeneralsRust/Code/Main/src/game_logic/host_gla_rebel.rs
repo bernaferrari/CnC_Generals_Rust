@@ -244,7 +244,11 @@ pub fn should_apply_rebel_residual(is_rebel: bool) -> bool {
 }
 
 /// Whether unit can issue capture residual (upgrade + alive).
-pub fn can_activate_rebel_capture(is_rebel: bool, is_alive: bool, has_capture_upgrade: bool) -> bool {
+pub fn can_activate_rebel_capture(
+    is_rebel: bool,
+    is_alive: bool,
+    has_capture_upgrade: bool,
+) -> bool {
     is_rebel && is_alive && has_capture_upgrade
 }
 
@@ -357,7 +361,9 @@ mod tests {
         assert!(!is_gla_rebel_template("GLAInfantryTunnelDefender"));
         assert!(!is_gla_rebel_template("GLAInfantryWorker"));
         assert!(!is_gla_rebel_template("Upgrade_GLAAPBullets"));
-        assert!(!is_gla_rebel_template("Upgrade_GLAInfantryRebelBoobyTrapAttack"));
+        assert!(!is_gla_rebel_template(
+            "Upgrade_GLAInfantryRebelBoobyTrapAttack"
+        ));
         assert!(!is_gla_rebel_template("RebelWeapon"));
         assert!(!is_gla_rebel_template("ChinaInfantryRedguard"));
     }

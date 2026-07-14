@@ -292,8 +292,7 @@ pub fn honesty_avenger_designator_residual_ok() -> bool {
     AVENGER_TARGET_DESIGNATOR == "AvengerTargetDesignator"
         && (AVENGER_DESIGNATOR_RANGE - 200.0).abs() < 0.01
         && AVENGER_DESIGNATOR_DELAY_MS == 200
-        && AVENGER_DESIGNATOR_DELAY_FRAMES
-            == avenger_ms_to_frames(AVENGER_DESIGNATOR_DELAY_MS)
+        && AVENGER_DESIGNATOR_DELAY_FRAMES == avenger_ms_to_frames(AVENGER_DESIGNATOR_DELAY_MS)
         && AVENGER_DESIGNATOR_DELAY_FRAMES == 6
         && AVENGER_FAERIE_FIRE_DURATION_MS == 200
         && AVENGER_FAERIE_FIRE_DURATION_FRAMES
@@ -321,8 +320,7 @@ pub fn honesty_avenger_air_laser_residual_ok() -> bool {
         && (AVENGER_AIR_LASER_DAMAGE - 10.0).abs() < 0.01
         && (AVENGER_AIR_LASER_RANGE - 300.0).abs() < 0.01
         && AVENGER_AIR_LASER_DELAY_MS == 200
-        && AVENGER_AIR_LASER_DELAY_FRAMES
-            == avenger_ms_to_frames(AVENGER_AIR_LASER_DELAY_MS)
+        && AVENGER_AIR_LASER_DELAY_FRAMES == avenger_ms_to_frames(AVENGER_AIR_LASER_DELAY_MS)
         && AVENGER_AIR_LASER_DELAY_FRAMES == 6
         && AVENGER_AIR_LASER_DAMAGE_TYPE == "SMALL_ARMS"
         && !AVENGER_AIR_LASER_ANTI_GROUND

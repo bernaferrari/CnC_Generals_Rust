@@ -428,8 +428,7 @@ impl HostScudPoisonRegistry {
             zone.total_damage_applied += total_damage;
             zone.damage_applications += applications;
             zone.objects_destroyed += objects_destroyed;
-            zone.next_tick_frame =
-                current_frame.saturating_add(SCUD_POISON_TICK_INTERVAL_FRAMES);
+            zone.next_tick_frame = current_frame.saturating_add(SCUD_POISON_TICK_INTERVAL_FRAMES);
             self.total_damage_applied += total_damage;
             self.damage_applications = self.damage_applications.saturating_add(applications);
             self.objects_destroyed = self.objects_destroyed.saturating_add(objects_destroyed);
@@ -456,7 +455,6 @@ impl HostScudPoisonRegistry {
         self.honesty_area_ok() || self.honesty_toxin_ok()
     }
 }
-
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn scud_ms_to_frames(ms: u32) -> u32 {
@@ -572,32 +570,25 @@ mod tests {
 
     #[test]
     fn explosive_damage_rings() {
-        assert!(
-            (scud_explosive_damage_at(0.0) - SCUD_EXP_PRIMARY_DAMAGE).abs() < 0.01
-        );
-        assert!(
-            (scud_explosive_damage_at(50.0) - SCUD_EXP_PRIMARY_DAMAGE).abs() < 0.01
-        );
-        assert!(
-            (scud_explosive_damage_at(75.0) - SCUD_EXP_SECONDARY_DAMAGE).abs() < 0.01
-        );
+        assert!((scud_explosive_damage_at(0.0) - SCUD_EXP_PRIMARY_DAMAGE).abs() < 0.01);
+        assert!((scud_explosive_damage_at(50.0) - SCUD_EXP_PRIMARY_DAMAGE).abs() < 0.01);
+        assert!((scud_explosive_damage_at(75.0) - SCUD_EXP_SECONDARY_DAMAGE).abs() < 0.01);
         assert!((scud_explosive_damage_at(101.0)).abs() < 0.01);
     }
 
     #[test]
     fn toxin_blast_and_gate() {
-        assert!(
-            (scud_toxin_blast_damage_at(10.0) - SCUD_TOX_PRIMARY_DAMAGE).abs() < 0.01
-        );
-        assert!(
-            (scud_toxin_blast_damage_at(45.0) - SCUD_TOX_SECONDARY_DAMAGE).abs() < 0.01
-        );
+        assert!((scud_toxin_blast_damage_at(10.0) - SCUD_TOX_PRIMARY_DAMAGE).abs() < 0.01);
+        assert!((scud_toxin_blast_damage_at(45.0) - SCUD_TOX_SECONDARY_DAMAGE).abs() < 0.01);
         assert!(should_spawn_scud_toxin_field(true, 1));
         assert!(!should_spawn_scud_toxin_field(true, 0));
         assert!(!should_spawn_scud_toxin_field(false, 1));
         assert!(scud_uses_anthrax_primary("Chem_GLAVehicleScudLauncher"));
         assert!(!scud_uses_anthrax_primary("GLAVehicleScudLauncher"));
-        assert!(scud_toxin_warhead_for_slot("Chem_GLAVehicleScudLauncher", 0));
+        assert!(scud_toxin_warhead_for_slot(
+            "Chem_GLAVehicleScudLauncher",
+            0
+        ));
         assert!(!scud_toxin_warhead_for_slot("GLAVehicleScudLauncher", 0));
         assert!((scud_poison_damage_per_tick(AnthraxResidualTier::None) - 2.0).abs() < 0.01);
         assert!((scud_poison_damage_per_tick(AnthraxResidualTier::Gamma) - 2.5).abs() < 0.01);
@@ -630,18 +621,8 @@ mod tests {
 
         let positions = vec![
             (ObjectId(1), Vec3::ZERO, Team::GLA, true),
-            (
-                ObjectId(2),
-                Vec3::new(10.0, 0.0, 0.0),
-                Team::USA,
-                true,
-            ),
-            (
-                ObjectId(3),
-                Vec3::new(200.0, 0.0, 0.0),
-                Team::USA,
-                true,
-            ),
+            (ObjectId(2), Vec3::new(10.0, 0.0, 0.0), Team::USA, true),
+            (ObjectId(3), Vec3::new(200.0, 0.0, 0.0), Team::USA, true),
         ];
         let plans = reg.plan_due_ticks(0, &positions);
         // Base + gamma zones both due.

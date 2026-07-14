@@ -33,12 +33,10 @@
 //! - Not network horde / nationalism replication (network deferred)
 
 use super::Weapon;
-use crate::game_logic::host_battlemaster::{
-    has_nationalism_upgrade, UPGRADE_NATIONALISM,
-};
+use crate::game_logic::host_battlemaster::{has_nationalism_upgrade, UPGRADE_NATIONALISM};
 
 // Re-export nationalism helpers for integration call sites.
-pub use crate::game_logic::host_battlemaster::{has_nationalism_upgrade as red_guard_has_nationalism};
+pub use crate::game_logic::host_battlemaster::has_nationalism_upgrade as red_guard_has_nationalism;
 pub use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM as RED_GUARD_UPGRADE_NATIONALISM;
 
 /// Logic frames per second (host fixed step).
@@ -186,10 +184,7 @@ pub fn is_red_guard_template(template_name: &str) -> bool {
     {
         return false;
     }
-    n.contains("redguard")
-        || n.contains("red_guard")
-        || n == "china_soldier"
-        || n == "testredguard"
+    n.contains("redguard") || n.contains("red_guard") || n == "china_soldier" || n == "testredguard"
 }
 
 /// Whether residual unit participates in China infantry HordeUpdate residual
@@ -297,7 +292,11 @@ pub fn should_apply_bayonet_residual(
     target_alive: bool,
     distance: f32,
 ) -> bool {
-    is_red_guard && target_is_infantry && target_alive && distance <= BAYONET_RANGE && distance >= 0.0
+    is_red_guard
+        && target_is_infantry
+        && target_alive
+        && distance <= BAYONET_RANGE
+        && distance >= 0.0
 }
 
 /// Horde residual: Count includes self (C++: others >= Count-1).
@@ -340,7 +339,6 @@ pub fn apply_nationalism_tag_detect(applied_upgrades: &std::collections::HashSet
     has_nationalism_upgrade(applied_upgrades)
 }
 
-
 // --- Wave 67 residual honesty packs ---
 
 /// Wave 67 residual honesty: Red Guard gun / bayonet residual peel.
@@ -377,8 +375,7 @@ pub fn honesty_red_guard_horde_residual_ok() -> bool {
     (INFANTRY_HORDE_RADIUS - 30.0).abs() < 0.01
         && INFANTRY_HORDE_COUNT == 5
         && INFANTRY_HORDE_UPDATE_MS == 1_000
-        && INFANTRY_HORDE_UPDATE_FRAMES
-            == red_guard_ms_to_frames(INFANTRY_HORDE_UPDATE_MS)
+        && INFANTRY_HORDE_UPDATE_FRAMES == red_guard_ms_to_frames(INFANTRY_HORDE_UPDATE_MS)
         && !INFANTRY_HORDE_EXACT_MATCH
         && INFANTRY_HORDE_KIND_OF == "INFANTRY"
         && (INFANTRY_HORDE_ROF_MULT - 1.5).abs() < 0.001
@@ -409,8 +406,7 @@ pub fn honesty_red_guard_body_residual_ok() -> bool {
         && SPECIAL_ABILITY_RED_GUARD_CAPTURE == "SpecialAbilityRedGuardCaptureBuilding"
         && UPGRADE_INFANTRY_CAPTURE_BUILDING == "Upgrade_InfantryCaptureBuilding"
         && (REDGUARD_CAPTURE_START_RANGE - 5.0).abs() < 0.01
-        && REDGUARD_CAPTURE_UNPACK_FRAMES
-            == red_guard_ms_to_frames(REDGUARD_CAPTURE_UNPACK_MS)
+        && REDGUARD_CAPTURE_UNPACK_FRAMES == red_guard_ms_to_frames(REDGUARD_CAPTURE_UNPACK_MS)
         && REDGUARD_CAPTURE_PREP_FRAMES == red_guard_ms_to_frames(REDGUARD_CAPTURE_PREP_MS)
         && REDGUARD_CAPTURE_PACK_FRAMES == red_guard_ms_to_frames(REDGUARD_CAPTURE_PACK_MS)
 }

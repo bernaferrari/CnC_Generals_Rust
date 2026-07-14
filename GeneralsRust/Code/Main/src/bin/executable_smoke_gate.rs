@@ -3,9 +3,7 @@
 //! Prefer NewGame queue path (Menu drain). Falls back is internal to harness.
 //! `playable_claim` must stay false.
 
-use generals_main::executable_smoke::{
-    format_executable_smoke_report, run_executable_smoke,
-};
+use generals_main::executable_smoke::{format_executable_smoke_report, run_executable_smoke};
 use std::time::Duration;
 
 fn main() {

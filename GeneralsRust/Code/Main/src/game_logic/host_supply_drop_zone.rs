@@ -289,7 +289,8 @@ pub fn honesty_supply_drop_zone_ocl_residual_ok() -> bool {
     SUPPLY_DROP_ZONE_OCL == "OCL_AmericaSupplyDropZoneCrateDrop"
         && SUPPLY_DROP_ZONE_CREATE_AT_EDGE
         && SUPPLY_DROP_ZONE_DELAY_MS == 120_000
-        && SUPPLY_DROP_ZONE_INTERVAL_FRAMES == drop_interval_frames_from_ms(SUPPLY_DROP_ZONE_DELAY_MS)
+        && SUPPLY_DROP_ZONE_INTERVAL_FRAMES
+            == drop_interval_frames_from_ms(SUPPLY_DROP_ZONE_DELAY_MS)
         && SUPPLY_DROP_ZONE_CRATE_COUNT == 6
 }
 
@@ -378,15 +379,9 @@ mod tests {
             0,
             "first observation schedules without drop"
         );
-        assert_eq!(
-            reg.try_drop(id, 3600, SUPPLY_DROP_ZONE_DROP_CASH, 0),
-            1500
-        );
+        assert_eq!(reg.try_drop(id, 3600, SUPPLY_DROP_ZONE_DROP_CASH, 0), 1500);
         assert_eq!(reg.try_drop(id, 3600, SUPPLY_DROP_ZONE_DROP_CASH, 0), 0);
-        assert_eq!(
-            reg.try_drop(id, 7200, SUPPLY_DROP_ZONE_DROP_CASH, 0),
-            1500
-        );
+        assert_eq!(reg.try_drop(id, 7200, SUPPLY_DROP_ZONE_DROP_CASH, 0), 1500);
         assert!(reg.honesty_ok());
         assert!(reg.honesty_flight_ok());
         assert_eq!(reg.drops(), 2);

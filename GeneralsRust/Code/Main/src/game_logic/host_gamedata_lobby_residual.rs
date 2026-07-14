@@ -239,8 +239,18 @@ pub const MULTIPLAYER_COLOR_RESIDUAL_TABLE: &[MultiplayerColorResidual] = &[
     ("ColorRed", (255, 0, 0), (255, 0, 0), "Color:Red"),
     ("ColorBlue", (67, 104, 254), (67, 104, 254), "Color:Blue"),
     ("ColorGreen", (62, 209, 46), (62, 209, 46), "Color:Green"),
-    ("ColorOrange", (255, 160, 25), (255, 160, 25), "Color:Orange"),
-    ("ColorSkyBlue", (50, 215, 230), (50, 215, 230), "Color:SkyBlue"),
+    (
+        "ColorOrange",
+        (255, 160, 25),
+        (255, 160, 25),
+        "Color:Orange",
+    ),
+    (
+        "ColorSkyBlue",
+        (50, 215, 230),
+        (50, 215, 230),
+        "Color:SkyBlue",
+    ),
     ("ColorPurple", (150, 0, 200), (223, 0, 156), "Color:Purple"),
     ("ColorPink", (255, 150, 255), (255, 130, 248), "Color:Pink"),
 ];

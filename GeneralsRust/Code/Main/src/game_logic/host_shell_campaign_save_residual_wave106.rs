@@ -130,10 +130,8 @@ pub fn honesty_game_state_residual_deepen_pack_wave106() -> bool {
 
     // SNAPSHOT_SAVELOAD block table residual (≥17 retail blocks).
     let saveload_ok = GAME_STATE_SNAPSHOT_SAVELOAD_BLOCKS.len() >= 17
-        && residual_name_index(GAME_STATE_SNAPSHOT_SAVELOAD_BLOCKS, "CHUNK_GameLogic")
-            .is_some()
-        && residual_name_index(GAME_STATE_SNAPSHOT_SAVELOAD_BLOCKS, "CHUNK_Partition")
-            .is_some()
+        && residual_name_index(GAME_STATE_SNAPSHOT_SAVELOAD_BLOCKS, "CHUNK_GameLogic").is_some()
+        && residual_name_index(GAME_STATE_SNAPSHOT_SAVELOAD_BLOCKS, "CHUNK_Partition").is_some()
         && residual_name_index(GAME_STATE_SNAPSHOT_SAVELOAD_BLOCKS, "CHUNK_GhostObject")
             == Some(GAME_STATE_SNAPSHOT_SAVELOAD_BLOCKS.len() - 1);
 
@@ -501,13 +499,8 @@ pub const MAIN_MENU_TRANSITION_GROUP_RESIDUAL: &[&str] = &[
 pub const MAIN_MENU_LAYOUT_FILENAME: &str = "Menus/MainMenu.wnd";
 
 /// Host MainMenuState residual names (Rust ui::main_menu::MainMenuState).
-pub const MAIN_MENU_STATE_NAME_TABLE_WAVE106: &[&str] = &[
-    "Main",
-    "SinglePlayer",
-    "Multiplayer",
-    "Options",
-    "Credits",
-];
+pub const MAIN_MENU_STATE_NAME_TABLE_WAVE106: &[&str] =
+    &["Main", "SinglePlayer", "Multiplayer", "Options", "Credits"];
 
 /// Wave 106 honesty: MainMenu residual deepen pack.
 ///
@@ -520,10 +513,8 @@ pub fn honesty_main_menu_residual_deepen_pack_wave106() -> bool {
     let buttons_ok = MAIN_MENU_BUTTON_NAME_TABLE_WAVE106.len() >= 28
         && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonSinglePlayer")
             == Some(0)
-        && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonSkirmish")
-            .is_some()
-        && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonChallenge")
-            .is_some()
+        && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonSkirmish").is_some()
+        && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonChallenge").is_some()
         && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonUSA").is_some()
         && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonExit").is_some()
         && residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonHard").is_some();
@@ -534,37 +525,25 @@ pub fn honesty_main_menu_residual_deepen_pack_wave106() -> bool {
     let btn_unique = !btn.windows(2).any(|w| w[0] == w[1]);
 
     let faction_ok = MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106.len() >= 16
-        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionUS")
+        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionUS").is_some()
+        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionGLA").is_some()
+        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionChina").is_some()
+        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionTraining")
             .is_some()
-        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionGLA")
+        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionSkirmish")
             .is_some()
-        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinFactionChina")
-            .is_some()
-        && residual_name_index(
-            MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106,
-            "WinFactionTraining",
-        )
-        .is_some()
-        && residual_name_index(
-            MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106,
-            "WinFactionSkirmish",
-        )
-        .is_some()
-        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinGrowMarker")
-            .is_some();
+        && residual_name_index(MAIN_MENU_FACTION_WINDOW_TABLE_WAVE106, "WinGrowMarker").is_some();
 
     let shell_ok = residual_name_index(MAIN_MENU_SHELL_ROOT_NAMES_WAVE106, "MainMenuParent")
         == Some(0)
-        && residual_name_index(MAIN_MENU_SHELL_ROOT_NAMES_WAVE106, "ShellMenuScheme")
-            .is_some()
+        && residual_name_index(MAIN_MENU_SHELL_ROOT_NAMES_WAVE106, "ShellMenuScheme").is_some()
         && MAIN_MENU_LAYOUT_FILENAME == "Menus/MainMenu.wnd"
         && MAIN_MENU_TRANSITION_GROUP_RESIDUAL.len() >= 3
         && MAIN_MENU_TRANSITION_GROUP_RESIDUAL[0] == "MainMenuDefaultMenuLogoFade";
 
     let state_ok = MAIN_MENU_STATE_NAME_TABLE_WAVE106.len() == 5
         && residual_name_index(MAIN_MENU_STATE_NAME_TABLE_WAVE106, "Main") == Some(0)
-        && residual_name_index(MAIN_MENU_STATE_NAME_TABLE_WAVE106, "SinglePlayer")
-            == Some(1)
+        && residual_name_index(MAIN_MENU_STATE_NAME_TABLE_WAVE106, "SinglePlayer") == Some(1)
         && residual_name_index(MAIN_MENU_STATE_NAME_TABLE_WAVE106, "Credits") == Some(4);
 
     // Button + faction + shell roots ≤ retail window count residual.
@@ -781,14 +760,10 @@ pub fn honesty_game_window_residual_deepen_pack_wave106() -> bool {
 
     // GameWindowMessage residual (GWM_NONE..GWM_IME_STRING).
     let msg_ok = GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106.len() == 27
-        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_NONE")
-            == Some(0)
-        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_CREATE")
-            == Some(1)
-        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_DESTROY")
-            == Some(2)
-        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_LEFT_DOWN")
-            .is_some()
+        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_NONE") == Some(0)
+        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_CREATE") == Some(1)
+        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_DESTROY") == Some(2)
+        && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_LEFT_DOWN").is_some()
         && residual_name_index(GAME_WINDOW_MESSAGE_NAME_TABLE_WAVE106, "GWM_IME_STRING")
             == Some(26)
         && GWM_USER_RESIDUAL == 32768
@@ -814,8 +789,7 @@ pub fn honesty_game_window_residual_deepen_pack_wave106() -> bool {
 // ---------------------------------------------------------------------------
 
 /// WindowLayout residual callback step names (init / update / shutdown).
-pub const WINDOW_LAYOUT_CALLBACK_STEPS_WAVE106: &[&str] =
-    &["INIT", "UPDATE", "SHUTDOWN"];
+pub const WINDOW_LAYOUT_CALLBACK_STEPS_WAVE106: &[&str] = &["INIT", "UPDATE", "SHUTDOWN"];
 
 /// WindowLayout residual operation names (load / hide / bringForward / destroy).
 pub const WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106: &[&str] = &[
@@ -871,26 +845,19 @@ pub fn honesty_window_layout_residual_deepen_pack_wave106() -> bool {
     let callbacks_ok = WINDOW_LAYOUT_CALLBACK_STEPS_WAVE106.len() == 3
         && residual_name_index(WINDOW_LAYOUT_CALLBACK_STEPS_WAVE106, "INIT") == Some(0)
         && residual_name_index(WINDOW_LAYOUT_CALLBACK_STEPS_WAVE106, "UPDATE") == Some(1)
-        && residual_name_index(WINDOW_LAYOUT_CALLBACK_STEPS_WAVE106, "SHUTDOWN")
-            == Some(2);
+        && residual_name_index(WINDOW_LAYOUT_CALLBACK_STEPS_WAVE106, "SHUTDOWN") == Some(2);
 
     let ops_ok = WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106.len() >= 10
-        && residual_name_index(WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106, "LOAD")
-            == Some(0)
-        && residual_name_index(WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106, "HIDE")
+        && residual_name_index(WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106, "LOAD") == Some(0)
+        && residual_name_index(WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106, "HIDE").is_some()
+        && residual_name_index(WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106, "BRING_FORWARD")
             .is_some()
-        && residual_name_index(
-            WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106,
-            "BRING_FORWARD",
-        )
-        .is_some()
         && residual_name_index(
             WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106,
             "DESTROY_WINDOWS",
         )
         .is_some()
-        && residual_name_index(WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106, "RUN_INIT")
-            .is_some();
+        && residual_name_index(WINDOW_LAYOUT_OPERATION_NAME_TABLE_WAVE106, "RUN_INIT").is_some();
 
     let layouts_ok = SHELL_LAYOUT_FILENAME_TABLE_WAVE106.len() >= 12
         && residual_name_index(SHELL_LAYOUT_FILENAME_TABLE_WAVE106, "Menus/MainMenu.wnd")
@@ -972,7 +939,9 @@ mod tests {
     fn main_menu_residual_pack_honesty_wave106() {
         assert!(honesty_main_menu_residual_deepen_pack_wave106());
         assert_eq!(MAIN_MENU_RETAIL_WINDOW_COUNT, 63);
-        assert!(residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonSkirmish").is_some());
+        assert!(
+            residual_name_index(MAIN_MENU_BUTTON_NAME_TABLE_WAVE106, "ButtonSkirmish").is_some()
+        );
     }
 
     #[test]

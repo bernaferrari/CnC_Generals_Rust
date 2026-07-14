@@ -282,8 +282,7 @@ impl HostSpySatelliteRegistry {
             scan.stealth_detector_applied = true;
         }
         if scan.dynamic_shroud_applied {
-            self.dynamic_shroud_applications =
-                self.dynamic_shroud_applications.saturating_add(1);
+            self.dynamic_shroud_applications = self.dynamic_shroud_applications.saturating_add(1);
         }
         if scan.stealth_detector_applied {
             self.stealth_detector_applications =
@@ -380,7 +379,6 @@ pub fn honesty_spy_satellite_residual_pack_ok() -> bool {
     honesty_spy_satellite_dynamic_shroud_constants_ok()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,10 +449,7 @@ mod tests {
 
         // Mid-grow (~15/30): ~half radius.
         let r_mid = spy_satellite_dynamic_shroud_radius_at_elapsed(15);
-        assert!(
-            (r_mid - 150.0).abs() < 1.0,
-            "mid-grow ~150, got {r_mid}"
-        );
+        assert!((r_mid - 150.0).abs() < 1.0, "mid-grow ~150, got {r_mid}");
 
         // End of grow / sustain: full vision.
         let r_full = spy_satellite_dynamic_shroud_radius_at_elapsed(30);
@@ -470,9 +465,7 @@ mod tests {
             spy_satellite_dynamic_shroud_state_at_elapsed(100),
             SpySatelliteShroudState::Sustaining
         );
-        assert!(
-            (spy_satellite_dynamic_shroud_radius_at_elapsed(100) - 300.0).abs() < 0.01
-        );
+        assert!((spy_satellite_dynamic_shroud_radius_at_elapsed(100) - 300.0).abs() < 0.01);
 
         // Shrink starts at frame 300.
         assert_eq!(
@@ -490,9 +483,7 @@ mod tests {
             spy_satellite_dynamic_shroud_state_at_elapsed(450),
             SpySatelliteShroudState::Done
         );
-        assert!(
-            (spy_satellite_dynamic_shroud_radius_at_elapsed(450) - 0.0).abs() < 0.01
-        );
+        assert!((spy_satellite_dynamic_shroud_radius_at_elapsed(450) - 0.0).abs() < 0.01);
 
         // Deletion lifetime (390) is still in shrink phase.
         assert_eq!(
@@ -535,5 +526,4 @@ mod tests {
         assert_eq!(SPY_SATELLITE_GROW_TIME_FRAMES, 30);
         assert_eq!(SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES, 15);
     }
-
 }

@@ -54,6 +54,25 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 | `release_candidate_gate` | Soak + presentation smoke + campaign hooks |
 | `behavior_gate` | Composite of map+golden+breadth+ai+shell+RC — use this for behavior CI |
 
+
+### Presentation boundary residual (2026-07-14)
+
+When `PresentationFrame` is set, render prefers snapshot for:
+- unit mesh identity (position/model/FOW)
+- lighting / shell flag / world bounds / heightmap hint / prewarm signature
+- minimap base heights via coarse `PresentationWorldEnv` height grid (64×64)
+
+Still live-`GameLogic` residual during execute (acceptable fail-closed):
+- Live unit fallback when no presentation frame (boot/loading)
+- Terrain heightmap GPU load (`terrain_heightmap_snapshot`)
+- Road/bridge mesh bake snapshots
+- Startup model prewarm candidate list from map metadata objects
+- Asset/mesh resolve (filesystem/GPU, not sim identity)
+
+Executable smoke (`executable_smoke_gate` / behavior_gate step 8) boots the real
+`generals` binary via runtime host and proves Menu→InGame. `playable_claim`
+remains false (not full WND widget click / retail GPU match playthrough).
+
 ### Honest reading (do not overclaim)
 
 - **Proves**: single-host GameLogic authority, skirmish config propagation, production command/combat/save APIs, presentation snapshot fields, retail map load when assets exist.

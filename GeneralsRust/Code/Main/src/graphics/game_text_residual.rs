@@ -303,7 +303,10 @@ pub fn game_text_fetch_residual(
 /// Honesty: fetch residual matches hit / MISSING path + de-dupe.
 pub fn honesty_game_text_fetch_missing() -> bool {
     let mut table = HashMap::new();
-    table.insert(GUI_ADD_CASH_KEY.to_string(), GUI_ADD_CASH_RETAIL_TEMPLATE.to_string());
+    table.insert(
+        GUI_ADD_CASH_KEY.to_string(),
+        GUI_ADD_CASH_RETAIL_TEMPLATE.to_string(),
+    );
     let mut seen = Vec::new();
     let hit = game_text_fetch_residual(&table, GUI_ADD_CASH_KEY, &mut seen);
     if !hit.exists || hit.text != GUI_ADD_CASH_RETAIL_TEMPLATE || hit.registered_missing {
@@ -832,13 +835,8 @@ pub fn load_english_csf_pack_residual() -> EnglishCsfPackLoadResidual {
 /// Path-resolve + parse for English/German/French/Spanish/Italian. Live packs
 /// report label counts; missing packs report empty-table honesty. Always
 /// honest without assets (CI). Fail-closed: not full multi-locale boot UI.
-pub fn exercise_multi_locale_csf_pack_load_residual() -> (
-    bool,
-    u32,
-    u32,
-    u32,
-    Vec<LocaleCsfPackLoadResidual>,
-) {
+pub fn exercise_multi_locale_csf_pack_load_residual(
+) -> (bool, u32, u32, u32, Vec<LocaleCsfPackLoadResidual>) {
     let mut packs = Vec::with_capacity(PRIMARY_LOCALE_CSF_PACKS.len());
     let mut live_found = 0u32;
     let mut label_total = 0u32;
@@ -902,14 +900,21 @@ pub fn honesty_english_csf_pack_load() -> bool {
 /// Path resolve for German/French/Spanish/Italian (and English). Live packs
 /// count labels; absent packs are empty-table honest. Fail-closed vs boot UI.
 pub fn honesty_multi_locale_csf_pack_load() -> bool {
-    let (ok, locale_count, _live, _labels, packs) =
-        exercise_multi_locale_csf_pack_load_residual();
+    let (ok, locale_count, _live, _labels, packs) = exercise_multi_locale_csf_pack_load_residual();
     ok && locale_count == PRIMARY_LOCALE_CSF_PACKS.len() as u32
         && packs.iter().all(|p| p.honesty_ok())
-        && packs.iter().any(|p| p.language == ResidualLanguageId::German)
-        && packs.iter().any(|p| p.language == ResidualLanguageId::French)
-        && packs.iter().any(|p| p.language == ResidualLanguageId::Spanish)
-        && packs.iter().any(|p| p.language == ResidualLanguageId::Italian)
+        && packs
+            .iter()
+            .any(|p| p.language == ResidualLanguageId::German)
+        && packs
+            .iter()
+            .any(|p| p.language == ResidualLanguageId::French)
+        && packs
+            .iter()
+            .any(|p| p.language == ResidualLanguageId::Spanish)
+        && packs
+            .iter()
+            .any(|p| p.language == ResidualLanguageId::Italian)
 }
 
 /// Wave 102: expanded multi-locale CSF pack load residual exercise.
@@ -918,13 +923,8 @@ pub fn honesty_multi_locale_csf_pack_load() -> bool {
 /// plus UK/Japanese/Jabber/Korean/Unknown). Live packs report label counts;
 /// missing packs report empty-table honesty. Always honest without assets (CI).
 /// Fail-closed: not full multi-locale GameTextManager boot UI.
-pub fn exercise_expanded_locale_csf_pack_load_residual() -> (
-    bool,
-    u32,
-    u32,
-    u32,
-    Vec<LocaleCsfPackLoadResidual>,
-) {
+pub fn exercise_expanded_locale_csf_pack_load_residual(
+) -> (bool, u32, u32, u32, Vec<LocaleCsfPackLoadResidual>) {
     let mut packs = Vec::with_capacity(EXPANDED_LOCALE_CSF_PACKS.len());
     let mut live_found = 0u32;
     let mut label_total = 0u32;
@@ -1001,7 +1001,6 @@ pub fn honesty_csf_multi_locale_residual_deepen_pack_wave102() -> bool {
     honesty_expanded_locale_csf_pack_load_wave102()
 }
 
-
 /// Format C++ group numeral GameText key residual: `NUMBER:N`.
 pub fn game_text_group_numeral_key(numeral: u32) -> String {
     format!("{GAME_TEXT_GROUP_NUMERAL_KEY_PREFIX}{numeral}")
@@ -1038,7 +1037,6 @@ pub fn honesty_game_text_group_numeral_keys() -> bool {
     true
 }
 
-
 /// Host-testable residual exercise: STR + CSF + printf + DisplayString measure.
 ///
 /// Prefer live English CSF when assets are present; always honest with synthetic
@@ -1055,7 +1053,8 @@ GUI:Back
 END
 "#;
     let str_map = parse_str_residual(str_sample);
-    let str_parse_ok = str_map.get(GUI_ADD_CASH_KEY).map(String::as_str) == Some(GUI_ADD_CASH_RETAIL_TEMPLATE)
+    let str_parse_ok = str_map.get(GUI_ADD_CASH_KEY).map(String::as_str)
+        == Some(GUI_ADD_CASH_RETAIL_TEMPLATE)
         && str_map.get(GUI_BACK_KEY).map(String::as_str) == Some(GUI_BACK_RETAIL);
 
     // CSF residual: live file preferred; synthetic fixture always works.
@@ -1194,9 +1193,7 @@ mod tests {
 
     #[test]
     fn str_residual_parses_add_cash_template() {
-        let map = parse_str_residual(
-            "GUI:AddCash\n\"$%d\"\nEND\nGUI:Back\n\"BACK\"\nEND\n",
-        );
+        let map = parse_str_residual("GUI:AddCash\n\"$%d\"\nEND\nGUI:Back\n\"BACK\"\nEND\n");
         assert_eq!(map.get(GUI_ADD_CASH_KEY).map(String::as_str), Some("$%d"));
         assert_eq!(map.get(GUI_BACK_KEY).map(String::as_str), Some("BACK"));
     }
@@ -1230,8 +1227,16 @@ mod tests {
         let ex = exercise_host_game_text_residual();
         assert!(ex.honesty.str_parse_ok, "STR residual");
         assert!(ex.honesty.csf_parse_ok, "CSF residual");
-        assert!(ex.honesty.add_cash_template_ok, "template={}", ex.add_cash_template);
-        assert!(ex.honesty.printf_format_ok, "caption={}", ex.formatted_caption);
+        assert!(
+            ex.honesty.add_cash_template_ok,
+            "template={}",
+            ex.add_cash_template
+        );
+        assert!(
+            ex.honesty.printf_format_ok,
+            "caption={}",
+            ex.formatted_caption
+        );
         assert!(ex.honesty.display_string_measure_ok);
         assert!(ex.honesty.multi_locale_path_ok, "multi-locale path table");
         assert_eq!(ex.honesty.multi_locale_path_count, 10);
@@ -1275,7 +1280,13 @@ mod tests {
     fn english_csf_pack_load_residual_wave65_honesty() {
         assert!(honesty_english_csf_pack_load());
         let pack = load_english_csf_pack_residual();
-        assert!(pack.honesty_ok(), "path_found={} parse_ok={} labels={}", pack.path_found, pack.parse_ok, pack.label_count);
+        assert!(
+            pack.honesty_ok(),
+            "path_found={} parse_ok={} labels={}",
+            pack.path_found,
+            pack.parse_ok,
+            pack.label_count
+        );
         // English residual path table always lists windows_game English pack relatives.
         let relatives = residual_csf_relatives(ResidualLanguageId::English);
         assert!(relatives.iter().any(|p| p.contains("EnglishZH")));
@@ -1338,9 +1349,11 @@ mod tests {
             }
             let relatives = residual_csf_relatives(lang);
             assert!(
-                relatives
-                    .iter()
-                    .any(|p| p.contains(&format!("{}/Data/{}/generals.csf", lang.zh_root(), lang.folder_name()))),
+                relatives.iter().any(|p| p.contains(&format!(
+                    "{}/Data/{}/generals.csf",
+                    lang.zh_root(),
+                    lang.folder_name()
+                ))),
                 "path table for {:?}",
                 lang
             );
@@ -1430,11 +1443,17 @@ mod tests {
         assert!(uk.iter().any(|p| p.contains("EnglishZH")));
         assert!(uk.iter().any(|p| p.contains("W3DEnglishZH")));
         let de = residual_csf_relatives(ResidualLanguageId::German);
-        assert!(de.iter().any(|p| p.contains("GermanZH/Data/German/generals.csf")));
+        assert!(de
+            .iter()
+            .any(|p| p.contains("GermanZH/Data/German/generals.csf")));
         let ja = residual_csf_relatives(ResidualLanguageId::Japanese);
-        assert!(ja.iter().any(|p| p.contains("JapaneseZH/Data/Japanese/generals.csf")));
+        assert!(ja
+            .iter()
+            .any(|p| p.contains("JapaneseZH/Data/Japanese/generals.csf")));
         let ko = residual_csf_relatives(ResidualLanguageId::Korean);
-        assert!(ko.iter().any(|p| p.contains("KoreanZH/Data/Korean/generals.csf")));
+        assert!(ko
+            .iter()
+            .any(|p| p.contains("KoreanZH/Data/Korean/generals.csf")));
         let (ok, count, _live) = exercise_multi_locale_csf_residual();
         assert!(ok);
         assert_eq!(count, 10);
@@ -1444,17 +1463,25 @@ mod tests {
     fn multi_locale_str_path_residual_table() {
         assert_eq!(ResidualLanguageId::ALL.len(), 10);
         let en = residual_str_relatives(ResidualLanguageId::English);
-        assert!(en.iter().any(|p| p.contains("EnglishZH") && p.ends_with("generals.str")));
+        assert!(en
+            .iter()
+            .any(|p| p.contains("EnglishZH") && p.ends_with("generals.str")));
         assert!(en.iter().any(|p| p.contains("W3DEnglishZH")));
         assert!(en.iter().any(|p| p.contains("map.str")));
         let uk = residual_str_relatives(ResidualLanguageId::Uk);
         assert!(uk.iter().any(|p| p.contains("EnglishZH")));
         let de = residual_str_relatives(ResidualLanguageId::German);
-        assert!(de.iter().any(|p| p.contains("GermanZH/Data/German/generals.str")));
+        assert!(de
+            .iter()
+            .any(|p| p.contains("GermanZH/Data/German/generals.str")));
         let ja = residual_str_relatives(ResidualLanguageId::Japanese);
-        assert!(ja.iter().any(|p| p.contains("JapaneseZH/Data/Japanese/generals.str")));
+        assert!(ja
+            .iter()
+            .any(|p| p.contains("JapaneseZH/Data/Japanese/generals.str")));
         let ko = residual_str_relatives(ResidualLanguageId::Korean);
-        assert!(ko.iter().any(|p| p.contains("KoreanZH/Data/Korean/generals.str")));
+        assert!(ko
+            .iter()
+            .any(|p| p.contains("KoreanZH/Data/Korean/generals.str")));
         // Jabber/Unknown fail-closed share English STR pack residual paths.
         assert!(residual_str_relatives(ResidualLanguageId::Jabber)
             .iter()
@@ -1501,10 +1528,7 @@ mod tests {
         assert_eq!(translate_copy_residual("BACK"), "BACK");
         assert_eq!(translate_copy_residual("$%d"), "$%d");
         // Multi-line residual used by CSF/STR caption paths.
-        assert_eq!(
-            translate_copy_residual(r"Line1\nLine2"),
-            "Line1\nLine2"
-        );
+        assert_eq!(translate_copy_residual(r"Line1\nLine2"), "Line1\nLine2");
         assert!(translate_copy_residual("").is_empty());
     }
 }

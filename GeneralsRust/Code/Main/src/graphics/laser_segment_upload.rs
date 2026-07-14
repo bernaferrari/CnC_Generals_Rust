@@ -132,15 +132,11 @@ pub const SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH: u32 = 0x00000000;
 /// C++ TILED_TEXTURE_MAP residual = 0x00000002
 pub const SEGLINE_TEXTURE_MAP_TILED: u32 = 0x00000002;
 /// Residual TextureMapMode name table (OrbitalLaser uses TILED when Tile=Yes).
-pub const SEGLINE_TEXTURE_MAP_MODE_NAMES: [&str; 2] = [
-    "UNIFORM_WIDTH_TEXTURE_MAP",
-    "TILED_TEXTURE_MAP",
-];
+pub const SEGLINE_TEXTURE_MAP_MODE_NAMES: [&str; 2] =
+    ["UNIFORM_WIDTH_TEXTURE_MAP", "TILED_TEXTURE_MAP"];
 /// Residual TextureMapMode discriminant table matching names order.
-pub const SEGLINE_TEXTURE_MAP_MODE_VALUES: [u32; 2] = [
-    SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH,
-    SEGLINE_TEXTURE_MAP_TILED,
-];
+pub const SEGLINE_TEXTURE_MAP_MODE_VALUES: [u32; 2] =
+    [SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH, SEGLINE_TEXTURE_MAP_TILED];
 /// Retail OrbitalLaser atlas residual texture bind name (EXNoise02.tga).
 pub const SEGLINE_SOFT_EDGE_ATLAS_TEXTURE: &str = "EXNoise02.tga";
 /// Binary stream atlas residual texture bind name.
@@ -432,14 +428,12 @@ pub fn honesty_soft_edge_multi_beam_uv_residual_pack() -> bool {
         }
     }
     // Outer edge tile factor residual honesty.
-    let outer_tile =
-        (length / ORBITAL_LASER_OUTER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
+    let outer_tile = (length / ORBITAL_LASER_OUTER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
     if (layers.last().map(|l| l.tile_factor).unwrap_or(0.0) - outer_tile).abs() >= 0.01 {
         return false;
     }
     // Inner edge tile factor residual honesty (narrower → larger tile factor).
-    let inner_tile =
-        (length / ORBITAL_LASER_INNER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
+    let inner_tile = (length / ORBITAL_LASER_INNER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
     if (layers.first().map(|l| l.tile_factor).unwrap_or(0.0) - inner_tile).abs() >= 0.01 {
         return false;
     }
@@ -546,8 +540,7 @@ pub fn honesty_outer_beam_width_multi_beam_pack() -> bool {
             );
             honesty_orbital_multi_beam_layers(&layers)
                 && layers.len() == ORBITAL_LASER_NUM_BEAMS as usize
-                && (layers.last().map(|l| l.width).unwrap_or(0.0)
-                    - ORBITAL_LASER_OUTER_BEAM_WIDTH)
+                && (layers.last().map(|l| l.width).unwrap_or(0.0) - ORBITAL_LASER_OUTER_BEAM_WIDTH)
                     .abs()
                     < 0.01
         }
@@ -734,8 +727,7 @@ pub fn multi_beam_layer_residuals(
             )
         } else {
             let scale = i as f32 / (n as f32 - 1.0);
-            let width =
-                (inner_width + scale * (outer_width - inner_width)) * width_scalar;
+            let width = (inner_width + scale * (outer_width - inner_width)) * width_scalar;
             // C++ channel-delta × innerAlpha on RGB; alpha lerps without extra premul.
             let color = (
                 inner_color.0 + scale * (outer_color.0 - inner_color.0) * ia,
@@ -919,7 +911,8 @@ impl LaserSegmentUpload {
         segments: &[HostLaserLine3DSegment],
         color: (f32, f32, f32, f32),
     ) -> Self {
-        let mut floats = Vec::with_capacity(segments.len() * LASER_VERTS_PER_SEGMENT * LASER_VERTEX_FLOATS);
+        let mut floats =
+            Vec::with_capacity(segments.len() * LASER_VERTS_PER_SEGMENT * LASER_VERTEX_FLOATS);
         for (i, seg) in segments.iter().enumerate() {
             let verts = segment_to_vertices(seg, color, i as f32);
             for v in verts {
@@ -1122,17 +1115,11 @@ mod tests {
             .map(|(i, l)| PresentationLaserBeam::from_host_laser(l, i as u32, 0.0))
             .collect();
         assert_eq!(beams.len(), 2);
-        assert_eq!(
-            beams[0].segments.len(),
-            PATRIOT_LASER_SEGMENTS as usize
-        );
+        assert_eq!(beams[0].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
         let pack = LaserSegmentUpload::pack_beams(&beams);
         assert!(pack.honesty.honesty_geometry_ok());
         assert_eq!(pack.honesty.beams_packed, 2);
-        assert_eq!(
-            pack.honesty.segments_packed,
-            PATRIOT_LASER_SEGMENTS * 2
-        );
+        assert_eq!(pack.honesty.segments_packed, PATRIOT_LASER_SEGMENTS * 2);
         let mut marked = pack;
         marked.mark_gpu_upload_ready();
         assert!(marked.honesty.honesty_upload_ready_ok());
@@ -1318,7 +1305,6 @@ mod tests {
         assert!((layers[11].width - ORBITAL_LASER_OUTER_BEAM_WIDTH).abs() < 0.01);
         assert!(honesty_orbital_multi_beam_layers(&layers));
     }
-
 
     #[test]
     fn laser_max_intensity_duration_residual_honesty() {

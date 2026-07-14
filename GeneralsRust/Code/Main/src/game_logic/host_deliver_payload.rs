@@ -453,7 +453,6 @@ pub fn honesty_deliver_payload_residual_pack_ok() -> bool {
         && SUPPLY_DROP_PUT_IN_CONTAINER == "AmericaCrateParachute"
 }
 
-
 /// C++ TerrainLogic::findClosestEdgePoint residual on host XZ horizontal plane.
 ///
 /// Returns edge point at PreferredHeight when `start_at_preferred_height` is set.
@@ -849,8 +848,7 @@ impl HostCargoPlaneFlight {
                 self.preferred_height,
                 self.speed_per_frame,
             );
-            self.previous_distance =
-                horizontal_distance_xz(self.current_pos, self.target_pos);
+            self.previous_distance = horizontal_distance_xz(self.current_pos, self.target_pos);
             self.accepting_commands = false;
             self.door_open = false;
             if self.door_condition.is_empty() {
@@ -872,8 +870,7 @@ impl HostCargoPlaneFlight {
                 self.current_pos = edge;
                 self.hidden = false;
                 self.face_toward_target();
-                self.previous_distance =
-                    horizontal_distance_xz(self.current_pos, self.target_pos);
+                self.previous_distance = horizontal_distance_xz(self.current_pos, self.target_pos);
                 self.phase = HostCargoPlaneFlightPhase::Approaching;
             }
             return;
@@ -903,8 +900,7 @@ impl HostCargoPlaneFlight {
             let rem = horizontal_distance_xz(self.current_pos, self.reapproach_pos);
             if rem <= self.speed_per_frame.max(1.0) {
                 self.face_toward_target();
-                self.previous_distance =
-                    horizontal_distance_xz(self.current_pos, self.target_pos);
+                self.previous_distance = horizontal_distance_xz(self.current_pos, self.target_pos);
                 self.phase = HostCargoPlaneFlightPhase::Approaching;
             }
             return;
@@ -1756,8 +1752,7 @@ impl HostDeliverPayloadRegistry {
                     | HostCargoPlaneFlightPhase::Delivering
             );
             let was_door = flight.door_open;
-            let was_reapproach =
-                flight.phase == HostCargoPlaneFlightPhase::ConsideringNewApproach;
+            let was_reapproach = flight.phase == HostCargoPlaneFlightPhase::ConsideringNewApproach;
             let was_recover = flight.phase == HostCargoPlaneFlightPhase::RecoveringFromOffMap;
             let was_depart = flight.phase == HostCargoPlaneFlightPhase::Departing;
             flight.tick(items_dropped, payload_count, complete);
@@ -1775,14 +1770,11 @@ impl HostDeliverPayloadRegistry {
             if !was_door && flight.door_open {
                 self.door_open_events = self.door_open_events.saturating_add(1);
             }
-            if !was_reapproach
-                && flight.phase == HostCargoPlaneFlightPhase::ConsideringNewApproach
+            if !was_reapproach && flight.phase == HostCargoPlaneFlightPhase::ConsideringNewApproach
             {
                 self.reapproach_events = self.reapproach_events.saturating_add(1);
             }
-            if !was_recover
-                && flight.phase == HostCargoPlaneFlightPhase::RecoveringFromOffMap
-            {
+            if !was_recover && flight.phase == HostCargoPlaneFlightPhase::RecoveringFromOffMap {
                 self.off_map_recover_events = self.off_map_recover_events.saturating_add(1);
             }
             if !was_depart && flight.phase == HostCargoPlaneFlightPhase::Departing {
@@ -1869,9 +1861,7 @@ impl HostDeliverPayloadRegistry {
                 continue;
             }
             // Only emit once at first drop frame while still Queued (observer snapshot).
-            if mission.phase != HostDeliverPayloadPhase::Queued
-                && mission.items_dropped > 0
-            {
+            if mission.phase != HostDeliverPayloadPhase::Queued && mission.items_dropped > 0 {
                 continue;
             }
             let spawn_positions = if mission.kind.spawns_payload_objects() {
@@ -1956,8 +1946,7 @@ impl HostDeliverPayloadRegistry {
                     mission.items_dropped = spawn_count;
                     self.payload_spawned_total =
                         self.payload_spawned_total.saturating_add(spawn_count);
-                    self.stagger_items_total =
-                        self.stagger_items_total.saturating_add(spawn_count);
+                    self.stagger_items_total = self.stagger_items_total.saturating_add(spawn_count);
                 } else if !spawned_payload_ids.is_empty() {
                     for id in spawned_payload_ids {
                         if !mission.spawned_payload_ids.contains(&id) {
@@ -2023,8 +2012,7 @@ impl HostDeliverPayloadRegistry {
 
     /// DropDelay stagger honesty: more than one item event observed for a mission.
     pub fn honesty_drop_delay_stagger_ok(&self) -> bool {
-        self.stagger_items_total > 1
-            || self.missions.values().any(|m| m.items_dropped > 1)
+        self.stagger_items_total > 1 || self.missions.values().any(|m| m.items_dropped > 1)
     }
 
     pub fn honesty_building_pickup_ok(&self) -> bool {
@@ -2114,9 +2102,10 @@ impl HostDeliverPayloadRegistry {
 
     pub fn honesty_cargo_door_ok(&self) -> bool {
         self.door_open_events > 0
-            || self.cargo_flights.values().any(|f| {
-                f.door_open || f.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION
-            })
+            || self
+                .cargo_flights
+                .values()
+                .any(|f| f.door_open || f.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION)
     }
 
     pub fn honesty_create_at_edge_flight_ok(&self) -> bool {
@@ -2149,11 +2138,7 @@ impl HostDeliverPayloadRegistry {
     }
 
     pub fn honesty_reapproach_ok(&self) -> bool {
-        self.reapproach_events > 0
-            || self
-                .cargo_flights
-                .values()
-                .any(|f| f.reapproach_count > 0)
+        self.reapproach_events > 0 || self.cargo_flights.values().any(|f| f.reapproach_count > 0)
     }
 
     pub fn honesty_off_map_recover_ok(&self) -> bool {
@@ -2276,9 +2261,7 @@ mod tests {
         assert!((CRATE_PARACHUTE_OPEN_DIST - 12.5).abs() < 0.01);
         assert!((CRATE_PARACHUTE_SPEED_LIMIT_Z - 15.0).abs() < 0.01);
         assert!(SUPPLY_DROP_PARACHUTE_DIRECTLY);
-        assert!(
-            (cargo_crate_drop_height(SUPPLY_DROP_DROP_OFFSET_Y) - 95.0).abs() < 0.01
-        );
+        assert!((cargo_crate_drop_height(SUPPLY_DROP_DROP_OFFSET_Y) - 95.0).abs() < 0.01);
         assert!(HostDeliverPayloadRegistry::honesty_transport_names_ok(
             HostDeliverPayloadKind::SupplyDropZoneCrate
         ));
@@ -2304,7 +2287,7 @@ mod tests {
         // Freefall until fallen ≥ 12.5.
         assert!(!should_open_crate_parachute(95.0, 90.0)); // fallen 5
         assert!(should_open_crate_parachute(95.0, 82.5)); // fallen 12.5
-        // Low-altitude fudge: start 10 < 2×12.5 → fudge to 25.
+                                                          // Low-altitude fudge: start 10 < 2×12.5 → fudge to 25.
         let fudged = fudge_crate_parachute_start_height(10.0, 0.0);
         assert!((fudged - 25.0).abs() < 0.01);
         // Freefall faster than open.
@@ -2362,7 +2345,10 @@ mod tests {
         );
 
         reg.record_item_spawned(id, Some(ObjectId(10)));
-        assert_eq!(reg.get(id).unwrap().phase, HostDeliverPayloadPhase::Dropping);
+        assert_eq!(
+            reg.get(id).unwrap().phase,
+            HostDeliverPayloadPhase::Dropping
+        );
         assert_eq!(reg.get(id).unwrap().items_dropped, 1);
 
         // Not yet due for item 1
@@ -2380,7 +2366,10 @@ mod tests {
             assert_eq!(plans[0].is_final_item, i == 5);
             reg.record_item_spawned(id, Some(ObjectId(10 + i)));
         }
-        assert_eq!(reg.get(id).unwrap().phase, HostDeliverPayloadPhase::Completed);
+        assert_eq!(
+            reg.get(id).unwrap().phase,
+            HostDeliverPayloadPhase::Completed
+        );
         assert_eq!(reg.get(id).unwrap().spawned_payload_ids.len(), 6);
         assert!(reg.honesty_drop_delay_stagger_ok());
         assert!(reg.honesty_payload_spawn_ok(HostDeliverPayloadKind::SupplyDropZoneCrate));
@@ -2455,9 +2444,15 @@ mod tests {
     #[test]
     fn is_close_enough_delivery_band_inbound_preopen() {
         assert!(is_close_enough_to_target_residual(400.0, 450.0, 410.0, 0.0));
-        assert!(!is_close_enough_to_target_residual(420.0, 450.0, 410.0, 0.0));
-        assert!(is_close_enough_to_target_residual(600.0, 700.0, 410.0, 300.0));
-        assert!(!is_close_enough_to_target_residual(600.0, 500.0, 410.0, 300.0));
+        assert!(!is_close_enough_to_target_residual(
+            420.0, 450.0, 410.0, 0.0
+        ));
+        assert!(is_close_enough_to_target_residual(
+            600.0, 700.0, 410.0, 300.0
+        ));
+        assert!(!is_close_enough_to_target_residual(
+            600.0, 500.0, 410.0, 300.0
+        ));
     }
 
     #[test]
@@ -2508,9 +2503,7 @@ mod tests {
         );
         assert!(reg.honesty_delivery_band_ok());
         assert!(flight.door_open || reg.door_open_events > 0);
-        assert!(
-            flight.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION || flight.door_open
-        );
+        assert!(flight.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION || flight.door_open);
         assert!(reg.honesty_cargo_door_ok());
         assert!(reg.honesty_create_at_edge_flight_ok());
         for i in 0..6 {
@@ -2552,7 +2545,10 @@ mod tests {
             open.crate_presentation_pos.2 - open.crate_logic_pos.2,
         );
         let sway_mag = (delta.0 * delta.0 + delta.1 * delta.1 + delta.2 * delta.2).sqrt();
-        assert!(sway_mag > 0.001, "open chute must apply non-zero sway residual");
+        assert!(
+            sway_mag > 0.001,
+            "open chute must apply non-zero sway residual"
+        );
         assert!(reg.honesty_crate_bone_attach_ok());
     }
 
@@ -2565,7 +2561,10 @@ mod tests {
         assert!((radius - b52_min_turn_radius_residual()).abs() < 0.001);
         // maxSpeed 125/sec, turn 25°/sec → radius = 125 / (25 * π/180) = 5*180/π
         let expected = 5.0 * (180.0 / std::f32::consts::PI);
-        assert!((radius - expected).abs() < 0.5, "radius={radius} expected≈{expected}");
+        assert!(
+            (radius - expected).abs() < 0.5,
+            "radius={radius} expected≈{expected}"
+        );
         let reapproach = b52_min_reapproach_dist_residual();
         assert!((reapproach - radius * 2.2).abs() < 0.01);
         let recover = b52_recover_off_map_frames_residual();
@@ -2579,8 +2578,7 @@ mod tests {
 
     #[test]
     fn consider_new_approach_max_attempts_residual() {
-        let mut flight =
-            HostCargoPlaneFlight::new_supply_drop(1, Vec3::new(250.0, 0.0, 250.0));
+        let mut flight = HostCargoPlaneFlight::new_supply_drop(1, Vec3::new(250.0, 0.0, 250.0));
         // Place in delivery band mid-map with outbound heading so leave-band can fire.
         flight.current_pos = Vec3::new(250.0, CARGO_PLANE_PREFERRED_HEIGHT, 250.0);
         flight.dir_x = 1.0;
@@ -2589,8 +2587,11 @@ mod tests {
         flight.phase = HostCargoPlaneFlightPhase::Delivering;
         flight.door_open = true;
         // Force leave band: previous_distance low so not inbound; place far past target.
-        flight.current_pos = Vec3::new(250.0 + SUPPLY_DROP_DELIVERY_DISTANCE + 50.0,
-            CARGO_PLANE_PREFERRED_HEIGHT, 250.0);
+        flight.current_pos = Vec3::new(
+            250.0 + SUPPLY_DROP_DELIVERY_DISTANCE + 50.0,
+            CARGO_PLANE_PREFERRED_HEIGHT,
+            250.0,
+        );
         flight.previous_distance = SUPPLY_DROP_DELIVERY_DISTANCE + 20.0;
         // items_dropped < payload, not complete → re-approach
         flight.tick(1, 6, false);
@@ -2601,12 +2602,10 @@ mod tests {
         );
         assert_eq!(flight.reapproach_count, 1);
         assert!(!flight.door_open);
-        let waypoint_dist =
-            horizontal_distance_xz(flight.reapproach_pos, flight.current_pos);
+        let waypoint_dist = horizontal_distance_xz(flight.reapproach_pos, flight.current_pos);
         // reapproach_pos set at begin from current + dir * minDist
         assert!(
-            (waypoint_dist - b52_min_reapproach_dist_residual()).abs() < 1.0
-                || waypoint_dist < 1.0,
+            (waypoint_dist - b52_min_reapproach_dist_residual()).abs() < 1.0 || waypoint_dist < 1.0,
             "reapproach waypoint residual, dist={waypoint_dist}"
         );
 
@@ -2628,8 +2627,7 @@ mod tests {
     #[test]
     fn head_off_map_and_recover_from_off_map_residual() {
         // HeadOffMap: fly until off residual map extent → Complete.
-        let mut flight =
-            HostCargoPlaneFlight::new_supply_drop(3, Vec3::new(250.0, 0.0, 250.0));
+        let mut flight = HostCargoPlaneFlight::new_supply_drop(3, Vec3::new(250.0, 0.0, 250.0));
         flight.current_pos = Vec3::new(490.0, CARGO_PLANE_PREFERRED_HEIGHT, 250.0);
         flight.dir_x = 1.0;
         flight.dir_z = 0.0;
@@ -2727,13 +2725,8 @@ mod tests {
         assert!((zeroed.y - base.y).abs() < 0.001);
         assert!((zeroed.z - base.z).abs() < 0.001);
         // ClusterMines X:20 Y:20 Z:0 with unit samples ±1.
-        let cm = apply_drop_variance_residual(
-            Vec3::ZERO,
-            CLUSTER_MINES_DROP_VARIANCE,
-            1.0,
-            -1.0,
-            1.0,
-        );
+        let cm =
+            apply_drop_variance_residual(Vec3::ZERO, CLUSTER_MINES_DROP_VARIANCE, 1.0, -1.0, 1.0);
         assert!((cm.x - 20.0).abs() < 0.001);
         assert!((cm.y - (-20.0)).abs() < 0.001);
         assert!((cm.z - 0.0).abs() < 0.001, "Z variance 0 must not scatter");
@@ -2765,13 +2758,7 @@ mod tests {
         );
         assert_eq!(applied, Vec3::ZERO);
         assert_eq!(reg.drop_variance_applies, 1);
-        let _ = reg.apply_drop_variance(
-            Vec3::ZERO,
-            CARPET_BOMB_DROP_VARIANCE,
-            -1.0,
-            1.0,
-            0.0,
-        );
+        let _ = reg.apply_drop_variance(Vec3::ZERO, CARPET_BOMB_DROP_VARIANCE, -1.0, 1.0, 0.0);
         assert!(reg.honesty_drop_variance_ok());
     }
 
@@ -2867,5 +2854,4 @@ mod tests {
         assert!(honesty_visible_payload_a10_constants_ok());
         assert!(honesty_supply_drop_crate_geometry_pack_ok());
     }
-
 }

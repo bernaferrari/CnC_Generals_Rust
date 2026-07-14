@@ -216,11 +216,7 @@ pub fn neutron_effect_for_target(
 }
 
 /// 2D distance check residual (blast radius).
-pub fn in_neutron_blast_radius_2d(
-    center: (f32, f32),
-    target: (f32, f32),
-    radius: f32,
-) -> bool {
+pub fn in_neutron_blast_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool {
     let dx = center.0 - target.0;
     let dz = center.1 - target.1;
     dx * dx + dz * dz <= radius * radius

@@ -203,6 +203,8 @@ mod tests {
     fn superweapon_kindof_residual_pack_wave80_honesty() {
         assert!(honesty_superweapon_kindof_residual_pack_wave80());
         assert!(kindof_has_shared_superweapon_tokens(SCUD_STORM_KINDOF));
-        assert!(!kindof_has_shared_superweapon_tokens("STRUCTURE SELECTABLE"));
+        assert!(!kindof_has_shared_superweapon_tokens(
+            "STRUCTURE SELECTABLE"
+        ));
     }
 }

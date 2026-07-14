@@ -334,7 +334,12 @@ pub fn is_passenger_dummy_weapon(weapon: &Weapon) -> bool {
 }
 
 /// Residual: whether rider kind is allowed inside Combat Chinook.
-pub fn combat_chinook_allows_rider(is_infantry: bool, is_vehicle: bool, is_aircraft: bool, is_huge_vehicle: bool) -> bool {
+pub fn combat_chinook_allows_rider(
+    is_infantry: bool,
+    is_vehicle: bool,
+    is_aircraft: bool,
+    is_huge_vehicle: bool,
+) -> bool {
     if is_aircraft && COMBAT_CHINOOK_FORBID_AIRCRAFT {
         return false;
     }
@@ -487,15 +492,31 @@ mod tests {
             range: 100.0,
             ..Weapon::default()
         };
-        assert!(combat_chinook_rider_has_viable_weapon(Some(&rifle), true, false));
-        assert!(combat_chinook_rider_has_viable_weapon(Some(&rifle), false, true));
-        assert!(!combat_chinook_rider_has_viable_weapon(Some(&rifle), false, false));
+        assert!(combat_chinook_rider_has_viable_weapon(
+            Some(&rifle),
+            true,
+            false
+        ));
+        assert!(combat_chinook_rider_has_viable_weapon(
+            Some(&rifle),
+            false,
+            true
+        ));
+        assert!(!combat_chinook_rider_has_viable_weapon(
+            Some(&rifle),
+            false,
+            false
+        ));
         let melee = Weapon {
             damage: 20.0,
             range: 3.0,
             ..Weapon::default()
         };
-        assert!(!combat_chinook_rider_has_viable_weapon(Some(&melee), true, false));
+        assert!(!combat_chinook_rider_has_viable_weapon(
+            Some(&melee),
+            true,
+            false
+        ));
         assert!(!combat_chinook_rider_has_viable_weapon(None, true, false));
     }
 

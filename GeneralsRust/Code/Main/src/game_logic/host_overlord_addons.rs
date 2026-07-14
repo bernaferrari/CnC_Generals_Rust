@@ -395,7 +395,10 @@ pub fn overlord_addon_install_allowed(
 ) -> bool {
     if is_emperor {
         // Emperor residual: gattling optional; bunker/propaganda object addons N/A.
-        return matches!(next, OverlordAddonKind::Gattling | OverlordAddonKind::Propaganda);
+        return matches!(
+            next,
+            OverlordAddonKind::Gattling | OverlordAddonKind::Propaganda
+        );
     }
     let installed = [
         (OverlordAddonKind::Gattling, has_gattling),
@@ -464,7 +467,6 @@ pub fn honesty_overlord_addons_residual_ok() -> bool {
 pub fn honesty_overlord_addons_residual_pack_ok() -> bool {
     honesty_overlord_addons_residual_ok()
 }
-
 
 /// Delay frames residual for continuous-fire level (building gattling base / ROF).
 pub fn overlord_gattling_delay_frames(level: u8) -> u32 {
@@ -548,10 +550,7 @@ pub fn overlord_propaganda_heal_amount(max_health: f32, upgraded: bool, dt: f32)
 /// Whether object residual should pulse as propaganda source.
 ///
 /// Emperor innate + Overlord/Helix propaganda addon flag.
-pub fn is_overlord_propaganda_source(
-    has_propaganda_addon: bool,
-    template_name: &str,
-) -> bool {
+pub fn is_overlord_propaganda_source(has_propaganda_addon: bool, template_name: &str) -> bool {
     has_propaganda_addon
         || is_emperor_template(template_name)
         // Portable tower object names also pulse (existing host_propaganda path).
@@ -571,8 +570,12 @@ mod tests {
         assert!(is_overlord_tank_template("China_OverlordTank"));
         assert!(is_overlord_tank_template("TestOverlord"));
         assert!(is_overlord_tank_template("Nuke_ChinaTankOverlord"));
-        assert!(!is_overlord_tank_template("ChinaTankOverlordGattlingCannon"));
-        assert!(!is_overlord_tank_template("ChinaTankOverlordPropagandaTower"));
+        assert!(!is_overlord_tank_template(
+            "ChinaTankOverlordGattlingCannon"
+        ));
+        assert!(!is_overlord_tank_template(
+            "ChinaTankOverlordPropagandaTower"
+        ));
         assert!(!is_overlord_tank_template("ChinaTankOverlordBattleBunker"));
         assert!(!is_overlord_tank_template("Tank_ChinaTankEmperor"));
 
@@ -697,5 +700,4 @@ mod tests {
         assert_eq!(OVERLORD_GATTLING_BUILD_COST, 1200);
         assert_eq!(HELIX_TRANSPORT_SLOTS, 5);
     }
-
 }

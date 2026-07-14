@@ -138,10 +138,7 @@ pub fn is_scorpion_template(template_name: &str) -> bool {
     {
         return false;
     }
-    n.contains("scorpion")
-        || n == "gla_scorpion"
-        || n == "gla_scorpiontank"
-        || n == "testscorpion"
+    n.contains("scorpion") || n == "gla_scorpion" || n == "gla_scorpiontank" || n == "testscorpion"
 }
 
 /// Whether residual fire should apply Scorpion residual path.
@@ -233,11 +230,7 @@ pub fn scorpion_gun_weapon(tier: ScorpionSalvageTier) -> Weapon {
 
 /// Missile primary/secondary ring damage with optional AP mult.
 pub fn scorpion_missile_ring_damage(has_ap: bool) -> (f32, f32) {
-    let mult = if has_ap {
-        SCORPION_AP_DAMAGE_MULT
-    } else {
-        1.0
-    };
+    let mult = if has_ap { SCORPION_AP_DAMAGE_MULT } else { 1.0 };
     (
         SCORPION_MISSILE_PRIMARY_DAMAGE * mult,
         SCORPION_MISSILE_SECONDARY_DAMAGE * mult,
@@ -304,7 +297,6 @@ pub fn is_legal_scorpion_splash_target(
 ) -> bool {
     is_alive && !is_self && !under_construction && is_combat_kind
 }
-
 
 // --- Wave 62 thin residual honesty pack (optional peel) ---
 
@@ -407,10 +399,7 @@ mod tests {
         set.insert(UPGRADE_GLA_AP_ROCKETS.to_string());
         assert!(has_ap_rockets_upgrade(&set));
         set.insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
-        assert_eq!(
-            salvage_tier_from_upgrades(&set),
-            ScorpionSalvageTier::Two
-        );
+        assert_eq!(salvage_tier_from_upgrades(&set), ScorpionSalvageTier::Two);
     }
 
     #[test]

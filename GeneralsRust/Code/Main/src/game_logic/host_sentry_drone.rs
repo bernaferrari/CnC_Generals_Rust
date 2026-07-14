@@ -121,7 +121,6 @@ pub fn honesty_sentry_drone_residual_pack_ok() -> bool {
     honesty_sentry_drone_residual_ok()
 }
 
-
 /// Whether template is a residual Sentry Drone.
 ///
 /// Fail-closed: name residual (not full DeployStyleAIUpdate / DRONE kind matrix).
@@ -281,5 +280,4 @@ mod tests {
         assert_eq!(SENTRY_GUN_DELAY_FRAMES, 6);
         assert_eq!(SENTRY_STEALTH_DELAY_FRAMES, 60);
     }
-
 }

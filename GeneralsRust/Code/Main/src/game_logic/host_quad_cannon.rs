@@ -175,7 +175,11 @@ pub fn preferred_quad_slot(target_is_air: bool) -> u8 {
 pub fn quad_ground_stats(tier: QuadCannonBarrelTier) -> (f32, f32, u32) {
     // (damage, range, delay_frames)
     match tier {
-        QuadCannonBarrelTier::Base => (QUAD_GROUND_DAMAGE, QUAD_GROUND_RANGE, QUAD_DELAY_FRAMES_TIER0),
+        QuadCannonBarrelTier::Base => (
+            QUAD_GROUND_DAMAGE,
+            QUAD_GROUND_RANGE,
+            QUAD_DELAY_FRAMES_TIER0,
+        ),
         QuadCannonBarrelTier::One | QuadCannonBarrelTier::Two => {
             let delay = if tier == QuadCannonBarrelTier::Two {
                 QUAD_DELAY_FRAMES_TIER2
@@ -286,8 +290,7 @@ pub fn honesty_quad_body_residual_ok() -> bool {
         && (QUAD_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
         && QUAD_BUILD_COST == 700
         && (QUAD_BUILD_TIME_SEC - 6.0).abs() < 0.01
-        && QUAD_BUILD_TIME_FRAMES
-            == ((QUAD_BUILD_TIME_SEC * QUAD_LOGIC_FPS).round() as u32)
+        && QUAD_BUILD_TIME_FRAMES == ((QUAD_BUILD_TIME_SEC * QUAD_LOGIC_FPS).round() as u32)
         && QUAD_BUILD_TIME_FRAMES == 180
         && QUAD_TRANSPORT_SLOT_COUNT == 3
         && is_quad_cannon_template("GLAVehicleQuadCannon")

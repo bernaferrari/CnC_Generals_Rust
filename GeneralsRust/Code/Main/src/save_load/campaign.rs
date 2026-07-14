@@ -918,18 +918,48 @@ impl CampaignManager {
 
         // Campaign.ini CHALLENGE_0 residual map chain (Generals Challenge).
         let challenge_maps = [
-            ("challenge_0_01", 1, "GC_ChemGeneral", "General's Challenge — Chem"),
-            ("challenge_0_02", 2, "GC_NukeGeneral", "General's Challenge — Nuke"),
+            (
+                "challenge_0_01",
+                1,
+                "GC_ChemGeneral",
+                "General's Challenge — Chem",
+            ),
+            (
+                "challenge_0_02",
+                2,
+                "GC_NukeGeneral",
+                "General's Challenge — Nuke",
+            ),
             (
                 "challenge_0_03",
                 3,
                 "GC_SuperWeaponsGeneral",
                 "General's Challenge — Superweapon",
             ),
-            ("challenge_0_04", 4, "GC_TankGeneral", "General's Challenge — Tank"),
-            ("challenge_0_05", 5, "GC_Stealth", "General's Challenge — Stealth"),
-            ("challenge_0_06", 6, "GC_LaserGeneral", "General's Challenge — Laser"),
-            ("challenge_0_07", 7, "GC_ChinaBoss", "General's Challenge — China Boss"),
+            (
+                "challenge_0_04",
+                4,
+                "GC_TankGeneral",
+                "General's Challenge — Tank",
+            ),
+            (
+                "challenge_0_05",
+                5,
+                "GC_Stealth",
+                "General's Challenge — Stealth",
+            ),
+            (
+                "challenge_0_06",
+                6,
+                "GC_LaserGeneral",
+                "General's Challenge — Laser",
+            ),
+            (
+                "challenge_0_07",
+                7,
+                "GC_ChinaBoss",
+                "General's Challenge — China Boss",
+            ),
         ];
         for (i, (id, num, map, name)) in challenge_maps.iter().enumerate() {
             let required: Vec<String> = if i == 0 {
@@ -970,8 +1000,7 @@ impl CampaignManager {
         if let Some(first) = self.mission_definitions.get("challenge_0_01").cloned() {
             let mut alias = first;
             alias.id = "usa_gen_01".to_string();
-            self.mission_definitions
-                .insert(alias.id.clone(), alias);
+            self.mission_definitions.insert(alias.id.clone(), alias);
         }
     }
 

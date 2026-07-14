@@ -142,10 +142,7 @@ fn resolve_runtime_exe() -> Option<PathBuf> {
 }
 
 fn resolve_lone_eagle_map() -> String {
-    let mut candidates: Vec<PathBuf> = LONE_EAGLE_CANDIDATES
-        .iter()
-        .map(PathBuf::from)
-        .collect();
+    let mut candidates: Vec<PathBuf> = LONE_EAGLE_CANDIDATES.iter().map(PathBuf::from).collect();
     // Walk from CARGO_MANIFEST_DIR (Code/Main) up to repo root and common extract dirs.
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for base in [
@@ -174,11 +171,7 @@ fn resolve_lone_eagle_map() -> String {
     for c in candidates {
         if c.is_file() {
             // Prefer absolute canonical path so the child process cwd does not matter.
-            return c
-                .canonicalize()
-                .unwrap_or(c)
-                .to_string_lossy()
-                .into_owned();
+            return c.canonicalize().unwrap_or(c).to_string_lossy().into_owned();
         }
     }
     "Lone Eagle".into()
@@ -379,7 +372,10 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                 }
                 2 => {
                     // Hold a few InGame frames then exit.
-                    if snap.frame >= 3 || commanded_at.map(|t| t.elapsed() > Duration::from_secs(5)).unwrap_or(true)
+                    if snap.frame >= 3
+                        || commanded_at
+                            .map(|t| t.elapsed() > Duration::from_secs(5))
+                            .unwrap_or(true)
                     {
                         let _ = write_control(&control_path, &["exit"]);
                         phase = 3;
@@ -417,7 +413,9 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                         }
                         break;
                     }
-                    if commanded_at.map(|t| t.elapsed() > Duration::from_secs(20)).unwrap_or(false)
+                    if commanded_at
+                        .map(|t| t.elapsed() > Duration::from_secs(20))
+                        .unwrap_or(false)
                         && phase == 3
                     {
                         kill_child(&mut child);

@@ -137,9 +137,9 @@ impl HostMineKind {
         match self {
             // TNTStickyBomb LifetimeUpdate Min/MaxLifetime = 10000 ms @ 30 FPS.
             HostMineKind::TimedDemoCharge => Some(300),
-            HostMineKind::LandMine
-            | HostMineKind::DemoTrap
-            | HostMineKind::RemoteDemoCharge => None,
+            HostMineKind::LandMine | HostMineKind::DemoTrap | HostMineKind::RemoteDemoCharge => {
+                None
+            }
         }
     }
 
@@ -250,11 +250,7 @@ pub fn is_demo_general_template(template_name: &str) -> bool {
 }
 
 /// Resolve demo trap detonation profile from template + anthrax flags.
-pub fn demo_trap_profile(
-    template_name: &str,
-    has_gamma: bool,
-    has_beta: bool,
-) -> DemoTrapProfile {
+pub fn demo_trap_profile(template_name: &str, has_gamma: bool, has_beta: bool) -> DemoTrapProfile {
     if is_demo_general_template(template_name) {
         return DemoTrapProfile::Demo;
     }
@@ -288,11 +284,7 @@ pub fn demo_trap_damage_at(profile: DemoTrapProfile, distance: f32) -> f32 {
         }
     } else {
         // Standard residual: primary damage with soft falloff to secondary radius.
-        damage_at_distance(
-            profile.primary_damage(),
-            profile.primary_radius(),
-            distance,
-        )
+        damage_at_distance(profile.primary_damage(), profile.primary_radius(), distance)
     }
 }
 
@@ -737,8 +729,7 @@ pub fn honesty_demo_trap_mode_residual_ok() -> bool {
     DEMO_TRAP_DEFAULT_PROXIMITY_MODE
         && (DEMO_TRAP_TRIGGER_RANGE - 40.0).abs() < 0.01
         && DEMO_TRAP_DESTRUCTION_DELAY_MS == 1_000
-        && DEMO_TRAP_DESTRUCTION_DELAY_FRAMES
-            == mine_ms_to_frames(DEMO_TRAP_DESTRUCTION_DELAY_MS)
+        && DEMO_TRAP_DESTRUCTION_DELAY_FRAMES == mine_ms_to_frames(DEMO_TRAP_DESTRUCTION_DELAY_MS)
         && DEMO_TRAP_DETONATE_WHEN_KILLED
         && DEMO_TRAP_AUTO_DETONATE_WITH_FRIENDS
         && HostMineData::demo_trap().demo_trap_mode == DemoTrapMode::Proximity
@@ -751,14 +742,11 @@ pub fn honesty_mine_clear_residual_ok() -> bool {
     (DOZER_MINE_CLEAR_RANGE - 5.0).abs() < 0.01
         && (DOZER_MINE_CLEAR_SCAN_RANGE - 100.0).abs() < 0.01
         && DOZER_MINE_CLEAR_PRE_ATTACK_MS == 1_200
-        && DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES
-            == mine_ms_to_frames(DOZER_MINE_CLEAR_PRE_ATTACK_MS)
+        && DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES == mine_ms_to_frames(DOZER_MINE_CLEAR_PRE_ATTACK_MS)
         && DOZER_MINE_CLEAR_CLIP_RELOAD_MS == 4_000
-        && DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES
-            == mine_ms_to_frames(DOZER_MINE_CLEAR_CLIP_RELOAD_MS)
+        && DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES == mine_ms_to_frames(DOZER_MINE_CLEAR_CLIP_RELOAD_MS)
         && WORKER_MINE_CLEAR_PRE_ATTACK_MS == 1_000
-        && WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES
-            == mine_ms_to_frames(WORKER_MINE_CLEAR_PRE_ATTACK_MS)
+        && WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES == mine_ms_to_frames(WORKER_MINE_CLEAR_PRE_ATTACK_MS)
         && WORKER_MINE_CLEAR_DELAY_MS == 1_000
         && WORKER_MINE_CLEAR_DELAY_FRAMES == mine_ms_to_frames(WORKER_MINE_CLEAR_DELAY_MS)
         && !MINE_CLEARED_AUDIO.is_empty()
@@ -796,8 +784,7 @@ pub fn honesty_burton_charge_max_residual_ok() -> bool {
         && BURTON_MAX_TIMED_CHARGES == 10
         && BURTON_UNIQUE_CHARGE_TARGETS
         && BURTON_CHARGE_UNPACK_TIME_MS == 5_500
-        && BURTON_CHARGE_UNPACK_TIME_FRAMES
-            == mine_ms_to_frames(BURTON_CHARGE_UNPACK_TIME_MS)
+        && BURTON_CHARGE_UNPACK_TIME_FRAMES == mine_ms_to_frames(BURTON_CHARGE_UNPACK_TIME_MS)
         && (BURTON_FLEE_RANGE_AFTER_CHARGE - 100.0).abs() < 0.01
         && BURTON_REMOTE_CHARGE_OBJECT == "RemoteC4Charge"
         && BURTON_TIMED_CHARGE_OBJECT == "TimedC4Charge"
@@ -1101,7 +1088,6 @@ mod tests {
         assert_eq!(CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES, 900);
         assert_eq!(CLUSTER_MINES_SCIENCE_POINT_COST, 1);
     }
-
 
     #[test]
     fn mines_residual_pack_honesty() {

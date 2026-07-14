@@ -43,6 +43,7 @@ jobs:
 
   # Headless host playability composite (no window/WND). Map load is best-effort when
   # retail assets are absent in CI; golden combat/shell/AI still must pass honestly.
+  # Executable smoke boots the real generals binary under xvfb when available.
   behavior-gates:
     name: Behavior gates (headless host)
     runs-on: ubuntu-latest
@@ -58,7 +59,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y pkg-config libx11-dev libxi-dev libxrandr-dev \
-          libasound2-dev libpulse-dev libudev-dev libvulkan-dev
+          libasound2-dev libpulse-dev libudev-dev libvulkan-dev xvfb
 
     - name: shell_smoke_gate
       run: cargo run -p generals_main --bin shell_smoke_gate --release
@@ -66,8 +67,22 @@ jobs:
     - name: golden_skirmish_gate
       run: cargo run -p generals_main --bin golden_skirmish_gate --release
 
+    - name: Build generals binary (for executable smoke)
+      run: cargo build -p generals_main --bin generals --release
+
+    - name: executable_smoke_gate (xvfb)
+      env:
+        EXECUTABLE_SMOKE_TIMEOUT_SECS: "120"
+      run: |
+        # Soft: gate exits non-zero on hard failures; display-less failures are
+        # classified by the binary. xvfb provides a minimal display for winit.
+        xvfb-run -a cargo run -p generals_main --bin executable_smoke_gate --release
+
     - name: behavior_gate
-      run: cargo run -p generals_main --bin behavior_gate --release
+      env:
+        EXECUTABLE_SMOKE_TIMEOUT_SECS: "120"
+      run: |
+        xvfb-run -a cargo run -p generals_main --bin behavior_gate --release
 
   build-all:
     name: Build All Platforms

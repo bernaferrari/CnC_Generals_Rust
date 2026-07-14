@@ -10135,14 +10135,15 @@ impl GameLogic {
                 );
                 let float_pos = Vec3::new(pos.x + dx, pos.y, pos.z + dz);
                 self.black_markets.record_geometry_scatter();
-                self.black_markets.record_floating_text(HostAutoDepositFloatingText::new(
-                    market_id,
-                    float_pos,
-                    deposited,
-                    player_color,
-                    frame,
-                    false,
-                ));
+                self.black_markets
+                    .record_floating_text(HostAutoDepositFloatingText::new(
+                        market_id,
+                        float_pos,
+                        deposited,
+                        player_color,
+                        frame,
+                        false,
+                    ));
             } else {
                 self.black_markets.record_floating_text_suppressed();
             }
@@ -10164,8 +10165,9 @@ impl GameLogic {
     /// Fail-closed: not full InGameUI GPU draw (STEALTHED local display gate residual closed).
     fn update_oil_derrick_deposits(&mut self) {
         use crate::game_logic::host_oil_derrick::{
-            is_legal_oil_derrick_income_source, is_oil_derrick_template, oil_derrick_deposit_amount,
-            HostAutoDepositFloatingText, OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AUDIO,
+            is_legal_oil_derrick_income_source, is_oil_derrick_template,
+            oil_derrick_deposit_amount, HostAutoDepositFloatingText,
+            OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AUDIO,
             OIL_DERRICK_INITIAL_CAPTURE_BONUS,
         };
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
@@ -10226,8 +10228,7 @@ impl GameLogic {
                 .values()
                 .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
             use crate::game_logic::host_oil_derrick::should_display_stealthed_floating_cash;
-            let show_float =
-                should_display_stealthed_floating_cash(stealthed, detected, is_local);
+            let show_float = should_display_stealthed_floating_cash(stealthed, detected, is_local);
 
             // InitialCaptureBonus residual: first non-neutral ownership.
             let bonus = self
@@ -10258,14 +10259,15 @@ impl GameLogic {
                 );
                 let float_pos = Vec3::new(pos.x + dx, pos.y, pos.z + dz);
                 self.oil_derricks.record_geometry_scatter();
-                self.oil_derricks.record_floating_text(HostAutoDepositFloatingText::new(
-                    derrick_id,
-                    float_pos,
-                    bonus,
-                    player_color,
-                    frame,
-                    true,
-                ));
+                self.oil_derricks
+                    .record_floating_text(HostAutoDepositFloatingText::new(
+                        derrick_id,
+                        float_pos,
+                        bonus,
+                        player_color,
+                        frame,
+                        true,
+                    ));
                 self.queue_audio_event(
                     AudioEventRequest::new(OIL_DERRICK_CAPTURE_BONUS_AUDIO)
                         .with_object(derrick_id)
@@ -10308,14 +10310,15 @@ impl GameLogic {
                 );
                 let float_pos = Vec3::new(pos.x + dx, pos.y, pos.z + dz);
                 self.oil_derricks.record_geometry_scatter();
-                self.oil_derricks.record_floating_text(HostAutoDepositFloatingText::new(
-                    derrick_id,
-                    float_pos,
-                    deposited,
-                    player_color,
-                    frame,
-                    false,
-                ));
+                self.oil_derricks
+                    .record_floating_text(HostAutoDepositFloatingText::new(
+                        derrick_id,
+                        float_pos,
+                        deposited,
+                        player_color,
+                        frame,
+                        false,
+                    ));
             } else {
                 self.oil_derricks.record_floating_text_suppressed();
             }
@@ -10508,11 +10511,7 @@ impl GameLogic {
                 }
                 self.hacker_income.record_floating_text(
                     crate::game_logic::host_hacker_income::HostHackerFloatingText::new(
-                        h.id,
-                        float_pos,
-                        deposited,
-                        frame,
-                        h.in_ic,
+                        h.id, float_pos, deposited, frame, h.in_ic,
                     ),
                 );
             } else {
@@ -10754,10 +10753,8 @@ impl GameLogic {
                 self.supply_drop_zones.record_payload_cash(amount, boost);
                 if let Some(player) = self.get_player_mut_by_team(plan.source_team) {
                     player.resources.supplies = player.resources.supplies.saturating_add(amount);
-                    player.statistics.resources_collected = player
-                        .statistics
-                        .resources_collected
-                        .saturating_add(amount);
+                    player.statistics.resources_collected =
+                        player.statistics.resources_collected.saturating_add(amount);
                 }
                 if boost > 0 {
                     self.supply_lines_bonus_cash_total =
@@ -10876,8 +10873,8 @@ impl GameLogic {
                 // or template name containing "parachute".
                 let is_parachute_picker = obj.is_parachuting()
                     || obj.template_name.to_ascii_lowercase().contains("parachute");
-                let is_structure = obj.is_kind_of(KindOf::Structure)
-                    || obj.object_type == ObjectType::Building;
+                let is_structure =
+                    obj.is_kind_of(KindOf::Structure) || obj.object_type == ObjectType::Building;
                 let constructed = obj.is_constructed() && !obj.status.under_construction;
                 Some((
                     *id,
@@ -10977,11 +10974,11 @@ impl GameLogic {
             let Some(entry) = self.host_money_crates.get(crate_id).cloned() else {
                 continue;
             };
-            let has_supply_lines = self.players.values().any(|p| {
-                p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
-            });
-            let (amount, boost) =
-                HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines);
+            let has_supply_lines = self
+                .players
+                .values()
+                .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+            let (amount, boost) = HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines);
             if amount == 0 {
                 continue;
             }
@@ -10993,10 +10990,8 @@ impl GameLogic {
             }
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.resources.supplies = player.resources.supplies.saturating_add(amount);
-                player.statistics.resources_collected = player
-                    .statistics
-                    .resources_collected
-                    .saturating_add(amount);
+                player.statistics.resources_collected =
+                    player.statistics.resources_collected.saturating_add(amount);
             }
             if boost > 0 {
                 self.supply_lines_bonus_cash_total =
@@ -11008,20 +11003,12 @@ impl GameLogic {
                 .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
                 .unwrap_or(Vec3::ZERO);
             // ExecuteAnimation MoneyPickUp residual presentation descriptor.
-            let anim = HostMoneyCrateRegistry::money_pickup_anim(
-                crate_id,
-                picker_id,
-                pos,
-                self.frame,
-            );
+            let anim =
+                HostMoneyCrateRegistry::money_pickup_anim(crate_id, picker_id, pos, self.frame);
             self.host_money_crates.record_money_pickup_anim(anim);
             // Floating cash text residual presentation (`+$N` / GUI:AddCash).
             let floating = HostMoneyCrateRegistry::money_floating_text(
-                crate_id,
-                picker_id,
-                pos,
-                amount,
-                self.frame,
+                crate_id, picker_id, pos, amount, self.frame,
             );
             self.host_money_crates.record_money_floating_text(floating);
             self.queue_audio_event(
@@ -14948,7 +14935,8 @@ impl GameLogic {
 
     /// CreateAtEdge AmericaJetCargoPlane flight residual honesty.
     pub fn honesty_create_at_edge_flight_ok(&self) -> bool {
-        self.host_deliver_payloads.honesty_create_at_edge_flight_ok()
+        self.host_deliver_payloads
+            .honesty_create_at_edge_flight_ok()
     }
 
     /// AmericaCrateParachute bone attach residual honesty.
@@ -16163,10 +16151,7 @@ impl GameLogic {
             // Fail-closed: not full GLAInfantryStingerSoldier AI module.
             use crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target;
             if let Some(site) = self.objects.get_mut(&defense_id) {
-                let n = order_hive_slaves_to_attack_target(
-                    &mut site.hive_slaves,
-                    target_id.0,
-                );
+                let n = order_hive_slaves_to_attack_target(&mut site.hive_slaves, target_id.0);
                 if n > 0 {
                     self.stinger_slave_order_attack_count =
                         self.stinger_slave_order_attack_count.saturating_add(n);
@@ -24915,7 +24900,8 @@ impl GameLogic {
             is_strategy_center_template, strategy_center_gun_in_range,
             strategy_center_mood_target_eligible_with_attitude,
             strategy_center_mood_target_enemy_legal_with_vision,
-            strategy_center_mood_target_in_vision, strategy_center_mood_target_should_clear_with_vision,
+            strategy_center_mood_target_in_vision,
+            strategy_center_mood_target_should_clear_with_vision,
             strategy_center_mood_vision_range, strategy_center_turret_aim_at, HostAiAttitude,
             HostBattlePlan, HostBattlePlanTransition,
         };
@@ -26948,8 +26934,8 @@ impl GameLogic {
                     return None;
                 }
                 let is_infantry = obj.is_kind_of(KindOf::Infantry);
-                let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
-                    || obj.object_type == ObjectType::Vehicle;
+                let is_vehicle =
+                    obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
                 let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
                     || obj.object_type == ObjectType::Aircraft
                     || obj.status.airborne_target;
@@ -26987,9 +26973,7 @@ impl GameLogic {
                 let same_team = *healer_team == *target_team;
                 let is_self = *healer_id == *target_id;
                 let legal = if *is_infantry {
-                    is_legal_ambulance_infantry_heal_target(
-                        true, true, true, same_team, is_self,
-                    )
+                    is_legal_ambulance_infantry_heal_target(true, true, true, same_team, is_self)
                 } else {
                     is_legal_ambulance_vehicle_heal_target(
                         *is_vehicle,
@@ -29784,8 +29768,7 @@ impl GameLogic {
                         continue;
                     }
                     // BodyModule last_damage_source residual for cash bounty killer.
-                    let destroyed =
-                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let destroyed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -31112,17 +31095,13 @@ impl GameLogic {
             .collect();
         // ArtilleryBarrage FormationSize residual from unlocked SCIENCE_ArtilleryBarrage1/2/3.
         let artillery_tier = if kind == HostSuperweaponKind::ArtilleryBarrage {
-            ArtilleryBarrageScienceTier::highest_from_sciences(
-                sciences.iter().map(|s| s.as_str()),
-            )
+            ArtilleryBarrageScienceTier::highest_from_sciences(sciences.iter().map(|s| s.as_str()))
         } else {
             ArtilleryBarrageScienceTier::Level1
         };
         // SpectreGunship OrbitTime residual from unlocked SCIENCE_SpectreGunship1/2/3.
         let spectre_tier = if kind == HostSuperweaponKind::SpectreGunship {
-            SpectreGunshipScienceTier::highest_from_sciences(
-                sciences.iter().map(|s| s.as_str()),
-            )
+            SpectreGunshipScienceTier::highest_from_sciences(sciences.iter().map(|s| s.as_str()))
         } else {
             SpectreGunshipScienceTier::Level2
         };
@@ -31201,8 +31180,7 @@ impl GameLogic {
                     }
                     // BodyModule last_damage_source residual for cash bounty killer
                     // (superweapon blast path — same residual as combat fire).
-                    let destroyed =
-                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let destroyed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -31359,8 +31337,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -31411,8 +31388,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -31463,8 +31439,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -31504,8 +31479,7 @@ impl GameLogic {
             .advance_particle_intensity_schedule(frame);
         // Manual beam driving residual: advance current target toward override
         // before damage / scorch planning (retail update order).
-        self.special_power_strikes
-            .advance_manual_beam_drive(frame);
+        self.special_power_strikes.advance_manual_beam_drive(frame);
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
@@ -31528,8 +31502,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -31554,8 +31527,7 @@ impl GameLogic {
 
         // WidthGrow grow/hold/decay honesty sample (even when no damage pulse due).
         // Retail LASERSTATUS_DECAYING after TotalFiringTime shrinks m_currentWidthScalar.
-        self.special_power_strikes
-            .sample_beam_width_honesty(frame);
+        self.special_power_strikes.sample_beam_width_honesty(frame);
 
         // TotalScorchMarks / GroundHitFX / RevealRange residual (retail STATUS_FIRING).
         // C++: doShroudReveal + undoShroudReveal at current target with RevealRange
@@ -31626,8 +31598,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -40241,7 +40212,7 @@ mod tests {
     #[test]
     fn supply_drop_zone_residual_credits_cash_on_interval() {
         use crate::game_logic::host_deliver_payload::{
-            HostDeliverPayloadKind, HostCargoPlaneFlightPhase, CARGO_PLANE_APPROACH_DELAY_FRAMES,
+            HostCargoPlaneFlightPhase, HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES,
             CARGO_PLANE_DOOR_DELAY_FRAMES, CARGO_PLANE_PREFERRED_HEIGHT,
             SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_PAYLOAD_COUNT,
             SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
@@ -40731,7 +40702,9 @@ mod tests {
                 SUPPLY_DROP_CRATE_MONEY_PROVIDED + SUPPLY_DROP_CRATE_SUPPLY_LINES_BOOST
             )
         );
-        assert!(game_logic.host_money_crates().honesty_supply_lines_boost_ok());
+        assert!(game_logic
+            .host_money_crates()
+            .honesty_supply_lines_boost_ok());
     }
 
     /// Residual: airborne crate blocks unit MoneyCrateCollide; ForbiddenKindOf PROJECTILE.
@@ -40764,9 +40737,7 @@ mod tests {
         if !game_logic.templates.contains_key("TestProjectile") {
             let mut t = ThingTemplate::new("TestProjectile");
             t.add_kind_of(KindOf::Projectile).set_health(1.0);
-            game_logic
-                .templates
-                .insert("TestProjectile".to_string(), t);
+            game_logic.templates.insert("TestProjectile".to_string(), t);
         }
 
         let drop_y = cargo_crate_drop_height(SUPPLY_DROP_DROP_OFFSET_Y);
@@ -40833,10 +40804,7 @@ mod tests {
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
-        assert!(
-            cash_land > cash_before,
-            "landed crate unit pickup residual"
-        );
+        assert!(cash_land > cash_before, "landed crate unit pickup residual");
         assert!(game_logic.honesty_money_pickup_anim_ok());
         assert!(game_logic.honesty_money_floating_text_ok());
 
@@ -48400,7 +48368,10 @@ mod tests {
             .floating_texts
             .last()
             .expect("bounty floating text");
-        assert_eq!(ft.killer_id, attacker_id, "killer id must be attacker residual");
+        assert_eq!(
+            ft.killer_id, attacker_id,
+            "killer id must be attacker residual"
+        );
         assert_eq!(ft.amount, expected_bounty);
         assert_eq!(ft.color_rgba, (255, 255, 0, 255));
     }
@@ -49863,7 +49834,8 @@ mod tests {
 
         // First missile at PreAttackDelay = 90 frames (multi-missile residual).
         use crate::game_logic::special_power_strikes::{
-            multi_strike_last_impact_frame, ArtilleryBarrageScienceTier, SCUD_STORM_PRE_ATTACK_FRAMES,
+            multi_strike_last_impact_frame, ArtilleryBarrageScienceTier,
+            SCUD_STORM_PRE_ATTACK_FRAMES,
         };
         game_logic.frame = SCUD_STORM_PRE_ATTACK_FRAMES;
         game_logic.update_special_power_strikes();
@@ -49920,9 +49892,7 @@ mod tests {
             "ClipSize 9 multi-missile residual must apply all missiles"
         );
         assert!(
-            game_logic
-                .special_power_strikes()
-                .honesty_toxin_ok(),
+            game_logic.special_power_strikes().honesty_toxin_ok(),
             "ScudStorm must spawn LargePoisonField residual"
         );
         assert!(
@@ -56744,8 +56714,11 @@ mod tests {
                 (s.hive_slaves[0].facing_deg - facings[0]).abs() < 0.01,
                 "SpawnPoint facing residual must match host layout"
             );
-            let attach =
-                build_hive_slave_attach_presentation(&s.hive_slaves, s.get_position().x, s.get_position().z);
+            let attach = build_hive_slave_attach_presentation(
+                &s.hive_slaves,
+                s.get_position().x,
+                s.get_position().z,
+            );
             assert_eq!(attach[0].template_name, STINGER_SPAWN_TEMPLATE);
             assert!((attach[0].facing_deg - facings[0]).abs() < 0.01);
         }
@@ -56753,9 +56726,11 @@ mod tests {
             let s = game_logic.find_object_mut(stinger_id).unwrap();
             let n = order_hive_slaves_to_attack_target(&mut s.hive_slaves, 1234);
             assert!(n >= 1);
-            assert!(s.hive_slaves.iter().filter(|sl| sl.alive).all(|sl| {
-                sl.ai_attacking && sl.attack_target_id == 1234
-            }));
+            assert!(s
+                .hive_slaves
+                .iter()
+                .filter(|sl| sl.alive)
+                .all(|sl| { sl.ai_attacking && sl.attack_target_id == 1234 }));
             let n_idle = order_hive_slaves_to_go_idle(&mut s.hive_slaves);
             assert!(n_idle >= 1);
             assert!(s

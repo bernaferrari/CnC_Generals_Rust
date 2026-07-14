@@ -179,8 +179,7 @@ pub fn is_tomahawk_template(template_name: &str) -> bool {
         return false;
     }
     // Living vehicle residual: *VehicleTomahawk* / *Tomahawk* chassis names.
-    n.contains("vehicletomahawk")
-        || (n.contains("tomahawk") && !n.contains("missile"))
+    n.contains("vehicletomahawk") || (n.contains("tomahawk") && !n.contains("missile"))
 }
 
 /// Whether residual fire should apply Tomahawk residual path.

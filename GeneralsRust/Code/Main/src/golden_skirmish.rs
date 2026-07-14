@@ -796,19 +796,15 @@ fn fight_enemies_with_rangers(
     const MARCH_SPEED: f32 = SLICE_MARCH_SPEED;
 
     // --- Initial pure march toward primary / first enemy ---
-    let initial_target = primary_target.filter(|id| {
-        logic
-            .get_object(*id)
-            .map(|o| o.is_alive())
-            .unwrap_or(false)
-    })
-    .or_else(|| {
-        logic
-            .get_objects()
-            .values()
-            .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
-            .map(|o| o.id)
-    });
+    let initial_target = primary_target
+        .filter(|id| logic.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
+        .or_else(|| {
+            logic
+                .get_objects()
+                .values()
+                .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+                .map(|o| o.id)
+        });
     if let Some(tid) = initial_target {
         if let Some(ep) = logic.get_object(tid).map(|o| o.get_position()) {
             let live = live_rangers(logic, rangers);
@@ -927,9 +923,7 @@ fn fight_enemies_with_rangers(
                 / (live.len() as f32).max(1.0);
             let dist = horiz_distance(centroid, ep);
             let mini = (((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 180).clamp(30, 4800);
-            let _ = run_until(logic, mini, |g| {
-                any_ranger_in_weapon_range(g, &live, ep)
-            });
+            let _ = run_until(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep));
         }
 
         let in_range = any_ranger_in_weapon_range(logic, &live, ep);
@@ -994,7 +988,11 @@ fn fight_enemies_with_rangers(
             // advance between re-paths (3 frames ≈ 0.1s was too little after stall).
             let far = live
                 .iter()
-                .filter_map(|id| logic.get_object(*id).map(|o| horiz_distance(o.get_position(), ep)))
+                .filter_map(|id| {
+                    logic
+                        .get_object(*id)
+                        .map(|o| horiz_distance(o.get_position(), ep))
+                })
                 .fold(0.0_f32, f32::max);
             let step_frames = if far > 400.0 {
                 12
@@ -1178,14 +1176,13 @@ fn run_synthetic_host_skirmish(
             },
             vec![bid],
         );
-        let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success
-            || {
-                let mut any = false;
-                for _ in 0..8 {
-                    any |= logic.enqueue_production(bid, "GoldenRanger".into());
-                }
-                any
-            };
+        let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success || {
+            let mut any = false;
+            for _ in 0..8 {
+                any |= logic.enqueue_production(bid, "GoldenRanger".into());
+            }
+            any
+        };
         produced = queue_ok
             && run_until(logic, 360, |g| {
                 g.get_objects()
@@ -1238,8 +1235,13 @@ fn run_synthetic_host_skirmish(
     );
     // GoldenRanger template damage is 25 (not store 5); still no floor raise.
     // Synthetic world is short-range — retail speed is fine.
-    let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
-        fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200);
+    let (
+        fought,
+        all_cleared,
+        combat_no_teleport_ok,
+        combat_realistic_speed_ok,
+        combat_store_damage_ok,
+    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200);
 
     let frame_before = logic.get_frame();
     run_frames(logic, frames.max(1) as usize);
@@ -1342,7 +1344,11 @@ fn run_map_world_skirmish(
     // --- Supply center for QueueUpgrade path (retail USA_SupplyCenter preferred) ---
     let supply_name = first_present_template(
         logic,
-        &["USA_SupplyCenter", "AmericaSupplyCenter", "GoldenSupplyCenter"],
+        &[
+            "USA_SupplyCenter",
+            "AmericaSupplyCenter",
+            "GoldenSupplyCenter",
+        ],
     )
     .unwrap_or_else(|| "GoldenSupplyCenter".into());
     let supply_center = logic
@@ -1515,13 +1521,11 @@ fn run_map_world_skirmish(
     let mut ranger_name_used = String::new();
     if let Some(bid) = barracks_id {
         ensure_human_economy(logic, 10_000, 500);
-        let ranger_candidates: Vec<String> = match first_present_template(
-            logic,
-            &["USA_Ranger", "AmericaInfantryRanger"],
-        ) {
-            Some(name) => vec![name, "GoldenRanger".into()],
-            None => vec!["GoldenRanger".into()],
-        };
+        let ranger_candidates: Vec<String> =
+            match first_present_template(logic, &["USA_Ranger", "AmericaInfantryRanger"]) {
+                Some(name) => vec![name, "GoldenRanger".into()],
+                None => vec!["GoldenRanger".into()],
+            };
         for rname in &ranger_candidates {
             ensure_human_economy(logic, 15_000, 500);
             // More rangers compensate for store damage (~5) vs prior floor (40).
@@ -1536,14 +1540,13 @@ fn run_map_world_skirmish(
                 },
                 vec![bid],
             );
-            let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success
-                || {
-                    let mut any = false;
-                    for _ in 0..16 {
-                        any |= logic.enqueue_production(bid, rname.clone());
-                    }
-                    any
-                };
+            let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success || {
+                let mut any = false;
+                for _ in 0..16 {
+                    any |= logic.enqueue_production(bid, rname.clone());
+                }
+                any
+            };
             if !queue_ok {
                 continue;
             }
@@ -1699,13 +1702,13 @@ fn run_map_world_skirmish(
             })
             .or_else(|| find_map_enemy_structure(logic))
             .or_else(|| find_any_enemy(logic));
-        let (f, c, t, s, d) =
-            fight_enemies_with_rangers(logic, &wave_rangers, focus, fight_rounds);
+        let (f, c, t, s, d) = fight_enemies_with_rangers(logic, &wave_rangers, focus, fight_rounds);
         fought |= f;
         all_cleared = c
-            && !logic.get_objects().values().any(|o| {
-                o.team != Team::USA && o.team != Team::Neutral && o.is_alive()
-            });
+            && !logic
+                .get_objects()
+                .values()
+                .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
         combat_no_teleport_ok &= t;
         combat_realistic_speed_ok &= s;
         combat_store_damage_ok &= d;
@@ -2007,7 +2010,12 @@ mod tests {
         assert!(result.fought, "AttackObject path");
         assert!(result.victory, "VictoryCondition::Winner(0)");
         assert!(result.save_load_ok, "save/load round-trip");
-        assert_eq!(result.status, "success", "{}", format_golden_report(&result));
+        assert_eq!(
+            result.status,
+            "success",
+            "{}",
+            format_golden_report(&result)
+        );
         assert!(
             !result.ai_disabled_for_slice,
             "opponent AI stays active for this slice"
@@ -2195,11 +2203,11 @@ mod tests {
     fn golden_skirmish_synthetic_when_map_absent() {
         // Force synthetic path with a non-existent map identity.
         let result = run_golden_skirmish(Some("/nonexistent/no_such_map.map"), 8);
+        assert!(!result.map_loaded, "missing map must not report loaded");
         assert!(
-            !result.map_loaded,
-            "missing map must not report loaded"
+            result.synthetic_combat,
+            "absent map => synthetic host combat"
         );
-        assert!(result.synthetic_combat, "absent map => synthetic host combat");
         assert!(!result.playable_claim, "absent map => no playable_claim");
         assert!(
             !result.retail_production_chain_ok,
@@ -2209,7 +2217,12 @@ mod tests {
             !result.retail_gather_ok,
             "absent map => no retail gather claim"
         );
-        assert_eq!(result.status, "success", "{}", format_golden_report(&result));
+        assert_eq!(
+            result.status,
+            "success",
+            "{}",
+            format_golden_report(&result)
+        );
         assert!(result.victory);
     }
 }

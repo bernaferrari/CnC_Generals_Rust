@@ -193,12 +193,9 @@ impl HostBlackMarketRegistry {
     /// Ensure market is tracked; returns the next deposit frame for this market.
     /// Matches C++ AutoDepositUpdate ctor: depositOnFrame = now + depositFrame.
     pub fn ensure_scheduled(&mut self, market_id: ObjectId, current_frame: u32) -> u32 {
-        *self
-            .next_deposit_frame
-            .entry(market_id)
-            .or_insert_with(|| {
-                current_frame.saturating_add(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES.max(1))
-            })
+        *self.next_deposit_frame.entry(market_id).or_insert_with(|| {
+            current_frame.saturating_add(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES.max(1))
+        })
     }
 
     /// When due, schedule next interval and record a deposit of `amount`.
@@ -237,8 +234,7 @@ impl HostBlackMarketRegistry {
 
     /// Record structure geometry scatter residual application on floating text.
     pub fn record_geometry_scatter(&mut self) {
-        self.geometry_scatter_applications =
-            self.geometry_scatter_applications.saturating_add(1);
+        self.geometry_scatter_applications = self.geometry_scatter_applications.saturating_add(1);
     }
 
     /// Residual honesty: STEALTHED local display gate suppressed at least one text.
@@ -287,7 +283,6 @@ impl HostBlackMarketRegistry {
         self.honesty_deposit_ok()
     }
 }
-
 
 // --- Wave 68 residual honesty packs ---
 

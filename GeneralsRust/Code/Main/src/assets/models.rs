@@ -824,10 +824,7 @@ impl W3DLoader {
     pub fn load_model_from_path(&self, path: &std::path::Path) -> Result<W3DModel> {
         let data = std::fs::read(path)
             .map_err(|e| anyhow!("failed to read W3D '{}': {e}", path.display()))?;
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("model");
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
         self.load_model_from_bytes(&data, name)
     }
 

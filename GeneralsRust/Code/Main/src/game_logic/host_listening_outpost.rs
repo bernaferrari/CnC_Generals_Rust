@@ -277,9 +277,7 @@ pub fn is_listening_outpost_template(template_name: &str) -> bool {
     {
         return false;
     }
-    n.contains("listeningoutpost")
-        || n.contains("listening_outpost")
-        || n == "testlisteningoutpost"
+    n.contains("listeningoutpost") || n.contains("listening_outpost") || n == "testlisteningoutpost"
 }
 
 /// Whether residual spawn should install detector fields.
@@ -346,7 +344,6 @@ pub fn preferred_payload_template(
         None
     }
 }
-
 
 // --- Wave 68 residual honesty packs ---
 
@@ -438,13 +435,25 @@ mod tests {
 
     #[test]
     fn listening_outpost_name_matrix() {
-        assert!(is_listening_outpost_template("ChinaVehicleListeningOutpost"));
-        assert!(is_listening_outpost_template("Tank_ChinaVehicleListeningOutpost"));
-        assert!(is_listening_outpost_template("Nuke_ChinaVehicleListeningOutpost"));
-        assert!(is_listening_outpost_template("Infa_ChinaVehicleListeningOutpost"));
+        assert!(is_listening_outpost_template(
+            "ChinaVehicleListeningOutpost"
+        ));
+        assert!(is_listening_outpost_template(
+            "Tank_ChinaVehicleListeningOutpost"
+        ));
+        assert!(is_listening_outpost_template(
+            "Nuke_ChinaVehicleListeningOutpost"
+        ));
+        assert!(is_listening_outpost_template(
+            "Infa_ChinaVehicleListeningOutpost"
+        ));
         assert!(is_listening_outpost_template("TestListeningOutpost"));
-        assert!(!is_listening_outpost_template("ListeningOutpostUpgradedDummyWeapon"));
-        assert!(!is_listening_outpost_template("ChinaVehicleListeningOutpostDeadHull"));
+        assert!(!is_listening_outpost_template(
+            "ListeningOutpostUpgradedDummyWeapon"
+        ));
+        assert!(!is_listening_outpost_template(
+            "ChinaVehicleListeningOutpostDeadHull"
+        ));
         assert!(!is_listening_outpost_template("China_BattlemasterTank"));
         assert!(!is_listening_outpost_template("AmericaVehicleSentryDrone"));
         assert!(!is_listening_outpost_template("ListeningOutpostLocomotor"));

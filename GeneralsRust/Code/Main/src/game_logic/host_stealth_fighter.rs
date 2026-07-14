@@ -154,10 +154,7 @@ pub fn is_stealth_fighter_template(template_name: &str) -> bool {
         return false;
     }
     // Explicit residual test / shorthand names.
-    if n == "usastealthfighter"
-        || n == "teststealthfighter"
-        || n == "americajetstealthfighter"
-    {
+    if n == "usastealthfighter" || n == "teststealthfighter" || n == "americajetstealthfighter" {
         return true;
     }
     // Exclude non-living residual objects / projectiles / science tokens.
@@ -318,8 +315,7 @@ pub fn honesty_stealth_bunker_buster_related_residual_ok() -> bool {
         && STEALTH_BUNKER_BUSTER_CRASH_FX_FREQ_MS == 571
         && crate::game_logic::host_bunker_buster::UPGRADE_AMERICA_BUNKER_BUSTERS
             == STEALTH_BUNKER_BUSTER_UPGRADE
-        && (crate::game_logic::host_bunker_buster::BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT - 1.5)
-            .abs()
+        && (crate::game_logic::host_bunker_buster::BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT - 1.5).abs()
             < 0.01
         && (crate::game_logic::host_bunker_buster::BUNKER_BUSTER_OCCUPANT_DAMAGE - 400.0).abs()
             < 0.01
@@ -411,12 +407,22 @@ mod tests {
 
     #[test]
     fn template_science_gate_matrix() {
-        assert!(requires_stealth_fighter_science(AMERICA_JET_STEALTH_FIGHTER));
-        assert!(requires_stealth_fighter_science("SupW_AmericaJetStealthFighter"));
-        assert!(requires_stealth_fighter_science("Lazr_AmericaJetStealthFighter"));
-        assert!(requires_stealth_fighter_science("CINE_AmericaJetStealthFighter"));
+        assert!(requires_stealth_fighter_science(
+            AMERICA_JET_STEALTH_FIGHTER
+        ));
+        assert!(requires_stealth_fighter_science(
+            "SupW_AmericaJetStealthFighter"
+        ));
+        assert!(requires_stealth_fighter_science(
+            "Lazr_AmericaJetStealthFighter"
+        ));
+        assert!(requires_stealth_fighter_science(
+            "CINE_AmericaJetStealthFighter"
+        ));
         assert!(requires_stealth_fighter_science(USA_STEALTH_FIGHTER));
-        assert!(!requires_stealth_fighter_science("AirF_AmericaJetStealthFighter"));
+        assert!(!requires_stealth_fighter_science(
+            "AirF_AmericaJetStealthFighter"
+        ));
         assert!(!requires_stealth_fighter_science("USA_Raptor"));
         assert!(!requires_stealth_fighter_science("TestAircraft"));
     }
@@ -437,8 +443,14 @@ mod tests {
 
     #[test]
     fn production_gate_requires_science() {
-        assert!(!player_may_produce_stealth_aircraft(false, AMERICA_JET_STEALTH_FIGHTER));
-        assert!(player_may_produce_stealth_aircraft(true, AMERICA_JET_STEALTH_FIGHTER));
+        assert!(!player_may_produce_stealth_aircraft(
+            false,
+            AMERICA_JET_STEALTH_FIGHTER
+        ));
+        assert!(player_may_produce_stealth_aircraft(
+            true,
+            AMERICA_JET_STEALTH_FIGHTER
+        ));
         assert!(player_may_produce_stealth_aircraft(
             false,
             "AirF_AmericaJetStealthFighter"

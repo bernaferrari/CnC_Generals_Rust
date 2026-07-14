@@ -150,15 +150,13 @@ pub fn is_missile_defender_template(template_name: &str) -> bool {
         || n.contains("locomotor")
         || n.contains("voice")
         || n.contains("exhaust")
-        || n.ends_with("missile") // MissileDefenderMissile projectile object
+        || n.ends_with("missile")
+    // MissileDefenderMissile projectile object
     {
         return false;
     }
     // Explicit residual test / shorthand names.
-    if n == "testmissiledefender"
-        || n == "usa_missiledefender"
-        || n == "usa_missile_defender"
-    {
+    if n == "testmissiledefender" || n == "usa_missiledefender" || n == "usa_missile_defender" {
         return true;
     }
     n.contains("missiledefender") || n.contains("missile_defender")
@@ -383,12 +381,20 @@ mod tests {
 
     #[test]
     fn missile_defender_name_matrix() {
-        assert!(is_missile_defender_template("AmericaInfantryMissileDefender"));
+        assert!(is_missile_defender_template(
+            "AmericaInfantryMissileDefender"
+        ));
         assert!(is_missile_defender_template("USA_MissileDefender"));
-        assert!(is_missile_defender_template("SupW_AmericaInfantryMissileDefender"));
+        assert!(is_missile_defender_template(
+            "SupW_AmericaInfantryMissileDefender"
+        ));
         assert!(is_missile_defender_template("TestMissileDefender"));
-        assert!(!is_missile_defender_template("MissileDefenderMissileWeapon"));
-        assert!(!is_missile_defender_template("MissileDefenderLaserGuidedMissileWeapon"));
+        assert!(!is_missile_defender_template(
+            "MissileDefenderMissileWeapon"
+        ));
+        assert!(!is_missile_defender_template(
+            "MissileDefenderLaserGuidedMissileWeapon"
+        ));
         assert!(!is_missile_defender_template("MissileDefenderMissile"));
         assert!(!is_missile_defender_template("MissileDefenderLocomotor"));
         assert!(!is_missile_defender_template("AmericaInfantryRanger"));

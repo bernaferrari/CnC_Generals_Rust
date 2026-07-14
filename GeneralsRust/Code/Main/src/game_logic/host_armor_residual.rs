@@ -251,7 +251,10 @@ pub fn build_structure_armor_residual() -> ArmorTemplate {
     t.set_coefficient(DamageType::Flame, STRUCTURE_ARMOR_FLAME);
     t.set_coefficient(DamageType::SubdualMissile, 0.0);
     t.set_coefficient(DamageType::SubdualVehicle, 0.0);
-    t.set_coefficient(DamageType::SubdualBuilding, STRUCTURE_ARMOR_SUBDUAL_BUILDING);
+    t.set_coefficient(
+        DamageType::SubdualBuilding,
+        STRUCTURE_ARMOR_SUBDUAL_BUILDING,
+    );
     t
 }
 
@@ -546,7 +549,10 @@ pub fn ensure_host_armor_residual_seed() -> usize {
     let mut added = 0usize;
     let seeds: &[(&str, fn() -> ArmorTemplate)] = &[
         (PROJECTILE_ARMOR, build_projectile_armor_residual),
-        (HAZARDOUS_MATERIAL_ARMOR, build_hazardous_material_armor_residual),
+        (
+            HAZARDOUS_MATERIAL_ARMOR,
+            build_hazardous_material_armor_residual,
+        ),
         // Wave 92 expand:
         (HUMAN_ARMOR, build_human_armor_residual),
         (TANK_ARMOR, build_tank_armor_residual),
@@ -719,10 +725,19 @@ pub fn honesty_armor_residual_expand_wave92() -> bool {
         && approx_eq(structure.adjust_damage(DamageType::Gattling, 100.0), 10.0)
         && approx_eq(structure.adjust_damage(DamageType::Radiation, 100.0), 0.0)
         && approx_eq(structure.adjust_damage(DamageType::Sniper, 100.0), 0.0)
-        && approx_eq(structure.adjust_damage(DamageType::ParticleBeam, 100.0), 200.0)
-        && approx_eq(structure.adjust_damage(DamageType::AuroraBomb, 100.0), 250.0)
+        && approx_eq(
+            structure.adjust_damage(DamageType::ParticleBeam, 100.0),
+            200.0,
+        )
+        && approx_eq(
+            structure.adjust_damage(DamageType::AuroraBomb, 100.0),
+            250.0,
+        )
         && approx_eq(structure.adjust_damage(DamageType::Flame, 100.0), 50.0)
-        && approx_eq(structure.adjust_damage(DamageType::SubdualBuilding, 100.0), 100.0)
+        && approx_eq(
+            structure.adjust_damage(DamageType::SubdualBuilding, 100.0),
+            100.0,
+        )
         && approx_eq(structure.adjust_damage(DamageType::LandMine, 100.0), 0.0);
 
     let airplane = build_airplane_armor_residual();
@@ -738,13 +753,22 @@ pub fn honesty_armor_residual_expand_wave92() -> bool {
         && approx_eq(truck.adjust_damage(DamageType::Gattling, 100.0), 50.0)
         && approx_eq(truck.adjust_damage(DamageType::Sniper, 100.0), 0.0)
         && approx_eq(truck.adjust_damage(DamageType::KillPilot, 100.0), 100.0)
-        && approx_eq(truck.adjust_damage(DamageType::SubdualVehicle, 100.0), 100.0)
+        && approx_eq(
+            truck.adjust_damage(DamageType::SubdualVehicle, 100.0),
+            100.0,
+        )
         && approx_eq(truck.adjust_damage(DamageType::Melee, 100.0), 0.0);
 
     // Store residual: Wave 92 templates registered (INI or seed).
-    let store_ok = [HUMAN_ARMOR, TANK_ARMOR, STRUCTURE_ARMOR, AIRPLANE_ARMOR, TRUCK_ARMOR]
-        .iter()
-        .all(|n| TheArmorStore::find_template(&AsciiString::from(*n)).is_some());
+    let store_ok = [
+        HUMAN_ARMOR,
+        TANK_ARMOR,
+        STRUCTURE_ARMOR,
+        AIRPLANE_ARMOR,
+        TRUCK_ARMOR,
+    ]
+    .iter()
+    .all(|n| TheArmorStore::find_template(&AsciiString::from(*n)).is_some());
 
     // If store loaded full Armor.ini, verify key scalars still match residual.
     let store_coeff_ok = match (
