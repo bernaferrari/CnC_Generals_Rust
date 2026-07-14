@@ -5974,6 +5974,8 @@ impl CnCGameEngine {
                     panic!("{e}");
                 }
             }
+            // Optional GameWorld shadow parity (counts/frame). Opt-in via env.
+            let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&self.game_logic);
 
             // C++ parity: when script time-freeze is active, gameplay simulation should not
             // advance outside script evaluation.

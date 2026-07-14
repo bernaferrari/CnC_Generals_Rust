@@ -4089,9 +4089,10 @@ mod react_to_body_damage_tests {
         drawable.react_to_body_damage_state_change(BodyDamageType::Pristine);
         let flags = drawable.get_model_conditions();
         assert_eq!(
-            flags & (ModelConditionFlags::DAMAGED
-                | ModelConditionFlags::REALLYDAMAGED
-                | ModelConditionFlags::RUBBLE),
+            flags
+                & (ModelConditionFlags::DAMAGED
+                    | ModelConditionFlags::REALLYDAMAGED
+                    | ModelConditionFlags::RUBBLE),
             ModelConditionFlags::empty(),
             "Pristine clears all three damage condition bits"
         );
@@ -4106,12 +4107,8 @@ mod react_to_body_damage_tests {
             BodyDamageType::ReallyDamaged,
             BodyDamageType::Rubble,
         ] {
-            let mut drawable = Drawable::new(
-                2,
-                INVALID_ID,
-                "DamageMap".to_string(),
-                DrawableType::Static,
-            );
+            let mut drawable =
+                Drawable::new(2, INVALID_ID, "DamageMap".to_string(), DrawableType::Static);
             // Pre-set all three so we can observe exclusive set.
             drawable.set_model_condition_state(
                 ModelConditionFlags::DAMAGED

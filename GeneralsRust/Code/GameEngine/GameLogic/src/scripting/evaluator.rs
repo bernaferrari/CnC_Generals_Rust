@@ -4496,9 +4496,9 @@ impl ScriptEvaluator {
         let flag_name = flag_param.get_string();
         let flag_value = value_param.get_int() != 0;
 
-        if let Some(result) = super::engine::with_script_engine_mut(|engine| {
-            engine.set_flag(flag_name, flag_value)
-        }) {
+        if let Some(result) =
+            super::engine::with_script_engine_mut(|engine| engine.set_flag(flag_name, flag_value))
+        {
             result?;
             log::debug!("Set flag '{}' to {}", flag_name, flag_value);
             return Ok(());

@@ -3425,11 +3425,7 @@ impl Player {
         {
             self.demo_instant_build
         }
-        #[cfg(not(any(
-            debug_assertions,
-            feature = "internal",
-            feature = "allow_debug_cheats"
-        )))]
+        #[cfg(not(any(debug_assertions, feature = "internal", feature = "allow_debug_cheats")))]
         {
             false
         }
