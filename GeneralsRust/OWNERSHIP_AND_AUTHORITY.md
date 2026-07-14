@@ -69,7 +69,9 @@ Move channel: `SetTransform` mutations + `apply_host_positions_as_transforms`.
 
 Shadow session **defaults on** in the engine (`GENERALS_GAMEWORLD_SHADOW=0` to disable). Entity.attack_target mirrors host Object::target; SetAttackTarget mutation available.
 
-Still not production authority for the full sim.
+**Production defaults (2026-07-14):** shadow session, damage authority, and economy authority are **on** when env unset. Opt out with `=0` / `false`. `host_attack_log` from `Object::set_target` → SetAttackTarget each tick.
+
+Still not sole GameWorld production authority for AI/path/full combat sim.
 
 ### Damage authority cutover (opt-in)
 

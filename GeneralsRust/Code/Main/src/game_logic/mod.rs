@@ -7,6 +7,7 @@ pub mod host_ai_ability_upgrade_residual;
 pub mod host_damage_log;
 pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
 pub mod host_destroy_log;
+pub mod host_attack_log;
 pub mod host_economy_log;
 pub mod host_spawn_log;
 pub use host_economy_log::{drain as drain_host_economy_events, HostEconomyEvent};

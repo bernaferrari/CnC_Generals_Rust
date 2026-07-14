@@ -79,41 +79,38 @@ pub fn gameworld_shadow_enabled() -> bool {
 /// on the shadow and writebacks health/destroyed onto host objects.
 /// Implies a shadow session (separate GENERALS_GAMEWORLD_SHADOW not required).
 ///
-/// Env: `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=1|true` on; `0|false` off; unset = off
-/// unless [`ensure_gate_damage_authority`] ran (gates default-on).
+/// Env: `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0|false` off; unset/`1` = **on** (production default).
 pub fn gameworld_damage_authority_enabled() -> bool {
     match std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY") {
         Ok(v) => {
             let v = v.trim();
-            !(v.is_empty()
-                || v == "0"
+            !(v == "0"
                 || v.eq_ignore_ascii_case("false")
                 || v.eq_ignore_ascii_case("off")
                 || v.eq_ignore_ascii_case("no"))
         }
-        Err(_) => false,
+        Err(_) => true,
     }
 }
 
-/// Economy last-writer (player supplies/power) opt-in.
+/// Economy last-writer (player supplies/power). Unset = **on**; `0|false` off.
 pub fn gameworld_economy_authority_enabled() -> bool {
     match std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY") {
         Ok(v) => {
             let v = v.trim();
-            !(v.is_empty()
-                || v == "0"
+            !(v == "0"
                 || v.eq_ignore_ascii_case("false")
                 || v.eq_ignore_ascii_case("off")
                 || v.eq_ignore_ascii_case("no"))
         }
-        Err(_) => false,
+        Err(_) => true,
     }
 }
 
-/// Gates/smoke: default-enable damage authority unless user already set the env.
+/// Gates/smoke: no-op when production defaults are already on.
+/// Still forces `1` if env was never set (explicit documentation for gate binaries).
 pub fn ensure_gate_damage_authority() {
     if std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_none() {
-        // SAFETY: single-threaded gate processes; set before engine start.
         unsafe {
             std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
         }
@@ -121,7 +118,7 @@ pub fn ensure_gate_damage_authority() {
     ensure_gate_economy_authority();
 }
 
-/// Gates/smoke: default-enable economy authority unless user already set the env.
+/// Gates/smoke: force economy authority env to `1` when unset.
 pub fn ensure_gate_economy_authority() {
     if std::env::var_os("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").is_none() {
         unsafe {
@@ -538,6 +535,24 @@ impl GameWorldShadow {
         true
     }
 
+    /// Sync host Object::target onto shadow via SetAttackTarget mutations.
+    pub fn apply_host_attack_targets(&mut self, logic: &GameLogic) -> usize {
+        let mut queued = 0usize;
+        let keys: Vec<u32> = self.host_to_entity.keys().copied().collect();
+        for hid in keys {
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
+            if self.queue_set_attack_target_for_host(ObjectId(hid), obj.target) {
+                queued += 1;
+            }
+        }
+        if queued > 0 {
+            let _ = self.apply_pending();
+        }
+        queued
+    }
+
     /// Push current host positions onto shadow via SetTransform mutations.
     pub fn apply_host_positions_as_transforms(&mut self, logic: &GameLogic) -> usize {
         let mut queued = 0usize;
@@ -768,6 +783,7 @@ pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadow
     let events = crate::game_logic::host_damage_log::drain();
     let _spawns = crate::game_logic::host_spawn_log::drain();
     let _destroys = crate::game_logic::host_destroy_log::drain();
+    let _atks = crate::game_logic::host_attack_log::drain();
     let (shadow, _probe) = probe_host_vs_gameworld(logic);
     // Events already reflected in host health; sync copies health. Log size is the
     // combat-bridge signal.
@@ -797,6 +813,7 @@ pub fn shadow_session_after_host_tick(
     let events = crate::game_logic::host_damage_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
+    let attack_events = crate::game_logic::host_attack_log::drain();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply events as mutations.
     let write_health = !(auth && !events.is_empty());
@@ -805,6 +822,13 @@ pub fn shadow_session_after_host_tick(
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
+    for ev in &attack_events {
+        let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
+    }
+    if !attack_events.is_empty() {
+        let _ = shadow.apply_pending();
+    }
+    let _atks = shadow.apply_host_attack_targets(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -1192,6 +1216,54 @@ mod tests {
             shadow.entity_for_host(id).is_none(),
             "entity unmapped after destroy"
         );
+    }
+
+    #[test]
+    fn production_authority_defaults_on() {
+        // Unset → on. Process may have gate env from other tests; only assert when unset.
+        if std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_none() {
+            assert!(gameworld_damage_authority_enabled());
+        }
+        if std::env::var_os("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").is_none() {
+            assert!(gameworld_economy_authority_enabled());
+        }
+    }
+
+    #[test]
+    fn attack_log_feeds_set_attack_target_mutation() {
+        crate::game_logic::host_attack_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AtkLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "LogA", 100.0);
+        ensure_template(&mut logic, "LogB", 100.0);
+        let a = logic
+            .create_object("LogA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let b = logic
+            .create_object("LogB", Team::GLA, glam::Vec3::new(15.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&a) {
+            obj.set_target(Some(b));
+        }
+        let evs = crate::game_logic::host_attack_log::drain();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].attacker, a);
+        assert_eq!(evs[0].target, Some(b));
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Clear then re-apply via log channel
+        let ea = shadow.entity_for_host(a).unwrap();
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(ea) {
+            e.attack_target = None;
+        }
+        for ev in &evs {
+            assert!(shadow.queue_set_attack_target_for_host(ev.attacker, ev.target));
+        }
+        let _ = shadow.apply_pending();
+        let eb = shadow.entity_for_host(b).unwrap();
+        assert_eq!(shadow.world().entity(ea).unwrap().attack_target, Some(eb));
     }
 
     #[test]

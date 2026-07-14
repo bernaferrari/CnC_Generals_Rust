@@ -2138,6 +2138,7 @@ impl Object {
             self.ai_state = AIState::Idle;
             self.status.attacking = false;
         }
+        crate::game_logic::host_attack_log::record(self.id, target);
     }
 
     /// Check whether this object can fire the requested special power.
