@@ -1835,11 +1835,15 @@ impl CnCGameEngine {
             .map(|p| p.team);
         let local_mobile_units = local_team
             .map(|team| {
-                self.game_logic
-                    .get_objects()
-                    .values()
-                    .filter(|o| o.team == team && o.is_alive() && o.is_mobile())
-                    .count() as u32
+                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.count_mobile_friendlies(team)
+                } else {
+                    self.game_logic
+                        .get_objects()
+                        .values()
+                        .filter(|o| o.team == team && o.is_alive() && o.is_mobile())
+                        .count() as u32
+                }
             })
             .unwrap_or(0);
 
@@ -2177,16 +2181,31 @@ impl CnCGameEngine {
                         .get_player(self.current_player_id)
                         .map(|p| p.team);
                     let producer = team.and_then(|team| {
-                        self.game_logic
-                            .get_objects()
-                            .iter()
-                            .find(|(_, o)| {
-                                o.team == team
-                                    && o.is_alive()
-                                    && o.is_constructed()
-                                    && o.building_data.is_some()
+                        if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame.first_constructed_producer_id(team).or_else(|| {
+                                self.game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.is_constructed()
+                                            && o.building_data.is_some()
+                                    })
+                                    .map(|(id, _)| *id)
                             })
-                            .map(|(id, _)| *id)
+                        } else {
+                            self.game_logic
+                                .get_objects()
+                                .iter()
+                                .find(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.is_constructed()
+                                        && o.building_data.is_some()
+                                })
+                                .map(|(id, _)| *id)
+                        }
                     });
                     if let Some(pid) = producer {
                         if self.game_logic.enqueue_production(pid, template.clone()) {
@@ -2210,11 +2229,21 @@ impl CnCGameEngine {
                         .get_player(self.current_player_id)
                         .map(|p| p.team);
                     let pick = team.and_then(|team| {
-                        self.game_logic
-                            .get_objects()
-                            .iter()
-                            .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-                            .map(|(id, _)| *id)
+                        if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame.first_mobile_friendly_id(team).or_else(|| {
+                                self.game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                                    .map(|(id, _)| *id)
+                            })
+                        } else {
+                            self.game_logic
+                                .get_objects()
+                                .iter()
+                                .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                                .map(|(id, _)| *id)
+                        }
                     });
                     if let Some(id) = pick {
                         self.selected_objects = vec![id];
@@ -2264,14 +2293,29 @@ impl CnCGameEngine {
                     if selected == 0 {
                         self.runtime_host_last_gameplay_cmd = "attack_fail_no_selection".into();
                     } else if let Some(team) = team {
-                        let enemy = self
-                            .game_logic
-                            .get_objects()
-                            .iter()
-                            .find(|(_, o)| {
-                                o.team != team && o.is_alive() && o.is_kind_of(KindOf::Attackable)
+                        let enemy = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame.first_enemy_attackable_id(team).or_else(|| {
+                                self.game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| {
+                                        o.team != team
+                                            && o.is_alive()
+                                            && o.is_kind_of(KindOf::Attackable)
+                                    })
+                                    .map(|(id, _)| *id)
                             })
-                            .map(|(id, _)| *id);
+                        } else {
+                            self.game_logic
+                                .get_objects()
+                                .iter()
+                                .find(|(_, o)| {
+                                    o.team != team
+                                        && o.is_alive()
+                                        && o.is_kind_of(KindOf::Attackable)
+                                })
+                                .map(|(id, _)| *id)
+                        };
                         if let Some(tid) = enemy {
                             self.game_logic.command_attack(self.current_player_id, tid);
                             self.runtime_host_last_gameplay_cmd = format!("attack_ok:{}", tid.0);
