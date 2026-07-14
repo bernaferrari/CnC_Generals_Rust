@@ -5084,7 +5084,10 @@ impl GameLogic {
     fn update_movement(&mut self, object_ids: &[ObjectId], dt: f32) {
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
-                if obj.engine_object_id.is_some() {
+                // Dual-world factory objects only when bridge is on.
+                if crate::gameworld_shadow::engine_object_bridge_enabled()
+                    && obj.engine_object_id.is_some()
+                {
                     continue;
                 }
 
