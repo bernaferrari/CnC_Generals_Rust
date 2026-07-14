@@ -202,6 +202,24 @@ pub const PRIMARY_LOCALE_CSF_PACKS: [ResidualLanguageId; 5] = [
     ResidualLanguageId::Italian,
 ];
 
+/// Wave 102: expanded locale CSF pack-load residual targets.
+///
+/// All residual LanguageId discriminants that ship path tables (including UK /
+/// Japanese / Korean / Jabber / Unknown). Missing assets remain empty-table
+/// honest (fail-closed; CI without locale packs still passes).
+pub const EXPANDED_LOCALE_CSF_PACKS: [ResidualLanguageId; 10] = [
+    ResidualLanguageId::English,
+    ResidualLanguageId::Uk,
+    ResidualLanguageId::German,
+    ResidualLanguageId::French,
+    ResidualLanguageId::Spanish,
+    ResidualLanguageId::Italian,
+    ResidualLanguageId::Japanese,
+    ResidualLanguageId::Jabber,
+    ResidualLanguageId::Korean,
+    ResidualLanguageId::Unknown,
+];
+
 /// Result of exercising host GameText residual honesty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameTextResidualExercise {
@@ -894,6 +912,95 @@ pub fn honesty_multi_locale_csf_pack_load() -> bool {
         && packs.iter().any(|p| p.language == ResidualLanguageId::Italian)
 }
 
+/// Wave 102: expanded multi-locale CSF pack load residual exercise.
+///
+/// Path-resolve + parse for all **10** residual LanguageId values (primary 5
+/// plus UK/Japanese/Jabber/Korean/Unknown). Live packs report label counts;
+/// missing packs report empty-table honesty. Always honest without assets (CI).
+/// Fail-closed: not full multi-locale GameTextManager boot UI.
+pub fn exercise_expanded_locale_csf_pack_load_residual() -> (
+    bool,
+    u32,
+    u32,
+    u32,
+    Vec<LocaleCsfPackLoadResidual>,
+) {
+    let mut packs = Vec::with_capacity(EXPANDED_LOCALE_CSF_PACKS.len());
+    let mut live_found = 0u32;
+    let mut label_total = 0u32;
+    let mut all_ok = true;
+    for &lang in &EXPANDED_LOCALE_CSF_PACKS {
+        let pack = load_locale_csf_pack_residual(lang);
+        if !pack.honesty_ok() {
+            all_ok = false;
+        }
+        // Path table residual must list expected locale folder/csf relatives.
+        let relatives = residual_csf_relatives(lang);
+        let folder = lang.folder_name();
+        let path_table_ok = !relatives.is_empty()
+            && relatives
+                .iter()
+                .any(|p| p.contains(&format!("Data/{folder}/generals.csf")));
+        if !path_table_ok {
+            all_ok = false;
+        }
+        // Empty honesty when missing: path_found=false → empty_table_when_missing.
+        if !pack.path_found {
+            if !pack.empty_table_when_missing || pack.label_count != 0 || pack.parse_ok {
+                all_ok = false;
+            }
+        }
+        if pack.path_found && pack.parse_ok {
+            live_found = live_found.saturating_add(1);
+            label_total = label_total.saturating_add(pack.label_count);
+        }
+        packs.push(pack);
+    }
+    let locale_count = EXPANDED_LOCALE_CSF_PACKS.len() as u32;
+    let expanded_ok = all_ok
+        && locale_count == 10
+        && packs.len() as u32 == locale_count
+        // Path tables for JA/KO residual always present (even if assets absent).
+        && residual_csf_relatives(ResidualLanguageId::Japanese)
+            .iter()
+            .any(|p| p.contains("JapaneseZH/Data/Japanese/generals.csf"))
+        && residual_csf_relatives(ResidualLanguageId::Korean)
+            .iter()
+            .any(|p| p.contains("KoreanZH/Data/Korean/generals.csf"))
+        // UK/Jabber/Unknown share English folder residual paths.
+        && residual_csf_relatives(ResidualLanguageId::Uk)
+            .iter()
+            .any(|p| p.contains("English") && p.ends_with("generals.csf"))
+        && residual_csf_relatives(ResidualLanguageId::Jabber)
+            .iter()
+            .any(|p| p.contains("English") && p.ends_with("generals.csf"));
+    (expanded_ok, locale_count, live_found, label_total, packs)
+}
+
+/// Honesty: expanded multi-locale CSF pack load residual (Wave 102).
+///
+/// All 10 LanguageId residual packs: live → labels; absent → empty honesty.
+/// Fail-closed vs full multi-locale boot UI / DisplayString Unicode draw.
+pub fn honesty_expanded_locale_csf_pack_load_wave102() -> bool {
+    let (ok, locale_count, _live, _labels, packs) =
+        exercise_expanded_locale_csf_pack_load_residual();
+    ok && locale_count == EXPANDED_LOCALE_CSF_PACKS.len() as u32
+        && packs.iter().all(|p| p.honesty_ok())
+        && packs.len() == 10
+        && packs.iter().any(|p| p.language == ResidualLanguageId::Japanese)
+        && packs.iter().any(|p| p.language == ResidualLanguageId::Korean)
+        && packs.iter().any(|p| p.language == ResidualLanguageId::Uk)
+        && packs.iter().any(|p| p.language == ResidualLanguageId::Jabber)
+        // Primary pack residual still honest.
+        && honesty_multi_locale_csf_pack_load()
+        && honesty_english_csf_pack_load()
+}
+
+/// Combined Wave 102 multi-locale CSF residual honesty pack.
+pub fn honesty_csf_multi_locale_residual_deepen_pack_wave102() -> bool {
+    honesty_expanded_locale_csf_pack_load_wave102()
+}
+
 
 /// Format C++ group numeral GameText key residual: `NUMBER:N`.
 pub fn game_text_group_numeral_key(numeral: u32) -> String {
@@ -1252,6 +1359,47 @@ mod tests {
         assert_eq!(en.path_found, en_legacy.path_found);
         assert_eq!(en.label_count, en_legacy.label_count);
         assert_eq!(en.parse_ok, en_legacy.parse_ok);
+    }
+
+    /// Wave 102 residual: expanded locale CSF pack load (JA/KO/UK/Jabber + empty honesty).
+    #[test]
+    fn expanded_locale_csf_pack_load_residual_wave102_honesty() {
+        assert!(honesty_expanded_locale_csf_pack_load_wave102());
+        assert!(honesty_csf_multi_locale_residual_deepen_pack_wave102());
+        assert_eq!(EXPANDED_LOCALE_CSF_PACKS.len(), 10);
+        assert_eq!(ResidualLanguageId::ALL.len(), 10);
+        let (ok, locale_count, live_found, label_total, packs) =
+            exercise_expanded_locale_csf_pack_load_residual();
+        assert!(ok, "expanded multi-locale CSF pack load residual");
+        assert_eq!(locale_count, 10);
+        assert_eq!(packs.len(), 10);
+        for lang in [
+            ResidualLanguageId::Japanese,
+            ResidualLanguageId::Korean,
+            ResidualLanguageId::Uk,
+            ResidualLanguageId::Jabber,
+            ResidualLanguageId::Unknown,
+        ] {
+            let pack = load_locale_csf_pack_residual(lang);
+            assert!(pack.honesty_ok(), "locale={lang:?}");
+            assert_eq!(pack.language, lang);
+            if pack.path_found {
+                assert!(pack.parse_ok);
+                assert!(pack.label_count > 0, "live {} labels", lang.folder_name());
+            } else {
+                // Empty honesty when absent (typical CI / English-only extract).
+                assert_eq!(pack.label_count, 0);
+                assert!(!pack.parse_ok);
+                assert!(pack.empty_table_when_missing);
+            }
+        }
+        let counted_live = packs.iter().filter(|p| p.path_found && p.parse_ok).count() as u32;
+        assert_eq!(live_found, counted_live);
+        if live_found > 0 {
+            assert!(label_total > 0);
+        } else {
+            assert_eq!(label_total, 0);
+        }
     }
 
     #[test]

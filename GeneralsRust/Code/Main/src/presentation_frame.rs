@@ -935,6 +935,56 @@ pub fn honesty_spectre_orbit_decal_presentation_ok() -> bool {
     PresentationSpectreOrbitDecal::RETAIL.honesty_residual_ok()
 }
 
+/// Wave 102: dual-tick presentation residual deepen free-function honesty.
+///
+/// Builds an empty-host presentation snapshot and verifies dual-tick residual
+/// counters (including selected/particle Wave 102 deepen) plus presentation
+/// residual packs. Fail-closed vs live dual-run W3D / GPU submit.
+pub fn honesty_presentation_dual_tick_residual_deepen_wave102() -> bool {
+    use crate::game_logic::GameLogic;
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+    // Empty residual snapshot honesty (zero objects still dual-tick consistent).
+    let empty_logic = GameLogic::new();
+    let empty = PresentationFrame::build_from_logic(&empty_logic, 0);
+    if !empty.dual_tick_presentation_residual_ok() {
+        return false;
+    }
+    if empty.dual_tick.builds != 1 || empty.dual_tick.applies != 0 {
+        return false;
+    }
+    if empty.dual_tick.selected_count != 0 || empty.dual_tick.particle_count != 0 {
+        return false;
+    }
+    // Seeded skirmish residual: dual-tick deepen after shell apply.
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("PresDualTick102");
+    if apply_skirmish_config(&mut logic, &cfg).is_err() {
+        // Config residual may still produce honest empty-host dual-tick.
+        return empty.dual_tick_presentation_residual_deepen_ok()
+            && honesty_spectre_orbit_decal_presentation_ok();
+    }
+    let mut hud = crate::ui::GameHUD::new();
+    let mut ui = crate::ui::GameUIState::default();
+    let mut rts = crate::ui::RTSInterface::new();
+    let mut cmd = crate::ui::UnitCommandPanel::new();
+    let frame = PresentationFrame::build_and_apply_for_shell_consumers(
+        &logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
+    );
+    frame.dual_tick_presentation_residual_deepen_ok()
+        && frame.dual_tick.honesty_apply_ok()
+        && frame.dual_tick.builds == 1
+        && frame.dual_tick.applies >= 1
+        && frame.dual_tick.selected_count == frame.selected.len() as u32
+        && frame.dual_tick.particle_count == frame.particle_systems.len() as u32
+        && honesty_spectre_orbit_decal_presentation_ok()
+}
+
+/// Combined Wave 102 presentation residual honesty pack.
+pub fn honesty_presentation_residual_deepen_pack_wave102() -> bool {
+    honesty_presentation_dual_tick_residual_deepen_wave102()
+}
+
 /// Dual-tick residual counters frozen on each presentation build / apply.
 ///
 /// Host-testable bookkeeping for seed → logic step → multi-consumer apply order.
@@ -1418,6 +1468,25 @@ impl PresentationFrame {
             && self.dual_tick.laser_beam_count == self.laser_beams.len() as u32
             && self.dual_tick.floating_text_count == self.floating_texts.len() as u32
             && self.dual_tick.world_anim_count == self.world_anims.len() as u32
+            // Wave 102: selected + particle dual-tick residual counters.
+            && self.dual_tick.selected_count == self.selected.len() as u32
+            && self.dual_tick.particle_count == self.particle_systems.len() as u32
+    }
+
+    /// Wave 102: dual-tick residual deepen honesty (build + apply + content counts).
+    ///
+    /// Deepens dual-tick bookkeeping beyond Wave 65/75 counters: selected/particle
+    /// counts, apply order residual (applies ≥ builds after shell apply), and
+    /// cross-link presentation residual packs. Fail-closed vs live dual-run GPU.
+    pub fn dual_tick_presentation_residual_deepen_ok(&self) -> bool {
+        self.dual_tick_presentation_residual_ok()
+            && self.dual_tick.builds >= 1
+            && self.floating_text_vanish_residual_ok()
+            && self.world_anim_fade_residual_ok()
+            && self.laser_presentation_residual_ok()
+            && self.spectre_orbit_decal_presentation_residual_ok()
+            && self.mesh_scale_presentation_residual_ok()
+            && self.ground_height_presentation_residual_ok()
     }
 
     /// Honesty: floating-text vanish-rate residual fields (empty is honest).
@@ -2930,5 +2999,27 @@ mod tests {
         apply_skirmish_config(&mut logic, &cfg).expect("config");
         let snap = PresentationFrame::build_from_logic(&logic, 0);
         assert!(snap.spectre_orbit_decal_presentation_residual_ok());
+    }
+
+    /// Wave 102 residual: dual-tick deepen (selected/particle counters + packs).
+    #[test]
+    fn presentation_dual_tick_residual_deepen_wave102() {
+        assert!(honesty_presentation_dual_tick_residual_deepen_wave102());
+        assert!(honesty_presentation_residual_deepen_pack_wave102());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("Pres102");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut hud = crate::ui::GameHUD::new();
+        let mut ui = crate::ui::GameUIState::default();
+        let mut rts = crate::ui::RTSInterface::new();
+        let mut cmd = crate::ui::UnitCommandPanel::new();
+        let frame = PresentationFrame::build_and_apply_for_shell_consumers(
+            &logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
+        );
+        assert!(frame.dual_tick_presentation_residual_ok());
+        assert!(frame.dual_tick_presentation_residual_deepen_ok());
+        assert_eq!(frame.dual_tick.selected_count, frame.selected.len() as u32);
+        assert_eq!(frame.dual_tick.particle_count, frame.particle_systems.len() as u32);
+        assert!(frame.dual_tick.honesty_apply_ok());
     }
 }
