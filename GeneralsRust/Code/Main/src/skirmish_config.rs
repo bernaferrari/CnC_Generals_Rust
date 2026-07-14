@@ -252,6 +252,184 @@ pub fn local_faction_from_config(config: &SkirmishMatchConfig) -> String {
         .unwrap_or_else(|| "USA".into())
 }
 
+/// Build match config from the live GameClient skirmish setup (WND Start path).
+///
+/// SkirmishGameOptionsMenu writes slots/map/cash into `get_skirmish_setup()` and
+/// queues `GameMessageType::NewGame`. Main must convert that setup into
+/// `SkirmishMatchConfig` so `start_game_from_ui` applies the same authority path
+/// as the headless shell smoke / SkirmishMenu.
+#[cfg(feature = "game_client")]
+pub fn config_from_client_skirmish_setup(
+    map_override: Option<&str>,
+) -> Option<SkirmishMatchConfig> {
+    use game_client::gui::get_skirmish_setup;
+    use game_client::{SlotState, MAX_SLOTS};
+    use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
+    use game_engine::common::rts::player_template::get_player_template_store;
+
+    let setup = get_skirmish_setup();
+    let info = setup.game_info().game_info();
+
+    let map = map_override
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            let selected = setup.selected_map().trim();
+            if !selected.is_empty() {
+                Some(selected.to_string())
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            let m = info.get_map().trim();
+            if !m.is_empty() && m != "NOMAP" {
+                Some(m.to_string())
+            } else {
+                None
+            }
+        })?;
+
+    let store = get_player_template_store();
+    let mut slots = Vec::with_capacity(MAX_SLOTS);
+    for i in 0..MAX_SLOTS {
+        let Some(slot) = info.get_slot(i) else {
+            continue;
+        };
+        let state = slot.get_state();
+        let is_active = matches!(
+            state,
+            SlotState::Player | SlotState::EasyAI | SlotState::MedAI | SlotState::BrutalAI
+        );
+        if !is_active {
+            // Keep slot indices stable for apply_skirmish_config (slot_index = player id).
+            slots.push(SkirmishSlotConfig {
+                slot_index: i,
+                is_human: false,
+                is_active: false,
+                faction: "USA".into(),
+                color_rgb: (128, 128, 128),
+                team: -1,
+                start_position: -1,
+                player_name: String::new(),
+                ai_difficulty: None,
+            });
+            continue;
+        }
+
+        let is_human = matches!(state, SlotState::Player);
+        let ai_difficulty = match state {
+            SlotState::EasyAI => Some("Easy".into()),
+            SlotState::MedAI => Some("Medium".into()),
+            SlotState::BrutalAI => Some("Hard".into()),
+            _ => None,
+        };
+
+        let faction = {
+            let tpl = slot.get_player_template();
+            if tpl >= 0 {
+                store
+                    .get_nth_player_template(tpl as usize)
+                    .map(|t| {
+                        let side = t.get_side().trim();
+                        if side.is_empty() {
+                            "USA".to_string()
+                        } else if side.eq_ignore_ascii_case("America") {
+                            "USA".to_string()
+                        } else {
+                            side.to_string()
+                        }
+                    })
+                    .unwrap_or_else(|| "USA".into())
+            } else {
+                // PLAYERTEMPLATE_RANDOM / unset — host resolves per slot index.
+                "Random".into()
+            }
+        };
+
+        let color_rgb = color_rgb_from_multiplayer_index(slot.get_color(), i);
+
+        slots.push(SkirmishSlotConfig {
+            slot_index: i,
+            is_human,
+            is_active: true,
+            faction,
+            color_rgb,
+            team: slot.get_team_number(),
+            start_position: slot.get_start_pos(),
+            player_name: {
+                let n = slot.get_name().trim();
+                if n.is_empty() {
+                    if is_human {
+                        "Player".into()
+                    } else {
+                        format!("AI {}", i)
+                    }
+                } else {
+                    n.to_string()
+                }
+            },
+            ai_difficulty,
+        });
+    }
+
+    if !slots.iter().any(|s| s.is_active) {
+        return None;
+    }
+
+    let starting_cash = info.get_starting_cash().count_money() as i32;
+    let limit_sw = info.get_superweapon_restriction() != 0;
+    let fog = with_multiplayer_settings(|s| s.is_shroud_in_multiplayer);
+    Some(SkirmishMatchConfig {
+        map,
+        rules: GameRulesSnapshot {
+            starting_cash: if starting_cash > 0 {
+                starting_cash
+            } else {
+                10_000
+            },
+            game_speed: 1.0,
+            limit_superweapons: limit_sw,
+            allow_tech_buildings: true,
+            crates_enabled: true,
+            fog_of_war: fog,
+        },
+        slots,
+    })
+}
+
+fn color_rgb_from_multiplayer_index(color_idx: i32, slot_index: usize) -> (u8, u8, u8) {
+    // Fallback palette when MultiplayerSettings colors are not loaded yet.
+    const FALLBACK: [(u8, u8, u8); 8] = [
+        (0, 0, 200),
+        (200, 0, 0),
+        (0, 180, 0),
+        (200, 200, 0),
+        (0, 200, 200),
+        (180, 0, 180),
+        (220, 120, 0),
+        (220, 220, 220),
+    ];
+
+    #[cfg(feature = "game_client")]
+    {
+        use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
+        if color_idx >= 0 {
+            if let Some(packed) =
+                with_multiplayer_settings(|s| s.get_color_value(color_idx))
+            {
+                let r = ((packed >> 16) & 0xFF) as u8;
+                let g = ((packed >> 8) & 0xFF) as u8;
+                let b = (packed & 0xFF) as u8;
+                return (r, g, b);
+            }
+        }
+    }
+    let _ = color_idx;
+    FALLBACK[slot_index % FALLBACK.len()]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,5 +639,47 @@ mod tests {
         assert!(logic.get_player(0).is_some());
         assert!(logic.get_player(1).is_some());
         let _ = loaded; // true when Lone Eagle (or other candidate) resolved on disk
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn config_from_client_skirmish_setup_reads_slots_and_map() {
+        use game_client::gui::get_skirmish_setup;
+        use game_client::{Money, SlotState};
+
+        {
+            let mut setup = get_skirmish_setup();
+            setup.set_selected_map(String::new());
+            let info = setup.game_info_mut().game_info_mut();
+            info.reset();
+            info.set_map("Maps/Lone Eagle/Lone Eagle.map".into());
+            info.set_starting_cash(Money::new(15_000));
+            if let Some(slot) = info.get_slot_mut(0) {
+                slot.set_state(SlotState::Player, "Commander".into(), 1);
+                slot.set_player_template(-1); // Random → host resolves
+                slot.set_team_number(0);
+                slot.set_start_pos(0);
+                slot.set_color(0);
+            }
+            if let Some(slot) = info.get_slot_mut(1) {
+                slot.set_state(SlotState::MedAI, "GLA AI".into(), 0);
+                slot.set_player_template(-1);
+                slot.set_team_number(1);
+                slot.set_start_pos(1);
+                slot.set_color(1);
+            }
+        }
+
+        let cfg = config_from_client_skirmish_setup(None).expect("config from setup");
+        assert!(
+            cfg.map.contains("Lone Eagle"),
+            "map from GameInfo: {}",
+            cfg.map
+        );
+        assert_eq!(cfg.rules.starting_cash, 15_000);
+        assert!(cfg.slots[0].is_human && cfg.slots[0].is_active);
+        assert!(!cfg.slots[1].is_human && cfg.slots[1].is_active);
+        assert_eq!(cfg.slots[1].ai_difficulty.as_deref(), Some("Medium"));
+        assert_eq!(cfg.slots[0].player_name, "Commander");
     }
 }

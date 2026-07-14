@@ -305,6 +305,44 @@ mod tests {
     }
 
     #[test]
+    fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
+        use game_engine::common::message_stream::{
+            get_message_stream, GameMessage, GameMessageType,
+        };
+
+        let stream = get_message_stream();
+        {
+            let mut g = stream.write().unwrap_or_else(|e| e.into_inner());
+            g.clear_messages();
+            g.append_message(GameMessageType::ClearGameData);
+            let ng = g.append_message(GameMessageType::NewGame);
+            ng.append_integer_argument(2); // GAME_SKIRMISH
+            ng.append_integer_argument(1);
+            ng.append_integer_argument(0);
+            ng.append_integer_argument(30);
+            g.append_message(GameMessageType::Invalid);
+        }
+
+        let dispatch = CnCGameEngine::take_new_game_dispatch_from_common_stream()
+            .expect("NewGame must be drained");
+        assert_eq!(dispatch.game_mode, GameMode::Skirmish);
+        assert_eq!(dispatch.max_fps, Some(30));
+
+        let g = stream.read().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(g.message_count(), 2, "non-NewGame messages must remain");
+        let types: Vec<_> = g
+            .get_messages()
+            .iter()
+            .map(|m| m.get_type().clone())
+            .collect();
+        assert!(types.iter().any(|t| matches!(t, GameMessageType::ClearGameData)));
+        assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
+        assert!(!types.iter().any(|t| matches!(t, GameMessageType::NewGame)));
+        // silence unused import if GameMessage only used above via type
+        let _ = GameMessage::new(GameMessageType::Invalid);
+    }
+
+    #[test]
     fn startup_camera_focus_prefers_shell_metadata_before_default_seed() {
         let focus = CnCGameEngine::select_startup_camera_focus(
             true,
@@ -1609,6 +1647,118 @@ impl CnCGameEngine {
         }
 
         GameMode::Shell
+    }
+
+    /// Pull MSG_NEW_GAME out of the common message stream without discarding
+    /// unrelated messages. Returns a fully resolved start_game_from_ui tuple.
+    fn take_pending_new_game_start_request(
+        &self,
+    ) -> Option<(
+        GameMode,
+        String,
+        String,
+        Option<crate::skirmish_config::SkirmishMatchConfig>,
+    )> {
+        let dispatch = Self::take_new_game_dispatch_from_common_stream()?;
+        self.build_start_request_from_pending_globals(Some(dispatch))
+    }
+
+    /// Remove every `NewGame` message from the common stream, keeping others.
+    /// Returns the last NewGame dispatch (C++ prefers the latest enqueue).
+    fn take_new_game_dispatch_from_common_stream() -> Option<StartupNewGameDispatch> {
+        let stream = game_engine::common::message_stream::get_message_stream();
+        let mut stream_guard = match stream.write() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+
+        let messages: Vec<_> = stream_guard.get_messages().iter().cloned().collect();
+        if messages.is_empty() {
+            return None;
+        }
+
+        let mut dispatch = None;
+        let mut kept = Vec::with_capacity(messages.len());
+        for message in messages {
+            if let Some(d) = Self::startup_new_game_dispatch_from_message(&message) {
+                // Prefer the last NewGame (matches startup_new_game_dispatch_from_messages).
+                dispatch = Some(d);
+            } else {
+                kept.push(message);
+            }
+        }
+
+        let Some(dispatch) = dispatch else {
+            return None;
+        };
+
+        // Rebuild stream without NewGame messages so pump doesn't double-handle.
+        stream_guard.clear_messages();
+        for message in &kept {
+            Self::append_common_message_to_stream(&mut stream_guard, message);
+        }
+        Some(dispatch)
+    }
+
+    /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
+    fn build_start_request_from_pending_globals(
+        &self,
+        dispatch: Option<StartupNewGameDispatch>,
+    ) -> Option<(
+        GameMode,
+        String,
+        String,
+        Option<crate::skirmish_config::SkirmishMatchConfig>,
+    )> {
+        let dispatch = dispatch.unwrap_or(StartupNewGameDispatch {
+            game_mode_code: 2, // GAME_SKIRMISH default when only the helper flag is set
+            game_mode: GameMode::Skirmish,
+            difficulty_code: 1,
+            difficulty: GameDifficulty::Medium,
+            rank_points: 0,
+            max_fps: None,
+        });
+
+        let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
+
+        let mode = dispatch.game_mode;
+        let map = prepared_map
+            .filter(|m| !m.trim().is_empty())
+            .or_else(|| {
+                let g = game_engine::common::global_data::read();
+                let m = g.writable.map_name.trim();
+                if !m.is_empty() {
+                    Some(m.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
+
+        let skirmish = if matches!(mode, GameMode::Skirmish) {
+            #[cfg(feature = "game_client")]
+            {
+                crate::skirmish_config::config_from_client_skirmish_setup(Some(map.as_str()))
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                None
+            }
+        } else {
+            None
+        };
+
+        let faction = skirmish
+            .as_ref()
+            .map(crate::skirmish_config::local_faction_from_config)
+            .unwrap_or_else(|| {
+                self.game_logic
+                    .get_player(self.current_player_id)
+                    .map(|p| p.team.get_name().to_string())
+                    .unwrap_or_else(|| "USA".to_string())
+            });
+
+        Some((mode, faction, map, skirmish))
     }
 
     const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;
@@ -5546,50 +5696,97 @@ impl CnCGameEngine {
 
                 #[cfg(feature = "game_client")]
                 {
-                    let gc = &mut self.game_client;
                     let early_menu_frame = self.menu_world_frames_rendered < 5;
-                    if early_menu_frame {
-                        info!(
-                            "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
-                            self.menu_world_frames_rendered
-                        );
-                    }
                     let t0 = std::time::Instant::now();
-                    gc.ensure_shell_visible().ok();
-                    let t1 = std::time::Instant::now();
-                    if early_menu_frame {
-                        info!("Menu update_internal: calling gc.update_input");
+                    {
+                        let gc = &mut self.game_client;
+                        if early_menu_frame {
+                            info!(
+                                "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
+                                self.menu_world_frames_rendered
+                            );
+                        }
+                        gc.ensure_shell_visible().ok();
+                        let t1 = std::time::Instant::now();
+                        if early_menu_frame {
+                            info!("Menu update_internal: calling gc.update_input");
+                        }
+                        gc.update_input().ok();
+                        let t2 = std::time::Instant::now();
+                        if early_menu_frame {
+                            info!("Menu update_internal: calling gc.update_pre_draw_ui");
+                        }
+                        gc.update_pre_draw_ui().ok();
+                        let t3 = std::time::Instant::now();
+                        if early_menu_frame {
+                            info!("Menu update_internal: calling gc.update_post_draw_ui");
+                        }
+                        gc.update_post_draw_ui().ok();
+                        let _t4_pre = t3.elapsed();
+                        let _ = (t1, t2, t3, _t4_pre);
                     }
-                    gc.update_input().ok();
-                    let t2 = std::time::Instant::now();
-                    if early_menu_frame {
-                        info!("Menu update_internal: calling gc.update_pre_draw_ui");
-                    }
-                    gc.update_pre_draw_ui().ok();
-                    let t3 = std::time::Instant::now();
-                    if early_menu_frame {
-                        info!("Menu update_internal: calling gc.update_post_draw_ui");
-                    }
-                    gc.update_post_draw_ui().ok();
+
+                    // Intercept MSG_NEW_GAME *before* pump moves it into the
+                    // crate command list. WND Skirmish/Campaign Start only
+                    // appends NewGame to the common message stream; without
+                    // this drain the windowed shell never reaches InGame.
                     let t4 = std::time::Instant::now();
-                    if early_menu_frame {
-                        info!("Menu update_internal: calling gc.pump_message_stream");
+                    if let Some((mode, faction, map, skirmish)) =
+                        self.take_pending_new_game_start_request()
+                    {
+                        info!(
+                            "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
+                            mode,
+                            faction,
+                            map,
+                            skirmish.is_some()
+                        );
+                        self.start_game_from_ui(mode, faction, map, skirmish);
+                        return;
                     }
-                    gc.pump_message_stream().ok();
+
+                    {
+                        let gc = &mut self.game_client;
+                        if early_menu_frame {
+                            info!("Menu update_internal: calling gc.pump_message_stream");
+                        }
+                        gc.pump_message_stream().ok();
+                    }
+
+                    // Secondary path: crate helpers may flag start after pump.
+                    if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
+                        gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+                        if let Some((mode, faction, map, skirmish)) =
+                            self.build_start_request_from_pending_globals(None)
+                        {
+                            info!(
+                                "Menu start_new_game flag drain: mode={:?} map={}",
+                                mode, map
+                            );
+                            self.start_game_from_ui(mode, faction, map, skirmish);
+                            return;
+                        }
+                    }
+
                     let t5 = std::time::Instant::now();
                     let menu_gc_elapsed = t0.elapsed();
                     if menu_gc_elapsed >= std::time::Duration::from_millis(50) || early_menu_frame {
                         info!(
-                            "Menu GC update: total={:?} shell={:?} input={:?} pre_draw={:?} post_draw={:?} pump={:?} frame={}",
+                            "Menu GC update: total={:?} newgame_scan={:?} pump_tail={:?} frame={}",
                             menu_gc_elapsed,
-                            t1.duration_since(t0),
-                            t2.duration_since(t1),
-                            t3.duration_since(t2),
-                            t4.duration_since(t3),
+                            t4.duration_since(t0),
                             t5.duration_since(t4),
                             self.frame_counter,
                         );
                     }
+                }
+                // Headless / no-game_client builds still drain NewGame if present.
+                #[cfg(not(feature = "game_client"))]
+                if let Some((mode, faction, map, skirmish)) =
+                    self.take_pending_new_game_start_request()
+                {
+                    self.start_game_from_ui(mode, faction, map, skirmish);
+                    return;
                 }
                 return;
             }
