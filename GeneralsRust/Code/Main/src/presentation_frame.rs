@@ -3159,6 +3159,10 @@ impl PresentationFrame {
                 panel.garrisoned_count = ro.garrisoned_units.len();
                 panel.under_construction = ro.under_construction;
                 panel.construction_percent = ro.construction_percent;
+                panel.applied_upgrades = ro.applied_upgrades.clone();
+                panel.rally_point = ro.rally_point.map(|p| [p.x, p.y, p.z]);
+                panel.special_power_ready = ro.special_power_ready;
+                panel.special_power_cooldown_remaining = ro.special_power_cooldown_remaining;
             }
         }
         panel
@@ -3194,6 +3198,12 @@ impl PresentationFrame {
             panel.garrisoned_count,
             panel.under_construction,
             panel.construction_percent,
+        );
+        control_bar.sync_upgrades_and_specials_from_presentation(
+            &panel.applied_upgrades,
+            panel.rally_point,
+            panel.special_power_ready,
+            panel.special_power_cooldown_remaining,
         );
     }
 
@@ -5171,6 +5181,50 @@ mod tests {
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
         );
+    }
+
+    #[test]
+    fn presentation_feeds_control_bar_upgrade_cameos() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("UpgUnit");
+        t.set_health(150.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("UpgUnit".into(), t);
+        let id = logic
+            .create_object("UpgUnit", Team::USA, glam::Vec3::new(3.0, 0.0, 4.0))
+            .expect("unit");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.applied_upgrades.insert("UpgradeAdvancedTraining".into());
+            o.applied_upgrades.insert("UpgradeCaptureBuilding".into());
+            o.special_power_ready = true;
+            o.special_power_cooldown_remaining = 0.0;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let panel = frame.control_bar_selection_panel();
+        assert!(panel
+            .applied_upgrades
+            .iter()
+            .any(|u| u == "UpgradeAdvancedTraining"));
+        assert!(panel.special_power_ready);
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame.apply_to_control_bar(&mut bar);
+            let portrait = bar.get_portrait_state();
+            assert_eq!(portrait.upgrade_cameos.len(), 2);
+            assert!(portrait
+                .upgrade_cameos
+                .iter()
+                .any(|c| c.upgrade_name == "UpgradeAdvancedTraining" && c.is_completed));
+            assert!(portrait.special_power_ready);
+        }
     }
 
     #[test]
