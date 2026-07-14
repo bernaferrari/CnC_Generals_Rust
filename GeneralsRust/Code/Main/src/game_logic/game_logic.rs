@@ -35411,6 +35411,13 @@ impl GameLogic {
         cancelled_any
     }
 
+    /// Snapshot pending radar texts for PresentationFrame (does not drain).
+    pub fn radar_notification_snapshot(
+        &self,
+    ) -> Vec<crate::game_logic::radar_notifications::RadarEntry> {
+        self.radar_notifications.snapshot()
+    }
+
     pub fn queue_radar_message<S: Into<String>>(&mut self, message: S) {
         self.queue_radar_message_at(message, Vec3::ZERO, radar_notifications::RadarKind::Generic);
     }

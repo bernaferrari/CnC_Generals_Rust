@@ -423,6 +423,8 @@ pub enum WorldMutation {
 pub struct GameWorld {
     inner: World,
     pending: Vec<WorldMutation>,
+    /// Most recent entity created via `WorldMutation::Spawn` (shadow ID map).
+    last_spawned_entity: Option<EntityId>,
 }
 
 impl GameWorld {
@@ -431,7 +433,13 @@ impl GameWorld {
         Self {
             inner: World::new(max_players),
             pending: Vec::new(),
+            last_spawned_entity: None,
         }
+    }
+
+    /// Take the entity id from the last applied Spawn mutation, if any.
+    pub fn take_last_spawned_entity(&mut self) -> Option<EntityId> {
+        self.last_spawned_entity.take()
     }
 
     /// Immutable access to the underlying world.
@@ -537,12 +545,13 @@ impl GameWorld {
                     position,
                     health,
                 } => {
-                    let _id = self.inner.spawn_entity(
+                    let id = self.inner.spawn_entity(
                         entities::TemplateRef::new(template),
                         owner,
                         entities::Transform::new(position, 0.0),
                         health.max(0.0),
                     );
+                    self.last_spawned_entity = Some(id);
                     applied += 1;
                 }
                 WorldMutation::SetTransform {
