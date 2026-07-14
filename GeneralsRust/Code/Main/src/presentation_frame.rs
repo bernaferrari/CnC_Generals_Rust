@@ -21,6 +21,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LogicFrame(pub u32);
 
+/// Snapshot-owned factory production queue entry (host BuildingData residual).
+/// Fail-closed: not full ControlBar queue UI / cancel-button WND parity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationProductionItem {
+    pub template_name: String,
+    pub progress: f32,
+    pub total_time: f32,
+    pub cost_supplies: u32,
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -37,6 +47,12 @@ pub struct RenderableObject {
     pub attack_target: Option<ObjectId>,
     /// Path waypoints residual (capped) for line pack / debug draw.
     pub path_waypoints: Vec<Vec3>,
+    /// Structure production queue residual (empty for non-buildings).
+    pub production_queue: Vec<PresentationProductionItem>,
+    /// Structure rally point residual.
+    pub rally_point: Option<Vec3>,
+    /// Guard position residual (units).
+    pub guard_position: Option<Vec3>,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
@@ -1435,6 +1451,23 @@ impl PresentationFrame {
                 move_destination: obj.movement.target_position,
                 attack_target: obj.target,
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
+                production_queue: obj
+                    .building_data
+                    .as_ref()
+                    .map(|b| {
+                        b.production_queue
+                            .iter()
+                            .map(|p| PresentationProductionItem {
+                                template_name: p.template_name.clone(),
+                                progress: p.progress,
+                                total_time: p.total_time,
+                                cost_supplies: p.cost.supplies,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                rally_point: obj.building_data.as_ref().and_then(|b| b.rally_point),
+                guard_position: obj.guard_position,
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
@@ -1742,6 +1775,14 @@ impl PresentationFrame {
             .iter()
             .filter(|o| !o.destroyed && !o.engine_bridged)
             .map(UnitRenderInput::from_renderable)
+            .collect()
+    }
+
+    /// Structures with a non-empty production queue (ControlBar residual feed).
+    pub fn structures_with_production(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| o.is_structure && !o.destroyed && !o.production_queue.is_empty())
             .collect()
     }
 
@@ -2548,6 +2589,44 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn production_queue_freezes_from_building_data() {
+        use crate::game_logic::buildings::{BuildingData, BuildingType, ProductionItem};
+        use crate::game_logic::{KindOf, Resources, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("ProdBldg");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("ProdBldg".into(), t);
+        let id = logic
+            .create_object("ProdBldg", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            let mut bd = BuildingData::new(BuildingType::Barracks);
+            bd.production_queue.push(ProductionItem {
+                template_name: "Ranger".into(),
+                progress: 0.4,
+                total_time: 10.0,
+                cost: Resources {
+                    supplies: 150,
+                    power: 0,
+                },
+            });
+            bd.rally_point = Some(glam::Vec3::new(12.0, 0.0, 3.0));
+            obj.building_data = Some(bd);
+            obj.guard_position = Some(glam::Vec3::new(1.0, 0.0, 1.0));
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert_eq!(ro.production_queue.len(), 1);
+        assert_eq!(ro.production_queue[0].template_name, "Ranger");
+        assert!((ro.production_queue[0].progress - 0.4).abs() < 0.01);
+        assert_eq!(ro.production_queue[0].cost_supplies, 150);
+        assert_eq!(ro.rally_point, Some(glam::Vec3::new(12.0, 0.0, 3.0)));
+        assert_eq!(ro.guard_position, Some(glam::Vec3::new(1.0, 0.0, 1.0)));
+        assert_eq!(frame.structures_with_production().len(), 1);
     }
 
     #[test]
