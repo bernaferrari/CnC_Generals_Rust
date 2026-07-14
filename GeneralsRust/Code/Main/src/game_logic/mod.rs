@@ -72,6 +72,8 @@ pub mod host_ui_presentation_residual;
 pub mod host_timing_shell_residual;
 pub mod host_combat_sim_residual;
 pub mod host_render_terrain_residual;
+pub mod host_ai_ability_upgrade_residual;
+pub mod host_script_map_team_player_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -278,6 +280,18 @@ pub use host_render_terrain_residual::{
     honesty_particle_system_emit_rate_residual_deepen_pack_wave93,
     honesty_render_terrain_residual_pack_wave93, honesty_road_residual_pack_wave93,
     honesty_shadow_residual_deepen_pack_wave93, honesty_terrain_texture_residual_pack_wave93,
+};
+pub use host_ai_ability_upgrade_residual::{
+    honesty_ai_ability_upgrade_residual_pack_wave94,
+    honesty_ai_state_residual_table_wave94, honesty_command_set_superweapon_residual_wave94,
+    honesty_special_ability_residual_deepen_wave94, honesty_upgrade_name_table_residual_wave94,
+};
+pub use host_script_map_team_player_residual::{
+    honesty_map_object_residual_pack_wave95, honesty_player_residual_deepen_pack_wave95,
+    honesty_script_action_name_table_residual_wave95,
+    honesty_script_condition_name_table_residual_wave95,
+    honesty_script_map_team_player_residual_pack_wave95, honesty_team_residual_pack_wave95,
+    honesty_waypoint_residual_pack_wave95,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
