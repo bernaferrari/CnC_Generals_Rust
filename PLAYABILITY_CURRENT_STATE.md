@@ -1,3 +1,56 @@
+## Residual Host Playability — Wave 79: minimap/selection/input/drawable/training/upgrade residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal to Wave 78 special powers):**
+1. **Minimap residual honesty pack** (`graphics/minimap_renderer`):
+   - Standard size **256**, default world span **1024**, screen origin **10**.
+   - FOW shade residual Visible **1.0** / Explored **0.5** / Hidden **0.12**.
+   - Pure FOW RGBA Hidden/Explored/Visible residual + soft-edge **3/1** weight residual.
+   - CELL 0/1/2 bridge residual.
+   - Honesty: `honesty_minimap_residual_pack_wave79`.
+2. **Selection/HUD residual pack** (`selection_renderer`):
+   - Selection/hover/friendly/enemy/neutral/health-bar color residual defaults.
+   - Circle radius **3.0**, thickness **0.2**, health bar **4.0×0.3** offset **2.0**.
+   - Pulse speed **2.0** + alpha residual `sin*0.3+0.7` clamp **[0.4,1.0]**.
+   - Honesty: `honesty_selection_hud_residual_pack_wave79`.
+3. **Input residual pack** (`unit_input_handler` / `unit_control`):
+   - Drag-select threshold **5** px residual.
+   - Double-click select-type window **0.3** s residual.
+   - Honesty: `honesty_input_residual_pack_wave79`.
+4. **Drawable residual save/load fields** (`save_load/snapshot`):
+   - `ObjectStatusSnapshot.camo_stealth_look` freezes `Drawable::m_stealthLook` ordinal
+     residual (`Object::camo_stealth_look`) with Xfer append + restore.
+   - Honesty: `honesty_drawable_residual_fields_wave79_ok` +
+     `drawable_camo_stealth_look_snapshot_residual_wave79`.
+5. **Unit training / veterancy residual deepen** (`host_unit_training` / `object`):
+   - GameData.ini HealthBonus / WeaponBonus residual matrix (Vet **120%/110%/120% RoF**,
+     Elite **130%/120%/140%**, Heroic **150%/130%/160%**).
+   - AdvancedTraining ExperienceScalar **AddXPScalar 1.0** residual **application**
+     in `Object::gain_experience` when upgrade tag present (2× XP).
+   - Honesty: `honesty_unit_training_residual_pack_wave79_ok`.
+6. **Upgrade cost/time residual application** (`host_upgrades` / `command_executor`):
+   - `HostUpgradeResearch` stamps `build_cost_paid` + `retail_research_frames` +
+     `residual_research_frames` (**1** host path) at queue.
+   - `resolve_upgrade_cost_supplies` prefers HostUpgradeKind retail BuildCost matrix
+     (WorkerShoes **1000** fix; AdvancedTraining **1500** residual).
+   - Host research complete path remains **1**-frame residual (not full ProductionUpdate).
+   - Honesty: `honesty_upgrades_cost_time_application_wave79_ok`.
+7. Tests / gates:
+   - shell_smoke: minimap79/sel79/input79/draw79/train79/upg79 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     minimap79=true sel79=true input79=true draw79=true train79=true upg79=true
+
+**Still residual (fail-closed, not claimed):**
+- Full SAGE Radar/Minimap GPU atlas / live click-to-scroll camera
+- Full Drawable::drawIcon health-bar bone attach GPU
+- Full MessageStream / GUIEdit drag matrix
+- Full C++ Drawable Xfer table beyond StealthLook residual
+- Full ProductionUpdate retail BuildTime for host upgrade research path (still 1-frame)
+- Full ExperienceScalarUpgrade module matrix on all USA templates
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 78: superweapon reload table + CarpetBomb/Artillery/Cluster/GPS/Cash residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal to Waves 76–77):**
