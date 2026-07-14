@@ -172,6 +172,12 @@ pub struct ControlBar {
     remaining_radar_attack_glow_frames: u32,
     special_power_shortcuts: Vec<SpecialPowerShortcutState>,
     special_power_shortcut_count: usize,
+    /// Radar provider count residual from PresentationFrame.
+    presentation_radar_count: i32,
+    /// Radar disabled residual from PresentationFrame.
+    presentation_radar_disabled: bool,
+    /// Queued upgrade names residual from PresentationFrame.
+    presentation_queued_upgrades: Vec<String>,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
     border_colors: CommandBarBorderColors,
@@ -284,6 +290,9 @@ impl ControlBar {
             remaining_radar_attack_glow_frames: 0,
             special_power_shortcuts: Vec::new(),
             special_power_shortcut_count: 0,
+            presentation_radar_count: 0,
+            presentation_radar_disabled: false,
+            presentation_queued_upgrades: Vec::new(),
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             border_colors: CommandBarBorderColors::default(),
@@ -2783,6 +2792,72 @@ impl ControlBar {
         self.special_power_shortcuts
             .iter()
             .any(|s| !s.is_hidden && s.availability != CommandAvailability::Hidden)
+    }
+
+    /// Feed radar, queued upgrades, and ready special-power shortcuts from PresentationFrame.
+    ///
+    /// Prefer this over live player-list / OBJECT_REGISTRY for dual-tick host paths.
+    /// Fail-closed: shortcut command names are template placeholders (not full CommandSet art).
+    pub fn sync_radar_queues_and_specials_from_presentation(
+        &mut self,
+        radar_count: i32,
+        radar_disabled: bool,
+        queued_upgrades: &[String],
+        ready_special_power_templates: &[String],
+    ) {
+        self.presentation_radar_count = radar_count;
+        self.presentation_radar_disabled = radar_disabled;
+        let mut queued = queued_upgrades.to_vec();
+        queued.sort();
+        queued.dedup();
+        self.presentation_queued_upgrades = queued;
+
+        // Seed shortcuts from presentation-ready special powers when empty.
+        if self.special_power_shortcuts.is_empty() && !ready_special_power_templates.is_empty() {
+            let mut names = ready_special_power_templates.to_vec();
+            names.sort();
+            names.dedup();
+            self.special_power_shortcuts = names
+                .into_iter()
+                .take(8)
+                .map(|command_name| SpecialPowerShortcutState {
+                    command_name,
+                    availability: CommandAvailability::Available,
+                    multiplier_count: 1,
+                    is_hidden: false,
+                })
+                .collect();
+            self.special_power_shortcut_count = self.special_power_shortcuts.len();
+        } else if !ready_special_power_templates.is_empty() {
+            // Mark matching shortcuts available.
+            for sc in self.special_power_shortcuts.iter_mut() {
+                if ready_special_power_templates.iter().any(|n| {
+                    n.eq_ignore_ascii_case(&sc.command_name)
+                        || sc.command_name.eq_ignore_ascii_case(n)
+                }) {
+                    sc.availability = CommandAvailability::Available;
+                    sc.is_hidden = false;
+                }
+            }
+        }
+
+        // Gen-star residual: flash when upgrades are queued (purchase-points proxy).
+        if !self.presentation_queued_upgrades.is_empty() {
+            self.gen_star_flash = true;
+        }
+        self.mark_ui_dirty();
+    }
+
+    pub fn presentation_radar_count(&self) -> i32 {
+        self.presentation_radar_count
+    }
+
+    pub fn presentation_radar_disabled(&self) -> bool {
+        self.presentation_radar_disabled
+    }
+
+    pub fn presentation_queued_upgrades(&self) -> &[String] {
+        &self.presentation_queued_upgrades
     }
 
     pub fn get_special_power_shortcuts(&self) -> &[SpecialPowerShortcutState] {
