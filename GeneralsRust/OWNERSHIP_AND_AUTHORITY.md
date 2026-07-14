@@ -90,6 +90,7 @@ When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPi
 | Move destination | shadow SetMoveTarget + writeback | move_to / pathfinding |
 | World pose (render) | shadow overlay / SetTransform | path integration mid-frame |
 | Production enqueue | host_production_log (probe) | enqueue_production + create_object spawn |
+| Victory / match-over | shadow probe + runtime-host status | `evaluate_victory_condition` on host |
 | AI decisions / path step / projectile integrate | — | **Main only** |
 | OBJECT_REGISTRY pose/HP reads | disabled unless bridge env | only if `engine_object_id` + bridge on |
 

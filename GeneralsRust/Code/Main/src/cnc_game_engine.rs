@@ -1793,7 +1793,14 @@ impl CnCGameEngine {
             .map(str::to_string);
     }
 
-    fn runtime_host_status_snapshot(&self) -> RuntimeHostSnapshot {
+    fn runtime_host_status_snapshot(&mut self) -> RuntimeHostSnapshot {
+        let (match_over, victory_label) =
+            if let Some(v) = self.game_logic.evaluate_victory_condition() {
+                (true, format!("{v:?}"))
+            } else {
+                (false, String::new())
+            };
+
         let map_name = self.game_logic.get_current_map_name().trim();
         let map_name = if map_name.is_empty() {
             "-".to_string()
@@ -1846,6 +1853,8 @@ impl CnCGameEngine {
             selected_count,
             local_mobile_units,
             last_gameplay_cmd: self.runtime_host_last_gameplay_cmd.clone(),
+            match_over,
+            victory_label,
         }
     }
 
@@ -6177,7 +6186,7 @@ impl CnCGameEngine {
                     log::warn!("{}", probe.format_report());
                 }
             } else {
-                let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&self.game_logic);
+                let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&mut self.game_logic);
             }
 
             // Immutable presentation snapshot for client/render (borrow-first policy).
@@ -9099,6 +9108,8 @@ struct RuntimeHostSnapshot {
     selected_count: u32,
     local_mobile_units: u32,
     last_gameplay_cmd: String,
+    match_over: bool,
+    victory_label: String,
 }
 
 #[derive(Debug)]
@@ -9220,6 +9231,8 @@ impl RuntimeHostBridge {
             selected_count: 0,
             local_mobile_units: 0,
             last_gameplay_cmd: String::new(),
+            match_over: false,
+            victory_label: String::new(),
         };
         self.publish_status(&snapshot);
     }
@@ -9251,6 +9264,8 @@ impl RuntimeHostBridge {
             "last_gameplay_cmd={}\n",
             snapshot.last_gameplay_cmd
         ));
+        payload.push_str(&format!("match_over={}\n", snapshot.match_over));
+        payload.push_str(&format!("victory_label={}\n", snapshot.victory_label));
         payload.push_str(&format!(
             "frame_path={}\n",
             self.frame_path.to_string_lossy()
@@ -9841,7 +9856,7 @@ pub async fn run_cnc_game(
                                 engine_init_future = None;
                                 engine_init_started_at = None;
                                 engine_init_last_log_at = None;
-                                let new_engine = new_engine;
+                                let mut new_engine = new_engine;
                                 if let Some(bridge) = runtime_host_bridge.as_mut() {
                                     let snapshot = new_engine.runtime_host_status_snapshot();
                                     bridge.publish_runtime(&snapshot);

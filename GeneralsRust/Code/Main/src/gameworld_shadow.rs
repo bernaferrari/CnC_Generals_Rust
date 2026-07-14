@@ -30,13 +30,16 @@ pub struct GameWorldShadowProbe {
     pub economy_match: bool,
     /// Health samples agree for all mapped live objects (within 0.01).
     pub health_match: bool,
+    /// Host match-over residual (evaluate_victory_condition).
+    pub host_match_over: bool,
+    pub victory_label: Option<String>,
     pub detail: String,
 }
 
 impl GameWorldShadowProbe {
     pub fn format_report(&self) -> String {
         format!(
-            "gameworld_shadow host_f={} shadow_f={} objs={}/{} players={}/{} supplies={}/{} mapped={} match={} econ={} health={} {}",
+            "gameworld_shadow host_f={} shadow_f={} objs={}/{} players={}/{} supplies={}/{} mapped={} match={} econ={} health={} victory_over={} label={:?} {}",
             self.host_frame,
             self.shadow_frame,
             self.host_objects,
@@ -49,6 +52,8 @@ impl GameWorldShadowProbe {
             self.counts_match,
             self.economy_match,
             self.health_match,
+            self.host_match_over,
+            self.victory_label,
             self.detail
         )
     }
@@ -708,7 +713,7 @@ impl GameWorldShadow {
     /// Prefer: drain events *after* host tick, then `end_of_host_tick`.
     pub fn end_of_host_tick(
         &mut self,
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         events: &[crate::game_logic::host_damage_log::HostDamageEvent],
     ) -> GameWorldShadowProbe {
         // Sync positions/spawns first so new objects exist before damage apply.
@@ -788,7 +793,7 @@ impl GameWorldShadow {
         (true, checked)
     }
 
-    pub fn probe(&self, logic: &GameLogic) -> GameWorldShadowProbe {
+    pub fn probe(&self, logic: &mut GameLogic) -> GameWorldShadowProbe {
         let snap: WorldSnapshot = self.world.snapshot();
         let host_objects = logic.get_objects().len().min(self.max_entities);
         let host_players = logic.get_players().len();
@@ -828,6 +833,12 @@ impl GameWorldShadow {
             )
         };
 
+        let (host_match_over, victory_label) = if let Some(v) = logic.evaluate_victory_condition() {
+            (true, Some(format!("{v:?}")))
+        } else {
+            (false, None)
+        };
+
         GameWorldShadowProbe {
             host_frame,
             shadow_frame,
@@ -841,6 +852,8 @@ impl GameWorldShadow {
             counts_match,
             economy_match,
             health_match,
+            host_match_over,
+            victory_label,
             detail,
         }
     }
@@ -865,7 +878,7 @@ pub fn sync_shadow_from_host(shadow: &mut GameWorldShadow, logic: &GameLogic) {
 }
 
 /// Build shadow session + probe.
-pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorldShadow, GameWorldShadowProbe) {
+pub fn probe_host_vs_gameworld(logic: &mut GameLogic) -> (GameWorldShadow, GameWorldShadowProbe) {
     const MAX_ENTITIES: usize = 4096;
     let mut shadow = GameWorldShadow::new(MAX_ENTITIES);
     shadow.sync_from_host(logic);
@@ -874,7 +887,7 @@ pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorldShadow, GameWorld
 }
 
 /// Optional post-host-tick hook (stateless one-shot probe).
-pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadowProbe> {
+pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldShadowProbe> {
     if !gameworld_shadow_enabled() {
         return None;
     }
@@ -1189,7 +1202,7 @@ mod tests {
         assert_eq!(shadow.entity_for_host(a), Some(ea));
         assert_eq!(shadow.entity_for_host(b), Some(eb));
 
-        let probe = shadow.probe(&logic);
+        let probe = shadow.probe(&mut logic);
         assert!(probe.full_match(), "{}", probe.format_report());
     }
 
@@ -1208,7 +1221,7 @@ mod tests {
         damage_parity_probe(&mut logic, &mut shadow, id, 35.0).expect("parity");
         // ID remains stable after damage.
         assert!(shadow.entity_for_host(id).is_some());
-        let probe = shadow.probe(&logic);
+        let probe = shadow.probe(&mut logic);
         assert!(probe.health_match, "{}", probe.format_report());
     }
 
@@ -1217,7 +1230,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("GameWorldShadowMap");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-        let (shadow, probe) = probe_host_vs_gameworld(&logic);
+        let (shadow, probe) = probe_host_vs_gameworld(&mut logic);
         assert!(
             probe.full_match() || probe.host_objects > 4096,
             "{}",
