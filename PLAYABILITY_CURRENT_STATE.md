@@ -66,35 +66,59 @@
 
 ## Residual Host Playability — Wave 82: DamageType/DeathType/ModelCondition/WeaponBonus/ObjectStatus enum residual tables (2026-07-13)
 
-**Closed (host-testable residual peels; orthogonal enum/bit-name tables):**
+**Closed (host-testable residual peels; C++ bit-name / enum table honesty):**
 1. **DamageType residual enum table** (`host_enum_table_residual`):
-   - C++ DamageTypeFlags::s_bitNameList residual; DAMAGE_NUM_TYPES **38**.
+   - Freezes C++ `DamageTypeFlags::s_bitNameList` (Damage.cpp) / `Damage.h` enum.
+   - `DAMAGE_NUM_TYPES` residual **38** (EXPLOSION=0 … STATUS=37).
+   - Subdual residual cluster contiguous: SUBDUAL_MISSILE/VEHICLE/BUILDING/UNRESISTABLE
+     **31–34**; MICROWAVE **35**; KILL_GARRISONED **36**; STATUS **37**.
+   - PARTICLE_BEAM **22**, HAZARD_CLEANUP **21**, KILL_PILOT **16**.
    - Honesty: `honesty_damage_type_enum_table_wave82`.
 2. **DeathType residual enum table**:
-   - DEFINE_DEATH_NAMES residual; DEATH_NUM_TYPES **21**.
+   - Freezes C++ `TheDeathNames` (Damage.h DEFINE_DEATH_NAMES).
+   - `DEATH_NUM_TYPES` residual **21** (NORMAL=0 … POISONED_GAMMA=20).
+   - Death names deliberately diverge from damage names residual sample
+     (BURNED ≠ FLAME, EXPLODED ≠ EXPLOSION).
+   - POISONED_BETA **12** / EXTRA_2…EXTRA_8 **13–19** / POISONED_GAMMA **20**.
    - Honesty: `honesty_death_type_enum_table_wave82`.
-3. **ModelCondition residual flags**:
-   - ModelConditionFlags::s_bitNameList residual; MODELCONDITION_COUNT **117**
-     (ALLOW_SURRENDER off — no SURRENDER bit between SOLD and RAPPELLING).
-   - CONTINUOUS_FIRE_* residual names frozen.
+3. **ModelCondition residual flags (incl. CONTINUOUS_FIRE_*)**:
+   - Freezes C++ `ModelConditionFlags::s_bitNameList` (BitFlags.cpp) / ModelState.h.
+   - `MODELCONDITION_COUNT` residual **117** (ALLOW_SURRENDER off — no SURRENDER
+     bit between SOLD **79** and RAPPELLING **80**).
+   - CONTINUOUS_FIRE_SLOW **84** / MEAN **85** / FAST **86** residual contiguous
+     (FiringTracker speedUp/coolDown residual index honesty).
+   - FIRING_A **36**, MOVING **49**, DISGUISED **116** residual anchors.
    - Honesty: `honesty_model_condition_enum_table_wave82`.
 4. **WeaponBonus residual type table**:
-   - TheWeaponBonusNames residual (ALLOW_DEMORALIZE off); COUNT **27**.
+   - Freezes C++ `TheWeaponBonusNames` (Weapon.h; ALLOW_DEMORALIZE off).
+   - `WEAPONBONUSCONDITION_COUNT` residual **27** (GARRISONED=0 … FRENZY_THREE=26).
+   - DEMORALIZED_OBSOLETE **7** (not live DEMORALIZED); ENTHUSIASTIC **8**;
+     SUBLIMINAL **15**; TARGET_FAERIE_FIRE **22**; FANATICISM **23**;
+     FRENZY_ONE/TWO/THREE **24/25/26**.
+   - CONTINUOUS_FIRE_MEAN **2** / FAST **3** residual (Spectre/Gattling ROF bonuses).
    - Honesty: `honesty_weapon_bonus_enum_table_wave82`.
-5. **ObjectStatus residual table**:
-   - ObjectStatusMaskType::s_bitNameList residual; COUNT **45**.
+5. **ObjectStatus / StatusBits residual table**:
+   - Freezes C++ `ObjectStatusMaskType::s_bitNameList` (ObjectStatusTypes.cpp).
+   - `OBJECT_STATUS_COUNT` residual **45** (NONE=0 … DEPLOYED=44).
+   - STEALTHED **16** / DETECTED **17** / IS_CARBOMB **28** / FAERIE_FIRE **38** /
+     BOOBY_TRAPPED **41** / DISGUISED **43** / DEPLOYED **44**.
+   - STATUS_RIDER1…8 residual cluster **30–37**.
    - Honesty: `honesty_object_status_enum_table_wave82`.
 6. Tests / gates:
+   - Combined honesty: `honesty_enum_table_residual_pack_wave82`.
    - shell_smoke: dmg82/death82/mc82/wbonus82/ostatus82 honesty flags wired
      (playable_claim stays false)
-   - Combined honesty: `honesty_enum_table_residual_pack_wave82`
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     dmg82=true death82=true mc82=true wbonus82=true ostatus82=true
 
 **Still residual (fail-closed, not claimed):**
-- Full armor/weapon combat application of every discriminant
-- Full W3D MODELCONDITION anim draw matrix
-- Full ObjectStatus Xfer rebind / StatusBitsUpgrade matrix
-- Shell `playable_claim` remains false
-- Network residual (deferred)
+- Full armor/weapon combat application of every DamageType discriminant
+- Full W3D MODELCONDITION anim draw / FiringTracker model-condition anim matrix
+- Full WeaponBonusConditionFlags ROF multiplier application residual matrix
+- Full ObjectStatus Xfer rebind / StatusBitsUpgrade / Object::setStatus matrix
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
 
 ## Residual Host Playability — Wave 81: terrain/pathfinder/locomotor/armor/PUC residual peels (2026-07-13)
 
