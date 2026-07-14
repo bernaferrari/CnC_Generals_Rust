@@ -647,7 +647,9 @@ impl RenderPipeline {
     pub fn execute(
         &mut self,
         graphics_system: &mut GraphicsSystem,
-        game_logic: &GameLogic,
+        // Live residual only when presentation is absent. Prefer None after
+        // set_presentation_frame(Some(_)) for the immutable snapshot path.
+        game_logic: Option<&GameLogic>,
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         camera_position: Vec3,
@@ -810,11 +812,13 @@ impl RenderPipeline {
             .presentation_frame
             .as_ref()
             .map(|p| p.fow_shell_bypass)
-            .unwrap_or_else(|| game_logic.isInShellGame());
+            .unwrap_or_else(|| game_logic.map(|g| g.isInShellGame()).unwrap_or(false));
         if render_world_scene && !shell_scene {
             // Refresh minimap terrain base on map/world updates, then refresh FOW overlay.
-            if let Err(e) = self.refresh_minimap_terrain_base(game_logic) {
-                error!("Failed to refresh minimap terrain base: {}", e);
+            if let Some(gl) = game_logic {
+                if let Err(e) = self.refresh_minimap_terrain_base(gl) {
+                    error!("Failed to refresh minimap terrain base: {}", e);
+                }
             }
 
             // Update minimap FOW texture before rendering UI
@@ -879,7 +883,7 @@ impl RenderPipeline {
         Ok(())
     }
 
-    fn sync_lighting_from_map_metadata(&mut self, game_logic: &GameLogic) {
+    fn sync_lighting_from_map_metadata(&mut self, game_logic: Option<&GameLogic>) {
         // Prefer frozen presentation env when available (no live map-settings re-read).
         let derived = if let Some(pres) = self.presentation_frame.as_ref() {
             let env = &pres.world_env;
@@ -898,7 +902,10 @@ impl RenderPipeline {
                 fog_range: env.fog_range(),
             }
         } else {
-            let Some(meta) = game_logic.last_parsed_map_settings() else {
+            let Some(gl) = game_logic else {
+                return;
+            };
+            let Some(meta) = gl.last_parsed_map_settings() else {
                 return;
             };
             CachedLighting {
@@ -937,7 +944,7 @@ impl RenderPipeline {
     fn prewarm_startup_models(
         &mut self,
         graphics_system: &mut GraphicsSystem,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
         allow_sync_model_loads: bool,
     ) {
         let (map_name, signature) = if let Some(pres) = self.presentation_frame.as_ref() {
@@ -945,9 +952,9 @@ impl RenderPipeline {
                 pres.world_env.map_name.clone(),
                 pres.world_env.prewarm_signature(pres.fow_shell_bypass),
             )
-        } else {
-            let map_name = game_logic.get_current_map_name().trim().to_string();
-            let metadata = game_logic.last_parsed_map_settings();
+        } else if let Some(gl) = game_logic {
+            let map_name = gl.get_current_map_name().trim().to_string();
+            let metadata = gl.last_parsed_map_settings();
             let signature = format!(
                 "{}|meta:{}|objects:{}|heightmap:{}|shell:{}",
                 map_name,
@@ -958,9 +965,11 @@ impl RenderPipeline {
                     .and_then(|m| m.heightmap_path.as_ref())
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default(),
-                game_logic.isInShellGame()
+                gl.isInShellGame()
             );
             (map_name, signature)
+        } else {
+            return;
         };
 
         if self
@@ -980,7 +989,7 @@ impl RenderPipeline {
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| {
                 game_logic
-                    .last_parsed_map_settings()
+                    .and_then(|g| g.last_parsed_map_settings())
                     .map(|m| {
                         m.objects
                             .iter()
@@ -1092,7 +1101,7 @@ impl RenderPipeline {
     fn maybe_load_heightmap_hint_after_first_present(
         &mut self,
         graphics_system: &GraphicsSystem,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) {
         if !self.pending_heightmap_hint_load || self.frame_number <= 1 {
             return;
@@ -1102,7 +1111,10 @@ impl RenderPipeline {
             .presentation_frame
             .as_ref()
             .map(|p| p.world_env.world_bounds_vec3())
-            .unwrap_or_else(|| game_logic.world_bounds());
+            .or_else(|| game_logic.map(|g| g.world_bounds()));
+        let Some(world_bounds) = world_bounds else {
+            return;
+        };
         match self.load_heightmap_from_hint(
             &graphics_system.device_arc(),
             &graphics_system.queue_arc(),
@@ -1256,7 +1268,7 @@ impl RenderPipeline {
     fn collect_render_items(
         &mut self,
         graphics_system: &mut GraphicsSystem,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         camera_position: Vec3,
@@ -1277,7 +1289,7 @@ impl RenderPipeline {
         let bypass_fow = presentation
             .as_ref()
             .map(|p| p.fow_shell_bypass)
-            .unwrap_or_else(|| game_logic.isInShellGame());
+            .unwrap_or_else(|| game_logic.map(|g| g.isInShellGame()).unwrap_or(false));
 
         // Snapshot-owned unit inputs for the main mesh pass (empty when no frame).
         let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput> =
@@ -1290,8 +1302,10 @@ impl RenderPipeline {
         // Live fallback identity list when presentation is absent (boot/loading).
         let mut live_object_ids: Vec<ObjectID> = if presentation_unit_pass {
             Vec::new()
+        } else if let Some(gl) = game_logic {
+            gl.get_objects().keys().copied().collect()
         } else {
-            game_logic.get_objects().keys().copied().collect()
+            Vec::new()
         };
 
         // Live FOW batch needs IDs only when presentation is absent.
@@ -1333,8 +1347,7 @@ impl RenderPipeline {
                 .copied()
                 .map(|object_id| {
                     let distance_squared = game_logic
-                        .get_objects()
-                        .get(&object_id)
+                        .and_then(|g| g.get_objects().get(&object_id))
                         .map(|obj| {
                             gameplay_to_render_transform(obj.get_transform_matrix())
                                 .w_axis
@@ -1426,7 +1439,10 @@ impl RenderPipeline {
                 UnitPassSource::Live(id) => {
                     self.debug_last_live_unit_identity_reads =
                         self.debug_last_live_unit_identity_reads.saturating_add(1);
-                    let Some(object) = game_logic.get_objects().get(id) else {
+                    let Some(gl) = game_logic else {
+                        continue;
+                    };
+                    let Some(object) = gl.get_objects().get(id) else {
                         continue;
                     };
                     if !object.is_alive() {
@@ -4552,6 +4568,20 @@ mod tests {
         assert!(
             window.contains("fow_shell_bypass") && window.contains("isInShellGame"),
             "shell FOW must prefer presentation then live: {window}"
+        );
+    }
+    #[test]
+    fn execute_accepts_optional_game_logic_for_presentation_only_path() {
+        let src = include_str!("render_pipeline.rs");
+        assert!(
+            src.contains("game_logic: Option<&GameLogic>"),
+            "execute/collect must take Option<&GameLogic>"
+        );
+        let cnc = include_str!("../cnc_game_engine.rs");
+        assert!(
+            cnc.contains("last_presentation_frame.is_some()")
+                && cnc.contains("Some(&self.game_logic)"),
+            "engine must pass None when presentation snapshot exists"
         );
     }
 

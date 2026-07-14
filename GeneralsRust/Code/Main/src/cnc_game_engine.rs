@@ -6585,7 +6585,11 @@ impl CnCGameEngine {
         }
         self.render_pipeline.execute(
             &mut self.graphics_system,
-            &self.game_logic,
+            if self.last_presentation_frame.is_some() {
+                None
+            } else {
+                Some(&self.game_logic)
+            },
             &self.view_matrix,
             &self.projection_matrix,
             self.camera_position,

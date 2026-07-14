@@ -78,7 +78,7 @@ Production enqueue records `host_production_log`; completions spawn via `host_sp
 
 ## Presentation residual (unit mesh)
 
-When `PresentationFrame` is set, `RenderPipeline::collect_render_items` drives the main unit mesh pass from `unit_render_inputs` only (`debug_last_live_unit_identity_reads == 0`). Live `game_logic.get_objects()` remains only for boot/loading frames without a snapshot. Terrain/prewarm prefer frozen `PresentationWorldEnv` and fall back to live map metadata if absent.
+When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPipeline::execute`. `collect_render_items` drives the main unit mesh pass from `unit_render_inputs` only (`debug_last_live_unit_identity_reads == 0`). Live `game_logic.get_objects()` remains only for boot/loading frames without a snapshot. Terrain/prewarm prefer frozen `PresentationWorldEnv` and fall back to live map metadata if absent.
 
 ## Still Main mid-frame (not sole GameWorld)
 
