@@ -35024,6 +35024,32 @@ impl GameLogic {
     }
 
     /// Snapshot number of active beacons (used by HUD to clear highlights).
+
+    /// Object IDs currently following a path (pathfinding step residual).
+    ///
+    /// Prefer this over iterating every object key each frame.
+    pub fn object_ids_with_active_path(&self) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && !o.movement.path.is_empty()
+                    && o.movement.current_path_index < o.movement.path.len()
+            })
+            .map(|(&id, _)| id)
+            .collect()
+    }
+
+    /// Peek beacon placements queued this frame (HUD bloom residual).
+    pub fn recent_beacons(&self) -> &[glam::Vec3] {
+        &self.recent_beacons
+    }
+
+    /// Drain beacon placements queued this frame (presentation / UI residual).
+    pub fn drain_recent_beacons(&mut self) -> Vec<glam::Vec3> {
+        std::mem::take(&mut self.recent_beacons)
+    }
+
     pub fn beacon_count(&self) -> usize {
         snapshot_beacons().len()
     }
