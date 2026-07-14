@@ -2672,11 +2672,7 @@ impl BasicDrawable {
         })?;
 
         // C++: widthScale = 1.0f / zoom; height forced to 3.0 after scale.
-        let zoom = if zoom.abs() < f32::EPSILON {
-            1.0
-        } else {
-            zoom
-        };
+        let zoom = if zoom.abs() < f32::EPSILON { 1.0 } else { zoom };
         let width_scale = 1.0 / zoom;
         health_box_width *= width_scale;
         let health_box_height = 3.0_f32;
@@ -3649,12 +3645,7 @@ impl Drawable for BasicDrawable {
         if let Some(obj_id) = self.object_id {
             let effectively_dead = OBJECT_REGISTRY
                 .get_object(obj_id)
-                .and_then(|obj_arc| {
-                    obj_arc
-                        .read()
-                        .ok()
-                        .map(|guard| guard.is_effectively_dead())
-                })
+                .and_then(|obj_arc| obj_arc.read().ok().map(|guard| guard.is_effectively_dead()))
                 .unwrap_or(false);
             if !effectively_dead {
                 self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
@@ -6019,23 +6010,20 @@ mod tests {
         let mut drawable = BasicDrawable::new(DrawableId(42));
         assert!(drawable.get_shadows_enabled());
 
-        drawable.react_to_body_damage_state_change(
-            gamelogic::common::types::BodyDamageType::Damaged,
-        );
+        drawable
+            .react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Damaged);
         assert!(
             drawable.get_shadows_enabled(),
             "damage model condition must not clear SHADOWS status"
         );
 
-        drawable.react_to_body_damage_state_change(
-            gamelogic::common::types::BodyDamageType::Rubble,
-        );
+        drawable
+            .react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Rubble);
         assert!(drawable.get_shadows_enabled());
 
         drawable.set_shadows_enabled(false);
-        drawable.react_to_body_damage_state_change(
-            gamelogic::common::types::BodyDamageType::Pristine,
-        );
+        drawable
+            .react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Pristine);
         assert!(
             !drawable.get_shadows_enabled(),
             "explicit disable must survive model condition updates"

@@ -9,8 +9,8 @@
 
 use game_engine::common::random_value::{
     get_game_client_random_value as common_client_int,
-    get_game_client_random_value_real as common_client_real, DistributionType as CommonDistribution,
-    GameClientRandomVariable as CommonClientVar,
+    get_game_client_random_value_real as common_client_real,
+    DistributionType as CommonDistribution, GameClientRandomVariable as CommonClientVar,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
