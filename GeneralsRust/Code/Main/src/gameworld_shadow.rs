@@ -1671,6 +1671,25 @@ mod tests {
     }
 
     #[test]
+    fn reset_skips_factory_when_bridge_off() {
+        if crate::gameworld_shadow::engine_object_bridge_enabled() {
+            return;
+        }
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ResetBridge");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "RstU", 50.0);
+        let _ = logic
+            .create_object("RstU", Team::USA, glam::Vec3::ZERO)
+            .expect("id");
+        assert!(!logic.get_objects().is_empty());
+        // Must not panic / lock-poison on factory residual when bridge off.
+        logic.reset();
+        assert!(logic.get_objects().is_empty());
+        assert_eq!(logic.get_frame(), 0);
+    }
+
+    #[test]
     fn engine_object_bridge_off_by_default() {
         // Default path: no dual-tick / bridge env → engine_object_id stays None.
         if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
