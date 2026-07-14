@@ -91,6 +91,13 @@ When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPi
 | World pose (render) | shadow overlay / SetTransform | path integration mid-frame |
 | Production enqueue | host_production_log (probe) | enqueue_production + create_object spawn |
 | AI decisions / path step / projectile integrate | — | **Main only** |
+| OBJECT_REGISTRY pose/HP reads | disabled unless bridge env | only if `engine_object_id` + bridge on |
+
+## OBJECT_REGISTRY residual
+
+Main `Object` methods (`is_alive`, HP%, pose get/set) consult `gamelogic::OBJECT_REGISTRY` **only** when `engine_object_bridge_enabled()` (`GENERALS_BRIDGE_ENGINE_OBJECTS` / dual-tick). Default production path is host-owned fields only — no `Arc<RwLock<Object>>` dual-world reads.
+
+The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for legacy ObjectFactory compatibility; that surface is not on the default host match path.
 
 ## Still Main mid-frame (not sole GameWorld)
 
