@@ -409,3 +409,7 @@ path = "src/bin/ai_skirmish_gate.rs"
 [[bin]]
 name = "shell_smoke_gate"
 path = "src/bin/shell_smoke_gate.rs"
+
+[[bin]]
+name = "executable_smoke_gate"
+path = "src/bin/executable_smoke_gate.rs"
