@@ -2104,6 +2104,43 @@ impl CnCGameEngine {
                 );
                 self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
             }
+            "enqueue_production" | "train_unit" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "train_fail_not_ingame".into();
+                } else {
+                    let template = args
+                        .get("template")
+                        .cloned()
+                        .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let producer = team.and_then(|team| {
+                        self.game_logic
+                            .get_objects()
+                            .iter()
+                            .find(|(_, o)| {
+                                o.team == team
+                                    && o.is_alive()
+                                    && o.is_constructed()
+                                    && o.building_data.is_some()
+                            })
+                            .map(|(id, _)| *id)
+                    });
+                    if let Some(pid) = producer {
+                        if self.game_logic.enqueue_production(pid, template.clone()) {
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("train_ok:{}:{}", pid.0, template);
+                        } else {
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("train_fail_enqueue:{}", template);
+                        }
+                    } else {
+                        self.runtime_host_last_gameplay_cmd = "train_fail_no_producer".into();
+                    }
+                }
+            }
             "select_local_unit" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "select_fail_not_ingame".into();
