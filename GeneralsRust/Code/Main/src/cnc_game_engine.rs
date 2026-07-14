@@ -1950,10 +1950,19 @@ impl CnCGameEngine {
                 self.enter_shell_menu_from_runtime_host(Some(override_screen));
             }
             "open_skirmish_menu" => {
-                self.enter_shell_screen_from_runtime_host(
-                    Some("Skirmish"),
-                    "Menus/SkirmishGameOptionsMenu.wnd",
-                );
+                // Headless runtime-host smoke: status override only (no shell/WND).
+                // Interactive / non-headless: full shell screen + WND push.
+                let env_soft = std::env::var("GENERALS_RUNTIME_HOST_WND")
+                    .map(|v| v == "0" || v.eq_ignore_ascii_case("false"))
+                    .unwrap_or(false);
+                if self.runtime_host_headless || env_soft {
+                    self.set_runtime_host_ui_screen_override(Some("Skirmish"));
+                } else {
+                    self.enter_shell_screen_from_runtime_host(
+                        Some("Skirmish"),
+                        "Menus/SkirmishGameOptionsMenu.wnd",
+                    );
+                }
             }
             "open_load_game" => {
                 self.enter_shell_menu_from_runtime_host(Some("LoadGame"));
@@ -2257,9 +2266,21 @@ impl CnCGameEngine {
         self.enter_shell_menu_from_runtime_host(override_screen);
         #[cfg(feature = "game_client")]
         {
-            self.show_shell_menu();
-            if let Err(err) = game_client::gui::get_shell().push(layout_file, false) {
-                warn!("Runtime host failed to push shell screen {layout_file}: {err:?}");
+            // Headless executable smoke sets GENERALS_RUNTIME_HOST_WND=0 so UI
+            // screen override is observable without shell/WND push (show_shell_menu
+            // can fail-closed headless). Interactive default still pushes layouts.
+            let push_wnd = std::env::var("GENERALS_RUNTIME_HOST_WND")
+                .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+                .unwrap_or(true);
+            if push_wnd {
+                self.show_shell_menu();
+                if let Err(err) = game_client::gui::get_shell().push(layout_file, false) {
+                    warn!("Runtime host failed to push shell screen {layout_file}: {err:?}");
+                }
+            } else {
+                log::debug!(
+                    "Runtime host soft shell screen {override_screen:?} (shell/WND push disabled)"
+                );
             }
         }
     }
@@ -6211,22 +6232,22 @@ impl CnCGameEngine {
                 } else {
                     game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
                 };
-                // Presentation owns unit mesh/HUD identity when a frame exists: skip
-                // OBJECT_REGISTRY-backed drawable shroud binding (dual-world residual).
-                let drawable_result = if self.last_presentation_frame.is_some() {
-                    self.game_client.update_drawables_local(visual_delta)
+                // Presentation path: shell UI + local drawable modules without
+                // OBJECT_REGISTRY shroud bind (dual-world residual). Full
+                // GameClient::update remains disconnected (Main owns input/audio/draw).
+                if self.last_presentation_frame.is_some() {
+                    if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
+                        log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
+                    }
                 } else {
-                    self.game_client.update_drawables(visual_delta)
-                };
-                if let Err(e) = drawable_result {
-                    log::trace!("GameClient drawable update failed (non-fatal): {}", e);
+                    if let Err(e) = self.game_client.update_drawables(visual_delta) {
+                        log::trace!("GameClient drawable update failed (non-fatal): {e}");
+                    }
+                    // Boot/loading residual without presentation frame.
+                    self.game_client.ensure_shell_visible().ok();
+                    self.game_client.update_pre_draw_ui().ok();
+                    self.game_client.update_post_draw_ui().ok();
                 }
-                // C++ parity: GameClient::update() also runs shell activation
-                // (ensure_shell_visible → show_shell_map + show_shell), input processing,
-                // and post-draw UI updates. These are needed for the menu to appear.
-                self.game_client.ensure_shell_visible().ok();
-                self.game_client.update_pre_draw_ui().ok();
-                self.game_client.update_post_draw_ui().ok();
             }
         }
 
