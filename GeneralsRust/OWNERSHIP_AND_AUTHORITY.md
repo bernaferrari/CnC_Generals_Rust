@@ -58,8 +58,10 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 
 ### GameWorld shadow (2026-07-14)
 
-`gameworld_shadow` rebuilds `gamelogic::world::GameWorld` from Main host for
-player/entity/frame/economy (supplies) parity plus `presentation_view_from_gameworld`. Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
+`gameworld_shadow` maintains a `GameWorldShadow` session: stable host `ObjectId`→
+`EntityId` map, delta sync (health/transform/economy), and `WorldMutation` damage
+parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime:
+`GENERALS_GAMEWORLD_SHADOW=1`. Still not production authority. Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
 ### Presentation boundary residual (2026-07-14)
