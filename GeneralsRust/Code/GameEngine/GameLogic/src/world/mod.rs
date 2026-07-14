@@ -382,6 +382,13 @@ pub enum WorldMutation {
         object: EntityId,
         player: Option<PlayerId>,
     },
+    /// Set absolute player supplies (economy last-writer).
+    SetSupplies { player: PlayerId, supplies: u32 },
+    /// Set absolute player power_available residual.
+    SetPower {
+        player: PlayerId,
+        power_available: i32,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -483,6 +490,21 @@ impl GameWorld {
                 WorldMutation::TransferOwner { object, player } => {
                     if let Some(e) = self.inner.entity_mut(object) {
                         e.owner = player;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetSupplies { player, supplies } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        p.supplies = supplies;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetPower {
+                    player,
+                    power_available,
+                } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        p.power_available = power_available;
                         applied += 1;
                     }
                 }

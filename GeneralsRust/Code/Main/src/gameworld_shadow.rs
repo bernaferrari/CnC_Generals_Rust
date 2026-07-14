@@ -108,6 +108,16 @@ pub fn ensure_gate_damage_authority() {
             std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
         }
     }
+    ensure_gate_economy_authority();
+}
+
+/// Gates/smoke: default-enable economy authority unless user already set the env.
+pub fn ensure_gate_economy_authority() {
+    if std::env::var_os("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").is_none() {
+        unsafe {
+            std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        }
+    }
 }
 
 /// Session holding GameWorld + stable host↔entity ID maps.
@@ -394,6 +404,30 @@ impl GameWorldShadow {
         updated
     }
 
+    /// Apply drained host economy events as SetSupplies/SetPower mutations.
+    pub fn apply_host_economy_events(
+        &mut self,
+        events: &[crate::game_logic::host_economy_log::HostEconomyEvent],
+    ) -> (usize, usize) {
+        let mut queued = 0usize;
+        for ev in events {
+            let Some(&gw) = self.host_player_to_gw.get(&ev.player_id) else {
+                continue;
+            };
+            self.world.queue_mutation(WorldMutation::SetSupplies {
+                player: gw,
+                supplies: ev.supplies,
+            });
+            self.world.queue_mutation(WorldMutation::SetPower {
+                player: gw,
+                power_available: ev.power_available,
+            });
+            queued += 2;
+        }
+        let applied = self.apply_pending();
+        (queued, applied)
+    }
+
     pub fn queue_damage_for_host(&mut self, host: ObjectId, amount: f32) -> bool {
         let Some(eid) = self.entity_for_host(host) else {
             return false;
@@ -653,9 +687,17 @@ pub fn shadow_session_after_host_tick(
     }
     let mut econ_wb = 0usize;
     if gameworld_economy_authority_enabled() {
-        // Shadow already holds host economy from sync; allow tests to desync host
-        // and rely on writeback. Production path is identity until supply mutations land.
+        let econ_events = crate::game_logic::host_economy_log::drain();
+        if !econ_events.is_empty() {
+            // Keep pre-tick shadow supplies when re-applying absolute events.
+            // (sync already copied host post-change supplies when write_health path
+            //  also refreshed players — re-apply is idempotent absolute set.)
+            let (_q, _a) = shadow.apply_host_economy_events(&econ_events);
+        }
         econ_wb = shadow.writeback_economy_to_host(logic);
+    } else {
+        // Avoid unbounded growth when economy authority off.
+        let _ = crate::game_logic::host_economy_log::drain();
     }
     let mut probe = shadow.probe(logic);
     if !events.is_empty() || econ_wb > 0 {
@@ -918,6 +960,47 @@ mod tests {
             assert!(!gameworld_damage_authority_enabled());
             assert!(maybe_shadow_after_host_tick(&GameLogic::new()).is_none());
         }
+    }
+
+    #[test]
+    fn economy_authority_applies_logged_spend() {
+        crate::game_logic::host_economy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EconSpend");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
+        ids.sort_unstable();
+        let hid = ids[0];
+        let before = logic.get_player(hid).unwrap().resources.supplies;
+        // Spend via Player API (logs).
+        let cost = crate::game_logic::Resources {
+            supplies: 100,
+            power: 0,
+        };
+        assert!(logic.get_player_mut(hid).unwrap().spend_resources(&cost));
+        let after_host = logic.get_player(hid).unwrap().resources.supplies;
+        assert_eq!(after_host, before.saturating_sub(100));
+        let events = crate::game_logic::host_economy_log::drain();
+        assert!(!events.is_empty());
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Desync shadow supplies upward, then apply log as authority.
+        if let Some(p) = shadow
+            .world_mut()
+            .player_mut(gamelogic::world::PlayerId::from_index(0))
+        {
+            p.supplies = before; // pre-spend
+        }
+        let _ = shadow.apply_host_economy_events(&events);
+        let sh = shadow
+            .world()
+            .player(gamelogic::world::PlayerId::from_index(0))
+            .unwrap()
+            .supplies;
+        assert_eq!(sh, after_host);
+        let wb = shadow.writeback_economy_to_host(&mut logic);
+        assert!(wb >= 1 || logic.get_player(hid).unwrap().resources.supplies == after_host);
     }
 
     #[test]
