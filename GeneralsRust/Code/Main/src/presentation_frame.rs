@@ -123,6 +123,12 @@ pub struct RenderableObject {
     pub disguise_as_team: Option<Team>,
     /// Stealth detector range residual (0 = none).
     pub detection_range: f32,
+    /// Special power ready residual (superweapon / hero ability).
+    pub special_power_ready: bool,
+    /// Special power full cooldown seconds residual.
+    pub special_power_cooldown: f32,
+    /// Special power remaining cooldown seconds residual.
+    pub special_power_cooldown_remaining: f32,
     pub is_structure: bool,
     pub is_unit: bool,
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
@@ -1584,6 +1590,9 @@ impl PresentationFrame {
                 disguise_as_template: obj.disguise_as_template.clone(),
                 disguise_as_team: obj.disguise_as_team,
                 detection_range: obj.detection_range.max(0.0),
+                special_power_ready: obj.special_power_ready,
+                special_power_cooldown: obj.special_power_cooldown.max(0.0),
+                special_power_cooldown_remaining: obj.special_power_cooldown_remaining.max(0.0),
                 is_structure,
                 is_unit,
                 model_key,
@@ -2005,6 +2014,22 @@ impl PresentationFrame {
     /// Whether a science name is unlocked for the local player residual.
     pub fn local_has_science(&self, name: &str) -> bool {
         self.local_unlocked_sciences.iter().any(|s| s == name)
+    }
+
+    /// Objects with a ready special power residual (UI / command button feed).
+    pub fn special_power_ready_objects(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && o.special_power_ready)
+            .collect()
+    }
+
+    /// Special-power cooldown fraction remaining in 0..1 (0 = ready).
+    pub fn special_power_cooldown_fraction(obj: &RenderableObject) -> f32 {
+        if obj.special_power_cooldown <= 0.0 {
+            return 0.0;
+        }
+        (obj.special_power_cooldown_remaining / obj.special_power_cooldown).clamp(0.0, 1.0)
     }
 
     /// Overlay health/position/destroyed from a GameWorld shadow session.
@@ -2810,6 +2835,41 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn special_power_freeze_from_host() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("ParticleUplink");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("ParticleUplink".into(), t);
+        let id = logic
+            .create_object("ParticleUplink", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.special_power_ready = false;
+            obj.special_power_cooldown = 180.0;
+            obj.special_power_cooldown_remaining = 45.0;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let o = frame.objects.iter().find(|r| r.id == id).expect("o");
+        assert!(!o.special_power_ready);
+        assert!((o.special_power_cooldown - 180.0).abs() < 0.01);
+        assert!((o.special_power_cooldown_remaining - 45.0).abs() < 0.01);
+        let frac = PresentationFrame::special_power_cooldown_fraction(o);
+        assert!((frac - 0.25).abs() < 0.01);
+        assert!(frame.special_power_ready_objects().is_empty());
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.special_power_ready = true;
+            obj.special_power_cooldown_remaining = 0.0;
+        }
+        let frame2 = PresentationFrame::build_from_logic(&logic, 1);
+        let o2 = frame2.objects.iter().find(|r| r.id == id).expect("o2");
+        assert!(o2.special_power_ready);
+        assert_eq!(frame2.special_power_ready_objects().len(), 1);
+        assert_eq!(PresentationFrame::special_power_cooldown_fraction(o2), 0.0);
     }
 
     #[test]
