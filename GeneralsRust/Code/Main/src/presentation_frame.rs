@@ -3205,6 +3205,7 @@ impl PresentationFrame {
             panel.special_power_ready,
             panel.special_power_cooldown_remaining,
         );
+        control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
     }
 
     /// Selection IDs for multi-consumer apply (player list or object.selected flags).
@@ -5181,6 +5182,55 @@ mod tests {
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
         );
+    }
+
+    #[test]
+    fn presentation_feeds_control_bar_sciences() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "SciP", true));
+        let mut t = ThingTemplate::new("SciUnit");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("SciUnit".into(), t);
+        let id = logic
+            .create_object("SciUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.is_local = true;
+            p.is_alive = true;
+            p.selected_objects = vec![id];
+            p.unlocked_sciences.insert("SCIENCE_RedGuards".into());
+            p.unlocked_sciences.insert("SCIENCE_PaladinTank".into());
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(frame
+            .local_unlocked_sciences
+            .iter()
+            .any(|s| s == "SCIENCE_RedGuards"));
+        assert!(frame.local_has_science("SCIENCE_PaladinTank"));
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame.apply_to_control_bar(&mut bar);
+            let sci = bar.get_science_state();
+            assert!(sci
+                .unlocked_sciences
+                .iter()
+                .any(|s| s == "SCIENCE_RedGuards"));
+            assert!(
+                sci.rank1_buttons
+                    .iter()
+                    .any(|b| b.is_purchased && b.command_name.contains("RedGuards")),
+                "expected purchased science button, got {:?}",
+                sci.rank1_buttons
+            );
+        }
     }
 
     #[test]
