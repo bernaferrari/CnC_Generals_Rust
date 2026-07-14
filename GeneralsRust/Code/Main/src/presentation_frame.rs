@@ -1598,6 +1598,24 @@ pub struct PresentationFrame {
     pub pending_music_stop: bool,
     /// Pending popup message texts residual (fail-closed layout).
     pub pending_popup_messages: Vec<String>,
+    /// Script time-freeze residual.
+    pub script_time_frozen: bool,
+    /// Script camera time-freeze residual.
+    pub script_camera_time_frozen: bool,
+    /// Combined simulation freeze residual.
+    pub time_frozen_for_simulation: bool,
+    /// Pending script FPS limit residual.
+    pub script_fps_limit: Option<i32>,
+    /// Pending view guardband residual (x,y bias).
+    pub view_guardband: Option<(f32, f32)>,
+    /// Pending camera focus residual.
+    pub camera_focus: Option<[f32; 3]>,
+    /// Pending BW mode residual (enabled, frames).
+    pub camera_bw_mode: Option<(bool, i32)>,
+    /// Pending camera shaker residual (amplitude, duration, radius).
+    pub camera_shakers: Vec<(f32, f32, f32)>,
+    /// Pending camera motion-blur request count residual.
+    pub camera_motion_blur_count: usize,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
@@ -2087,6 +2105,24 @@ impl PresentationFrame {
                 .map(|p| p.message.clone())
                 .take(16)
                 .collect(),
+            script_time_frozen: logic.is_script_time_frozen(),
+            script_camera_time_frozen: logic.is_script_camera_time_frozen(),
+            time_frozen_for_simulation: logic.is_time_frozen_for_simulation(),
+            script_fps_limit: logic.peek_pending_script_fps_limit(),
+            view_guardband: logic
+                .peek_pending_view_guardband()
+                .map(|g| (g.x_bias, g.y_bias)),
+            camera_focus: logic.peek_pending_camera_focus().map(|p| [p.x, p.y, p.z]),
+            camera_bw_mode: logic
+                .peek_pending_camera_bw_mode()
+                .map(|m| (m.enabled, m.frames)),
+            camera_shakers: logic
+                .peek_pending_camera_add_shakers()
+                .iter()
+                .map(|s| (s.amplitude, s.duration_seconds, s.radius))
+                .take(8)
+                .collect(),
+            camera_motion_blur_count: logic.peek_pending_camera_motion_blur_count(),
             fow_shell_bypass,
             fow_grid,
             particle_systems,
@@ -3075,6 +3111,15 @@ impl PresentationFrame {
         ui.pending_radar_movie = self.pending_radar_movie.clone();
         ui.pending_music_stop = self.pending_music_stop;
         ui.pending_popup_messages = self.pending_popup_messages.clone();
+        ui.script_time_frozen = self.script_time_frozen;
+        ui.script_camera_time_frozen = self.script_camera_time_frozen;
+        ui.time_frozen_for_simulation = self.time_frozen_for_simulation;
+        ui.script_fps_limit = self.script_fps_limit;
+        ui.view_guardband = self.view_guardband;
+        ui.camera_focus = self.camera_focus;
+        ui.camera_bw_mode = self.camera_bw_mode;
+        ui.camera_shakers = self.camera_shakers.clone();
+        ui.camera_motion_blur_count = self.camera_motion_blur_count;
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
@@ -4720,6 +4765,41 @@ mod tests {
             "expected ProductionComplete: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn presentation_feeds_script_camera() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.set_script_time_frozen_for_test(true);
+        logic.queue_pending_script_fps_limit(15);
+        logic.queue_pending_view_guardband(0.25, -0.10);
+        logic.queue_pending_camera_focus(glam::Vec3::new(100.0, 0.0, 200.0));
+        logic.queue_pending_camera_bw_mode(true, 30);
+        logic.queue_pending_camera_shaker(glam::Vec3::ZERO, 2.5, 0.4, 120.0);
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(frame.script_time_frozen);
+        assert!(frame.time_frozen_for_simulation);
+        assert_eq!(frame.script_fps_limit, Some(15));
+        assert_eq!(frame.view_guardband, Some((0.25, -0.10)));
+        assert_eq!(frame.camera_focus, Some([100.0, 0.0, 200.0]));
+        assert_eq!(frame.camera_bw_mode, Some((true, 30)));
+        assert!(frame
+            .camera_shakers
+            .iter()
+            .any(|(a, d, r)| (*a - 2.5).abs() < 1e-5
+                && (*d - 0.4).abs() < 1e-5
+                && (*r - 120.0).abs() < 1e-5));
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert!(ui.script_time_frozen);
+        assert!(ui.time_frozen_for_simulation);
+        assert_eq!(ui.script_fps_limit, Some(15));
+        assert_eq!(ui.view_guardband, Some((0.25, -0.10)));
+        assert_eq!(ui.camera_focus, Some([100.0, 0.0, 200.0]));
+        assert_eq!(ui.camera_bw_mode, Some((true, 30)));
+        assert!(!ui.camera_shakers.is_empty());
     }
 
     #[test]
