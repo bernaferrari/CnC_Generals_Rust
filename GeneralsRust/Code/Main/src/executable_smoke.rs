@@ -277,6 +277,9 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
 
     let started = Instant::now();
     let mut gameplay_step: u8 = 0;
+    let mut saw_select_ok = false;
+    let mut saw_move_ok = false;
+    let mut saw_attack_ok = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
     let mut commanded_at: Option<Instant> = None;
@@ -416,20 +419,39 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                                 .map(|t| t.elapsed() > Duration::from_secs(3))
                                 .unwrap_or(false))
                     {
-                        if snap.last_gameplay_cmd.starts_with("select_ok")
-                            || snap.selected_count > 0
-                        {
-                            result.gameplay_cmd_ok =
-                                snap.last_gameplay_cmd.starts_with("select_ok");
+                        if snap.last_gameplay_cmd.starts_with("select_ok") {
+                            saw_select_ok = true;
                         }
                         let _ = write_control(&control_path, &["move_selected|x=100|y=0|z=100"]);
                         gameplay_step = 2;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 2 {
+                    } else if gameplay_step == 2
+                        && (snap.last_gameplay_cmd.starts_with("move_ok")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(3))
+                                .unwrap_or(false))
+                    {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
-                            result.gameplay_cmd_ok = true;
+                            saw_move_ok = true;
                         }
-                        if snap.frame >= 5
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 3;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 3 {
+                        if snap.last_gameplay_cmd.starts_with("move_ok") {
+                            saw_move_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("attack_ok")
+                            || snap.last_gameplay_cmd.starts_with("attack_fail_no_enemy")
+                        {
+                            saw_attack_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("select_ok") {
+                            saw_select_ok = true;
+                        }
+                        // select + move required; attack attempted (ok or no enemy).
+                        result.gameplay_cmd_ok = saw_select_ok && saw_move_ok && saw_attack_ok;
+                        if snap.frame >= 8
                             || commanded_at
                                 .map(|t| t.elapsed() > Duration::from_secs(5))
                                 .unwrap_or(true)
