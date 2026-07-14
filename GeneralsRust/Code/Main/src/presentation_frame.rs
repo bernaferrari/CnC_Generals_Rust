@@ -1410,6 +1410,13 @@ impl PresentationFrame {
                 text: entry.text,
             });
         }
+        // Drain: freeze this frame's completions into the snapshot (sole consumer).
+        for ev in crate::game_logic::host_construction_log::drain() {
+            events.push(PresentationEvent::ConstructionComplete {
+                id: ev.id,
+                template: ev.template_name,
+            });
+        }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2120,6 +2127,31 @@ mod tests {
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
     #[test]
+    fn construction_complete_freezes_into_presentation_events() {
+        crate::game_logic::host_construction_log::clear();
+        crate::game_logic::host_construction_log::record(
+            crate::game_logic::ObjectId(42),
+            "TestBarracks",
+        );
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::ConstructionComplete {
+                        id,
+                        template
+                    } if id.0 == 42 && template == "TestBarracks"
+                )
+            }),
+            "expected ConstructionComplete: {:?}",
+            frame.events
+        );
+        // drained
+        assert!(crate::game_logic::host_construction_log::drain().is_empty());
+    }
+
     fn radar_messages_freeze_into_presentation_events() {
         use glam::Vec3;
         let mut logic = crate::game_logic::GameLogic::new();

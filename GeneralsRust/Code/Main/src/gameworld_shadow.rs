@@ -558,8 +558,46 @@ impl GameWorldShadow {
         (queued, applied)
     }
 
-    /// Ensure spawn-log entities exist in the shadow map (spawn + stable ID).
-    /// Prefer host live health when the object still exists.
+    /// Apply production Complete events: ensure spawned unit is mapped (Spawn channel).
+    pub fn apply_host_production_events(
+        &mut self,
+        events: &[crate::game_logic::host_production_log::HostProductionEvent],
+        logic: &GameLogic,
+    ) -> usize {
+        use crate::game_logic::host_production_log::HostProductionEvent;
+        let mut n = 0usize;
+        let mut spawn_like = Vec::new();
+        for ev in events {
+            if let HostProductionEvent::Complete {
+                spawned,
+                template_name,
+                ..
+            } = ev
+            {
+                if self.host_to_entity.contains_key(&spawned.0) {
+                    n += 1;
+                    continue;
+                }
+                if let Some(obj) = logic.get_objects().get(spawned) {
+                    let team_ord = match obj.team {
+                        Team::USA => 0u8,
+                        Team::China => 1,
+                        Team::GLA => 2,
+                        Team::Neutral => 255,
+                    };
+                    let pos = obj.get_position();
+                    spawn_like.push(crate::game_logic::host_spawn_log::HostSpawnEvent {
+                        id: *spawned,
+                        template: template_name.clone(),
+                        team_ordinal: team_ord,
+                        position: [pos.x, pos.y, pos.z],
+                    });
+                }
+            }
+        }
+        n + self.apply_host_spawn_events(&spawn_like, logic)
+    }
+
     pub fn apply_host_spawn_events(
         &mut self,
         events: &[crate::game_logic::host_spawn_log::HostSpawnEvent],
@@ -600,6 +638,7 @@ impl GameWorldShadow {
     }
 
     /// Apply destroy-log events as WorldMutation::Destroy for mapped entities.
+
     pub fn apply_host_destroy_events(
         &mut self,
         events: &[crate::game_logic::host_destroy_log::HostDestroyEvent],
@@ -970,6 +1009,7 @@ pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldSh
     let _atks = crate::game_logic::host_attack_log::drain();
     let _moves = crate::game_logic::host_move_log::drain();
     let _prod = crate::game_logic::host_production_log::drain();
+    let _ = crate::game_logic::host_construction_log::drain();
     let (shadow, _probe) = probe_host_vs_gameworld(logic);
     // Events already reflected in host health; sync copies health. Log size is the
     // combat-bridge signal.
@@ -1010,6 +1050,7 @@ pub fn shadow_session_after_host_tick(
     shadow.sync_from_host_with(logic, write_health);
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
+    let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
@@ -1748,6 +1789,30 @@ mod tests {
             .movement
             .target_position
             .is_none());
+    }
+
+    #[test]
+    fn production_complete_applies_spawn_map_when_missing() {
+        use crate::game_logic::host_production_log::HostProductionEvent;
+        crate::game_logic::host_spawn_log::clear();
+        crate::game_logic::host_production_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "PMapU", 90.0);
+        let id = logic
+            .create_object("PMapU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        // Do not sync — only Complete path should map.
+        let ev = [HostProductionEvent::Complete {
+            producer: ObjectId(1),
+            template_name: "PMapU".into(),
+            spawned: id,
+        }];
+        let n = shadow.apply_host_production_events(&ev, &logic);
+        assert_eq!(n, 1);
+        assert!(shadow.entity_for_host(id).is_some());
     }
 
     #[test]
