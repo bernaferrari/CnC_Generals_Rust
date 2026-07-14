@@ -1575,6 +1575,43 @@ mod tests {
     }
 
     #[test]
+    fn stale_engine_id_does_not_skip_host_movement() {
+        if crate::gameworld_shadow::engine_object_bridge_enabled() {
+            return;
+        }
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MoveBridge");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "MoveBrU", 100.0);
+        if let Some(t) = logic.templates.get_mut("MoveBrU") {
+            t.add_kind_of(KindOf::Infantry);
+        }
+        let id = logic
+            .create_object("MoveBrU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            o.engine_object_id = Some(42);
+            o.movement.path = vec![
+                glam::Vec3::new(0.0, 0.0, 0.0),
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            ];
+            o.movement.current_path_index = 1;
+            o.movement.target_position = Some(glam::Vec3::new(50.0, 0.0, 0.0));
+            o.status.moving = true;
+            o.movement.max_speed = 20.0;
+        }
+        for _ in 0..10 {
+            logic.update_with_dt(1.0 / 30.0);
+        }
+        let p = logic.get_objects().get(&id).unwrap().get_position();
+        assert!(
+            p.x > 0.05,
+            "host movement must advance despite stale engine_object_id when bridge off; pos={p:?}"
+        );
+    }
+
+    #[test]
     fn host_object_ignores_registry_when_bridge_off() {
         if crate::gameworld_shadow::engine_object_bridge_enabled() {
             return; // process has bridge env
