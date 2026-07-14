@@ -2208,6 +2208,60 @@ impl PresentationFrame {
     /// Filter stored ids to alive selectable friendlies (control-group recall residual).
     /// Script camera-slave residual: first non-destroyed object matching template (case-insensitive).
     /// Control-group double-tap residual: average XZ pose of listed alive objects.
+    /// Runtime-host residual: first alive mobile friendly (select_local_unit).
+    pub fn first_mobile_friendly_id(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Option<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        self.objects
+            .iter()
+            .find(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && o.is_unit
+                    && UnitControlSystem::presentation_is_selectable(o)
+            })
+            .map(|o| o.id)
+    }
+
+    /// Runtime-host residual: first constructed structure with production capacity.
+    pub fn first_constructed_producer_id(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Option<ObjectId> {
+        self.objects
+            .iter()
+            .find(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && o.is_structure
+                    && !o.under_construction
+                    && o.construction_percent >= 1.0
+            })
+            .map(|o| o.id)
+    }
+
+    /// Runtime-host residual: first alive enemy attackable.
+    pub fn first_enemy_attackable_id(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Option<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        self.objects
+            .iter()
+            .find(|o| o.team != player_team && UnitControlSystem::presentation_is_attackable(o))
+            .map(|o| o.id)
+    }
+
+    /// Runtime-host residual: count of alive mobile friendlies.
+    pub fn count_mobile_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
+        self.objects
+            .iter()
+            .filter(|o| o.team == player_team && !o.destroyed && o.is_unit)
+            .count() as u32
+    }
+
     pub fn centroid_of_ids(&self, ids: &[ObjectId]) -> Option<glam::Vec3> {
         let mut sum = glam::Vec3::ZERO;
         let mut n = 0u32;
@@ -3140,6 +3194,47 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn runtime_host_presentation_query_helpers() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tu = ThingTemplate::new("Ranger");
+        tu.set_health(100.0);
+        tu.add_kind_of(KindOf::Infantry);
+        tu.add_kind_of(KindOf::Selectable);
+        tu.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("Ranger".into(), tu);
+        let mut tb = ThingTemplate::new("WarFactory");
+        tb.set_health(1000.0);
+        tb.add_kind_of(KindOf::Structure);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("WarFactory".into(), tb);
+        let mut te = ThingTemplate::new("RedGuard");
+        te.set_health(100.0);
+        te.add_kind_of(KindOf::Infantry);
+        te.add_kind_of(KindOf::Attackable);
+        te.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("RedGuard".into(), te);
+        let u = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let p = logic
+            .create_object("WarFactory", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let e = logic
+            .create_object("RedGuard", Team::China, glam::Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.get_object_mut(p) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.first_mobile_friendly_id(Team::USA), Some(u));
+        assert_eq!(frame.first_constructed_producer_id(Team::USA), Some(p));
+        assert_eq!(frame.first_enemy_attackable_id(Team::USA), Some(e));
+        assert_eq!(frame.count_mobile_friendlies(Team::USA), 1);
     }
 
     #[test]
