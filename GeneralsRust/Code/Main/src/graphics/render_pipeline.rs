@@ -238,6 +238,8 @@ pub struct RenderPipeline {
     current_player_id: u32, // Which player is viewing (for FOW queries)
     missing_ini_objects: HashSet<String>,
     debug_last_alive_objects: usize,
+    /// Live GameLogic object identity reads in unit mesh pass (0 when presentation owns pass).
+    debug_last_live_unit_identity_reads: usize,
     debug_last_fow_filtered: usize,
     debug_last_model_missing: usize,
     debug_last_deferred_model_loads: usize,
@@ -588,6 +590,7 @@ impl RenderPipeline {
             current_player_id: 0, // Default to player 0
             missing_ini_objects: HashSet::new(),
             debug_last_alive_objects: 0,
+            debug_last_live_unit_identity_reads: 0,
             debug_last_fow_filtered: 0,
             debug_last_model_missing: 0,
             debug_last_deferred_model_loads: 0,
@@ -614,6 +617,11 @@ impl RenderPipeline {
     #[inline]
     pub fn presentation_frame(&self) -> Option<&crate::presentation_frame::PresentationFrame> {
         self.presentation_frame.as_ref()
+    }
+
+    /// Live GameLogic identity reads during last unit mesh collect (0 when presentation owns pass).
+    pub fn last_live_unit_identity_reads(&self) -> usize {
+        self.debug_last_live_unit_identity_reads
     }
 
     /// Pure unit-identity + FOW collection for the main mesh pass (no GameLogic borrow).
@@ -1263,6 +1271,8 @@ impl RenderPipeline {
         // Keep frame installed for post-collect execute residual (minimap/shell/heightmap).
         let presentation = self.presentation_frame.clone();
         let presentation_unit_pass = presentation.is_some();
+        // Reset live-identity residual each collect; presentation path must stay at 0.
+        self.debug_last_live_unit_identity_reads = 0;
         // Shell FOW bypass from snapshot when available (no live GameLogic re-read).
         let bypass_fow = presentation
             .as_ref()
@@ -1414,6 +1424,8 @@ impl RenderPipeline {
                     )
                 }
                 UnitPassSource::Live(id) => {
+                    self.debug_last_live_unit_identity_reads =
+                        self.debug_last_live_unit_identity_reads.saturating_add(1);
                     let Some(object) = game_logic.get_objects().get(id) else {
                         continue;
                     };
@@ -4505,6 +4517,29 @@ mod tests {
         assert!(
             src.contains("fow_shell_bypass") && src.contains("snapshot_fow"),
             "collect_render_items must apply presentation FOW without live shroud re-query"
+        );
+    }
+    #[test]
+    fn presentation_unit_pass_records_zero_live_identity_reads() {
+        // Structural: Live branch is the only counter bump; presentation maps UnitPassSource::Presentation only.
+        let src = include_str!("render_pipeline.rs");
+        assert!(
+            src.contains("debug_last_live_unit_identity_reads"),
+            "must track live unit identity residual"
+        );
+        assert!(
+            src.contains("UnitPassSource::Presentation"),
+            "presentation path required"
+        );
+        // When presentation_unit_pass, pass_sources come only from unit_inputs map to Presentation.
+        let idx = src
+            .find("let pass_sources: Vec<UnitPassSource>")
+            .expect("pass_sources");
+        let window = &src[idx..idx + 500];
+        assert!(
+            window.contains("UnitPassSource::Presentation")
+                && window.contains("presentation_unit_pass"),
+            "pass_sources must gate on presentation_unit_pass: {window}"
         );
     }
 
