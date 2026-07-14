@@ -1546,6 +1546,59 @@ impl PresentationFrame {
             .collect()
     }
 
+    /// Overlay health/position/destroyed from a GameWorld shadow session.
+    ///
+    /// Host still builds the frame (templates, FOW, selection); shadow is last
+    /// writer for HP and world position when authority paths are active.
+    /// Unmapped objects are left unchanged.
+    pub fn overlay_gameworld_shadow(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+    ) -> usize {
+        let mut updated = 0usize;
+        for obj in &mut self.objects {
+            let Some(eid) = shadow.entity_for_host(obj.id) else {
+                continue;
+            };
+            let Some(ent) = shadow.world().entity(eid) else {
+                // Destroyed on shadow — mark destroyed for presentation.
+                if !obj.destroyed {
+                    obj.destroyed = true;
+                    obj.health_current = 0.0;
+                    updated += 1;
+                }
+                continue;
+            };
+            let pos = glam::Vec3::new(
+                ent.transform.position.x,
+                ent.transform.position.y,
+                ent.transform.position.z,
+            );
+            let h = ent.health.max(0.0);
+            let destroyed = h <= 0.0;
+            if (obj.position - pos).length_squared() > 1e-6
+                || (obj.health_current - h).abs() > 1e-3
+                || obj.destroyed != destroyed
+            {
+                obj.position = pos;
+                obj.orientation = ent.transform.orientation;
+                obj.health_current = h;
+                obj.destroyed = destroyed;
+                updated += 1;
+            }
+        }
+        // Local supplies from shadow player 0 when economy authority is on.
+        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            if let Some(p) = shadow
+                .world()
+                .player(gamelogic::world::PlayerId::from_index(0))
+            {
+                self.local_supplies = p.supplies;
+            }
+        }
+        updated
+    }
+
     /// Lookup snapshot FOW for an object (local player). None if not on the frame.
     pub fn fow_for_object(&self, id: ObjectId) -> Option<ObjectVisibility> {
         self.objects

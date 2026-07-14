@@ -396,6 +396,12 @@ pub enum WorldMutation {
         position: [f32; 3],
         health: f32,
     },
+    /// Set entity world position / orientation (move command channel).
+    SetTransform {
+        target: EntityId,
+        position: [f32; 3],
+        orientation: f32,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -528,6 +534,16 @@ impl GameWorld {
                         health.max(0.0),
                     );
                     applied += 1;
+                }
+                WorldMutation::SetTransform {
+                    target,
+                    position,
+                    orientation,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.transform = entities::Transform::new(position, orientation);
+                        applied += 1;
+                    }
                 }
             }
         }

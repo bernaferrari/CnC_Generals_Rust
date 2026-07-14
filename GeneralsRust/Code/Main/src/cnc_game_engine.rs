@@ -6032,12 +6032,17 @@ impl CnCGameEngine {
             // Immutable presentation snapshot for client/render (borrow-first policy).
             // Built after authority + host side systems so HUD/render see final frame state.
             let local_id = self.current_player_id;
-            self.last_presentation_frame = Some(
-                crate::presentation_frame::PresentationFrame::build_from_logic(
-                    &self.game_logic,
-                    local_id,
-                ),
+            let mut pres = crate::presentation_frame::PresentationFrame::build_from_logic(
+                &self.game_logic,
+                local_id,
             );
+            if let Some(ref shadow) = self.gameworld_shadow {
+                let n = pres.overlay_gameworld_shadow(shadow);
+                if n > 0 {
+                    log::trace!("presentation overlay from GameWorld shadow: {n} objects");
+                }
+            }
+            self.last_presentation_frame = Some(pres);
 
             #[cfg(feature = "game_client")]
             {
