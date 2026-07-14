@@ -190,6 +190,11 @@ pub fn honesty_ambulance_auto_heal_constants_ok() -> bool {
         && (AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC - 25.0).abs() < 0.001
         && (AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS - 0.10).abs() < 0.001
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_heal_residual_pack_ok() -> bool {
+    honesty_ambulance_auto_heal_constants_ok()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -316,4 +321,14 @@ mod tests {
         assert!(excl.try_claim(target, healer_b));
         assert_eq!(excl.claimed_healer(target), Some(healer_b));
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn heal_residual_pack_honesty_wave71() {
+        assert!(honesty_heal_residual_pack_ok());
+        assert_eq!(AMBULANCE_INFANTRY_HEAL_AMOUNT, 4.0);
+        assert_eq!(AMBULANCE_VEHICLE_HEAL_AMOUNT, 5.0);
+        assert_eq!(HOST_AMBULANCE_HEAL_RADIUS, 100.0);
+        assert_eq!(AMBULANCE_TRANSPORT_SLOTS, 3);
+    }
+
 }

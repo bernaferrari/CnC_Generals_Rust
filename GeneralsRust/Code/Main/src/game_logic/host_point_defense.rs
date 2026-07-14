@@ -351,6 +351,11 @@ pub fn honesty_point_defense_residual_ok() -> bool {
         && COMBAT_CHINOOK_PDL_SCAN_RATE_FRAMES == pdl_ms_to_frames(COMBAT_CHINOOK_PDL_SCAN_RATE_MS)
         && (COMBAT_CHINOOK_PDL_VELOCITY_PREDICT - 1.0).abs() < 0.01
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_point_defense_residual_pack_ok() -> bool {
+    honesty_point_defense_residual_ok()
+}
+
 
 /// Whether residual target is a primary intercept candidate (missile / projectile).
 ///
@@ -571,4 +576,13 @@ mod tests {
         assert_eq!(pdl_delay_frames("USA_Paladin"), 30);
         assert_eq!(pdl_delay_frames("USA_Avenger"), 15);
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn point_defense_residual_pack_honesty_wave71() {
+        assert!(honesty_point_defense_residual_pack_ok());
+        assert_eq!(PALADIN_PDL_SCAN_RATE_FRAMES, 15);
+        assert_eq!(AVENGER_PDL_DELAY_FRAMES, 15);
+        assert!((PALADIN_PDL_DAMAGE - 100.0).abs() < 0.01);
+    }
+
 }

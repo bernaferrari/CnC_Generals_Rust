@@ -375,6 +375,11 @@ pub fn honesty_spy_satellite_dynamic_shroud_constants_ok() -> bool {
             == SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES
         && (SPY_SATELLITE_STEALTH_DETECTION_RANGE - 300.0).abs() < 0.001
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_spy_satellite_residual_pack_ok() -> bool {
+    honesty_spy_satellite_dynamic_shroud_constants_ok()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -522,4 +527,13 @@ mod tests {
                 < 0.01
         );
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn spy_satellite_residual_pack_honesty_wave71() {
+        assert!(honesty_spy_satellite_residual_pack_ok());
+        assert_eq!(SPY_SATELLITE_DURATION_FRAMES, 390);
+        assert_eq!(SPY_SATELLITE_GROW_TIME_FRAMES, 30);
+        assert_eq!(SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES, 15);
+    }
+
 }

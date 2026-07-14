@@ -437,6 +437,22 @@ pub fn honesty_visible_payload_a10_constants_ok() -> bool {
         && A10_VISIBLE_PAYLOAD_TEMPLATE == "A10ThunderboltMissile"
         && A10_VISIBLE_PAYLOAD_WEAPON == "A10ThunderboltMissileWeapon"
 }
+/// Combined residual honesty pack (Wave 71): supply-drop OCL + drop variance + A10 visible + crate geometry.
+pub fn honesty_deliver_payload_residual_pack_ok() -> bool {
+    honesty_supply_drop_crate_geometry_pack_ok()
+        && honesty_drop_variance_constants_ok()
+        && honesty_visible_payload_a10_constants_ok()
+        && SUPPLY_DROP_PAYLOAD_COUNT == 6
+        && SUPPLY_DROP_DROP_DELAY_MS == 350
+        && SUPPLY_DROP_DROP_DELAY_FRAMES == drop_delay_frames_from_ms(SUPPLY_DROP_DROP_DELAY_MS)
+        && SUPPLY_DROP_DROP_DELAY_FRAMES == 11
+        && CARGO_PLANE_DOOR_DELAY_MS == 500
+        && CARGO_PLANE_DOOR_DELAY_FRAMES == 15
+        && SUPPLY_DROP_CARGO_TRANSPORT == "AmericaJetCargoPlane"
+        && SUPPLY_DROP_PAYLOAD_TEMPLATE == "SupplyDropZoneCrate"
+        && SUPPLY_DROP_PUT_IN_CONTAINER == "AmericaCrateParachute"
+}
+
 
 /// C++ TerrainLogic::findClosestEdgePoint residual on host XZ horizontal plane.
 ///
@@ -2841,4 +2857,15 @@ mod tests {
         assert!(HostDeliverPayloadRegistry::honesty_crate_geometry_pack_ok());
         assert!(reg.honesty_wave47_deliver_payload_residual_ok());
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn deliver_payload_residual_pack_honesty_wave71() {
+        assert!(honesty_deliver_payload_residual_pack_ok());
+        assert_eq!(SUPPLY_DROP_PAYLOAD_COUNT, 6);
+        assert_eq!(SUPPLY_DROP_DROP_DELAY_FRAMES, 11);
+        assert!(honesty_drop_variance_constants_ok());
+        assert!(honesty_visible_payload_a10_constants_ok());
+        assert!(honesty_supply_drop_crate_geometry_pack_ok());
+    }
+
 }
