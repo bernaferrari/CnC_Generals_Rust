@@ -1403,6 +1403,13 @@ impl PresentationFrame {
                 team: *team,
             });
         }
+        // Freeze pending radar texts (UI drain later remains authoritative consumer).
+        for entry in logic.radar_notification_snapshot() {
+            events.push(PresentationEvent::RadarMessage {
+                team: Team::Neutral, // host residual: text is global/team-agnostic here
+                text: entry.text,
+            });
+        }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2111,6 +2118,28 @@ mod tests {
     use super::*;
     use crate::game_logic::{GameMode, KindOf, Player, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+    #[test]
+    fn radar_messages_freeze_into_presentation_events() {
+        use glam::Vec3;
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.queue_radar_message_at(
+            "Test radar ping",
+            Vec3::ZERO,
+            crate::game_logic::radar_notifications::RadarKind::Generic,
+        );
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::RadarMessage { text, .. } if text.contains("Test radar")
+                )
+            }),
+            "expected RadarMessage in presentation events: {:?}",
+            frame.events
+        );
+    }
 
     #[test]
     fn presentation_frame_is_built_from_authority_without_arc() {
