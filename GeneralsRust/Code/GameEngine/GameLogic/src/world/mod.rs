@@ -407,6 +407,11 @@ pub enum WorldMutation {
         attacker: EntityId,
         target: Option<EntityId>,
     },
+    /// Set move destination (command channel).
+    SetMoveTarget {
+        unit: EntityId,
+        destination: Option<[f32; 3]>,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -553,6 +558,12 @@ impl GameWorld {
                 WorldMutation::SetAttackTarget { attacker, target } => {
                     if let Some(e) = self.inner.entity_mut(attacker) {
                         e.attack_target = target;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetMoveTarget { unit, destination } => {
+                    if let Some(e) = self.inner.entity_mut(unit) {
+                        e.move_target = destination;
                         applied += 1;
                     }
                 }

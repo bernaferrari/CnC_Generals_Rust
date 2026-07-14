@@ -229,6 +229,7 @@ impl GameWorldShadow {
                     e.attack_target = obj
                         .target
                         .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
+                    e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -257,6 +258,7 @@ impl GameWorldShadow {
                 .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
             if let Some(e) = self.world.world_mut().entity_mut(eid) {
                 e.attack_target = at;
+                e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
             }
         }
 
@@ -452,6 +454,76 @@ impl GameWorldShadow {
                 continue;
             }
             obj.set_target(host_target);
+            updated += 1;
+        }
+        updated
+    }
+
+    /// Queue SetMoveTarget for a mapped host object (move-command channel).
+    pub fn queue_set_move_target_for_host(
+        &mut self,
+        host: ObjectId,
+        destination: Option<[f32; 3]>,
+    ) -> bool {
+        let Some(unit) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(WorldMutation::SetMoveTarget { unit, destination });
+        true
+    }
+
+    /// Sync host movement.target_position onto shadow via SetMoveTarget mutations.
+    pub fn apply_host_move_targets(&mut self, logic: &GameLogic) -> usize {
+        let mut queued = 0usize;
+        let keys: Vec<u32> = self.host_to_entity.keys().copied().collect();
+        for hid in keys {
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
+            let dest = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
+            if self.queue_set_move_target_for_host(ObjectId(hid), dest) {
+                queued += 1;
+            }
+        }
+        if queued > 0 {
+            let _ = self.apply_pending();
+        }
+        queued
+    }
+
+    /// Write shadow Entity::move_target back onto host movement.target_position.
+    /// Direct field write (no host_move_log) to avoid echo loops.
+    pub fn writeback_move_targets_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_dest = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
+            let shadow_dest = ent.move_target;
+            let same = match (host_dest, shadow_dest) {
+                (None, None) => true,
+                (Some(a), Some(b)) => {
+                    (a[0] - b[0]).abs() < 0.01
+                        && (a[1] - b[1]).abs() < 0.01
+                        && (a[2] - b[2]).abs() < 0.01
+                }
+                _ => false,
+            };
+            if same {
+                continue;
+            }
+            obj.movement.target_position = shadow_dest.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            if shadow_dest.is_some() {
+                obj.ai_state = crate::game_logic::AIState::Moving;
+                obj.status.moving = true;
+            } else {
+                obj.status.moving = false;
+            }
             updated += 1;
         }
         updated
@@ -811,6 +883,7 @@ pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadow
     let _spawns = crate::game_logic::host_spawn_log::drain();
     let _destroys = crate::game_logic::host_destroy_log::drain();
     let _atks = crate::game_logic::host_attack_log::drain();
+    let _moves = crate::game_logic::host_move_log::drain();
     let (shadow, _probe) = probe_host_vs_gameworld(logic);
     // Events already reflected in host health; sync copies health. Log size is the
     // combat-bridge signal.
@@ -841,6 +914,7 @@ pub fn shadow_session_after_host_tick(
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
+    let move_events = crate::game_logic::host_move_log::drain();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply events as mutations.
     let write_health = !(auth && !events.is_empty());
@@ -852,13 +926,18 @@ pub fn shadow_session_after_host_tick(
     for ev in &attack_events {
         let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
     }
-    if !attack_events.is_empty() {
+    for ev in &move_events {
+        let _ = shadow.queue_set_move_target_for_host(ev.unit, ev.destination);
+    }
+    if !attack_events.is_empty() || !move_events.is_empty() {
         let _ = shadow.apply_pending();
     }
     let _atks = shadow.apply_host_attack_targets(logic);
+    let _moves = shadow.apply_host_move_targets(logic);
     // Attack-target channel is always bidirectional once session is live: shadow mutations
     // (and host bulk resync above) settle, then writeback keeps host Object::target aligned.
     let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
+    let _move_wb = shadow.writeback_move_targets_to_host(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -1367,6 +1446,76 @@ mod tests {
         let _ = shadow.apply_pending();
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert_eq!(logic.get_objects().get(&a).unwrap().target, None);
+    }
+
+    #[test]
+    fn move_to_logs_destination_for_mobile_unit() {
+        crate::game_logic::host_move_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MoveLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "MoveLogU", 100.0);
+        if let Some(tmpl) = logic.templates.get_mut("MoveLogU") {
+            tmpl.add_kind_of(KindOf::Infantry);
+        }
+        let a = logic
+            .create_object("MoveLogU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        assert!(
+            logic.get_objects().get(&a).unwrap().is_mobile(),
+            "template Infantry should make object mobile"
+        );
+        logic
+            .get_objects_mut()
+            .get_mut(&a)
+            .unwrap()
+            .set_destination(glam::Vec3::new(10.0, 0.0, 0.0));
+        let ev = crate::game_logic::host_move_log::drain();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].unit, a);
+        assert_eq!(ev[0].destination, Some([10.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn move_target_writeback_updates_host() {
+        crate::game_logic::host_move_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MoveWb");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "MoveWA", 100.0);
+        let a = logic
+            .create_object("MoveWA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        crate::game_logic::host_move_log::record(a, Some([50.0, 0.0, 25.0]));
+        let events = crate::game_logic::host_move_log::drain();
+        assert!(!events.is_empty(), "move log should hold destination");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        for ev in &events {
+            assert!(shadow.queue_set_move_target_for_host(ev.unit, ev.destination));
+        }
+        let _ = shadow.apply_pending();
+        let ea = shadow.entity_for_host(a).unwrap();
+        assert_eq!(
+            shadow.world().entity(ea).unwrap().move_target,
+            Some([50.0, 0.0, 25.0])
+        );
+        // Clear via shadow mutation + silent writeback
+        assert!(shadow.queue_set_move_target_for_host(a, None));
+        let _ = shadow.apply_pending();
+        // Seed a host destination so writeback clear is observable
+        if let Some(obj) = logic.get_objects_mut().get_mut(&a) {
+            obj.movement.target_position = Some(glam::Vec3::new(50.0, 0.0, 25.0));
+        }
+        let n = shadow.writeback_move_targets_to_host(&mut logic);
+        assert!(n >= 1);
+        assert!(logic
+            .get_objects()
+            .get(&a)
+            .unwrap()
+            .movement
+            .target_position
+            .is_none());
     }
 
     #[test]
