@@ -793,7 +793,12 @@ impl RenderPipeline {
             self.debug_last_model_missing = 0;
         }
 
-        if render_world_scene && !game_logic.isInShellGame() {
+        let shell_scene = self
+            .presentation_frame
+            .as_ref()
+            .map(|p| p.fow_shell_bypass)
+            .unwrap_or_else(|| game_logic.isInShellGame());
+        if render_world_scene && !shell_scene {
             // Refresh minimap terrain base on map/world updates, then refresh FOW overlay.
             if let Err(e) = self.refresh_minimap_terrain_base(game_logic) {
                 error!("Failed to refresh minimap terrain base: {}", e);
@@ -837,7 +842,7 @@ impl RenderPipeline {
         }
 
         graphics_system.end_frame();
-        if render_world_scene && !game_logic.isInShellGame() {
+        if render_world_scene && !shell_scene {
             self.maybe_load_heightmap_hint_after_first_present(graphics_system, game_logic);
         }
 
@@ -862,16 +867,34 @@ impl RenderPipeline {
     }
 
     fn sync_lighting_from_map_metadata(&mut self, game_logic: &GameLogic) {
-        let Some(meta) = game_logic.last_parsed_map_settings() else {
-            return;
-        };
-
-        let derived = CachedLighting {
-            sun_direction: meta.sun_direction,
-            sun_color: meta.sun_color.or(meta.sky_color),
-            ambient_color: meta.ambient_color.or(meta.fog_color).or(meta.sky_color),
-            fog_color: meta.fog_color.or(meta.sky_color).or(meta.sun_color),
-            fog_range: meta.fog_start.zip(meta.fog_end),
+        // Prefer frozen presentation env when available (no live map-settings re-read).
+        let derived = if let Some(pres) = self.presentation_frame.as_ref() {
+            let env = &pres.world_env;
+            if !env.has_map_metadata
+                && env.sun_direction.is_none()
+                && env.sun_color.is_none()
+                && env.ambient_color.is_none()
+            {
+                return;
+            }
+            CachedLighting {
+                sun_direction: env.sun_direction,
+                sun_color: env.sun_color,
+                ambient_color: env.ambient_color,
+                fog_color: env.fog_color,
+                fog_range: env.fog_range(),
+            }
+        } else {
+            let Some(meta) = game_logic.last_parsed_map_settings() else {
+                return;
+            };
+            CachedLighting {
+                sun_direction: meta.sun_direction,
+                sun_color: meta.sun_color.or(meta.sky_color),
+                ambient_color: meta.ambient_color.or(meta.fog_color).or(meta.sky_color),
+                fog_color: meta.fog_color.or(meta.sky_color).or(meta.sun_color),
+                fog_range: meta.fog_start.zip(meta.fog_end),
+            }
         };
 
         match &mut self.cached_lighting {
@@ -904,20 +927,28 @@ impl RenderPipeline {
         game_logic: &GameLogic,
         allow_sync_model_loads: bool,
     ) {
-        let map_name = game_logic.get_current_map_name().trim().to_string();
-        let metadata = game_logic.last_parsed_map_settings();
-        let signature = format!(
-            "{}|meta:{}|objects:{}|heightmap:{}|shell:{}",
-            map_name,
-            metadata.is_some(),
-            metadata.as_ref().map(|m| m.objects.len()).unwrap_or(0),
-            metadata
-                .as_ref()
-                .and_then(|m| m.heightmap_path.as_ref())
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            game_logic.isInShellGame()
-        );
+        let (map_name, signature) = if let Some(pres) = self.presentation_frame.as_ref() {
+            (
+                pres.world_env.map_name.clone(),
+                pres.world_env.prewarm_signature(pres.fow_shell_bypass),
+            )
+        } else {
+            let map_name = game_logic.get_current_map_name().trim().to_string();
+            let metadata = game_logic.last_parsed_map_settings();
+            let signature = format!(
+                "{}|meta:{}|objects:{}|heightmap:{}|shell:{}",
+                map_name,
+                metadata.is_some(),
+                metadata.as_ref().map(|m| m.objects.len()).unwrap_or(0),
+                metadata
+                    .as_ref()
+                    .and_then(|m| m.heightmap_path.as_ref())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                game_logic.isInShellGame()
+            );
+            (map_name, signature)
+        };
 
         if self
             .last_startup_model_prewarm_signature
@@ -926,6 +957,10 @@ impl RenderPipeline {
         {
             return;
         }
+
+        // Map placed-object templates for prewarm still come from live parse residual
+        // (not on PresentationWorldEnv — object list is large). Signature alone is snapshot.
+        let metadata = game_logic.last_parsed_map_settings();
 
         let mut candidates: Vec<String> = Vec::new();
         let mut seen = HashSet::new();
@@ -1033,7 +1068,11 @@ impl RenderPipeline {
             return;
         }
 
-        let world_bounds = game_logic.world_bounds();
+        let world_bounds = self
+            .presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.world_bounds_vec3())
+            .unwrap_or_else(|| game_logic.world_bounds());
         match self.load_heightmap_from_hint(
             &graphics_system.device_arc(),
             &graphics_system.queue_arc(),
@@ -1199,7 +1238,8 @@ impl RenderPipeline {
         let object_ids_started = Instant::now();
         // Snapshot ownership: when presentation is present, drive the main unit
         // mesh pass from unit_render_inputs (no live object identity / FOW re-read).
-        let presentation = self.presentation_frame.take();
+        // Keep frame installed for post-collect execute residual (minimap/shell/heightmap).
+        let presentation = self.presentation_frame.clone();
         let presentation_unit_pass = presentation.is_some();
         // Shell FOW bypass from snapshot when available (no live GameLogic re-read).
         let bypass_fow = presentation
@@ -2697,7 +2737,12 @@ impl RenderPipeline {
         }
 
         let dimensions = renderer.dimensions();
-        let base_texture = Self::build_minimap_terrain_base_texture(game_logic, dimensions);
+        let bounds = self
+            .presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.world_bounds_vec3());
+        let base_texture =
+            Self::build_minimap_terrain_base_texture(game_logic, dimensions, bounds);
         renderer.set_base_terrain_texture(base_texture)?;
         self.minimap_base_needs_refresh = false;
         Ok(())
@@ -2706,6 +2751,7 @@ impl RenderPipeline {
     fn build_minimap_terrain_base_texture(
         game_logic: &GameLogic,
         dimensions: MinimapDimensions,
+        bounds_override: Option<(Vec3, Vec3)>,
     ) -> Vec<u8> {
         let width = dimensions.width.max(1);
         let height = dimensions.height.max(1);
@@ -2713,7 +2759,8 @@ impl RenderPipeline {
         let mut heights = vec![0.0f32; pixel_count];
         let mut has_sample = false;
 
-        let (world_min, world_max) = game_logic.world_bounds();
+        let (world_min, world_max) =
+            bounds_override.unwrap_or_else(|| game_logic.world_bounds());
         let world_span_x = (world_max.x - world_min.x).max(1.0);
         let world_span_z = (world_max.z - world_min.z).max(1.0);
 

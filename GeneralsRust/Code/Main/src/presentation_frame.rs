@@ -1035,6 +1035,88 @@ impl PresentationDualTickResidual {
     }
 }
 
+/// World/environment identity frozen for the render pass.
+///
+/// Lets lighting / shell / map-name / bounds / heightmap-hint consumers avoid
+/// re-locking live `GameLogic` mid-frame when a presentation snapshot is set.
+/// Fail-closed: not a full heightmap grid or road mesh bake.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresentationWorldEnv {
+    pub map_name: String,
+    pub world_min: [f32; 3],
+    pub world_max: [f32; 3],
+    pub heightmap_hint: Option<String>,
+    pub sun_direction: Option<[f32; 3]>,
+    pub sun_color: Option<[f32; 3]>,
+    pub ambient_color: Option<[f32; 3]>,
+    pub fog_color: Option<[f32; 3]>,
+    pub fog_start: Option<f32>,
+    pub fog_end: Option<f32>,
+    /// Placed-object count from last parsed map metadata (prewarm signature).
+    pub map_object_count: u32,
+    pub has_map_metadata: bool,
+}
+
+impl PresentationWorldEnv {
+    pub fn from_logic(logic: &GameLogic) -> Self {
+        let (wmin, wmax) = logic.world_bounds();
+        let meta = logic.last_parsed_map_settings();
+        let heightmap_hint = logic
+            .heightmap_hint()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .or_else(|| {
+                meta.as_ref()
+                    .and_then(|m| m.heightmap_path.as_ref())
+                    .and_then(|p| p.to_str().map(|s| s.to_string()))
+            });
+        Self {
+            map_name: logic.get_current_map_name().trim().to_string(),
+            world_min: [wmin.x, wmin.y, wmin.z],
+            world_max: [wmax.x, wmax.y, wmax.z],
+            heightmap_hint,
+            sun_direction: meta.as_ref().and_then(|m| m.sun_direction),
+            sun_color: meta
+                .as_ref()
+                .and_then(|m| m.sun_color.or(m.sky_color)),
+            ambient_color: meta
+                .as_ref()
+                .and_then(|m| m.ambient_color.or(m.fog_color).or(m.sky_color)),
+            fog_color: meta
+                .as_ref()
+                .and_then(|m| m.fog_color.or(m.sky_color).or(m.sun_color)),
+            fog_start: meta.as_ref().and_then(|m| m.fog_start),
+            fog_end: meta.as_ref().and_then(|m| m.fog_end),
+            map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
+            has_map_metadata: meta.is_some(),
+        }
+    }
+
+    #[inline]
+    pub fn world_bounds_vec3(&self) -> (glam::Vec3, glam::Vec3) {
+        (
+            glam::Vec3::from_array(self.world_min),
+            glam::Vec3::from_array(self.world_max),
+        )
+    }
+
+    #[inline]
+    pub fn fog_range(&self) -> Option<(f32, f32)> {
+        self.fog_start.zip(self.fog_end)
+    }
+
+    /// Prewarm signature fragment (map|meta|objects|heightmap|shell) without live logic.
+    pub fn prewarm_signature(&self, shell_bypass: bool) -> String {
+        format!(
+            "{}|meta:{}|objects:{}|heightmap:{}|shell:{}",
+            self.map_name,
+            self.has_map_metadata,
+            self.map_object_count,
+            self.heightmap_hint.as_deref().unwrap_or(""),
+            shell_bypass
+        )
+    }
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -1069,6 +1151,9 @@ pub struct PresentationFrame {
     pub world_anims: Vec<PresentationWorldAnim>,
     /// Dual-tick residual counters (build / apply / content counts).
     pub dual_tick: PresentationDualTickResidual,
+    /// World/environment identity for lighting/shell/bounds/heightmap residual.
+    /// Prefer this over live `GameLogic` during GPU collect/execute.
+    pub world_env: PresentationWorldEnv,
 }
 
 impl PresentationFrame {
@@ -1215,6 +1300,7 @@ impl PresentationFrame {
             floating_texts,
             world_anims,
             dual_tick,
+            world_env: PresentationWorldEnv::from_logic(logic),
         }
     }
 
@@ -1284,6 +1370,9 @@ impl PresentationFrame {
             wa.picker_id.0.hash(&mut h);
             wa.display_time_seconds.to_bits().hash(&mut h);
         }
+        self.world_env.map_name.hash(&mut h);
+        self.world_env.has_map_metadata.hash(&mut h);
+        self.world_env.map_object_count.hash(&mut h);
         self.dual_tick.builds.hash(&mut h);
         self.dual_tick.object_count.hash(&mut h);
         h.finish()
@@ -2351,6 +2440,25 @@ mod tests {
         assert!(snap.unit_render_inputs()[0].fow_should_render());
         // Terrain overlay inactive under shell bypass (fail-open / no darkening).
         assert!(!snap.terrain_fow_overlay_active());
+    }
+
+
+    #[test]
+    fn presentation_world_env_freezes_bounds_and_map_name() {
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WorldEnvMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(snap.world_env.map_name, logic.get_current_map_name().trim());
+        let (a, b) = logic.world_bounds();
+        assert_eq!(snap.world_env.world_min, [a.x, a.y, a.z]);
+        assert_eq!(snap.world_env.world_max, [b.x, b.y, b.z]);
+        // Shell bypass matches frozen flag used by render execute residual.
+        assert_eq!(snap.fow_shell_bypass, logic.isInShellGame());
+        let sig = snap.world_env.prewarm_signature(snap.fow_shell_bypass);
+        assert!(sig.contains(&snap.world_env.map_name) || snap.world_env.map_name.is_empty());
+        assert!(sig.contains(&format!("shell:{}", snap.fow_shell_bypass)));
     }
 
     #[test]
