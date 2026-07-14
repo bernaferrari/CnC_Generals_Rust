@@ -317,15 +317,63 @@ impl UnitControlSystem {
     }
 
     /// Snapshot residual: selectable when alive, Selectable kind, not contained.
-    fn presentation_is_selectable(o: &RenderableObject) -> bool {
+    pub fn presentation_is_selectable(o: &RenderableObject) -> bool {
         !o.destroyed
             && PresentationFrame::object_has_kind(o, KindOf::Selectable)
             && o.contained_by.is_none()
     }
 
     /// Snapshot residual: attackable when alive + Attackable kind.
-    fn presentation_is_attackable(o: &RenderableObject) -> bool {
+    pub fn presentation_is_attackable(o: &RenderableObject) -> bool {
         !o.destroyed && PresentationFrame::object_has_kind(o, KindOf::Attackable)
+    }
+
+    /// World-space pick residual from a presentation snapshot (engine + unit_control).
+    ///
+    /// `BASE_SELECTION_RADIUS` matches CncGameEngine::find_object_at_position.
+    pub fn pick_object_id_at_world_from_presentation(
+        frame: &PresentationFrame,
+        position: glam::Vec3,
+        player_team: Option<Team>,
+        prioritize_enemy_targets: bool,
+        base_selection_radius: f32,
+    ) -> Option<ObjectId> {
+        let mut best: Option<(ObjectId, u8, f32)> = None;
+        for o in &frame.objects {
+            if o.destroyed {
+                continue;
+            }
+            let distance = o.position.distance(position);
+            let radius = base_selection_radius.max(o.selection_radius);
+            if distance > radius {
+                continue;
+            }
+            let selectable = Self::presentation_is_selectable(o);
+            let attackable = Self::presentation_is_attackable(o);
+            let priority = if prioritize_enemy_targets {
+                match player_team {
+                    Some(team) if o.team != team && attackable => 0,
+                    Some(team) if o.team == team && selectable => 1,
+                    _ if attackable => 2,
+                    _ if selectable => 3,
+                    _ => continue,
+                }
+            } else {
+                match player_team {
+                    Some(team) if o.team == team && selectable => 0,
+                    Some(_) => continue,
+                    None if selectable => 0,
+                    None => continue,
+                }
+            };
+            match best {
+                Some((_, best_priority, best_distance))
+                    if priority > best_priority
+                        || (priority == best_priority && distance >= best_distance) => {}
+                _ => best = Some((o.id, priority, distance)),
+            }
+        }
+        best.map(|(id, _, _)| id)
     }
 
     /// Pick using presentation identity when a frame is cached.
@@ -1133,5 +1181,25 @@ mod tests {
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         let o = frame.objects.iter().find(|x| x.id == id).unwrap();
         assert!(UnitControlSystem::presentation_is_attackable(o));
+    }
+
+    #[test]
+    fn world_pick_from_presentation_ignores_live_move() {
+        let (mut logic, id) = logic_with_selectable_unit();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(glam::Vec3::new(9000.0, 0.0, 9000.0));
+        }
+        let picked = UnitControlSystem::pick_object_id_at_world_from_presentation(
+            &frame,
+            glam::Vec3::ZERO,
+            Some(Team::USA),
+            false,
+            20.0,
+        );
+        assert_eq!(picked, Some(id));
+        // Live object is far away — presentation still hits origin residual.
+        let live_pos = logic.get_object(id).unwrap().get_position();
+        assert!(live_pos.x > 1000.0);
     }
 }
