@@ -1,3 +1,67 @@
+## Residual Host Playability — Wave 100: ThingFactory residual deepen / Module type tables / Xfer residual deepen peels (2026-07-14)
+
+- Co-present Wave 99 residual (`host_production_buildable_command_residual`) in shell gate wiring
+
+**Closed (host-testable residual peels; orthogonal ThingFactory / Module / Xfer residual):**
+1. **ThingFactory residual deepen** (`host_thing_factory_module_xfer_residual`, beyond Wave 65/74 object packs + spawn bookkeeping):
+   - `TEMPLATE_HASH_SIZE` **12288**; `m_nextTemplateID` ctor **1** (never zero).
+   - `DefaultThingTemplate` residual name; `OBJECT_STATUS_MASK_NONE` **0**.
+   - `DRAWABLE_STATUS` residual bits NONE/DRAWS_IN_MIRROR/SHADOWS/TINT_COLOR_LOCKED/
+     NO_STATE_PARTICLES/NO_SAVE (**6** names).
+   - `KINDOF_DRAWABLE_ONLY` residual index **32** (ALLOW_SURRENDER off KindOf table).
+   - `newObject` residual pipeline **7** steps: VALIDATE…INIT_OBJECT.
+   - `newDrawable` residual pipeline **2** steps.
+   - Build-variation residual index clamp; template ID allocate residual + wrap reject.
+   - Drawable-only Object reject residual; null template ERROR residual.
+   - Honesty: `honesty_thing_factory_residual_deepen_pack_wave100`.
+2. **Module residual type tables** (Module.h / ModuleFactory):
+   - `ModuleType` BEHAVIOR **0** / DRAW **1** / CLIENT_UPDATE **2**; `NUM_MODULE_TYPES` **3**.
+   - Drawable module range FIRST=DRAW LAST=CLIENT_UPDATE; `NUM_DRAWABLE_MODULE_TYPES` **2**.
+   - `ModuleInterfaceType` residual **12** flags UPDATE…CLIENT_UPDATE (0x1…0x800).
+   - `makeDecoratedNameKey` residual format `"{type}{name}"` (`0ActiveBody` / `1W3DModelDraw`).
+   - Empty-name interface mask residual **0**.
+   - Sample ModuleFactory residual table **9** (ActiveBody…BeaconClientUpdate).
+   - Honesty: `honesty_module_type_table_residual_pack_wave100`.
+3. **Xfer residual deepen** (Xfer.h/.cpp + XferCRC + GameState.h):
+   - `XferMode` residual **4** names INVALID/SAVE/LOAD/CRC; `NUM_XFER_TYPES` **4**.
+   - `XferStatus` residual **18** names (C++ table; no Rust-only InvalidData).
+   - `XferOptions` NONE **0** / NO_POST_PROCESSING **0x1** / ALL **0xFFFFFFFF**.
+   - `XferVersion` size **1** byte; ctor residual options=NONE mode=INVALID.
+   - XferCRC ctor residual mode=CRC crc=**0**; `addCRC` host pure-arithmetic residual.
+   - Object xfer CURRENT_VERSION **9**; Drawable **7**; module-bucket **1**.
+   - `MAX_XFER_STRING_LENGTH` **255**.
+   - `xferVersion` reject residual (version > current → INVALID_VERSION).
+   - `SaveFileType` NORMAL/MISSION; `SnapshotType` SAVELOAD/DEEPCRC_LOGICONLY/DEEPCRC.
+   - `SaveCode` SC_INVALID **−1** … SC_ERROR **7** residual.
+   - Honesty: `honesty_xfer_residual_deepen_pack_wave100`.
+4. **ThingFactory spawn cross-link** (Wave 74 ledger + Wave 100 pipeline):
+   - newObject CREATE interface residual CREATE **0x8** ordinal **3**.
+   - Honesty: `honesty_thing_factory_spawn_crosslink_wave100`.
+5. **Combined pack**: `honesty_thing_factory_module_xfer_residual_pack_wave100`.
+6. Tests / gates:
+   - Unit: 5 wave100 honesty tests PASS
+   - shell_smoke: thing_factory100/module_type100/xfer100/tf_crosslink100 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     thing_factory100=true module_type100=true xfer100=true tf_crosslink100=true
+     (plus concurrent wave99 production/buildable/prereq/cmdbtn/controlbar)
+
+**Wiring:**
+- `game_logic/host_thing_factory_module_xfer_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — thing_factory100/module_type100/xfer100/tf_crosslink100 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave100 honesty flags; playable_claim stays false
+- Co-present Wave 99 residual (`host_production_buildable_command_residual`) in shell gate wiring
+
+**Still residual (fail-closed, not claimed):**
+- Full ThingFactory Object / live CreateModule + PartitionManager register residual
+- Full ModuleFactory addModule registry / live BehaviorModule create residual
+- Full XferSave/XferLoad file I/O / deep CRC network residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+
 ## Residual Host Playability — Wave 98: dock residual peels / contain residual deepen / exit residual peels / heal residual deepen (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal dock/contain/exit/heal residual):**
