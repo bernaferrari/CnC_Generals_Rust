@@ -3155,6 +3155,10 @@ impl PresentationFrame {
                 if panel.veterancy_overlay.is_none() {
                     panel.veterancy_overlay = ro.veterancy.chevron_overlay().map(str::to_string);
                 }
+                panel.max_garrison = ro.max_garrison;
+                panel.garrisoned_count = ro.garrisoned_units.len();
+                panel.under_construction = ro.under_construction;
+                panel.construction_percent = ro.construction_percent;
             }
         }
         panel
@@ -3184,6 +3188,12 @@ impl PresentationFrame {
             panel.production_progress,
             panel.production_template.as_deref(),
             &panel.production_queue,
+        );
+        control_bar.sync_structure_context_from_presentation(
+            panel.max_garrison,
+            panel.garrisoned_count,
+            panel.under_construction,
+            panel.construction_percent,
         );
     }
 
@@ -5161,6 +5171,76 @@ mod tests {
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
         );
+    }
+
+    #[test]
+    fn presentation_feeds_control_bar_garrison_inventory() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType},
+            KindOf, Team, ThingTemplate,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tb = ThingTemplate::new("GarrisonBunker");
+        tb.set_health(800.0);
+        tb.add_kind_of(KindOf::Structure);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("GarrisonBunker".into(), tb);
+        let mut tu = ThingTemplate::new("GarrisonRanger");
+        tu.set_health(100.0);
+        tu.add_kind_of(KindOf::Infantry);
+        tu.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("GarrisonRanger".into(), tu);
+        let bunker = logic
+            .create_object("GarrisonBunker", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("bunker");
+        let ranger = logic
+            .create_object("GarrisonRanger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("ranger");
+        if let Some(o) = logic.get_object_mut(bunker) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.selected = true;
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = 5;
+            bd.garrisoned_units.push(ranger);
+            o.building_data = Some(bd);
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![bunker];
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let panel = frame.control_bar_selection_panel();
+        assert_eq!(panel.max_garrison, 5);
+        assert_eq!(panel.garrisoned_count, 1);
+        assert!(!panel.under_construction);
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame.apply_to_control_bar(&mut bar);
+            let ctx = bar.get_context();
+            let guard = ctx.read().expect("read");
+            let names: Vec<_> = guard
+                .available_commands
+                .iter()
+                .map(|b| b.command_name.as_str())
+                .collect();
+            assert!(
+                names
+                    .iter()
+                    .any(|n| n.eq_ignore_ascii_case("Command_StructureExit")),
+                "expected StructureExit, got {:?}",
+                names
+            );
+            assert!(
+                names
+                    .iter()
+                    .any(|n| n.eq_ignore_ascii_case("Command_Evacuate")),
+                "expected Evacuate, got {:?}",
+                names
+            );
+            assert_eq!(guard.last_recorded_inventory_count, 1);
+        }
     }
 
     #[test]

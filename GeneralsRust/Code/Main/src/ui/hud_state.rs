@@ -305,6 +305,14 @@ pub struct ControlBarSelectionPanelState {
     pub production_template: Option<String>,
     /// Full production queue residual for selected structure (capped).
     pub production_queue: Vec<(String, f32)>,
+    /// Max garrison slots residual (0 = not a container).
+    pub max_garrison: usize,
+    /// Contained unit count residual.
+    pub garrisoned_count: usize,
+    /// Under-construction residual for CancelConstruction command.
+    pub under_construction: bool,
+    /// Construction progress 0..1 residual.
+    pub construction_percent: f32,
 }
 
 impl ControlBarSelectionPanelState {
@@ -331,6 +339,10 @@ impl ControlBarSelectionPanelState {
                 .zip(primary.production_progress)
                 .map(|(t, p)| vec![(t.clone(), p)])
                 .unwrap_or_default(),
+            max_garrison: 0,
+            garrisoned_count: 0,
+            under_construction: false,
+            construction_percent: 0.0,
         }
     }
 
