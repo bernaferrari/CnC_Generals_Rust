@@ -14,6 +14,7 @@ pub struct HostOwnerEvent {
 
 thread_local! {
     static LOG: RefCell<Vec<HostOwnerEvent>> = RefCell::new(Vec::new());
+    static LAST_DRAIN: RefCell<Vec<HostOwnerEvent>> = RefCell::new(Vec::new());
 }
 
 pub fn record(object: ObjectId, team: Team) {
@@ -23,11 +24,21 @@ pub fn record(object: ObjectId, team: Team) {
 }
 
 pub fn drain() -> Vec<HostOwnerEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    LOG.with(|log| {
+        let v = std::mem::take(&mut *log.borrow_mut());
+        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
+        v
+    })
 }
 
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
+    LAST_DRAIN.with(|last| last.borrow_mut().clear());
+}
+
+/// Events from the most recent `drain()` (PresentationFrame after shadow session).
+pub fn last_drain_snapshot() -> Vec<HostOwnerEvent> {
+    LAST_DRAIN.with(|last| last.borrow().clone())
 }
 
 #[cfg(test)]
@@ -40,5 +51,6 @@ mod tests {
         record(ObjectId(1), Team::USA);
         assert_eq!(drain().len(), 1);
         assert!(drain().is_empty());
+        assert_eq!(last_drain_snapshot().len(), 1);
     }
 }
