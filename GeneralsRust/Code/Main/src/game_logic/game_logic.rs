@@ -3054,6 +3054,10 @@ impl GameLogic {
         unit.movement.path = full_path;
         unit.movement.current_path_index = 0;
         unit.movement.target_position = Some(destination);
+        crate::game_logic::host_move_log::record(
+            unit_id,
+            Some([destination.x, destination.y, destination.z]),
+        );
         // Kick toward destination at full speed so large-map marches do not
         // burn seconds on the acceleration ramp (was a combat_no_teleport residual).
         {
@@ -3121,6 +3125,10 @@ impl GameLogic {
         };
         unit.movement.path = appended;
         unit.movement.target_position = Some(waypoint);
+        crate::game_logic::host_move_log::record(
+            unit_id,
+            Some([waypoint.x, waypoint.y, waypoint.z]),
+        );
         unit.ai_state = AIState::Moving;
         unit.status.moving = true;
         true
@@ -6758,6 +6766,10 @@ impl GameLogic {
                             attacker.movement.path.clear();
                             attacker.movement.current_path_index = 0;
                             attacker.movement.target_position = Some(target_position);
+                            crate::game_logic::host_move_log::record(
+                                attacker_id,
+                                Some([target_position.x, target_position.y, target_position.z]),
+                            );
                             attacker.status.moving = true;
                             attacker.ai_state = AIState::Attacking;
                             attacker.status.attacking = true;
@@ -30944,6 +30956,10 @@ impl GameLogic {
                 {
                     obj.ai_state = AIState::Moving;
                     obj.movement.target_position = Some(mine_pos);
+                    crate::game_logic::host_move_log::record(
+                        clearer_id,
+                        Some([mine_pos.x, mine_pos.y, mine_pos.z]),
+                    );
                     obj.status.moving = true;
                 }
             }
