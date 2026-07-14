@@ -2110,6 +2110,7 @@ impl Object {
             self.force_attack = false;
             self.ai_state = AIState::Attacking;
             self.status.attacking = true;
+            crate::game_logic::host_attack_log::record(self.id, Some(target_id));
         }
     }
 
@@ -2118,6 +2119,7 @@ impl Object {
         self.target_location = None;
         self.force_attack = false;
         self.status.attacking = false;
+        crate::game_logic::host_attack_log::record(self.id, None);
         // C++ parity: guard units return to their guard state after a kill
         // rather than going fully idle. The guard anchor/radius are preserved
         // so the support-states update loop will re-engage nearby enemies.
