@@ -6,6 +6,9 @@
 //! - Team-colored indicators (friendly/enemy)
 //! - Health bars and status indicators
 //! - Drag selection box rendering
+//!
+//! Wave 79 residual honesty: selection/HUD color + health-bar + pulse defaults
+//! (host-testable; not full W3D Drawable health-bar GPU path).
 
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use crate::presentation_frame::PresentationFrame;
@@ -14,6 +17,67 @@ use crate::unit_control::UnitControlSystem;
 use glam::{Vec2, Vec3, Vec4};
 use std::sync::Arc;
 use std::sync::Mutex as AsyncMutex;
+
+// --- Wave 79 selection / HUD residual defaults ---
+/// Selection ring residual color (green).
+pub const SELECTION_COLOR_RGBA: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+/// Hover highlight residual color (yellow translucent).
+pub const SELECTION_HOVER_COLOR_RGBA: [f32; 4] = [1.0, 1.0, 0.0, 0.7];
+/// Friendly team residual color (blue).
+pub const SELECTION_FRIENDLY_COLOR_RGBA: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+/// Enemy team residual color (red).
+pub const SELECTION_ENEMY_COLOR_RGBA: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+/// Neutral residual color (gray).
+pub const SELECTION_NEUTRAL_COLOR_RGBA: [f32; 4] = [0.7, 0.7, 0.7, 1.0];
+/// Health bar background residual.
+pub const SELECTION_HEALTH_BAR_BG_RGBA: [f32; 4] = [0.2, 0.2, 0.2, 0.8];
+/// Health bar foreground residual (healthy green).
+pub const SELECTION_HEALTH_BAR_FG_RGBA: [f32; 4] = [0.0, 0.8, 0.0, 1.0];
+/// Selection circle radius residual (world/UI units).
+pub const SELECTION_CIRCLE_RADIUS: f32 = 3.0;
+/// Selection circle thickness residual.
+pub const SELECTION_CIRCLE_THICKNESS: f32 = 0.2;
+/// Health bar width residual.
+pub const SELECTION_HEALTH_BAR_WIDTH: f32 = 4.0;
+/// Health bar height residual.
+pub const SELECTION_HEALTH_BAR_HEIGHT: f32 = 0.3;
+/// Health bar vertical offset residual above unit.
+pub const SELECTION_HEALTH_BAR_OFFSET: f32 = 2.0;
+/// Selection pulse angular speed residual (rad/s scale).
+pub const SELECTION_PULSE_SPEED: f32 = 2.0;
+/// Hover fade speed residual.
+pub const SELECTION_HOVER_FADE_SPEED: f32 = 4.0;
+/// Hover circle scale residual vs selection circle.
+pub const SELECTION_HOVER_RADIUS_SCALE: f32 = 1.2;
+/// Pulse alpha residual: `sin * 0.3 + 0.7` clamped to [0.4, 1.0].
+pub const SELECTION_PULSE_ALPHA_AMPLITUDE: f32 = 0.3;
+pub const SELECTION_PULSE_ALPHA_BIAS: f32 = 0.7;
+pub const SELECTION_PULSE_ALPHA_MIN: f32 = 0.4;
+pub const SELECTION_PULSE_ALPHA_MAX: f32 = 1.0;
+
+/// Wave 79 selection/HUD residual honesty pack.
+///
+/// Fail-closed: not full Drawable::drawIcon UI / health-bar bone attach GPU.
+pub fn honesty_selection_hud_residual_pack_wave79() -> bool {
+    let r = SelectionRenderer::new();
+    r.selection_color == SELECTION_COLOR_RGBA
+        && r.hover_color == SELECTION_HOVER_COLOR_RGBA
+        && r.friendly_color == SELECTION_FRIENDLY_COLOR_RGBA
+        && r.enemy_color == SELECTION_ENEMY_COLOR_RGBA
+        && r.neutral_color == SELECTION_NEUTRAL_COLOR_RGBA
+        && r.health_bar_bg_color == SELECTION_HEALTH_BAR_BG_RGBA
+        && r.health_bar_fg_color == SELECTION_HEALTH_BAR_FG_RGBA
+        && (r.selection_circle_radius - SELECTION_CIRCLE_RADIUS).abs() < 0.001
+        && (r.selection_circle_thickness - SELECTION_CIRCLE_THICKNESS).abs() < 0.001
+        && (r.health_bar_width - SELECTION_HEALTH_BAR_WIDTH).abs() < 0.001
+        && (r.health_bar_height - SELECTION_HEALTH_BAR_HEIGHT).abs() < 0.001
+        && (r.health_bar_offset - SELECTION_HEALTH_BAR_OFFSET).abs() < 0.001
+        && (r.selection_pulse_speed - SELECTION_PULSE_SPEED).abs() < 0.001
+        && (r.hover_fade_speed - SELECTION_HOVER_FADE_SPEED).abs() < 0.001
+        && (SELECTION_HOVER_RADIUS_SCALE - 1.2).abs() < 0.001
+        && (SELECTION_PULSE_ALPHA_AMPLITUDE - 0.3).abs() < 0.001
+        && (SELECTION_PULSE_ALPHA_BIAS - 0.7).abs() < 0.001
+}
 
 /// Visual feedback for unit selection and highlighting
 pub struct SelectionRenderer {
@@ -51,22 +115,22 @@ impl Default for SelectionRenderer {
 impl SelectionRenderer {
     pub fn new() -> Self {
         Self {
-            selection_color: [0.0, 1.0, 0.0, 1.0],     // Green
-            hover_color: [1.0, 1.0, 0.0, 0.7],         // Yellow with transparency
-            friendly_color: [0.0, 0.0, 1.0, 1.0],      // Blue
-            enemy_color: [1.0, 0.0, 0.0, 1.0],         // Red
-            neutral_color: [0.7, 0.7, 0.7, 1.0],       // Gray
-            health_bar_bg_color: [0.2, 0.2, 0.2, 0.8], // Dark gray
-            health_bar_fg_color: [0.0, 0.8, 0.0, 1.0], // Green
+            selection_color: SELECTION_COLOR_RGBA,
+            hover_color: SELECTION_HOVER_COLOR_RGBA,
+            friendly_color: SELECTION_FRIENDLY_COLOR_RGBA,
+            enemy_color: SELECTION_ENEMY_COLOR_RGBA,
+            neutral_color: SELECTION_NEUTRAL_COLOR_RGBA,
+            health_bar_bg_color: SELECTION_HEALTH_BAR_BG_RGBA,
+            health_bar_fg_color: SELECTION_HEALTH_BAR_FG_RGBA,
 
-            selection_circle_radius: 3.0,
-            selection_circle_thickness: 0.2,
-            health_bar_width: 4.0,
-            health_bar_height: 0.3,
-            health_bar_offset: 2.0,
+            selection_circle_radius: SELECTION_CIRCLE_RADIUS,
+            selection_circle_thickness: SELECTION_CIRCLE_THICKNESS,
+            health_bar_width: SELECTION_HEALTH_BAR_WIDTH,
+            health_bar_height: SELECTION_HEALTH_BAR_HEIGHT,
+            health_bar_offset: SELECTION_HEALTH_BAR_OFFSET,
 
-            selection_pulse_speed: 2.0,
-            hover_fade_speed: 4.0,
+            selection_pulse_speed: SELECTION_PULSE_SPEED,
+            hover_fade_speed: SELECTION_HOVER_FADE_SPEED,
 
             selection_pulse_time: 0.0,
             hover_fade_time: 0.0,
@@ -305,7 +369,7 @@ impl SelectionRenderer {
 
     /// Create hover highlight render command
     fn create_hover_highlight(&self, center: Vec2, color: [f32; 4]) -> UIRenderCommand {
-        let radius = self.selection_circle_radius * 1.2; // Slightly larger than selection
+        let radius = self.selection_circle_radius * SELECTION_HOVER_RADIUS_SCALE;
         let segments = 16;
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
@@ -570,7 +634,9 @@ impl SelectionRenderer {
 
     /// Get animated selection color
     fn get_selection_color_animated(&self) -> [f32; 4] {
-        let pulse = (self.selection_pulse_time.sin() * 0.3 + 0.7).clamp(0.4, 1.0);
+        let pulse = (self.selection_pulse_time.sin() * SELECTION_PULSE_ALPHA_AMPLITUDE
+            + SELECTION_PULSE_ALPHA_BIAS)
+            .clamp(SELECTION_PULSE_ALPHA_MIN, SELECTION_PULSE_ALPHA_MAX);
         [
             self.selection_color[0],
             self.selection_color[1],
@@ -717,6 +783,11 @@ mod presentation_identity_tests {
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::{Mat4, Vec3};
+
+    #[test]
+    fn selection_hud_residual_pack_wave79_honesty() {
+        assert!(honesty_selection_hud_residual_pack_wave79());
+    }
 
     #[test]
     fn legacy_selection_renderer_uses_presentation_identity_not_live_reread() {

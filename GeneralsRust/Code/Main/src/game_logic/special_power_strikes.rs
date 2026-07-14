@@ -2621,6 +2621,19 @@ pub fn honesty_special_power_residual_pack_wave76_ok() -> bool {
 
 /// Retail SuperweaponScudStorm InitiateSound residual (`ScudStormInitiated`).
 pub const SCUD_STORM_INITIATE_SOUND: &str = "ScudStormInitiated";
+/// Retail SuperweaponScudStorm ReloadTime residual (msec).
+pub const SCUD_STORM_RELOAD_MS: u32 = 300_000;
+/// SuperweaponScudStorm ReloadTime 300000ms → 9000 frames @ 30 FPS.
+pub const SCUD_STORM_RELOAD_FRAMES: u32 = 9_000;
+/// Retail SuperweaponParticleUplinkCannon ReloadTime residual (msec).
+pub const PARTICLE_CANNON_RELOAD_MS: u32 = 240_000;
+/// SuperweaponParticleUplinkCannon ReloadTime 240000ms → 7200 frames @ 30 FPS.
+pub const PARTICLE_CANNON_RELOAD_FRAMES: u32 = 7_200;
+/// Retail SuperweaponAnthraxBomb ReloadTime residual (msec).
+pub const ANTHRAX_BOMB_RELOAD_MS: u32 = 360_000;
+/// SuperweaponAnthraxBomb ReloadTime 360000ms → 10800 frames @ 30 FPS.
+pub const ANTHRAX_BOMB_RELOAD_FRAMES: u32 = 10_800;
+
 /// Wave 77: ScudStorm has no InitiateAtLocationSound residual in SpecialPower.ini.
 pub const SCUD_STORM_INITIATE_AT_LOCATION_SOUND: &str = "";
 /// Wave 77: powers with no retail InitiateSound leave empty residual (not special-power name).
@@ -2670,6 +2683,168 @@ pub fn honesty_special_power_audio_name_table_wave77() -> bool {
 pub fn honesty_special_power_residual_pack_wave77_ok() -> bool {
     honesty_special_power_audio_name_table_wave77()
 }
+
+// --- Wave 78: HostSuperweaponKind reload table + CarpetBomb/Artillery science residual ---
+
+/// Honesty: complete HostSuperweaponKind retail ReloadTime residual table (all kinds).
+///
+/// Fail-closed: not full SpecialPower template SharedSyncedTimer / PublicTimer UI path.
+pub fn honesty_host_superweapon_reload_table_wave78() -> bool {
+    SCUD_STORM_RELOAD_MS == 300_000
+        && SCUD_STORM_RELOAD_FRAMES == 9_000
+        && duration_ms_to_logic_frames(SCUD_STORM_RELOAD_MS) == SCUD_STORM_RELOAD_FRAMES
+        && PARTICLE_CANNON_RELOAD_MS == 240_000
+        && PARTICLE_CANNON_RELOAD_FRAMES == 7_200
+        && duration_ms_to_logic_frames(PARTICLE_CANNON_RELOAD_MS) == PARTICLE_CANNON_RELOAD_FRAMES
+        && ANTHRAX_BOMB_RELOAD_MS == 360_000
+        && ANTHRAX_BOMB_RELOAD_FRAMES == 10_800
+        && duration_ms_to_logic_frames(ANTHRAX_BOMB_RELOAD_MS) == ANTHRAX_BOMB_RELOAD_FRAMES
+        && HostSuperweaponKind::DaisyCutter.reload_ms() == DAISY_CUTTER_RELOAD_MS
+        && HostSuperweaponKind::DaisyCutter.reload_frames() == DAISY_CUTTER_RELOAD_FRAMES
+        && HostSuperweaponKind::A10Strike.reload_ms() == A10_STRIKE_RELOAD_MS
+        && HostSuperweaponKind::A10Strike.reload_frames() == A10_STRIKE_RELOAD_FRAMES
+        && HostSuperweaponKind::ScudStorm.reload_ms() == SCUD_STORM_RELOAD_MS
+        && HostSuperweaponKind::ScudStorm.reload_frames() == SCUD_STORM_RELOAD_FRAMES
+        && HostSuperweaponKind::ParticleCannon.reload_ms() == PARTICLE_CANNON_RELOAD_MS
+        && HostSuperweaponKind::ParticleCannon.reload_frames() == PARTICLE_CANNON_RELOAD_FRAMES
+        && HostSuperweaponKind::NuclearMissile.reload_ms() == NUCLEAR_MISSILE_RELOAD_MS
+        && HostSuperweaponKind::NuclearMissile.reload_frames() == NUCLEAR_MISSILE_RELOAD_FRAMES
+        && HostSuperweaponKind::AnthraxBomb.reload_ms() == ANTHRAX_BOMB_RELOAD_MS
+        && HostSuperweaponKind::AnthraxBomb.reload_frames() == ANTHRAX_BOMB_RELOAD_FRAMES
+        && HostSuperweaponKind::SpectreGunship.reload_ms() == SPECTRE_RELOAD_MS
+        && HostSuperweaponKind::SpectreGunship.reload_frames() == SPECTRE_RELOAD_FRAMES
+        && HostSuperweaponKind::CarpetBomb.reload_ms() == CARPET_BOMB_RELOAD_MS
+        && HostSuperweaponKind::CarpetBomb.reload_frames() == CARPET_BOMB_RELOAD_FRAMES
+        && HostSuperweaponKind::ArtilleryBarrage.reload_ms() == ARTILLERY_BARRAGE_RELOAD_MS
+        && HostSuperweaponKind::ArtilleryBarrage.reload_frames() == ARTILLERY_BARRAGE_RELOAD_FRAMES
+        && HostSuperweaponKind::CruiseMissile.reload_ms() == CRUISE_MISSILE_RELOAD_MS
+        && HostSuperweaponKind::CruiseMissile.reload_frames() == CRUISE_MISSILE_RELOAD_FRAMES
+        // Ordering residual: Cruise (120s) < Carpet (150s) < A10/Spectre/PUC (240s)
+        // < Scud/Artillery (300s) < Daisy/Nuke/Anthrax (360s).
+        && CRUISE_MISSILE_RELOAD_MS < CARPET_BOMB_RELOAD_MS
+        && CARPET_BOMB_RELOAD_MS < A10_STRIKE_RELOAD_MS
+        && A10_STRIKE_RELOAD_MS == SPECTRE_RELOAD_MS
+        && A10_STRIKE_RELOAD_MS == PARTICLE_CANNON_RELOAD_MS
+        && SCUD_STORM_RELOAD_MS == ARTILLERY_BARRAGE_RELOAD_MS
+        && SCUD_STORM_RELOAD_MS > A10_STRIKE_RELOAD_MS
+        && DAISY_CUTTER_RELOAD_MS == NUCLEAR_MISSILE_RELOAD_MS
+        && DAISY_CUTTER_RELOAD_MS == ANTHRAX_BOMB_RELOAD_MS
+        && DAISY_CUTTER_RELOAD_MS > SCUD_STORM_RELOAD_MS
+}
+
+/// Honesty: CarpetBomb faction-tier reload / cursor / OCL / DeliveryDecal residual deepen.
+///
+/// Fail-closed: not full AmericaJetB52 / AirF_AmericaJetB3 / ChinaJetCarpetBomber flight Object.
+pub fn honesty_carpet_bomb_science_tier_residual_pack_wave78() -> bool {
+    CARPET_BOMB_RELOAD_MS == 150_000
+        && CARPET_BOMB_RELOAD_FRAMES == 4_500
+        && duration_ms_to_logic_frames(CARPET_BOMB_RELOAD_MS) == CARPET_BOMB_RELOAD_FRAMES
+        && CARPET_BOMB_RELOAD_AIRF_MS == 240_000
+        && CARPET_BOMB_RELOAD_AIRF_FRAMES == 7_200
+        && duration_ms_to_logic_frames(CARPET_BOMB_RELOAD_AIRF_MS) == CARPET_BOMB_RELOAD_AIRF_FRAMES
+        && CARPET_BOMB_RELOAD_NUKE_MS == 180_000
+        && CARPET_BOMB_RELOAD_NUKE_FRAMES == 5_400
+        && duration_ms_to_logic_frames(CARPET_BOMB_RELOAD_NUKE_MS) == CARPET_BOMB_RELOAD_NUKE_FRAMES
+        && CarpetBombFactionTier::America.reload_ms() == 150_000
+        && CarpetBombFactionTier::China.reload_ms() == 150_000
+        && CarpetBombFactionTier::AirForce.reload_ms() == 240_000
+        && CarpetBombFactionTier::America.reload_frames() == 4_500
+        && CarpetBombFactionTier::AirForce.reload_frames() == 7_200
+        && (CarpetBombFactionTier::America.radius_cursor() - 100.0).abs() < 0.01
+        && (CarpetBombFactionTier::AirForce.radius_cursor() - 180.0).abs() < 0.01
+        && (CarpetBombFactionTier::China.radius_cursor() - 180.0).abs() < 0.01
+        && (CarpetBombFactionTier::America.delivery_decal_radius() - 100.0).abs() < 0.01
+        && (CarpetBombFactionTier::AirForce.delivery_decal_radius() - 180.0).abs() < 0.01
+        && (CarpetBombFactionTier::China.delivery_decal_radius() - 180.0).abs() < 0.01
+        && CarpetBombFactionTier::America.ocl_name() == CARPET_BOMB_OCL_AMERICA
+        && CarpetBombFactionTier::AirForce.ocl_name() == CARPET_BOMB_OCL_AIRF
+        && CarpetBombFactionTier::China.ocl_name() == CARPET_BOMB_OCL_CHINA
+        && CarpetBombFactionTier::America.science_name() == CARPET_BOMB_SCIENCE_AMERICA
+        && CarpetBombFactionTier::AirForce.science_name() == CARPET_BOMB_SCIENCE_AIRF
+        && CarpetBombFactionTier::China.science_name() == CARPET_BOMB_SCIENCE_CHINA
+        && CarpetBombFactionTier::America.delivery_decal_texture()
+            == CARPET_BOMB_DECAL_TEXTURE_AMERICA
+        && CarpetBombFactionTier::China.delivery_decal_texture()
+            == CARPET_BOMB_DECAL_TEXTURE_CHINA_AIRF
+        && CarpetBombFactionTier::America.delivery_decal_color()
+            == CARPET_BOMB_DECAL_COLOR_AMERICA
+        && CarpetBombFactionTier::AirForce.delivery_decal_color()
+            == CARPET_BOMB_DECAL_COLOR_CHINA_AIRF
+        && CARPET_BOMB_DECAL_STYLE == "SHADOW_ALPHA_DECAL"
+        && CARPET_BOMB_DECAL_OPACITY_MIN_PCT == 25
+        && CARPET_BOMB_DECAL_OPACITY_MAX_PCT == 50
+        && CARPET_BOMB_DECAL_THROB_MS == 500
+        && CARPET_BOMB_VIEW_OBJECT_DURATION_MS == 40_000
+        && CARPET_BOMB_VIEW_OBJECT_DURATION_FRAMES == 1_200
+        && duration_ms_to_logic_frames(CARPET_BOMB_VIEW_OBJECT_DURATION_MS)
+            == CARPET_BOMB_VIEW_OBJECT_DURATION_FRAMES
+        && (CARPET_BOMB_VIEW_OBJECT_RANGE - 250.0).abs() < 0.01
+        // Reload ordering: USA/China 150s < Nuke 180s < AirF 240s.
+        && CARPET_BOMB_RELOAD_MS < CARPET_BOMB_RELOAD_NUKE_MS
+        && CARPET_BOMB_RELOAD_NUKE_MS < CARPET_BOMB_RELOAD_AIRF_MS
+        && honesty_carpet_bomb_residual_pack()
+}
+
+/// Honesty: ArtilleryBarrage science-tier OCL / DeliveryDecal residual deepen (Wave 78).
+///
+/// Fail-closed: not full ChinaArtilleryCannon DeliverPayload transport Object.
+pub fn honesty_artillery_science_tier_residual_pack_wave78() -> bool {
+    ARTILLERY_SCIENCE_TIER1 == "SCIENCE_ArtilleryBarrage1"
+        && ARTILLERY_SCIENCE_TIER2 == "SCIENCE_ArtilleryBarrage2"
+        && ARTILLERY_SCIENCE_TIER3 == "SCIENCE_ArtilleryBarrage3"
+        && ARTILLERY_OCL_TIER1 == "SUPERWEAPON_ArtilleryBarrage1"
+        && ARTILLERY_OCL_TIER2 == "SUPERWEAPON_ArtilleryBarrage2"
+        && ARTILLERY_OCL_TIER3 == "SUPERWEAPON_ArtilleryBarrage3"
+        && ArtilleryBarrageScienceTier::Level1.formation_size() == 12
+        && ArtilleryBarrageScienceTier::Level2.formation_size() == 24
+        && ArtilleryBarrageScienceTier::Level3.formation_size() == 36
+        && ArtilleryBarrageScienceTier::Level1.science_name() == ARTILLERY_SCIENCE_TIER1
+        && ArtilleryBarrageScienceTier::Level2.science_name() == ARTILLERY_SCIENCE_TIER2
+        && ArtilleryBarrageScienceTier::Level3.science_name() == ARTILLERY_SCIENCE_TIER3
+        && ArtilleryBarrageScienceTier::Level1.ocl_name() == ARTILLERY_OCL_TIER1
+        && ArtilleryBarrageScienceTier::Level2.ocl_name() == ARTILLERY_OCL_TIER2
+        && ArtilleryBarrageScienceTier::Level3.ocl_name() == ARTILLERY_OCL_TIER3
+        && ARTILLERY_SCIENCE_POINT_COST == 1
+        && ARTILLERY_SCIENCE1_PREREQ == ["SCIENCE_CHINA", "SCIENCE_Rank3"]
+        && ARTILLERY_SCIENCE2_PREREQ == ["SCIENCE_ArtilleryBarrage1", "SCIENCE_Rank3"]
+        && ARTILLERY_SCIENCE3_PREREQ == ["SCIENCE_ArtilleryBarrage2", "SCIENCE_Rank3"]
+        && ARTILLERY_DELIVERY_DECAL_TEXTURE == "SCCArtilleryBarrage_China"
+        && ARTILLERY_DELIVERY_DECAL_STYLE == "SHADOW_ALPHA_DECAL"
+        && ARTILLERY_DELIVERY_DECAL_OPACITY_MIN_PCT == 25
+        && ARTILLERY_DELIVERY_DECAL_OPACITY_MAX_PCT == 50
+        && ARTILLERY_DELIVERY_DECAL_THROB_MS == 500
+        && ARTILLERY_DELIVERY_DECAL_COLOR == (255, 156, 0, 255)
+        && (ARTILLERY_BARRAGE_DECAL_RADIUS - 125.0).abs() < 0.01
+        && (ARTILLERY_BARRAGE_RADIUS_CURSOR - 125.0).abs() < 0.01
+        && ARTILLERY_VISIBLE_NUM_BONES == 1
+        && ARTILLERY_VISIBLE_ITEMS_DROPPED_PER_INTERVAL == 1
+        && ARTILLERY_VIEW_OBJECT_DURATION_MS == 30_000
+        && ARTILLERY_VIEW_OBJECT_DURATION_FRAMES == 900
+        && duration_ms_to_logic_frames(ARTILLERY_VIEW_OBJECT_DURATION_MS)
+            == ARTILLERY_VIEW_OBJECT_DURATION_FRAMES
+        && (ARTILLERY_VIEW_OBJECT_RANGE - 250.0).abs() < 0.01
+        && ARTILLERY_BARRAGE_RELOAD_MS == 300_000
+        && ARTILLERY_BARRAGE_RELOAD_FRAMES == 9_000
+        && duration_ms_to_logic_frames(ARTILLERY_BARRAGE_RELOAD_MS)
+            == ARTILLERY_BARRAGE_RELOAD_FRAMES
+        && ArtilleryBarrageScienceTier::from_science_name("SCIENCE_ArtilleryBarrage1")
+            == Some(ArtilleryBarrageScienceTier::Level1)
+        && ArtilleryBarrageScienceTier::from_science_name("SCIENCE_ArtilleryBarrage3")
+            == Some(ArtilleryBarrageScienceTier::Level3)
+        && ArtilleryBarrageScienceTier::highest_from_sciences([
+            "SCIENCE_ArtilleryBarrage1",
+            "SCIENCE_ArtilleryBarrage2",
+        ]) == ArtilleryBarrageScienceTier::Level2
+        && honesty_artillery_barrage_residual_pack()
+}
+
+/// Combined Wave 78 special-power residual honesty pack.
+pub fn honesty_special_power_residual_pack_wave78_ok() -> bool {
+    honesty_host_superweapon_reload_table_wave78()
+        && honesty_carpet_bomb_science_tier_residual_pack_wave78()
+        && honesty_artillery_science_tier_residual_pack_wave78()
+}
+
 
 /// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
 pub fn honesty_deletion_update_sleep_delay() -> bool {
@@ -3078,6 +3253,58 @@ pub const CARPET_BOMB_LOCOMOTOR: &str = "B52Locomotor";
 /// Retail B52Locomotor Speed residual (dist/sec).
 pub const CARPET_BOMB_LOCOMOTOR_SPEED: f32 = 125.0;
 
+// --- Wave 78: CarpetBomb faction-tier reload / cursor / OCL residual deepen ---
+/// Retail AirF_SuperweaponCarpetBomb ReloadTime residual (msec).
+pub const CARPET_BOMB_RELOAD_AIRF_MS: u32 = 240_000;
+/// AirF CarpetBomb ReloadTime 240000ms → 7200 frames @ 30 FPS.
+pub const CARPET_BOMB_RELOAD_AIRF_FRAMES: u32 = 7_200;
+/// Retail Nuke_SuperweaponChinaCarpetBomb ReloadTime residual (msec).
+pub const CARPET_BOMB_RELOAD_NUKE_MS: u32 = 180_000;
+/// Nuke China CarpetBomb ReloadTime 180000ms → 5400 frames @ 30 FPS.
+pub const CARPET_BOMB_RELOAD_NUKE_FRAMES: u32 = 5_400;
+/// Retail SuperweaponChinaCarpetBomb / AirF RadiusCursorRadius residual.
+pub const CARPET_BOMB_RADIUS_CURSOR_CHINA: f32 = 180.0;
+/// Alias: AirF RadiusCursorRadius residual (same 180 as China).
+pub const CARPET_BOMB_RADIUS_CURSOR_AIRF: f32 = 180.0;
+/// Retail SuperweaponCarpetBomb ViewObjectDuration residual (msec).
+pub const CARPET_BOMB_VIEW_OBJECT_DURATION_MS: u32 = 40_000;
+/// ViewObjectDuration 40000ms → 1200 frames @ 30 FPS.
+pub const CARPET_BOMB_VIEW_OBJECT_DURATION_FRAMES: u32 = 1_200;
+/// Retail SuperweaponCarpetBomb ViewObjectRange residual.
+pub const CARPET_BOMB_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail SUPERWEAPON_CarpetBomb OCL residual name.
+pub const CARPET_BOMB_OCL_AMERICA: &str = "SUPERWEAPON_CarpetBomb";
+/// Retail AirF_SUPERWEAPON_CarpetBomb OCL residual name.
+pub const CARPET_BOMB_OCL_AIRF: &str = "AirF_SUPERWEAPON_CarpetBomb";
+/// Retail SUPERWEAPON_ChinaCarpetBomb OCL residual name.
+pub const CARPET_BOMB_OCL_CHINA: &str = "SUPERWEAPON_ChinaCarpetBomb";
+/// Retail SCIENCE_CarpetBomb residual (commented RequiredScience on public timer).
+pub const CARPET_BOMB_SCIENCE_AMERICA: &str = "SCIENCE_CarpetBomb";
+/// Retail SCIENCE_AirF_CarpetBomb residual.
+pub const CARPET_BOMB_SCIENCE_AIRF: &str = "SCIENCE_AirF_CarpetBomb";
+/// Retail SCIENCE_ChinaCarpetBomb residual.
+pub const CARPET_BOMB_SCIENCE_CHINA: &str = "SCIENCE_ChinaCarpetBomb";
+/// Retail America DeliveryDecal Texture residual (OCL reuses SCCA10Strike_USA).
+pub const CARPET_BOMB_DECAL_TEXTURE_AMERICA: &str = "SCCA10Strike_USA";
+/// Retail AirF/China DeliveryDecal Texture residual.
+pub const CARPET_BOMB_DECAL_TEXTURE_CHINA_AIRF: &str = "SCCCarpBomb";
+/// Retail DeliveryDecal Style residual (all CarpetBomb OCLs).
+pub const CARPET_BOMB_DECAL_STYLE: &str = "SHADOW_ALPHA_DECAL";
+/// Retail DeliveryDecal OpacityMin residual (percent).
+pub const CARPET_BOMB_DECAL_OPACITY_MIN_PCT: u32 = 25;
+/// Retail DeliveryDecal OpacityMax residual (percent).
+pub const CARPET_BOMB_DECAL_OPACITY_MAX_PCT: u32 = 50;
+/// Retail DeliveryDecal OpacityThrobTime residual (msec).
+pub const CARPET_BOMB_DECAL_THROB_MS: u32 = 500;
+/// Retail America DeliveryDecal Color residual (R:255 G:156 B:0 A:255).
+pub const CARPET_BOMB_DECAL_COLOR_AMERICA: (u8, u8, u8, u8) = (255, 156, 0, 255);
+/// Retail AirF/China DeliveryDecal Color residual (R:255 G:0 B:0 A:255).
+pub const CARPET_BOMB_DECAL_COLOR_CHINA_AIRF: (u8, u8, u8, u8) = (255, 0, 0, 255);
+/// Retail AirF DeliveryDecalRadius residual.
+pub const CARPET_BOMB_DECAL_RADIUS_AIRF: f32 = 180.0;
+/// Retail China DeliveryDecalRadius residual.
+pub const CARPET_BOMB_DECAL_RADIUS_CHINA: f32 = 180.0;
+
 /// Residual CarpetBomb faction/science tier (bomb count / DropDelay / DeliveryDistance).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum CarpetBombFactionTier {
@@ -3134,6 +3361,78 @@ impl CarpetBombFactionTier {
         (n as f32 - 1.0) * CARPET_BOMB_SPACING
     }
 
+    /// Retail Superweapon*CarpetBomb ReloadTime residual (msec) for this faction.
+    ///
+    /// America/China baseline **150000**; AirF **240000**. Nuke_ China variant
+    /// (**180000**) is a separate SpecialPower residual (see CARPET_BOMB_RELOAD_NUKE_MS).
+    pub fn reload_ms(self) -> u32 {
+        match self {
+            CarpetBombFactionTier::America | CarpetBombFactionTier::China => CARPET_BOMB_RELOAD_MS,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_RELOAD_AIRF_MS,
+        }
+    }
+
+    /// ReloadTime frames residual for this faction (@ 30 FPS ceil).
+    pub fn reload_frames(self) -> u32 {
+        duration_ms_to_logic_frames(self.reload_ms())
+    }
+
+    /// Retail RadiusCursorRadius residual for this faction.
+    pub fn radius_cursor(self) -> f32 {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_RADIUS_CURSOR,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_RADIUS_CURSOR_AIRF,
+            CarpetBombFactionTier::China => CARPET_BOMB_RADIUS_CURSOR_CHINA,
+        }
+    }
+
+    /// Retail DeliveryDecalRadius residual for this faction.
+    pub fn delivery_decal_radius(self) -> f32 {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_DECAL_RADIUS,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_DECAL_RADIUS_AIRF,
+            CarpetBombFactionTier::China => CARPET_BOMB_DECAL_RADIUS_CHINA,
+        }
+    }
+
+    /// Retail OCL residual name for this faction.
+    pub fn ocl_name(self) -> &'static str {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_OCL_AMERICA,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_OCL_AIRF,
+            CarpetBombFactionTier::China => CARPET_BOMB_OCL_CHINA,
+        }
+    }
+
+    /// Retail science residual name for this faction.
+    pub fn science_name(self) -> &'static str {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_SCIENCE_AMERICA,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_SCIENCE_AIRF,
+            CarpetBombFactionTier::China => CARPET_BOMB_SCIENCE_CHINA,
+        }
+    }
+
+    /// Retail DeliveryDecal Texture residual for this faction.
+    pub fn delivery_decal_texture(self) -> &'static str {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_DECAL_TEXTURE_AMERICA,
+            CarpetBombFactionTier::AirForce | CarpetBombFactionTier::China => {
+                CARPET_BOMB_DECAL_TEXTURE_CHINA_AIRF
+            }
+        }
+    }
+
+    /// Retail DeliveryDecal Color residual for this faction.
+    pub fn delivery_decal_color(self) -> (u8, u8, u8, u8) {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_DECAL_COLOR_AMERICA,
+            CarpetBombFactionTier::AirForce | CarpetBombFactionTier::China => {
+                CARPET_BOMB_DECAL_COLOR_CHINA_AIRF
+            }
+        }
+    }
+
     /// Map science/OCL residual name to faction tier.
     pub fn from_science_or_ocl_name(name: &str) -> Option<Self> {
         let n: String = name
@@ -3162,6 +3461,50 @@ pub const ARTILLERY_BARRAGE_SHELL_COUNT_L2: u32 = 24;
 /// Retail `SUPERWEAPON_ArtilleryBarrage3` FormationSize.
 pub const ARTILLERY_BARRAGE_SHELL_COUNT_L3: u32 = 36;
 
+// --- Wave 78: ArtilleryBarrage science-tier name / OCL / decal residual deepen ---
+/// Retail SCIENCE_ArtilleryBarrage1 residual.
+pub const ARTILLERY_SCIENCE_TIER1: &str = "SCIENCE_ArtilleryBarrage1";
+/// Retail SCIENCE_ArtilleryBarrage2 residual.
+pub const ARTILLERY_SCIENCE_TIER2: &str = "SCIENCE_ArtilleryBarrage2";
+/// Retail SCIENCE_ArtilleryBarrage3 residual.
+pub const ARTILLERY_SCIENCE_TIER3: &str = "SCIENCE_ArtilleryBarrage3";
+/// Retail SUPERWEAPON_ArtilleryBarrage1 OCL residual.
+pub const ARTILLERY_OCL_TIER1: &str = "SUPERWEAPON_ArtilleryBarrage1";
+/// Retail SUPERWEAPON_ArtilleryBarrage2 OCL residual.
+pub const ARTILLERY_OCL_TIER2: &str = "SUPERWEAPON_ArtilleryBarrage2";
+/// Retail SUPERWEAPON_ArtilleryBarrage3 OCL residual.
+pub const ARTILLERY_OCL_TIER3: &str = "SUPERWEAPON_ArtilleryBarrage3";
+/// Retail SciencePurchasePointCost residual (all ArtilleryBarrage tiers).
+pub const ARTILLERY_SCIENCE_POINT_COST: u32 = 1;
+/// Retail SCIENCE_ArtilleryBarrage1 PrerequisiteSciences residual tokens.
+pub const ARTILLERY_SCIENCE1_PREREQ: [&str; 2] = ["SCIENCE_CHINA", "SCIENCE_Rank3"];
+/// Retail SCIENCE_ArtilleryBarrage2 PrerequisiteSciences residual tokens.
+pub const ARTILLERY_SCIENCE2_PREREQ: [&str; 2] = ["SCIENCE_ArtilleryBarrage1", "SCIENCE_Rank3"];
+/// Retail SCIENCE_ArtilleryBarrage3 PrerequisiteSciences residual tokens.
+pub const ARTILLERY_SCIENCE3_PREREQ: [&str; 2] = ["SCIENCE_ArtilleryBarrage2", "SCIENCE_Rank3"];
+/// Retail DeliveryDecal Texture residual (all Artillery OCL tiers).
+pub const ARTILLERY_DELIVERY_DECAL_TEXTURE: &str = "SCCArtilleryBarrage_China";
+/// Retail DeliveryDecal Style residual.
+pub const ARTILLERY_DELIVERY_DECAL_STYLE: &str = "SHADOW_ALPHA_DECAL";
+/// Retail DeliveryDecal OpacityMin residual (percent).
+pub const ARTILLERY_DELIVERY_DECAL_OPACITY_MIN_PCT: u32 = 25;
+/// Retail DeliveryDecal OpacityMax residual (percent).
+pub const ARTILLERY_DELIVERY_DECAL_OPACITY_MAX_PCT: u32 = 50;
+/// Retail DeliveryDecal OpacityThrobTime residual (msec).
+pub const ARTILLERY_DELIVERY_DECAL_THROB_MS: u32 = 500;
+/// Retail DeliveryDecal Color residual (R:255 G:156 B:0 A:255).
+pub const ARTILLERY_DELIVERY_DECAL_COLOR: (u8, u8, u8, u8) = (255, 156, 0, 255);
+/// Retail VisibleNumBones residual (all Artillery OCL tiers).
+pub const ARTILLERY_VISIBLE_NUM_BONES: u32 = 1;
+/// Retail VisibleItemsDroppedPerInterval residual.
+pub const ARTILLERY_VISIBLE_ITEMS_DROPPED_PER_INTERVAL: u32 = 1;
+/// Retail SuperweaponArtilleryBarrage ViewObjectDuration residual (msec).
+pub const ARTILLERY_VIEW_OBJECT_DURATION_MS: u32 = 30_000;
+/// ViewObjectDuration 30000ms → 900 frames @ 30 FPS.
+pub const ARTILLERY_VIEW_OBJECT_DURATION_FRAMES: u32 = 900;
+/// Retail SuperweaponArtilleryBarrage ViewObjectRange residual.
+pub const ARTILLERY_VIEW_OBJECT_RANGE: f32 = 250.0;
+
 /// Residual Artillery Barrage science tier (FormationSize 12/24/36).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum ArtilleryBarrageScienceTier {
@@ -3178,6 +3521,24 @@ impl ArtilleryBarrageScienceTier {
             ArtilleryBarrageScienceTier::Level1 => ARTILLERY_BARRAGE_SHELL_COUNT,
             ArtilleryBarrageScienceTier::Level2 => ARTILLERY_BARRAGE_SHELL_COUNT_L2,
             ArtilleryBarrageScienceTier::Level3 => ARTILLERY_BARRAGE_SHELL_COUNT_L3,
+        }
+    }
+
+    /// Retail science residual name for this tier.
+    pub fn science_name(self) -> &'static str {
+        match self {
+            ArtilleryBarrageScienceTier::Level1 => ARTILLERY_SCIENCE_TIER1,
+            ArtilleryBarrageScienceTier::Level2 => ARTILLERY_SCIENCE_TIER2,
+            ArtilleryBarrageScienceTier::Level3 => ARTILLERY_SCIENCE_TIER3,
+        }
+    }
+
+    /// Retail SUPERWEAPON_ArtilleryBarrageN OCL residual name.
+    pub fn ocl_name(self) -> &'static str {
+        match self {
+            ArtilleryBarrageScienceTier::Level1 => ARTILLERY_OCL_TIER1,
+            ArtilleryBarrageScienceTier::Level2 => ARTILLERY_OCL_TIER2,
+            ArtilleryBarrageScienceTier::Level3 => ARTILLERY_OCL_TIER3,
         }
     }
 
@@ -4343,6 +4704,31 @@ impl HostSuperweaponKind {
             // Cruise loft residual (NeutronMissileUpdate family; doors deferred).
             HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_IMPACT_DELAY_FRAMES,
         }
+    }
+
+    /// Retail SpecialPower.ini `ReloadTime` residual (msec) for the baseline host kind.
+    ///
+    /// Faction/science variants (AirF Spectre 180s, SupW PUC 180s, AirF Carpet 240s,
+    /// Nuke China Carpet 180s, …) stay on dedicated constants; this table freezes the
+    /// primary `HostSuperweaponKind` SpecialPower residual used by host residual queues.
+    pub fn reload_ms(self) -> u32 {
+        match self {
+            HostSuperweaponKind::DaisyCutter => DAISY_CUTTER_RELOAD_MS,
+            HostSuperweaponKind::A10Strike => A10_STRIKE_RELOAD_MS,
+            HostSuperweaponKind::ScudStorm => SCUD_STORM_RELOAD_MS,
+            HostSuperweaponKind::ParticleCannon => PARTICLE_CANNON_RELOAD_MS,
+            HostSuperweaponKind::NuclearMissile => NUCLEAR_MISSILE_RELOAD_MS,
+            HostSuperweaponKind::AnthraxBomb => ANTHRAX_BOMB_RELOAD_MS,
+            HostSuperweaponKind::SpectreGunship => SPECTRE_RELOAD_MS,
+            HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RELOAD_MS,
+            HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RELOAD_MS,
+            HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_RELOAD_MS,
+        }
+    }
+
+    /// ReloadTime frames residual (@ 30 FPS ceil) for the baseline host kind.
+    pub fn reload_frames(self) -> u32 {
+        duration_ms_to_logic_frames(self.reload_ms())
     }
 
     /// Max damage at epicenter (host residual values; retail weapon tables deferred).
@@ -15403,4 +15789,59 @@ mod tests {
             "ScudStormInitiated"
         );
     }
+
+    /// Wave 78 residual: HostSuperweaponKind reload table + CarpetBomb/Artillery science tiers.
+    #[test]
+    fn host_superweapon_reload_table_wave78_honesty() {
+        assert!(honesty_host_superweapon_reload_table_wave78());
+        assert_eq!(HostSuperweaponKind::ScudStorm.reload_ms(), 300_000);
+        assert_eq!(HostSuperweaponKind::ParticleCannon.reload_ms(), 240_000);
+        assert_eq!(HostSuperweaponKind::AnthraxBomb.reload_ms(), 360_000);
+        assert_eq!(HostSuperweaponKind::CruiseMissile.reload_frames(), 3_600);
+        assert_eq!(HostSuperweaponKind::CarpetBomb.reload_frames(), 4_500);
+        assert_eq!(HostSuperweaponKind::ArtilleryBarrage.reload_frames(), 9_000);
+        assert_eq!(duration_ms_to_logic_frames(300_000), 9_000);
+    }
+
+    #[test]
+    fn carpet_bomb_science_tier_residual_pack_wave78_honesty() {
+        assert!(honesty_carpet_bomb_science_tier_residual_pack_wave78());
+        assert_eq!(CarpetBombFactionTier::AirForce.reload_ms(), 240_000);
+        assert_eq!(CARPET_BOMB_RELOAD_NUKE_MS, 180_000);
+        assert!((CarpetBombFactionTier::China.radius_cursor() - 180.0).abs() < 0.01);
+        assert_eq!(
+            CarpetBombFactionTier::America.delivery_decal_texture(),
+            "SCCA10Strike_USA"
+        );
+        assert_eq!(
+            CarpetBombFactionTier::AirForce.delivery_decal_color(),
+            (255, 0, 0, 255)
+        );
+        assert_eq!(CarpetBombFactionTier::China.ocl_name(), "SUPERWEAPON_ChinaCarpetBomb");
+    }
+
+    #[test]
+    fn artillery_science_tier_residual_pack_wave78_honesty() {
+        assert!(honesty_artillery_science_tier_residual_pack_wave78());
+        assert!(honesty_special_power_residual_pack_wave78_ok());
+        assert_eq!(
+            ArtilleryBarrageScienceTier::Level3.science_name(),
+            "SCIENCE_ArtilleryBarrage3"
+        );
+        assert_eq!(
+            ArtilleryBarrageScienceTier::Level2.ocl_name(),
+            "SUPERWEAPON_ArtilleryBarrage2"
+        );
+        assert_eq!(ARTILLERY_DELIVERY_DECAL_TEXTURE, "SCCArtilleryBarrage_China");
+        assert_eq!(ARTILLERY_DELIVERY_DECAL_COLOR, (255, 156, 0, 255));
+        assert_eq!(ARTILLERY_SCIENCE_POINT_COST, 1);
+        assert_eq!(
+            ArtilleryBarrageScienceTier::highest_from_sciences([
+                ARTILLERY_SCIENCE_TIER1,
+                ARTILLERY_SCIENCE_TIER3,
+            ]),
+            ArtilleryBarrageScienceTier::Level3
+        );
+    }
+
 }

@@ -1753,10 +1753,22 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn resolve_upgrade_cost_supplies(&self, upgrade_name: &str) -> u32 {
+        // Prefer catalog template cost when present.
         if let Some(template) = self.game_logic.get_templates().get(upgrade_name) {
-            return template.build_cost.supplies.max(1);
+            if template.build_cost.supplies > 0 {
+                return template.build_cost.supplies;
+            }
         }
 
+        // Wave 79: apply HostUpgradeKind retail Upgrade.ini BuildCost residual.
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        let kind = HostUpgradeKind::from_name(upgrade_name);
+        let retail = kind.retail_build_cost();
+        if retail > 0 {
+            return retail;
+        }
+
+        // Fallback residual matrix for non-HostUpgradeKind research names.
         match Self::normalize_command_token(upgrade_name).as_str() {
             "upgradeamericatowmissile" => 800,
             "upgradeamericacompositearmor" => 2000,
@@ -1769,9 +1781,12 @@ impl<'a> CommandExecutor<'a> {
             | "upgradeamericarangerflashbanggrenade" => 800,
             // Retail Upgrade_AmericaSupplyLines BuildCost 800.
             "upgradeamericasupplylines" => 800,
+            // Retail Upgrade_AmericaAdvancedTraining BuildCost 1500.
+            "upgradeamericaadvancedtraining" | "upgradeadvancedtraining" => 1500,
             "upgradeglaapbullets" => 2000,
-            "upgradeglaworkershoes" => 500,
-            "upgradechinanuclearengines" => 2000,
+            // Retail Upgrade_GLAWorkerShoes BuildCost 1000 (was incorrect 500).
+            "upgradeglaworkershoes" => 1000,
+            "upgradechinanuclearengines" | "upgradechinanucleartanks" => 2000,
             "upgradenationalism" | "upgradefanaticism" => 1500,
             _ => 1000,
         }
@@ -1857,6 +1872,12 @@ impl<'a> CommandExecutor<'a> {
                 team,
                 upgrade_name,
                 Some(unit_id),
+            );
+            // Wave 79: stamp residual build cost paid (retail application honesty).
+            self.game_logic.host_upgrades_mut().set_build_cost_paid(
+                upgrade_name,
+                player_id,
+                cost.supplies,
             );
         }
         if any {

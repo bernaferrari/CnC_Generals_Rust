@@ -32,10 +32,22 @@ fn main() {
         && r.fow_residual_pack_ok
         && r.ground_height_presentation_ok
         && r.weapon_store_seed_residual_ok
-        && r.ai_skirmish_residual_ok;
+        && r.ai_skirmish_residual_ok
+        // Wave 78 residual honesty (reload table + science tiers; never flips playable_claim).
+        && r.special_power_wave78_residual_ok
+        && r.cluster_mines_wave78_residual_ok
+        && r.gps_scrambler_wave78_residual_ok
+        && r.cash_bounty_wave78_residual_ok
+        // Wave 79 residual honesty (orthogonal to special powers; never flips playable_claim).
+        && r.minimap_residual_pack_ok
+        && r.selection_hud_residual_pack_ok
+        && r.input_residual_pack_ok
+        && r.drawable_residual_fields_ok
+        && r.unit_training_wave79_residual_ok
+        && r.upgrades_cost_time_application_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -60,6 +72,16 @@ fn main() {
             r.ground_height_presentation_ok,
             r.weapon_store_seed_residual_ok,
             r.ai_skirmish_residual_ok,
+            r.special_power_wave78_residual_ok,
+            r.cluster_mines_wave78_residual_ok,
+            r.gps_scrambler_wave78_residual_ok,
+            r.cash_bounty_wave78_residual_ok,
+            r.minimap_residual_pack_ok,
+            r.selection_hud_residual_pack_ok,
+            r.input_residual_pack_ok,
+            r.drawable_residual_fields_ok,
+            r.unit_training_wave79_residual_ok,
+            r.upgrades_cost_time_application_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );

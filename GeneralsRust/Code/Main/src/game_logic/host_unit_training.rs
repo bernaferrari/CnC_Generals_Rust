@@ -390,6 +390,90 @@ pub fn free_always_veteran_starting_level() -> VeterancyLevel {
     VeterancyLevel::Veteran
 }
 
+// --- Wave 79: GameData.ini veterancy bonus residual + AdvancedTraining XP apply ---
+
+/// GameData.ini HealthBonus residual multipliers (Regular=100% implicit).
+pub const VETERANCY_HEALTH_BONUS_VETERAN: f32 = 1.2;
+pub const VETERANCY_HEALTH_BONUS_ELITE: f32 = 1.3;
+pub const VETERANCY_HEALTH_BONUS_HEROIC: f32 = 1.5;
+/// GameData.ini WeaponBonus DAMAGE residual multipliers.
+pub const VETERANCY_DAMAGE_BONUS_VETERAN: f32 = 1.1;
+pub const VETERANCY_DAMAGE_BONUS_ELITE: f32 = 1.2;
+pub const VETERANCY_DAMAGE_BONUS_HEROIC: f32 = 1.3;
+/// GameData.ini WeaponBonus RATE_OF_FIRE residual (120%/140%/160% → reload scale 1/rof).
+pub const VETERANCY_ROF_BONUS_VETERAN: f32 = 1.2;
+pub const VETERANCY_ROF_BONUS_ELITE: f32 = 1.4;
+pub const VETERANCY_ROF_BONUS_HEROIC: f32 = 1.6;
+
+/// Residual (health, damage, reload_scale) for a veterancy level.
+///
+/// Matches `Object::veterancy_bonuses` / GameData.ini HealthBonus + WeaponBonus.
+pub fn veterancy_bonus_multipliers(level: VeterancyLevel) -> (f32, f32, f32) {
+    match level {
+        VeterancyLevel::Rookie => (1.0, 1.0, 1.0),
+        VeterancyLevel::Veteran => (
+            VETERANCY_HEALTH_BONUS_VETERAN,
+            VETERANCY_DAMAGE_BONUS_VETERAN,
+            1.0 / VETERANCY_ROF_BONUS_VETERAN,
+        ),
+        VeterancyLevel::Elite => (
+            VETERANCY_HEALTH_BONUS_ELITE,
+            VETERANCY_DAMAGE_BONUS_ELITE,
+            1.0 / VETERANCY_ROF_BONUS_ELITE,
+        ),
+        VeterancyLevel::Heroic => (
+            VETERANCY_HEALTH_BONUS_HEROIC,
+            VETERANCY_DAMAGE_BONUS_HEROIC,
+            1.0 / VETERANCY_ROF_BONUS_HEROIC,
+        ),
+    }
+}
+
+/// Whether an upgrade name is AdvancedTraining residual.
+pub fn is_advanced_training_upgrade(name: &str) -> bool {
+    let n = normalize_identity(name);
+    n.contains("advancedtraining") || n == "upgradeamericaadvancedtraining"
+}
+
+/// Apply AdvancedTraining ExperienceScalar residual to a base XP gain.
+///
+/// C++ ExperienceScalarUpgrade AddXPScalar **1.0** → gain × (1 + scalar) = **2×**.
+pub fn residual_xp_gain_with_advanced_training(base_xp: f32, has_advanced_training: bool) -> f32 {
+    if has_advanced_training {
+        base_xp * (1.0 + ADVANCED_TRAINING_ADD_XP_SCALAR)
+    } else {
+        base_xp
+    }
+}
+
+/// Wave 79 veterancy bonus residual honesty (GameData.ini matrix).
+pub fn honesty_unit_training_veterancy_bonus_residual_wave79_ok() -> bool {
+    let (vh, vd, vr) = veterancy_bonus_multipliers(VeterancyLevel::Veteran);
+    let (eh, ed, er) = veterancy_bonus_multipliers(VeterancyLevel::Elite);
+    let (hh, hd, hr) = veterancy_bonus_multipliers(VeterancyLevel::Heroic);
+    (vh - 1.2).abs() < 0.001
+        && (vd - 1.1).abs() < 0.001
+        && (vr - 1.0 / 1.2).abs() < 0.001
+        && (eh - 1.3).abs() < 0.001
+        && (ed - 1.2).abs() < 0.001
+        && (er - 1.0 / 1.4).abs() < 0.001
+        && (hh - 1.5).abs() < 0.001
+        && (hd - 1.3).abs() < 0.001
+        && (hr - 1.0 / 1.6).abs() < 0.001
+        && (ADVANCED_TRAINING_ADD_XP_SCALAR - 1.0).abs() < 0.001
+        && (residual_xp_gain_with_advanced_training(50.0, false) - 50.0).abs() < 0.001
+        && (residual_xp_gain_with_advanced_training(50.0, true) - 100.0).abs() < 0.001
+        && is_advanced_training_upgrade(UPGRADE_AMERICA_ADVANCED_TRAINING)
+        && is_advanced_training_upgrade("UpgradeAdvancedTraining")
+        && !is_advanced_training_upgrade("Upgrade_AmericaSupplyLines")
+}
+
+/// Combined Wave 79 unit-training / veterancy residual honesty pack.
+pub fn honesty_unit_training_residual_pack_wave79_ok() -> bool {
+    honesty_unit_training_residual_pack_ok()
+        && honesty_unit_training_veterancy_bonus_residual_wave79_ok()
+}
+
 // --- Wave 62 residual honesty packs ---
 
 /// Veterancy StartingLevel residual honesty.
@@ -598,5 +682,13 @@ mod tests {
         assert_eq!(RED_GUARD_BUILD_TIME_FRAMES, 300);
         assert_eq!(INFERNO_CANNON_BUILD_TIME_FRAMES, 450);
         assert_eq!(FREE_VETERAN_PILOT_TEMPLATE, "AmericaInfantryPilot");
+    }
+
+    /// Wave 79: veterancy bonus matrix + AdvancedTraining XP residual deepen.
+    #[test]
+    fn unit_training_residual_pack_honesty_wave79() {
+        assert!(honesty_unit_training_veterancy_bonus_residual_wave79_ok());
+        assert!(honesty_unit_training_residual_pack_wave79_ok());
+        assert!((residual_xp_gain_with_advanced_training(25.0, true) - 50.0).abs() < 0.001);
     }
 }
