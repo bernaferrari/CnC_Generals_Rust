@@ -283,6 +283,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
     let mut saw_select_ok = false;
     let mut saw_move_ok = false;
     let mut saw_attack_ok = false;
+    let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
     let mut commanded_at: Option<Instant> = None;
@@ -456,6 +457,13 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                         }
                         if snap.last_gameplay_cmd.starts_with("select_ok") {
                             saw_select_ok = true;
+                        }
+                        if !train_sent {
+                            let _ = write_control(
+                                &control_path,
+                                &["train_unit|template=AmericaInfantryRanger"],
+                            );
+                            train_sent = true;
                         }
                         // select + move required; attack attempted (ok or no enemy).
                         result.gameplay_cmd_ok = saw_select_ok && saw_move_ok && saw_attack_ok;
