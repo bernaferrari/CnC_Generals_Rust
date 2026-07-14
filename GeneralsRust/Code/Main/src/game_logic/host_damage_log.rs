@@ -41,11 +41,12 @@ pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed
 
 /// Drain all events since last drain (order preserved).
 pub fn drain() -> Vec<HostDamageEvent> {
-    LOG.with(|log| {
-        let v = std::mem::take(&mut *log.borrow_mut());
+    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
+    // Keep last non-empty batch for PresentationFrame after shadow session.
+    if !v.is_empty() {
         LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
-        v
-    })
+    }
+    v
 }
 
 /// Peek count without draining (tests).
@@ -59,7 +60,12 @@ pub fn clear() {
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
 }
 
-/// Events from the most recent `drain()` (PresentationFrame after shadow session).
+/// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
+pub fn take_last_drain() -> Vec<HostDamageEvent> {
+    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
+}
+
+/// Non-destructive peek (tests).
 pub fn last_drain_snapshot() -> Vec<HostDamageEvent> {
     LAST_DRAIN.with(|last| last.borrow().clone())
 }

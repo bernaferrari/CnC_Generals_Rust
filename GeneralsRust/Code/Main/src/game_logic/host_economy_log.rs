@@ -17,6 +17,7 @@ pub struct HostEconomyEvent {
 
 thread_local! {
     static LOG: RefCell<Vec<HostEconomyEvent>> = RefCell::new(Vec::new());
+    static LAST_DRAIN: RefCell<Vec<HostEconomyEvent>> = RefCell::new(Vec::new());
 }
 
 pub fn record(player_id: u32, supplies: u32, power_available: i32) {
@@ -30,15 +31,31 @@ pub fn record(player_id: u32, supplies: u32, power_available: i32) {
 }
 
 pub fn drain() -> Vec<HostEconomyEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
+    // Keep last non-empty batch for PresentationFrame after shadow session.
+    if !v.is_empty() {
+        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
+    }
+    v
 }
 
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
+    LAST_DRAIN.with(|last| last.borrow_mut().clear());
 }
 
 pub fn len() -> usize {
     LOG.with(|log| log.borrow().len())
+}
+
+/// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
+pub fn take_last_drain() -> Vec<HostEconomyEvent> {
+    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
+}
+
+/// Non-destructive peek (tests).
+pub fn last_drain_snapshot() -> Vec<HostEconomyEvent> {
+    LAST_DRAIN.with(|last| last.borrow().clone())
 }
 
 #[cfg(test)]
@@ -46,14 +63,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn economy_log_drain_order() {
+    fn economy_log_drain_and_last_snapshot() {
         clear();
-        record(0, 100, 10);
-        record(1, 50, 0);
+        record(0, 1000, 5);
+        record(1, 500, -2);
+        assert_eq!(len(), 2);
         let v = drain();
         assert_eq!(v.len(), 2);
-        assert_eq!(v[0].supplies, 100);
-        assert_eq!(v[1].player_id, 1);
         assert!(drain().is_empty());
+        assert_eq!(last_drain_snapshot().len(), 2);
+        assert_eq!(last_drain_snapshot()[0].supplies, 1000);
     }
 }
