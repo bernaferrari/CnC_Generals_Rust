@@ -81,6 +81,8 @@ struct StatusSnap {
     selected_count: u32,
     local_mobile_units: u32,
     last_gameplay_cmd: String,
+    match_over: bool,
+    victory_label: String,
 }
 
 fn parse_status(path: &Path) -> Option<StatusSnap> {
@@ -103,6 +105,8 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "selected_count" => snap.selected_count = v.trim().parse().unwrap_or(0),
             "local_mobile_units" => snap.local_mobile_units = v.trim().parse().unwrap_or(0),
             "last_gameplay_cmd" => snap.last_gameplay_cmd = v.trim().to_string(),
+            "match_over" => snap.match_over = matches!(v.trim(), "true" | "1" | "True"),
+            "victory_label" => snap.victory_label = v.trim().to_string(),
             _ => {}
         }
     }
