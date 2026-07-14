@@ -3343,11 +3343,68 @@ impl PresentationFrame {
     }
 
     /// Apply selection panel to unit command grid (context-sensitive residual).
+
+    /// Derive unit-command-panel buttons from primary selection residual.
+    ///
+    /// Fail-closed: not full CommandSet INI matrix / per-faction button layout.
+    pub fn unit_command_buttons(&self) -> Vec<crate::ui::UnitCommandButton> {
+        use crate::ui::UnitCommandButton;
+        let panel = self.control_bar_selection_panel();
+        let Some(id) = panel.primary_object_id else {
+            return Vec::new();
+        };
+        let Some(ro) = self.objects.iter().find(|o| o.id == id && !o.destroyed) else {
+            return Vec::new();
+        };
+        let mut cmds = Vec::new();
+        let push = |cmds: &mut Vec<UnitCommandButton>, name: &str, enabled: bool| {
+            if !cmds
+                .iter()
+                .any(|c| c.command_name.eq_ignore_ascii_case(name))
+            {
+                cmds.push(UnitCommandButton {
+                    command_name: name.into(),
+                    enabled,
+                });
+            }
+        };
+        if ro.is_mobile || ro.is_unit {
+            push(&mut cmds, "Command_Stop", true);
+            push(&mut cmds, "Command_AttackMove", ro.has_weapon);
+            push(&mut cmds, "Command_Guard", true);
+            push(&mut cmds, "Command_Scatter", true);
+        }
+        if ro.is_structure || ro.can_produce {
+            if ro.under_construction {
+                push(&mut cmds, "Command_CancelConstruction", true);
+            }
+            if ro.can_produce {
+                push(&mut cmds, "Command_SetRallyPoint", true);
+            }
+            if ro.max_garrison > 0 {
+                push(&mut cmds, "Command_StructureExit", true);
+                if !ro.garrisoned_units.is_empty() {
+                    push(&mut cmds, "Command_Evacuate", true);
+                }
+            }
+        }
+        if ro.special_power_ready {
+            push(&mut cmds, "Command_SpecialPower", true);
+        } else if ro.special_power_cooldown > 0.0 {
+            push(&mut cmds, "Command_SpecialPower", false);
+        }
+        if panel.production_progress.is_some() {
+            push(&mut cmds, "Command_CancelUnit", true);
+        }
+        cmds
+    }
+
     pub fn apply_to_unit_command_panel(&self, panel: &mut crate::ui::UnitCommandPanel) {
         panel.apply_selection_panel(
             self.control_bar_selection_panel(),
             self.selection_ids_for_consumers(),
         );
+        panel.apply_commands(self.unit_command_buttons());
     }
 
     /// Dual-tick multi-consumer residual: HUD + UI state + RTS + unit command panel
@@ -5294,6 +5351,91 @@ mod tests {
             (ui.selection_panel.health_current - 100.0).abs() < 0.01,
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
+        );
+    }
+
+    #[test]
+    fn presentation_feeds_unit_command_panel_buttons() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType},
+            KindOf, Team, ThingTemplate,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tu = ThingTemplate::new("CmdRanger");
+        tu.set_health(120.0);
+        tu.add_kind_of(KindOf::Infantry);
+        tu.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("CmdRanger".into(), tu);
+        let mut tb = ThingTemplate::new("CmdBarracks");
+        tb.set_health(1000.0);
+        tb.add_kind_of(KindOf::Structure);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("CmdBarracks".into(), tb);
+        let ranger = logic
+            .create_object("CmdRanger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("r");
+        let barracks = logic
+            .create_object("CmdBarracks", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(o) = logic.get_object_mut(ranger) {
+            o.selected = true;
+            // Minimal weapon residual so has_weapon freezes true.
+            o.weapon = Some(crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..crate::game_logic::Weapon::default()
+            });
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![ranger];
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut panel = crate::ui::UnitCommandPanel::new();
+        frame.apply_to_unit_command_panel(&mut panel);
+        let names: Vec<_> = panel
+            .commands()
+            .iter()
+            .map(|c| c.command_name.as_str())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.eq_ignore_ascii_case("Command_Stop")),
+            "mobile selection should expose Stop: {:?}",
+            names
+        );
+        assert!(
+            names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("Command_AttackMove")),
+            "armed mobile should expose AttackMove: {:?}",
+            names
+        );
+
+        if let Some(o) = logic.get_object_mut(barracks) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.selected = true;
+            o.building_data = Some(BuildingData::new(BuildingType::Barracks));
+        }
+        if let Some(o) = logic.get_object_mut(ranger) {
+            o.selected = false;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![barracks];
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut panel = crate::ui::UnitCommandPanel::new();
+        frame.apply_to_unit_command_panel(&mut panel);
+        let names: Vec<_> = panel
+            .commands()
+            .iter()
+            .map(|c| c.command_name.as_str())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("Command_SetRallyPoint")),
+            "producer should expose SetRallyPoint: {:?}",
+            names
         );
     }
 
