@@ -53,6 +53,14 @@ pub struct RenderableObject {
     pub rally_point: Option<Vec3>,
     /// Guard position residual (units).
     pub guard_position: Option<Vec3>,
+    /// Contained unit ids (garrison / transport residual, capped).
+    pub garrisoned_units: Vec<ObjectId>,
+    /// Max garrison slots (0 = not a container).
+    pub max_garrison: usize,
+    /// Structure/unit power provided residual.
+    pub power_provided: i32,
+    /// Structure/unit power consumed residual.
+    pub power_consumed: i32,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
@@ -1468,6 +1476,18 @@ impl PresentationFrame {
                     .unwrap_or_default(),
                 rally_point: obj.building_data.as_ref().and_then(|b| b.rally_point),
                 guard_position: obj.guard_position,
+                garrisoned_units: obj
+                    .building_data
+                    .as_ref()
+                    .map(|b| b.garrisoned_units.iter().copied().take(32).collect())
+                    .unwrap_or_default(),
+                max_garrison: obj
+                    .building_data
+                    .as_ref()
+                    .map(|b| b.max_garrison)
+                    .unwrap_or(0),
+                power_provided: obj.power_provided,
+                power_consumed: obj.power_consumed,
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
@@ -1784,6 +1804,23 @@ impl PresentationFrame {
             .iter()
             .filter(|o| o.is_structure && !o.destroyed && !o.production_queue.is_empty())
             .collect()
+    }
+
+    /// Structures currently holding garrisoned units (contain residual feed).
+    pub fn garrisoned_structures(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| o.is_structure && !o.destroyed && !o.garrisoned_units.is_empty())
+            .collect()
+    }
+
+    /// Net power from non-destroyed objects (presentation economy residual).
+    pub fn net_power_from_objects(&self) -> i32 {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed)
+            .map(|o| o.power_provided - o.power_consumed)
+            .sum()
     }
 
     /// Overlay health/position/destroyed from a GameWorld shadow session.
@@ -2589,6 +2626,36 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn garrison_and_power_freeze_from_host() {
+        use crate::game_logic::buildings::{BuildingData, BuildingType};
+        use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("GarrBldg");
+        t.set_health(300.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("GarrBldg".into(), t);
+        let id = logic
+            .create_object("GarrBldg", Team::USA, glam::Vec3::ZERO)
+            .expect("b");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.garrisoned_units = vec![ObjectId(10), ObjectId(11)];
+            bd.max_garrison = 5;
+            obj.building_data = Some(bd);
+            obj.power_provided = 10;
+            obj.power_consumed = 3;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert_eq!(ro.garrisoned_units, vec![ObjectId(10), ObjectId(11)]);
+        assert_eq!(ro.max_garrison, 5);
+        assert_eq!(ro.power_provided, 10);
+        assert_eq!(ro.power_consumed, 3);
+        assert_eq!(frame.garrisoned_structures().len(), 1);
+        assert_eq!(frame.net_power_from_objects(), 7);
     }
 
     #[test]
