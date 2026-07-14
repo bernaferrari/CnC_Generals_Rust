@@ -299,6 +299,26 @@ impl SkirmishMenu {
     }
 
     /// Get configured game settings for starting
+
+    /// Production residual: center of the Start action button (for host click path).
+    pub fn start_button_center(&self) -> Option<(i32, i32)> {
+        self.action_buttons
+            .iter()
+            .find(|b| matches!(b.action, ActionButton::Start) && b.enabled)
+            .map(|b| {
+                (
+                    b.position.0 + b.size.0 as i32 / 2,
+                    b.position.1 + b.size.1 as i32 / 2,
+                )
+            })
+    }
+
+    /// Simulate a left-click on Start (same path as mouse input).
+    pub fn simulate_start_button_click(&mut self) -> Option<UIEvent> {
+        let (x, y) = self.start_button_center()?;
+        self.handle_mouse_click(x, y, MouseButton::Left)
+    }
+
     pub fn get_game_config(&self) -> (Vec<GameSlot>, GameRules, String) {
         (
             self.slots.clone(),
@@ -668,6 +688,28 @@ impl Renderable for SkirmishMenu {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn simulate_start_button_click_emits_start_game() {
+        let mut menu = SkirmishMenu::new();
+        menu.initialize().expect("init");
+        assert!(menu.configure_slot_medium_ai(1));
+        menu.set_map_name("Lone Eagle");
+        let ev = menu.simulate_start_button_click().expect("start click");
+        match ev {
+            crate::ui::UIEvent::StartGame {
+                mode: _,
+                faction: _,
+                map,
+                skirmish,
+            } => {
+                assert!(map.contains("Lone") || map == "Lone Eagle");
+                assert!(skirmish.is_some());
+            }
+            other => panic!("expected StartGame, got {:?}", other),
+        }
+    }
+
     use super::*;
 
     #[test]
