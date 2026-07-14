@@ -390,6 +390,10 @@ pub enum PresentationEvent {
     RadarMessage {
         team: Team,
         text: String,
+        /// World position residual (ZERO when text-only).
+        position: Vec3,
+        /// 0=Generic 1=Attack 2=Ally (host RadarKind residual).
+        kind: u8,
     },
     /// Combat residual: particle system spawned (host registry id + template).
     ParticleSystemSpawned {
@@ -1868,9 +1872,16 @@ impl PresentationFrame {
         }
         // Freeze pending radar texts (UI drain later remains authoritative consumer).
         for entry in logic.radar_notification_snapshot() {
+            let kind = match entry.kind {
+                crate::game_logic::radar_notifications::RadarKind::Generic => 0u8,
+                crate::game_logic::radar_notifications::RadarKind::Attack => 1u8,
+                crate::game_logic::radar_notifications::RadarKind::Ally => 2u8,
+            };
             events.push(PresentationEvent::RadarMessage {
                 team: Team::Neutral, // host residual: text is global/team-agnostic here
                 text: entry.text,
+                position: entry.position,
+                kind,
             });
         }
         // Drain: freeze this frame's completions into the snapshot (sole consumer).
@@ -2936,6 +2947,59 @@ impl PresentationFrame {
         ui.selected_units = self.selected.clone();
         ui.match_over = self.match_over;
         ui.selected_unit_infos = self.selected_unit_display_infos();
+        // Radar residual from snapshot events (no live update_ui_state re-read).
+        {
+            use crate::ui::{RadarMessageEntry, RadarPing, RadarPingKind};
+            let mut messages = Vec::new();
+            let mut pings = Vec::new();
+            let mut last_ping = ui.last_radar_ping;
+            for ev in &self.events {
+                if let PresentationEvent::RadarMessage {
+                    text,
+                    position,
+                    kind,
+                    ..
+                } = ev
+                {
+                    let ping_kind = match kind {
+                        1 => RadarPingKind::Attack,
+                        2 => RadarPingKind::Ally,
+                        _ => RadarPingKind::Generic,
+                    };
+                    messages.push(text.clone());
+                    ui.radar_events.push(RadarMessageEntry {
+                        text: text.clone(),
+                        position: Some(*position),
+                        kind: ping_kind,
+                    });
+                    if position.length_squared() > 0.0001 {
+                        pings.push(RadarPing {
+                            position: *position,
+                            intensity: 1.0,
+                            age_seconds: 0.0,
+                            kind: ping_kind,
+                        });
+                        last_ping = Some(*position);
+                    }
+                }
+            }
+            if !messages.is_empty() {
+                ui.radar_messages.extend(messages);
+                // Cap residual feed.
+                let excess = ui.radar_messages.len().saturating_sub(32);
+                if excess > 0 {
+                    ui.radar_messages.drain(0..excess);
+                }
+            }
+            if !pings.is_empty() {
+                ui.radar_pings.extend(pings);
+                let excess = ui.radar_pings.len().saturating_sub(32);
+                if excess > 0 {
+                    ui.radar_pings.drain(0..excess);
+                }
+            }
+            ui.last_radar_ping = last_ping;
+        }
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
@@ -3157,8 +3221,24 @@ impl PresentationFrame {
     pub fn apply_events_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
         for ev in &self.events {
             match ev {
-                PresentationEvent::RadarMessage { text, .. } => {
-                    hud.push_radar_message(text);
+                PresentationEvent::RadarMessage {
+                    text,
+                    position,
+                    kind,
+                    ..
+                } => {
+                    use crate::ui::RadarPingKind;
+                    let ping_kind = match kind {
+                        1 => RadarPingKind::Attack,
+                        2 => RadarPingKind::Ally,
+                        _ => RadarPingKind::Generic,
+                    };
+                    let pos = if position.length_squared() > 0.0001 {
+                        Some(*position)
+                    } else {
+                        None
+                    };
+                    hud.add_radar_message(text, pos, ping_kind);
                 }
                 PresentationEvent::ConstructionComplete { template, .. } => {
                     hud.push_info_message(&format!("Construction complete: {template}"));
@@ -4568,6 +4648,52 @@ mod tests {
     }
 
     #[test]
+    fn presentation_feeds_radar_into_ui_state() {
+        use glam::Vec3;
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.queue_radar_message_at(
+            "Enemy spotted north",
+            Vec3::new(100.0, 0.0, 200.0),
+            crate::game_logic::radar_notifications::RadarKind::Attack,
+        );
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(frame.events.iter().any(|e| {
+            matches!(
+                e,
+                PresentationEvent::RadarMessage {
+                    text,
+                    kind: 1,
+                    position,
+                    ..
+                } if text.contains("Enemy") && (position.x - 100.0).abs() < 0.1
+            )
+        }));
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert!(
+            ui.radar_messages.iter().any(|m| m.contains("Enemy")),
+            "radar text: {:?}",
+            ui.radar_messages
+        );
+        assert!(
+            ui.radar_events
+                .iter()
+                .any(|e| e.kind == crate::ui::RadarPingKind::Attack),
+            "radar events: {:?}",
+            ui.radar_events
+        );
+        assert!(
+            ui.radar_pings
+                .iter()
+                .any(|p| (p.position.x - 100.0).abs() < 0.1),
+            "radar pings: {:?}",
+            ui.radar_pings
+        );
+        assert_eq!(ui.last_radar_ping.map(|p| p.x), Some(100.0));
+    }
+
+    #[test]
     fn construction_complete_freezes_into_presentation_events() {
         crate::game_logic::host_construction_log::clear();
         crate::game_logic::host_construction_log::record(
@@ -4593,6 +4719,7 @@ mod tests {
         assert!(crate::game_logic::host_construction_log::drain().is_empty());
     }
 
+    #[test]
     fn radar_messages_freeze_into_presentation_events() {
         use glam::Vec3;
         let mut logic = crate::game_logic::GameLogic::new();
