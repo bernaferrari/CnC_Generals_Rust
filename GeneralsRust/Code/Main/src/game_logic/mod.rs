@@ -4,6 +4,8 @@ pub mod combat;
 pub mod combat_particles;
 pub mod game_logic;
 pub mod host_ai_ability_upgrade_residual;
+pub mod host_damage_log;
+pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
 pub mod host_ai_path_combat_residual_wave105;
 pub mod host_ambush;
 pub mod host_angry_mob;
