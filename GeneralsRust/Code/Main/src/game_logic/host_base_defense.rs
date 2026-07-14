@@ -138,13 +138,45 @@ pub const PATRIOT_AIR_RANGE: f32 = 350.0;
 pub const SUPW_PATRIOT_AIR_RANGE: f32 = 400.0;
 /// Retail Patriot DelayBetweenShots 250ms → 8 frames @ 30 FPS (in-clip).
 pub const PATRIOT_DELAY_FRAMES: u32 = 8;
+/// Retail PatriotMissileWeapon DelayBetweenShots residual (msec).
+pub const PATRIOT_DELAY_BETWEEN_SHOTS_MS: u32 = 250;
+/// Retail PatriotMissileWeapon ClipSize residual (in-clip volley size).
+pub const PATRIOT_CLIP_SIZE: u32 = 4;
 /// Retail Patriot ClipReloadTime 2000ms → 60 frames residual between clips.
 /// Fail-closed host residual: use clip-reload as effective shot cadence.
 pub const PATRIOT_CLIP_RELOAD_FRAMES: u32 = 60;
+/// Retail PatriotMissileWeapon ClipReloadTime residual (msec).
+pub const PATRIOT_CLIP_RELOAD_MS: u32 = 2_000;
+/// Retail PatriotMissileWeapon PrimaryDamageRadius residual.
+pub const PATRIOT_PRIMARY_DAMAGE_RADIUS: f32 = 5.0;
+/// Retail PatriotMissileWeapon ScatterRadiusVsInfantry residual.
+pub const PATRIOT_SCATTER_RADIUS_VS_INFANTRY: f32 = 10.0;
+/// Retail PatriotMissileWeapon AutoReloadsClip residual.
+pub const PATRIOT_AUTO_RELOADS_CLIP: bool = true;
+/// Retail PatriotMissileWeapon ProjectileObject residual.
+pub const PATRIOT_PROJECTILE_OBJECT: &str = "PatriotMissile";
 /// Residual fire audio for Patriot.
 pub const PATRIOT_FIRE_AUDIO: &str = "PatriotBatteryWeapon";
 /// Residual Laser General Patriot fire audio honesty.
 pub const LAZR_PATRIOT_FIRE_AUDIO: &str = "Lazr_WeaponFX_LaserCrusader";
+
+// --- AmericaPatriotBattery body residual (FactionBuilding.ini Wave 75) ---
+/// Retail AmericaPatriotBattery BuildCost residual.
+pub const PATRIOT_BUILD_COST: u32 = 1_000;
+/// Retail AmericaPatriotBattery BuildTime residual (seconds).
+pub const PATRIOT_BUILD_TIME_SECS: f32 = 25.0;
+/// BuildTime 25s → 750 frames @ 30 FPS residual honesty.
+pub const PATRIOT_BUILD_TIME_FRAMES: u32 = 750;
+/// Retail AmericaPatriotBattery EnergyProduction residual.
+pub const PATRIOT_ENERGY_PRODUCTION: i32 = -3;
+/// Retail AmericaPatriotBattery VisionRange residual.
+pub const PATRIOT_VISION_RANGE: f32 = 360.0;
+/// Retail AmericaPatriotBattery ShroudClearingRange residual.
+pub const PATRIOT_SHROUD_CLEARING_RANGE: f32 = 360.0;
+/// Retail AmericaPatriotBattery MaxHealth residual.
+pub const PATRIOT_MAX_HEALTH: f32 = 1_000.0;
+/// Retail AmericaPatriotBattery W3D model residual basename.
+pub const PATRIOT_MODEL_KEY: &str = "ABPatriot";
 
 // --- AssistedTargetingUpdate residual (Patriot ModuleTag_07) ---
 /// Retail PatriotMissileWeapon / Air `RequestAssistRange`.
@@ -367,8 +399,51 @@ pub fn honesty_patriot_laser_punch_through_constants_ok() -> bool {
     (PATRIOT_LASER_PUNCH_THROUGH_SCALAR - 1.3).abs() < 0.001
 }
 /// Combined residual honesty pack (Wave 71): Patriot ground/air/assist + laser punch-through.
+/// Wave 75 Patriot weapon clip + body residual honesty (Weapon.ini / FactionBuilding.ini).
+pub fn honesty_patriot_weapon_body_residual_ok() -> bool {
+    PATRIOT_CLIP_SIZE == 4
+        && PATRIOT_CLIP_SIZE == PATRIOT_ASSISTING_CLIP_SIZE
+        && PATRIOT_DELAY_BETWEEN_SHOTS_MS == 250
+        && PATRIOT_CLIP_RELOAD_MS == 2_000
+        && PATRIOT_CLIP_RELOAD_FRAMES == 60
+        && (PATRIOT_CLIP_RELOAD_MS as f32 / 1000.0 * 30.0 - PATRIOT_CLIP_RELOAD_FRAMES as f32)
+            .abs()
+            < 0.01
+        && (PATRIOT_PRIMARY_DAMAGE_RADIUS - 5.0).abs() < 0.01
+        && (PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01
+        && PATRIOT_AUTO_RELOADS_CLIP
+        && PATRIOT_PROJECTILE_OBJECT == "PatriotMissile"
+        && PATRIOT_BUILD_COST == 1_000
+        && (PATRIOT_BUILD_TIME_SECS - 25.0).abs() < 0.01
+        && PATRIOT_BUILD_TIME_FRAMES == 750
+        && PATRIOT_ENERGY_PRODUCTION == -3
+        && (PATRIOT_VISION_RANGE - 360.0).abs() < 0.01
+        && (PATRIOT_SHROUD_CLEARING_RANGE - 360.0).abs() < 0.01
+        && (PATRIOT_MAX_HEALTH - 1_000.0).abs() < 0.01
+        && PATRIOT_MODEL_KEY.eq_ignore_ascii_case("ABPatriot")
+}
+
+/// Wave 75 Stinger Site body residual honesty (FactionBuilding.ini).
+pub fn honesty_stinger_site_body_residual_ok() -> bool {
+    STINGER_SITE_BUILD_COST == 900
+        && (STINGER_SITE_BUILD_TIME_SECS - 15.0).abs() < 0.01
+        && STINGER_SITE_BUILD_TIME_FRAMES == 450
+        && STINGER_SITE_ENERGY_PRODUCTION == 0
+        && (STINGER_SITE_VISION_RANGE - 600.0).abs() < 0.01
+        && (STINGER_SITE_SHROUD_CLEARING_RANGE - 400.0).abs() < 0.01
+        && (STINGER_SITE_MAX_HEALTH - 1_000.0).abs() < 0.01
+        && (STINGER_SITE_HOLE_MAX_HEALTH - 500.0).abs() < 0.01
+        && STINGER_SPAWN_NUMBER == 3
+        && (STINGER_SOLDIER_MAX_HEALTH - 100.0).abs() < 0.01
+        && STINGER_SITE_MODEL_KEY.eq_ignore_ascii_case("UBStingerS")
+        // Vision residual: site vision > shroud clearing (detect further than clear).
+        && STINGER_SITE_VISION_RANGE > STINGER_SITE_SHROUD_CLEARING_RANGE
+}
+
 pub fn honesty_base_defense_residual_pack_ok() -> bool {
     honesty_patriot_laser_punch_through_constants_ok()
+        && honesty_patriot_weapon_body_residual_ok()
+        && honesty_stinger_site_body_residual_ok()
         && PATRIOT_PRIMARY_WEAPON == "PatriotMissileWeapon"
         && PATRIOT_SECONDARY_WEAPON == "PatriotMissileWeaponAir"
         && (PATRIOT_GROUND_DAMAGE - 30.0).abs() < 0.01
@@ -788,6 +863,26 @@ pub const STINGER_RELOAD_FRAMES: u32 = 60;
 pub const STINGER_SPAWN_NUMBER: u32 = 3;
 /// Retail GLAInfantryStingerSoldier MaxHealth residual.
 pub const STINGER_SOLDIER_MAX_HEALTH: f32 = 100.0;
+
+// --- GLAStingerSite body residual (FactionBuilding.ini Wave 75) ---
+/// Retail GLAStingerSite BuildCost residual.
+pub const STINGER_SITE_BUILD_COST: u32 = 900;
+/// Retail GLAStingerSite BuildTime residual (seconds).
+pub const STINGER_SITE_BUILD_TIME_SECS: f32 = 15.0;
+/// BuildTime 15s → 450 frames @ 30 FPS residual honesty.
+pub const STINGER_SITE_BUILD_TIME_FRAMES: u32 = 450;
+/// Retail GLAStingerSite EnergyProduction residual.
+pub const STINGER_SITE_ENERGY_PRODUCTION: i32 = 0;
+/// Retail GLAStingerSite VisionRange residual.
+pub const STINGER_SITE_VISION_RANGE: f32 = 600.0;
+/// Retail GLAStingerSite ShroudClearingRange residual.
+pub const STINGER_SITE_SHROUD_CLEARING_RANGE: f32 = 400.0;
+/// Retail GLAStingerSite MaxHealth residual.
+pub const STINGER_SITE_MAX_HEALTH: f32 = 1_000.0;
+/// Retail GLAStingerSite HoleMaxHealth residual (capture hole).
+pub const STINGER_SITE_HOLE_MAX_HEALTH: f32 = 500.0;
+/// Retail GLAStingerSite W3D model residual basename.
+pub const STINGER_SITE_MODEL_KEY: &str = "UBStingerS";
 /// Retail SpawnReplaceDelay 30000ms → 900 frames @ 30 FPS.
 pub const STINGER_SPAWN_REPLACE_DELAY_FRAMES: u32 = 900;
 /// Host residual SpawnPoint bone radius (W3D SpawnPoint layout residual).
@@ -2859,6 +2954,31 @@ mod tests {
         assert!((PATRIOT_AIR_RANGE - 350.0).abs() < 0.01);
         assert_eq!(PATRIOT_ASSISTING_CLIP_SIZE, 4);
         assert!((PATRIOT_LASER_PUNCH_THROUGH_SCALAR - 1.3).abs() < 0.001);
+    }
+
+    /// Wave 75 Patriot clip/body + Stinger Site body residual peels.
+    #[test]
+    fn base_defense_body_clip_residual_honesty_wave75() {
+        assert!(honesty_patriot_weapon_body_residual_ok());
+        assert!(honesty_stinger_site_body_residual_ok());
+        assert!(honesty_base_defense_residual_pack_ok());
+        assert_eq!(PATRIOT_CLIP_SIZE, 4);
+        assert_eq!(PATRIOT_CLIP_RELOAD_MS, 2_000);
+        assert!((PATRIOT_PRIMARY_DAMAGE_RADIUS - 5.0).abs() < 0.01);
+        assert!((PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01);
+        assert!(PATRIOT_AUTO_RELOADS_CLIP);
+        assert_eq!(PATRIOT_PROJECTILE_OBJECT, "PatriotMissile");
+        assert_eq!(PATRIOT_BUILD_COST, 1_000);
+        assert_eq!(PATRIOT_ENERGY_PRODUCTION, -3);
+        assert!((PATRIOT_MAX_HEALTH - 1_000.0).abs() < 0.01);
+        assert!((PATRIOT_VISION_RANGE - 360.0).abs() < 0.01);
+        assert_eq!(STINGER_SITE_BUILD_COST, 900);
+        assert!((STINGER_SITE_VISION_RANGE - 600.0).abs() < 0.01);
+        assert!((STINGER_SITE_SHROUD_CLEARING_RANGE - 400.0).abs() < 0.01);
+        assert!((STINGER_SITE_MAX_HEALTH - 1_000.0).abs() < 0.01);
+        assert!((STINGER_SITE_HOLE_MAX_HEALTH - 500.0).abs() < 0.01);
+        // Clip residual: AssistingClipSize matches primary ClipSize.
+        assert_eq!(PATRIOT_CLIP_SIZE, PATRIOT_ASSISTING_CLIP_SIZE);
     }
 
 }
