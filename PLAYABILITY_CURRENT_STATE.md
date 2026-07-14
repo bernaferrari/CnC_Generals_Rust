@@ -1,3 +1,88 @@
+## Residual Host Playability — Wave 95: script action/condition name tables / map object / waypoint / team / player residual deepen (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal script/map/team/player residual):**
+1. **Script action residual name table** (`host_script_map_team_player_residual`, Scripts.h + ScriptEngine.cpp):
+   - Full ordered `ScriptActionType` internal-name residual table (**344** entries; index = discriminant).
+   - Caps residual: `MAX_PARMS` **12**, `MAX_COUNTERS`/`MAX_FLAGS`/`MAX_ATTACK_PRIORITIES` **256**.
+   - Script tokens residual: `THIS_TEAM` / `TEAM_THE_PLAYER` / `ThePlayer` / skirmish Center/Flank/Backdoor + perimeter names.
+   - Anchors: DEBUG_MESSAGE_BOX **0**, VICTORY **3**, NO_OP **5**, CALL_SUBROUTINE **10**, CREATE_OBJECT **23**,
+     TEAM_FOLLOW_WAYPOINTS **36**, DISPLAY_TEXT **76**, MAP_REVEAL_ALL **102**, SHOW_WEATHER **342**,
+     AI_PLAYER_BUILD_TYPE_NEAREST_TEAM **343**.
+   - Honesty: `honesty_script_action_name_table_residual_wave95`.
+2. **Script condition residual name table**:
+   - Full ordered `ConditionType` internal-name residual table (**109** entries).
+   - Anchors: CONDITION_FALSE **0**, COUNTER **1**, FLAG **2**, CONDITION_TRUE **3**, TIMER_EXPIRED **4**,
+     NAMED_HAS_FREE_CONTAINER_SLOTS **108**.
+   - Honesty: `honesty_script_condition_name_table_residual_wave95`.
+3. **MapObject residual peels** (MapObject.h + WellKnownKeys object*):
+   - `MAP_XY_FACTOR` **10.0**; `MAP_HEIGHT_SCALE` **0.625** (FACTOR/16).
+   - FLAG_* residual bits DRAWS_IN_MIRROR..DONT_RENDER; ROAD_FLAGS/BRIDGE_FLAGS composites.
+   - Runtime MO_* residual: SELECTED/LIGHT/WAYPOINT/SCORCH.
+   - **32** object* Dict key residual rows (objectName..objectSoundAmbientPriority).
+   - World/map keys residual: mapName / InitialCameraPosition / originalOwner / uniqueID.
+   - Honesty: `honesty_map_object_residual_pack_wave95`.
+4. **Waypoint residual peels** (TerrainLogic.h + waypoint* WellKnownKeys):
+   - `INVALID_WAYPOINT_ID` **0x7FFFFFFF**; `Waypoint::MAX_LINKS` **8**.
+   - **6** waypoint* Dict keys: waypointName/ID/PathLabel1–3/PathBiDirectional.
+   - Cross-link MO_WAYPOINT **0x04**.
+   - Honesty: `honesty_waypoint_residual_pack_wave95`.
+5. **Team residual peels** (Team.h + team* WellKnownKeys):
+   - `TEAM_ID_INVALID` / `TEAM_PROTOTYPE_ID_INVALID` **0**.
+   - `MAX_UNIT_TYPES` **7**; `MAX_GENERIC_SCRIPTS` **16**.
+   - TBehavior residual NORMAL **0** / IGNORE_DISTRACTIONS **1** / DEAL_AGGRESSIVELY **2**.
+   - **54** team* Dict key residual rows (teamName..teamGenericScriptHook).
+   - Default team name residual: `"team" + playerName` (e.g. teamAmerica / teamThePlayer).
+   - Honesty: `honesty_team_residual_pack_wave95`.
+6. **Player residual peels deepen** (beyond Wave 85 faction/template/cash):
+   - `MAX_PLAYER_COUNT` **16**; neutral slot index **0**; `NEUTRAL_PLAYER_COLOR` **0xFFFFFFFF**.
+   - Ctor residual: skillPointsModifier **1.0**, rankLevel **0**, skillPoints **0**.
+   - Relationship residual: self **ALLIES=2**, default unknown **NEUTRAL=1**, ENEMIES **0**.
+   - Player mask residual: `1 << playerIndex`.
+   - **11** player* Dict keys (playerName..playerIsPreorder).
+   - Honesty: `honesty_player_residual_deepen_pack_wave95`.
+7. **Combined pack**: `honesty_script_map_team_player_residual_pack_wave95`.
+
+**Wiring:**
+- `game_logic/host_script_map_team_player_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — script_action95 / script_cond95 / map_object95 / waypoint95 / team95 / player95
+- `shell_smoke_gate.rs` — require wave95 honesty flags; playable_claim stays false
+- Wave 94 residual (`host_ai_ability_upgrade_residual`) co-present in shell gate wiring
+
+**Gates:**
+- Unit: 7 wave95 honesty tests PASS (+ wave94 residual tests)
+- golden_skirmish_gate --frames 8 → PASS playable_claim=true
+- shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+  script_action95=true script_cond95=true map_object95=true waypoint95=true team95=true player95=true
+
+**Not claimed:**
+- Full ScriptAction executor / Condition evaluator residual
+- Full MapObject WB validate / WorldDict xfer residual
+- Full TerrainLogic waypoint path-label walk residual
+- Full TeamFactory production / AI recruit residual
+- Full Player science purchase / energy matrix residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
+## Residual Host Playability — Wave 94: AI state / special ability / upgrade name table / CommandSet residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; co-present with Wave 95 shell wiring):**
+1. **AI state residual table** — C++ `AIStateType` / `NUM_AI_STATES` **44** ordered names + host AIState bridge.
+2. **Special ability residual deepen** — SpecialAbility* samples (ReloadTime / StartAbilityRange / Unpack/Pack/Prep).
+3. **Upgrade residual full name table** — retail Upgrade.ini internal names residual.
+4. **CommandSet residual** — superweapon buildings + faction command centers slot residual.
+5. Combined: `honesty_ai_ability_upgrade_residual_pack_wave94`.
+
+**Wiring:** `host_ai_ability_upgrade_residual.rs` + shell_smoke/gate wave94 honesty flags.
+
+**Gates:** unit honesty PASS; shell gate requires ai_state94/special_ability94/upgrade_names94/command_set94; playable_claim false.
+
+**Not claimed:** full AIStateMachine exclusive enter/exit; full SpecialAbilityUpdate matrix; full UpgradeCenter purchase; full ControlBar CommandSet UI.
+
 ## Residual Host Playability — Wave 93: particle emit-rate / drawable opacity+shroud / shadow deepen / terrain texture / road residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal render/terrain residual):**
