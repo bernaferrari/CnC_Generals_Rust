@@ -8,9 +8,9 @@
 //! - **Synthetic host** (no retail map): GoldenCC/GoldenEnemyCC host soup.
 //!   synthetic_combat=true, playable_claim=false.
 //!
-//! Combat honesty residuals (do **not** gate `playable_claim` when victory still works):
+//! Combat honesty residuals (gate `playable_claim` on map path):
 //! - `combat_no_teleport_ok`: pure `assign_unit_path` / Move into range + AttackObject;
-//!   no `set_position` range pull. Pull remains a narrow per-focus stall fallback only.
+//!   no `set_position` range pull. Teleport pull is opt-in via `GOLDEN_ALLOW_TELEPORT_PULL=1`.
 //! - `combat_realistic_speed_ok`: march speed ≤ retail BasicHumanLocomotor (20 u/s).
 //!   Prefer host `locomotor_bootstrap` / Locomotor.ini bind at create_object; slice
 //!   lift remains only if create still used Movement::default (10).
@@ -83,10 +83,10 @@ pub struct GoldenSkirmishResult {
     /// Honesty: true only when combat damage/kills used pure Move/AttackMove/
     /// AttackObject march into weapon range — no set_position range pull.
     /// Fail-closed residual: playable_claim still holds if victory used the
-    /// narrow teleport fallback; this flag alone reports pure-march honesty.
+    /// Pure-march honesty: no set_position range pull (gates playable_claim on map path).
     pub combat_no_teleport_ok: bool,
     /// Honesty: true when slice march speed stayed ≤ retail infantry (~20 u/s).
-    /// Fail-closed residual: does not gate playable_claim.
+    /// Gates playable_claim on map path with combat_no_teleport_ok.
     pub combat_realistic_speed_ok: bool,
     /// Honesty: true when weapons used store/template damage without a slice
     /// damage floor (retail RangerAdvancedCombatRifle ~5). Fail-closed residual.
@@ -957,10 +957,14 @@ fn fight_enemies_with_rangers(
                 cmd_id += 1;
             }
 
-            // Narrow residual fallback: only after long stall with no HP
-            // progress on the *current* focus while rangers remain OOR.
+            // Narrow residual fallback: opt-in only (GOLDEN_ALLOW_TELEPORT_PULL=1).
+            // Default fail-closed: pure march/path + AttackObject must earn kills.
             let mut pulled_this_round = false;
-            if !progress_on_focus && stalled_oor_rounds >= STALL_BEFORE_TELEPORT {
+            let allow_teleport = std::env::var_os("GOLDEN_ALLOW_TELEPORT_PULL").is_some_and(|v| {
+                let s = v.to_string_lossy();
+                !(s.is_empty() || s == "0" || s.eq_ignore_ascii_case("false"))
+            });
+            if allow_teleport && !progress_on_focus && stalled_oor_rounds >= STALL_BEFORE_TELEPORT {
                 used_teleport_pull = true;
                 pulled_this_round = true;
                 for (i, rid) in live.iter().enumerate() {
@@ -1885,7 +1889,10 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && outcome.map_combat_ok
         && players_preserved_on_load
         && ai_structure_templates_retained
-        && !ai_disabled_for_slice;
+        && !ai_disabled_for_slice
+        // Fail-closed combat residuals: no set_position range pull, retail-ish march speed.
+        && outcome.combat_no_teleport_ok
+        && outcome.combat_realistic_speed_ok;
 
     let map_combat_required_ok = !map_loaded || outcome.map_combat_ok;
     let map_players_required_ok = !map_loaded || players_preserved_on_load;
