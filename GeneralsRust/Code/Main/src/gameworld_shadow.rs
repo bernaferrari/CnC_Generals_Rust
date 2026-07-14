@@ -1594,6 +1594,59 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn probe_includes_host_victory_fields() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("VicProbe");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let mut shadow = GameWorldShadow::new(4096);
+        shadow.sync_from_host(&logic);
+        let probe = shadow.probe(&mut logic);
+        // Fresh skirmish: match not over; fields must still be populated honestly.
+        assert!(!probe.host_match_over || probe.victory_label.is_some());
+        let _ = probe.format_report(); // includes victory_over=
+        assert!(
+            probe.format_report().contains("victory_over="),
+            "probe report must expose victory residual"
+        );
+    }
+
+    #[test]
+    fn path_helpers_log_final_move_destination() {
+        crate::game_logic::host_move_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PathLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "PathU", 100.0);
+        if let Some(t) = logic.templates.get_mut("PathU") {
+            t.add_kind_of(KindOf::Infantry);
+        }
+        let id = logic
+            .create_object("PathU", Team::USA, glam::Vec3::ZERO)
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            o.movement.max_speed = 20.0;
+        }
+        crate::game_logic::host_move_log::clear();
+        let dest = glam::Vec3::new(40.0, 0.0, 10.0);
+        assert!(
+            logic.append_unit_waypoint(id, dest),
+            "append waypoint should succeed for mobile unit"
+        );
+        let events = crate::game_logic::host_move_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.unit == id
+                    && e.destination
+                        .map(|d| (d[0] - 40.0).abs() < 0.5 && (d[2] - 10.0).abs() < 0.5)
+                        .unwrap_or(false)
+            }),
+            "append_unit_waypoint must log final dest: {events:?}"
+        );
+    }
+
+    #[test]
     fn move_to_logs_destination_for_mobile_unit() {
         crate::game_logic::host_move_log::clear();
         let mut logic = GameLogic::new();
