@@ -10,6 +10,16 @@
 //!   (`AvengerAirLaserOne` stats: 10 dmg / 300 range / 200ms delay / air only).
 //! - PointDefenseLaser intercept remains in `host_point_defense` (already closed).
 //!
+//! Wave 66 residual pack (retail AmericaVehicle.ini / Weapon.ini / Locomotor.ini):
+//! - Designator residual: DamageType STATUS / DamageStatusType FAERIE_FIRE,
+//!   PrimaryDamage **200**ms duration, range **200**, Delay **200**ms → **6**f.
+//! - Air laser residual: dmg **10** / range **300** / Delay **200**ms → **6**f,
+//!   AntiGround **No**, AntiAirborneVehicle **Yes**, AntiAirborneInfantry **No**,
+//!   DamageType SMALL_ARMS, LaserName AvengerLaserBeam.
+//! - Body residual: MaxHealth **300**, Vision **150**, Shroud **300**, BuildCost **2000**,
+//!   BuildTime **10**s → **300**f, TransportSlotCount **3**, Speed **30**/Damaged **20**.
+//! - PDL residual: AvengerPointDefenseLaserOne/Two ScanRange **200**.
+//!
 //! Fail-closed honesty:
 //! - Not full portable AmericaTankAvengerLaserTurret OverlordContain passenger
 //! - Not full dual independent AirLaser streams / laser drawable bone attach
@@ -19,15 +29,22 @@
 use super::Weapon;
 use serde::{Deserialize, Serialize};
 
+/// Logic frames per second (host fixed step).
+pub const AVENGER_LOGIC_FPS: f32 = 30.0;
+
 /// Retail AvengerTargetDesignator weapon name.
 pub const AVENGER_TARGET_DESIGNATOR: &str = "AvengerTargetDesignator";
 /// Retail AvengerAirLaserOne (turret PRIMARY; residual collapses dual lasers).
 pub const AVENGER_AIR_LASER: &str = "AvengerAirLaserOne";
+/// Retail AvengerAirLaserTwo (second turret residual name).
+pub const AVENGER_AIR_LASER_TWO: &str = "AvengerAirLaserTwo";
 /// Retail AvengerAirLaserDummy SECONDARY on chassis WeaponSet.
 pub const AVENGER_AIR_LASER_DUMMY: &str = "AvengerAirLaserDummy";
 
 /// Retail AvengerTargetDesignator AttackRange residual.
 pub const AVENGER_DESIGNATOR_RANGE: f32 = 200.0;
+/// Retail designator DelayBetweenShots residual (msec).
+pub const AVENGER_DESIGNATOR_DELAY_MS: u32 = 200;
 /// Retail AvengerTargetDesignator DelayBetweenShots 200ms → 6 frames @ 30 FPS.
 pub const AVENGER_DESIGNATOR_DELAY_FRAMES: u32 = 6;
 /// Retail PrimaryDamage is status duration in msec (ActiveBody DAMAGE_STATUS path).
@@ -35,13 +52,31 @@ pub const AVENGER_DESIGNATOR_DELAY_FRAMES: u32 = 6;
 pub const AVENGER_FAERIE_FIRE_DURATION_MS: u32 = 200;
 /// Duration in logic frames (ceil(ms * 30 / 1000)).
 pub const AVENGER_FAERIE_FIRE_DURATION_FRAMES: u32 = 6;
+/// Retail designator DamageType residual.
+pub const AVENGER_DESIGNATOR_DAMAGE_TYPE: &str = "STATUS";
+/// Retail designator DamageStatusType residual.
+pub const AVENGER_DAMAGE_STATUS_TYPE: &str = "FAERIE_FIRE";
+/// Retail designator FireFX residual.
+pub const AVENGER_DESIGNATOR_FIRE_FX: &str = "WeaponFX_AvengerTargetDesignator";
 
 /// Retail AvengerAirLaserOne PrimaryDamage residual.
 pub const AVENGER_AIR_LASER_DAMAGE: f32 = 10.0;
 /// Retail AvengerAirLaserOne AttackRange residual.
 pub const AVENGER_AIR_LASER_RANGE: f32 = 300.0;
+/// Retail air laser DelayBetweenShots residual (msec).
+pub const AVENGER_AIR_LASER_DELAY_MS: u32 = 200;
 /// Retail AvengerAirLaserOne DelayBetweenShots 200ms → 6 frames.
 pub const AVENGER_AIR_LASER_DELAY_FRAMES: u32 = 6;
+/// Retail air laser DamageType residual.
+pub const AVENGER_AIR_LASER_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail air laser AntiGround residual.
+pub const AVENGER_AIR_LASER_ANTI_GROUND: bool = false;
+/// Retail air laser AntiAirborneVehicle residual.
+pub const AVENGER_AIR_LASER_ANTI_AIRBORNE_VEHICLE: bool = true;
+/// Retail air laser AntiAirborneInfantry residual.
+pub const AVENGER_AIR_LASER_ANTI_AIRBORNE_INFANTRY: bool = false;
+/// Retail LaserName residual.
+pub const AVENGER_LASER_NAME: &str = "AvengerLaserBeam";
 
 /// Retail GameData.ini WeaponBonus TARGET_FAERIE_FIRE RATE_OF_FIRE 150%.
 pub const FAERIE_FIRE_ROF_MULTIPLIER: f32 = 1.50;
@@ -50,6 +85,40 @@ pub const FAERIE_FIRE_ROF_MULTIPLIER: f32 = 1.50;
 pub const AVENGER_PAINT_AUDIO: &str = "AvengerPaintWeaponLoop";
 /// Air laser fire audio residual.
 pub const AVENGER_AIR_LASER_AUDIO: &str = "AvengerAirLaserWeapon";
+
+// --- Body residual (AmericaTankAvenger) ---
+
+/// Retail ActiveBody MaxHealth residual.
+pub const AVENGER_MAX_HEALTH: f32 = 300.0;
+/// Retail VisionRange residual.
+pub const AVENGER_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const AVENGER_SHROUD_CLEARING_RANGE: f32 = 300.0;
+/// Retail BuildCost residual.
+pub const AVENGER_BUILD_COST: u32 = 2000;
+/// Retail BuildTime residual (seconds).
+pub const AVENGER_BUILD_TIME_SEC: f32 = 10.0;
+/// BuildTime 10s → 300 frames @ 30 FPS.
+pub const AVENGER_BUILD_TIME_FRAMES: u32 = 300;
+/// Retail TransportSlotCount residual.
+pub const AVENGER_TRANSPORT_SLOT_COUNT: u32 = 3;
+/// Retail AvengerLocomotor Speed residual.
+pub const AVENGER_LOCOMOTOR_SPEED: f32 = 30.0;
+/// Retail AvengerLocomotor SpeedDamaged residual.
+pub const AVENGER_LOCOMOTOR_SPEED_DAMAGED: f32 = 20.0;
+/// Retail PointDefenseLaser ScanRange residual.
+pub const AVENGER_PDL_SCAN_RANGE: f32 = 200.0;
+/// Retail PointDefenseLaser weapon residual names.
+pub const AVENGER_PDL_ONE: &str = "AvengerPointDefenseLaserOne";
+pub const AVENGER_PDL_TWO: &str = "AvengerPointDefenseLaserTwo";
+
+/// Convert residual milliseconds to logic frames @ 30 FPS (round half-up).
+pub fn avenger_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * AVENGER_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Host residual honesty counters for Avenger paint / air laser / ROF grant.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -216,6 +285,87 @@ pub fn avenger_prefer_air_laser(is_avenger: bool, target_is_air: bool) -> bool {
     is_avenger && target_is_air
 }
 
+// --- Wave 66 residual honesty packs ---
+
+/// Wave 66 residual honesty: designator / FAERIE_FIRE residual peel.
+pub fn honesty_avenger_designator_residual_ok() -> bool {
+    AVENGER_TARGET_DESIGNATOR == "AvengerTargetDesignator"
+        && (AVENGER_DESIGNATOR_RANGE - 200.0).abs() < 0.01
+        && AVENGER_DESIGNATOR_DELAY_MS == 200
+        && AVENGER_DESIGNATOR_DELAY_FRAMES
+            == avenger_ms_to_frames(AVENGER_DESIGNATOR_DELAY_MS)
+        && AVENGER_DESIGNATOR_DELAY_FRAMES == 6
+        && AVENGER_FAERIE_FIRE_DURATION_MS == 200
+        && AVENGER_FAERIE_FIRE_DURATION_FRAMES
+            == avenger_ms_to_frames(AVENGER_FAERIE_FIRE_DURATION_MS)
+        && AVENGER_FAERIE_FIRE_DURATION_FRAMES == 6
+        && AVENGER_DESIGNATOR_DAMAGE_TYPE == "STATUS"
+        && AVENGER_DAMAGE_STATUS_TYPE == "FAERIE_FIRE"
+        && AVENGER_DESIGNATOR_FIRE_FX == "WeaponFX_AvengerTargetDesignator"
+        && AVENGER_PAINT_AUDIO == "AvengerPaintWeaponLoop"
+        && (FAERIE_FIRE_ROF_MULTIPLIER - 1.50).abs() < 0.001
+        && {
+            let d = avenger_designator_weapon();
+            d.damage.abs() < 0.001
+                && (d.range - 200.0).abs() < 0.01
+                && d.can_target_ground
+                && d.can_target_air
+        }
+}
+
+/// Wave 66 residual honesty: air laser residual peel.
+pub fn honesty_avenger_air_laser_residual_ok() -> bool {
+    AVENGER_AIR_LASER == "AvengerAirLaserOne"
+        && AVENGER_AIR_LASER_TWO == "AvengerAirLaserTwo"
+        && AVENGER_AIR_LASER_DUMMY == "AvengerAirLaserDummy"
+        && (AVENGER_AIR_LASER_DAMAGE - 10.0).abs() < 0.01
+        && (AVENGER_AIR_LASER_RANGE - 300.0).abs() < 0.01
+        && AVENGER_AIR_LASER_DELAY_MS == 200
+        && AVENGER_AIR_LASER_DELAY_FRAMES
+            == avenger_ms_to_frames(AVENGER_AIR_LASER_DELAY_MS)
+        && AVENGER_AIR_LASER_DELAY_FRAMES == 6
+        && AVENGER_AIR_LASER_DAMAGE_TYPE == "SMALL_ARMS"
+        && !AVENGER_AIR_LASER_ANTI_GROUND
+        && AVENGER_AIR_LASER_ANTI_AIRBORNE_VEHICLE
+        && !AVENGER_AIR_LASER_ANTI_AIRBORNE_INFANTRY
+        && AVENGER_LASER_NAME == "AvengerLaserBeam"
+        && AVENGER_AIR_LASER_AUDIO == "AvengerAirLaserWeapon"
+        && {
+            let a = avenger_air_laser_weapon();
+            (a.damage - 10.0).abs() < 0.01
+                && (a.range - 300.0).abs() < 0.01
+                && a.can_target_air
+                && !a.can_target_ground
+        }
+}
+
+/// Wave 66 residual honesty: body / PDL residual peel.
+pub fn honesty_avenger_body_residual_ok() -> bool {
+    (AVENGER_MAX_HEALTH - 300.0).abs() < 0.01
+        && (AVENGER_VISION_RANGE - 150.0).abs() < 0.01
+        && (AVENGER_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && AVENGER_BUILD_COST == 2000
+        && (AVENGER_BUILD_TIME_SEC - 10.0).abs() < 0.01
+        && AVENGER_BUILD_TIME_FRAMES
+            == ((AVENGER_BUILD_TIME_SEC * AVENGER_LOGIC_FPS).round() as u32)
+        && AVENGER_BUILD_TIME_FRAMES == 300
+        && AVENGER_TRANSPORT_SLOT_COUNT == 3
+        && (AVENGER_LOCOMOTOR_SPEED - 30.0).abs() < 0.01
+        && (AVENGER_LOCOMOTOR_SPEED_DAMAGED - 20.0).abs() < 0.01
+        && (AVENGER_PDL_SCAN_RANGE - 200.0).abs() < 0.01
+        && AVENGER_PDL_ONE == "AvengerPointDefenseLaserOne"
+        && AVENGER_PDL_TWO == "AvengerPointDefenseLaserTwo"
+        && is_avenger_template("AmericaTankAvenger")
+        && !is_avenger_template("AmericaTankAvengerLaserTurret")
+}
+
+/// Combined Wave 66 Avenger residual honesty pack.
+pub fn honesty_avenger_residual_pack_ok() -> bool {
+    honesty_avenger_designator_residual_ok()
+        && honesty_avenger_air_laser_residual_ok()
+        && honesty_avenger_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,5 +429,18 @@ mod tests {
         assert!((a.damage - AVENGER_AIR_LASER_DAMAGE).abs() < 0.01);
         assert!((a.range - AVENGER_AIR_LASER_RANGE).abs() < 0.01);
         assert!(a.can_target_air && !a.can_target_ground);
+    }
+
+    #[test]
+    fn avenger_residual_pack_honesty_wave66() {
+        assert_eq!(avenger_ms_to_frames(200), 6);
+        assert!(honesty_avenger_designator_residual_ok());
+        assert!(honesty_avenger_air_laser_residual_ok());
+        assert!(honesty_avenger_body_residual_ok());
+        assert!(honesty_avenger_residual_pack_ok());
+        assert!(!AVENGER_AIR_LASER_ANTI_GROUND);
+        assert!(AVENGER_AIR_LASER_ANTI_AIRBORNE_VEHICLE);
+        assert_eq!(AVENGER_BUILD_TIME_FRAMES, 300);
+        assert_eq!(AVENGER_DAMAGE_STATUS_TYPE, "FAERIE_FIRE");
     }
 }
