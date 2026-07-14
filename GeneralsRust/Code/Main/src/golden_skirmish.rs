@@ -1776,6 +1776,7 @@ fn run_map_world_skirmish(
 
 /// Production-linked golden skirmish scenario.
 pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSkirmishResult {
+    crate::gameworld_shadow::ensure_gate_damage_authority();
     set_verification_single_authority(true);
     let (map_identity, map_exists) = resolve_map(map_override);
     let config = golden_skirmish_config(&map_identity);
