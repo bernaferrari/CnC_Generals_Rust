@@ -1962,6 +1962,27 @@ mod tests {
     }
 
     #[test]
+    fn credit_supplies_logs_economy_channel() {
+        crate::game_logic::host_economy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CreditLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = *logic.get_players().keys().next().expect("player");
+        crate::game_logic::host_economy_log::clear();
+        {
+            let p = logic.get_players_mut().get_mut(&pid).unwrap();
+            let before = p.resources.supplies;
+            p.credit_supplies(123);
+            assert_eq!(p.resources.supplies, before.saturating_add(123));
+        }
+        let ev = crate::game_logic::host_economy_log::drain();
+        assert!(
+            ev.iter().any(|e| e.player_id == pid && e.supplies >= 123),
+            "credit_supplies must log: {ev:?}"
+        );
+    }
+
+    #[test]
     fn economy_authority_applies_logged_spend() {
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();

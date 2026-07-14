@@ -453,6 +453,21 @@ impl Player {
     }
 
     /// Queue an upgrade for this player when not already queued/completed and affordable.
+    /// Credit absolute supplies (income residual) and log economy channel.
+    pub fn credit_supplies(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        self.resources.supplies = self.resources.supplies.saturating_add(amount);
+        self.statistics.resources_collected =
+            self.statistics.resources_collected.saturating_add(amount);
+        crate::game_logic::host_economy_log::record(
+            self.id,
+            self.resources.supplies,
+            self.power_available,
+        );
+    }
+
     pub fn queue_upgrade(&mut self, upgrade_name: &str, cost: &Resources) -> bool {
         if self.has_unlocked_upgrade(upgrade_name) || self.has_queued_upgrade(upgrade_name) {
             return false;
@@ -9187,8 +9202,7 @@ impl GameLogic {
                             let credited = deposit_amount.saturating_add(boost);
                             // Credit the player (carried supplies + optional economy boost).
                             if let Some(player) = self.get_player_mut_by_team(team) {
-                                player.resources.supplies =
-                                    player.resources.supplies.saturating_add(credited);
+                                player.credit_supplies(credited);
                             }
                             if supply_lines_boost > 0 {
                                 self.supply_lines_bonus_cash_total = self
@@ -10174,11 +10188,7 @@ impl GameLogic {
                 .map(|pid| self.is_local_player(pid))
                 .unwrap_or(false);
             if let Some(player) = self.get_player_mut_by_team(team) {
-                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected = player
-                    .statistics
-                    .resources_collected
-                    .saturating_add(deposited);
+                player.credit_supplies(deposited);
             }
             // AutoDeposit floating text residual + STEALTHED local display gate.
             // Structure geometry scatter residual (±0.3 major/minor radius).
@@ -10302,9 +10312,7 @@ impl GameLogic {
                 self.oil_derricks
                     .reschedule_after_capture(derrick_id, frame);
                 if let Some(player) = self.get_player_mut_by_team(team) {
-                    player.resources.supplies = player.resources.supplies.saturating_add(bonus);
-                    player.statistics.resources_collected =
-                        player.statistics.resources_collected.saturating_add(bonus);
+                    player.credit_supplies(bonus);
                 }
                 // Capture bonus floating text is not STEALTH-gated in C++ (award path).
                 // Structure geometry scatter residual still applies (KINDOF_STRUCTURE).
@@ -10352,11 +10360,7 @@ impl GameLogic {
                     self.supply_lines_bonus_cash_total.saturating_add(boost);
             }
             if let Some(player) = self.get_player_mut_by_team(team) {
-                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected = player
-                    .statistics
-                    .resources_collected
-                    .saturating_add(deposited);
+                player.credit_supplies(deposited);
             }
             if show_float {
                 use crate::game_logic::host_oil_derrick::{
@@ -10530,11 +10534,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(player) = self.get_player_mut_by_team(h.team) {
-                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected = player
-                    .statistics
-                    .resources_collected
-                    .saturating_add(deposited);
+                player.credit_supplies(deposited);
             }
             // Residual XpPerCashUpdate.
             if let Some(obj) = self.objects.get_mut(&h.id) {
@@ -10816,9 +10816,7 @@ impl GameLogic {
                 let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
                 self.supply_drop_zones.record_payload_cash(amount, boost);
                 if let Some(player) = self.get_player_mut_by_team(plan.source_team) {
-                    player.resources.supplies = player.resources.supplies.saturating_add(amount);
-                    player.statistics.resources_collected =
-                        player.statistics.resources_collected.saturating_add(amount);
+                    player.credit_supplies(amount);
                 }
                 if boost > 0 {
                     self.supply_lines_bonus_cash_total =
@@ -11053,9 +11051,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(player) = self.get_player_mut_by_team(team) {
-                player.resources.supplies = player.resources.supplies.saturating_add(amount);
-                player.statistics.resources_collected =
-                    player.statistics.resources_collected.saturating_add(amount);
+                player.credit_supplies(amount);
             }
             if boost > 0 {
                 self.supply_lines_bonus_cash_total =
@@ -32854,6 +32850,11 @@ impl GameLogic {
                         min_cash
                     );
                     player.resources.supplies = min_cash;
+                    crate::game_logic::host_economy_log::record(
+                        player.id,
+                        player.resources.supplies,
+                        player.power_available,
+                    );
                 }
             }
         }
@@ -35394,6 +35395,11 @@ impl GameLogic {
                 player.resources.supplies =
                     player.resources.supplies.saturating_add(refund.supplies);
                 player.power_available -= refund.power;
+                crate::game_logic::host_economy_log::record(
+                    player.id,
+                    player.resources.supplies,
+                    player.power_available,
+                );
             }
         }
 
