@@ -1,3 +1,115 @@
+## Residual Host Playability — Wave 107: ParticleSystem / FXList entry / OCL Create / Audio residual peels (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal to Wave 88 name tables + Wave 93 emit-rate peels):**
+1. **ParticleSystem residual deepen** (`host_fx_ocl_particle_audio_residual_wave107`):
+   - ParticleShader / ParticleType / EmissionVelocity / EmissionVolume / WindMotion residual name tables
+   - ParticleSystemInfo ctor wind/gravity/hollow residual; MAX_KEYFRAMES **8**
+   - Template field-parse key residual sample (**≥18**)
+   - Sample deepen: TsingMaTrailSmoke (ALPHA/PARTICLE/gravity/size) + ParticleUplinkCannon_LaunchFlare (CRITICAL/ADDITIVE)
+   - Honesty: `honesty_particle_system_residual_deepen_pack_wave107`.
+2. **FXList residual deepen beyond name tables** (`host_fx_ocl_particle_audio_residual_wave107`):
+   - TheFXListFieldParse nugget entry kinds **8** (Sound…FXListAtBonePos)
+   - ParticleSystemFXNugget field residual + count ctor **1** + delay leave sentinel **−1**
+   - ViewShake type residual **6**; TerrainScorch type residual **6** (RANDOM→−1)
+   - Sample FX_Nuke entry residual (ViewShake SEVERE + Sound ExplosionNeutron + ParticleSystem NukeFlare…)
+   - findFXList "None" null residual; MAX_BONE_POINTS **40**
+   - Honesty: `honesty_fxlist_entry_residual_deepen_pack_wave107`.
+3. **ObjectCreationList Create residual deepen** (`host_fx_ocl_particle_audio_residual_wave107`):
+   - TheObjectCreationListFieldParse entry kinds **6** (CreateObject…Attack)
+   - DebrisDisposition residual **9** bits/names; GenericObjectCreationNugget ctor defaults
+   - INVALID_ANGLE **−100** → create angle default **0**; lifetimeFrames default **0**
+   - Sample OCL_A10DeathFinalBlowUp CreateObject + OCL_A10DeathHitGround CreateDebris residual
+   - Honesty: `honesty_ocl_create_residual_deepen_pack_wave107`.
+4. **Audio residual deepen** (`host_fx_ocl_particle_audio_residual_wave107`):
+   - AudioType **3** / AudioPriority **5** / SoundType **9** bits / AudioControl **5** residual tables
+   - AudioEventInfo field-parse key residual **≥20**; OwnerType / PortionToPlay residual
+   - isPermanentSound (LOOP && loopCount==0) + pitchShift (1+pct/100) residual helpers
+   - Honesty: `honesty_audio_residual_deepen_pack_wave107`.
+5. **Combined pack**: `honesty_fx_ocl_particle_audio_residual_pack_wave107`.
+
+**Wiring:**
+- `game_logic/host_fx_ocl_particle_audio_residual_wave107.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — particle107/fxlist107/ocl107/audio107 fields
+- `shell_smoke_gate.rs` — require wave107 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave107 tests PASS
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+
+**Not claimed:**
+- Full ParticleSystemManager GPU spawn / LOD cull residual
+- Full FXListExecutor particle/sound/decal apply residual
+- Full OCL DeliverPayload flight matrix / ThingFactory create residual
+- Full Miles positional AudioEvent playback residual
+- Shell `playable_claim` remains **false**
+- Network residual deferred
+
+---
+
+## Residual Host Playability — Wave 109: SpecialPower / Science / Upgrade store residual + Player/Team deepen (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal to Waves 80/92/94/95/103 store name tables):**
+1. **SpecialPower residual template store residual** (`host_sp_science_upgrade_player_team_residual_wave109`):
+   - FieldParse residual **13** names (ReloadTime..AcademyClassify).
+   - Ctor defaults residual: id **0**, type SPECIAL_INVALID, reload **0**, requiredScience SCIENCE_INVALID **-1**,
+     publicTimer **false**, DetectionTime **300**f (10s), sharedNSync **false**, ViewObject **0**, ShortcutPower **false**.
+   - Template store residual table **≥10** rows with RequiredScience / PublicTimer / SharedSyncedTimer /
+     ViewObjectDuration/Range / RadiusCursor / ShortcutPower deepen (beyond Wave 103 reload-only).
+   - Anchors: Daisy 360s + SCIENCE_DaisyCutter + radius **170** + SharedSynced; Scud PublicTimer **Yes** radius **200**;
+     SpySat radius **300** SharedSynced; RadarVan **30**s radius **150**.
+   - Host SpecialPowerStore residual: m_nextSpecialPowerID starts **0**, register assigns **++id**.
+   - Honesty: `honesty_special_power_template_store_residual_wave109`.
+2. **Science residual store residual deepen** (beyond Wave 92 name table):
+   - SCIENCE_INVALID **-1**; ScienceAvailability Available/Disabled/Hidden residual.
+   - PointCost **0** = unpurchasable (not free); grantable default **true**.
+   - Store residual sample rows **≥12** with PointCost + PrerequisiteSciences (Paladin/Daisy/MOAB/Cluster/CashBounty*).
+   - Host ScienceStore residual find / purchase cost / grantable.
+   - Cross-link DaisyCutter SP RequiredScience → SCIENCE_DaisyCutter store row.
+   - Honesty: `honesty_science_store_residual_deepen_pack_wave109`.
+3. **Upgrade residual store residual deepen** (beyond Wave 94 name table):
+   - UpgradeType PLAYER **0** / OBJECT **1**; UpgradeStatus INVALID/IN_PRODUCTION/COMPLETE.
+   - UPGRADE_MAX_COUNT **128**; FieldParse Type/BuildTime/BuildCost residual.
+   - Ctor defaults: type PLAYER, cost **0**, buildTime **0**.
+   - Sample rows **≥10** (Nationalism / Radar OBJECT / ControlRods / SupplyLines / CompositeArmor / NuclearTanks / Camouflage).
+   - calcTimeToBuild residual: buildTime_sec × **30** → frames (60s→**1800**f, 30s→**900**f).
+   - Host UpgradeCenter residual mask-bit assignment 0..127, overflow reject at **128**.
+   - Honesty: `honesty_upgrade_store_residual_deepen_pack_wave109`.
+4. **Player residual deepen** (beyond Wave 95 dict keys / mask):
+   - PlayerType HUMAN **0** / COMPUTER **1**; PLAYER_INDEX_INVALID **-1**.
+   - NUM_HOTKEY_SQUADS **10**; NO_HOTKEY_SQUAD **-1**.
+   - AllowPlayerRelationship bits SAME/ALLIES/ENEMIES/NEUTRAL.
+   - SpecialPowerReadyTimer clear residual readyFrame **0xFFFFFFFF** / templateID INVALID **0**.
+   - Host PlayerList residual: neutral @**0**, setLocal, mask lookup, invalid local → neutral fallback.
+   - Honesty: `honesty_player_residual_deepen_pack_wave109`.
+5. **Team residual deepen** (beyond Wave 95 dict keys / MAX_UNIT_TYPES):
+   - TeamFactory unique TeamID / TeamPrototypeID counters start **0**, create uses **++id**.
+   - createTeam active **true**; createInactiveTeam active **false** until activate residual.
+   - TBehavior name residual NORMAL/IGNORE_DISTRACTIONS/DEAL_AGGRESSIVELY.
+   - Default team name residual `"team"+playerName`.
+   - Honesty: `honesty_team_residual_deepen_pack_wave109`.
+6. **Combined pack**: `honesty_sp_science_upgrade_player_team_residual_pack_wave109`.
+
+**Wiring:**
+- `game_logic/host_sp_science_upgrade_player_team_residual_wave109.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — sp_store109/science_store109/upgrade_store109/player109/team109
+- `shell_smoke_gate.rs` — require wave109 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave109 tests PASS
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  sp_store109=true science_store109=true upgrade_store109=true player109=true team109=true
+
+**Not claimed:**
+- Full SpecialPowerStore SharedSyncedTimer UI / live canUseSpecialPower residual
+- Full ScienceStore NameKey purchase graph / getPurchasableSciences UI residual
+- Full UpgradeCenter multipleyer replication residual
+- Full Player energy / science purchase exclusive matrix residual
+- Full TeamFactory production / AI recruit residual
+
 ## Residual Host Playability — Wave 108: HeightMap / bridge / water / road deepen + cliff residual peels (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal to Wave 87 env + Wave 93 road/texture + Wave 81 height sample):**
