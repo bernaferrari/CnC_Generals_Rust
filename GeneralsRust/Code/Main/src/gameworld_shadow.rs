@@ -637,6 +637,7 @@ pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadow
     }
     // Drain host damage log so it does not grow unbounded when no session is held.
     let events = crate::game_logic::host_damage_log::drain();
+    let _spawns = crate::game_logic::host_spawn_log::drain();
     let (shadow, _probe) = probe_host_vs_gameworld(logic);
     // Events already reflected in host health; sync copies health. Log size is the
     // combat-bridge signal.
@@ -664,6 +665,7 @@ pub fn shadow_session_after_host_tick(
     logic: &mut GameLogic,
 ) -> GameWorldShadowProbe {
     let events = crate::game_logic::host_damage_log::drain();
+    let spawn_events = crate::game_logic::host_spawn_log::drain();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply events as mutations.
     let write_health = !(auth && !events.is_empty());
@@ -702,9 +704,10 @@ pub fn shadow_session_after_host_tick(
     let mut probe = shadow.probe(logic);
     if !events.is_empty() || econ_wb > 0 {
         probe.detail = format!(
-            "{}|dmg_events={}|auth={}|wb={}|econ_wb={}",
+            "{}|dmg_events={}|spawns={}|auth={}|wb={}|econ_wb={}",
             probe.detail,
             events.len(),
+            spawn_events.len(),
             auth,
             writebacks,
             econ_wb
