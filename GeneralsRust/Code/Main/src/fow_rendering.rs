@@ -510,6 +510,78 @@ pub fn reveal_entire_map_for_player(player_id: u32) {
     }
 }
 
+// --- Wave 77: FOW residual honesty pack ---
+
+/// Retail / SAGE shroud partition cell size residual (world units).
+///
+/// Matches host `PresentationFowGrid::inactive` default and typical
+/// `ShroudGrid` cell size. Fail-closed: not full multi-layer streaming.
+pub const PRESENTATION_FOW_DEFAULT_CELL_SIZE: f32 = 50.0;
+
+/// Honesty: FOW cell encoding / R8 terrain overlay / inactive fail-open residual.
+///
+/// Host-testable pack for presentation-owned FOW grid residual (Wave 77).
+/// Fail-closed: not full SAGE dirty-rect / multi-layer shroud texture streaming.
+pub fn honesty_fow_residual_pack_wave77() -> bool {
+    // SAGE-style cell buckets residual (0/1/2).
+    PresentationFowGrid::CELL_HIDDEN == 0
+        && PresentationFowGrid::CELL_EXPLORED == 1
+        && PresentationFowGrid::CELL_VISIBLE == 2
+        // Terrain overlay R8 residual (shrouded / fogged / clear).
+        && PresentationFowGrid::R8_SHROUDED == 0
+        && PresentationFowGrid::R8_FOGGED == 128
+        && PresentationFowGrid::R8_VISIBLE == 255
+        && PresentationFowGrid::cell_to_r8(PresentationFowGrid::CELL_HIDDEN)
+            == PresentationFowGrid::R8_SHROUDED
+        && PresentationFowGrid::cell_to_r8(PresentationFowGrid::CELL_EXPLORED)
+            == PresentationFowGrid::R8_FOGGED
+        && PresentationFowGrid::cell_to_r8(PresentationFowGrid::CELL_VISIBLE)
+            == PresentationFowGrid::R8_VISIBLE
+        // Default cell size residual.
+        && (PRESENTATION_FOW_DEFAULT_CELL_SIZE - 50.0).abs() < 0.01
+        && {
+            let inactive = PresentationFowGrid::inactive();
+            !inactive.active
+                && inactive.cells.is_empty()
+                && (inactive.cell_size - PRESENTATION_FOW_DEFAULT_CELL_SIZE).abs() < 0.01
+                // Inactive fail-open: sample as visible, empty R8 payload.
+                && inactive.cell_at(0, 0) == PresentationFowGrid::CELL_VISIBLE
+                && inactive.to_r8_texture().is_empty()
+        }
+        && {
+            // Fully-visible residual (shell-map / observer bypass).
+            let full = PresentationFowGrid::fully_visible(4, 3, PRESENTATION_FOW_DEFAULT_CELL_SIZE);
+            full.active
+                && full.cell_count() == 12
+                && full.cells.iter().all(|&c| c == PresentationFowGrid::CELL_VISIBLE)
+                && full.to_r8_texture().iter().all(|&v| v == PresentationFowGrid::R8_VISIBLE)
+        }
+        && {
+            // from_snapshot resize residual (pad with Hidden when undersized).
+            let g = PresentationFowGrid::from_snapshot(
+                2,
+                2,
+                PRESENTATION_FOW_DEFAULT_CELL_SIZE,
+                vec![PresentationFowGrid::CELL_VISIBLE],
+            );
+            g.active
+                && g.cell_count() == 4
+                && g.cell_at(0, 0) == PresentationFowGrid::CELL_VISIBLE
+                && g.cell_at(1, 1) == PresentationFowGrid::CELL_HIDDEN
+                && g.content_fingerprint() != 0
+        }
+        && {
+            // ObjectVisibility residual encoding for FOW consumers.
+            ObjectVisibility::from_shroud_flags(true, true) == ObjectVisibility::VISIBLE
+                && ObjectVisibility::from_shroud_flags(false, true) == ObjectVisibility::FOGGED
+                && ObjectVisibility::from_shroud_flags(false, false) == ObjectVisibility::HIDDEN
+                && ObjectVisibility::HIDDEN.never_explored()
+                && !ObjectVisibility::HIDDEN.should_render()
+                && ObjectVisibility::FOGGED.should_render()
+                && (ObjectVisibility::FOGGED.visibility_alpha - 0.3).abs() < 0.01
+        }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,5 +684,18 @@ mod tests {
             g.state_at_world_xy(999.0, 999.0),
             PresentationFowGrid::CELL_VISIBLE
         );
+    }
+
+    /// Wave 77 residual: FOW cell/R8/inactive/fail-open honesty pack.
+    #[test]
+    fn fow_residual_pack_wave77_honesty() {
+        assert!(honesty_fow_residual_pack_wave77());
+        assert_eq!(PRESENTATION_FOW_DEFAULT_CELL_SIZE, 50.0);
+        assert_eq!(PresentationFowGrid::CELL_HIDDEN, 0);
+        assert_eq!(PresentationFowGrid::CELL_EXPLORED, 1);
+        assert_eq!(PresentationFowGrid::CELL_VISIBLE, 2);
+        assert_eq!(PresentationFowGrid::R8_SHROUDED, 0);
+        assert_eq!(PresentationFowGrid::R8_FOGGED, 128);
+        assert_eq!(PresentationFowGrid::R8_VISIBLE, 255);
     }
 }

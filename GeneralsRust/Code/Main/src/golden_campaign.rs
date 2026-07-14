@@ -18,6 +18,11 @@
 //! starts, scripts tick, frames advance, and victory evaluation runs without
 //! panic. It does **not** claim a full retail mission playthrough / cinematic
 //! score-screen completion.
+//!
+//! Wave 76 residual: ScriptEngine table-capacity residual honesty
+//! (`MAX_COUNTERS` / `MAX_FLAGS` / `MAX_ATTACK_PRIORITIES` = **256** each,
+//! matching C++ `ScriptEngine.h`). Host-testable; does not claim full
+//! campaign script action parity.
 
 use crate::game_logic::script_loader::{find_map_file, load_map_scripts};
 use crate::game_logic::victory_conditions::{victory_rules_for_map, VictoryType};
@@ -101,7 +106,18 @@ pub struct GoldenCampaignResult {
     pub mesh_asset_residual_ok: bool,
     /// Wave 75 presentation mesh-scale residual honesty (defaults + CINE peels).
     pub mesh_scale_presentation_ok: bool,
+    /// Wave 76 ScriptEngine table-capacity residual honesty (256 counters/flags/attack).
+    pub script_engine_residual_ok: bool,
     pub status: String,
+}
+
+/// Wave 76 residual honesty: ScriptEngine table caps match C++ ScriptEngine.h.
+///
+/// `MAX_COUNTERS` / `MAX_FLAGS` / `MAX_ATTACK_PRIORITIES` are all **256**.
+/// Fail-closed: not full ScriptAction / CALL_SUBROUTINE / condition evaluator parity.
+pub fn honesty_script_engine_table_capacity_residual_ok() -> bool {
+    use gamelogic::scripting::engine::{MAX_ATTACK_PRIORITIES, MAX_COUNTERS, MAX_FLAGS};
+    MAX_COUNTERS == 256 && MAX_FLAGS == 256 && MAX_ATTACK_PRIORITIES == 256
 }
 
 fn resolve_path_candidate(candidate: &str) -> Option<PathBuf> {
@@ -490,6 +506,8 @@ pub fn run_golden_campaign_ex(
         crate::assets::mesh_asset_resolve::honesty_mesh_asset_residual_ok();
     let mesh_scale_presentation_ok =
         crate::assets::mesh_asset_resolve::honesty_mesh_scale_residual_ok();
+    // Wave 76 ScriptEngine table-capacity residual — does not gate campaign_playable_claim.
+    let script_engine_residual_ok = honesty_script_engine_table_capacity_residual_ok();
 
     let status = if campaign_playable_claim {
         "success"
@@ -528,13 +546,14 @@ pub fn run_golden_campaign_ex(
         campaign_playable_claim,
         mesh_asset_residual_ok,
         mesh_scale_presentation_ok,
+        script_engine_residual_ok,
         status: status.into(),
     }
 }
 
 pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
     format!(
-        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={} mesh_asset={} mesh_scale={}",
+        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={} mesh_asset={} mesh_scale={} script_engine={}",
         r.status,
         r.campaign_started,
         r.single_player,
@@ -557,6 +576,7 @@ pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
         r.campaign_playable_claim,
         r.mesh_asset_residual_ok,
         r.mesh_scale_presentation_ok,
+        r.script_engine_residual_ok,
     )
 }
 
@@ -614,12 +634,20 @@ mod tests {
             "mesh scale residual: {}",
             format_campaign_report(&result)
         );
+        // Wave 76 ScriptEngine table-capacity residual honesty.
+        assert!(
+            result.script_engine_residual_ok,
+            "script engine residual: {}",
+            format_campaign_report(&result)
+        );
+        assert!(honesty_script_engine_table_capacity_residual_ok());
         let report = format_campaign_report(&result);
         assert!(report.contains("campaign_playable_claim=true"));
         assert!(report.contains("retail_campaign_map_loaded="));
         assert!(report.contains("objectives_from_campaign="));
         assert!(report.contains("mesh_asset=true"));
         assert!(report.contains("mesh_scale=true"));
+        assert!(report.contains("script_engine=true"));
         // When retail assets exist, default path should prefer MD_*/GC_* load.
         if result.campaign_map_resolved.is_some() && prefer_retail_campaign_load() {
             assert!(

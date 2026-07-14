@@ -3,12 +3,77 @@
 //! Covers both the synthetic host update path and the load_map preserve/rebind
 //! residual: after map load (or explicit rebind), Medium GLA AI must take at
 //! least one productive action (structure start, unit queue, or unit spawn).
+//!
+//! Wave 77 residual peels:
+//! - AIData/AIPlayer structure/team timer defaults residual honesty pack
+//! - poor/wealthy resource thresholds + build-speed modifiers residual
+//! - skirmish base-defense extra distance residual
 
 use crate::ai::AIDifficulty;
 use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use glam::Vec3;
 use std::path::{Path, PathBuf};
+
+// --- Wave 77: AI skirmish residual pack (AIPlayer / AIData defaults) ---
+
+/// C++ LOGICFRAMES_PER_SECOND residual used for structure/team timer conversion.
+pub const AI_SKIRMISH_LOGIC_FPS: u32 = gamelogic::ai::ai_player::LOGICFRAMES_PER_SECOND;
+/// C++ m_structureSeconds residual default.
+pub const AI_SKIRMISH_STRUCTURE_SECONDS: f32 = gamelogic::ai::ai_player::DEFAULT_STRUCTURE_SECONDS;
+/// C++ m_teamSeconds residual default.
+pub const AI_SKIRMISH_TEAM_SECONDS: f32 = gamelogic::ai::ai_player::DEFAULT_TEAM_SECONDS;
+/// C++ m_resourcesPoor residual.
+pub const AI_SKIRMISH_RESOURCES_POOR: i32 = gamelogic::ai::ai_player::RESOURCES_POOR;
+/// C++ m_resourcesWealthy residual.
+pub const AI_SKIRMISH_RESOURCES_WEALTHY: i32 = gamelogic::ai::ai_player::RESOURCES_WEALTHY;
+/// C++ m_structuresPoorMod residual.
+pub const AI_SKIRMISH_STRUCTURES_POOR_MOD: f32 =
+    gamelogic::ai::ai_player::STRUCTURES_POOR_MODIFIER;
+/// C++ m_structuresWealthyMod residual.
+pub const AI_SKIRMISH_STRUCTURES_WEALTHY_MOD: f32 =
+    gamelogic::ai::ai_player::STRUCTURES_WEALTHY_MODIFIER;
+/// C++ m_teamsPoorMod residual.
+pub const AI_SKIRMISH_TEAMS_POOR_MOD: f32 = gamelogic::ai::ai_player::TEAMS_POOR_MODIFIER;
+/// C++ m_teamsWealthyMod residual.
+pub const AI_SKIRMISH_TEAMS_WEALTHY_MOD: f32 = gamelogic::ai::ai_player::TEAMS_WEALTHY_MODIFIER;
+/// C++ m_rebuildDelaySeconds residual.
+pub const AI_SKIRMISH_REBUILD_DELAY_SECONDS: u32 =
+    gamelogic::ai::ai_player::REBUILD_DELAY_SECONDS;
+/// C++ m_skirmishBaseDefenseExtraDistance residual.
+pub const AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE: f32 =
+    gamelogic::ai::ai_player::SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE;
+/// Structure timer frames residual: structureSeconds * LOGICFRAMES_PER_SECOND.
+pub const AI_SKIRMISH_STRUCTURE_TIMER_FRAMES: u32 =
+    (AI_SKIRMISH_STRUCTURE_SECONDS as u32).saturating_mul(AI_SKIRMISH_LOGIC_FPS);
+/// Team timer frames residual: teamSeconds * LOGICFRAMES_PER_SECOND.
+pub const AI_SKIRMISH_TEAM_TIMER_FRAMES: u32 =
+    (AI_SKIRMISH_TEAM_SECONDS as u32).saturating_mul(AI_SKIRMISH_LOGIC_FPS);
+
+/// Honesty: AI skirmish residual pack (Wave 77).
+///
+/// Freezes AIPlayer/AIData default timer + wealth modifiers + base-defense
+/// extra distance used by Medium skirmish AI residual path.
+/// Fail-closed: not full AI.ini side build list / live dozer pathfinding.
+pub fn honesty_ai_skirmish_residual_pack_wave77() -> bool {
+    AI_SKIRMISH_LOGIC_FPS == 30
+        && (AI_SKIRMISH_STRUCTURE_SECONDS - 10.0).abs() < 0.01
+        && (AI_SKIRMISH_TEAM_SECONDS - 2.0).abs() < 0.01
+        && AI_SKIRMISH_RESOURCES_POOR == 2000
+        && AI_SKIRMISH_RESOURCES_WEALTHY == 5000
+        && AI_SKIRMISH_RESOURCES_WEALTHY > AI_SKIRMISH_RESOURCES_POOR
+        && (AI_SKIRMISH_STRUCTURES_POOR_MOD - 2.0).abs() < 0.01
+        && (AI_SKIRMISH_STRUCTURES_WEALTHY_MOD - 2.0).abs() < 0.01
+        && (AI_SKIRMISH_TEAMS_POOR_MOD - 2.0).abs() < 0.01
+        && (AI_SKIRMISH_TEAMS_WEALTHY_MOD - 2.0).abs() < 0.01
+        && AI_SKIRMISH_REBUILD_DELAY_SECONDS == 5
+        && (AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 50.0).abs() < 0.01
+        && AI_SKIRMISH_STRUCTURE_TIMER_FRAMES == 300 // 10s * 30 FPS
+        && AI_SKIRMISH_TEAM_TIMER_FRAMES == 60 // 2s * 30 FPS
+        // Wealthy/poor modifiers accelerate timers (divide by mod → faster builds).
+        && AI_SKIRMISH_STRUCTURES_POOR_MOD > 1.0
+        && AI_SKIRMISH_STRUCTURES_WEALTHY_MOD > 1.0
+}
 
 #[derive(Debug, Clone)]
 pub struct AiSkirmishActivityResult {
@@ -475,5 +540,20 @@ mod tests {
             Some(10_000),
             "empty AI cash must be topped up after rebind"
         );
+    }
+
+    /// Wave 77 residual: AI skirmish structure/team timer + wealth mod pack honesty.
+    #[test]
+    fn ai_skirmish_residual_pack_wave77_honesty() {
+        assert!(honesty_ai_skirmish_residual_pack_wave77());
+        assert_eq!(AI_SKIRMISH_LOGIC_FPS, 30);
+        assert!((AI_SKIRMISH_STRUCTURE_SECONDS - 10.0).abs() < 0.01);
+        assert!((AI_SKIRMISH_TEAM_SECONDS - 2.0).abs() < 0.01);
+        assert_eq!(AI_SKIRMISH_STRUCTURE_TIMER_FRAMES, 300);
+        assert_eq!(AI_SKIRMISH_TEAM_TIMER_FRAMES, 60);
+        assert_eq!(AI_SKIRMISH_RESOURCES_POOR, 2000);
+        assert_eq!(AI_SKIRMISH_RESOURCES_WEALTHY, 5000);
+        assert!((AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 50.0).abs() < 0.01);
+        assert_eq!(AI_SKIRMISH_REBUILD_DELAY_SECONDS, 5);
     }
 }

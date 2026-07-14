@@ -1,3 +1,72 @@
+## Residual Host Playability — Wave 76: science-tier / ControlBar / font / vanish-alpha / ScriptEngine residual (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **A10 science-tier FormationSize residual** (`special_power_strikes`):
+   - SCIENCE_A10ThunderboltMissileStrike1/2/3 → FormationSize **1/2/3** jets.
+   - OCL SUPERWEAPON_A10ThunderboltMissileStrike1/2/3 residual.
+   - Shared DeliverPayload residual: FormationSpacing **35**, DeliveryDistance **450**,
+     DropDelay **500**ms → **15**f, VisibleNumBones **6**, VisibleItemsDroppedPerInterval **2**,
+     DiveStart **500** / DiveEnd **300**, StrafeLength **450**.
+   - DeliveryDecal residual: **SCCA10Strike_USA** / SHADOW_ALPHA_DECAL /
+     OpacityMin/Max **25%/50%** / Throb **500**ms / Color **R:255 G:156 B:0** /
+     Radius **50** (matches RadiusCursor).
+   - `A10StrikeScienceTier` + `highest_from_sciences` residual.
+   - Honesty: `honesty_a10_science_tier_residual_pack_wave76` +
+     `honesty_special_power_residual_pack_wave76_ok`.
+2. **Paradrop science-tier payload residual** (`host_paradrop`):
+   - SCIENCE_Paradrop1 → Rangers **5**, DropDelay **150**ms → **5**f, 1 plane.
+   - SCIENCE_Paradrop2 → Rangers **10**, DropDelay **80**ms → **2**f, 1 plane.
+   - SCIENCE_Paradrop3 → Rangers **20** (2×10 dual DeliverPayload), DropDelay **80**ms,
+     plane count **2**.
+   - DeliveryDecal residual: **SCCParadrop_USA** / Color **R:227 G:229 B:22** /
+     OpacityMin/Max **25%/50%** / Throb **500**ms / Radius **50**.
+   - PreOpenDistance **300** residual.
+   - Honesty: `honesty_paradrop_science_tier_residual_pack_wave76` +
+     `honesty_paradrop_residual_pack_wave76_ok`.
+3. **ControlBar residual deepen** (`gameplay_layout`):
+   - Retail window-count residual **98** (`CONTROL_BAR_RETAIL_WINDOW_COUNT`).
+   - Key named-child residual table (CommandWindow / MoneyDisplay / LeftHUD /
+     ButtonCommand01..14 / OCLTimerWindow / WinUnitSelected / …).
+   - Font residual table peeled from ControlBar.wnd: Times New Roman **10/14**,
+     Arial **8/10/14**, Generals **15/20**.
+   - Structural validate requires named + font tokens; load path asserts count **98**.
+   - Honesty: `honesty_control_bar_residual_pack_wave76_ok`.
+4. **InGameUI Font residual table** (`floating_text_layout`):
+   - Message/Superweapon/NamedTimer/DrawableCaption Arial **10** residual.
+   - MilitaryCaption Courier New **12** residual.
+   - Floating-text setFont Arial POINTSIZE **8** residual (DEBUG_addFloatingText).
+   - Honesty: `honesty_ingame_ui_font_table_residual_ok`.
+5. **DisplayString vanish-rate integer color-alpha residual** (`presentation_frame`):
+   - C++ `updateFloatingText` REAL_TO_INT amount subtract on A channel residual.
+   - `vanish_color_alpha_u8_at` / `color_with_vanish_alpha_at` host-testable.
+   - past=5 → amount **0** (truncation); past=10 → amount **1** (255→254).
+   - Honesty: `honesty_vanish_color_alpha_residual_ok` +
+     `honesty_graphics_residual_pack_wave76_ok`.
+6. **ScriptEngine campaign residual** (`golden_campaign`):
+   - MAX_COUNTERS / MAX_FLAGS / MAX_ATTACK_PRIORITIES = **256** residual honesty
+     (C++ ScriptEngine.h table caps).
+   - Honesty: `honesty_script_engine_table_capacity_residual_ok` +
+     `script_engine_residual_ok` on campaign result (does not gate
+     `campaign_playable_claim`).
+7. Tests / gates:
+   - `a10_science_tier_residual_pack_wave76_honesty` /
+     `paradrop_science_tier_residual_pack_wave76_honesty` /
+     `control_bar_residual_pack_wave76_honesty` /
+     `graphics_residual_pack_wave76_honesty`
+   - shell_smoke: sp76/paradrop76/cb76/gfx76 honesty flags wired (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     cb_windows=98 sp76=true paradrop76=true cb76=true gfx76=true
+
+**Still residual (fail-closed, not claimed):**
+- Full AmericaJetA10Thunderbolt DeliverPayload flight Object / live missile bones
+- Full dual-plane Paradrop DeliverPayload cargo plane / AmericaParachute fall physics
+- Full ControlBar DrawCallback / command-button bind / windowed W3D retail UI
+- Full DisplayString GPU font atlas / live vanish surface blend / StretchRect
+- Full ScriptEngine ScriptAction / CALL_SUBROUTINE condition evaluator parity
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 75: mesh/shell residual deepen + campaign residual (2026-07-13)
 
 **Closed (host-testable residual peels):**

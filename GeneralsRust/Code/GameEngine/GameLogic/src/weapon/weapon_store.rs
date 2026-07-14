@@ -50,6 +50,68 @@ impl WeaponDelayedDamageInfo {
     }
 }
 
+/// Wave 77: save/load residual snapshot of a delayed-damage queue entry.
+///
+/// Mirrors the live `WeaponDelayedDamageInfo` identity fields so mid-flight
+/// projectile delay can be bookkept consistently without Arc template Xfer.
+/// Fail-closed: not full C++ WeaponStore::xfer (templates are not reloaded here).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WeaponDelayedDamageSnapshotResidual {
+    /// Weapon template name residual (rebind via store on load).
+    pub weapon_name: String,
+    /// World position residual where damage applies.
+    pub delay_damage_pos: Coord3D,
+    /// Absolute logic frame when damage should apply.
+    pub delay_damage_frame: u32,
+    /// Source object id residual.
+    pub delay_source_id: ObjectID,
+    /// Intended victim id residual (`INVALID_OBJECT_ID` for area).
+    pub delay_intended_victim_id: ObjectID,
+}
+
+impl WeaponDelayedDamageSnapshotResidual {
+    /// Build residual snapshot from a live delayed-damage entry.
+    pub fn from_info(info: &WeaponDelayedDamageInfo) -> Self {
+        Self {
+            weapon_name: info.delayed_weapon.name.clone(),
+            delay_damage_pos: info.delay_damage_pos,
+            delay_damage_frame: info.delay_damage_frame,
+            delay_source_id: info.delay_source_id,
+            delay_intended_victim_id: info.delay_intended_victim_id,
+        }
+    }
+
+    /// Honesty: residual fields are self-consistent (non-empty name, finite pos).
+    pub fn honesty_ok(&self) -> bool {
+        !self.weapon_name.is_empty()
+            && self.delay_damage_pos.x.is_finite()
+            && self.delay_damage_pos.y.is_finite()
+            && self.delay_damage_pos.z.is_finite()
+    }
+}
+
+/// Honesty: delayed-damage residual snapshot pack matches live queue (Wave 77).
+///
+/// Fail-closed: not full C++ WeaponStore Xfer / dealDamageInternal rebind.
+pub fn honesty_weapon_store_delayed_damage_residual_ok(store: &WeaponStore) -> bool {
+    let snaps = store.delayed_damage_snapshot_residual();
+    if snaps.len() != store.get_delayed_damage_count() {
+        return false;
+    }
+    snaps.iter().all(|s| s.honesty_ok())
+        && store
+            .delayed_damage_info
+            .iter()
+            .zip(snaps.iter())
+            .all(|(info, snap)| {
+                snap.weapon_name == info.delayed_weapon.name
+                    && snap.delay_damage_frame == info.delay_damage_frame
+                    && snap.delay_source_id == info.delay_source_id
+                    && snap.delay_intended_victim_id == info.delay_intended_victim_id
+                    && snap.delay_damage_pos == info.delay_damage_pos
+            })
+}
+
 /// Global weapon store managing all weapon templates and delayed damage
 #[derive(Debug)]
 pub struct WeaponStore {
@@ -433,6 +495,18 @@ impl WeaponStore {
         self.delayed_damage_info.len()
     }
 
+    /// Snapshot residual view of a pending delayed-damage entry (Wave 77).
+    ///
+    /// Freezes template name + frame + source/victim + position for save/load
+    /// honesty without holding live Arc template across Xfer. Fail-closed: not
+    /// full C++ WeaponStore Xfer table (C++ clears delayed damage on reset).
+    pub fn delayed_damage_snapshot_residual(&self) -> Vec<WeaponDelayedDamageSnapshotResidual> {
+        self.delayed_damage_info
+            .iter()
+            .map(WeaponDelayedDamageSnapshotResidual::from_info)
+            .collect()
+    }
+
     /// Get all weapon template names (for debugging/tools)
     pub fn get_template_names(&self) -> Vec<String> {
         self.weapon_templates.keys().cloned().collect()
@@ -687,6 +761,40 @@ mod tests {
         assert_eq!(queued.delay_source_id, 10);
         assert_eq!(queued.delay_intended_victim_id, 20);
         assert_eq!(queued.delay_damage_pos, pos);
+    }
+
+    /// Wave 77 residual: delayed-damage queue snapshot bookkeeping honesty.
+    #[test]
+    fn delayed_damage_snapshot_residual_wave77_honesty() {
+        let mut store = WeaponStore::new();
+        assert!(honesty_weapon_store_delayed_damage_residual_ok(&store));
+        assert!(store.delayed_damage_snapshot_residual().is_empty());
+
+        let template = WeaponTemplate::new("PatriotMissileWeapon".to_string());
+        let arc = store.add_weapon_template(template);
+        let pos = Coord3D::new(100.0, 50.0, 25.0);
+        let bonus = WeaponBonus::new();
+        store.set_delayed_damage(&arc, &pos, 900, 1, 2, &bonus);
+        store.set_delayed_damage_from_template(
+            &WeaponTemplate::new("RangerAdvancedCombatRifle".to_string()),
+            &Coord3D::new(0.0, 0.0, 0.0),
+            901,
+            3,
+            INVALID_OBJECT_ID,
+            &bonus,
+        );
+
+        assert_eq!(store.get_delayed_damage_count(), 2);
+        assert!(honesty_weapon_store_delayed_damage_residual_ok(&store));
+        let snaps = store.delayed_damage_snapshot_residual();
+        assert_eq!(snaps[0].weapon_name, "PatriotMissileWeapon");
+        assert_eq!(snaps[0].delay_damage_frame, 900);
+        assert_eq!(snaps[0].delay_source_id, 1);
+        assert_eq!(snaps[0].delay_intended_victim_id, 2);
+        assert_eq!(snaps[0].delay_damage_pos, pos);
+        assert_eq!(snaps[1].weapon_name, "RangerAdvancedCombatRifle");
+        assert_eq!(snaps[1].delay_intended_victim_id, INVALID_OBJECT_ID);
+        assert!(snaps.iter().all(|s| s.honesty_ok()));
     }
 
     #[test]

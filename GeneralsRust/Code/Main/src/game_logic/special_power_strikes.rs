@@ -293,6 +293,9 @@ pub const NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_FRAMES: u32 = 1_200;
 pub const NUCLEAR_MISSILE_VIEW_OBJECT_RANGE: f32 = 250.0;
 /// Retail SuperweaponNeutronMissile InitiateAtLocationSound residual.
 pub const NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND: &str = "AirRaidSiren";
+/// Wave 77: SuperweaponNeutronMissile InitiateSound is commented out in retail
+/// SpecialPower.ini — residual empty (fail-closed vs inventing AirRaidSiren at source).
+pub const NUCLEAR_MISSILE_INITIATE_SOUND: &str = "";
 
 // --- Anthrax toxin residual (retail AnthraxBombPoisonFieldWeapon / LifetimeUpdate) ---
 
@@ -2545,6 +2548,129 @@ pub fn honesty_special_power_residual_pack_wave73_ok() -> bool {
         && honesty_supw_variants_residual_pack_wave73()
 }
 
+/// Honesty: A10 science-tier FormationSize residual pack (Wave 76).
+///
+/// ObjectCreationList.ini SUPERWEAPON_A10ThunderboltMissileStrike1/2/3:
+/// FormationSize **1/2/3**, FormationSpacing **35**, DeliveryDistance **450**,
+/// DropDelay **500**ms → **15**f, VisibleNumBones **6**, DeliveryDecal residual.
+/// Fail-closed: not full AmericaJetA10Thunderbolt DeliverPayload flight Object.
+pub fn honesty_a10_science_tier_residual_pack_wave76() -> bool {
+    A10_SCIENCE_TIER1 == "SCIENCE_A10ThunderboltMissileStrike1"
+        && A10_SCIENCE_TIER2 == "SCIENCE_A10ThunderboltMissileStrike2"
+        && A10_SCIENCE_TIER3 == "SCIENCE_A10ThunderboltMissileStrike3"
+        && A10_OCL_TIER1 == "SUPERWEAPON_A10ThunderboltMissileStrike1"
+        && A10_OCL_TIER2 == "SUPERWEAPON_A10ThunderboltMissileStrike2"
+        && A10_OCL_TIER3 == "SUPERWEAPON_A10ThunderboltMissileStrike3"
+        && A10StrikeScienceTier::Level1.formation_size() == 1
+        && A10StrikeScienceTier::Level2.formation_size() == 2
+        && A10StrikeScienceTier::Level3.formation_size() == 3
+        && A10StrikeScienceTier::Level1.science_name() == A10_SCIENCE_TIER1
+        && A10StrikeScienceTier::Level2.science_name() == A10_SCIENCE_TIER2
+        && A10StrikeScienceTier::Level3.science_name() == A10_SCIENCE_TIER3
+        && A10StrikeScienceTier::Level1.ocl_name() == A10_OCL_TIER1
+        && A10StrikeScienceTier::Level2.ocl_name() == A10_OCL_TIER2
+        && A10StrikeScienceTier::Level3.ocl_name() == A10_OCL_TIER3
+        && A10_FORMATIONION_SIZE_L1 == 1
+        && A10_FORMATIONION_SIZE_L2 == 2
+        && A10_FORMATIONION_SIZE_L3 == 3
+        && A10_FORMATIONION_SIZE_L3 > A10_FORMATIONION_SIZE_L2
+        && A10_FORMATIONION_SIZE_L2 > A10_FORMATIONION_SIZE_L1
+        && (A10_FORMATIONION_SPACING - 35.0).abs() < 0.01
+        && (A10_DELIVERY_DISTANCE - 450.0).abs() < 0.01
+        && A10_DROP_DELAY_MS == 500
+        && A10_DROP_DELAY_FRAMES == 15
+        && duration_ms_to_logic_frames(A10_DROP_DELAY_MS) == A10_DROP_DELAY_FRAMES
+        && A10_VISIBLE_NUM_BONES == 6
+        && A10_VISIBLE_ITEMS_DROPPED_PER_INTERVAL == 2
+        && (A10_DIVE_START_DISTANCE - 500.0).abs() < 0.01
+        && (A10_DIVE_END_DISTANCE - 300.0).abs() < 0.01
+        && (A10_STRAFE_LENGTH - 450.0).abs() < 0.01
+        && A10_DELIVERY_DECAL_TEXTURE == "SCCA10Strike_USA"
+        && A10_DELIVERY_DECAL_STYLE == "SHADOW_ALPHA_DECAL"
+        && A10_DELIVERY_DECAL_OPACITY_MIN_PCT == 25
+        && A10_DELIVERY_DECAL_OPACITY_MAX_PCT == 50
+        && A10_DELIVERY_DECAL_THROB_MS == 500
+        && A10_DELIVERY_DECAL_COLOR == (255, 156, 0, 255)
+        && (A10_DELIVERY_DECAL_RADIUS - 50.0).abs() < 0.01
+        && (A10_DELIVERY_DECAL_RADIUS - A10_STRIKE_RADIUS_CURSOR).abs() < 0.01
+        && A10_TRANSPORT == "AmericaJetA10Thunderbolt"
+        && A10_PAYLOAD_TEMPLATE == "A10ThunderboltMissile"
+        && A10_PAYLOAD_WEAPON == "A10ThunderboltMissileWeapon"
+        && A10StrikeScienceTier::from_science_name("SCIENCE_A10ThunderboltMissileStrike1")
+            == Some(A10StrikeScienceTier::Level1)
+        && A10StrikeScienceTier::from_science_name("SCIENCE_A10ThunderboltMissileStrike2")
+            == Some(A10StrikeScienceTier::Level2)
+        && A10StrikeScienceTier::from_science_name("SCIENCE_A10ThunderboltMissileStrike3")
+            == Some(A10StrikeScienceTier::Level3)
+        && A10StrikeScienceTier::from_science_name("AirF_SCIENCE_A10ThunderboltMissileStrike2")
+            == Some(A10StrikeScienceTier::Level2)
+        && A10StrikeScienceTier::highest_from_sciences([
+            "SCIENCE_A10ThunderboltMissileStrike1",
+            "SCIENCE_A10ThunderboltMissileStrike3",
+        ]) == A10StrikeScienceTier::Level3
+        // Tier1 science name residual still matches Wave 72 pack constant.
+        && A10_STRIKE_REQUIRED_SCIENCE == A10_SCIENCE_TIER1
+}
+
+/// Combined Wave 76 special-power residual honesty (A10 science-tier pack).
+pub fn honesty_special_power_residual_pack_wave76_ok() -> bool {
+    honesty_a10_science_tier_residual_pack_wave76() && honesty_a10_strike_residual_pack()
+}
+
+// --- Wave 77: SpecialPower.ini InitiateSound / InitiateAtLocationSound residual name tables ---
+
+/// Retail SuperweaponScudStorm InitiateSound residual (`ScudStormInitiated`).
+pub const SCUD_STORM_INITIATE_SOUND: &str = "ScudStormInitiated";
+/// Wave 77: ScudStorm has no InitiateAtLocationSound residual in SpecialPower.ini.
+pub const SCUD_STORM_INITIATE_AT_LOCATION_SOUND: &str = "";
+/// Wave 77: powers with no retail InitiateSound leave empty residual (not special-power name).
+pub const EMPTY_SPECIAL_POWER_INITIATE_SOUND: &str = "";
+
+/// Honesty: HostSuperweaponKind retail InitiateSound / InitiateAtLocationSound name tables.
+///
+/// SpecialPower.ini residual only — `activate_audio()` still returns special-power
+/// template labels for host residual queues; this pack freezes the retail Miles
+/// event names when present (or empty when retail omits the field).
+/// Fail-closed: not full Miles positional playback / sound event INI load.
+pub fn honesty_special_power_audio_name_table_wave77() -> bool {
+    // Powers with retail InitiateSound residual.
+    SCUD_STORM_INITIATE_SOUND == "ScudStormInitiated"
+        && ARTILLERY_BARRAGE_INITIATE_SOUND == "FireArtilleryCannonSound"
+        && CRUISE_MISSILE_INITIATE_SOUND == "AirRaidSiren"
+        // Powers with retail InitiateAtLocationSound residual.
+        && NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND == "AirRaidSiren"
+        && CRUISE_MISSILE_INITIATE_AT_LOCATION_SOUND == "AirRaidSiren"
+        // Empty residual honesty (retail omits field or comments it out).
+        && NUCLEAR_MISSILE_INITIATE_SOUND == EMPTY_SPECIAL_POWER_INITIATE_SOUND
+        && ARTILLERY_BARRAGE_INITIATE_AT_LOCATION_SOUND == EMPTY_SPECIAL_POWER_INITIATE_SOUND
+        && SCUD_STORM_INITIATE_AT_LOCATION_SOUND == EMPTY_SPECIAL_POWER_INITIATE_SOUND
+        // Kind table residual: retail initiate / at-location names.
+        && HostSuperweaponKind::ScudStorm.retail_initiate_sound() == SCUD_STORM_INITIATE_SOUND
+        && HostSuperweaponKind::ArtilleryBarrage.retail_initiate_sound()
+            == ARTILLERY_BARRAGE_INITIATE_SOUND
+        && HostSuperweaponKind::CruiseMissile.retail_initiate_sound()
+            == CRUISE_MISSILE_INITIATE_SOUND
+        && HostSuperweaponKind::NuclearMissile.retail_initiate_at_location_sound()
+            == NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND
+        && HostSuperweaponKind::CruiseMissile.retail_initiate_at_location_sound()
+            == CRUISE_MISSILE_INITIATE_AT_LOCATION_SOUND
+        && HostSuperweaponKind::DaisyCutter.retail_initiate_sound().is_empty()
+        && HostSuperweaponKind::A10Strike.retail_initiate_sound().is_empty()
+        && HostSuperweaponKind::ParticleCannon.retail_initiate_sound().is_empty()
+        && HostSuperweaponKind::AnthraxBomb.retail_initiate_sound().is_empty()
+        && HostSuperweaponKind::SpectreGunship.retail_initiate_sound().is_empty()
+        && HostSuperweaponKind::CarpetBomb.retail_initiate_sound().is_empty()
+        && HostSuperweaponKind::NuclearMissile.retail_initiate_sound().is_empty()
+        // Host residual queue labels remain special-power template names.
+        && HostSuperweaponKind::ScudStorm.activate_audio() == "SuperweaponScudStorm"
+        && HostSuperweaponKind::CruiseMissile.activate_audio() == "SuperweaponCruiseMissile"
+}
+
+/// Combined Wave 77 special-power residual honesty (audio name tables).
+pub fn honesty_special_power_residual_pack_wave77_ok() -> bool {
+    honesty_special_power_audio_name_table_wave77()
+}
+
 /// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
 pub fn honesty_deletion_update_sleep_delay() -> bool {
     PARTICLE_REMNANT_DELETION_MIN_FRAMES == 120
@@ -3139,6 +3265,8 @@ pub const ARTILLERY_BARRAGE_LOCOMOTOR_SPEED: f32 = 150.0;
 pub const ARTILLERY_BARRAGE_FIRE_FX: &str = "FX_ArtilleryBarrage";
 /// Retail SuperweaponArtilleryBarrage InitiateSound residual.
 pub const ARTILLERY_BARRAGE_INITIATE_SOUND: &str = "FireArtilleryCannonSound";
+/// Wave 77: ArtilleryBarrage has no InitiateAtLocationSound residual in SpecialPower.ini.
+pub const ARTILLERY_BARRAGE_INITIATE_AT_LOCATION_SOUND: &str = "";
 /// Retail SuperweaponArtilleryBarrage ReloadTime residual (msec).
 pub const ARTILLERY_BARRAGE_RELOAD_MS: u32 = 300000;
 /// ReloadTime frames residual (300000 ms → 9000 @ 30 FPS).
@@ -3226,6 +3354,8 @@ pub const CRUISE_MISSILE_RELOAD_FRAMES: u32 = 3600;
 pub const CRUISE_MISSILE_RADIUS_CURSOR: f32 = 210.0;
 /// Retail SupW_CruiseMissile InitiateSound residual.
 pub const CRUISE_MISSILE_INITIATE_SOUND: &str = "AirRaidSiren";
+/// Retail SupW_CruiseMissile InitiateAtLocationSound residual (Wave 77 audio name table).
+pub const CRUISE_MISSILE_INITIATE_AT_LOCATION_SOUND: &str = "AirRaidSiren";
 /// Retail CruiseMissile GeometryMajorRadius residual.
 pub const CRUISE_MISSILE_GEOMETRY_MAJOR_RADIUS: f32 = 7.0;
 /// Retail CruiseMissile GeometryHeight residual.
@@ -3342,6 +3472,142 @@ pub const A10_VULCAN_PRIMARY_RADIUS: f32 = 4.0;
 pub const A10_VULCAN_DELAY_BETWEEN_SHOTS_MS: u32 = 60;
 /// Host residual impact audio cue.
 pub const A10_STRIKE_IMPACT_AUDIO: &str = "A10StrikeImpact";
+
+// --- Wave 76: A10 science-tier FormationSize residual pack ---
+
+/// Retail SCIENCE_A10ThunderboltMissileStrike1 residual.
+pub const A10_SCIENCE_TIER1: &str = "SCIENCE_A10ThunderboltMissileStrike1";
+/// Retail SCIENCE_A10ThunderboltMissileStrike2 residual.
+pub const A10_SCIENCE_TIER2: &str = "SCIENCE_A10ThunderboltMissileStrike2";
+/// Retail SCIENCE_A10ThunderboltMissileStrike3 residual.
+pub const A10_SCIENCE_TIER3: &str = "SCIENCE_A10ThunderboltMissileStrike3";
+/// Retail SUPERWEAPON_A10ThunderboltMissileStrike1 OCL residual.
+pub const A10_OCL_TIER1: &str = "SUPERWEAPON_A10ThunderboltMissileStrike1";
+/// Retail SUPERWEAPON_A10ThunderboltMissileStrike2 OCL residual.
+pub const A10_OCL_TIER2: &str = "SUPERWEAPON_A10ThunderboltMissileStrike2";
+/// Retail SUPERWEAPON_A10ThunderboltMissileStrike3 OCL residual.
+pub const A10_OCL_TIER3: &str = "SUPERWEAPON_A10ThunderboltMissileStrike3";
+/// Retail DeliverPayload FormationSize L1 residual (jets).
+pub const A10_FORMATIONION_SIZE_L1: u32 = 1;
+/// Retail DeliverPayload FormationSize L2 residual (jets).
+pub const A10_FORMATIONION_SIZE_L2: u32 = 2;
+/// Retail DeliverPayload FormationSize L3 residual (jets).
+pub const A10_FORMATIONION_SIZE_L3: u32 = 3;
+/// Retail FormationSpacing residual (all tiers).
+pub const A10_FORMATIONION_SPACING: f32 = 35.0;
+/// Retail DeliveryDistance residual (all tiers).
+pub const A10_DELIVERY_DISTANCE: f32 = 450.0;
+/// Retail DropDelay residual (msec between payload sets; all tiers).
+pub const A10_DROP_DELAY_MS: u32 = 500;
+/// DropDelay 500ms → 15 frames @ 30 FPS.
+pub const A10_DROP_DELAY_FRAMES: u32 = 15;
+/// Retail VisibleNumBones residual (missile bones on A10).
+pub const A10_VISIBLE_NUM_BONES: u32 = 6;
+/// Retail VisibleItemsDroppedPerInterval residual.
+pub const A10_VISIBLE_ITEMS_DROPPED_PER_INTERVAL: u32 = 2;
+/// Retail DiveStartDistance residual.
+pub const A10_DIVE_START_DISTANCE: f32 = 500.0;
+/// Retail DiveEndDistance residual.
+pub const A10_DIVE_END_DISTANCE: f32 = 300.0;
+/// Retail StrafeLength residual.
+pub const A10_STRAFE_LENGTH: f32 = 450.0;
+/// Retail DeliveryDecal Texture residual.
+pub const A10_DELIVERY_DECAL_TEXTURE: &str = "SCCA10Strike_USA";
+/// Retail DeliveryDecal Style residual.
+pub const A10_DELIVERY_DECAL_STYLE: &str = "SHADOW_ALPHA_DECAL";
+/// Retail DeliveryDecal OpacityMin residual (percent).
+pub const A10_DELIVERY_DECAL_OPACITY_MIN_PCT: u32 = 25;
+/// Retail DeliveryDecal OpacityMax residual (percent).
+pub const A10_DELIVERY_DECAL_OPACITY_MAX_PCT: u32 = 50;
+/// Retail DeliveryDecal OpacityThrobTime residual (msec).
+pub const A10_DELIVERY_DECAL_THROB_MS: u32 = 500;
+/// Retail DeliveryDecal Color residual (R:255 G:156 B:0 A:255).
+pub const A10_DELIVERY_DECAL_COLOR: (u8, u8, u8, u8) = (255, 156, 0, 255);
+/// Retail DeliveryDecalRadius residual (matches RadiusCursor).
+pub const A10_DELIVERY_DECAL_RADIUS: f32 = 50.0;
+/// Retail Transport residual.
+pub const A10_TRANSPORT: &str = "AmericaJetA10Thunderbolt";
+/// Retail VisiblePayloadTemplateName residual.
+pub const A10_PAYLOAD_TEMPLATE: &str = "A10ThunderboltMissile";
+/// Retail VisiblePayloadWeaponTemplate residual.
+pub const A10_PAYLOAD_WEAPON: &str = "A10ThunderboltMissileWeapon";
+
+/// Residual A10 science tier (FormationSize 1/2/3 jets).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum A10StrikeScienceTier {
+    /// SCIENCE_A10ThunderboltMissileStrike1 → FormationSize **1**.
+    Level1,
+    /// SCIENCE_A10ThunderboltMissileStrike2 → FormationSize **2**.
+    Level2,
+    /// SCIENCE_A10ThunderboltMissileStrike3 → FormationSize **3**.
+    Level3,
+}
+
+impl A10StrikeScienceTier {
+    /// Retail DeliverPayload FormationSize for this science tier.
+    pub fn formation_size(self) -> u32 {
+        match self {
+            A10StrikeScienceTier::Level1 => A10_FORMATIONION_SIZE_L1,
+            A10StrikeScienceTier::Level2 => A10_FORMATIONION_SIZE_L2,
+            A10StrikeScienceTier::Level3 => A10_FORMATIONION_SIZE_L3,
+        }
+    }
+
+    /// Retail science residual name for this tier.
+    pub fn science_name(self) -> &'static str {
+        match self {
+            A10StrikeScienceTier::Level1 => A10_SCIENCE_TIER1,
+            A10StrikeScienceTier::Level2 => A10_SCIENCE_TIER2,
+            A10StrikeScienceTier::Level3 => A10_SCIENCE_TIER3,
+        }
+    }
+
+    /// Retail SUPERWEAPON_A10ThunderboltMissileStrikeN OCL residual name.
+    pub fn ocl_name(self) -> &'static str {
+        match self {
+            A10StrikeScienceTier::Level1 => A10_OCL_TIER1,
+            A10StrikeScienceTier::Level2 => A10_OCL_TIER2,
+            A10StrikeScienceTier::Level3 => A10_OCL_TIER3,
+        }
+    }
+
+    /// Map SCIENCE_A10ThunderboltMissileStrike1/2/3 (or AirF residual) to tier.
+    pub fn from_science_name(name: &str) -> Option<Self> {
+        let n = name.to_ascii_lowercase();
+        if n.contains("a10thunderboltmissilestrike3") || n.ends_with("strike3") {
+            Some(A10StrikeScienceTier::Level3)
+        } else if n.contains("a10thunderboltmissilestrike2") || n.ends_with("strike2") {
+            Some(A10StrikeScienceTier::Level2)
+        } else if n.contains("a10thunderboltmissilestrike1")
+            || n.contains("a10thunderboltmissilestrike")
+            || n.ends_with("strike1")
+        {
+            Some(A10StrikeScienceTier::Level1)
+        } else {
+            None
+        }
+    }
+
+    /// Select highest unlocked A10 science tier from a science name list.
+    pub fn highest_from_sciences<'a, I>(sciences: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut best = A10StrikeScienceTier::Level1;
+        for s in sciences {
+            if let Some(tier) = Self::from_science_name(s) {
+                best = match (best, tier) {
+                    (_, A10StrikeScienceTier::Level3)
+                    | (A10StrikeScienceTier::Level3, _) => A10StrikeScienceTier::Level3,
+                    (_, A10StrikeScienceTier::Level2)
+                    | (A10StrikeScienceTier::Level2, _) => A10StrikeScienceTier::Level2,
+                    _ => A10StrikeScienceTier::Level1,
+                };
+            }
+        }
+        best
+    }
+}
 
 // --- Wave 73: SupW / Nuke_ / AirF special-power variant residual pack ---
 
@@ -4253,6 +4519,10 @@ impl HostSuperweaponKind {
     }
 
     /// Audio event name queued on activation (host residual).
+    ///
+    /// Host residual uses special-power template labels for queue honesty.
+    /// Retail Miles event names live in [`Self::retail_initiate_sound`] /
+    /// [`Self::retail_initiate_at_location_sound`] (Wave 77 name tables).
     pub fn activate_audio(self) -> &'static str {
         match self {
             HostSuperweaponKind::DaisyCutter => "SuperweaponDaisyCutter",
@@ -4264,8 +4534,45 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => "SuperweaponSpectreGunship",
             HostSuperweaponKind::CarpetBomb => "SuperweaponCarpetBomb",
             HostSuperweaponKind::ArtilleryBarrage => "SuperweaponArtilleryBarrage",
-            // Retail InitiateSound AirRaidSiren residual label for honesty.
             HostSuperweaponKind::CruiseMissile => "SuperweaponCruiseMissile",
+        }
+    }
+
+    /// Retail SpecialPower.ini `InitiateSound` residual (plays at source).
+    ///
+    /// Empty when retail omits the field or comments it out. Fail-closed: not
+    /// full Miles event playback — name-table residual only (Wave 77).
+    pub fn retail_initiate_sound(self) -> &'static str {
+        match self {
+            HostSuperweaponKind::ScudStorm => SCUD_STORM_INITIATE_SOUND,
+            HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_INITIATE_SOUND,
+            HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_INITIATE_SOUND,
+            // Neutron InitiateSound is commented out in retail SpecialPower.ini.
+            HostSuperweaponKind::NuclearMissile => NUCLEAR_MISSILE_INITIATE_SOUND,
+            HostSuperweaponKind::DaisyCutter
+            | HostSuperweaponKind::A10Strike
+            | HostSuperweaponKind::ParticleCannon
+            | HostSuperweaponKind::AnthraxBomb
+            | HostSuperweaponKind::SpectreGunship
+            | HostSuperweaponKind::CarpetBomb => EMPTY_SPECIAL_POWER_INITIATE_SOUND,
+        }
+    }
+
+    /// Retail SpecialPower.ini `InitiateAtLocationSound` residual (plays at target).
+    ///
+    /// Empty when retail omits the field. Fail-closed: name-table residual only.
+    pub fn retail_initiate_at_location_sound(self) -> &'static str {
+        match self {
+            HostSuperweaponKind::NuclearMissile => NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND,
+            HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_INITIATE_AT_LOCATION_SOUND,
+            HostSuperweaponKind::ScudStorm => SCUD_STORM_INITIATE_AT_LOCATION_SOUND,
+            HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_INITIATE_AT_LOCATION_SOUND,
+            HostSuperweaponKind::DaisyCutter
+            | HostSuperweaponKind::A10Strike
+            | HostSuperweaponKind::ParticleCannon
+            | HostSuperweaponKind::AnthraxBomb
+            | HostSuperweaponKind::SpectreGunship
+            | HostSuperweaponKind::CarpetBomb => EMPTY_SPECIAL_POWER_INITIATE_SOUND,
         }
     }
 
@@ -15040,5 +15347,60 @@ mod tests {
         // SupW Cruise already residual.
         assert_eq!(CRUISE_MISSILE_RELOAD_MS, 120_000);
         assert!(honesty_special_power_residual_pack_wave73_ok());
+    }
+
+    /// Wave 76 residual: A10 science-tier FormationSize 1/2/3 + OCL deliver pack.
+    #[test]
+    fn a10_science_tier_residual_pack_wave76_honesty() {
+        assert!(honesty_a10_science_tier_residual_pack_wave76());
+        assert!(honesty_special_power_residual_pack_wave76_ok());
+        assert_eq!(A10StrikeScienceTier::Level1.formation_size(), 1);
+        assert_eq!(A10StrikeScienceTier::Level2.formation_size(), 2);
+        assert_eq!(A10StrikeScienceTier::Level3.formation_size(), 3);
+        assert_eq!(A10_DROP_DELAY_FRAMES, 15);
+        assert_eq!(duration_ms_to_logic_frames(500), 15);
+        assert!((A10_FORMATIONION_SPACING - 35.0).abs() < 0.01);
+        assert!((A10_DELIVERY_DISTANCE - 450.0).abs() < 0.01);
+        assert_eq!(A10_VISIBLE_NUM_BONES, 6);
+        assert_eq!(A10_DELIVERY_DECAL_TEXTURE, "SCCA10Strike_USA");
+        assert_eq!(A10_DELIVERY_DECAL_COLOR, (255, 156, 0, 255));
+        assert_eq!(
+            A10StrikeScienceTier::from_science_name("SCIENCE_A10ThunderboltMissileStrike3"),
+            Some(A10StrikeScienceTier::Level3)
+        );
+        assert_eq!(
+            A10StrikeScienceTier::highest_from_sciences([
+                A10_SCIENCE_TIER1,
+                A10_SCIENCE_TIER2,
+            ]),
+            A10StrikeScienceTier::Level2
+        );
+        // FormationSize scales with science tier only; damage/reload shared.
+        assert_eq!(A10_STRIKE_RELOAD_MS, 240_000);
+        assert!((A10_MISSILE_PRIMARY_DAMAGE - 200.0).abs() < 0.1);
+    }
+
+    /// Wave 77 residual: SpecialPower.ini InitiateSound / InitiateAtLocationSound name tables.
+    #[test]
+    fn special_power_audio_name_table_wave77_honesty() {
+        assert!(honesty_special_power_audio_name_table_wave77());
+        assert!(honesty_special_power_residual_pack_wave77_ok());
+        assert_eq!(SCUD_STORM_INITIATE_SOUND, "ScudStormInitiated");
+        assert_eq!(ARTILLERY_BARRAGE_INITIATE_SOUND, "FireArtilleryCannonSound");
+        assert_eq!(CRUISE_MISSILE_INITIATE_SOUND, "AirRaidSiren");
+        assert_eq!(CRUISE_MISSILE_INITIATE_AT_LOCATION_SOUND, "AirRaidSiren");
+        assert_eq!(NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND, "AirRaidSiren");
+        // Neutron InitiateSound commented out in retail — empty residual honesty.
+        assert!(NUCLEAR_MISSILE_INITIATE_SOUND.is_empty());
+        assert!(HostSuperweaponKind::DaisyCutter.retail_initiate_sound().is_empty());
+        // Host residual queue labels stay special-power template names.
+        assert_eq!(
+            HostSuperweaponKind::ScudStorm.activate_audio(),
+            "SuperweaponScudStorm"
+        );
+        assert_eq!(
+            HostSuperweaponKind::ScudStorm.retail_initiate_sound(),
+            "ScudStormInitiated"
+        );
     }
 }
