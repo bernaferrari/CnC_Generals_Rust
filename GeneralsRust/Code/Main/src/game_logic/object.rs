@@ -2057,12 +2057,17 @@ impl Object {
             self.movement.target_position = Some(position);
             self.ai_state = AIState::Moving;
             self.status.moving = true;
+            crate::game_logic::host_move_log::record(
+                self.id,
+                Some([position.x, position.y, position.z]),
+            );
         }
     }
 
     pub fn stop_moving(&mut self) {
         self.movement.target_position = None;
         self.movement.velocity = Vec3::ZERO;
+        crate::game_logic::host_move_log::record(self.id, None);
         self.movement.path.clear();
         self.movement.current_path_index = 0;
         self.status.moving = false;

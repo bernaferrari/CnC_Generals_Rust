@@ -21,6 +21,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | HP last-writer (damage auth) | **on** | `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0` |
 | Cash last-writer (economy auth) | **on** | `GENERALS_GAMEWORLD_ECONOMY_AUTHORITY=0` |
 | Attack target channel (shadow↔host) | **on** with shadow session | — |
+| Move destination channel (shadow↔host) | **on** with shadow session | — |
 | `engine_object_id` bridge | **off** unless dual/bridge env | `GENERALS_BRIDGE_ENGINE_OBJECTS` |
 | Full `GameClient::update()` | **not** called (Main owns input/audio) | — |
 

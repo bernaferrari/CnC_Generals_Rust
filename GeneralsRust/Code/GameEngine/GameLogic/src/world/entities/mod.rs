@@ -92,6 +92,8 @@ pub struct Entity {
     pub health: f32,
     /// Attack/command target (shadow of host Object::target).
     pub attack_target: Option<EntityId>,
+    /// Move destination (shadow of host movement.target_position).
+    pub move_target: Option<[f32; 3]>,
 }
 
 impl Entity {
@@ -165,6 +167,7 @@ impl EntityStore {
             transform,
             health,
             attack_target: None,
+            move_target: None,
         };
 
         self.alive.insert(id, entity);
