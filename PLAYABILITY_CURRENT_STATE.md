@@ -1,3 +1,68 @@
+## Residual Host Playability — Wave 91: tooltip / HelpBox / message / EVA / video / mission briefing residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal UI presentation residual):**
+1. **Tooltip residual peels** (`host_ui_presentation_residual`, Mouse.ini + Mouse.cpp):
+   - Font Arial **8** not bold; AnimateBackground **No**; FillTime **250**ms; DelayTime **800**ms.
+   - Width **20%** (fraction **0.20**); word-wrap **120**px residual.
+   - Colors text 220/220/220, highlight 255/255/0, border 60/60/155, background 20/20/20.
+   - AltTextColor **No** / AltBackColor **Yes** / AdjustAltColor **Yes**.
+   - Override delay residual (`m_tooltipDelay >= 0` replaces INI delay).
+   - Honesty: `honesty_tooltip_residual_pack_wave91`.
+2. **HelpBox residual peels** (ControlBarPopupDescription build tooltip layout):
+   - Layout **ControlBarPopupDescription.wnd**; StaticText Name/Cost/Description ids.
+   - Subjects CommandButton / MoneyDisplay / PowerWindow / GeneralsExp residual.
+   - CanMakeStatus messages: no-money / queue-full / parking / maxed unit|structure.
+   - Honesty: `honesty_help_box_residual_pack_wave91`.
+3. **Message residual peels** (InGameUI.ini + InGameUI.h/cpp):
+   - MAX_UI_MESSAGES **6**; Color1 white / Color2 180,180,255; pos **(10,10)**; Arial **10** Bold.
+   - MessageDelayMS retail **75000**; C++ timeout residual `delay/30/1000` → **2** frames.
+   - FloatingText timeout **333**ms → **10**f; move-up **1.0**/f; vanish **0.1**/f.
+   - PopupMessage **InGamePopupMessage.wnd** white residual.
+   - Honesty: `honesty_message_residual_pack_wave91`.
+4. **EVA residual peels** (Eva.h / Eva.cpp TheEvaMessageNames):
+   - EVA_COUNT **53**; ordered name table LOWPOWER..SNEAK_ATTACK enemy residual.
+   - CheckInfo defaults priority **1**, between **900**f (30s), expire **150**f (5s).
+   - Enabled default **Yes**; TRIGGEREDON_NOT **MAX**; NEXT_CHECK_NOW **0**.
+   - Honesty: `honesty_eva_residual_pack_wave91`.
+5. **Video residual name table** (Video.ini names only — not Bink codec):
+   - **41** internal-name → filename residual rows (Sizzle, EALogo, GC portraits, MD campaigns).
+   - VideoBuffer::Type residual NUM_TYPES **5** (UNKNOWN..X1R5G5B5).
+   - MD_China/GLA/USA 01..05 + GeneralsChallengeBackground anchors.
+   - Honesty: `honesty_video_residual_name_table_wave91`.
+6. **Mission briefing residual peels** (CampaignManager + Campaign.ini):
+   - MAX_OBJECTIVE_LINES **5**; MAX_DISPLAYED_UNITS **3**; MAX_SUBTITLE_LINES **4**.
+   - TRAINING Mission01 residual map/intro/BriefingVoice/objectives/units/VoiceLength **17**.
+   - USA/GLA/China Mission01+05 IntroMovie residual linked to Video.ini names.
+   - Military caption Courier New 12 title bold / body not bold; pos **(10,340)**; randomize typing **Yes**.
+   - SinglePlayerLoadScreen.wnd + MilitarySubtitlesTyping audio residual.
+   - Honesty: `honesty_mission_briefing_residual_pack_wave91`.
+
+**Wiring:**
+- `game_logic/host_ui_presentation_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — tooltip91/helpbox91/message91/eva91/video91/briefing91 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave91 honesty flags; playable_claim stays false
+- Combined pack: `honesty_ui_presentation_residual_pack_wave91`
+
+**Gates:**
+- Unit: 7 wave91 honesty tests
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  tooltip91=true helpbox91=true message91=true eva91=true video91=true briefing91=true
+
+**Not claimed:**
+- Full Mouse tooltip GPU draw / ControlBar help-box animate residual
+- Full UIMessage DisplayString / FloatingText GPU residual
+- Full Eva speech Miles playback residual
+- Full Bink video codec / stream decode residual
+- Full LoadScreen objective GPU / briefing voice playback residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 89: rank skill-points / experience / hotkey / chat / replay / options residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal GeneralsExperience + local UI residual):**
