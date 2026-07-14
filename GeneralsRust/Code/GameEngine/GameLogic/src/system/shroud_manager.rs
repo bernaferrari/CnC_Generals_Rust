@@ -2428,7 +2428,9 @@ mod tests {
         manager
             .reveal_map_for_player_permanently(0)
             .expect("permanent reveal");
-        let snap3 = manager.snapshot_grid_for_player(0).expect("after permanent");
+        let snap3 = manager
+            .snapshot_grid_for_player(0)
+            .expect("after permanent");
         assert!(snap3.iter().all(|&c| c == ShroudState::Visible as u8));
     }
 
