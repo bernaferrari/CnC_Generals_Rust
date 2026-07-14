@@ -1566,6 +1566,10 @@ pub struct PresentationFrame {
     pub events: Vec<PresentationEvent>,
     pub match_over: bool,
     pub victory_label: Option<String>,
+    /// Beacon world positions residual (snapshot_beacons / host place).
+    pub beacons: Vec<Vec3>,
+    /// Beacons placed this frame (HUD bloom residual).
+    pub new_beacons: Vec<Vec3>,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
@@ -1999,6 +2003,22 @@ impl PresentationFrame {
             events,
             match_over: false,
             victory_label: None,
+            beacons: {
+                #[cfg(feature = "game_client")]
+                {
+                    use gamelogic::system::beacon_manager::snapshot_beacons;
+                    snapshot_beacons()
+                        .into_iter()
+                        .map(|b| glam::Vec3::new(b.position.x, b.position.y, b.position.z))
+                        .take(64)
+                        .collect()
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    Vec::new()
+                }
+            },
+            new_beacons: logic.recent_beacons().iter().copied().take(32).collect(),
             fow_shell_bypass,
             fow_grid,
             particle_systems,
@@ -2916,6 +2936,45 @@ impl PresentationFrame {
         ui.selected_units = self.selected.clone();
         ui.match_over = self.match_over;
         ui.selected_unit_infos = self.selected_unit_display_infos();
+        // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
+        ui.new_beacons = self.new_beacons.clone();
+        if !self.beacons.is_empty() {
+            use crate::ui::{color_for_player, MinimapDot};
+            let (min_x, max_x, min_z, max_z) = {
+                let alive: Vec<_> = self.objects.iter().filter(|o| !o.destroyed).collect();
+                if alive.is_empty() {
+                    (-100.0_f32, 100.0_f32, -100.0_f32, 100.0_f32)
+                } else {
+                    let mut min_x = f32::MAX;
+                    let mut max_x = f32::MIN;
+                    let mut min_z = f32::MAX;
+                    let mut max_z = f32::MIN;
+                    for o in &alive {
+                        min_x = min_x.min(o.position.x);
+                        max_x = max_x.max(o.position.x);
+                        min_z = min_z.min(o.position.z);
+                        max_z = max_z.max(o.position.z);
+                    }
+                    (min_x, max_x, min_z, max_z)
+                }
+            };
+            let span_x = (max_x - min_x).max(1.0);
+            let span_z = (max_z - min_z).max(1.0);
+            ui.minimap_beacons = self
+                .beacons
+                .iter()
+                .map(|p| {
+                    let nx = ((p.x - min_x) / span_x).clamp(0.0, 1.0);
+                    let ny = ((p.z - min_z) / span_z).clamp(0.0, 1.0);
+                    MinimapDot::normalized(
+                        nx,
+                        ny,
+                        color_for_player(self.local_player_id.min(255) as u8),
+                        4.0,
+                    )
+                })
+                .collect();
+        }
         // ControlBar/WND selection panel health must come from snapshot, not live re-read.
         ui.selection_panel =
             crate::ui::ControlBarSelectionPanelState::from_unit_infos(&ui.selected_unit_infos);
@@ -5352,6 +5411,44 @@ mod tests {
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
         );
+    }
+
+    #[test]
+    fn path_and_beacon_presentation_residual() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("PathUnit");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("PathUnit".into(), t);
+        let idle = logic
+            .create_object("PathUnit", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("idle");
+        let moving = logic
+            .create_object("PathUnit", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("moving");
+        if let Some(o) = logic.get_object_mut(moving) {
+            o.movement.path = vec![
+                glam::Vec3::new(10.0, 0.0, 0.0),
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            ];
+            o.movement.current_path_index = 0;
+            o.status.moving = true;
+        }
+        let active = logic.object_ids_with_active_path();
+        assert!(active.contains(&moving));
+        assert!(!active.contains(&idle));
+        assert_eq!(active.len(), 1);
+
+        logic.note_beacon_placed(glam::Vec3::new(12.0, 0.0, 34.0));
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.new_beacons.len(), 1);
+        assert!((frame.new_beacons[0].x - 12.0).abs() < 0.01);
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert_eq!(ui.new_beacons.len(), 1);
     }
 
     #[test]

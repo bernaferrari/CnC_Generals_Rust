@@ -6263,9 +6263,8 @@ impl CnCGameEngine {
                     self.play_sound_effect(SoundType::Hit);
                 }
 
-                let object_ids: Vec<ObjectId> =
-                    self.game_logic.get_objects().keys().copied().collect();
-
+                // Only step units with an active path (not every object id).
+                let object_ids = self.game_logic.object_ids_with_active_path();
                 for object_id in object_ids {
                     let _path_completed = self.pathfinding_system.move_unit_along_path(
                         object_id,
@@ -8821,7 +8820,7 @@ impl CnCGameEngine {
     }
 
     fn update_unit_pathfinding(&mut self, dt: f32, game_logic: &mut GameLogic) {
-        let object_ids: Vec<ObjectId> = game_logic.get_objects().keys().copied().collect();
+        let object_ids = game_logic.object_ids_with_active_path();
 
         for object_id in object_ids {
             // Move units along their paths
