@@ -64,6 +64,8 @@ pub mod host_armor_residual;
 pub mod host_enum_table_residual;
 pub mod host_structure_economy_residual;
 pub mod host_faction_skirmish_residual;
+pub mod host_gamedata_lobby_residual;
+pub mod host_env_contain_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -223,6 +225,17 @@ pub use host_faction_skirmish_residual::{
     honesty_faction_side_residual_table_wave85, honesty_faction_skirmish_residual_pack_wave85,
     honesty_player_template_residual_pack_wave85, honesty_skirmish_ai_personality_residual_pack_wave85,
     honesty_starting_cash_residual_pack_wave85, honesty_victory_condition_residual_pack_wave85,
+};
+pub use host_gamedata_lobby_residual::{
+    honesty_crate_residual_deepen_pack_wave86, honesty_gamedata_camera_fps_residual_pack_wave86,
+    honesty_gamedata_lobby_residual_pack_wave86, honesty_gamedata_world_constants_residual_pack_wave86,
+    honesty_map_selection_residual_pack_wave86, honesty_multiplayer_options_residual_pack_wave86,
+};
+pub use host_env_contain_residual::{
+    honesty_bridge_residual_pack_wave87, honesty_env_contain_residual_pack_wave87,
+    honesty_garrison_residual_pack_wave87, honesty_transport_residual_pack_wave87,
+    honesty_tunnel_residual_deepen_wave87, honesty_water_residual_pack_wave87,
+    honesty_weather_residual_pack_wave87,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
