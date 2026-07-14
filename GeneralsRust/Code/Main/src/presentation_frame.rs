@@ -31,6 +31,27 @@ pub struct PresentationProductionItem {
     pub cost_supplies: u32,
 }
 
+/// Snapshot-owned veterancy rank (host Experience residual).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationVeterancy {
+    Rookie,
+    Veteran,
+    Elite,
+    Heroic,
+}
+
+impl PresentationVeterancy {
+    pub fn from_host(level: crate::game_logic::VeterancyLevel) -> Self {
+        use crate::game_logic::VeterancyLevel as V;
+        match level {
+            V::Rookie => Self::Rookie,
+            V::Veteran => Self::Veteran,
+            V::Elite => Self::Elite,
+            V::Heroic => Self::Heroic,
+        }
+    }
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -66,6 +87,12 @@ pub struct RenderableObject {
     pub selected: bool,
     pub destroyed: bool,
     pub under_construction: bool,
+    /// Construction progress 0..1 residual (structures / dozer builds).
+    pub construction_percent: f32,
+    /// Veterancy rank residual for chevrons / UI.
+    pub veterancy: PresentationVeterancy,
+    /// Experience points residual (display / debug).
+    pub experience_points: f32,
     pub is_structure: bool,
     pub is_unit: bool,
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
@@ -1493,6 +1520,9 @@ impl PresentationFrame {
                 selected: obj.selected || obj.status.selected,
                 destroyed: obj.status.destroyed || !obj.is_alive(),
                 under_construction: obj.status.under_construction,
+                construction_percent: obj.construction_percent.clamp(0.0, 1.0),
+                veterancy: PresentationVeterancy::from_host(obj.experience.level),
+                experience_points: obj.experience.current.max(0.0),
                 is_structure,
                 is_unit,
                 model_key,
@@ -1821,6 +1851,24 @@ impl PresentationFrame {
             .filter(|o| !o.destroyed)
             .map(|o| o.power_provided - o.power_consumed)
             .sum()
+    }
+
+    /// Objects still under construction (dozer / structure residual).
+    pub fn under_construction_objects(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && o.under_construction)
+            .collect()
+    }
+
+    /// Units at Veteran or higher (chevron residual feed).
+    pub fn veteran_or_higher_units(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed && o.is_unit && !matches!(o.veterancy, PresentationVeterancy::Rookie)
+            })
+            .collect()
     }
 
     /// Overlay health/position/destroyed from a GameWorld shadow session.
@@ -2626,6 +2674,43 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn construction_and_veterancy_freeze_from_host() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, VeterancyLevel};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("VetUnit");
+        t.set_health(80.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("VetUnit".into(), t);
+        let mut tb = ThingTemplate::new("BuildMe");
+        tb.set_health(200.0);
+        tb.add_kind_of(KindOf::Structure);
+        logic.templates.insert("BuildMe".into(), tb);
+        let uid = logic
+            .create_object("VetUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("u");
+        let bid = logic
+            .create_object("BuildMe", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&uid) {
+            obj.experience.level = VeterancyLevel::Elite;
+            obj.experience.current = 420.0;
+        }
+        if let Some(obj) = logic.get_objects_mut().get_mut(&bid) {
+            obj.status.under_construction = true;
+            obj.construction_percent = 0.55;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let u = frame.objects.iter().find(|o| o.id == uid).expect("u");
+        assert_eq!(u.veterancy, PresentationVeterancy::Elite);
+        assert!((u.experience_points - 420.0).abs() < 0.01);
+        let b = frame.objects.iter().find(|o| o.id == bid).expect("b");
+        assert!(b.under_construction);
+        assert!((b.construction_percent - 0.55).abs() < 0.01);
+        assert_eq!(frame.under_construction_objects().len(), 1);
+        assert_eq!(frame.veteran_or_higher_units().len(), 1);
     }
 
     #[test]
