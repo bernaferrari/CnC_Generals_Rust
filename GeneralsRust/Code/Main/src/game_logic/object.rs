@@ -2898,8 +2898,14 @@ impl Object {
 
     /// Update team color (useful for changing allegiance)
     pub fn set_team(&mut self, team: Team) {
-        self.team = team;
-        self.team_color = team.get_color();
+        if self.team != team {
+            self.team = team;
+            self.team_color = team.get_color();
+            crate::game_logic::host_owner_log::record(self.id, team);
+        } else {
+            self.team = team;
+            self.team_color = team.get_color();
+        }
     }
 
     /// Check if this object is visible to a team (for fog of war / targeting UI).

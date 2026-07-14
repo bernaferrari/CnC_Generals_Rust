@@ -689,6 +689,40 @@ impl GameWorldShadow {
 
     /// Apply drained host damage events as GameWorld mutations (order preserved).
     /// Returns (queued, applied_after_flush).
+    pub fn queue_transfer_owner_for_host(
+        &mut self,
+        host: ObjectId,
+        owner: Option<gamelogic::world::PlayerId>,
+    ) -> bool {
+        let Some(eid) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::TransferOwner {
+                object: eid,
+                player: owner,
+            });
+        true
+    }
+
+    pub fn apply_host_owner_events(
+        &mut self,
+        logic: &GameLogic,
+        events: &[crate::game_logic::host_owner_log::HostOwnerEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let owner = self.owner_for_host_object(logic, ev.team);
+            if self.queue_transfer_owner_for_host(ev.object, owner) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn queue_set_health_for_host(&mut self, host_id: ObjectId, health: f32) -> bool {
         let Some(&eid) = self.host_to_entity.get(&host_id.0) else {
             return false;
@@ -922,6 +956,7 @@ pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldSh
     // Drain host damage log so it does not grow unbounded when no session is held.
     let events = crate::game_logic::host_damage_log::drain();
     let _heals = crate::game_logic::host_heal_log::drain();
+    let _owners = crate::game_logic::host_owner_log::drain();
     let _spawns = crate::game_logic::host_spawn_log::drain();
     let _destroys = crate::game_logic::host_destroy_log::drain();
     let _atks = crate::game_logic::host_attack_log::drain();
@@ -955,6 +990,7 @@ pub fn shadow_session_after_host_tick(
 ) -> GameWorldShadowProbe {
     let events = crate::game_logic::host_damage_log::drain();
     let heal_events = crate::game_logic::host_heal_log::drain();
+    let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
@@ -968,6 +1004,7 @@ pub fn shadow_session_after_host_tick(
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
+    let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
         let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
@@ -1836,6 +1873,35 @@ mod tests {
             "authority final {host_final} vs mid-frame host {host_mid}"
         );
         assert!(host_final < pre);
+    }
+
+    #[test]
+    fn host_owner_log_feeds_transfer_owner_mutation() {
+        crate::game_logic::host_owner_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("OwnerLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "OwnT", 100.0);
+        let id = logic
+            .create_object("OwnT", Team::GLA, glam::Vec3::ZERO)
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(4096);
+        shadow.sync_from_host(&logic);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            o.set_team(Team::USA);
+        }
+        let events = crate::game_logic::host_owner_log::drain();
+        assert_eq!(events.len(), 1);
+        let n = shadow.apply_host_owner_events(&logic, &events);
+        assert_eq!(n, 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let owner = shadow.world().entity(eid).unwrap().owner;
+        let expected = shadow.owner_for_host_object(&logic, Team::USA);
+        assert_eq!(
+            owner, expected,
+            "TransferOwner should map host team to shadow player"
+        );
     }
 
     #[test]
