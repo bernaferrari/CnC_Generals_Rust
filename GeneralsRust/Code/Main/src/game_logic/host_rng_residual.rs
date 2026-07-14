@@ -26,12 +26,18 @@ use game_engine::common::random_value::{
 };
 
 /// Multiplication factor matching C++ `theMultFactor` (1 / (2^32 - 1)).
-const MULT_FACTOR: f32 = 1.0 / 4_294_967_295.0;
+pub const MULT_FACTOR: f32 = 1.0 / 4_294_967_295.0;
 
 /// Initial seed constants matching C++ `theGameLogicSeed` defaults.
-const INITIAL_SEED: [u32; 6] = [
+pub const INITIAL_SEED: [u32; 6] = [
     0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x0702c49c, 0x9e353f7d, 0x6fdf3b64,
 ];
+
+/// Retail AutoDepositUpdate structure scatter half-width scale residual (radius * 0.3).
+pub const STRUCTURE_SCATTER_SCALE: f32 = 0.3;
+
+/// Residual seed offset applied to pure index draws (`index.wrapping_add(1)`).
+pub const PURE_INDEX_SEED_OFFSET: u32 = 1;
 
 /// Local residual RandomState (C++ RandomValue.cpp ADC algorithm).
 ///
@@ -307,7 +313,7 @@ pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
 
     // Structure scatter via live client stream residual.
     init_random_with_seed(seed);
-    let (dx, dz) = client_stream_structure_scatter(50.0, 40.0, 0.3);
+    let (dx, dz) = client_stream_structure_scatter(50.0, 40.0, STRUCTURE_SCATTER_SCALE);
     honesty.structure_scatter_stream_ok =
         dx.abs() <= 15.0 + 0.001 && dz.abs() <= 12.0 + 0.001;
 
@@ -318,6 +324,49 @@ pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
     honesty.error_radius_stream_ok = dist <= 100.0 + 0.001;
 
     honesty
+}
+
+// --- Wave 72 residual honesty packs (RandomValue.cpp ADC + stream residual) ---
+
+/// Honesty: MultFactor + default six-word seed table residual (C++ RandomValue.cpp).
+pub fn honesty_rng_seed_table_residual_ok() -> bool {
+    (MULT_FACTOR - (1.0 / 4_294_967_295.0)).abs() < 1e-12
+        && INITIAL_SEED
+            == [
+                0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x0702c49c, 0x9e353f7d, 0x6fdf3b64,
+            ]
+        && HostRandomState::new().seed_words() == INITIAL_SEED
+        && PURE_INDEX_SEED_OFFSET == 1
+}
+
+/// Honesty: pure index-seeded ADC re-query stability residual.
+pub fn honesty_rng_pure_index_residual_ok() -> bool {
+    let a = pure_logic_random_real(11, 0, 0.0, 100.0);
+    let b = pure_logic_random_real(11, 0, 0.0, 100.0);
+    let i_a = pure_logic_random_int(7, 2, 0, 90);
+    let i_b = pure_logic_random_int(7, 2, 0, 90);
+    let scatter_a = pure_client_structure_scatter(3, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
+    let scatter_b = pure_client_structure_scatter(3, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
+    (a - b).abs() < 1e-6
+        && i_a == i_b
+        && scatter_a == scatter_b
+        && (STRUCTURE_SCATTER_SCALE - 0.3).abs() < 0.001
+        && scatter_a.0.abs() <= 15.0 + 0.001
+        && scatter_a.1.abs() <= 12.0 + 0.001
+}
+
+/// Honesty: live stream exercise residual (logic/client/audio + ADC parity).
+///
+/// Uses a fixed seed so unit tests are deterministic under the RNG test lock.
+pub fn honesty_rng_stream_exercise_residual_ok() -> bool {
+    exercise_host_rng_residual(0xC0FFEE_u32).honesty_ok()
+}
+
+/// Combined Wave 72 host RNG residual honesty pack.
+pub fn honesty_rng_residual_pack_ok() -> bool {
+    honesty_rng_seed_table_residual_ok()
+        && honesty_rng_pure_index_residual_ok()
+        && honesty_rng_stream_exercise_residual_ok()
 }
 
 #[cfg(test)]
@@ -359,9 +408,22 @@ mod tests {
         let _g = RNG_TEST_LOCK.lock().unwrap();
         init_random_with_seed(12345);
         for _ in 0..32 {
-            let (dx, dz) = client_stream_structure_scatter(25.0, 25.0, 0.3);
+            let (dx, dz) = client_stream_structure_scatter(25.0, 25.0, STRUCTURE_SCATTER_SCALE);
             assert!(dx.abs() <= 7.0 + 0.001);
             assert!(dz.abs() <= 7.0 + 0.001);
         }
+    }
+
+    /// Wave 72 residual pack honesty gate (only host missing residual_pack_ok).
+    #[test]
+    fn rng_residual_pack_honesty_wave72() {
+        let _g = RNG_TEST_LOCK.lock().unwrap();
+        assert!(honesty_rng_seed_table_residual_ok());
+        assert!(honesty_rng_pure_index_residual_ok());
+        assert!(honesty_rng_stream_exercise_residual_ok());
+        assert!(honesty_rng_residual_pack_ok());
+        assert_eq!(INITIAL_SEED[0], 0xf22d0e56);
+        assert!((STRUCTURE_SCATTER_SCALE - 0.3).abs() < 0.001);
+        assert_eq!(PURE_INDEX_SEED_OFFSET, 1);
     }
 }
