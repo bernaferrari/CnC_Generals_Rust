@@ -1,15 +1,23 @@
 //! Wave 100 residual peels: ThingFactory residual deepen / Module residual type tables /
 //! Xfer residual deepen (host-testable factory / module / save-load residual).
+//! Wave 101 residual peels: ModuleFactory addModule/find/m_moduleDataList expand /
+//! multi-interface mask composition / ThingFactory newObject post-create counters /
+//! template copy + findTemplate hash / PartitionManager register residual.
 //!
 //! Orthogonal to Waves 65/74 (ThingFactory object packs + spawn bookkeeping),
-//! Wave 82/84 (enum bit-name tables), and Main save_load Snapshot plumbing.
+//! Wave 82/84 (enum bit-name tables), Wave 96 (partition cell size), and Main
+//! save_load Snapshot plumbing.
 //! Host-testable packs for ThingFactory / ModuleType / ModuleInterface / Xfer residual.
 //!
 //! Sources (retail ZH C++ / INI):
 //! - ThingFactory.h/.cpp TEMPLATE_HASH_SIZE **12288** / m_nextTemplateID **1** /
 //!   DefaultThingTemplate / newObject pipeline / newDrawable / KINDOF_DRAWABLE_ONLY
 //! - Module.h ModuleType BEHAVIOR/DRAW/CLIENT_UPDATE + ModuleInterfaceType bits
-//! - ModuleFactory.h/.cpp makeDecoratedNameKey / findModuleInterfaceMask empty→0
+//! - ModuleFactory.h/.cpp makeDecoratedNameKey / findModuleInterfaceMask empty→0 /
+//!   addModuleInternal / m_moduleDataList / multi-interface getInterfaceMask
+//! - NameKeyGenerator.cpp calcHashForString / SOCKET_COUNT **45007**
+//! - PartitionManager.cpp registerObject / unRegisterObject / PartitionCellSize **40**
+//! - ThingTemplate.cpp copyFrom preserves name/id/next-link
 //! - Xfer.h XferMode / XferStatus / XferOptions / XferVersion (UnsignedByte)
 //! - Xfer.cpp xferVersion reject > currentVersion / ctor XO_NONE + XFER_INVALID
 //! - XferCRC.cpp mode XFER_CRC / m_crc **0** / addCRC residual
@@ -18,8 +26,9 @@
 //! - Drawable.h DRAWABLE_STATUS bits; ObjectStatusTypes OBJECT_STATUS_MASK_NONE
 //!
 //! Fail-closed:
-//! - Not full ThingFactory Object / live module stack / partition register residual
-//! - Not full ModuleFactory addModule registry / live BehaviorModule create residual
+//! - Not full live ThingFactory Object GPU / CreateModule instance graph residual
+//! - Not full live BehaviorModule createProc / exclusive module graph residual
+//! - Not full PartitionData attach / shroud ghost exclusive residual
 //! - Not full XferSave/XferLoad file I/O / deep CRC network residual
 //! - Shell `playable_claim` stays false; network deferred
 
@@ -668,5 +677,914 @@ mod tests {
     #[test]
     fn thing_factory_module_xfer_residual_pack_wave100_honesty() {
         assert!(honesty_thing_factory_module_xfer_residual_pack_wave100());
+    }
+}
+
+// ===========================================================================
+// Wave 101 residual peels (beyond Wave 100 type tables / pipeline names)
+// ===========================================================================
+// Deepen residual toward live Object without claiming GPU Object create:
+// 1. ModuleFactory addModule / findModule / m_moduleDataList + multi-interface masks
+// 2. ThingFactory newObject post-create bookkeeping + template copy + findTemplate hash
+// 3. PartitionManager registerObject / unRegisterObject residual counters
+// Fail-closed: not live BehaviorModule instance graph / not live PartitionData attach GPU.
+
+// ---------------------------------------------------------------------------
+// 1. ModuleFactory residual deepen (addModule / find / ModuleData list / hash)
+// ---------------------------------------------------------------------------
+
+/// C++ `NameKeyGenerator::SOCKET_COUNT` residual (prime; ModuleFactory keys via NAMEKEY).
+pub const MODULE_FACTORY_NAMEKEY_SOCKET_COUNT_RESIDUAL: u32 = 45007;
+
+/// C++ `NameKeyGenerator::m_nextID` ctor residual — keys start at **1** (0 = NAMEKEY_INVALID).
+pub const MODULE_FACTORY_NAMEKEY_NEXT_ID_INITIAL_RESIDUAL: u32 = 1;
+
+/// C++ `NAMEKEY_INVALID` residual.
+pub const MODULE_FACTORY_NAMEKEY_INVALID_RESIDUAL: u32 = 0;
+
+/// C++ `calcHashForString` residual (`result = (result << 5) + result + *pp++`).
+#[inline]
+pub fn module_factory_calc_hash_for_string_residual(name: &str) -> u32 {
+    let mut result: u32 = 0;
+    for &b in name.as_bytes() {
+        result = result
+            .wrapping_shl(5)
+            .wrapping_add(result)
+            .wrapping_add(u32::from(b));
+    }
+    result
+}
+
+/// ModuleData / ModuleTemplate map key residual: decorated name → socket bucket.
+#[inline]
+pub fn module_factory_module_data_hash_bucket_residual(module_type: u32, name: &str) -> u32 {
+    let decorated = module_factory_decorated_name_residual(module_type, name);
+    module_factory_calc_hash_for_string_residual(&decorated)
+        % MODULE_FACTORY_NAMEKEY_SOCKET_COUNT_RESIDUAL
+}
+
+/// Expanded ModuleFactory residual sample table (Wave 100 had **9**; Wave 101 expands).
+/// Includes multi-interface rows for mask composition residual honesty.
+pub const MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101: &[ModuleFactorySampleResidual] = &[
+    // --- single-interface samples (Wave 100 core) ---
+    ModuleFactorySampleResidual {
+        name: "ActiveBody",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_BODY,
+    },
+    ModuleFactorySampleResidual {
+        name: "ImmortalBody",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_BODY,
+    },
+    ModuleFactorySampleResidual {
+        name: "StructureBody",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_BODY,
+    },
+    ModuleFactorySampleResidual {
+        name: "DestroyDie",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_DIE,
+    },
+    ModuleFactorySampleResidual {
+        name: "CreateObjectDie",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_DIE,
+    },
+    ModuleFactorySampleResidual {
+        name: "StealthUpdate",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_UPDATE,
+    },
+    ModuleFactorySampleResidual {
+        name: "StatusBitsUpgrade",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_UPGRADE,
+    },
+    ModuleFactorySampleResidual {
+        name: "W3DModelDraw",
+        module_type: MODULE_TYPE_DRAW,
+        interface_mask: MODULE_INTERFACE_DRAW,
+    },
+    ModuleFactorySampleResidual {
+        name: "BeaconClientUpdate",
+        module_type: MODULE_TYPE_CLIENT_UPDATE,
+        interface_mask: MODULE_INTERFACE_CLIENT_UPDATE,
+    },
+    // --- Wave 101 multi-interface expand (from ModuleFactory.cpp addModule rows) ---
+    ModuleFactorySampleResidual {
+        name: "PhysicsBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Collide
+        interface_mask: MODULE_INTERFACE_UPDATE | MODULE_INTERFACE_COLLIDE,
+    },
+    ModuleFactorySampleResidual {
+        name: "SlowDeathBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Die
+        interface_mask: MODULE_INTERFACE_UPDATE | MODULE_INTERFACE_DIE,
+    },
+    ModuleFactorySampleResidual {
+        name: "OpenContain",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Contain | Collide | Die | Damage
+        interface_mask: MODULE_INTERFACE_UPDATE
+            | MODULE_INTERFACE_CONTAIN
+            | MODULE_INTERFACE_COLLIDE
+            | MODULE_INTERFACE_DIE
+            | MODULE_INTERFACE_DAMAGE,
+    },
+    ModuleFactorySampleResidual {
+        name: "TunnelContain",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // OpenContain | Create
+        interface_mask: MODULE_INTERFACE_UPDATE
+            | MODULE_INTERFACE_CONTAIN
+            | MODULE_INTERFACE_COLLIDE
+            | MODULE_INTERFACE_DIE
+            | MODULE_INTERFACE_DAMAGE
+            | MODULE_INTERFACE_CREATE,
+    },
+    ModuleFactorySampleResidual {
+        name: "AutoHealBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Upgrade | Damage
+        interface_mask: MODULE_INTERFACE_UPDATE
+            | MODULE_INTERFACE_UPGRADE
+            | MODULE_INTERFACE_DAMAGE,
+    },
+    ModuleFactorySampleResidual {
+        name: "MinefieldBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Collide | Damage | Die
+        interface_mask: MODULE_INTERFACE_UPDATE
+            | MODULE_INTERFACE_COLLIDE
+            | MODULE_INTERFACE_DAMAGE
+            | MODULE_INTERFACE_DIE,
+    },
+    ModuleFactorySampleResidual {
+        name: "BridgeBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Damage | Die | Update
+        interface_mask: MODULE_INTERFACE_DAMAGE | MODULE_INTERFACE_DIE | MODULE_INTERFACE_UPDATE,
+    },
+    ModuleFactorySampleResidual {
+        name: "SpawnBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Die | Damage
+        interface_mask: MODULE_INTERFACE_UPDATE | MODULE_INTERFACE_DIE | MODULE_INTERFACE_DAMAGE,
+    },
+    ModuleFactorySampleResidual {
+        name: "PoisonedBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Damage
+        interface_mask: MODULE_INTERFACE_UPDATE | MODULE_INTERFACE_DAMAGE,
+    },
+    ModuleFactorySampleResidual {
+        name: "FXListDie",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Upgrade | Die (Behavior base 0)
+        interface_mask: MODULE_INTERFACE_UPGRADE | MODULE_INTERFACE_DIE,
+    },
+    ModuleFactorySampleResidual {
+        name: "FireWeaponWhenDamagedBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Upgrade | Damage
+        interface_mask: MODULE_INTERFACE_UPDATE
+            | MODULE_INTERFACE_UPGRADE
+            | MODULE_INTERFACE_DAMAGE,
+    },
+    ModuleFactorySampleResidual {
+        name: "ProductionUpdate",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        // Update | Die
+        interface_mask: MODULE_INTERFACE_UPDATE | MODULE_INTERFACE_DIE,
+    },
+    ModuleFactorySampleResidual {
+        name: "AIUpdateInterface",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_UPDATE,
+    },
+    ModuleFactorySampleResidual {
+        name: "ParkingPlaceBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_UPDATE | MODULE_INTERFACE_DIE,
+    },
+    ModuleFactorySampleResidual {
+        name: "RebuildHoleBehavior",
+        module_type: MODULE_TYPE_BEHAVIOR,
+        interface_mask: MODULE_INTERFACE_UPDATE | MODULE_INTERFACE_DIE,
+    },
+];
+
+/// Wave 101 expanded sample table minimum count residual (> Wave 100's 9).
+pub const MODULE_FACTORY_EXPANDED_TABLE_MIN_COUNT_WAVE101: usize = 24;
+
+/// Compose multi-interface residual mask from ordered bit indices (OR fold).
+#[inline]
+pub fn module_interface_compose_mask_residual(bits: &[u32]) -> u32 {
+    bits.iter().fold(0u32, |acc, b| acc | b)
+}
+
+/// Residual: does mask contain all required interface bits?
+#[inline]
+pub fn module_interface_mask_has_all_residual(mask: u32, required: u32) -> bool {
+    (mask & required) == required
+}
+
+/// Residual: count of set interface bits in mask (among the 12 known flags).
+#[inline]
+pub fn module_interface_mask_popcount_residual(mask: u32) -> u32 {
+    let known = (1u32 << MODULE_INTERFACE_NUM_FLAGS) - 1;
+    (mask & known).count_ones()
+}
+
+/// Host residual ModuleFactory registry (addModule / findModule / m_moduleDataList).
+/// Bookkeeping only — not live createProc / newModuleInstance.
+#[derive(Debug, Clone, Default)]
+pub struct ModuleFactoryRegistryResidual {
+    /// Simulated `m_moduleTemplateMap` size residual.
+    pub template_map_count: u32,
+    /// Simulated `m_moduleDataList` size residual.
+    pub module_data_list_count: u32,
+    /// Cumulative successful `addModule` residual calls.
+    pub add_module_applications: u32,
+    /// Cumulative successful `findModule` residual hits.
+    pub find_module_hits: u32,
+    /// Cumulative `findModule` residual misses (unknown name).
+    pub find_module_misses: u32,
+    /// Cumulative `newModuleDataFromINI` residual pushes onto m_moduleDataList.
+    pub module_data_push_applications: u32,
+    /// Last found interface mask residual (0 on miss / empty).
+    pub last_interface_mask: i32,
+}
+
+impl ModuleFactoryRegistryResidual {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// C++ ctor residual: maps empty.
+    pub fn reset_ctor_residual(&mut self) {
+        *self = Self::default();
+    }
+
+    /// C++ `addModuleInternal` residual: insert/overwrite template entry by decorated key.
+    pub fn add_module_residual(&mut self, sample: &ModuleFactorySampleResidual) {
+        // Host residual does not de-dupe by name for count honesty on first seed —
+        // production C++ map overwrite keeps size stable; we count applications.
+        self.add_module_applications = self.add_module_applications.saturating_add(1);
+        // First-time insert residual: bump map count if this is a "new" application slot
+        // Host residual: map grows only when applications exceed previous map size.
+        if self.template_map_count < self.add_module_applications {
+            self.template_map_count = self.add_module_applications;
+        }
+        let _ = sample; // name/mask stored in expanded table; registry is counters only
+    }
+
+    /// Seed registry from expanded residual table (ModuleFactory::init residual).
+    pub fn seed_from_expanded_table_residual(&mut self) {
+        self.reset_ctor_residual();
+        for sample in MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101 {
+            self.add_module_residual(sample);
+        }
+        // After full seed, map count equals table length.
+        self.template_map_count = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101.len() as u32;
+        self.add_module_applications = self.template_map_count;
+    }
+
+    /// C++ `findModuleInterfaceMask` residual: empty → 0; else table lookup.
+    pub fn find_module_interface_mask_residual(
+        &mut self,
+        name: &str,
+        module_type: u32,
+    ) -> i32 {
+        if name.is_empty() {
+            self.find_module_misses = self.find_module_misses.saturating_add(1);
+            self.last_interface_mask = 0;
+            return 0;
+        }
+        if let Some(sample) = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101
+            .iter()
+            .find(|s| s.name == name && s.module_type == module_type)
+        {
+            self.find_module_hits = self.find_module_hits.saturating_add(1);
+            self.last_interface_mask = sample.interface_mask as i32;
+            sample.interface_mask as i32
+        } else {
+            self.find_module_misses = self.find_module_misses.saturating_add(1);
+            self.last_interface_mask = 0;
+            0
+        }
+    }
+
+    /// C++ `newModuleDataFromINI` residual: push onto m_moduleDataList when found.
+    pub fn push_module_data_residual(&mut self, name: &str, module_type: u32) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let found = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101
+            .iter()
+            .any(|s| s.name == name && s.module_type == module_type);
+        if found {
+            self.module_data_list_count = self.module_data_list_count.saturating_add(1);
+            self.module_data_push_applications =
+                self.module_data_push_applications.saturating_add(1);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// C++ dtor residual: clear template map + delete ModuleData list.
+    pub fn clear_dtor_residual(&mut self) {
+        self.template_map_count = 0;
+        self.module_data_list_count = 0;
+    }
+}
+
+/// Wave 101 honesty: ModuleFactory residual deepen pack.
+pub fn honesty_module_factory_residual_deepen_pack_wave101() -> bool {
+    // Expanded table residual
+    MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101.len()
+        >= MODULE_FACTORY_EXPANDED_TABLE_MIN_COUNT_WAVE101
+        && MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101.len() > 9
+        // Multi-interface composition residual
+        && {
+            let open = module_interface_compose_mask_residual(&[
+                MODULE_INTERFACE_UPDATE,
+                MODULE_INTERFACE_CONTAIN,
+                MODULE_INTERFACE_COLLIDE,
+                MODULE_INTERFACE_DIE,
+                MODULE_INTERFACE_DAMAGE,
+            ]);
+            open
+                == (MODULE_INTERFACE_UPDATE
+                    | MODULE_INTERFACE_CONTAIN
+                    | MODULE_INTERFACE_COLLIDE
+                    | MODULE_INTERFACE_DIE
+                    | MODULE_INTERFACE_DAMAGE)
+                && module_interface_mask_popcount_residual(open) == 5
+                && module_interface_mask_has_all_residual(open, MODULE_INTERFACE_CONTAIN)
+                && !module_interface_mask_has_all_residual(open, MODULE_INTERFACE_BODY)
+        }
+        && {
+            let mine = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101
+                .iter()
+                .find(|s| s.name == "MinefieldBehavior")
+                .map(|s| s.interface_mask)
+                .unwrap_or(0);
+            mine
+                == (MODULE_INTERFACE_UPDATE
+                    | MODULE_INTERFACE_COLLIDE
+                    | MODULE_INTERFACE_DAMAGE
+                    | MODULE_INTERFACE_DIE)
+                && module_interface_mask_popcount_residual(mine) == 4
+        }
+        && {
+            let tunnel = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101
+                .iter()
+                .find(|s| s.name == "TunnelContain")
+                .map(|s| s.interface_mask)
+                .unwrap_or(0);
+            // OpenContain bits + CREATE
+            module_interface_mask_has_all_residual(tunnel, MODULE_INTERFACE_CREATE)
+                && module_interface_mask_has_all_residual(tunnel, MODULE_INTERFACE_CONTAIN)
+                && module_interface_mask_popcount_residual(tunnel) == 6
+        }
+        && {
+            let auto_heal = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101
+                .iter()
+                .find(|s| s.name == "AutoHealBehavior")
+                .map(|s| s.interface_mask)
+                .unwrap_or(0);
+            auto_heal
+                == (MODULE_INTERFACE_UPDATE
+                    | MODULE_INTERFACE_UPGRADE
+                    | MODULE_INTERFACE_DAMAGE)
+        }
+        // Decorated name residual still holds for expanded multi-type rows
+        && module_factory_decorated_name_residual(MODULE_TYPE_BEHAVIOR, "OpenContain")
+            == "0OpenContain"
+        && module_factory_decorated_name_residual(MODULE_TYPE_DRAW, "W3DModelDraw")
+            == "1W3DModelDraw"
+        // ModuleData hash residual (NameKey SOCKET + calcHashForString)
+        && MODULE_FACTORY_NAMEKEY_SOCKET_COUNT_RESIDUAL == 45007
+        && MODULE_FACTORY_NAMEKEY_NEXT_ID_INITIAL_RESIDUAL == 1
+        && MODULE_FACTORY_NAMEKEY_INVALID_RESIDUAL == 0
+        && module_factory_calc_hash_for_string_residual("") == 0
+        && {
+            // djb-like: empty→0; "A" → 65; deterministic non-zero for decorated
+            let h = module_factory_calc_hash_for_string_residual("0ActiveBody");
+            let h2 = module_factory_calc_hash_for_string_residual("0OpenContain");
+            h != 0 && h2 != 0 && h != h2
+        }
+        && {
+            let b0 = module_factory_module_data_hash_bucket_residual(
+                MODULE_TYPE_BEHAVIOR,
+                "ActiveBody",
+            );
+            let b1 = module_factory_module_data_hash_bucket_residual(
+                MODULE_TYPE_DRAW,
+                "W3DModelDraw",
+            );
+            b0 < MODULE_FACTORY_NAMEKEY_SOCKET_COUNT_RESIDUAL
+                && b1 < MODULE_FACTORY_NAMEKEY_SOCKET_COUNT_RESIDUAL
+        }
+        // Registry residual bookkeeping
+        && {
+            let mut reg = ModuleFactoryRegistryResidual::new();
+            reg.seed_from_expanded_table_residual();
+            let n = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101.len() as u32;
+            reg.template_map_count == n
+                && reg.add_module_applications == n
+                && reg.find_module_interface_mask_residual("ActiveBody", MODULE_TYPE_BEHAVIOR)
+                    == MODULE_INTERFACE_BODY as i32
+                && reg.find_module_interface_mask_residual("", MODULE_TYPE_BEHAVIOR) == 0
+                && reg.find_module_interface_mask_residual("NoSuchModule", MODULE_TYPE_BEHAVIOR)
+                    == 0
+                && reg.find_module_hits == 1
+                && reg.find_module_misses == 2
+                && reg.push_module_data_residual("ActiveBody", MODULE_TYPE_BEHAVIOR)
+                && reg.module_data_list_count == 1
+                && !reg.push_module_data_residual("", MODULE_TYPE_BEHAVIOR)
+                && {
+                    reg.clear_dtor_residual();
+                    reg.template_map_count == 0 && reg.module_data_list_count == 0
+                }
+        }
+}
+
+// ---------------------------------------------------------------------------
+// 2. ThingFactory create residual deepen (post-create + copy + findTemplate)
+// ---------------------------------------------------------------------------
+
+/// C++ `newObject` post-create residual bookkeeping step names (subset of Wave 100 pipeline).
+pub const THING_FACTORY_POST_CREATE_STEPS_WAVE101: &[&str] = &[
+    "GAMELOGIC_CREATE",  // TheGameLogic->friend_createObject(tmplate, statusBits, team)
+    "TEAM_ASSIGN",       // Object ctor takes Team* (statusBits applied pre-onCreate)
+    "ON_CREATE_MODULES", // CreateModuleInterface::onCreate loop
+    "PARTITION_REGISTER", // ThePartitionManager->registerObject
+    "INIT_OBJECT",       // obj->initObject
+];
+
+/// Host residual counters for ThingFactory::newObject post-create path.
+#[derive(Debug, Clone, Default)]
+pub struct ThingFactoryCreateResidualCounters {
+    pub gamelogic_create_applications: u32,
+    pub team_assign_applications: u32,
+    pub on_create_module_applications: u32,
+    pub partition_register_applications: u32,
+    pub init_object_applications: u32,
+    pub reject_null_template_applications: u32,
+    pub reject_drawable_only_applications: u32,
+    pub build_variation_resolve_applications: u32,
+    /// Objects currently "alive" in residual ledger (create − destroy path not modeled fully).
+    pub live_object_count: u32,
+}
+
+impl ThingFactoryCreateResidualCounters {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Residual newObject path: returns false when template invalid / drawable-only.
+    pub fn new_object_residual(
+        &mut self,
+        template_present: bool,
+        is_drawable_only: bool,
+        build_variation_count: usize,
+        create_module_count: u32,
+        team_present: bool,
+    ) -> bool {
+        if !template_present {
+            self.reject_null_template_applications =
+                self.reject_null_template_applications.saturating_add(1);
+            return false;
+        }
+        if build_variation_count > 0 {
+            self.build_variation_resolve_applications =
+                self.build_variation_resolve_applications.saturating_add(1);
+        }
+        if is_drawable_only {
+            self.reject_drawable_only_applications =
+                self.reject_drawable_only_applications.saturating_add(1);
+            return false;
+        }
+        // GAMELOGIC_CREATE
+        self.gamelogic_create_applications =
+            self.gamelogic_create_applications.saturating_add(1);
+        // TEAM_ASSIGN residual (team pointer applied in Object ctor)
+        if team_present {
+            self.team_assign_applications = self.team_assign_applications.saturating_add(1);
+        }
+        // ON_CREATE_MODULES residual (loop count applications)
+        self.on_create_module_applications = self
+            .on_create_module_applications
+            .saturating_add(create_module_count.max(0));
+        // PARTITION_REGISTER
+        self.partition_register_applications =
+            self.partition_register_applications.saturating_add(1);
+        // INIT_OBJECT
+        self.init_object_applications = self.init_object_applications.saturating_add(1);
+        self.live_object_count = self.live_object_count.saturating_add(1);
+        true
+    }
+}
+
+/// Template copy residual fields preserved across `ThingTemplate::copyFrom`.
+/// C++ preserves name, id, and next-list-link; copies remaining guts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThingTemplateCopyResidual {
+    pub name: String,
+    pub template_id: u16,
+    pub next_link_token: u32,
+    pub armor_copied_from_default: bool,
+    pub weapons_copied_from_default: bool,
+    pub modules_copied_from_default: bool,
+    /// Sample payload field residual (copied from source).
+    pub display_name_token: u32,
+}
+
+impl ThingTemplateCopyResidual {
+    pub fn new(name: &str, template_id: u16) -> Self {
+        Self {
+            name: name.to_string(),
+            template_id,
+            next_link_token: 0,
+            armor_copied_from_default: false,
+            weapons_copied_from_default: false,
+            modules_copied_from_default: false,
+            display_name_token: 0,
+        }
+    }
+
+    /// C++ `copyFrom`: preserve name/id/next; copy payload.
+    pub fn copy_from_residual(&mut self, source: &ThingTemplateCopyResidual) {
+        let name = self.name.clone();
+        let id = self.template_id;
+        let next = self.next_link_token;
+        *self = source.clone();
+        self.name = name;
+        self.template_id = id;
+        self.next_link_token = next;
+    }
+
+    /// C++ `setCopiedFromDefault` residual flags.
+    pub fn set_copied_from_default_residual(&mut self) {
+        self.armor_copied_from_default = true;
+        self.weapons_copied_from_default = true;
+        self.modules_copied_from_default = true;
+    }
+}
+
+/// C++ AsciiString hash residual used by ThingTemplateHashMap (`rts::hash` via char*).
+/// Mirrors NameKey `calcHashForString` for host honesty (bucket not required for find).
+#[inline]
+pub fn thing_factory_template_name_hash_residual(name: &str) -> u32 {
+    module_factory_calc_hash_for_string_residual(name)
+}
+
+/// Host residual findTemplate by exact name (case-sensitive; C++ AsciiString exact).
+/// Returns index into residual name table, or None.
+#[inline]
+pub fn thing_factory_find_template_by_name_residual(
+    table: &[&str],
+    name: &str,
+) -> Option<usize> {
+    if name.is_empty() {
+        return None;
+    }
+    // Case-sensitive exact match residual (C++ is case sensitive).
+    table.iter().position(|&n| n == name)
+}
+
+/// Residual: findTemplate with check=true on missing non-empty name → crash residual flag.
+#[inline]
+pub fn thing_factory_find_template_missing_is_crash_residual(
+    found: bool,
+    check: bool,
+    name_empty: bool,
+) -> bool {
+    check && !found && !name_empty
+}
+
+/// Wave 101 honesty: ThingFactory create residual deepen pack.
+pub fn honesty_thing_factory_create_residual_deepen_pack_wave101() -> bool {
+    // Post-create step table residual
+    THING_FACTORY_POST_CREATE_STEPS_WAVE101.len() == 5
+        && residual_name_index(THING_FACTORY_POST_CREATE_STEPS_WAVE101, "GAMELOGIC_CREATE")
+            == Some(0)
+        && residual_name_index(THING_FACTORY_POST_CREATE_STEPS_WAVE101, "TEAM_ASSIGN")
+            == Some(1)
+        && residual_name_index(THING_FACTORY_POST_CREATE_STEPS_WAVE101, "ON_CREATE_MODULES")
+            == Some(2)
+        && residual_name_index(
+            THING_FACTORY_POST_CREATE_STEPS_WAVE101,
+            "PARTITION_REGISTER",
+        ) == Some(3)
+        && residual_name_index(THING_FACTORY_POST_CREATE_STEPS_WAVE101, "INIT_OBJECT")
+            == Some(4)
+        // Cross-link Wave 100 pipeline still has PARTITION_REGISTER / INIT_OBJECT
+        && residual_name_index(
+            THING_FACTORY_NEW_OBJECT_PIPELINE_STEPS,
+            "PARTITION_REGISTER",
+        ) == Some(5)
+        && residual_name_index(THING_FACTORY_NEW_OBJECT_PIPELINE_STEPS, "INIT_OBJECT")
+            == Some(6)
+        // Create counters residual
+        && {
+            let mut c = ThingFactoryCreateResidualCounters::new();
+            !c.new_object_residual(false, false, 0, 0, false)
+                && c.reject_null_template_applications == 1
+                && !c.new_object_residual(true, true, 0, 0, true)
+                && c.reject_drawable_only_applications == 1
+                && c.new_object_residual(true, false, 2, 3, true)
+                && c.gamelogic_create_applications == 1
+                && c.team_assign_applications == 1
+                && c.build_variation_resolve_applications == 1
+                && c.on_create_module_applications == 3
+                && c.partition_register_applications == 1
+                && c.init_object_applications == 1
+                && c.live_object_count == 1
+                // Second create without team
+                && c.new_object_residual(true, false, 0, 1, false)
+                && c.team_assign_applications == 1
+                && c.live_object_count == 2
+                && c.on_create_module_applications == 4
+        }
+        // Template copy residual
+        && {
+            let mut dst = ThingTemplateCopyResidual::new("AmericaTankCrusader", 42);
+            dst.next_link_token = 7;
+            let mut src = ThingTemplateCopyResidual::new("DefaultThingTemplate", 1);
+            src.display_name_token = 99;
+            src.set_copied_from_default_residual();
+            dst.copy_from_residual(&src);
+            dst.name == "AmericaTankCrusader"
+                && dst.template_id == 42
+                && dst.next_link_token == 7
+                && dst.display_name_token == 99
+                && dst.armor_copied_from_default
+                && dst.weapons_copied_from_default
+                && dst.modules_copied_from_default
+                && src.name == "DefaultThingTemplate"
+        }
+        // findTemplate name hash residual honesty
+        && {
+            let names = [
+                "DefaultThingTemplate",
+                "AmericaTankCrusader",
+                "ChinaCommandCenter",
+            ];
+            thing_factory_find_template_by_name_residual(&names, "AmericaTankCrusader")
+                == Some(1)
+                && thing_factory_find_template_by_name_residual(&names, "americatankcrusader")
+                    .is_none() // case-sensitive
+                && thing_factory_find_template_by_name_residual(&names, "").is_none()
+                && thing_factory_find_template_by_name_residual(&names, "Missing").is_none()
+                && thing_factory_find_template_missing_is_crash_residual(false, true, false)
+                && !thing_factory_find_template_missing_is_crash_residual(false, true, true)
+                && !thing_factory_find_template_missing_is_crash_residual(true, true, false)
+                && !thing_factory_find_template_missing_is_crash_residual(false, false, false)
+                && {
+                    let h1 = thing_factory_template_name_hash_residual("AmericaTankCrusader");
+                    let h2 = thing_factory_template_name_hash_residual("ChinaCommandCenter");
+                    h1 != 0 && h2 != 0 && h1 != h2
+                }
+        }
+        // Default template name residual still holds
+        && THING_FACTORY_DEFAULT_TEMPLATE_NAME == "DefaultThingTemplate"
+        && THING_FACTORY_TEMPLATE_HASH_SIZE == 12288
+}
+
+// ---------------------------------------------------------------------------
+// 3. PartitionManager register residual (host counters; cell size cross-link)
+// ---------------------------------------------------------------------------
+
+/// Retail GameData.ini / Wave 96 `PartitionCellSize` residual (**40** world units).
+pub const PARTITION_REGISTER_CELL_SIZE_RESIDUAL: f32 = 40.0;
+
+/// C++ `PartitionManager::registerObject` residual step names.
+pub const PARTITION_REGISTER_OBJECT_STEPS_WAVE101: &[&str] = &[
+    "SANITY_NULL",           // object == NULL → return
+    "REJECT_ALREADY_REG",    // friend_getPartitionData() != NULL → return
+    "ALLOC_PARTITION_DATA",  // newInstance(PartitionData)
+    "LINK_MODULE_LIST",      // prepend to m_moduleList
+    "ATTACH_TO_OBJECT",      // mod->attachToObject(object)
+];
+
+/// C++ `PartitionManager::unRegisterObject` residual step names (happy path, no ghost).
+pub const PARTITION_UNREGISTER_OBJECT_STEPS_WAVE101: &[&str] = &[
+    "SANITY_NULL",            // object == NULL → return
+    "SANITY_NO_PARTDATA",     // friend_getPartitionData() == NULL → return
+    "GHOST_FOG_HOLD",         // ghost seen residual may defer delete
+    "DETACH_FROM_OBJECT",     // mod->detachFromObject()
+    "UNLINK_MODULE_LIST",     // remove from m_moduleList
+    "DELETE_PARTITION_DATA",  // mod->deleteInstance()
+];
+
+/// Host residual PartitionManager register bookkeeping.
+#[derive(Debug, Clone, Default)]
+pub struct PartitionRegisterResidualCounters {
+    pub register_applications: u32,
+    pub register_null_rejects: u32,
+    pub register_already_rejects: u32,
+    pub unregister_applications: u32,
+    pub unregister_null_rejects: u32,
+    pub unregister_missing_rejects: u32,
+    pub ghost_fog_hold_applications: u32,
+    /// Simulated live registered object count residual.
+    pub registered_live_count: u32,
+}
+
+impl PartitionRegisterResidualCounters {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Residual registerObject: `already_registered` models friend_getPartitionData()!=NULL.
+    pub fn register_object_residual(
+        &mut self,
+        object_present: bool,
+        already_registered: bool,
+    ) -> bool {
+        if !object_present {
+            self.register_null_rejects = self.register_null_rejects.saturating_add(1);
+            return false;
+        }
+        if already_registered {
+            self.register_already_rejects = self.register_already_rejects.saturating_add(1);
+            return false;
+        }
+        self.register_applications = self.register_applications.saturating_add(1);
+        self.registered_live_count = self.registered_live_count.saturating_add(1);
+        true
+    }
+
+    /// Residual unRegisterObject.
+    /// `has_partition_data` / `ghost_fog_hold` model C++ early outs.
+    pub fn unregister_object_residual(
+        &mut self,
+        object_present: bool,
+        has_partition_data: bool,
+        ghost_fog_hold: bool,
+    ) -> bool {
+        if !object_present {
+            self.unregister_null_rejects = self.unregister_null_rejects.saturating_add(1);
+            return false;
+        }
+        if !has_partition_data {
+            self.unregister_missing_rejects = self.unregister_missing_rejects.saturating_add(1);
+            return false;
+        }
+        if ghost_fog_hold {
+            // C++ keeps PartitionData for fogged ghost; object pointer cleared.
+            self.ghost_fog_hold_applications =
+                self.ghost_fog_hold_applications.saturating_add(1);
+            // live count still drops from "object registered" view
+            self.registered_live_count = self.registered_live_count.saturating_sub(1);
+            return true;
+        }
+        self.unregister_applications = self.unregister_applications.saturating_add(1);
+        self.registered_live_count = self.registered_live_count.saturating_sub(1);
+        true
+    }
+}
+
+/// World→cell residual using PartitionCellSize **40** (Wave 96 closed; linked here).
+#[inline]
+pub fn partition_register_world_to_cell_residual(world: f32, world_lo: f32) -> i32 {
+    let inv = 1.0 / PARTITION_REGISTER_CELL_SIZE_RESIDUAL;
+    ((world - world_lo) * inv).floor() as i32
+}
+
+/// Wave 101 honesty: PartitionManager register residual pack.
+pub fn honesty_partition_register_residual_pack_wave101() -> bool {
+    PARTITION_REGISTER_CELL_SIZE_RESIDUAL == 40.0
+        && PARTITION_REGISTER_OBJECT_STEPS_WAVE101.len() == 5
+        && residual_name_index(PARTITION_REGISTER_OBJECT_STEPS_WAVE101, "SANITY_NULL")
+            == Some(0)
+        && residual_name_index(
+            PARTITION_REGISTER_OBJECT_STEPS_WAVE101,
+            "ATTACH_TO_OBJECT",
+        ) == Some(4)
+        && PARTITION_UNREGISTER_OBJECT_STEPS_WAVE101.len() == 6
+        && residual_name_index(
+            PARTITION_UNREGISTER_OBJECT_STEPS_WAVE101,
+            "GHOST_FOG_HOLD",
+        ) == Some(2)
+        && residual_name_index(
+            PARTITION_UNREGISTER_OBJECT_STEPS_WAVE101,
+            "DELETE_PARTITION_DATA",
+        ) == Some(5)
+        // Register / unregister bookkeeping residual
+        && {
+            let mut p = PartitionRegisterResidualCounters::new();
+            !p.register_object_residual(false, false)
+                && p.register_null_rejects == 1
+                && p.register_object_residual(true, false)
+                && p.register_applications == 1
+                && p.registered_live_count == 1
+                && !p.register_object_residual(true, true)
+                && p.register_already_rejects == 1
+                && p.registered_live_count == 1
+                && p.unregister_object_residual(true, true, false)
+                && p.unregister_applications == 1
+                && p.registered_live_count == 0
+                && !p.unregister_object_residual(false, false, false)
+                && p.unregister_null_rejects == 1
+                && !p.unregister_object_residual(true, false, false)
+                && p.unregister_missing_rejects == 1
+                // Ghost fog hold residual
+                && p.register_object_residual(true, false)
+                && p.unregister_object_residual(true, true, true)
+                && p.ghost_fog_hold_applications == 1
+                && p.registered_live_count == 0
+        }
+        // Cell size world→cell residual link
+        && partition_register_world_to_cell_residual(0.0, 0.0) == 0
+        && partition_register_world_to_cell_residual(39.9, 0.0) == 0
+        && partition_register_world_to_cell_residual(40.0, 0.0) == 1
+        && partition_register_world_to_cell_residual(80.0, 0.0) == 2
+        && partition_register_world_to_cell_residual(40.0, -40.0) == 2
+        // Cross-link ThingFactory newObject always partition-registers on success
+        && {
+            let mut c = ThingFactoryCreateResidualCounters::new();
+            c.new_object_residual(true, false, 0, 0, true)
+                && c.partition_register_applications == 1
+        }
+}
+
+// ---------------------------------------------------------------------------
+// Combined Wave 101 residual pack + cross-link
+// ---------------------------------------------------------------------------
+
+/// Cross-link: ModuleFactory CREATE interface residual used by newObject onCreate loop.
+pub fn honesty_thing_factory_module_partition_crosslink_wave101() -> bool {
+    // CREATE interface ordinal residual (Wave 100 still holds)
+    MODULE_INTERFACE_CREATE == 0x8
+        && residual_name_index(MODULE_INTERFACE_NAME_TABLE_RESIDUAL, "CREATE") == Some(3)
+        // TunnelContain multi-interface includes CREATE (onCreate path modules)
+        && {
+            let tunnel = MODULE_FACTORY_EXPANDED_TABLE_RESIDUAL_WAVE101
+                .iter()
+                .find(|s| s.name == "TunnelContain")
+                .map(|s| s.interface_mask)
+                .unwrap_or(0);
+            module_interface_mask_has_all_residual(tunnel, MODULE_INTERFACE_CREATE)
+        }
+        // newObject residual always hits PARTITION_REGISTER after ON_CREATE
+        && residual_name_index(
+            THING_FACTORY_POST_CREATE_STEPS_WAVE101,
+            "ON_CREATE_MODULES",
+        ) == Some(2)
+        && residual_name_index(
+            THING_FACTORY_POST_CREATE_STEPS_WAVE101,
+            "PARTITION_REGISTER",
+        ) == Some(3)
+        // Cell size residual still 40
+        && PARTITION_REGISTER_CELL_SIZE_RESIDUAL == 40.0
+}
+
+/// Combined Wave 101 residual honesty pack.
+pub fn honesty_thing_factory_module_partition_residual_pack_wave101() -> bool {
+    honesty_module_factory_residual_deepen_pack_wave101()
+        && honesty_thing_factory_create_residual_deepen_pack_wave101()
+        && honesty_partition_register_residual_pack_wave101()
+        && honesty_thing_factory_module_partition_crosslink_wave101()
+        // Wave 100 packs still hold (deepen, not replace)
+        && honesty_thing_factory_residual_deepen_pack_wave100()
+        && honesty_module_type_table_residual_pack_wave100()
+}
+
+#[cfg(test)]
+mod tests_wave101 {
+    use super::*;
+
+    #[test]
+    fn residual_pack_honesty_wave101_module_factory() {
+        assert!(honesty_module_factory_residual_deepen_pack_wave101());
+    }
+
+    #[test]
+    fn residual_pack_honesty_wave101_thing_factory_create() {
+        assert!(honesty_thing_factory_create_residual_deepen_pack_wave101());
+    }
+
+    #[test]
+    fn residual_pack_honesty_wave101_partition_register() {
+        assert!(honesty_partition_register_residual_pack_wave101());
+    }
+
+    #[test]
+    fn residual_pack_honesty_wave101_crosslink() {
+        assert!(honesty_thing_factory_module_partition_crosslink_wave101());
+    }
+
+    #[test]
+    fn residual_pack_honesty_wave101() {
+        assert!(honesty_thing_factory_module_partition_residual_pack_wave101());
     }
 }
