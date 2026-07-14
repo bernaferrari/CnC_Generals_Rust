@@ -12096,8 +12096,7 @@ impl GameLogic {
             // directly (engine_object_id stays None) so combat/commands/victory do not
             // require a second living world. Enable with GENERALS_ALLOW_DUAL_TICK or
             // GENERALS_BRIDGE_ENGINE_OBJECTS.
-            let allow_engine_bridge = std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
-                || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some();
+            let allow_engine_bridge = crate::gameworld_shadow::engine_object_bridge_enabled();
             if allow_engine_bridge {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     let gl_team = resolve_gamelogic_team(&team);

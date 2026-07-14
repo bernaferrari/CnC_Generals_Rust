@@ -60,6 +60,12 @@ impl GameWorldShadowProbe {
 }
 
 /// Whether the optional engine shadow path is enabled.
+/// True when Main create_object may attach gamelogic OBJECT_REGISTRY ids (opt-in only).
+pub fn engine_object_bridge_enabled() -> bool {
+    std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
+        || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some()
+}
+
 pub fn gameworld_shadow_enabled() -> bool {
     match std::env::var("GENERALS_GAMEWORLD_SHADOW") {
         Ok(v) => {
@@ -426,6 +432,27 @@ impl GameWorldShadow {
                 player.power_available = pd.power_available;
                 updated += 1;
             }
+        }
+        updated
+    }
+
+    /// Write shadow Entity::attack_target back onto host Object::target (stable IDs).
+    /// Completes the attack command channel: host log / set_target → shadow mutation → host writeback.
+    pub fn writeback_attack_targets_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let host_target = ent.attack_target.and_then(|te| self.host_for_entity(te));
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.target == host_target {
+                continue;
+            }
+            obj.set_target(host_target);
+            updated += 1;
         }
         updated
     }
@@ -829,6 +856,9 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.apply_pending();
     }
     let _atks = shadow.apply_host_attack_targets(logic);
+    // Attack-target channel is always bidirectional once session is live: shadow mutations
+    // (and host bulk resync above) settle, then writeback keeps host Object::target aligned.
+    let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -1304,6 +1334,67 @@ mod tests {
         assert!(shadow.queue_set_attack_target_for_host(a, None));
         let _ = shadow.apply_pending();
         assert_eq!(shadow.world().entity(ea).unwrap().attack_target, None);
+    }
+
+    #[test]
+    fn attack_target_writeback_updates_host() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AtkWb");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "AtkWA", 100.0);
+        ensure_template(&mut logic, "AtkWB", 100.0);
+        let a = logic
+            .create_object("AtkWA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let b = logic
+            .create_object("AtkWB", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("b");
+        assert!(logic
+            .get_objects()
+            .get(&a)
+            .unwrap()
+            .engine_object_id
+            .is_none());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.queue_set_attack_target_for_host(a, Some(b)));
+        let _ = shadow.apply_pending();
+        let n = shadow.writeback_attack_targets_to_host(&mut logic);
+        assert!(n >= 1, "expected host target writeback");
+        assert_eq!(logic.get_objects().get(&a).unwrap().target, Some(b));
+        // Clear via shadow mutation + writeback
+        assert!(shadow.queue_set_attack_target_for_host(a, None));
+        let _ = shadow.apply_pending();
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        assert_eq!(logic.get_objects().get(&a).unwrap().target, None);
+    }
+
+    #[test]
+    fn engine_object_bridge_off_by_default() {
+        // Default path: no dual-tick / bridge env → engine_object_id stays None.
+        if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
+            && std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_none()
+        {
+            assert!(!engine_object_bridge_enabled());
+        }
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("BridgeOff");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "BridgeUnit", 50.0);
+        let id = logic
+            .create_object("BridgeUnit", Team::USA, glam::Vec3::ZERO)
+            .expect("id");
+        if !engine_object_bridge_enabled() {
+            assert!(
+                logic
+                    .get_objects()
+                    .get(&id)
+                    .unwrap()
+                    .engine_object_id
+                    .is_none(),
+                "default create_object must not bridge OBJECT_REGISTRY"
+            );
+        }
     }
 
     #[test]
