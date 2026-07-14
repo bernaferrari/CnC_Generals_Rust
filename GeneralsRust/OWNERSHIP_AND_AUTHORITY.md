@@ -64,6 +64,10 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | `executable_smoke_gate` | Real binary Menu→InGame + runtime-host select/move (`gameplay_cmd`); **not** WND click path (`playable_claim=false`) |
 | `shell_smoke_gate` | Headless host skirmish stack; not windowed WND |
 
+## Presentation residual (unit mesh)
+
+When `PresentationFrame` is set, `RenderPipeline::collect_render_items` drives the main unit mesh pass from `unit_render_inputs` only (`debug_last_live_unit_identity_reads == 0`). Live `game_logic.get_objects()` remains only for boot/loading frames without a snapshot. Terrain/prewarm prefer frozen `PresentationWorldEnv` and fall back to live map metadata if absent.
+
 ## Still Main mid-frame (not sole GameWorld)
 
 Host still executes AI decision, pathfinding step, and combat resolution mid-frame. AI `launch_attack` now prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression. Shadow session runs after host `update` + projectiles + pathfinding (same frame logs), then PresentationFrame overlay. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations and presentation overlay — not yet the sole simulation owner.

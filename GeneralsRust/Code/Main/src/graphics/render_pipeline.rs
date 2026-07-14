@@ -4542,6 +4542,18 @@ mod tests {
             "pass_sources must gate on presentation_unit_pass: {window}"
         );
     }
+    #[test]
+    fn collect_prefers_presentation_shell_fow_before_live_is_in_shell_game() {
+        let src = include_str!("render_pipeline.rs");
+        let idx = src
+            .find("let bypass_fow = presentation")
+            .expect("bypass_fow presentation");
+        let window = &src[idx..idx + 280];
+        assert!(
+            window.contains("fow_shell_bypass") && window.contains("isInShellGame"),
+            "shell FOW must prefer presentation then live: {window}"
+        );
+    }
 
     #[test]
     fn presentation_fow_never_explored_skip_is_snapshot_owned() {
