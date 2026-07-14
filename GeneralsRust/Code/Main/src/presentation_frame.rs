@@ -2161,6 +2161,46 @@ impl PresentationFrame {
         obj.kind_of.iter().any(|k| *k == kind)
     }
 
+    /// Double-click residual: same-template selectable friendlies from snapshot.
+    pub fn similar_unit_ids(
+        &self,
+        clicked_id: ObjectId,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::KindOf;
+        use crate::unit_control::UnitControlSystem;
+        let Some(clicked) = self.objects.iter().find(|o| o.id == clicked_id) else {
+            return Vec::new();
+        };
+        if clicked.team != player_team || !UnitControlSystem::presentation_is_selectable(clicked) {
+            return Vec::new();
+        }
+        let template = clicked.template_name.as_str();
+        self.objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && o.template_name == template
+            })
+            .map(|o| o.id)
+            .collect()
+    }
+
+    /// Right-click residual: enemy attackable under cursor id from snapshot.
+    pub fn is_enemy_attackable(
+        &self,
+        target_id: ObjectId,
+        player_team: crate::game_logic::Team,
+    ) -> bool {
+        use crate::unit_control::UnitControlSystem;
+        self.objects
+            .iter()
+            .find(|o| o.id == target_id)
+            .map(|o| o.team != player_team && UnitControlSystem::presentation_is_attackable(o))
+            .unwrap_or(false)
+    }
+
     /// Structures residual (KindOf::Structure or object_type Building).
     pub fn structure_objects(&self) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
@@ -2995,6 +3035,48 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn similar_unit_ids_from_presentation() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("Ranger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        t.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("Ranger".into(), t);
+        let mut tb = ThingTemplate::new("MissileDefender");
+        tb.set_health(100.0);
+        tb.add_kind_of(KindOf::Infantry);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("MissileDefender".into(), tb);
+        let a = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let _c = logic
+            .create_object(
+                "MissileDefender",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let d = logic
+            .create_object("Ranger", Team::China, glam::Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut ids = frame.similar_unit_ids(a, Team::USA);
+        ids.sort_by_key(|id| id.0);
+        let mut expect = vec![a, b];
+        expect.sort_by_key(|id| id.0);
+        assert_eq!(ids, expect);
+        assert!(!ids.contains(&d));
+        assert!(frame.is_enemy_attackable(d, Team::USA));
+        assert!(!frame.is_enemy_attackable(a, Team::USA));
     }
 
     #[test]

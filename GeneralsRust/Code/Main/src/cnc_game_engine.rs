@@ -8210,29 +8210,42 @@ impl CnCGameEngine {
     }
 
     fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
-        let Some(clicked_obj) = self.game_logic.find_object(clicked_object_id) else {
-            return;
-        };
-
         let Some(player) = self.game_logic.get_player(self.current_player_id) else {
             return;
         };
-
         let player_team = player.team;
-        if clicked_obj.team != player_team || !clicked_obj.is_selectable() {
-            return;
-        }
 
-        let template = clicked_obj.template_name.clone();
-        let similar_units: Vec<ObjectId> = self
-            .game_logic
-            .get_objects()
-            .iter()
-            .filter(|(_, obj)| {
-                obj.team == player_team && obj.is_selectable() && obj.template_name == template
-            })
-            .map(|(&id, _)| id)
-            .collect();
+        // Prefer presentation identity (template/team/selectable) when dual-tick snapshot exists.
+        let (similar_units, template_label) = if let Some(frame) =
+            self.last_presentation_frame.as_ref()
+        {
+            let ids = frame.similar_unit_ids(clicked_object_id, player_team);
+            let label = frame
+                .objects
+                .iter()
+                .find(|o| o.id == clicked_object_id)
+                .map(|o| o.template_name.clone())
+                .unwrap_or_default();
+            (ids, label)
+        } else {
+            let Some(clicked_obj) = self.game_logic.find_object(clicked_object_id) else {
+                return;
+            };
+            if clicked_obj.team != player_team || !clicked_obj.is_selectable() {
+                return;
+            }
+            let template = clicked_obj.template_name.clone();
+            let ids: Vec<ObjectId> = self
+                .game_logic
+                .get_objects()
+                .iter()
+                .filter(|(_, obj)| {
+                    obj.team == player_team && obj.is_selectable() && obj.template_name == template
+                })
+                .map(|(&id, _)| id)
+                .collect();
+            (ids, template)
+        };
 
         if !similar_units.is_empty() {
             self.game_logic
@@ -8242,7 +8255,7 @@ impl CnCGameEngine {
             info!(
                 "Selected {} similar units ({})",
                 self.selected_objects.len(),
-                template
+                template_label
             );
         }
     }
@@ -8317,13 +8330,17 @@ impl CnCGameEngine {
         let target_object = self.find_object_at_position(mouse_pos, &self.game_logic, true);
 
         if let Some(target_id) = target_object {
-            if let Some(target) = self.game_logic.find_object(target_id) {
-                // Check if it's an enemy
-                if let Some(player) = self.game_logic.get_player(self.current_player_id) {
-                    if target.team != player.team && target.is_kind_of(KindOf::Attackable) {
-                        should_attack = true;
-                        attack_target_id = Some(target_id);
-                    }
+            if let Some(player) = self.game_logic.get_player(self.current_player_id) {
+                let enemy_attackable = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.is_enemy_attackable(target_id, player.team)
+                } else if let Some(target) = self.game_logic.find_object(target_id) {
+                    target.team != player.team && target.is_kind_of(KindOf::Attackable)
+                } else {
+                    false
+                };
+                if enemy_attackable {
+                    should_attack = true;
+                    attack_target_id = Some(target_id);
                 }
             }
         }
