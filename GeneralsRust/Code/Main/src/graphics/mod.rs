@@ -10,6 +10,8 @@ pub mod fow_uniform_integration;
 pub mod game_text_residual;
 pub mod graphics_system;
 pub mod laser_segment_upload;
+pub mod projectile_segment_upload;
+pub use projectile_segment_upload::ProjectileSegmentUpload;
 pub mod minimap_renderer;
 pub mod render_item;
 pub mod render_pipeline;
