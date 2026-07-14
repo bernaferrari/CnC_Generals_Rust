@@ -12211,6 +12211,18 @@ impl GameLogic {
                 template_name,
                 position
             );
+            let team_ord = match team {
+                Team::USA => 0u8,
+                Team::China => 1,
+                Team::GLA => 2,
+                Team::Neutral => 255,
+            };
+            crate::game_logic::host_spawn_log::record(
+                id,
+                template_name.to_string(),
+                team_ord,
+                [position.x, position.y, position.z],
+            );
             Some(id)
         } else {
             log::warn!("Template not found: {}", template_name);
