@@ -1,3 +1,61 @@
+## Residual Host Playability — Wave 108: HeightMap / bridge / water / road deepen + cliff residual peels (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal to Wave 87 env + Wave 93 road/texture + Wave 81 height sample):**
+1. **HeightMap residual deepen** (`host_terrain_bridge_water_road_residual_wave108`):
+   - MAP_XY_FACTOR **10** / MAP_HEIGHT_SCALE **0.625** re-anchor; K_MIN/MAX **0/255**.
+   - NUM_SOURCE_TILES **1024** / NUM_BLEND_TILES **16192** / NUM_CLIFF_INFO **32384** (2× blend).
+   - FLAG_VAL **0x7ADA0000**; NUM_TEXTURE_CLASSES **256**; NUM_ALPHA_TILES **12**.
+   - NORMAL_DRAW **129×129** / STRETCH_DRAW **65×65**; VB tile length **32**; FLIP_TRIANGLES **1**.
+   - Scorch caps MAX_VERTEX **8194** / INDEX **6×8194** / MARKS **500**; dynamic lights **20**.
+   - Honesty: `honesty_heightmap_residual_deepen_pack_wave108`.
+2. **Bridge residual deepen** (beyond Wave 87 tower/scaffold):
+   - TBridgeType FIXED/SECTIONAL residual; MAX_BRIDGE_VERTEX **12000** / INDEX **24000** / BRIDGES **200**.
+   - Bridge FieldParse residual keys **≥20**; body damage type count **4**; MAX_BRIDGE_BODY_FX **3**.
+   - TerrainRoadType bridgeScale ctor **1.0**; sample IronSectionalDoublewide / Concrete residual.
+   - ScaffoldObject BridgeScaffold01 / Support BridgeScaffoldSupport01; NumFXPerType sample **32**.
+   - Honesty: `honesty_bridge_residual_deepen_pack_wave108`.
+3. **Water residual deepen** (beyond Wave 87 WaterSet/TOD):
+   - WaterType residual **4** (TRANSLUCENT..GRIDMESH) + WATER_TYPE_MAX **4**.
+   - INVALID_WATER_HEIGHT **0**; NUM_BUMP_FRAMES **32**; MAX_DYNAMIC_WATER **64**.
+   - Skybox Texture N/E/S/W/T residual (TSMorning*.tga); transparency FieldParse keys **≥11**.
+   - Wave 87 WaterTransparency / WaterSet anchors still hold.
+   - Honesty: `honesty_water_residual_deepen_pack_wave108`.
+4. **Road residual deepen** (beyond Wave 93 road peels):
+   - MIN_ROAD_SEGMENT **0.25**; MAX_LINKS **6**; TCorner name table **8** (SEGMENT..ALPHA_JOIN).
+   - Expanded sample road name table **≥10** (TwoLane..DirtRoadTracks); MaxRoad caps re-anchor.
+   - Honesty: `honesty_road_residual_deepen_pack_wave108`.
+5. **Cliff residual peels**:
+   - PATHFIND_CLIFF_SLOPE_LIMIT_F **9.8** (raw height delta); UV STRETCH/TILE/TALL/DIAMOND limits.
+   - Pathfind CELL_CLIFF **0x02** + CELL_* residual table **7**; flag packing 8 cells/byte.
+   - Host cliff_cell_from_raw_heights / cliff_uv_needs_stretch residual formulas.
+   - Honesty: `honesty_cliff_residual_peels_pack_wave108`.
+6. **Combined pack**: `honesty_terrain_bridge_water_road_residual_pack_wave108`.
+
+**Wiring:**
+- `game_logic/host_terrain_bridge_water_road_residual_wave108.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — heightmap108/bridge108/water108/road108/cliff108
+- `shell_smoke_gate.rs` — require wave108 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave108 tests PASS
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  heightmap108=true bridge108=true water108=true road108=true cliff108=true
+
+**Not claimed:**
+- Full SAGE HeightMap bilinear / bridge-aware sample residual
+- Full W3DBridgeBuffer mesh bake / DX8 VB residual
+- Full W3DWater reflection / skybox mesh residual
+- Full W3DRoadBuffer mesh bake residual
+- Full cliff seam UV mutant mapping GPU residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 106: shell / campaign / save residual deepen (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal to Wave 103/104 game-logic peels):**
