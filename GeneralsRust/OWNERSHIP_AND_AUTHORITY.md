@@ -74,7 +74,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 6. `PresentationFrame::build_from_logic` + shadow overlay
 7. Client/HUD consumers of snapshot
 
-Production enqueue records `host_production_log`; completions spawn via `host_spawn_log`.
+Production enqueue records `host_production_log (enqueue + complete)`; completions spawn via `host_spawn_log`.
 
 ## Presentation residual (unit mesh)
 
