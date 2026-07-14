@@ -168,6 +168,9 @@ pub struct RenderableObject {
     pub secondary_weapon_damage: f32,
     /// Mine / demo-trap residual present.
     pub has_mine: bool,
+    /// Host ThingTemplate KindOf set residual (sorted, capped).
+    /// Lets ControlBar / unit_control classify without live template re-read.
+    pub kind_of: Vec<crate::game_logic::KindOf>,
     pub is_structure: bool,
     pub is_unit: bool,
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
@@ -1652,6 +1655,47 @@ impl PresentationFrame {
                     .map(|w| w.damage)
                     .unwrap_or(0.0),
                 has_mine: obj.mine_data.is_some(),
+                kind_of: {
+                    use crate::game_logic::KindOf;
+                    const MAX_KINDS: usize = 32;
+                    // Stable presentation order (KindOf declaration order residual).
+                    const ORDER: &[KindOf] = &[
+                        KindOf::Structure,
+                        KindOf::Infantry,
+                        KindOf::Vehicle,
+                        KindOf::Aircraft,
+                        KindOf::Projectile,
+                        KindOf::Resource,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                        KindOf::CommandCenter,
+                        KindOf::Worker,
+                        KindOf::Hero,
+                        KindOf::SupplyCenter,
+                        KindOf::PowerPlant,
+                        KindOf::FSBarracks,
+                        KindOf::FSWarFactory,
+                        KindOf::FSAirfield,
+                        KindOf::FSInternetCenter,
+                        KindOf::FSPower,
+                        KindOf::FSBaseDefense,
+                        KindOf::FSSupplyDropzone,
+                        KindOf::FSSupplyCenter,
+                        KindOf::FSSuperweapon,
+                        KindOf::FSStrategyCenter,
+                        KindOf::FSFake,
+                        KindOf::FSTechnology,
+                        KindOf::FSBlackMarket,
+                        KindOf::FSAdvancedTech,
+                        KindOf::Harvestable,
+                        KindOf::Powered,
+                    ];
+                    let set = &obj.get_template().kind_of;
+                    let mut v: Vec<KindOf> =
+                        ORDER.iter().copied().filter(|k| set.contains(k)).collect();
+                    v.truncate(MAX_KINDS);
+                    v
+                },
                 is_structure,
                 is_unit,
                 model_key,
@@ -2109,6 +2153,42 @@ impl PresentationFrame {
         self.objects
             .iter()
             .filter(|o| !o.destroyed && o.has_mine)
+            .collect()
+    }
+
+    /// True when snapshot object carries `kind` residual.
+    pub fn object_has_kind(obj: &RenderableObject, kind: crate::game_logic::KindOf) -> bool {
+        obj.kind_of.iter().any(|k| *k == kind)
+    }
+
+    /// Structures residual (KindOf::Structure or object_type Building).
+    pub fn structure_objects(&self) -> Vec<&RenderableObject> {
+        use crate::game_logic::KindOf;
+        self.objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && (Self::object_has_kind(o, KindOf::Structure)
+                        || o.object_type == PresentationObjectType::Building)
+            })
+            .collect()
+    }
+
+    /// Harvestable resource objects residual.
+    pub fn harvestable_objects(&self) -> Vec<&RenderableObject> {
+        use crate::game_logic::KindOf;
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && Self::object_has_kind(o, KindOf::Harvestable))
+            .collect()
+    }
+
+    /// Worker units residual (dozer / worker command feed).
+    pub fn worker_objects(&self) -> Vec<&RenderableObject> {
+        use crate::game_logic::KindOf;
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && Self::object_has_kind(o, KindOf::Worker))
             .collect()
     }
 
@@ -2915,6 +2995,56 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn kind_of_freeze_from_host() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tw = ThingTemplate::new("Dozer");
+        tw.set_health(200.0);
+        tw.add_kind_of(KindOf::Vehicle);
+        tw.add_kind_of(KindOf::Worker);
+        tw.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Dozer".into(), tw);
+        let mut tr = ThingTemplate::new("SupplyDock");
+        tr.set_health(1.0);
+        tr.add_kind_of(KindOf::Harvestable);
+        tr.add_kind_of(KindOf::Resource);
+        logic.templates.insert("SupplyDock".into(), tr);
+        let did = logic
+            .create_object("Dozer", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("d");
+        let rid = logic
+            .create_object("SupplyDock", Team::Neutral, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("r");
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let d = frame.objects.iter().find(|o| o.id == did).expect("dozer");
+        assert!(PresentationFrame::object_has_kind(d, KindOf::Worker));
+        assert!(PresentationFrame::object_has_kind(d, KindOf::Vehicle));
+        assert!(PresentationFrame::object_has_kind(d, KindOf::Selectable));
+        // declaration-order residual: Vehicle before Worker before Selectable
+        assert!(d.kind_of.windows(2).all(|w| {
+            use crate::game_logic::KindOf::*;
+            let rank = |k: KindOf| match k {
+                Structure => 0,
+                Infantry => 1,
+                Vehicle => 2,
+                Aircraft => 3,
+                Projectile => 4,
+                Resource => 5,
+                Selectable => 6,
+                Attackable => 7,
+                CommandCenter => 8,
+                Worker => 9,
+                _ => 99,
+            };
+            rank(w[0]) <= rank(w[1])
+        }));
+        let r = frame.objects.iter().find(|o| o.id == rid).expect("res");
+        assert!(PresentationFrame::object_has_kind(r, KindOf::Harvestable));
+        assert_eq!(frame.worker_objects().len(), 1);
+        assert_eq!(frame.harvestable_objects().len(), 1);
     }
 
     #[test]
