@@ -1,3 +1,59 @@
+## Residual Host Playability — Wave 106: shell / campaign / save residual deepen (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal to Wave 103/104 game-logic peels):**
+1. **GameState residual deepen** (`host_shell_campaign_save_residual_wave106`):
+   - SaveLoadLayoutType residual **4** names (SLLT_INVALID..SLLT_SAVE_ONLY).
+   - SNAPSHOT_SAVELOAD CHUNK_* block table **17** (GameState..GhostObject).
+   - SNAPSHOT_DEEPCRC_LOGICONLY subset **6** (excludes client/UI chunks).
+   - GAME_STATE_BLOCK_STRING / CAMPAIGN_BLOCK_STRING anchors; Save directory leaf.
+   - Honesty: `honesty_game_state_residual_deepen_pack_wave106`.
+2. **Campaign residual deepen** (mission residual tables):
+   - USA / GLA / China **5**-mission map tables (MD_USA* / MD_GLA* / MD_CHI*).
+   - TRAINING residual (Training01); CHALLENGE_0 map chain **7**.
+   - CampaignNameLabel residual for TRAINING/USA/GLA/China + CHALLENGE_0..8.
+   - Honesty: `honesty_campaign_mission_residual_deepen_pack_wave106`.
+3. **MainMenu residual deepen**:
+   - MainMenu.wnd retail window count **63**; button residual table **≥28**.
+   - Faction window residual **16**; shell roots + transition group residual.
+   - Host MainMenuState residual **5** names; layout `Menus/MainMenu.wnd`.
+   - Honesty: `honesty_main_menu_residual_deepen_pack_wave106`.
+4. **GameWindow residual deepen**:
+   - WIN_STATUS residual table **28** (NONE + **27** bits through SHORTCUT_BUTTON).
+   - GWM_* message residual **27** names; GWM_USER **32768**.
+   - MSG_IGNORED / MSG_HANDLED residual.
+   - Honesty: `honesty_game_window_residual_deepen_pack_wave106`.
+5. **WindowLayout residual deepen**:
+   - INIT/UPDATE/SHUTDOWN callback residual; layout operation residual table.
+   - Shell layout filename residual table (**≥12** including MainMenu + ControlBar).
+   - WindowLayoutPool name + ctor hide/count residual; hide pure residual.
+   - Honesty: `honesty_window_layout_residual_deepen_pack_wave106`.
+6. **Combined pack**: `honesty_shell_campaign_save_residual_pack_wave106`.
+
+**Wiring:**
+- `game_logic/host_shell_campaign_save_residual_wave106.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — gamestate106/campaign106/mainmenu106/gamewindow106/layout106
+- `shell_smoke_gate.rs` — require wave106 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave106 tests PASS
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  gamestate106=true campaign106=true mainmenu106=true gamewindow106=true layout106=true
+
+**Not claimed:**
+- Full GameState xferSaveData file I/O / deep CRC network residual
+- Full CampaignManager live INI parse / mission progression residual
+- Full MainMenu.wnd W3D TransitionHandler retail UI residual
+- Full GameWindow GPU draw / WindowManager exclusive residual
+- Full WindowLayout::load .wnd script residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 105: AI group / AI path / weapon fire / damage / veterancy residual peels (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal to Object/ThingFactory Waves 100–104):**
@@ -56,62 +112,6 @@
 - Full Weapon::privateFireWeapon live projectile residual
 - Full ActiveBody attemptDamage exclusive module matrix residual
 - Full ExperienceTracker live Object XP sink residual
-- shell playable_claim / network (deferred)
-
-**Honesty rules preserved:**
-- Shell playable_claim remains **false**
-- Golden playable_claim remains **true**
-- Network residual deferred
-
-## Residual Host Playability — Wave 106: shell / campaign / save residual deepen (2026-07-14)
-
-**Closed (host-testable residual peels; orthogonal to Wave 103/104 game-logic peels):**
-1. **GameState residual deepen** (`host_shell_campaign_save_residual_wave106`):
-   - SaveLoadLayoutType residual **4** names (SLLT_INVALID..SLLT_SAVE_ONLY).
-   - SNAPSHOT_SAVELOAD CHUNK_* block table **17** (GameState..GhostObject).
-   - SNAPSHOT_DEEPCRC_LOGICONLY subset **6** (excludes client/UI chunks).
-   - GAME_STATE_BLOCK_STRING / CAMPAIGN_BLOCK_STRING anchors; Save directory leaf.
-   - Honesty: `honesty_game_state_residual_deepen_pack_wave106`.
-2. **Campaign residual deepen** (mission residual tables):
-   - USA / GLA / China **5**-mission map tables (MD_USA* / MD_GLA* / MD_CHI*).
-   - TRAINING residual (Training01); CHALLENGE_0 map chain **7**.
-   - CampaignNameLabel residual for TRAINING/USA/GLA/China + CHALLENGE_0..8.
-   - Honesty: `honesty_campaign_mission_residual_deepen_pack_wave106`.
-3. **MainMenu residual deepen**:
-   - MainMenu.wnd retail window count **63**; button residual table **≥28**.
-   - Faction window residual **16**; shell roots + transition group residual.
-   - Host MainMenuState residual **5** names; layout `Menus/MainMenu.wnd`.
-   - Honesty: `honesty_main_menu_residual_deepen_pack_wave106`.
-4. **GameWindow residual deepen**:
-   - WIN_STATUS residual table **28** (NONE + **27** bits through SHORTCUT_BUTTON).
-   - GWM_* message residual **27** names; GWM_USER **32768**.
-   - MSG_IGNORED / MSG_HANDLED residual.
-   - Honesty: `honesty_game_window_residual_deepen_pack_wave106`.
-5. **WindowLayout residual deepen**:
-   - INIT/UPDATE/SHUTDOWN callback residual; layout operation residual table.
-   - Shell layout filename residual table (**≥12** including MainMenu + ControlBar).
-   - WindowLayoutPool name + ctor hide/count residual; hide pure residual.
-   - Honesty: `honesty_window_layout_residual_deepen_pack_wave106`.
-6. **Combined pack**: `honesty_shell_campaign_save_residual_pack_wave106`.
-
-**Wiring:**
-- `game_logic/host_shell_campaign_save_residual_wave106.rs` (new)
-- `game_logic/mod.rs` — module + pub use honesty
-- `shell_smoke.rs` — gamestate106/campaign106/mainmenu106/gamewindow106/layout106
-- `shell_smoke_gate.rs` — require wave106 honesty flags; playable_claim stays false
-
-**Gates:**
-- Unit: residual_pack_honesty_wave106 tests PASS
-- golden_skirmish_gate --frames 8 → playable_claim=true
-- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
-  gamestate106=true campaign106=true mainmenu106=true gamewindow106=true layout106=true
-
-**Not claimed:**
-- Full GameState xferSaveData file I/O / deep CRC network residual
-- Full CampaignManager live INI parse / mission progression residual
-- Full MainMenu.wnd W3D TransitionHandler retail UI residual
-- Full GameWindow GPU draw / WindowManager exclusive residual
-- Full WindowLayout::load .wnd script residual
 - shell playable_claim / network (deferred)
 
 **Honesty rules preserved:**
