@@ -14,6 +14,16 @@
 //!   Primary **200** / (r**5** + geometry) + Secondary **50** / (r**15** + geometry).
 //! - Allies of planter do not trigger detonation (C++ checkAndDetonateBoobyTrap).
 //!
+//! Wave 68 residual pack (retail Weapon.ini / SpecialPower.ini / Upgrade.ini /
+//! WeaponObjects.ini / GLAInfantry.ini honesty):
+//! - Weapon: Primary **200**/r**5**, Secondary **50**/r**15**, DamageType EXPLOSION,
+//!   DeathType EXPLODED; GeometryBasedDamageWeapon/FX residual
+//! - Ability: StartAbilityRange **5**, ReloadTime **7500**ms → **225**f,
+//!   MaxSpecialObjects **100**, SpecialObjectsPersistent **Yes**
+//! - Upgrade: BuildCost **1000**, BuildTime **30**s → **900**f
+//! - Object: Vision/Shroud **25**, MaxHealth **1**, KindOf BOOBY_TRAP NO_COLLIDE MINE,
+//!   Geometry CYLINDER **8**/ **8**, StealthDelay **0**, InnateStealth **Yes**
+//!
 //! Fail-closed honesty:
 //! - Not full SpecialObject BoobyTrap StickyBombUpdate bone attach / stealth matrix
 //! - Not full MaxSpecialObjects=100 list / UniqueSpecialObjectTargets matrix
@@ -25,12 +35,17 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Logic frames per second (host fixed step).
+pub const BOOBY_LOGIC_FPS: f32 = 30.0;
+
 /// Retail Upgrade_GLAInfantryRebelBoobyTrapAttack.
 pub const UPGRADE_GLA_REBEL_BOOBY_TRAP: &str = "Upgrade_GLAInfantryRebelBoobyTrapAttack";
 /// Retail SpecialAbilityBoobyTrap.
 pub const SPECIAL_ABILITY_BOOBY_TRAP: &str = "SpecialAbilityBoobyTrap";
 /// Retail SpecialObject name.
 pub const BOOBY_TRAP_OBJECT: &str = "BoobyTrap";
+/// Retail BoobyTrapDetonationWeapon name residual.
+pub const BOOBY_DETONATION_WEAPON: &str = "BoobyTrapDetonationWeapon";
 
 /// Retail BoobyTrapDetonationWeapon PrimaryDamage.
 pub const BOOBY_PRIMARY_DAMAGE: f32 = 200.0;
@@ -40,17 +55,75 @@ pub const BOOBY_PRIMARY_RADIUS: f32 = 5.0;
 pub const BOOBY_SECONDARY_DAMAGE: f32 = 50.0;
 /// Retail SecondaryDamageRadius (added past bounding circle).
 pub const BOOBY_SECONDARY_RADIUS: f32 = 15.0;
+/// Retail DamageType residual.
+pub const BOOBY_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail DeathType residual.
+pub const BOOBY_DEATH_TYPE: &str = "EXPLODED";
 /// Retail StartAbilityRange.
 pub const BOOBY_START_ABILITY_RANGE: f32 = 5.0;
+/// Retail SpecialPower ReloadTime residual (msec).
+pub const BOOBY_RELOAD_MS: u32 = 7500;
 /// Retail SpecialPower ReloadTime 7500ms → 225 frames @ 30 FPS.
 pub const BOOBY_RELOAD_FRAMES: u32 = 225;
-/// C++ BOOBY_TRAP_SCAN_RANGE residual honesty.
+/// C++ BOOBY_TRAP_SCAN_RANGE residual honesty (Object VisionRange).
 pub const BOOBY_TRAP_SCAN_RANGE: f32 = 25.0;
+/// Retail ShroudClearingRange residual.
+pub const BOOBY_TRAP_SHROUD_CLEARING_RANGE: f32 = 25.0;
+/// Retail MaxSpecialObjects residual.
+pub const BOOBY_MAX_SPECIAL_OBJECTS: u32 = 100;
+/// Retail SpecialObjectsPersistent residual.
+pub const BOOBY_SPECIAL_OBJECTS_PERSISTENT: bool = true;
+/// Retail SpecialObjectsPersistWhenOwnerDies residual.
+pub const BOOBY_SPECIAL_OBJECTS_PERSIST_WHEN_OWNER_DIES: bool = true;
+/// Retail PreparationTime residual (msec).
+pub const BOOBY_PREPARATION_TIME_MS: u32 = 0;
 
-/// Residual plant audio.
+/// Residual plant audio (StickyBombCreated / InitiateSound residual).
 pub const BOOBY_TRAP_INSTALL_AUDIO: &str = "BoobyTrapInstall";
 /// Residual detonation audio / FX residual cue.
 pub const BOOBY_TRAP_DETONATE_AUDIO: &str = "FX_BoobyTrapExplosion";
+/// Retail GeometryBasedDamageWeapon residual.
+pub const BOOBY_GEOMETRY_DAMAGE_WEAPON: &str = "BoobyTrapDetonationWeapon";
+/// Retail GeometryBasedDamageFX residual.
+pub const BOOBY_GEOMETRY_DAMAGE_FX: &str = "FX_BoobyTrapExplosion";
+
+/// Retail Upgrade BuildCost residual.
+pub const BOOBY_UPGRADE_BUILD_COST: u32 = 1000;
+/// Retail Upgrade BuildTime residual (seconds).
+pub const BOOBY_UPGRADE_BUILD_TIME_SEC: f32 = 30.0;
+/// Upgrade BuildTime 30s → 900 frames @ 30 FPS.
+pub const BOOBY_UPGRADE_BUILD_TIME_FRAMES: u32 = 900;
+/// Retail ResearchSound residual.
+pub const BOOBY_UPGRADE_RESEARCH_SOUND: &str = "RebelVoiceUpgradeBoobyTrap";
+/// Retail InitiateSound residual on SpecialAbility.
+pub const BOOBY_INITIATE_SOUND: &str = "RebelVoiceBoobyTrapInstall";
+
+/// Retail BoobyTrap Object MaxHealth residual.
+pub const BOOBY_TRAP_MAX_HEALTH: f32 = 1.0;
+/// Retail KindOf residual tokens.
+pub const BOOBY_TRAP_KIND_OF: &str = "BOOBY_TRAP NO_COLLIDE MINE";
+/// Retail Geometry major radius residual.
+pub const BOOBY_TRAP_GEOMETRY_MAJOR_RADIUS: f32 = 8.0;
+/// Retail Geometry height residual.
+pub const BOOBY_TRAP_GEOMETRY_HEIGHT: f32 = 8.0;
+/// Retail StealthDelay residual (msec).
+pub const BOOBY_TRAP_STEALTH_DELAY_MS: u32 = 0;
+/// Retail InnateStealth residual.
+pub const BOOBY_TRAP_INNATE_STEALTH: bool = true;
+/// Retail FriendlyOpacityMin residual (percent).
+pub const BOOBY_TRAP_FRIENDLY_OPACITY_MIN_PERCENT: f32 = 50.0;
+/// Retail Physics Mass residual.
+pub const BOOBY_TRAP_PHYSICS_MASS: f32 = 5.0;
+/// Retail SpecialPower Enum residual.
+pub const BOOBY_SPECIAL_ENUM: &str = "SPECIAL_BOOBY_TRAP";
+
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+pub fn booby_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / BOOBY_LOGIC_FPS)).round() as u32
+}
 
 /// Active residual plant on a structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,6 +326,66 @@ pub fn in_plant_range(
     dist <= BOOBY_START_ABILITY_RANGE + planter_radius + target_radius
 }
 
+
+// --- Wave 68 residual honesty packs ---
+
+pub fn honesty_booby_trap_weapon_residual_ok() -> bool {
+    BOOBY_DETONATION_WEAPON == "BoobyTrapDetonationWeapon"
+        && (BOOBY_PRIMARY_DAMAGE - 200.0).abs() < 0.01
+        && (BOOBY_PRIMARY_RADIUS - 5.0).abs() < 0.01
+        && (BOOBY_SECONDARY_DAMAGE - 50.0).abs() < 0.01
+        && (BOOBY_SECONDARY_RADIUS - 15.0).abs() < 0.01
+        && BOOBY_DAMAGE_TYPE == "EXPLOSION"
+        && BOOBY_DEATH_TYPE == "EXPLODED"
+        && BOOBY_GEOMETRY_DAMAGE_WEAPON == "BoobyTrapDetonationWeapon"
+        && BOOBY_GEOMETRY_DAMAGE_FX == "FX_BoobyTrapExplosion"
+        && BOOBY_TRAP_DETONATE_AUDIO == "FX_BoobyTrapExplosion"
+}
+
+pub fn honesty_booby_trap_ability_residual_ok() -> bool {
+    SPECIAL_ABILITY_BOOBY_TRAP == "SpecialAbilityBoobyTrap"
+        && BOOBY_TRAP_OBJECT == "BoobyTrap"
+        && (BOOBY_START_ABILITY_RANGE - 5.0).abs() < 0.01
+        && BOOBY_RELOAD_MS == 7500
+        && BOOBY_RELOAD_FRAMES == booby_ms_to_frames(BOOBY_RELOAD_MS)
+        && BOOBY_MAX_SPECIAL_OBJECTS == 100
+        && BOOBY_SPECIAL_OBJECTS_PERSISTENT
+        && BOOBY_SPECIAL_OBJECTS_PERSIST_WHEN_OWNER_DIES
+        && BOOBY_PREPARATION_TIME_MS == 0
+        && BOOBY_SPECIAL_ENUM == "SPECIAL_BOOBY_TRAP"
+        && BOOBY_INITIATE_SOUND == "RebelVoiceBoobyTrapInstall"
+        && BOOBY_TRAP_INSTALL_AUDIO == "BoobyTrapInstall"
+}
+
+pub fn honesty_booby_trap_upgrade_residual_ok() -> bool {
+    UPGRADE_GLA_REBEL_BOOBY_TRAP == "Upgrade_GLAInfantryRebelBoobyTrapAttack"
+        && BOOBY_UPGRADE_BUILD_COST == 1000
+        && (BOOBY_UPGRADE_BUILD_TIME_SEC - 30.0).abs() < 0.01
+        && BOOBY_UPGRADE_BUILD_TIME_FRAMES
+            == (BOOBY_UPGRADE_BUILD_TIME_SEC * BOOBY_LOGIC_FPS).round() as u32
+        && BOOBY_UPGRADE_RESEARCH_SOUND == "RebelVoiceUpgradeBoobyTrap"
+}
+
+pub fn honesty_booby_trap_object_residual_ok() -> bool {
+    (BOOBY_TRAP_SCAN_RANGE - 25.0).abs() < 0.01
+        && (BOOBY_TRAP_SHROUD_CLEARING_RANGE - 25.0).abs() < 0.01
+        && (BOOBY_TRAP_MAX_HEALTH - 1.0).abs() < 0.01
+        && BOOBY_TRAP_KIND_OF == "BOOBY_TRAP NO_COLLIDE MINE"
+        && (BOOBY_TRAP_GEOMETRY_MAJOR_RADIUS - 8.0).abs() < 0.01
+        && (BOOBY_TRAP_GEOMETRY_HEIGHT - 8.0).abs() < 0.01
+        && BOOBY_TRAP_STEALTH_DELAY_MS == 0
+        && BOOBY_TRAP_INNATE_STEALTH
+        && (BOOBY_TRAP_FRIENDLY_OPACITY_MIN_PERCENT - 50.0).abs() < 0.01
+        && (BOOBY_TRAP_PHYSICS_MASS - 5.0).abs() < 0.01
+}
+
+pub fn honesty_booby_trap_residual_pack_ok() -> bool {
+    honesty_booby_trap_weapon_residual_ok()
+        && honesty_booby_trap_ability_residual_ok()
+        && honesty_booby_trap_upgrade_residual_ok()
+        && honesty_booby_trap_object_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,5 +428,16 @@ mod tests {
         reg.record_detonation(3, true, false);
         assert!(reg.honesty_detonate_ok());
         assert_eq!(reg.capture_triggers, 1);
+    }
+
+    #[test]
+    fn booby_trap_residual_pack_honesty() {
+        assert_eq!(booby_ms_to_frames(7500), 225);
+        assert_eq!(booby_ms_to_frames(0), 0);
+        assert!(honesty_booby_trap_weapon_residual_ok());
+        assert!(honesty_booby_trap_ability_residual_ok());
+        assert!(honesty_booby_trap_upgrade_residual_ok());
+        assert!(honesty_booby_trap_object_residual_ok());
+        assert!(honesty_booby_trap_residual_pack_ok());
     }
 }

@@ -31,6 +31,13 @@
 //! - DisplayString computeExtents residual empty/no-font → 0,0 honesty
 //! - DisplayString hotkey Build_Sentence residual (`&` letter position extract)
 //!
+//! Wave 68 residual closed (host-testable, fail-closed vs GPU):
+//! - DisplayStringManager free-resource residual: `update` walks up to **10**
+//!   strings per frame from `m_currentCheckpoint`, frees render resources when
+//!   `currFrame - m_lastResourceFrame > 60` (w3dCleanupTime), zeros last frame,
+//!   marks text dirty, advances checkpoint (C++ W3DDisplayStringManager::update)
+//! - freeDisplayString residual clears checkpoint when freed id matches
+//!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
 //! - Full multi-locale CSF/STR Unicode GameText table load at boot
@@ -501,9 +508,19 @@ pub fn honesty_display_string_draw(
 /// Host residual DisplayStringManager doubly-linked list node id.
 pub type DisplayStringNodeId = u32;
 
-/// Host residual DisplayStringManager link/unlink factory list.
+/// C++ `W3DDisplayStringManager::update` cleanup window residual (frames).
+pub const W3D_DISPLAY_STRING_CLEANUP_FRAMES: u32 = 60;
+/// C++ update batch residual: process at most this many strings per update call.
+pub const W3D_DISPLAY_STRING_UPDATE_BATCH: u32 = 10;
+/// C++ MAX_GROUPS residual (standard build, without KRIS_BRUTAL_HACK).
+pub const W3D_DISPLAY_STRING_MAX_GROUPS: u32 = 10;
+
+/// Host residual DisplayStringManager link/unlink factory list + free-resource pool.
 ///
 /// C++ `DisplayStringManager::link` inserts at head; `unLink` removes from list.
+/// C++ `W3DDisplayStringManager::update` free-resource residual reclaims stale
+/// render data (not a free-list of DisplayString instances — freeDisplayString
+/// deletes; this residual tracks resource reclaim + checkpoint walk).
 /// Fail-closed: not full W3DDisplayStringManager GPU string pool.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DisplayStringManagerResidual {
@@ -513,6 +530,25 @@ pub struct DisplayStringManagerResidual {
     pub next: std::collections::HashMap<DisplayStringNodeId, Option<DisplayStringNodeId>>,
     /// prev residual per node id.
     pub prev: std::collections::HashMap<DisplayStringNodeId, Option<DisplayStringNodeId>>,
+    /// C++ `m_lastResourceFrame` residual per node (0 = not using resources).
+    pub last_resource_frame: std::collections::HashMap<DisplayStringNodeId, u32>,
+    /// C++ `m_textChanged` residual when resources reclaimed.
+    pub text_changed: std::collections::HashMap<DisplayStringNodeId, bool>,
+    /// C++ `m_currentCheckpoint` residual for incremental free-resource walk.
+    pub current_checkpoint: Option<DisplayStringNodeId>,
+    /// Count of free-resource reclaim residual applications (honesty).
+    pub resources_freed_total: u32,
+    /// Next id residual for newDisplayString.
+    next_id: DisplayStringNodeId,
+}
+
+/// Result of one free-resource update residual pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DisplayStringFreePoolUpdateResidual {
+    /// Strings examined this pass (≤ UPDATE_BATCH).
+    pub examined: u32,
+    /// Strings that had render resources reclaimed.
+    pub freed: u32,
 }
 
 impl DisplayStringManagerResidual {
@@ -547,6 +583,58 @@ impl DisplayStringManagerResidual {
         self.prev.remove(&id);
     }
 
+    /// C++ `W3DDisplayStringManager::newDisplayString` residual: allocate + link.
+    pub fn new_display_string(&mut self) -> DisplayStringNodeId {
+        let id = self.next_id.saturating_add(1).max(1);
+        self.next_id = id;
+        self.link(id);
+        self.last_resource_frame.insert(id, 0);
+        self.text_changed.insert(id, false);
+        id
+    }
+
+    /// C++ `W3DDisplayStringManager::freeDisplayString` residual.
+    pub fn free_display_string(&mut self, id: DisplayStringNodeId) {
+        if self.current_checkpoint == Some(id) {
+            self.current_checkpoint = None;
+        }
+        self.unlink(id);
+        self.last_resource_frame.remove(&id);
+        self.text_changed.remove(&id);
+    }
+
+    /// Stamp usingResources residual after a successful draw.
+    pub fn using_resources(&mut self, id: DisplayStringNodeId, frame: u32) {
+        if self.next.contains_key(&id) || self.head == Some(id) || self.last_resource_frame.contains_key(&id) {
+            self.last_resource_frame.insert(id, frame);
+        }
+    }
+
+    /// C++ `W3DDisplayStringManager::update` free-resource residual.
+    pub fn update_free_pool(&mut self, curr_frame: u32) -> DisplayStringFreePoolUpdateResidual {
+        let mut string = self.current_checkpoint.or(self.head);
+        let mut examined = 0u32;
+        let mut freed = 0u32;
+        let mut remaining = W3D_DISPLAY_STRING_UPDATE_BATCH;
+        while remaining > 0 {
+            let Some(id) = string else {
+                break;
+            };
+            remaining = remaining.saturating_sub(1);
+            examined = examined.saturating_add(1);
+            let last = self.last_resource_frame.get(&id).copied().unwrap_or(0);
+            if last != 0 && curr_frame.saturating_sub(last) > W3D_DISPLAY_STRING_CLEANUP_FRAMES {
+                self.last_resource_frame.insert(id, 0);
+                self.text_changed.insert(id, true);
+                freed = freed.saturating_add(1);
+                self.resources_freed_total = self.resources_freed_total.saturating_add(1);
+            }
+            string = self.next.get(&id).copied().flatten();
+        }
+        self.current_checkpoint = string;
+        DisplayStringFreePoolUpdateResidual { examined, freed }
+    }
+
     pub fn len(&self) -> usize {
         self.next.len()
     }
@@ -554,6 +642,77 @@ impl DisplayStringManagerResidual {
     pub fn is_empty(&self) -> bool {
         self.head.is_none() && self.next.is_empty()
     }
+}
+
+
+/// Honesty: DisplayStringManager free-resource pool residual (Wave 68).
+pub fn honesty_display_string_manager_free_pool() -> bool {
+    if W3D_DISPLAY_STRING_CLEANUP_FRAMES != 60 {
+        return false;
+    }
+    if W3D_DISPLAY_STRING_UPDATE_BATCH != 10 {
+        return false;
+    }
+    if W3D_DISPLAY_STRING_MAX_GROUPS != 10 {
+        return false;
+    }
+
+    let mut m = DisplayStringManagerResidual::new();
+    let mut ids = Vec::new();
+    for _ in 0..12 {
+        ids.push(m.new_display_string());
+    }
+    if m.len() != 12 {
+        return false;
+    }
+    // Stamp at frame 1 (C++ treats lastResourceFrame==0 as unused).
+    for &id in &ids {
+        m.using_resources(id, 1);
+    }
+    // Not yet stale at frame 61 (delta 60, needs > 60).
+    let r0 = m.update_free_pool(61);
+    if r0.freed != 0 || r0.examined != 10 {
+        return false;
+    }
+    let r1 = m.update_free_pool(61);
+    if r1.examined != 2 || r1.freed != 0 {
+        return false;
+    }
+    // Stale at frame 62.
+    m.current_checkpoint = None;
+    for &id in &ids {
+        m.using_resources(id, 1);
+        m.text_changed.insert(id, false);
+    }
+    let r2 = m.update_free_pool(62);
+    if r2.freed != 10 || r2.examined != 10 {
+        return false;
+    }
+    let mut freed_ok = 0u32;
+    for &id in &ids {
+        if m.last_resource_frame.get(&id).copied() == Some(0)
+            && m.text_changed.get(&id).copied() == Some(true)
+        {
+            freed_ok = freed_ok.saturating_add(1);
+        }
+    }
+    if freed_ok < 10 {
+        return false;
+    }
+    let r3 = m.update_free_pool(62);
+    if r3.freed != 2 {
+        return false;
+    }
+    let last = ids[0];
+    m.current_checkpoint = Some(last);
+    m.free_display_string(last);
+    if m.current_checkpoint.is_some() {
+        return false;
+    }
+    if m.len() != 11 {
+        return false;
+    }
+    m.resources_freed_total >= 12
 }
 
 /// Honesty: DisplayStringManager link/unlink residual matches C++ head-insert list.
@@ -1387,6 +1546,33 @@ mod tests {
         assert_eq!(m.head, Some(10));
         m.unlink(10);
         assert!(m.is_empty());
+    }
+
+    #[test]
+    fn display_string_manager_free_pool_residual_honesty() {
+        assert!(honesty_display_string_manager_free_pool());
+        assert_eq!(W3D_DISPLAY_STRING_CLEANUP_FRAMES, 60);
+        assert_eq!(W3D_DISPLAY_STRING_UPDATE_BATCH, 10);
+        assert_eq!(W3D_DISPLAY_STRING_MAX_GROUPS, 10);
+
+        let mut m = DisplayStringManagerResidual::new();
+        let a = m.new_display_string();
+        let b = m.new_display_string();
+        assert_eq!(m.head, Some(b));
+        m.using_resources(a, 10);
+        m.using_resources(b, 10);
+        let r = m.update_free_pool(70);
+        assert_eq!(r.examined, 2);
+        assert_eq!(r.freed, 0);
+        m.current_checkpoint = None;
+        let r = m.update_free_pool(71);
+        assert_eq!(r.freed, 2);
+        assert_eq!(m.last_resource_frame.get(&a).copied(), Some(0));
+        assert_eq!(m.text_changed.get(&b).copied(), Some(true));
+        m.current_checkpoint = Some(a);
+        m.free_display_string(a);
+        assert!(m.current_checkpoint.is_none());
+        assert_eq!(m.len(), 1);
     }
 
     #[test]

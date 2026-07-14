@@ -12,6 +12,16 @@
 //! Residual STEALTHED local-player display gate (AutoDepositUpdate shared):
 //! - If STEALTHED && !isLocallyControlled && !DETECTED → hide floating cash text.
 //!
+//! Wave 68 residual pack (retail FactionBuilding.ini GLABlackMarket honesty):
+//! - AutoDeposit: DepositAmount **20**, DepositTiming **2000**ms → **60**f,
+//!   InitialCaptureBonus **0**, no SupplyLines UpgradedBoost
+//! - Body: MaxHealth **1000**, BuildCost **2500**, BuildTime **30**s → **900**f,
+//!   Vision/Shroud **200**, EnergyProduction **0**, Prerequisite GLAPalace
+//! - Geometry BOX **35**/ **35**/ **35**; Hole GLAHoleBlackMarket **500** hp
+//! - Flammable: AflameDuration **5000**ms → **150**f, Damage **5** /
+//!   Delay **500**ms → **15**f; death FX FX_StructureSmallDeath
+//! - KindOf residual FS_BLACK_MARKET + FortifiedStructure armor upgrade residual
+//!
 //! Fail-closed honesty:
 //! - Not full InGameUI::addFloatingText GPU draw / Unicode GameText localization
 //! - Not full InitialCaptureBonus (retail = 0) / UpgradedBoost (none in GLABlackMarket)
@@ -50,12 +60,64 @@ pub const BLACK_MARKET_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
 /// Residual floating text alpha (C++ GameMakeColor(0,0,0,230) OR'd onto player color).
 pub const BLACK_MARKET_FLOATING_TEXT_ALPHA: u8 = 230;
 
-/// Convert deposit timing milliseconds to logic frames (30 FPS residual).
-pub fn deposit_interval_frames_from_ms(ms: u32) -> u32 {
+/// Retail InitialCaptureBonus residual (0 for GLABlackMarket).
+pub const BLACK_MARKET_INITIAL_CAPTURE_BONUS: u32 = 0;
+/// Retail MaxHealth residual.
+pub const BLACK_MARKET_MAX_HEALTH: f32 = 1000.0;
+/// Retail BuildCost residual.
+pub const BLACK_MARKET_BUILD_COST: u32 = 2500;
+/// Retail BuildTime residual (seconds).
+pub const BLACK_MARKET_BUILD_TIME_SEC: f32 = 30.0;
+/// BuildTime 30s → 900 frames @ 30 FPS.
+pub const BLACK_MARKET_BUILD_TIME_FRAMES: u32 = 900;
+/// Retail VisionRange residual.
+pub const BLACK_MARKET_VISION_RANGE: f32 = 200.0;
+/// Retail ShroudClearingRange residual.
+pub const BLACK_MARKET_SHROUD_CLEARING_RANGE: f32 = 200.0;
+/// Retail EnergyProduction residual.
+pub const BLACK_MARKET_ENERGY_PRODUCTION: i32 = 0;
+/// Retail prerequisite residual.
+pub const BLACK_MARKET_PREREQUISITE: &str = "GLAPalace";
+/// Retail KindOf FS_BLACK_MARKET token residual.
+pub const BLACK_MARKET_KIND_OF_FS: &str = "FS_BLACK_MARKET";
+/// Retail Geometry major radius residual.
+pub const BLACK_MARKET_GEOMETRY_MAJOR_RADIUS: f32 = 35.0;
+/// Retail Geometry minor radius residual.
+pub const BLACK_MARKET_GEOMETRY_MINOR_RADIUS: f32 = 35.0;
+/// Retail Geometry height residual.
+pub const BLACK_MARKET_GEOMETRY_HEIGHT: f32 = 35.0;
+/// Retail RebuildHoleExposeDie HoleName residual.
+pub const BLACK_MARKET_HOLE_NAME: &str = "GLAHoleBlackMarket";
+/// Retail HoleMaxHealth residual.
+pub const BLACK_MARKET_HOLE_MAX_HEALTH: f32 = 500.0;
+/// Retail ArmorUpgrade trigger residual.
+pub const BLACK_MARKET_FORTIFIED_UPGRADE: &str = "Upgrade_GLAFortifiedStructure";
+/// Retail AflameDuration residual (msec).
+pub const BLACK_MARKET_AFLAME_DURATION_MS: u32 = 5000;
+/// AflameDuration 5000ms → 150 frames @ 30 FPS.
+pub const BLACK_MARKET_AFLAME_DURATION_FRAMES: u32 = 150;
+/// Retail AflameDamageAmount residual.
+pub const BLACK_MARKET_AFLAME_DAMAGE_AMOUNT: f32 = 5.0;
+/// Retail AflameDamageDelay residual (msec).
+pub const BLACK_MARKET_AFLAME_DAMAGE_DELAY_MS: u32 = 500;
+/// AflameDamageDelay 500ms → 15 frames @ 30 FPS.
+pub const BLACK_MARKET_AFLAME_DAMAGE_DELAY_FRAMES: u32 = 15;
+/// Retail FXListDie death FX residual.
+pub const BLACK_MARKET_DEATH_FX: &str = "FX_StructureSmallDeath";
+/// Retail CommandSet residual.
+pub const BLACK_MARKET_COMMAND_SET: &str = "GLABlackMarketCommandSet";
+
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+pub fn black_market_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
         return 0;
     }
     ((ms as f32) / (1000.0 / BLACK_MARKET_LOGIC_FPS)).round() as u32
+}
+
+/// Convert deposit timing milliseconds to logic frames (30 FPS residual).
+pub fn deposit_interval_frames_from_ms(ms: u32) -> u32 {
+    black_market_ms_to_frames(ms)
 }
 
 /// True when a template is a residual real black market (not fake/display-only).
@@ -226,6 +288,66 @@ impl HostBlackMarketRegistry {
     }
 }
 
+
+// --- Wave 68 residual honesty packs ---
+
+pub fn honesty_black_market_deposit_residual_ok() -> bool {
+    BLACK_MARKET_DEPOSIT_AMOUNT == 20
+        && BLACK_MARKET_DEPOSIT_TIMING_MS == 2000
+        && BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES
+            == black_market_ms_to_frames(BLACK_MARKET_DEPOSIT_TIMING_MS)
+        && BLACK_MARKET_INITIAL_CAPTURE_BONUS == 0
+        && BLACK_MARKET_DEPOSIT_AUDIO == "BlackMarketDeposit"
+}
+
+pub fn honesty_black_market_body_residual_ok() -> bool {
+    (BLACK_MARKET_MAX_HEALTH - 1000.0).abs() < 0.01
+        && BLACK_MARKET_BUILD_COST == 2500
+        && (BLACK_MARKET_BUILD_TIME_SEC - 30.0).abs() < 0.01
+        && BLACK_MARKET_BUILD_TIME_FRAMES
+            == (BLACK_MARKET_BUILD_TIME_SEC * BLACK_MARKET_LOGIC_FPS).round() as u32
+        && (BLACK_MARKET_VISION_RANGE - 200.0).abs() < 0.01
+        && (BLACK_MARKET_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
+        && BLACK_MARKET_ENERGY_PRODUCTION == 0
+        && BLACK_MARKET_PREREQUISITE == "GLAPalace"
+        && BLACK_MARKET_KIND_OF_FS == "FS_BLACK_MARKET"
+        && BLACK_MARKET_COMMAND_SET == "GLABlackMarketCommandSet"
+        && is_black_market_template("GLABlackMarket")
+        && !is_black_market_template("FakeGLABlackMarket")
+}
+
+pub fn honesty_black_market_geometry_hole_residual_ok() -> bool {
+    (BLACK_MARKET_GEOMETRY_MAJOR_RADIUS - 35.0).abs() < 0.01
+        && (BLACK_MARKET_GEOMETRY_MINOR_RADIUS - 35.0).abs() < 0.01
+        && (BLACK_MARKET_GEOMETRY_HEIGHT - 35.0).abs() < 0.01
+        && BLACK_MARKET_HOLE_NAME == "GLAHoleBlackMarket"
+        && (BLACK_MARKET_HOLE_MAX_HEALTH - 500.0).abs() < 0.01
+        && BLACK_MARKET_FORTIFIED_UPGRADE == "Upgrade_GLAFortifiedStructure"
+}
+
+pub fn honesty_black_market_floating_text_residual_ok() -> bool {
+    HostBlackMarketRegistry::honesty_floating_text_constants_ok()
+}
+
+pub fn honesty_black_market_flammable_death_residual_ok() -> bool {
+    BLACK_MARKET_AFLAME_DURATION_MS == 5000
+        && BLACK_MARKET_AFLAME_DURATION_FRAMES
+            == black_market_ms_to_frames(BLACK_MARKET_AFLAME_DURATION_MS)
+        && (BLACK_MARKET_AFLAME_DAMAGE_AMOUNT - 5.0).abs() < 0.01
+        && BLACK_MARKET_AFLAME_DAMAGE_DELAY_MS == 500
+        && BLACK_MARKET_AFLAME_DAMAGE_DELAY_FRAMES
+            == black_market_ms_to_frames(BLACK_MARKET_AFLAME_DAMAGE_DELAY_MS)
+        && BLACK_MARKET_DEATH_FX == "FX_StructureSmallDeath"
+}
+
+pub fn honesty_black_market_residual_pack_ok() -> bool {
+    honesty_black_market_deposit_residual_ok()
+        && honesty_black_market_body_residual_ok()
+        && honesty_black_market_geometry_hole_residual_ok()
+        && honesty_black_market_floating_text_residual_ok()
+        && honesty_black_market_flammable_death_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +410,18 @@ mod tests {
         assert_eq!(ft.color_rgba.3, 230);
         reg.record_floating_text(ft);
         assert!(reg.honesty_floating_text_ok());
+    }
+
+    #[test]
+    fn black_market_residual_pack_honesty() {
+        assert_eq!(black_market_ms_to_frames(2000), 60);
+        assert_eq!(black_market_ms_to_frames(5000), 150);
+        assert_eq!(black_market_ms_to_frames(500), 15);
+        assert!(honesty_black_market_deposit_residual_ok());
+        assert!(honesty_black_market_body_residual_ok());
+        assert!(honesty_black_market_geometry_hole_residual_ok());
+        assert!(honesty_black_market_floating_text_residual_ok());
+        assert!(honesty_black_market_flammable_death_residual_ok());
+        assert!(honesty_black_market_residual_pack_ok());
     }
 }

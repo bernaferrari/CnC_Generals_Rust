@@ -28,6 +28,11 @@
 //! - OuterBeamWidth multi-beam residual pack honesty (NumBeams 12 / Outer 26 /
 //!   Inner 0.6 / ScrollRate -1.75 / TilingScalar 0.15 / Tile Yes / colors)
 //!
+//! Wave 68 residual closed (host-testable, fail-closed vs GPU):
+//! - MaxIntensityLifetime parseDuration residual: omitted → **0** frames;
+//!   retail commented sample **2000**ms → **60**f when field is set
+//! - FadeLifetime sample residual: commented **0** / **250**ms peel honesty
+//!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
 //! - Texture atlas GPU sample bind / sampler state
@@ -78,6 +83,18 @@ pub const ORBITAL_LASER_FADE_FRAMES: u32 = 0;
 pub const CONNECTOR_LASER_MAX_INTENSITY_FRAMES: u32 = 0;
 /// Retail connector FadeLifetime residual default (omitted → 0).
 pub const CONNECTOR_LASER_FADE_FRAMES: u32 = 0;
+/// Logic frames per second residual for MaxIntensityLifetime parseDuration.
+pub const LASER_LOGIC_FPS: f32 = 30.0;
+/// Retail commented MaxIntensityLifetime sample residual (msec) seen in INI.
+pub const LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS: u32 = 2000;
+/// Commented MaxIntensityLifetime 2000ms → 60 frames @ 30 FPS.
+pub const LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES: u32 = 60;
+/// Retail commented FadeLifetime sample residual (msec) for some laser draws.
+pub const LASER_COMMENTED_FADE_LIFETIME_MS: u32 = 250;
+/// Commented FadeLifetime 250ms → 8 frames @ 30 FPS (round residual).
+pub const LASER_COMMENTED_FADE_LIFETIME_FRAMES: u32 = 8;
+/// Retail commented FadeLifetime alternate sample residual (0 = no fade).
+pub const LASER_COMMENTED_FADE_LIFETIME_ZERO_MS: u32 = 0;
 /// Retail connector Tile residual (omitted → No).
 pub const CONNECTOR_LASER_TILE: bool = false;
 /// Retail connector Segments residual default (omitted → 1).
@@ -93,6 +110,33 @@ pub const ORBITAL_LASER_SOFTNESS_DISTANCE: f32 = 0.0;
 pub const ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD: bool = false;
 /// Honesty: SoftnessDistance is not a W3DLaserDraw field (always absent).
 pub const ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD: bool = false;
+
+/// Convert residual MaxIntensityLifetime / FadeLifetime milliseconds → frames.
+pub fn laser_duration_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / LASER_LOGIC_FPS)).round() as u32
+}
+
+/// Wave 68 residual honesty: MaxIntensityLifetime parseDuration residual.
+pub fn honesty_laser_max_intensity_duration_residual() -> bool {
+    ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
+        && ORBITAL_LASER_FADE_FRAMES == 0
+        && CONNECTOR_LASER_MAX_INTENSITY_FRAMES == 0
+        && CONNECTOR_LASER_FADE_FRAMES == 0
+        && laser_duration_ms_to_frames(0) == 0
+        && LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS == 2000
+        && LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES
+            == laser_duration_ms_to_frames(LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS)
+        && LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES == 60
+        && LASER_COMMENTED_FADE_LIFETIME_MS == 250
+        && LASER_COMMENTED_FADE_LIFETIME_FRAMES
+            == laser_duration_ms_to_frames(LASER_COMMENTED_FADE_LIFETIME_MS)
+        && LASER_COMMENTED_FADE_LIFETIME_ZERO_MS == 0
+        && laser_duration_ms_to_frames(LASER_COMMENTED_FADE_LIFETIME_ZERO_MS) == 0
+        && honesty_connector_laser_defaults()
+}
 
 /// Honesty: connector W3DLaserDraw omitted-field defaults residual.
 ///
@@ -958,4 +1002,18 @@ mod tests {
         assert!(honesty_orbital_multi_beam_layers(&layers));
     }
 
+
+    #[test]
+    fn laser_max_intensity_duration_residual_honesty() {
+        assert!(honesty_laser_max_intensity_duration_residual());
+        assert_eq!(laser_duration_ms_to_frames(0), 0);
+        assert_eq!(laser_duration_ms_to_frames(2000), 60);
+        assert_eq!(laser_duration_ms_to_frames(250), 8);
+        assert_eq!(LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS, 2000);
+        assert_eq!(LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES, 60);
+        assert_eq!(LASER_COMMENTED_FADE_LIFETIME_MS, 250);
+        assert_eq!(LASER_COMMENTED_FADE_LIFETIME_FRAMES, 8);
+        assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
+        assert_eq!(CONNECTOR_LASER_MAX_INTENSITY_FRAMES, 0);
+    }
 }

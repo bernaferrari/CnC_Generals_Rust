@@ -21,6 +21,11 @@
 //! - MoneyPickUp RandomizeStartFrame = No residual
 //! - `getCurrentFrameWidth`/`Height` monospaced placeholder size residual
 //!
+//! Wave 68 residual closed (host-testable, fail-closed vs GPU):
+//! - Animation2D.ini template count residual (**14** retail templates)
+//! - MoneyPickUp Image list residual (`SCPDollar000`..`SCPDollar030`, **31** names)
+//!   stored on Anim2DTemplate residual; `NumberImages` must match list length
+//!
 //! Still residual:
 //! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
 //! - WORLD_ANIM_FADE_ON_EXPIRE live Display surface blend
@@ -50,6 +55,59 @@ pub const MONEY_PICKUP_FRAMES_BETWEEN_UPDATES: u32 = 1;
 pub const MONEY_PICKUP_ANIM_MODE_LOOP: bool = true;
 /// Retail RandomizeStartFrame residual (No).
 pub const MONEY_PICKUP_RANDOMIZE_START_FRAME: bool = false;
+/// Retail Animation2D.ini template count residual (Animation blocks).
+pub const ANIM2D_INI_TEMPLATE_COUNT: u32 = 14;
+/// Retail MoneyPickUp Image list residual (`SCPDollar000`..`SCPDollar030`).
+pub const MONEY_PICKUP_IMAGE_LIST: [&str; 31] = [
+    "SCPDollar000",
+    "SCPDollar001",
+    "SCPDollar002",
+    "SCPDollar003",
+    "SCPDollar004",
+    "SCPDollar005",
+    "SCPDollar006",
+    "SCPDollar007",
+    "SCPDollar008",
+    "SCPDollar009",
+    "SCPDollar010",
+    "SCPDollar011",
+    "SCPDollar012",
+    "SCPDollar013",
+    "SCPDollar014",
+    "SCPDollar015",
+    "SCPDollar016",
+    "SCPDollar017",
+    "SCPDollar018",
+    "SCPDollar019",
+    "SCPDollar020",
+    "SCPDollar021",
+    "SCPDollar022",
+    "SCPDollar023",
+    "SCPDollar024",
+    "SCPDollar025",
+    "SCPDollar026",
+    "SCPDollar027",
+    "SCPDollar028",
+    "SCPDollar029",
+    "SCPDollar030",
+];
+/// Retail Animation2D.ini template name table residual (order as in INI).
+pub const ANIM2D_INI_TEMPLATE_NAMES: [&str; 14] = [
+    "DefaultHeal",
+    "StructureHeal",
+    "VehicleHeal",
+    "MoneyPickUp",
+    "LevelGainedAnimation",
+    "GetHealedAnimation",
+    "BombTimed",
+    "BombRemote",
+    "CarBomb",
+    "Disabled",
+    "AmmoFull",
+    "AmmoEmpty",
+    "Enthusiastic",
+    "Subliminal",
+];
 
 /// C++ `Anim2DMode` residual (Anim2D.h discriminants; keep order).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -234,13 +292,65 @@ pub fn honesty_money_pickup_image_sequence() -> bool {
     if MONEY_PICKUP_NUM_FRAMES != 31 {
         return false;
     }
+    if MONEY_PICKUP_IMAGE_LIST.len() as u16 != MONEY_PICKUP_NUM_FRAMES {
+        return false;
+    }
     for frame in 0..MONEY_PICKUP_NUM_FRAMES {
         let name = money_pickup_frame_image_name(frame);
         if name != format!("{MONEY_PICKUP_IMAGE_PREFIX}{frame:03}") {
             return false;
         }
+        if MONEY_PICKUP_IMAGE_LIST[frame as usize] != name {
+            return false;
+        }
     }
     !MONEY_PICKUP_RANDOMIZE_START_FRAME && MONEY_PICKUP_ANIM_MODE_LOOP
+}
+
+/// Wave 68 residual honesty: Animation2D.ini template count + MoneyPickUp images list.
+pub fn honesty_anim2d_ini_template_count_and_money_pickup_images() -> bool {
+    if ANIM2D_INI_TEMPLATE_COUNT != 14 {
+        return false;
+    }
+    if ANIM2D_INI_TEMPLATE_NAMES.len() as u32 != ANIM2D_INI_TEMPLATE_COUNT {
+        return false;
+    }
+    if ANIM2D_INI_TEMPLATE_NAMES[3] != "MoneyPickUp" {
+        return false;
+    }
+    if MONEY_PICKUP_IMAGE_LIST.len() as u16 != MONEY_PICKUP_NUM_FRAMES {
+        return false;
+    }
+    if !honesty_money_pickup_image_sequence() {
+        return false;
+    }
+    let mut col = Anim2DCollectionResidual::new();
+    col.init();
+    for name in ANIM2D_INI_TEMPLATE_NAMES {
+        col.new_template(name);
+    }
+    if col.template_count() as u32 != ANIM2D_INI_TEMPLATE_COUNT {
+        return false;
+    }
+    let Some(money_id) = col.find_template("MoneyPickUp") else {
+        return false;
+    };
+    let Some(t) = col.templates.get(&money_id) else {
+        return false;
+    };
+    if t.num_frames != MONEY_PICKUP_NUM_FRAMES {
+        return false;
+    }
+    if t.images.len() as u16 != MONEY_PICKUP_NUM_FRAMES {
+        return false;
+    }
+    if t.images.first().map(String::as_str) != Some("SCPDollar000") {
+        return false;
+    }
+    if t.images.last().map(String::as_str) != Some("SCPDollar030") {
+        return false;
+    }
+    true
 }
 
 /// Residual Anim2D animation mode discriminants (C++ `Anim2DMode` order).
@@ -459,6 +569,8 @@ pub struct Anim2DTemplateResidual {
     /// MoneyPickUp RandomizeStartFrame residual (No for retail MoneyPickUp).
     pub randomize_start_frame: bool,
     pub num_frames: u16,
+    /// Wave 68: Image list residual (`SCPDollar000`.. for MoneyPickUp).
+    pub images: Vec<String>,
 }
 
 /// Host residual Anim2D instance entry for collection update residual.
@@ -522,10 +634,16 @@ impl Anim2DCollectionResidual {
         } else {
             false
         };
-        let num_frames = if name == "MoneyPickUp" {
-            MONEY_PICKUP_NUM_FRAMES
+        let (num_frames, images) = if name == "MoneyPickUp" {
+            (
+                MONEY_PICKUP_NUM_FRAMES,
+                MONEY_PICKUP_IMAGE_LIST
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect(),
+            )
         } else {
-            1
+            (1, Vec::new())
         };
         self.templates.insert(
             id,
@@ -534,6 +652,7 @@ impl Anim2DCollectionResidual {
                 name: name.to_string(),
                 randomize_start_frame: randomize,
                 num_frames,
+                images,
             },
         );
         // Head-insert.
@@ -1180,5 +1299,27 @@ mod tests {
         assert_eq!(col.instance_head, Some(a));
         col.unregister_animation(a);
         assert!(col.instance_head.is_none());
+    }
+
+    #[test]
+    fn anim2d_ini_template_count_and_money_pickup_images_residual() {
+        assert!(honesty_anim2d_ini_template_count_and_money_pickup_images());
+        assert_eq!(ANIM2D_INI_TEMPLATE_COUNT, 14);
+        assert_eq!(ANIM2D_INI_TEMPLATE_NAMES.len(), 14);
+        assert_eq!(ANIM2D_INI_TEMPLATE_NAMES[3], "MoneyPickUp");
+        assert_eq!(MONEY_PICKUP_IMAGE_LIST.len() as u16, MONEY_PICKUP_NUM_FRAMES);
+
+        let mut col = Anim2DCollectionResidual::new();
+        col.init();
+        for name in ANIM2D_INI_TEMPLATE_NAMES {
+            col.new_template(name);
+        }
+        assert_eq!(col.template_count(), 14);
+        let money = col.find_template("MoneyPickUp").expect("MoneyPickUp");
+        let t = &col.templates[&money];
+        assert_eq!(t.num_frames, 31);
+        assert_eq!(t.images.len(), 31);
+        assert_eq!(t.images[0], "SCPDollar000");
+        assert_eq!(t.images[30], "SCPDollar030");
     }
 }
