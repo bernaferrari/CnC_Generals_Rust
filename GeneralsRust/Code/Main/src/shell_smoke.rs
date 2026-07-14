@@ -76,6 +76,17 @@
 //! - `capture83_ok` — Wave 83 capture building residual (Ranger infantry capture)
 //! - `power_plant83_ok` — Wave 83 power plant residual energy pack
 //! - `cmd_center83_ok` — Wave 83 command center residual peels
+//! - `kindof_wave84_ok` — Wave 84 KindOf residual bit-name table (KINDOF_COUNT 116)
+//! - `weapon_slot_wave84_ok` — Wave 84 WeaponSlot PRIMARY/SECONDARY/TERTIARY table
+//! - `veterancy_wave84_ok` — Wave 84 Veterancy residual level table
+//! - `relationship_wave84_ok` — Wave 84 Relationship ENEMIES/NEUTRAL/ALLIES table
+//! - `geometry_wave84_ok` — Wave 84 Geometry SPHERE/CYLINDER/BOX table
+//! - `shadow_wave84_ok` — Wave 84 Shadow residual type bit-name table
+//! - `faction85_ok` — Wave 85 faction side residual table (America/China/GLA + generals)
+//! - `ptpl85_ok` — Wave 85 player template residual peels
+//! - `cash85_ok` — Wave 85 starting cash residual (+ difficulty health bonus)
+//! - `aiperson85_ok` — Wave 85 skirmish AI personality / SideInfo residual
+//! - `victory85_ok` — Wave 85 victory condition residual peels
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
@@ -85,13 +96,21 @@ use crate::fow_rendering::honesty_fow_residual_pack_wave77;
 use crate::game_logic::host_armor_residual::honesty_armor_residual_table_wave81;
 use crate::game_logic::host_enum_table_residual::{
     honesty_damage_type_enum_table_wave82, honesty_death_type_enum_table_wave82,
+    honesty_geometry_type_enum_table_wave84, honesty_kindof_enum_table_wave84,
     honesty_model_condition_enum_table_wave82, honesty_object_status_enum_table_wave82,
-    honesty_weapon_bonus_enum_table_wave82,
+    honesty_relationship_enum_table_wave84, honesty_shadow_type_enum_table_wave84,
+    honesty_veterancy_level_enum_table_wave84, honesty_weapon_bonus_enum_table_wave82,
+    honesty_weapon_slot_enum_table_wave84,
 };
 use crate::game_logic::host_structure_economy_residual::{
     honesty_capture_building_residual_pack_wave83, honesty_command_center_residual_pack_wave83,
     honesty_dozer_build_residual_pack_wave83, honesty_power_plant_residual_pack_wave83,
     honesty_production_queue_residual_pack_wave83, honesty_supply_warehouse_residual_pack_wave83,
+};
+use crate::game_logic::host_faction_skirmish_residual::{
+    honesty_faction_side_residual_table_wave85, honesty_player_template_residual_pack_wave85,
+    honesty_skirmish_ai_personality_residual_pack_wave85, honesty_starting_cash_residual_pack_wave85,
+    honesty_victory_condition_residual_pack_wave85,
 };
 use crate::game_logic::host_paradrop::honesty_paradrop_residual_pack_wave76_ok;
 use crate::game_logic::host_pathfinder::honesty_pathfinder_residual_pack_wave81;
@@ -293,6 +312,28 @@ pub struct ShellSmokeResult {
     pub power_plant_wave83_ok: bool,
     /// Wave 83 command center residual peels.
     pub command_center_wave83_ok: bool,
+    /// Wave 84 KindOf residual bit-name table honesty (KINDOF_COUNT 116).
+    pub kindof_wave84_ok: bool,
+    /// Wave 84 WeaponSlot PRIMARY/SECONDARY/TERTIARY residual table honesty.
+    pub weapon_slot_wave84_ok: bool,
+    /// Wave 84 Veterancy residual level table honesty.
+    pub veterancy_wave84_ok: bool,
+    /// Wave 84 Relationship ENEMIES/NEUTRAL/ALLIES residual table honesty.
+    pub relationship_wave84_ok: bool,
+    /// Wave 84 Geometry SPHERE/CYLINDER/BOX residual table honesty.
+    pub geometry_wave84_ok: bool,
+    /// Wave 84 Shadow residual type bit-name table honesty.
+    pub shadow_wave84_ok: bool,
+    /// Wave 85 faction side residual table honesty.
+    pub faction_side_wave85_ok: bool,
+    /// Wave 85 player template residual peels honesty.
+    pub player_template_wave85_ok: bool,
+    /// Wave 85 starting cash residual (+ difficulty health) honesty.
+    pub starting_cash_wave85_ok: bool,
+    /// Wave 85 skirmish AI personality / SideInfo residual honesty.
+    pub skirmish_ai_personality_wave85_ok: bool,
+    /// Wave 85 victory condition residual peels honesty.
+    pub victory_condition_wave85_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -604,6 +645,20 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let power_plant_wave83_ok = honesty_power_plant_residual_pack_wave83();
     let command_center_wave83_ok = honesty_command_center_residual_pack_wave83();
 
+    let kindof_wave84_ok = honesty_kindof_enum_table_wave84();
+    let weapon_slot_wave84_ok = honesty_weapon_slot_enum_table_wave84();
+    let veterancy_wave84_ok = honesty_veterancy_level_enum_table_wave84();
+    let relationship_wave84_ok = honesty_relationship_enum_table_wave84();
+    let geometry_wave84_ok = honesty_geometry_type_enum_table_wave84();
+    let shadow_wave84_ok = honesty_shadow_type_enum_table_wave84();
+    // Wave 85 residual honesty packs (faction/skirmish residual; no playable_claim flip).
+    let faction_side_wave85_ok = honesty_faction_side_residual_table_wave85();
+    let player_template_wave85_ok = honesty_player_template_residual_pack_wave85();
+    let starting_cash_wave85_ok = honesty_starting_cash_residual_pack_wave85();
+    let skirmish_ai_personality_wave85_ok =
+        honesty_skirmish_ai_personality_residual_pack_wave85();
+    let victory_condition_wave85_ok = honesty_victory_condition_residual_pack_wave85();
+
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
         let infos = hud.selected_unit_infos();
@@ -805,6 +860,17 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         capture_building_wave83_ok,
         power_plant_wave83_ok,
         command_center_wave83_ok,
+        kindof_wave84_ok,
+        weapon_slot_wave84_ok,
+        veterancy_wave84_ok,
+        relationship_wave84_ok,
+        geometry_wave84_ok,
+        shadow_wave84_ok,
+        faction_side_wave85_ok,
+        player_template_wave85_ok,
+        starting_cash_wave85_ok,
+        skirmish_ai_personality_wave85_ok,
+        victory_condition_wave85_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -816,7 +882,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} sp78={special_power_wave78_residual_ok} cluster78={cluster_mines_wave78_residual_ok} gps78={gps_scrambler_wave78_residual_ok} cash78={cash_bounty_wave78_residual_ok} minimap79={minimap_residual_pack_ok} sel79={selection_hud_residual_pack_ok} input79={input_residual_pack_ok} draw79={drawable_residual_fields_ok} train79={unit_training_wave79_residual_ok} upg79={upgrades_cost_time_application_ok} cmdbtn80={command_button_wave80_residual_ok} rank80={science_rank_wave80_residual_ok} kindof80={superweapon_kindof_wave80_residual_ok} spenum80={special_power_enum_wave80_residual_ok} height81={terrain_height_sample_wave81_ok} path81={pathfinder_wave81_residual_ok} loco81={locomotor_table_wave81_ok} armor81={armor_table_wave81_ok} puc81={puc_flare_table_wave81_ok} dmg82={damage_type_wave82_ok} death82={death_type_wave82_ok} mc82={model_condition_wave82_ok} wbonus82={weapon_bonus_wave82_ok} ostatus82={object_status_wave82_ok} prod83={production_queue_wave83_ok} supply83={supply_warehouse_wave83_ok} dozer83={dozer_build_wave83_ok} capture83={capture_building_wave83_ok} power83={power_plant_wave83_ok} cc83={command_center_wave83_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} sp78={special_power_wave78_residual_ok} cluster78={cluster_mines_wave78_residual_ok} gps78={gps_scrambler_wave78_residual_ok} cash78={cash_bounty_wave78_residual_ok} minimap79={minimap_residual_pack_ok} sel79={selection_hud_residual_pack_ok} input79={input_residual_pack_ok} draw79={drawable_residual_fields_ok} train79={unit_training_wave79_residual_ok} upg79={upgrades_cost_time_application_ok} cmdbtn80={command_button_wave80_residual_ok} rank80={science_rank_wave80_residual_ok} kindof80={superweapon_kindof_wave80_residual_ok} spenum80={special_power_enum_wave80_residual_ok} height81={terrain_height_sample_wave81_ok} path81={pathfinder_wave81_residual_ok} loco81={locomotor_table_wave81_ok} armor81={armor_table_wave81_ok} puc81={puc_flare_table_wave81_ok} dmg82={damage_type_wave82_ok} death82={death_type_wave82_ok} mc82={model_condition_wave82_ok} wbonus82={weapon_bonus_wave82_ok} ostatus82={object_status_wave82_ok} prod83={production_queue_wave83_ok} supply83={supply_warehouse_wave83_ok} dozer83={dozer_build_wave83_ok} capture83={capture_building_wave83_ok} power83={power_plant_wave83_ok} cc83={command_center_wave83_ok} kindof84={kindof_wave84_ok} wslot84={weapon_slot_wave84_ok} vet84={veterancy_wave84_ok} rel84={relationship_wave84_ok} geom84={geometry_wave84_ok} shadow84={shadow_wave84_ok} faction85={faction_side_wave85_ok} ptpl85={player_template_wave85_ok} cash85={starting_cash_wave85_ok} aiperson85={skirmish_ai_personality_wave85_ok} victory85={victory_condition_wave85_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -1143,6 +1209,61 @@ mod tests {
         assert!(
             r.command_center_wave83_ok,
             "command center residual pack wave83: {}",
+            r.detail
+        );
+        assert!(
+            r.kindof_wave84_ok,
+            "kindof residual bit-name table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_slot_wave84_ok,
+            "weapon slot residual table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.veterancy_wave84_ok,
+            "veterancy residual level table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.relationship_wave84_ok,
+            "relationship residual table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.geometry_wave84_ok,
+            "geometry residual type table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.shadow_wave84_ok,
+            "shadow residual type table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.faction_side_wave85_ok,
+            "faction side residual table wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.player_template_wave85_ok,
+            "player template residual pack wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.starting_cash_wave85_ok,
+            "starting cash residual pack wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.skirmish_ai_personality_wave85_ok,
+            "skirmish AI personality residual pack wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.victory_condition_wave85_ok,
+            "victory condition residual pack wave85: {}",
             r.detail
         );
         assert!(
