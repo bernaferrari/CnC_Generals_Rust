@@ -28822,16 +28822,21 @@ impl GameLogic {
             // No registered victim player cash — still grant residual steal for
             // host tests / maps without economy slots (observable attacker gain).
             if let Some(dest) = self.get_player_mut_by_team(to_team) {
-                dest.resources.supplies = dest.resources.supplies.saturating_add(amount);
+                dest.credit_supplies(amount);
                 return amount;
             }
             return 0;
         }
         if let Some(src) = self.get_player_mut_by_team(from_team) {
             src.resources.supplies = src.resources.supplies.saturating_sub(stolen);
+            crate::game_logic::host_economy_log::record(
+                src.id,
+                src.resources.supplies,
+                src.power_available,
+            );
         }
         if let Some(dest) = self.get_player_mut_by_team(to_team) {
-            dest.resources.supplies = dest.resources.supplies.saturating_add(stolen);
+            dest.credit_supplies(stolen);
         }
         stolen
     }
