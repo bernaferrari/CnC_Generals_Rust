@@ -790,8 +790,20 @@ impl UnitControlSystem {
 
         let mut control_group = ControlGroup::new();
         for &object_id in &self.selected_objects {
+            // Prefer presentation pose when dual-tick snapshot is installed.
+            if let Some(frame) = self.presentation_frame.as_ref() {
+                if let Some(o) = frame.objects.iter().find(|o| o.id == object_id) {
+                    if o.destroyed {
+                        continue;
+                    }
+                    control_group.add_object(object_id, o.position);
+                    continue;
+                }
+            }
             if let Some(object) = logic.get_object(object_id) {
-                control_group.add_object(object_id, object.get_position());
+                if object.is_alive() {
+                    control_group.add_object(object_id, object.get_position());
+                }
             }
         }
 
@@ -817,13 +829,23 @@ impl UnitControlSystem {
         if let Some(control_group) = self.control_groups.get_mut(&group_num) {
             let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
-            // Filter out dead objects
-            let valid_objects: Vec<ObjectId> = control_group
-                .objects
-                .iter()
-                .filter(|&&obj_id| logic.get_object(obj_id).is_some())
-                .copied()
-                .collect();
+            // Prefer presentation identity for alive/selectable + center poses.
+            let valid_objects: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref()
+            {
+                frame.filter_alive_selectable_ids(&control_group.objects, self.local_player_team)
+            } else {
+                control_group
+                    .objects
+                    .iter()
+                    .filter(|&&obj_id| {
+                        logic
+                            .get_object(obj_id)
+                            .map(|o| o.is_alive() && o.is_selectable())
+                            .unwrap_or(false)
+                    })
+                    .copied()
+                    .collect()
+            };
 
             self.selected_objects = valid_objects;
             logic.select_objects(self.player_id, self.selected_objects.clone());
@@ -831,6 +853,12 @@ impl UnitControlSystem {
             // Refresh cached positions for display/centering.
             control_group.positions.clear();
             for &obj_id in &self.selected_objects {
+                if let Some(frame) = self.presentation_frame.as_ref() {
+                    if let Some(o) = frame.objects.iter().find(|o| o.id == obj_id) {
+                        control_group.positions.insert(obj_id, o.position);
+                        continue;
+                    }
+                }
                 if let Some(obj) = logic.get_object(obj_id) {
                     control_group.positions.insert(obj_id, obj.get_position());
                 }
@@ -1201,5 +1229,52 @@ mod tests {
         // Live object is far away — presentation still hits origin residual.
         let live_pos = logic.get_object(id).unwrap().get_position();
         assert!(live_pos.x > 1000.0);
+    }
+
+    #[test]
+    fn control_group_assign_prefers_presentation_pose() {
+        let (mut logic, id) = logic_with_selectable_unit();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(glam::Vec3::new(8000.0, 0.0, 8000.0));
+        }
+        let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
+        ctl.selected_objects = vec![id];
+        ctl.set_presentation_frame(Some(frame));
+        let logic_arc = std::sync::Arc::new(AsyncMutex::new(logic));
+        futures::executor::block_on(ctl.assign_control_group(1, &logic_arc));
+        let group = ctl.get_control_group_info(1).expect("g1");
+        assert_eq!(group.objects, vec![id]);
+        let pos = *group.positions.get(&id).expect("pos");
+        assert!(
+            pos.x.abs() < 50.0 && pos.z.abs() < 50.0,
+            "expected snapshot origin pose, got {pos:?}"
+        );
+    }
+
+    #[test]
+    fn control_group_select_filters_destroyed_from_presentation() {
+        let (mut logic, id) = logic_with_selectable_unit();
+        let mut t = ThingTemplate::new("RangerB");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("RangerB".into(), t);
+        let id2 = logic
+            .create_object("RangerB", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.get_object_mut(id2) {
+            o.status.destroyed = true;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
+        ctl.selected_objects = vec![id, id2];
+        ctl.set_presentation_frame(Some(frame));
+        let logic_arc = std::sync::Arc::new(AsyncMutex::new(logic));
+        futures::executor::block_on(ctl.assign_control_group(2, &logic_arc));
+        let group = ctl.get_control_group_info(2).expect("g2");
+        assert_eq!(group.objects, vec![id]);
+        futures::executor::block_on(ctl.select_control_group(2, &logic_arc));
+        assert_eq!(ctl.selected_objects, vec![id]);
     }
 }
