@@ -782,12 +782,20 @@ impl Object {
     }
 
     pub fn is_alive(&self) -> bool {
-        if let Some(engine_id) = self.engine_object_id {
-            if let Some(alive) = Self::read_engine_is_alive(engine_id) {
-                return alive;
+        if Self::engine_bridge_active() {
+            if let Some(engine_id) = self.engine_object_id {
+                if let Some(alive) = Self::read_engine_is_alive(engine_id) {
+                    return alive;
+                }
             }
         }
         !self.status.destroyed && self.health.is_alive()
+    }
+
+    /// OBJECT_REGISTRY dual-world reads/writes only when bridge is explicitly enabled.
+    #[inline]
+    fn engine_bridge_active() -> bool {
+        crate::gameworld_shadow::engine_object_bridge_enabled()
     }
 
     fn read_engine_is_alive(engine_id: u32) -> Option<bool> {
@@ -797,9 +805,11 @@ impl Object {
     }
 
     pub fn get_health_percentage(&self) -> f32 {
-        if let Some(engine_id) = self.engine_object_id {
-            if let Some(pct) = Self::read_engine_health_percentage(engine_id) {
-                return pct;
+        if Self::engine_bridge_active() {
+            if let Some(engine_id) = self.engine_object_id {
+                if let Some(pct) = Self::read_engine_health_percentage(engine_id) {
+                    return pct;
+                }
             }
         }
         self.health.percentage()
@@ -1489,9 +1499,11 @@ impl Object {
     }
 
     pub fn get_position(&self) -> Vec3 {
-        if let Some(engine_id) = self.engine_object_id {
-            if let Some(pos) = Self::read_engine_position(engine_id) {
-                return pos;
+        if Self::engine_bridge_active() {
+            if let Some(engine_id) = self.engine_object_id {
+                if let Some(pos) = Self::read_engine_position(engine_id) {
+                    return pos;
+                }
             }
         }
         self.thing.get_position()
@@ -1506,10 +1518,11 @@ impl Object {
 
     pub fn set_position(&mut self, position: Vec3) {
         self.thing.set_position(position);
-        // Propagate position to GameEngine ObjectFactory object so both
-        // the lightweight and full engine representations stay in sync.
-        if let Some(engine_id) = self.engine_object_id {
-            Self::write_engine_position(engine_id, position);
+        // Propagate only when OBJECT_REGISTRY bridge is explicitly enabled.
+        if Self::engine_bridge_active() {
+            if let Some(engine_id) = self.engine_object_id {
+                Self::write_engine_position(engine_id, position);
+            }
         }
     }
 
@@ -1526,9 +1539,11 @@ impl Object {
     }
 
     pub fn get_orientation(&self) -> f32 {
-        if let Some(engine_id) = self.engine_object_id {
-            if let Some(angle) = Self::read_engine_orientation(engine_id) {
-                return angle;
+        if Self::engine_bridge_active() {
+            if let Some(engine_id) = self.engine_object_id {
+                if let Some(angle) = Self::read_engine_orientation(engine_id) {
+                    return angle;
+                }
             }
         }
         self.thing.get_orientation()
@@ -1542,13 +1557,17 @@ impl Object {
 
     pub fn set_orientation(&mut self, angle: f32) {
         self.thing.set_orientation(angle);
-        if let Some(engine_id) = self.engine_object_id {
-            if let Some(obj) = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id) {
-                if let Ok(mut guard) = obj.write() {
-                    if let Err(err) = guard.set_orientation(angle) {
-                        log::warn!(
-                            "failed to synchronize bridge object {engine_id} orientation: {err}"
-                        );
+        if Self::engine_bridge_active() {
+            if let Some(engine_id) = self.engine_object_id {
+                if let Some(obj) =
+                    gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)
+                {
+                    if let Ok(mut guard) = obj.write() {
+                        if let Err(err) = guard.set_orientation(angle) {
+                            log::warn!(
+                                "failed to synchronize bridge object {engine_id} orientation: {err}"
+                            );
+                        }
                     }
                 }
             }

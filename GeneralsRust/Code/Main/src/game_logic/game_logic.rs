@@ -12525,14 +12525,15 @@ impl GameLogic {
                     continue;
                 }
 
-                // ObjectFactory objects route through GameEngine's full AI pipeline
-                // (locomotor physics, pathfinding controller, etc.)
-                if let Some(eid) = engine_id {
-                    self.bridge_move_to_engine(eid, target_position);
-                } else {
-                    // Lightweight objects use Main's pathfinding
-                    self.move_object_with_pathfinding(object_id, target_position, None);
+                // ObjectFactory bridge only when dual-world bridge is enabled.
+                if crate::gameworld_shadow::engine_object_bridge_enabled() {
+                    if let Some(eid) = engine_id {
+                        self.bridge_move_to_engine(eid, target_position);
+                        continue;
+                    }
                 }
+                // Host pathfinding / move channel (default production path).
+                self.move_object_with_pathfinding(object_id, target_position, None);
             }
             log::trace!(
                 "Player {} commanded {} units to move to {:?}",
@@ -12570,9 +12571,13 @@ impl GameLogic {
                     continue;
                 };
 
-                if let (Some(eid), Some(tid)) = (engine_id, target_engine_id) {
-                    self.bridge_attack_to_engine(eid, tid);
-                } else if let Some(obj_mut) = self.objects.get_mut(&object_id) {
+                if crate::gameworld_shadow::engine_object_bridge_enabled() {
+                    if let (Some(eid), Some(tid)) = (engine_id, target_engine_id) {
+                        self.bridge_attack_to_engine(eid, tid);
+                        continue;
+                    }
+                }
+                if let Some(obj_mut) = self.objects.get_mut(&object_id) {
                     obj_mut.set_force_attack(false);
                     obj_mut.attack_target(target_id);
                 }
