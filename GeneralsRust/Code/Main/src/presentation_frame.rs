@@ -55,6 +55,13 @@ pub struct RenderableObject {
     /// Unit mesh pass applies alpha / never-explored skip from this only — no
     /// live shroud re-query mid-render.
     pub fow_visibility: ObjectVisibility,
+    /// Terrain ground-height residual sampled at object XY (Wave 77 deepen).
+    /// Defaults to `PRESENTATION_DEFAULT_GROUND_HEIGHT` when map height unavailable.
+    /// Fail-closed: not full HeightMap bilinear / bridge-aware sample; does **not**
+    /// rewrite `position.y` (locomotor ground clamp residual separate).
+    pub ground_height: f32,
+    /// True when `ground_height` came from terrain sample (not default-0).
+    pub ground_height_from_terrain: bool,
 }
 
 /// Snapshot-owned unit mesh/position/selection/FOW input for the main unit render pass.
@@ -541,6 +548,36 @@ impl PresentationFloatingText {
         }
     }
 
+    /// C++ `updateFloatingText` integer alpha residual after timeout.
+    ///
+    /// ```text
+    /// amount = REAL_TO_INT((currFrame - timeout) * m_floatingTextMoveVanishRate);
+    /// if (a - amount < 0) a = 0; else a -= amount;
+    /// ```
+    /// Fail-closed: not live DisplayString surface blend / StretchRect.
+    pub fn vanish_color_alpha_u8_at(&self, logic_frame: u32, base_alpha: u8) -> u8 {
+        let age = self.age_frames_at(logic_frame);
+        let timeout = PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES;
+        if age <= timeout {
+            return base_alpha;
+        }
+        let past = (age - timeout) as f32;
+        // REAL_TO_INT truncates toward zero (C++ `(Int)(x)`).
+        let amount = (past * PRESENTATION_FLOATING_TEXT_VANISH_RATE) as i32;
+        let next = base_alpha as i32 - amount;
+        if next < 0 {
+            0
+        } else {
+            next as u8
+        }
+    }
+
+    /// Apply vanish-rate residual to a frozen color_rgba (RGB preserved, A decays).
+    pub fn color_with_vanish_alpha_at(&self, logic_frame: u32) -> (u8, u8, u8, u8) {
+        let (r, g, b, a) = self.color_rgba;
+        (r, g, b, self.vanish_color_alpha_u8_at(logic_frame, a))
+    }
+
     /// Honesty: retail vanish-rate / move-up / timeout presentation fields.
     pub fn honesty_vanish_rate_residual_ok() -> bool {
         (PRESENTATION_FLOATING_TEXT_VANISH_RATE - 0.1).abs() < 0.001
@@ -555,6 +592,28 @@ impl PresentationFloatingText {
                     && (t.vanish_alpha_at(20) - 0.0).abs() < 0.001
                     && (t.lift_y_at(5) - 5.0).abs() < 0.001
             }
+    }
+
+    /// Wave 76 residual honesty: C++ integer color-alpha vanish path residual.
+    ///
+    /// Matches `InGameUI::updateFloatingText` REAL_TO_INT amount subtract on A.
+    /// With default vanish rate **0.1**, past=10 → amount **1** (255→254);
+    /// past=5 → amount **0** (truncation). Fail-closed vs live Display surface.
+    pub fn honesty_vanish_color_alpha_residual_ok() -> bool {
+        let t = PresentationFloatingText::synthetic_cash(50, 0);
+        // Synthetic cash uses green (0,255,0,255).
+        t.color_rgba == (0, 255, 0, 255)
+            && t.vanish_color_alpha_u8_at(0, 255) == 255
+            && t.vanish_color_alpha_u8_at(10, 255) == 255
+            && t.vanish_color_alpha_u8_at(15, 255) == 255 // past=5 → amount=0
+            && t.vanish_color_alpha_u8_at(20, 255) == 254 // past=10 → amount=1
+            && t.vanish_color_alpha_u8_at(30, 255) == 253 // past=20 → amount=2
+            && t.vanish_color_alpha_u8_at(20, 1) == 0 // saturating subtract residual
+            && {
+                let c = t.color_with_vanish_alpha_at(20);
+                c == (0, 255, 0, 254)
+            }
+            && Self::honesty_vanish_rate_residual_ok()
     }
 
     /// Synthetic cash residual for host-testable floating-text pack honesty.
@@ -995,13 +1054,17 @@ impl PresentationFrame {
             } else {
                 FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
             };
+            // Wave 77: freeze ground-height residual at object XY (sample or default-0).
+            let pos = obj.get_position();
+            let (ground_height, ground_height_from_terrain) =
+                sample_presentation_ground_height(logic, pos);
             objects.push(RenderableObject {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: obj.team,
                 team_color: obj.team_color,
                 // Use accessors so presentation matches authoritative transform state.
-                position: obj.get_position(),
+                position: pos,
                 orientation: obj.get_orientation(),
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
@@ -1015,6 +1078,8 @@ impl PresentationFrame {
                 selection_radius: obj.selection_radius.max(5.0),
                 engine_bridged: obj.engine_object_id.is_some(),
                 fow_visibility,
+                ground_height,
+                ground_height_from_terrain,
             });
         }
         // Stable presentation order for determinism (by ObjectId).
@@ -1399,6 +1464,17 @@ impl PresentationFrame {
             && self.objects.iter().all(|o| o.mesh_scale.is_finite() && o.mesh_scale > 0.0)
             && self.unit_render_inputs().iter().all(|u| {
                 u.mesh_scale.is_finite() && u.mesh_scale > 0.0
+            })
+    }
+
+    /// Honesty: unit/structure ground-height residual frozen on objects (Wave 77).
+    ///
+    /// Empty object lists are honest (default path). Fail-closed: not full
+    /// HeightMap bilinear / bridge-aware / locomotor Y rewrite.
+    pub fn ground_height_presentation_residual_ok(&self) -> bool {
+        honesty_ground_height_residual_ok(PRESENTATION_DEFAULT_GROUND_HEIGHT, false)
+            && self.objects.iter().all(|o| {
+                honesty_ground_height_residual_ok(o.ground_height, o.ground_height_from_terrain)
             })
     }
 
@@ -2007,6 +2083,41 @@ mod tests {
             .find(|u| u.id == id)
             .expect("unit input");
         assert!((unit.mesh_scale - 1.0).abs() < 0.001);
+    }
+
+    /// Wave 77 residual: unit/structure ground-height frozen on presentation objects.
+    #[test]
+    fn ground_height_presentation_residual_wave77() {
+        assert!(honesty_ground_height_residual_ok(
+            PRESENTATION_DEFAULT_GROUND_HEIGHT,
+            false
+        ));
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("GroundHeightPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        if !logic.templates.contains_key("USA_Ranger") {
+            let mut t = ThingTemplate::new("USA_Ranger");
+            t.set_health(120.0);
+            t.set_model("airanger");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("USA_Ranger".into(), t);
+        }
+        let id = logic
+            .create_object("USA_Ranger", Team::USA, glam::Vec3::new(7.0, 0.0, 9.0))
+            .expect("ranger");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(snap.ground_height_presentation_residual_ok());
+        let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
+        assert!(
+            honesty_ground_height_residual_ok(ro.ground_height, ro.ground_height_from_terrain),
+            "object ground_height residual inconsistent: h={} from_terrain={}",
+            ro.ground_height,
+            ro.ground_height_from_terrain
+        );
+        // Without map terrain, residual defaults to 0 and from_terrain=false.
+        if !ro.ground_height_from_terrain {
+            assert!((ro.ground_height - PRESENTATION_DEFAULT_GROUND_HEIGHT).abs() < 0.001);
+        }
     }
 
     #[test]
@@ -2670,8 +2781,11 @@ mod tests {
             PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES
         );
         assert!(PresentationFloatingText::honesty_vanish_rate_residual_ok());
+        assert!(PresentationFloatingText::honesty_vanish_color_alpha_residual_ok());
         assert!((synth.vanish_alpha_at(0) - 1.0).abs() < 0.001);
         assert!((synth.vanish_alpha_at(15) - 0.5).abs() < 0.001);
+        assert_eq!(synth.vanish_color_alpha_u8_at(20, 255), 254);
+        assert_eq!(synth.color_with_vanish_alpha_at(20), (0, 255, 0, 254));
         assert!((synth.lift_y_at(3) - 3.0).abs() < 0.001);
         let wa = PresentationWorldAnim::synthetic_money_pickup(0);
         assert_eq!(wa.template, MONEY_PICKUP_ANIM_TEMPLATE);

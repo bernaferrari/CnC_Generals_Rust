@@ -38,6 +38,12 @@
 //!   marks text dirty, advances checkpoint (C++ W3DDisplayStringManager::update)
 //! - freeDisplayString residual clears checkpoint when freed id matches
 //!
+//! Wave 76 residual closed (host-testable, fail-closed vs GPU):
+//! - InGameUI font residual table (Message/Superweapon/NamedTimer/DrawableCaption/
+//!   MilitaryCaption + floating-text DEBUG setFont Arial **8**)
+//! - DisplayString vanish-rate **integer color-alpha** residual
+//!   (`updateFloatingText` REAL_TO_INT amount subtract on A channel)
+//!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
 //! - Full multi-locale CSF/STR Unicode GameText table load at boot
@@ -52,6 +58,125 @@ use crate::presentation_frame::{
     PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED, PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
     PRESENTATION_FLOATING_TEXT_VANISH_RATE,
 };
+
+// --- Wave 76: InGameUI / DisplayString font residual table ---
+
+/// Font residual entry (InGameUI.ini / InGameUI.cpp defaults / floating setFont).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameFontResidual {
+    pub role: &'static str,
+    pub name: &'static str,
+    pub point_size: u32,
+    pub bold: bool,
+}
+
+/// Retail InGameUI font residual table (InGameUI.ini + InGameUI.cpp defaults).
+///
+/// Floating-text DEBUG path hard-codes Arial POINTSIZE **8**
+/// (`InGameUI.cpp` `DEBUG_addFloatingText`). Message / Superweapon / NamedTimer
+/// peel from InGameUI.ini Arial **10**. Military caption uses Courier New **12**.
+pub const INGAME_UI_FONT_RESIDUAL_TABLE: &[GameFontResidual] = &[
+    GameFontResidual {
+        role: "MessageFont",
+        name: "Arial",
+        point_size: 10,
+        bold: true,
+    },
+    GameFontResidual {
+        role: "SuperweaponCountdownNormalFont",
+        name: "Arial",
+        point_size: 10,
+        bold: false,
+    },
+    GameFontResidual {
+        role: "SuperweaponCountdownReadyFont",
+        name: "Arial",
+        point_size: 10,
+        bold: true,
+    },
+    GameFontResidual {
+        role: "NamedTimerCountdownNormalFont",
+        name: "Arial",
+        point_size: 10,
+        bold: false,
+    },
+    GameFontResidual {
+        role: "NamedTimerCountdownReadyFont",
+        name: "Arial",
+        point_size: 10,
+        bold: false,
+    },
+    GameFontResidual {
+        role: "MilitaryCaptionTitleFont",
+        name: "Courier New",
+        point_size: 12,
+        bold: true,
+    },
+    GameFontResidual {
+        role: "MilitaryCaptionFont",
+        name: "Courier New",
+        point_size: 12,
+        bold: false,
+    },
+    GameFontResidual {
+        role: "FloatingTextFont",
+        name: "Arial",
+        point_size: 8,
+        bold: false,
+    },
+    GameFontResidual {
+        role: "DrawableCaptionFont",
+        name: "Arial",
+        point_size: 10,
+        bold: false,
+    },
+];
+
+/// Retail floating-text setFont residual (C++ DEBUG_addFloatingText POINTSIZE 8).
+pub const FLOATING_TEXT_FONT_NAME: &str = "Arial";
+/// Retail floating-text point size residual.
+pub const FLOATING_TEXT_FONT_POINT_SIZE: u32 = 8;
+/// Retail floating-text bold residual (FALSE).
+pub const FLOATING_TEXT_FONT_BOLD: bool = false;
+
+/// Honesty: InGameUI / floating-text font residual table pack (Wave 76).
+pub fn honesty_ingame_ui_font_table_residual_ok() -> bool {
+    INGAME_UI_FONT_RESIDUAL_TABLE.len() == 9
+        && FLOATING_TEXT_FONT_NAME == "Arial"
+        && FLOATING_TEXT_FONT_POINT_SIZE == 8
+        && !FLOATING_TEXT_FONT_BOLD
+        && INGAME_UI_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.role == "FloatingTextFont" && f.name == "Arial" && f.point_size == 8)
+        && INGAME_UI_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.role == "MessageFont" && f.name == "Arial" && f.point_size == 10 && f.bold)
+        && INGAME_UI_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.role == "SuperweaponCountdownNormalFont" && f.point_size == 10 && !f.bold)
+        && INGAME_UI_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.role == "SuperweaponCountdownReadyFont" && f.bold)
+        && INGAME_UI_FONT_RESIDUAL_TABLE
+            .iter()
+            .any(|f| f.role == "MilitaryCaptionTitleFont" && f.name == "Courier New" && f.point_size == 12)
+        && INGAME_UI_FONT_RESIDUAL_TABLE
+            .iter()
+            .filter(|f| f.name == "Arial")
+            .count()
+            >= 6
+}
+
+/// Honesty: DisplayString vanish-rate integer color-alpha residual (Wave 76).
+pub fn honesty_display_string_vanish_color_alpha_residual_ok() -> bool {
+    PresentationFloatingText::honesty_vanish_color_alpha_residual_ok()
+}
+
+/// Combined Wave 76 graphics residual honesty (font table + vanish color-alpha).
+pub fn honesty_graphics_residual_pack_wave76_ok() -> bool {
+    honesty_ingame_ui_font_table_residual_ok()
+        && honesty_display_string_vanish_color_alpha_residual_ok()
+}
 
 /// Retail GameText key for cash gain floating captions.
 pub const GUI_ADD_CASH_KEY: &str = "GUI:AddCash";
@@ -1641,4 +1766,26 @@ mod tests {
         assert!(!none.found);
     }
 
+    /// Wave 76 residual: InGameUI font table + DisplayString vanish color-alpha.
+    #[test]
+    fn graphics_residual_pack_wave76_honesty() {
+        assert!(honesty_ingame_ui_font_table_residual_ok());
+        assert!(honesty_display_string_vanish_color_alpha_residual_ok());
+        assert!(honesty_graphics_residual_pack_wave76_ok());
+        assert_eq!(FLOATING_TEXT_FONT_NAME, "Arial");
+        assert_eq!(FLOATING_TEXT_FONT_POINT_SIZE, 8);
+        assert!(!FLOATING_TEXT_FONT_BOLD);
+        assert_eq!(INGAME_UI_FONT_RESIDUAL_TABLE.len(), 9);
+        let ft = INGAME_UI_FONT_RESIDUAL_TABLE
+            .iter()
+            .find(|f| f.role == "FloatingTextFont")
+            .expect("floating text font");
+        assert_eq!(ft.name, "Arial");
+        assert_eq!(ft.point_size, 8);
+
+        let t = PresentationFloatingText::synthetic_cash(25, 0);
+        assert_eq!(t.vanish_color_alpha_u8_at(15, 255), 255); // past=5 → amount 0
+        assert_eq!(t.vanish_color_alpha_u8_at(20, 255), 254); // past=10 → amount 1
+        assert_eq!(t.color_with_vanish_alpha_at(20), (0, 255, 0, 254));
+    }
 }

@@ -36,24 +36,39 @@
 //! - `rng_residual_pack_ok` — Wave 72 host RNG residual pack honesty
 //! - `special_power_wave72_residual_ok` — Daisy/A10 special-power residual pack
 //! - `special_power_wave73_residual_ok` — Spectre/Nuke/SupW residual pack
+//! - `special_power_wave76_residual_ok` — A10 science-tier FormationSize residual pack
+//! - `paradrop_wave76_residual_ok` — Paradrop science-tier payload residual pack
+//! - `control_bar_wave76_residual_ok` — ControlBar window-count/named/font residual pack
+//! - `graphics_wave76_residual_ok` — InGameUI font table + vanish color-alpha residual
 //! - `spectre_orbit_decal_presentation_ok` — Wave 73 presentation Spectre decal residual
+//! - `special_power_wave77_residual_ok` — Wave 77 audio name tables residual pack
+//! - `fow_residual_pack_ok` — Wave 77 FOW cell/R8/inactive residual honesty
+//! - `ground_height_presentation_ok` — Wave 77 unit ground-height presentation residual
+//! - `weapon_store_seed_residual_ok` — Wave 77 host WeaponStore seed residual pack
+//! - `ai_skirmish_residual_ok` — Wave 77 AI skirmish timer/wealth residual pack
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
+use crate::ai_skirmish_activity::honesty_ai_skirmish_residual_pack_wave77;
 use crate::assets::mesh_asset_resolve::honesty_mesh_asset_residual_ok;
+use crate::fow_rendering::honesty_fow_residual_pack_wave77;
+use crate::game_logic::host_paradrop::honesty_paradrop_residual_pack_wave76_ok;
 use crate::game_logic::host_rng_residual::{
     exercise_host_rng_residual, honesty_rng_residual_pack_ok,
 };
 use crate::game_logic::special_power_strikes::{
     honesty_special_power_residual_pack_ok, honesty_special_power_residual_pack_wave73_ok,
+    honesty_special_power_residual_pack_wave76_ok, honesty_special_power_residual_pack_wave77_ok,
 };
+use crate::game_logic::weapon_bootstrap::honesty_weapon_store_host_seed_residual_wave77;
 use crate::game_logic::GameLogic;
 use crate::presentation_frame::honesty_spectre_orbit_decal_presentation_ok;
 use crate::gameplay_layout::{
-    control_bar_layout_honesty, format_control_bar_honesty, GameplayLayoutStatus,
+    control_bar_layout_honesty, format_control_bar_honesty,
+    honesty_control_bar_residual_pack_wave76_ok, GameplayLayoutStatus,
 };
 use crate::graphics::floating_text_layout::{
-    pack_floating_text_and_mark_ready, FloatingTextLayout,
+    honesty_graphics_residual_pack_wave76_ok, pack_floating_text_and_mark_ready, FloatingTextLayout,
 };
 use crate::graphics::game_text_residual::{
     exercise_host_game_text_residual, honesty_translate_copy_escape_table,
@@ -140,8 +155,26 @@ pub struct ShellSmokeResult {
     pub special_power_wave72_residual_ok: bool,
     /// Wave 73 Spectre/Nuke/SupW special-power residual pack honesty.
     pub special_power_wave73_residual_ok: bool,
+    /// Wave 76 A10 science-tier FormationSize residual pack honesty.
+    pub special_power_wave76_residual_ok: bool,
+    /// Wave 76 Paradrop science-tier payload residual pack honesty.
+    pub paradrop_wave76_residual_ok: bool,
+    /// Wave 76 ControlBar window-count / named-child / font residual pack honesty.
+    pub control_bar_wave76_residual_ok: bool,
+    /// Wave 76 InGameUI font table + DisplayString vanish color-alpha residual honesty.
+    pub graphics_wave76_residual_ok: bool,
     /// Wave 73 presentation Spectre orbit decal residual honesty.
     pub spectre_orbit_decal_presentation_ok: bool,
+    /// Wave 77 special-power audio name table residual honesty.
+    pub special_power_wave77_residual_ok: bool,
+    /// Wave 77 FOW residual honesty pack (cell/R8/inactive fail-open).
+    pub fow_residual_pack_ok: bool,
+    /// Wave 77 unit/structure ground-height presentation residual honesty.
+    pub ground_height_presentation_ok: bool,
+    /// Wave 77 host WeaponStore seed residual honesty pack.
+    pub weapon_store_seed_residual_ok: bool,
+    /// Wave 77 AI skirmish structure/team timer residual honesty pack.
+    pub ai_skirmish_residual_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -345,6 +378,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let floating_text_vanish_ok = floating_text_layout_ok
         && pres.floating_text_vanish_residual_ok()
         && PresentationFloatingText::honesty_vanish_rate_residual_ok()
+        && PresentationFloatingText::honesty_vanish_color_alpha_residual_ok()
         && ft_synth_frame.floating_texts.iter().all(|t| {
             let a = t.vanish_alpha_at(pres.frame.0);
             (a - 1.0).abs() < 0.001
@@ -401,9 +435,19 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let rng_residual_pack_ok = honesty_rng_residual_pack_ok();
     let special_power_wave72_residual_ok = honesty_special_power_residual_pack_ok();
     let special_power_wave73_residual_ok = honesty_special_power_residual_pack_wave73_ok();
+    let special_power_wave76_residual_ok = honesty_special_power_residual_pack_wave76_ok();
+    let paradrop_wave76_residual_ok = honesty_paradrop_residual_pack_wave76_ok();
+    let graphics_wave76_residual_ok = honesty_graphics_residual_pack_wave76_ok();
     let spectre_orbit_decal_presentation_ok = honesty_spectre_orbit_decal_presentation_ok()
         && presentation_ok
         && pres.spectre_orbit_decal_presentation_residual_ok();
+    // Wave 77 residual honesty packs (orthogonal to ControlBar/script; no playable_claim flip).
+    let special_power_wave77_residual_ok = honesty_special_power_residual_pack_wave77_ok();
+    let fow_residual_pack_ok = honesty_fow_residual_pack_wave77();
+    let ground_height_presentation_ok =
+        presentation_ok && pres.ground_height_presentation_residual_ok();
+    let weapon_store_seed_residual_ok = honesty_weapon_store_host_seed_residual_wave77();
+    let ai_skirmish_residual_ok = honesty_ai_skirmish_residual_pack_wave77();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -493,6 +537,10 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         }
         GameplayLayoutStatus::LoadFailed { .. } => false,
     };
+    let control_bar_wave76_residual_ok = honesty_control_bar_residual_pack_wave76_ok(
+        control_bar_window_loaded,
+        control_bar_window_count,
+    );
     ui_mgr.transition_to_screen(Screen::GameHUD);
     let at_ingame = ui_mgr.current_screen() == Some(Screen::GameHUD)
         && !Screen::GameHUD.is_shell_owned_pregame();
@@ -562,7 +610,16 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         rng_residual_pack_ok,
         special_power_wave72_residual_ok,
         special_power_wave73_residual_ok,
+        special_power_wave76_residual_ok,
+        paradrop_wave76_residual_ok,
+        control_bar_wave76_residual_ok,
+        graphics_wave76_residual_ok,
         spectre_orbit_decal_presentation_ok,
+        special_power_wave77_residual_ok,
+        fow_residual_pack_ok,
+        ground_height_presentation_ok,
+        weapon_store_seed_residual_ok,
+        ai_skirmish_residual_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -574,7 +631,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -704,8 +761,53 @@ mod tests {
             r.detail
         );
         assert!(
+            r.special_power_wave76_residual_ok,
+            "special power residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
+            r.paradrop_wave76_residual_ok,
+            "paradrop science-tier residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
+            r.control_bar_wave76_residual_ok,
+            "control bar residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
+            r.graphics_wave76_residual_ok,
+            "graphics residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
             r.spectre_orbit_decal_presentation_ok,
             "spectre orbit decal presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave77_residual_ok,
+            "special power audio residual pack wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.fow_residual_pack_ok,
+            "FOW residual pack wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.ground_height_presentation_ok,
+            "ground height presentation residual wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_store_seed_residual_ok,
+            "weapon store seed residual wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.ai_skirmish_residual_ok,
+            "AI skirmish residual pack wave77: {}",
             r.detail
         );
         assert!(

@@ -21,10 +21,21 @@ fn main() {
         && r.rng_residual_pack_ok
         && r.special_power_wave72_residual_ok
         && r.special_power_wave73_residual_ok
-        && r.spectre_orbit_decal_presentation_ok;
+        // Wave 76 residual honesty (host-testable; never flips playable_claim).
+        && r.special_power_wave76_residual_ok
+        && r.paradrop_wave76_residual_ok
+        && r.control_bar_wave76_residual_ok
+        && r.graphics_wave76_residual_ok
+        && r.spectre_orbit_decal_presentation_ok
+        // Wave 77 residual honesty (orthogonal to ControlBar/script; never flips playable_claim).
+        && r.special_power_wave77_residual_ok
+        && r.fow_residual_pack_ok
+        && r.ground_height_presentation_ok
+        && r.weapon_store_seed_residual_ok
+        && r.ai_skirmish_residual_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} spectre_decal={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -39,7 +50,16 @@ fn main() {
             r.mesh_asset_residual_ok,
             r.special_power_wave72_residual_ok,
             r.special_power_wave73_residual_ok,
+            r.special_power_wave76_residual_ok,
+            r.paradrop_wave76_residual_ok,
+            r.control_bar_wave76_residual_ok,
+            r.graphics_wave76_residual_ok,
             r.spectre_orbit_decal_presentation_ok,
+            r.special_power_wave77_residual_ok,
+            r.fow_residual_pack_ok,
+            r.ground_height_presentation_ok,
+            r.weapon_store_seed_residual_ok,
+            r.ai_skirmish_residual_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );

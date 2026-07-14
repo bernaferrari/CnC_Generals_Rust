@@ -12,11 +12,19 @@
 //!   PutInContainer **AmericaParachute**, Transport **AmericaJetCargoPlane**.
 //! - Honesty: `honesty_paradrop_residual_pack_ok` + layer honesty tests.
 //!
+//! Wave 76 residual pack (science-tier OCL matrix residual):
+//! - SCIENCE_Paradrop1 → Rangers **5**, DropDelay **150**ms, OCL SUPERWEAPON_Paradrop1
+//! - SCIENCE_Paradrop2 → Rangers **10**, DropDelay **80**ms, OCL SUPERWEAPON_Paradrop2
+//! - SCIENCE_Paradrop3 → Rangers **20** (2×10 dual plane), DropDelay **80**ms,
+//!   dual DeliverPayload planes **2**, OCL SUPERWEAPON_Paradrop3
+//! - DeliveryDecal residual: SCCParadrop_USA / SHADOW_ALPHA_DECAL /
+//!   Color **R:227 G:229 B:22** / OpacityMin/Max **25%/50%** / Throb **500**ms
+//! - Honesty: `honesty_paradrop_science_tier_residual_pack_wave76`
+//!
 //! Fail-closed honesty:
 //! - Not full OCL DeliverPayload cargo plane path
 //! - Not full parachute containers / AmericaParachute fall physics
-//! - Not full science upgrade OCL matrix (Paradrop2/3 payload tiers)
-//! - Not multiplayer shared timer / academy classification
+//! - Not live dual-plane spawn Object / multiplayer shared timer
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -69,6 +77,159 @@ pub const PARADROP_PARACHUTE_CONTAINER: &str = "AmericaParachute";
 pub const PARADROP_APPROACH_DELAY_FRAMES: u32 = 90;
 /// Retail MaxAttempts residual.
 pub const PARADROP_MAX_ATTEMPTS: u32 = 4;
+
+// --- Wave 76: Paradrop science-tier payload residual pack ---
+
+/// Retail SCIENCE_Paradrop1 residual.
+pub const SCIENCE_PARADROP1: &str = "SCIENCE_Paradrop1";
+/// Retail SCIENCE_Paradrop2 residual.
+pub const SCIENCE_PARADROP2: &str = "SCIENCE_Paradrop2";
+/// Retail SCIENCE_Paradrop3 residual.
+pub const SCIENCE_PARADROP3: &str = "SCIENCE_Paradrop3";
+/// Retail SUPERWEAPON_Paradrop1 OCL residual.
+pub const PARADROP_OCL_TIER1: &str = "SUPERWEAPON_Paradrop1";
+/// Retail SUPERWEAPON_Paradrop2 OCL residual.
+pub const PARADROP_OCL_TIER2: &str = "SUPERWEAPON_Paradrop2";
+/// Retail SUPERWEAPON_Paradrop3 OCL residual.
+pub const PARADROP_OCL_TIER3: &str = "SUPERWEAPON_Paradrop3";
+/// Retail L1 Payload AmericaInfantryRanger count residual.
+pub const PARADROP_RANGER_COUNT_L1: u32 = 5;
+/// Retail L2 Payload AmericaInfantryRanger count residual (single plane).
+pub const PARADROP_RANGER_COUNT_L2: u32 = 10;
+/// Retail L3 Payload total residual (2 planes × 10 Rangers).
+pub const PARADROP_RANGER_COUNT_L3: u32 = 20;
+/// Retail L3 per-plane Payload residual.
+pub const PARADROP_RANGER_COUNT_L3_PER_PLANE: u32 = 10;
+/// Retail L3 dual DeliverPayload plane count residual.
+pub const PARADROP_PLANE_COUNT_L3: u32 = 2;
+/// Retail L1 DropDelay residual (msec).
+pub const PARADROP_DROP_DELAY_L1_MS: u32 = 150;
+/// L1 DropDelay 150ms → 5 frames @ 30 FPS.
+pub const PARADROP_DROP_DELAY_L1_FRAMES: u32 = 5;
+/// Retail L2/L3 DropDelay residual (msec).
+pub const PARADROP_DROP_DELAY_L2_MS: u32 = 80;
+/// L2/L3 DropDelay 80ms → 2 frames @ 30 FPS (round).
+pub const PARADROP_DROP_DELAY_L2_FRAMES: u32 = 2;
+/// Retail PreOpenDistance residual (all tiers).
+pub const PARADROP_PRE_OPEN_DISTANCE: f32 = 300.0;
+/// Retail DeliveryDecal Texture residual.
+pub const PARADROP_DECAL_TEXTURE: &str = "SCCParadrop_USA";
+/// Retail DeliveryDecal Style residual.
+pub const PARADROP_DECAL_STYLE: &str = "SHADOW_ALPHA_DECAL";
+/// Retail DeliveryDecal OpacityMin residual (percent).
+pub const PARADROP_DECAL_OPACITY_MIN_PCT: u32 = 25;
+/// Retail DeliveryDecal OpacityMax residual (percent).
+pub const PARADROP_DECAL_OPACITY_MAX_PCT: u32 = 50;
+/// Retail DeliveryDecal OpacityThrobTime residual (msec).
+pub const PARADROP_DECAL_THROB_MS: u32 = 500;
+/// Retail DeliveryDecal Color residual (R:227 G:229 B:22 A:255).
+pub const PARADROP_DECAL_COLOR: (u8, u8, u8, u8) = (227, 229, 22, 255);
+/// Retail DeliveryDecalRadius residual.
+pub const PARADROP_DECAL_RADIUS: f32 = 50.0;
+
+/// Residual Paradrop science tier (payload ranger count / drop delay / plane count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ParadropScienceTier {
+    /// SCIENCE_Paradrop1 → 5 Rangers, DropDelay 150ms, 1 plane.
+    Level1,
+    /// SCIENCE_Paradrop2 → 10 Rangers, DropDelay 80ms, 1 plane.
+    Level2,
+    /// SCIENCE_Paradrop3 → 20 Rangers (2×10), DropDelay 80ms, 2 planes.
+    Level3,
+}
+
+impl ParadropScienceTier {
+    /// Retail total AmericaInfantryRanger payload count for this science tier.
+    pub fn ranger_count(self) -> u32 {
+        match self {
+            ParadropScienceTier::Level1 => PARADROP_RANGER_COUNT_L1,
+            ParadropScienceTier::Level2 => PARADROP_RANGER_COUNT_L2,
+            ParadropScienceTier::Level3 => PARADROP_RANGER_COUNT_L3,
+        }
+    }
+
+    /// Retail DropDelay residual (msec) for this science tier.
+    pub fn drop_delay_ms(self) -> u32 {
+        match self {
+            ParadropScienceTier::Level1 => PARADROP_DROP_DELAY_L1_MS,
+            ParadropScienceTier::Level2 | ParadropScienceTier::Level3 => {
+                PARADROP_DROP_DELAY_L2_MS
+            }
+        }
+    }
+
+    /// Retail DropDelay residual (logic frames) for this science tier.
+    pub fn drop_delay_frames(self) -> u32 {
+        match self {
+            ParadropScienceTier::Level1 => PARADROP_DROP_DELAY_L1_FRAMES,
+            ParadropScienceTier::Level2 | ParadropScienceTier::Level3 => {
+                PARADROP_DROP_DELAY_L2_FRAMES
+            }
+        }
+    }
+
+    /// Retail DeliverPayload plane count residual for this science tier.
+    pub fn plane_count(self) -> u32 {
+        match self {
+            ParadropScienceTier::Level1 | ParadropScienceTier::Level2 => 1,
+            ParadropScienceTier::Level3 => PARADROP_PLANE_COUNT_L3,
+        }
+    }
+
+    /// Retail science residual name for this tier.
+    pub fn science_name(self) -> &'static str {
+        match self {
+            ParadropScienceTier::Level1 => SCIENCE_PARADROP1,
+            ParadropScienceTier::Level2 => SCIENCE_PARADROP2,
+            ParadropScienceTier::Level3 => SCIENCE_PARADROP3,
+        }
+    }
+
+    /// Retail SUPERWEAPON_ParadropN OCL residual name.
+    pub fn ocl_name(self) -> &'static str {
+        match self {
+            ParadropScienceTier::Level1 => PARADROP_OCL_TIER1,
+            ParadropScienceTier::Level2 => PARADROP_OCL_TIER2,
+            ParadropScienceTier::Level3 => PARADROP_OCL_TIER3,
+        }
+    }
+
+    /// Map SCIENCE_Paradrop1/2/3 to tier.
+    pub fn from_science_name(name: &str) -> Option<Self> {
+        let n = name.to_ascii_lowercase();
+        if n.contains("paradrop3") {
+            Some(ParadropScienceTier::Level3)
+        } else if n.contains("paradrop2") {
+            Some(ParadropScienceTier::Level2)
+        } else if n.contains("paradrop1") || n.contains("paradrop") {
+            Some(ParadropScienceTier::Level1)
+        } else {
+            None
+        }
+    }
+
+    /// Select highest unlocked Paradrop science tier from a science name list.
+    pub fn highest_from_sciences<'a, I>(sciences: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut best = ParadropScienceTier::Level1;
+        for s in sciences {
+            if let Some(tier) = Self::from_science_name(s) {
+                best = match (best, tier) {
+                    (_, ParadropScienceTier::Level3) | (ParadropScienceTier::Level3, _) => {
+                        ParadropScienceTier::Level3
+                    }
+                    (_, ParadropScienceTier::Level2) | (ParadropScienceTier::Level2, _) => {
+                        ParadropScienceTier::Level2
+                    }
+                    _ => ParadropScienceTier::Level1,
+                };
+            }
+        }
+        best
+    }
+}
 
 /// Host residual paradrop kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -446,6 +607,72 @@ pub fn honesty_paradrop_residual_pack_ok() -> bool {
     honesty_paradrop_special_power_residual_ok() && honesty_paradrop_payload_residual_ok()
 }
 
+/// Wave 76 residual honesty: SCIENCE_Paradrop1/2/3 payload / plane / drop-delay pack.
+///
+/// ObjectCreationList.ini SUPERWEAPON_Paradrop1/2/3 residual:
+/// Rangers **5/10/20**, DropDelay **150/80/80**ms, L3 dual planes **2**,
+/// DeliveryDecal SCCParadrop_USA residual.
+/// Fail-closed: not full dual-plane DeliverPayload flight Object.
+pub fn honesty_paradrop_science_tier_residual_pack_wave76() -> bool {
+    SCIENCE_PARADROP1 == "SCIENCE_Paradrop1"
+        && SCIENCE_PARADROP2 == "SCIENCE_Paradrop2"
+        && SCIENCE_PARADROP3 == "SCIENCE_Paradrop3"
+        && PARADROP_OCL_TIER1 == "SUPERWEAPON_Paradrop1"
+        && PARADROP_OCL_TIER2 == "SUPERWEAPON_Paradrop2"
+        && PARADROP_OCL_TIER3 == "SUPERWEAPON_Paradrop3"
+        && ParadropScienceTier::Level1.ranger_count() == 5
+        && ParadropScienceTier::Level2.ranger_count() == 10
+        && ParadropScienceTier::Level3.ranger_count() == 20
+        && PARADROP_RANGER_COUNT_L3
+            == PARADROP_RANGER_COUNT_L3_PER_PLANE * PARADROP_PLANE_COUNT_L3
+        && ParadropScienceTier::Level1.plane_count() == 1
+        && ParadropScienceTier::Level2.plane_count() == 1
+        && ParadropScienceTier::Level3.plane_count() == 2
+        && ParadropScienceTier::Level1.drop_delay_ms() == 150
+        && ParadropScienceTier::Level2.drop_delay_ms() == 80
+        && ParadropScienceTier::Level3.drop_delay_ms() == 80
+        && ParadropScienceTier::Level1.drop_delay_frames() == 5
+        && ParadropScienceTier::Level2.drop_delay_frames() == 2
+        && ParadropScienceTier::Level3.drop_delay_frames() == 2
+        && paradrop_ms_to_frames(PARADROP_DROP_DELAY_L1_MS) == PARADROP_DROP_DELAY_L1_FRAMES
+        && paradrop_ms_to_frames(PARADROP_DROP_DELAY_L2_MS) == PARADROP_DROP_DELAY_L2_FRAMES
+        && ParadropScienceTier::Level1.science_name() == SCIENCE_PARADROP1
+        && ParadropScienceTier::Level2.science_name() == SCIENCE_PARADROP2
+        && ParadropScienceTier::Level3.science_name() == SCIENCE_PARADROP3
+        && ParadropScienceTier::Level1.ocl_name() == PARADROP_OCL_TIER1
+        && ParadropScienceTier::Level2.ocl_name() == PARADROP_OCL_TIER2
+        && ParadropScienceTier::Level3.ocl_name() == PARADROP_OCL_TIER3
+        && (PARADROP_PRE_OPEN_DISTANCE - 300.0).abs() < 0.01
+        && PARADROP_DECAL_TEXTURE == "SCCParadrop_USA"
+        && PARADROP_DECAL_STYLE == "SHADOW_ALPHA_DECAL"
+        && PARADROP_DECAL_OPACITY_MIN_PCT == 25
+        && PARADROP_DECAL_OPACITY_MAX_PCT == 50
+        && PARADROP_DECAL_THROB_MS == 500
+        && PARADROP_DECAL_COLOR == (227, 229, 22, 255)
+        && (PARADROP_DECAL_RADIUS - 50.0).abs() < 0.01
+        && (PARADROP_DECAL_RADIUS - PARADROP_RADIUS_CURSOR).abs() < 0.01
+        && ParadropScienceTier::from_science_name("SCIENCE_Paradrop1")
+            == Some(ParadropScienceTier::Level1)
+        && ParadropScienceTier::from_science_name("SCIENCE_Paradrop2")
+            == Some(ParadropScienceTier::Level2)
+        && ParadropScienceTier::from_science_name("SCIENCE_Paradrop3")
+            == Some(ParadropScienceTier::Level3)
+        && ParadropScienceTier::highest_from_sciences([
+            "SCIENCE_Paradrop1",
+            "SCIENCE_Paradrop3",
+        ]) == ParadropScienceTier::Level3
+        // Wave 70 L1 residual still matches science-tier Level1.
+        && AMERICA_PARADROP_UNIT_COUNT == PARADROP_RANGER_COUNT_L1
+        && PARADROP_DROP_DELAY_MS == PARADROP_DROP_DELAY_L1_MS
+        && PARADROP_REQUIRED_SCIENCE == SCIENCE_PARADROP1
+        && PARADROP_OCL == PARADROP_OCL_TIER1
+}
+
+/// Combined Wave 76 Paradrop residual honesty (L1 pack + science-tier pack).
+pub fn honesty_paradrop_residual_pack_wave76_ok() -> bool {
+    honesty_paradrop_residual_pack_ok() && honesty_paradrop_science_tier_residual_pack_wave76()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,5 +778,31 @@ mod tests {
         assert_eq!(PARADROP_REQUIRED_SCIENCE, "SCIENCE_Paradrop1");
         assert!((PARADROP_RADIUS_CURSOR - 50.0).abs() < 0.01);
         assert!(PARADROP_SHARED_SYNCED_TIMER);
+    }
+
+    /// Wave 76 residual: SCIENCE_Paradrop1/2/3 payload / plane / decal pack.
+    #[test]
+    fn paradrop_science_tier_residual_pack_wave76_honesty() {
+        assert!(honesty_paradrop_science_tier_residual_pack_wave76());
+        assert!(honesty_paradrop_residual_pack_wave76_ok());
+        assert_eq!(ParadropScienceTier::Level1.ranger_count(), 5);
+        assert_eq!(ParadropScienceTier::Level2.ranger_count(), 10);
+        assert_eq!(ParadropScienceTier::Level3.ranger_count(), 20);
+        assert_eq!(ParadropScienceTier::Level3.plane_count(), 2);
+        assert_eq!(paradrop_ms_to_frames(80), 2);
+        assert_eq!(PARADROP_DECAL_TEXTURE, "SCCParadrop_USA");
+        assert_eq!(PARADROP_DECAL_COLOR, (227, 229, 22, 255));
+        assert_eq!(
+            ParadropScienceTier::highest_from_sciences([
+                SCIENCE_PARADROP1,
+                SCIENCE_PARADROP2,
+            ]),
+            ParadropScienceTier::Level2
+        );
+        // L3 total = 2 planes × 10 rangers.
+        assert_eq!(
+            PARADROP_RANGER_COUNT_L3,
+            PARADROP_RANGER_COUNT_L3_PER_PLANE * PARADROP_PLANE_COUNT_L3
+        );
     }
 }
