@@ -1574,6 +1574,20 @@ pub struct PresentationFrame {
     pub beacons: Vec<Vec3>,
     /// Beacons placed this frame (HUD bloom residual).
     pub new_beacons: Vec<Vec3>,
+    /// Active script broadcast texts residual.
+    pub script_messages: Vec<String>,
+    /// New script messages this frame residual.
+    pub new_script_messages: Vec<String>,
+    /// Cinematic letterbox residual.
+    pub cinematic_letterbox: bool,
+    /// Cinematic overlay text residual.
+    pub cinematic_text: Option<String>,
+    /// Military caption residual.
+    pub military_caption: Option<String>,
+    /// Effective radar available residual (forced || enabled && has_radar).
+    pub radar_ui_enabled: bool,
+    /// Script radar forced residual.
+    pub radar_forced: bool,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
@@ -2030,6 +2044,29 @@ impl PresentationFrame {
                 }
             },
             new_beacons: logic.recent_beacons().iter().copied().take(32).collect(),
+            script_messages: {
+                let mut v = logic.script_broadcast_texts();
+                v.extend(logic.peek_new_script_messages().iter().cloned());
+                v.truncate(32);
+                v
+            },
+            new_script_messages: logic
+                .peek_new_script_messages()
+                .iter()
+                .cloned()
+                .take(16)
+                .collect(),
+            cinematic_letterbox: logic.cinematic_letterbox(),
+            cinematic_text: logic.cinematic_text().map(|s| s.to_string()),
+            military_caption: logic.military_caption_text().map(|s| s.to_string()),
+            radar_ui_enabled: {
+                let local_has_radar = logic
+                    .get_player(local_player_id)
+                    .map(|p| p.has_radar())
+                    .unwrap_or(false);
+                logic.radar_forced() || (logic.radar_script_enabled() && local_has_radar)
+            },
+            radar_forced: logic.radar_forced(),
             fow_shell_bypass,
             fow_grid,
             particle_systems,
@@ -3000,6 +3037,19 @@ impl PresentationFrame {
             }
             ui.last_radar_ping = last_ping;
         }
+        // Script / cinematic / radar residual from snapshot.
+        if !self.script_messages.is_empty() {
+            ui.script_messages = self.script_messages.clone();
+        }
+        ui.cinematic_letterbox = self.cinematic_letterbox;
+        if self.cinematic_text.is_some() {
+            ui.cinematic_text = self.cinematic_text.clone();
+        }
+        if self.military_caption.is_some() {
+            ui.military_caption = self.military_caption.clone();
+        }
+        ui.radar_enabled = self.radar_ui_enabled;
+        ui.radar_forced = self.radar_forced;
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
@@ -4645,6 +4695,58 @@ mod tests {
             "expected ProductionComplete: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn presentation_feeds_script_and_cinematic_ui() {
+        use crate::game_logic::{Player, Team};
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "ScriptP", true));
+        if let Some(p) = logic.get_player_mut(0) {
+            p.is_local = true;
+            p.radar_count = 1;
+            p.radar_disabled = false;
+        }
+        logic.push_script_ui_message("Objective updated: Hold the ridge");
+        logic.set_cinematic_letterbox(true);
+        logic.set_cinematic_text(Some("Incoming transmission...".into()));
+        logic.set_military_caption(Some("General: Hold the line!".into()));
+        logic.set_radar_forced(true);
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(frame
+            .script_messages
+            .iter()
+            .any(|m| m.contains("Hold the ridge")));
+        assert!(frame.cinematic_letterbox);
+        assert_eq!(
+            frame.cinematic_text.as_deref(),
+            Some("Incoming transmission...")
+        );
+        assert_eq!(
+            frame.military_caption.as_deref(),
+            Some("General: Hold the line!")
+        );
+        assert!(frame.radar_forced);
+        assert!(frame.radar_ui_enabled);
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert!(ui
+            .script_messages
+            .iter()
+            .any(|m| m.contains("Hold the ridge")));
+        assert!(ui.cinematic_letterbox);
+        assert_eq!(
+            ui.cinematic_text.as_deref(),
+            Some("Incoming transmission...")
+        );
+        assert_eq!(
+            ui.military_caption.as_deref(),
+            Some("General: Hold the line!")
+        );
+        assert!(ui.radar_forced);
+        assert!(ui.radar_enabled);
     }
 
     #[test]
