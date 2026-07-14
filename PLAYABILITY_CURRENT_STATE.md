@@ -1,3 +1,138 @@
+## Residual Host Playability — Wave 92: weapon/armor/body/locomotor/science residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; combat/sim residual deepen):**
+1. **Weapon template residual deepen** (`weapon_bootstrap`, beyond Wave 77 core seed):
+   - **16** common ZH deepen residual names: Marauder / GattlingTank / Comanche /
+     Dragon / Scorpion / BuggyRocket / Pathfinder sniper / MissileDefender /
+     Paladin / Helix minigun / Technical MG / QuadCannon / ToxinTruck / NapalmMiG /
+     StealthJet / TankHunter.
+   - Key damage/range residual scalars verified (e.g. Marauder **60**/r**170**,
+     Pathfinder **100**/r**300**, Dragon **10**/r**75**, Tomahawk **150**/r**350**).
+   - Honesty: `honesty_weapon_store_deepen_residual_wave92`.
+2. **Armor residual expand** (`host_armor_residual`, beyond Wave 81 ProjectileArmor):
+   - HumanArmor / TankArmor / StructureArmor / AirplaneArmor / TruckArmor residual.
+   - Key Armor.ini coefficients: Human SNIPER **200%** / AP **10%**; Tank SMALL_ARMS
+     **25%** / GATTLING **10%** / SNIPER **0%**; Structure AURORA_BOMB **250%** /
+     PARTICLE_BEAM **200%**; Airplane JET_MISSILES **25%** / SMALL_ARMS **120%**;
+     Truck SMALL_ARMS **50%** / SNIPER **0%**.
+   - Honesty: `honesty_armor_residual_expand_wave92`.
+3. **Body residual MaxHealth table** (`host_combat_sim_residual`):
+   - **46** common unit/structure MaxHealth residual rows (infantry/vehicles/air/structures).
+   - Anchors: Ranger **180**, Crusader **480**, Paladin **500**, Scorpion **370**,
+     Overlord **1100**, Dragon **280**, Comanche **220**, CommandCenter **5000**.
+   - Cross-checked against existing host residual constants where present.
+   - Honesty: `honesty_body_max_health_residual_table_wave92`.
+4. **Locomotor residual expand** (`locomotor_bootstrap`, beyond Wave 81):
+   - **13** new residual names: Overlord / Marauder / Dragon / Comanche / MIG /
+     RocketBuggy / BattleBus / SupplyTruck / Avenger / GattlingTank / Inferno /
+     AmericaDozer / Helix.
+   - Retail Speed residual (e.g. Overlord **20**, Comanche **120**, MIG **160**,
+     Helix **75**, RocketBuggy **90**).
+   - Unit template → SET_NORMAL name residual binding expanded.
+   - Honesty: `honesty_locomotor_residual_expand_wave92`.
+5. **Science residual full name table** (`host_combat_sim_residual`):
+   - Complete Science.ini internal-name residual table (**96** entries).
+   - Faction / Rank1–8 / America/China/GLA purchasables / Early_ / Chem_ / Slth_ /
+     Nuke_ / AirF_ / Infa_ general expand residual anchors.
+   - Honesty: `honesty_science_name_table_residual_wave92`.
+6. **Combined pack**: `honesty_combat_sim_residual_pack_wave92`.
+
+**Wiring:**
+- `game_logic/host_combat_sim_residual.rs` (new — science + body tables)
+- `game_logic/host_armor_residual.rs` — Wave 92 armor expand
+- `game_logic/locomotor_bootstrap.rs` — Wave 92 locomotor expand
+- `game_logic/weapon_bootstrap.rs` — Wave 92 weapon deepen honesty
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — weapon92/armor92/body92/loco92/science92 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave92 honesty flags; playable_claim stays false
+- Wave 93 render/terrain residual co-shipped for green shell gate wiring
+  (`host_render_terrain_residual.rs`)
+
+**Gates:**
+- Unit: 6 wave92 honesty tests PASS (+ wave93 residual co-ship tests)
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  weapon92=true armor92=true body92=true loco92=true science92=true
+
+**Not claimed:**
+- Full Weapon.ini parse / full ClipSize volley state machine residual
+- Full Armor.ini multi-template / ArmorSet PLAYER_UPGRADE matrix residual
+- Full ActiveBody ArmorSet swap / MaxHealthUpgrade exclusive modules
+- Full multi-surface SET_PANIC / pitch-roll locomotor matrix residual
+- Full ScienceStore NameKey purchase cost / prereq graph evaluation residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
+## Residual Host Playability — Wave 93: particle emit-rate / drawable opacity+shroud / shadow deepen / terrain texture / road residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal render/terrain residual):**
+1. **Particle system residual deepen** (`host_render_terrain_residual`, ParticleSys.h/.cpp + ParticleSystem.ini + GameData.ini):
+   - ParticlePriorityType residual: INVALID **0** .. ALWAYS_RENDER **13**; NUM_PARTICLE_PRIORITIES **14**.
+   - Priority names NONE/WEAPON_EXPLOSION..ALWAYS_RENDER residual.
+   - Ctor residual: priority LOWEST, SystemLifetime **0** (forever), countCoeff/delayCoeff **1.0**, IsOneShot **No**.
+   - Wind residual angle change **0.15** / min **0.15** / max **0.45**; DEFAULT_VOLUME_PARTICLE_DEPTH **0**.
+   - MaxParticleCount retail **2500** (ctor **0** before INI).
+   - Sample TsingMaTrailSmoke: BurstDelay **40**, BurstCount **0..2**, InitialDelay **20**, forever system.
+   - Emit-rate formula residual: `REAL_TO_INT(burstCount)*countCoeff`, delay frames `*delayCoeff`.
+   - Honesty: `honesty_particle_system_emit_rate_residual_deepen_pack_wave93`.
+2. **Drawable residual deepen** (opacity + shroud; beyond Wave 79 StealthLook ordinals):
+   - StealthLook residual 6 ordinals NONE..INVISIBLE.
+   - explicitOpacity default **1.0**; StealthFriendlyOpacity **0.5** (ctor + GameData 50%).
+   - `getEffectiveOpacity` = explicit * effectiveStealth residual.
+   - `setEffectiveOpacity` pulse residual (floor + margin*pf); sentinel **−1** leaves floor.
+   - DrawableStatus bits NONE/MIRROR/SHADOWS/TINT_LOCKED/NO_STATE_PARTICLES/NO_SAVE residual.
+   - shroudClearFrame default **0**; heat-vision second-pass opacity on/off residual.
+   - Honesty: `honesty_drawable_opacity_shroud_residual_deepen_pack_wave93`.
+3. **Shadow residual deepen** (beyond Wave 84 ShadowType enum table):
+   - MAX_SHADOW_LIGHTS **1**; m_shadowColor ARGB **0x7fa0a0a0**.
+   - addShadow default type SHADOW_VOLUME **0x02**.
+   - ShadowType bits DECAL..ADDITIVE_DECAL residual; Drawable STATUS_SHADOWS **0x02** cross-link.
+   - Honesty: `honesty_shadow_residual_deepen_pack_wave93`.
+4. **Terrain texture residual peels** (TerrainTex/TileData/TerrainTypes + Terrain.ini):
+   - TILE_OFFSET **8**; TILE_PIXEL_EXTENT **64**; TEXTURE_WIDTH **2048**.
+   - Mip extents **32/16/8**; cloud slide x **−0.02**/s, y **1.5×x**.
+   - terrainTypeNames residual **38** rows (NONE..URBAN; INI string labels).
+   - FieldParse Texture/BlendEdges/Class/RestrictConstruction residual.
+   - Sample AsphaltType1 / GrassRockTransitionType1 residual rows.
+   - Honesty: `honesty_terrain_texture_residual_pack_wave93`.
+5. **Road residual peels** (TerrainRoads/W3DRoadBuffer + Roads.ini + GameData.ini):
+   - DEFAULT_ROAD_SCALE **8**; MAX_SEG_VERTEX **500**; MAX_SEG_INDEX **2000**.
+   - NUM_CORNERS **4**; NUM_JOINS **8** (SEGMENT..ALPHA_JOIN).
+   - FieldParse Texture/RoadWidth/RoadWidthInTexture; ctor widths **0**; id counter starts **1**.
+   - MaxRoad Segments **4000** / Vertex **3000** / Index **5000** / Types **100** (ctor 0).
+   - Sample TwoLane **35**/0.9, FourLane **60**/0.9, Cobblestone **30**, GrassStrip **8**.
+   - Honesty: `honesty_road_residual_pack_wave93`.
+
+**Wiring:**
+- `game_logic/host_render_terrain_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — particle93/drawable93/shadow93/terrain_tex93/road93 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave93 honesty flags; playable_claim stays false
+- Combined pack: `honesty_render_terrain_residual_pack_wave93`
+
+**Gates:**
+- Unit: 6 wave93 honesty tests
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  particle93=true drawable93=true shadow93=true terrain_tex93=true road93=true
+
+**Not claimed:**
+- Full ParticleSystemManager LOD cull / GPU particle draw residual
+- Full Drawable W3D material pass / heat-vision GPU residual
+- Full volumetric shadow stencil / projected shadow GPU residual
+- Full TerrainTextureClass atlas update / CloudMap GPU residual
+- Full W3DRoadBuffer mesh bake / DX8 VB residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 91: tooltip / HelpBox / message / EVA / video / mission briefing residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal UI presentation residual):**

@@ -70,6 +70,8 @@ pub mod host_rank_ui_residual;
 pub mod host_fx_audio_cursor_residual;
 pub mod host_ui_presentation_residual;
 pub mod host_timing_shell_residual;
+pub mod host_combat_sim_residual;
+pub mod host_render_terrain_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -259,10 +261,23 @@ pub use host_ui_presentation_residual::{
     honesty_tooltip_residual_pack_wave91, honesty_ui_presentation_residual_pack_wave91,
     honesty_video_residual_name_table_wave91,
 };
+pub use host_combat_sim_residual::{
+    honesty_body_max_health_residual_table_wave92, honesty_combat_sim_residual_pack_wave92,
+    honesty_science_name_table_residual_wave92,
+};
+pub use host_armor_residual::honesty_armor_residual_expand_wave92;
+pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave92;
+pub use weapon_bootstrap::honesty_weapon_store_deepen_residual_wave92;
 pub use host_timing_shell_residual::{
     honesty_credits_residual_pack_wave90, honesty_debug_residual_tables_pack_wave90,
     honesty_frame_rate_residual_deepen_pack_wave90, honesty_gamespeed_residual_pack_wave90,
     honesty_language_residual_deepen_pack_wave90, honesty_timing_shell_residual_pack_wave90,
+};
+pub use host_render_terrain_residual::{
+    honesty_drawable_opacity_shroud_residual_deepen_pack_wave93,
+    honesty_particle_system_emit_rate_residual_deepen_pack_wave93,
+    honesty_render_terrain_residual_pack_wave93, honesty_road_residual_pack_wave93,
+    honesty_shadow_residual_deepen_pack_wave93, honesty_terrain_texture_residual_pack_wave93,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{

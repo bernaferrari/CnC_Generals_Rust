@@ -1,7 +1,11 @@
-//! Host armor residual table honesty (ProjectileArmor / HazardousMaterialArmor).
+//! Host armor residual table honesty (ProjectileArmor / HazardousMaterialArmor
+//! + Wave 92 common unit armors).
 //!
 //! Wave 81 residual peel: Armor.ini coefficient residual for projectile shells
 //! and cleanup-hazard fields. Host-testable without full Armor.ini archive load.
+//!
+//! Wave 92 residual expand: HumanArmor / TankArmor / StructureArmor /
+//! AirplaneArmor / TruckArmor key coefficient residual (common unit classes).
 //!
 //! Fail-closed:
 //! - Not full Armor.ini multi-template matrix / ArmorSet upgrade graph
@@ -16,6 +20,16 @@ use gamelogic::object::armor::{ArmorTemplate, TheArmorStore};
 pub const PROJECTILE_ARMOR: &str = "ProjectileArmor";
 /// Retail HazardousMaterialArmor residual name (poison / radiation fields).
 pub const HAZARDOUS_MATERIAL_ARMOR: &str = "HazardousMaterialArmor";
+/// Retail HumanArmor residual name (infantry).
+pub const HUMAN_ARMOR: &str = "HumanArmor";
+/// Retail TankArmor residual name (MBTs).
+pub const TANK_ARMOR: &str = "TankArmor";
+/// Retail StructureArmor residual name (buildings).
+pub const STRUCTURE_ARMOR: &str = "StructureArmor";
+/// Retail AirplaneArmor residual name (jets).
+pub const AIRPLANE_ARMOR: &str = "AirplaneArmor";
+/// Retail TruckArmor residual name (soft vehicles).
+pub const TRUCK_ARMOR: &str = "TruckArmor";
 
 // --- ProjectileArmor residual coefficients (Armor.ini) ---
 // DEFAULT 25%; FALLING 0%; LASER 100%; SMALL_ARMS 25%; MICROWAVE 0%;
@@ -86,6 +100,204 @@ pub fn build_hazardous_material_armor_residual() -> ArmorTemplate {
     t
 }
 
+// --- Wave 92 common unit armor residual coefficients (Armor.ini key scalars) ---
+// HumanArmor: CRUSH 200%, ARMOR_PIERCING 10%, FLAME 150%, SNIPER 200%, LASER 50%,
+//             HAZARD_CLEANUP 0%, KILL_PILOT 0%, SURRENDER 100%, SUBDUAL_* 0%.
+// TankArmor: CRUSH 50%, SMALL_ARMS 25%, GATTLING 10%, FLAME 25%, RADIATION 50%,
+//            POISON 25%, SNIPER 0%, MELEE 0%, LASER 0%, KILL_PILOT 100%,
+//            SURRENDER 0%, SUBDUAL_VEHICLE 100%.
+// StructureArmor: SMALL_ARMS 50%, GATTLING 10%, RADIATION 0%, SNIPER 0%, POISON 1%,
+//                 LASER 0%, PARTICLE_BEAM 200%, AURORA_BOMB 250%, FLAME 50%,
+//                 SUBDUAL_BUILDING 100%, LAND_MINE 0%.
+// AirplaneArmor: SMALL_ARMS 120%, GATTLING 120%, JET_MISSILES 25%, POISON 25%,
+//                RADIATION 25%, SNIPER 0%, LASER 0%, KILL_PILOT 0%.
+// TruckArmor: CRUSH 50%, SMALL_ARMS 50%, GATTLING 50%, SNIPER 0%, MELEE 0%,
+//             LASER 0%, KILL_PILOT 100%, SUBDUAL_VEHICLE 100%.
+
+/// HumanArmor CRUSH residual.
+pub const HUMAN_ARMOR_CRUSH: f32 = 2.0;
+/// HumanArmor ARMOR_PIERCING residual.
+pub const HUMAN_ARMOR_ARMOR_PIERCING: f32 = 0.10;
+/// HumanArmor FLAME residual.
+pub const HUMAN_ARMOR_FLAME: f32 = 1.50;
+/// HumanArmor SNIPER residual.
+pub const HUMAN_ARMOR_SNIPER: f32 = 2.0;
+/// HumanArmor LASER residual.
+pub const HUMAN_ARMOR_LASER: f32 = 0.50;
+
+/// TankArmor SMALL_ARMS residual.
+pub const TANK_ARMOR_SMALL_ARMS: f32 = 0.25;
+/// TankArmor GATTLING residual.
+pub const TANK_ARMOR_GATTLING: f32 = 0.10;
+/// TankArmor FLAME residual.
+pub const TANK_ARMOR_FLAME: f32 = 0.25;
+/// TankArmor SNIPER residual (immune).
+pub const TANK_ARMOR_SNIPER: f32 = 0.0;
+/// TankArmor LASER residual (immune).
+pub const TANK_ARMOR_LASER: f32 = 0.0;
+/// TankArmor KILL_PILOT residual.
+pub const TANK_ARMOR_KILL_PILOT: f32 = 1.0;
+/// TankArmor SUBDUAL_VEHICLE residual.
+pub const TANK_ARMOR_SUBDUAL_VEHICLE: f32 = 1.0;
+
+/// StructureArmor SMALL_ARMS residual.
+pub const STRUCTURE_ARMOR_SMALL_ARMS: f32 = 0.50;
+/// StructureArmor GATTLING residual.
+pub const STRUCTURE_ARMOR_GATTLING: f32 = 0.10;
+/// StructureArmor RADIATION residual (immune).
+pub const STRUCTURE_ARMOR_RADIATION: f32 = 0.0;
+/// StructureArmor SNIPER residual (immune).
+pub const STRUCTURE_ARMOR_SNIPER: f32 = 0.0;
+/// StructureArmor PARTICLE_BEAM residual.
+pub const STRUCTURE_ARMOR_PARTICLE_BEAM: f32 = 2.0;
+/// StructureArmor AURORA_BOMB residual.
+pub const STRUCTURE_ARMOR_AURORA_BOMB: f32 = 2.50;
+/// StructureArmor FLAME residual.
+pub const STRUCTURE_ARMOR_FLAME: f32 = 0.50;
+/// StructureArmor SUBDUAL_BUILDING residual.
+pub const STRUCTURE_ARMOR_SUBDUAL_BUILDING: f32 = 1.0;
+
+/// AirplaneArmor SMALL_ARMS residual.
+pub const AIRPLANE_ARMOR_SMALL_ARMS: f32 = 1.20;
+/// AirplaneArmor GATTLING residual.
+pub const AIRPLANE_ARMOR_GATTLING: f32 = 1.20;
+/// AirplaneArmor JET_MISSILES residual.
+pub const AIRPLANE_ARMOR_JET_MISSILES: f32 = 0.25;
+/// AirplaneArmor SNIPER residual (immune).
+pub const AIRPLANE_ARMOR_SNIPER: f32 = 0.0;
+/// AirplaneArmor LASER residual (immune).
+pub const AIRPLANE_ARMOR_LASER: f32 = 0.0;
+
+/// TruckArmor SMALL_ARMS residual.
+pub const TRUCK_ARMOR_SMALL_ARMS: f32 = 0.50;
+/// TruckArmor GATTLING residual.
+pub const TRUCK_ARMOR_GATTLING: f32 = 0.50;
+/// TruckArmor SNIPER residual (immune).
+pub const TRUCK_ARMOR_SNIPER: f32 = 0.0;
+/// TruckArmor KILL_PILOT residual.
+pub const TRUCK_ARMOR_KILL_PILOT: f32 = 1.0;
+/// TruckArmor SUBDUAL_VEHICLE residual.
+pub const TRUCK_ARMOR_SUBDUAL_VEHICLE: f32 = 1.0;
+
+/// Build retail HumanArmor residual template from key coefficient residual.
+pub fn build_human_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::Crush, HUMAN_ARMOR_CRUSH);
+    t.set_coefficient(DamageType::ArmorPiercing, HUMAN_ARMOR_ARMOR_PIERCING);
+    t.set_coefficient(DamageType::InfantryMissile, 0.10);
+    t.set_coefficient(DamageType::Flame, HUMAN_ARMOR_FLAME);
+    t.set_coefficient(DamageType::ParticleBeam, 1.50);
+    t.set_coefficient(DamageType::Sniper, HUMAN_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::Laser, HUMAN_ARMOR_LASER);
+    t.set_coefficient(DamageType::HazardCleanup, 0.0);
+    t.set_coefficient(DamageType::KillPilot, 0.0);
+    t.set_coefficient(DamageType::Surrender, 1.0);
+    t.set_coefficient(DamageType::SubdualMissile, 0.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 0.0);
+    t.set_coefficient(DamageType::SubdualBuilding, 0.0);
+    t
+}
+
+/// Build retail TankArmor residual template from key coefficient residual.
+pub fn build_tank_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::Crush, 0.50);
+    t.set_coefficient(DamageType::SmallArms, TANK_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, TANK_ARMOR_GATTLING);
+    t.set_coefficient(DamageType::ComancheVulcan, 0.25);
+    t.set_coefficient(DamageType::Flame, TANK_ARMOR_FLAME);
+    t.set_coefficient(DamageType::Radiation, 0.50);
+    t.set_coefficient(DamageType::Microwave, 0.0);
+    t.set_coefficient(DamageType::Poison, 0.25);
+    t.set_coefficient(DamageType::Sniper, TANK_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::Melee, 0.0);
+    t.set_coefficient(DamageType::Laser, TANK_ARMOR_LASER);
+    t.set_coefficient(DamageType::HazardCleanup, 0.0);
+    t.set_coefficient(DamageType::ParticleBeam, 1.0);
+    t.set_coefficient(DamageType::KillPilot, TANK_ARMOR_KILL_PILOT);
+    t.set_coefficient(DamageType::Surrender, 0.0);
+    t.set_coefficient(DamageType::SubdualMissile, 0.0);
+    t.set_coefficient(DamageType::SubdualVehicle, TANK_ARMOR_SUBDUAL_VEHICLE);
+    t.set_coefficient(DamageType::SubdualBuilding, 0.0);
+    t
+}
+
+/// Build retail StructureArmor residual template from key coefficient residual.
+pub fn build_structure_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::Surrender, 0.0);
+    t.set_coefficient(DamageType::SmallArms, STRUCTURE_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, STRUCTURE_ARMOR_GATTLING);
+    t.set_coefficient(DamageType::ComancheVulcan, 0.50);
+    t.set_coefficient(DamageType::Radiation, STRUCTURE_ARMOR_RADIATION);
+    t.set_coefficient(DamageType::Microwave, 0.0);
+    t.set_coefficient(DamageType::Sniper, STRUCTURE_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::Poison, 0.01);
+    t.set_coefficient(DamageType::Melee, 0.0);
+    t.set_coefficient(DamageType::Laser, 0.0);
+    t.set_coefficient(DamageType::HazardCleanup, 0.0);
+    t.set_coefficient(DamageType::InfantryMissile, 0.50);
+    t.set_coefficient(DamageType::ParticleBeam, STRUCTURE_ARMOR_PARTICLE_BEAM);
+    t.set_coefficient(DamageType::KillPilot, 0.0);
+    t.set_coefficient(DamageType::AuroraBomb, STRUCTURE_ARMOR_AURORA_BOMB);
+    t.set_coefficient(DamageType::LandMine, 0.0);
+    t.set_coefficient(DamageType::Flame, STRUCTURE_ARMOR_FLAME);
+    t.set_coefficient(DamageType::SubdualMissile, 0.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 0.0);
+    t.set_coefficient(DamageType::SubdualBuilding, STRUCTURE_ARMOR_SUBDUAL_BUILDING);
+    t
+}
+
+/// Build retail AirplaneArmor residual template from key coefficient residual.
+pub fn build_airplane_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::SmallArms, AIRPLANE_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, AIRPLANE_ARMOR_GATTLING);
+    t.set_coefficient(DamageType::Explosion, 1.0);
+    t.set_coefficient(DamageType::InfantryMissile, 1.20);
+    t.set_coefficient(DamageType::Laser, AIRPLANE_ARMOR_LASER);
+    t.set_coefficient(DamageType::HazardCleanup, 0.0);
+    t.set_coefficient(DamageType::KillPilot, 0.0);
+    t.set_coefficient(DamageType::Surrender, 0.0);
+    t.set_coefficient(DamageType::JetMissiles, AIRPLANE_ARMOR_JET_MISSILES);
+    t.set_coefficient(DamageType::Poison, 0.25);
+    t.set_coefficient(DamageType::Radiation, 0.25);
+    t.set_coefficient(DamageType::Microwave, 0.0);
+    t.set_coefficient(DamageType::Sniper, AIRPLANE_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::SubdualMissile, 0.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 0.0);
+    t.set_coefficient(DamageType::SubdualBuilding, 0.0);
+    t.set_coefficient(DamageType::Melee, 0.0);
+    t
+}
+
+/// Build retail TruckArmor residual template from key coefficient residual.
+pub fn build_truck_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::Crush, 0.50);
+    t.set_coefficient(DamageType::SmallArms, TRUCK_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, TRUCK_ARMOR_GATTLING);
+    t.set_coefficient(DamageType::ComancheVulcan, 0.50);
+    t.set_coefficient(DamageType::InfantryMissile, 0.50);
+    t.set_coefficient(DamageType::Poison, 0.50);
+    t.set_coefficient(DamageType::Microwave, 0.0);
+    t.set_coefficient(DamageType::Sniper, TRUCK_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::Melee, 0.0);
+    t.set_coefficient(DamageType::Laser, 0.0);
+    t.set_coefficient(DamageType::HazardCleanup, 0.0);
+    t.set_coefficient(DamageType::KillPilot, TRUCK_ARMOR_KILL_PILOT);
+    t.set_coefficient(DamageType::Surrender, 0.0);
+    t.set_coefficient(DamageType::SubdualMissile, 0.0);
+    t.set_coefficient(DamageType::SubdualVehicle, TRUCK_ARMOR_SUBDUAL_VEHICLE);
+    t.set_coefficient(DamageType::SubdualBuilding, 0.0);
+    t
+}
+
 /// Ensure residual armor templates are registered when store lacks them.
 ///
 /// Prefer full Armor.ini load when available; only seed missing names.
@@ -93,15 +305,22 @@ pub fn build_hazardous_material_armor_residual() -> ArmorTemplate {
 pub fn ensure_host_armor_residual_seed() -> usize {
     gamelogic::object::armor::ensure_default_templates_loaded();
     let mut added = 0usize;
-    let projectile_name = AsciiString::from(PROJECTILE_ARMOR);
-    let hazard_name = AsciiString::from(HAZARDOUS_MATERIAL_ARMOR);
-    if TheArmorStore::find_template(&projectile_name).is_none() {
-        TheArmorStore::register_template(&projectile_name, build_projectile_armor_residual());
-        added += 1;
-    }
-    if TheArmorStore::find_template(&hazard_name).is_none() {
-        TheArmorStore::register_template(&hazard_name, build_hazardous_material_armor_residual());
-        added += 1;
+    let seeds: &[(&str, fn() -> ArmorTemplate)] = &[
+        (PROJECTILE_ARMOR, build_projectile_armor_residual),
+        (HAZARDOUS_MATERIAL_ARMOR, build_hazardous_material_armor_residual),
+        // Wave 92 expand:
+        (HUMAN_ARMOR, build_human_armor_residual),
+        (TANK_ARMOR, build_tank_armor_residual),
+        (STRUCTURE_ARMOR, build_structure_armor_residual),
+        (AIRPLANE_ARMOR, build_airplane_armor_residual),
+        (TRUCK_ARMOR, build_truck_armor_residual),
+    ];
+    for &(name, builder) in seeds {
+        let key = AsciiString::from(name);
+        if TheArmorStore::find_template(&key).is_none() {
+            TheArmorStore::register_template(&key, builder());
+            added += 1;
+        }
     }
     added
 }
@@ -182,6 +401,128 @@ pub fn honesty_armor_residual_table_wave81() -> bool {
     proj_ok && haz_ok && store_ok && store_coeff_ok
 }
 
+/// Wave 92 residual honesty: HumanArmor / TankArmor / StructureArmor /
+/// AirplaneArmor / TruckArmor key coefficient residual expand.
+///
+/// Verifies retail Armor.ini residual scalars via adjust_damage on built
+/// templates and store registration. Fail-closed: not full ArmorSet upgrade
+/// matrix / exclusive general armors.
+pub fn honesty_armor_residual_expand_wave92() -> bool {
+    let _ = ensure_host_armor_residual_seed();
+
+    let names_ok = HUMAN_ARMOR == "HumanArmor"
+        && TANK_ARMOR == "TankArmor"
+        && STRUCTURE_ARMOR == "StructureArmor"
+        && AIRPLANE_ARMOR == "AirplaneArmor"
+        && TRUCK_ARMOR == "TruckArmor"
+        && (HUMAN_ARMOR_CRUSH - 2.0).abs() < 0.001
+        && (HUMAN_ARMOR_ARMOR_PIERCING - 0.10).abs() < 0.001
+        && (HUMAN_ARMOR_FLAME - 1.50).abs() < 0.001
+        && (HUMAN_ARMOR_SNIPER - 2.0).abs() < 0.001
+        && (HUMAN_ARMOR_LASER - 0.50).abs() < 0.001
+        && (TANK_ARMOR_SMALL_ARMS - 0.25).abs() < 0.001
+        && (TANK_ARMOR_GATTLING - 0.10).abs() < 0.001
+        && (TANK_ARMOR_FLAME - 0.25).abs() < 0.001
+        && TANK_ARMOR_SNIPER == 0.0
+        && TANK_ARMOR_LASER == 0.0
+        && (TANK_ARMOR_KILL_PILOT - 1.0).abs() < 0.001
+        && (STRUCTURE_ARMOR_SMALL_ARMS - 0.50).abs() < 0.001
+        && (STRUCTURE_ARMOR_GATTLING - 0.10).abs() < 0.001
+        && STRUCTURE_ARMOR_RADIATION == 0.0
+        && STRUCTURE_ARMOR_SNIPER == 0.0
+        && (STRUCTURE_ARMOR_PARTICLE_BEAM - 2.0).abs() < 0.001
+        && (STRUCTURE_ARMOR_AURORA_BOMB - 2.50).abs() < 0.001
+        && (STRUCTURE_ARMOR_FLAME - 0.50).abs() < 0.001
+        && (AIRPLANE_ARMOR_SMALL_ARMS - 1.20).abs() < 0.001
+        && (AIRPLANE_ARMOR_GATTLING - 1.20).abs() < 0.001
+        && (AIRPLANE_ARMOR_JET_MISSILES - 0.25).abs() < 0.001
+        && AIRPLANE_ARMOR_SNIPER == 0.0
+        && (TRUCK_ARMOR_SMALL_ARMS - 0.50).abs() < 0.001
+        && (TRUCK_ARMOR_GATTLING - 0.50).abs() < 0.001
+        && TRUCK_ARMOR_SNIPER == 0.0
+        && (TRUCK_ARMOR_KILL_PILOT - 1.0).abs() < 0.001;
+
+    if !names_ok {
+        return false;
+    }
+
+    let human = build_human_armor_residual();
+    let human_ok = approx_eq(human.adjust_damage(DamageType::Crush, 100.0), 200.0)
+        && approx_eq(human.adjust_damage(DamageType::ArmorPiercing, 100.0), 10.0)
+        && approx_eq(human.adjust_damage(DamageType::Flame, 100.0), 150.0)
+        && approx_eq(human.adjust_damage(DamageType::Sniper, 100.0), 200.0)
+        && approx_eq(human.adjust_damage(DamageType::Laser, 100.0), 50.0)
+        && approx_eq(human.adjust_damage(DamageType::KillPilot, 100.0), 0.0)
+        && approx_eq(human.adjust_damage(DamageType::Surrender, 100.0), 100.0);
+
+    let tank = build_tank_armor_residual();
+    let tank_ok = approx_eq(tank.adjust_damage(DamageType::SmallArms, 100.0), 25.0)
+        && approx_eq(tank.adjust_damage(DamageType::Gattling, 100.0), 10.0)
+        && approx_eq(tank.adjust_damage(DamageType::Flame, 100.0), 25.0)
+        && approx_eq(tank.adjust_damage(DamageType::Sniper, 100.0), 0.0)
+        && approx_eq(tank.adjust_damage(DamageType::Laser, 100.0), 0.0)
+        && approx_eq(tank.adjust_damage(DamageType::KillPilot, 100.0), 100.0)
+        && approx_eq(tank.adjust_damage(DamageType::SubdualVehicle, 100.0), 100.0)
+        && approx_eq(tank.adjust_damage(DamageType::Melee, 100.0), 0.0);
+
+    let structure = build_structure_armor_residual();
+    let structure_ok = approx_eq(structure.adjust_damage(DamageType::SmallArms, 100.0), 50.0)
+        && approx_eq(structure.adjust_damage(DamageType::Gattling, 100.0), 10.0)
+        && approx_eq(structure.adjust_damage(DamageType::Radiation, 100.0), 0.0)
+        && approx_eq(structure.adjust_damage(DamageType::Sniper, 100.0), 0.0)
+        && approx_eq(structure.adjust_damage(DamageType::ParticleBeam, 100.0), 200.0)
+        && approx_eq(structure.adjust_damage(DamageType::AuroraBomb, 100.0), 250.0)
+        && approx_eq(structure.adjust_damage(DamageType::Flame, 100.0), 50.0)
+        && approx_eq(structure.adjust_damage(DamageType::SubdualBuilding, 100.0), 100.0)
+        && approx_eq(structure.adjust_damage(DamageType::LandMine, 100.0), 0.0);
+
+    let airplane = build_airplane_armor_residual();
+    let airplane_ok = approx_eq(airplane.adjust_damage(DamageType::SmallArms, 100.0), 120.0)
+        && approx_eq(airplane.adjust_damage(DamageType::Gattling, 100.0), 120.0)
+        && approx_eq(airplane.adjust_damage(DamageType::JetMissiles, 100.0), 25.0)
+        && approx_eq(airplane.adjust_damage(DamageType::Sniper, 100.0), 0.0)
+        && approx_eq(airplane.adjust_damage(DamageType::Laser, 100.0), 0.0)
+        && approx_eq(airplane.adjust_damage(DamageType::Poison, 100.0), 25.0);
+
+    let truck = build_truck_armor_residual();
+    let truck_ok = approx_eq(truck.adjust_damage(DamageType::SmallArms, 100.0), 50.0)
+        && approx_eq(truck.adjust_damage(DamageType::Gattling, 100.0), 50.0)
+        && approx_eq(truck.adjust_damage(DamageType::Sniper, 100.0), 0.0)
+        && approx_eq(truck.adjust_damage(DamageType::KillPilot, 100.0), 100.0)
+        && approx_eq(truck.adjust_damage(DamageType::SubdualVehicle, 100.0), 100.0)
+        && approx_eq(truck.adjust_damage(DamageType::Melee, 100.0), 0.0);
+
+    // Store residual: Wave 92 templates registered (INI or seed).
+    let store_ok = [HUMAN_ARMOR, TANK_ARMOR, STRUCTURE_ARMOR, AIRPLANE_ARMOR, TRUCK_ARMOR]
+        .iter()
+        .all(|n| TheArmorStore::find_template(&AsciiString::from(*n)).is_some());
+
+    // If store loaded full Armor.ini, verify key scalars still match residual.
+    let store_coeff_ok = match (
+        TheArmorStore::find_template(&AsciiString::from(HUMAN_ARMOR)),
+        TheArmorStore::find_template(&AsciiString::from(TANK_ARMOR)),
+        TheArmorStore::find_template(&AsciiString::from(STRUCTURE_ARMOR)),
+        TheArmorStore::find_template(&AsciiString::from(AIRPLANE_ARMOR)),
+        TheArmorStore::find_template(&AsciiString::from(TRUCK_ARMOR)),
+    ) {
+        (Some(h), Some(t), Some(s), Some(a), Some(tr)) => {
+            approx_eq(h.adjust_damage(DamageType::Sniper, 100.0), 200.0)
+                && approx_eq(h.adjust_damage(DamageType::ArmorPiercing, 100.0), 10.0)
+                && approx_eq(t.adjust_damage(DamageType::SmallArms, 100.0), 25.0)
+                && approx_eq(t.adjust_damage(DamageType::Sniper, 100.0), 0.0)
+                && approx_eq(s.adjust_damage(DamageType::Gattling, 100.0), 10.0)
+                && approx_eq(s.adjust_damage(DamageType::AuroraBomb, 100.0), 250.0)
+                && approx_eq(a.adjust_damage(DamageType::JetMissiles, 100.0), 25.0)
+                && approx_eq(a.adjust_damage(DamageType::SmallArms, 100.0), 120.0)
+                && approx_eq(tr.adjust_damage(DamageType::SmallArms, 100.0), 50.0)
+                && approx_eq(tr.adjust_damage(DamageType::Sniper, 100.0), 0.0)
+        }
+        _ => false,
+    };
+
+    human_ok && tank_ok && structure_ok && airplane_ok && truck_ok && store_ok && store_coeff_ok
+}
+
 #[inline]
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.05
@@ -202,8 +543,24 @@ mod tests {
     }
 
     #[test]
+    fn armor_residual_expand_wave92_honesty() {
+        assert!(honesty_armor_residual_expand_wave92());
+        let tank = build_tank_armor_residual();
+        assert!((tank.adjust_damage(DamageType::SmallArms, 40.0) - 10.0).abs() < 0.01);
+        let human = build_human_armor_residual();
+        assert!((human.adjust_damage(DamageType::Sniper, 50.0) - 100.0).abs() < 0.01);
+        let structure = build_structure_armor_residual();
+        assert!((structure.adjust_damage(DamageType::AuroraBomb, 100.0) - 250.0).abs() < 0.01);
+    }
+
+    #[test]
     fn armor_residual_names_match_retail() {
         assert_eq!(PROJECTILE_ARMOR, "ProjectileArmor");
         assert_eq!(HAZARDOUS_MATERIAL_ARMOR, "HazardousMaterialArmor");
+        assert_eq!(HUMAN_ARMOR, "HumanArmor");
+        assert_eq!(TANK_ARMOR, "TankArmor");
+        assert_eq!(STRUCTURE_ARMOR, "StructureArmor");
+        assert_eq!(AIRPLANE_ARMOR, "AirplaneArmor");
+        assert_eq!(TRUCK_ARMOR, "TruckArmor");
     }
 }
