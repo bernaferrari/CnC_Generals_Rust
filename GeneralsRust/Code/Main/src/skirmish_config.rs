@@ -682,4 +682,54 @@ mod tests {
         assert_eq!(cfg.slots[1].ai_difficulty.as_deref(), Some("Medium"));
         assert_eq!(cfg.slots[0].player_name, "Commander");
     }
+
+    /// WND Start residual composition (no window): client skirmish setup →
+    /// SkirmishMatchConfig → apply_skirmish_config → PresentationFrame world_env.
+    /// Proves menu Start data reaches host authority without a GPU window.
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn new_game_client_setup_applies_to_host_authority() {
+        use crate::presentation_frame::PresentationFrame;
+        use game_client::gui::get_skirmish_setup;
+        use game_client::{Money, SlotState};
+
+        {
+            let mut setup = get_skirmish_setup();
+            setup.set_selected_map("Maps/Lone Eagle/Lone Eagle.map".into());
+            let info = setup.game_info_mut().game_info_mut();
+            info.reset();
+            info.set_map("Maps/Lone Eagle/Lone Eagle.map".into());
+            info.set_starting_cash(Money::new(20_000));
+            if let Some(slot) = info.get_slot_mut(0) {
+                slot.set_state(SlotState::Player, "Human".into(), 1);
+                slot.set_player_template(-1);
+                slot.set_team_number(0);
+                slot.set_start_pos(0);
+            }
+            if let Some(slot) = info.get_slot_mut(1) {
+                slot.set_state(SlotState::MedAI, "Enemy".into(), 0);
+                slot.set_player_template(-1);
+                slot.set_team_number(1);
+                slot.set_start_pos(1);
+            }
+        }
+
+        let cfg = config_from_client_skirmish_setup(None).expect("client setup config");
+        assert!(cfg.map.contains("Lone Eagle"), "{}", cfg.map);
+        assert_eq!(cfg.rules.starting_cash, 20_000);
+        assert_eq!(cfg.slots.iter().filter(|s| s.is_active).count(), 2);
+        assert!(!local_faction_from_config(&cfg).is_empty());
+
+        let mut logic = GameLogic::new();
+        apply_skirmish_config(&mut logic, &cfg).expect("apply");
+        assert_eq!(logic.get_player(0).map(|p| p.resources.supplies), Some(20_000));
+        assert!(logic.host_ai_player_count() >= 1);
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let (a, b) = logic.world_bounds();
+        assert_eq!(snap.world_env.world_min, [a.x, a.y, a.z]);
+        assert_eq!(snap.world_env.world_max, [b.x, b.y, b.z]);
+        assert_eq!(snap.local_player_id, 0);
+    }
+
 }
