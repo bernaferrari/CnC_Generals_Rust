@@ -61,7 +61,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | Gate | Honesty |
 |------|---------|
 | `golden_skirmish_gate` | Map path `playable_claim` requires pure march (`combat_no_teleport_ok`) + retail-ish speed; teleport pull only if `GOLDEN_ALLOW_TELEPORT_PULL=1` |
-| `executable_smoke_gate` | Real binary Menu→InGame + runtime-host select/move (`gameplay_cmd`); **not** WND click path (`playable_claim=false`) |
+| `executable_smoke_gate` | Real binary Menu→InGame via `click_skirmish_start` (SkirmishMenu Start button residual) + select/move; **not** full WND widget tree (`playable_claim=false`; `skirmish_start_click_ok` honesty) |
 | `shell_smoke_gate` | Headless host skirmish stack; not windowed WND |
 
 ## Frame phase order (InGame logic tick)

@@ -1964,6 +1964,46 @@ impl CnCGameEngine {
                     );
                 }
             }
+            "click_skirmish_start" => {
+                // Real UI path: left-click Start on SkirmishMenu (not direct start_game).
+                // Same handle_mouse_click → UIEvent::StartGame path as interactive input.
+                self.set_runtime_host_ui_screen_override(Some("Skirmish"));
+                if self.ui_manager.current_screen() != Some(Screen::Skirmish) {
+                    self.ui_manager.transition_to_screen(Screen::Skirmish);
+                }
+                let _ = self.ui_manager.skirmish_menu_mut().initialize();
+                if let Some(map) = args.get("map") {
+                    self.ui_manager
+                        .skirmish_menu_mut()
+                        .set_map_name(map.clone());
+                }
+                let _ = self
+                    .ui_manager
+                    .skirmish_menu_mut()
+                    .configure_slot_medium_ai(1);
+                match self
+                    .ui_manager
+                    .skirmish_menu_mut()
+                    .simulate_start_button_click()
+                {
+                    Some(crate::ui::UIEvent::StartGame {
+                        mode,
+                        faction,
+                        map,
+                        skirmish,
+                    }) => {
+                        self.start_game_from_ui(mode, faction, map, skirmish);
+                        self.runtime_host_last_gameplay_cmd = "click_skirmish_start_ok".into();
+                    }
+                    Some(other) => {
+                        self.ui_manager.queue_event(other);
+                        self.runtime_host_last_gameplay_cmd = "click_skirmish_start_event".into();
+                    }
+                    None => {
+                        self.runtime_host_last_gameplay_cmd = "click_skirmish_start_miss".into();
+                    }
+                }
+            }
             "open_load_game" => {
                 self.enter_shell_menu_from_runtime_host(Some("LoadGame"));
             }

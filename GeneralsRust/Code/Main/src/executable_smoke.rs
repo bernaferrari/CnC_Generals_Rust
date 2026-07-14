@@ -44,6 +44,8 @@ pub struct ExecutableSmokeResult {
     pub gameplay_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
+    /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
+    pub skirmish_start_click_ok: bool,
     pub frames_observed: u32,
     pub map_seen: String,
     pub exit_code: Option<i32>,
@@ -62,6 +64,7 @@ impl Default for ExecutableSmokeResult {
             reached_ingame: false,
             gameplay_cmd_ok: false,
             skirmish_menu_ok: false,
+            skirmish_start_click_ok: false,
             frames_observed: 0,
             map_seen: "-".into(),
             exit_code: None,
@@ -394,25 +397,21 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                             .map(|t| t.elapsed() > Duration::from_millis(800))
                             .unwrap_or(true);
                     if ready {
-                        if use_new_game_path {
-                            let q = format!(
-                                "queue_new_game|mode=skirmish|map={}",
-                                map.replace('|', "/")
-                            );
-                            let _ = write_control(&control_path, &[q.as_str()]);
-                        } else {
-                            let start = format!(
-                                "start_game|mode=skirmish|faction=USA|map={}",
-                                map.replace('|', "/")
-                            );
-                            let _ = write_control(&control_path, &[start.as_str()]);
-                        }
+                        // Prefer real SkirmishMenu Start button click residual.
+                        let click = format!("click_skirmish_start|map={}", map.replace('|', "/"));
+                        let _ = write_control(&control_path, &[click.as_str()]);
                         commanded_at = Some(Instant::now());
                         phase = 1;
                     }
                 }
 
                 1 => {
+                    if snap
+                        .last_gameplay_cmd
+                        .starts_with("click_skirmish_start_ok")
+                    {
+                        result.skirmish_start_click_ok = true;
+                    }
                     if result.reached_ingame {
                         phase = 2;
                     } else if commanded_at
@@ -570,7 +569,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} skirmish_menu={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -579,6 +578,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.reached_ingame,
         r.gameplay_cmd_ok,
         r.skirmish_menu_ok,
+        r.skirmish_start_click_ok,
         r.frames_observed,
         r.map_seen,
         r.exit_code,
