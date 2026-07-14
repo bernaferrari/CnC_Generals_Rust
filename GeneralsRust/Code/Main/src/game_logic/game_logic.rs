@@ -35798,6 +35798,49 @@ impl GameLogic {
         std::mem::take(&mut self.pending_camera_motion_blur)
     }
 
+    pub fn queue_pending_movie(&mut self, name: impl Into<String>) {
+        self.pending_movie = Some(name.into());
+    }
+
+    pub fn queue_pending_radar_movie(&mut self, name: impl Into<String>) {
+        self.pending_radar_movie = Some(name.into());
+    }
+
+    pub fn queue_pending_music_stop(&mut self) {
+        self.pending_music_stop = true;
+    }
+
+    pub fn queue_pending_popup_message(&mut self, message: impl Into<String>) {
+        self.pending_popup_messages.push(
+            crate::game_logic::mission_scripts::ScriptPopupMessageRequest {
+                message: message.into(),
+                x_percent: 50,
+                y_percent: 50,
+                width: 40,
+                pause: false,
+                pause_music: false,
+            },
+        );
+    }
+
+    pub fn peek_pending_movie(&self) -> Option<&str> {
+        self.pending_movie.as_deref()
+    }
+
+    pub fn peek_pending_radar_movie(&self) -> Option<&str> {
+        self.pending_radar_movie.as_deref()
+    }
+
+    pub fn peek_pending_music_stop(&self) -> bool {
+        self.pending_music_stop
+    }
+
+    pub fn peek_pending_popup_messages(
+        &self,
+    ) -> &[crate::game_logic::mission_scripts::ScriptPopupMessageRequest] {
+        &self.pending_popup_messages
+    }
+
     pub fn take_music_stop_request(&mut self) -> bool {
         std::mem::take(&mut self.pending_music_stop)
     }
