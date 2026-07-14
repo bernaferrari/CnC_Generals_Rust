@@ -16,6 +16,13 @@
 //! - Killer ObjectId residual prefers victim `last_damage_source` (BodyModule residual)
 //!   when available; falls back to nearest living same-team unit.
 //!
+//! Wave 66 residual pack (retail SpecialPower.ini / Science.ini / FactionBuilding.ini):
+//! - SpecialAbilityCashBounty1/2/3 Enum SPECIAL_CASH_BOUNTY + RequiredScience tiers.
+//! - CashBountyPower Bounty residual **5%** / **10%** / **20%**.
+//! - SciencePurchasePointCost **1** each; prereq SCIENCE_GLA + Rank3, then chain
+//!   CashBounty1→2→3.
+//! - Floating text residual: GUI:AddCash, Z lift **10**, yellow RGBA.
+//!
 //! Fail-closed honesty:
 //! - Not full CashBountyPower module-on-palace science gate matrix
 //! - Not full InGameUI GPU draw / Unicode GameText localization
@@ -41,10 +48,30 @@ pub const CASH_BOUNTY1_PERCENT: f32 = 0.05;
 pub const CASH_BOUNTY2_PERCENT: f32 = 0.10;
 pub const CASH_BOUNTY3_PERCENT: f32 = 0.20;
 
+/// Retail CashBountyPower Bounty percent strings residual.
+pub const CASH_BOUNTY1_PERCENT_STR: &str = "5%";
+pub const CASH_BOUNTY2_PERCENT_STR: &str = "10%";
+pub const CASH_BOUNTY3_PERCENT_STR: &str = "20%";
+
 /// Science names that unlock cash bounty tiers.
 pub const SCIENCE_CASH_BOUNTY1: &str = "SCIENCE_CashBounty1";
 pub const SCIENCE_CASH_BOUNTY2: &str = "SCIENCE_CashBounty2";
 pub const SCIENCE_CASH_BOUNTY3: &str = "SCIENCE_CashBounty3";
+
+/// Retail SpecialAbility template residual names.
+pub const SPECIAL_ABILITY_CASH_BOUNTY1: &str = "SpecialAbilityCashBounty1";
+pub const SPECIAL_ABILITY_CASH_BOUNTY2: &str = "SpecialAbilityCashBounty2";
+pub const SPECIAL_ABILITY_CASH_BOUNTY3: &str = "SpecialAbilityCashBounty3";
+/// Retail SpecialPower enum residual (shared by all tiers).
+pub const CASH_BOUNTY_ENUM: &str = "SPECIAL_CASH_BOUNTY";
+/// Retail SciencePurchasePointCost residual (all tiers).
+pub const CASH_BOUNTY_SCIENCE_POINT_COST: u32 = 1;
+/// Retail SCIENCE_CashBounty1 PrerequisiteSciences residual tokens.
+pub const CASH_BOUNTY1_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_GLA", "SCIENCE_Rank3"];
+/// Retail SCIENCE_CashBounty2 PrerequisiteSciences residual tokens.
+pub const CASH_BOUNTY2_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_CashBounty1", "SCIENCE_Rank3"];
+/// Retail SCIENCE_CashBounty3 PrerequisiteSciences residual tokens.
+pub const CASH_BOUNTY3_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_CashBounty2", "SCIENCE_Rank3"];
 
 /// Normalize science/upgrade identity (alphanumeric lower).
 pub fn normalize_science_identity(name: &str) -> String {
@@ -219,6 +246,55 @@ impl HostCashBountyRegistry {
     }
 }
 
+// --- Wave 66 residual honesty packs ---
+
+/// Wave 66 residual honesty: science / percent tier residual peel.
+pub fn honesty_cash_bounty_science_residual_ok() -> bool {
+    SCIENCE_CASH_BOUNTY1 == "SCIENCE_CashBounty1"
+        && SCIENCE_CASH_BOUNTY2 == "SCIENCE_CashBounty2"
+        && SCIENCE_CASH_BOUNTY3 == "SCIENCE_CashBounty3"
+        && (CASH_BOUNTY1_PERCENT - 0.05).abs() < 0.0001
+        && (CASH_BOUNTY2_PERCENT - 0.10).abs() < 0.0001
+        && (CASH_BOUNTY3_PERCENT - 0.20).abs() < 0.0001
+        && CASH_BOUNTY1_PERCENT_STR == "5%"
+        && CASH_BOUNTY2_PERCENT_STR == "10%"
+        && CASH_BOUNTY3_PERCENT_STR == "20%"
+        && CASH_BOUNTY_SCIENCE_POINT_COST == 1
+        && CASH_BOUNTY1_PREREQ_SCIENCES == ["SCIENCE_GLA", "SCIENCE_Rank3"]
+        && CASH_BOUNTY2_PREREQ_SCIENCES == ["SCIENCE_CashBounty1", "SCIENCE_Rank3"]
+        && CASH_BOUNTY3_PREREQ_SCIENCES == ["SCIENCE_CashBounty2", "SCIENCE_Rank3"]
+        && cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY1) == Some(0.05)
+        && cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY2) == Some(0.10)
+        && cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY3) == Some(0.20)
+}
+
+/// Wave 66 residual honesty: special-power residual peel.
+pub fn honesty_cash_bounty_special_power_residual_ok() -> bool {
+    SPECIAL_ABILITY_CASH_BOUNTY1 == "SpecialAbilityCashBounty1"
+        && SPECIAL_ABILITY_CASH_BOUNTY2 == "SpecialAbilityCashBounty2"
+        && SPECIAL_ABILITY_CASH_BOUNTY3 == "SpecialAbilityCashBounty3"
+        && CASH_BOUNTY_ENUM == "SPECIAL_CASH_BOUNTY"
+        && compute_bounty_award(100, CASH_BOUNTY1_PERCENT) == 5
+        && compute_bounty_award(100, CASH_BOUNTY2_PERCENT) == 10
+        && compute_bounty_award(100, CASH_BOUNTY3_PERCENT) == 20
+        && compute_bounty_award(101, CASH_BOUNTY1_PERCENT) == 6
+}
+
+/// Wave 66 residual honesty: floating text residual peel.
+pub fn honesty_cash_bounty_floating_text_residual_ok() -> bool {
+    HostCashBountyRegistry::honesty_floating_text_constants_ok()
+        && CASH_BOUNTY_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
+        && (CASH_BOUNTY_FLOATING_TEXT_Z_OFFSET - 10.0).abs() < 0.01
+        && CASH_BOUNTY_FLOATING_TEXT_COLOR_RGBA == (255, 255, 0, 255)
+}
+
+/// Combined Wave 66 Cash Bounty residual honesty pack.
+pub fn honesty_cash_bounty_residual_pack_ok() -> bool {
+    honesty_cash_bounty_science_residual_ok()
+        && honesty_cash_bounty_special_power_residual_ok()
+        && honesty_cash_bounty_floating_text_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +358,16 @@ mod tests {
         reg.record_last_damage_source_kill();
         assert!(reg.honesty_last_damage_source_killer_ok());
         assert_eq!(reg.last_damage_source_kills, 1);
+    }
+
+    #[test]
+    fn cash_bounty_residual_pack_honesty_wave66() {
+        assert!(honesty_cash_bounty_science_residual_ok());
+        assert!(honesty_cash_bounty_special_power_residual_ok());
+        assert!(honesty_cash_bounty_floating_text_residual_ok());
+        assert!(honesty_cash_bounty_residual_pack_ok());
+        assert_eq!(CASH_BOUNTY_ENUM, "SPECIAL_CASH_BOUNTY");
+        assert_eq!(CASH_BOUNTY_SCIENCE_POINT_COST, 1);
+        assert_eq!(CASH_BOUNTY3_PERCENT_STR, "20%");
     }
 }

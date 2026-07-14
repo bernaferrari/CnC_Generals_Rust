@@ -10,20 +10,41 @@
 //! - Optional KILL_GARRISONED residual (MicrowaveTankBuildingClearer style):
 //!   kill `floor(damage)` occupants without requiring the upgrade.
 //!
+//! Wave 66 residual pack (retail AmericaAir.ini / Weapon.ini / WeaponObjects.ini):
+//! - Missile residual: StealthJetMissileWeapon PrimaryDamage **100** / radius **5** /
+//!   range **220** / min **60** / Delay **200**ms → **6**f / ClipSize **2** /
+//!   ClipReload **8000**ms → **240**f / DamageType STEALTHJET_MISSILES.
+//! - Occupant residual: BunkerBusterAntiTunnel PrimaryDamage **400** / radius **10**.
+//! - Shockwave residual: BunkerBusterShockwaveWeaponSmall dmg **10** / radius **50** /
+//!   SeismicEffectRadius **200** / Magnitude **5**.
+//! - Stealth Fighter body residual: MaxHealth **120**, Vision **180**, Shroud **300**,
+//!   BuildCost **1600**, BuildTime **25**s → **750**f, SCIENCE_StealthFighter.
+//!
 //! Fail-closed honesty:
-//! - Not full BunkerBusterBehavior crash-through FX / seismic sim / shockwave
-//!   temp weapon (BunkerBusterShockwaveWeaponSmall) path
+//! - Not full BunkerBusterBehavior crash-through FX / seismic sim path
 //! - Not full projectile StealthJetMissile AI / KillSelfDelay crash path
 //! - Not full GarrisonContain isBustable / TunnelContain crash-guard matrix
 //! - Not network bunker-buster replication (network deferred)
 
 use serde::{Deserialize, Serialize};
 
+/// Logic frames per second (host fixed step).
+pub const BUNKER_BUSTER_LOGIC_FPS: f32 = 30.0;
+
 /// Retail upgrade that enables bunker-buster residual on Stealth Fighter missiles.
 pub const UPGRADE_AMERICA_BUNKER_BUSTERS: &str = "Upgrade_AmericaBunkerBusters";
+/// Retail science gate residual for Stealth Fighter.
+pub const SCIENCE_STEALTH_FIGHTER: &str = "SCIENCE_StealthFighter";
 
 /// Retail StealthJetMissileWeapon template name (host seed residual).
 pub const STEALTH_JET_MISSILE_WEAPON: &str = "StealthJetMissileWeapon";
+/// Retail projectile object residual.
+pub const STEALTH_JET_MISSILE_PROJECTILE: &str = "StealthJetMissile";
+/// Retail shockwave temp weapon residual.
+pub const BUNKER_BUSTER_SHOCKWAVE_WEAPON: &str = "BunkerBusterShockwaveWeaponSmall";
+/// Retail occupant damage weapon residual.
+pub const BUNKER_BUSTER_OCCUPANT_WEAPON: &str =
+    "BunkerBusterAntiTunnelGarrisonWeaponWithABigName";
 
 /// Retail MicrowaveTankBuildingClearer — DamageType = KILL_GARRISONED.
 pub const MICROWAVE_BUILDING_CLEARER_WEAPON: &str = "MicrowaveTankBuildingClearer";
@@ -34,13 +55,71 @@ pub const BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT: f32 = 1.5;
 
 /// Residual occupant kill damage (matches BunkerBusterAntiTunnel PrimaryDamage 400 residual).
 pub const BUNKER_BUSTER_OCCUPANT_DAMAGE: f32 = 400.0;
+/// Retail BunkerBusterAntiTunnel PrimaryDamageRadius residual.
+pub const BUNKER_BUSTER_OCCUPANT_RADIUS: f32 = 10.0;
 
 /// Residual shockwave-style structure bonus when bunker is occupied (host playability).
 /// Fail-closed: not full BunkerBusterShockwaveWeaponSmall PrimaryDamage 10 radius 50.
 pub const BUNKER_BUSTER_OCCUPIED_BONUS_DAMAGE: f32 = 10.0;
+/// Retail BunkerBusterShockwaveWeaponSmall PrimaryDamageRadius residual.
+pub const BUNKER_BUSTER_SHOCKWAVE_RADIUS: f32 = 50.0;
+/// Retail BunkerBusterBehavior SeismicEffectRadius residual.
+pub const BUNKER_BUSTER_SEISMIC_RADIUS: f32 = 200.0;
+/// Retail BunkerBusterBehavior SeismicEffectMagnitude residual.
+pub const BUNKER_BUSTER_SEISMIC_MAGNITUDE: f32 = 5.0;
+/// Retail CrashThroughBunkerFXFrequency residual (msec).
+pub const BUNKER_BUSTER_CRASH_FX_FREQUENCY_MS: u32 = 571;
+
+/// Retail StealthJetMissileWeapon PrimaryDamage residual.
+pub const STEALTH_JET_MISSILE_DAMAGE: f32 = 100.0;
+/// Retail StealthJetMissileWeapon PrimaryDamageRadius residual.
+pub const STEALTH_JET_MISSILE_RADIUS: f32 = 5.0;
+/// Retail StealthJetMissileWeapon AttackRange residual.
+pub const STEALTH_JET_MISSILE_RANGE: f32 = 220.0;
+/// Retail StealthJetMissileWeapon MinimumAttackRange residual.
+pub const STEALTH_JET_MISSILE_MIN_RANGE: f32 = 60.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const STEALTH_JET_MISSILE_DELAY_MS: u32 = 200;
+/// Delay 200ms → 6 frames @ 30 FPS.
+pub const STEALTH_JET_MISSILE_DELAY_FRAMES: u32 = 6;
+/// Retail ClipSize residual.
+pub const STEALTH_JET_MISSILE_CLIP_SIZE: u32 = 2;
+/// Retail ClipReloadTime residual (msec).
+pub const STEALTH_JET_MISSILE_CLIP_RELOAD_MS: u32 = 8000;
+/// ClipReload 8000ms → 240 frames @ 30 FPS.
+pub const STEALTH_JET_MISSILE_CLIP_RELOAD_FRAMES: u32 = 240;
+/// Retail DamageType residual.
+pub const STEALTH_JET_MISSILE_DAMAGE_TYPE: &str = "STEALTHJET_MISSILES";
+/// Retail DeathType residual.
+pub const STEALTH_JET_MISSILE_DEATH_TYPE: &str = "EXPLODED";
+
+// --- Stealth Fighter body residual ---
+
+/// Retail ActiveBody MaxHealth residual.
+pub const STEALTH_FIGHTER_MAX_HEALTH: f32 = 120.0;
+/// Retail VisionRange residual.
+pub const STEALTH_FIGHTER_VISION_RANGE: f32 = 180.0;
+/// Retail ShroudClearingRange residual.
+pub const STEALTH_FIGHTER_SHROUD_CLEARING_RANGE: f32 = 300.0;
+/// Retail BuildCost residual.
+pub const STEALTH_FIGHTER_BUILD_COST: u32 = 1600;
+/// Retail BuildTime residual (seconds).
+pub const STEALTH_FIGHTER_BUILD_TIME_SEC: f32 = 25.0;
+/// BuildTime 25s → 750 frames @ 30 FPS.
+pub const STEALTH_FIGHTER_BUILD_TIME_FRAMES: u32 = 750;
 
 /// Activate / impact audio residual.
 pub const BUNKER_BUSTER_AUDIO: &str = "StealthJetMissileWeapon";
+/// Retail DetonationFX residual.
+pub const BUNKER_BUSTER_DETONATION_FX: &str = "FX_BunkerBusterExplosion";
+
+/// Convert residual milliseconds to logic frames @ 30 FPS (round half-up).
+pub fn bunker_buster_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * BUNKER_BUSTER_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Whether template is a residual Stealth Fighter / bunker-buster carrier.
 ///
@@ -201,6 +280,73 @@ impl HostBunkerBusterRegistry {
     }
 }
 
+// --- Wave 66 residual honesty packs ---
+
+/// Wave 66 residual honesty: StealthJetMissile weapon residual peel.
+pub fn honesty_bunker_buster_missile_residual_ok() -> bool {
+    STEALTH_JET_MISSILE_WEAPON == "StealthJetMissileWeapon"
+        && STEALTH_JET_MISSILE_PROJECTILE == "StealthJetMissile"
+        && (STEALTH_JET_MISSILE_DAMAGE - 100.0).abs() < 0.01
+        && (STEALTH_JET_MISSILE_RADIUS - 5.0).abs() < 0.01
+        && (STEALTH_JET_MISSILE_RANGE - 220.0).abs() < 0.01
+        && (STEALTH_JET_MISSILE_MIN_RANGE - 60.0).abs() < 0.01
+        && STEALTH_JET_MISSILE_DELAY_MS == 200
+        && STEALTH_JET_MISSILE_DELAY_FRAMES
+            == bunker_buster_ms_to_frames(STEALTH_JET_MISSILE_DELAY_MS)
+        && STEALTH_JET_MISSILE_DELAY_FRAMES == 6
+        && STEALTH_JET_MISSILE_CLIP_SIZE == 2
+        && STEALTH_JET_MISSILE_CLIP_RELOAD_MS == 8000
+        && STEALTH_JET_MISSILE_CLIP_RELOAD_FRAMES
+            == bunker_buster_ms_to_frames(STEALTH_JET_MISSILE_CLIP_RELOAD_MS)
+        && STEALTH_JET_MISSILE_CLIP_RELOAD_FRAMES == 240
+        && STEALTH_JET_MISSILE_DAMAGE_TYPE == "STEALTHJET_MISSILES"
+        && STEALTH_JET_MISSILE_DEATH_TYPE == "EXPLODED"
+        && BUNKER_BUSTER_AUDIO == "StealthJetMissileWeapon"
+}
+
+/// Wave 66 residual honesty: bunker-buster behavior residual peel.
+pub fn honesty_bunker_buster_behavior_residual_ok() -> bool {
+    UPGRADE_AMERICA_BUNKER_BUSTERS == "Upgrade_AmericaBunkerBusters"
+        && BUNKER_BUSTER_SHOCKWAVE_WEAPON == "BunkerBusterShockwaveWeaponSmall"
+        && BUNKER_BUSTER_OCCUPANT_WEAPON
+            == "BunkerBusterAntiTunnelGarrisonWeaponWithABigName"
+        && (BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT - 1.5).abs() < 0.001
+        && (BUNKER_BUSTER_OCCUPANT_DAMAGE - 400.0).abs() < 0.01
+        && (BUNKER_BUSTER_OCCUPANT_RADIUS - 10.0).abs() < 0.01
+        && (BUNKER_BUSTER_OCCUPIED_BONUS_DAMAGE - 10.0).abs() < 0.01
+        && (BUNKER_BUSTER_SHOCKWAVE_RADIUS - 50.0).abs() < 0.01
+        && (BUNKER_BUSTER_SEISMIC_RADIUS - 200.0).abs() < 0.01
+        && (BUNKER_BUSTER_SEISMIC_MAGNITUDE - 5.0).abs() < 0.01
+        && BUNKER_BUSTER_CRASH_FX_FREQUENCY_MS == 571
+        && BUNKER_BUSTER_DETONATION_FX == "FX_BunkerBusterExplosion"
+        && {
+            let d = bunker_buster_structure_damage(100.0, true, true);
+            (d - 160.0).abs() < 0.01
+        }
+}
+
+/// Wave 66 residual honesty: Stealth Fighter body residual peel.
+pub fn honesty_bunker_buster_body_residual_ok() -> bool {
+    (STEALTH_FIGHTER_MAX_HEALTH - 120.0).abs() < 0.01
+        && (STEALTH_FIGHTER_VISION_RANGE - 180.0).abs() < 0.01
+        && (STEALTH_FIGHTER_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && STEALTH_FIGHTER_BUILD_COST == 1600
+        && (STEALTH_FIGHTER_BUILD_TIME_SEC - 25.0).abs() < 0.01
+        && STEALTH_FIGHTER_BUILD_TIME_FRAMES
+            == ((STEALTH_FIGHTER_BUILD_TIME_SEC * BUNKER_BUSTER_LOGIC_FPS).round() as u32)
+        && STEALTH_FIGHTER_BUILD_TIME_FRAMES == 750
+        && SCIENCE_STEALTH_FIGHTER == "SCIENCE_StealthFighter"
+        && is_bunker_buster_carrier("AmericaJetStealthFighter")
+        && !is_bunker_buster_carrier("StealthJetMissile")
+}
+
+/// Combined Wave 66 Bunker Buster residual honesty pack.
+pub fn honesty_bunker_buster_residual_pack_ok() -> bool {
+    honesty_bunker_buster_missile_residual_ok()
+        && honesty_bunker_buster_behavior_residual_ok()
+        && honesty_bunker_buster_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +420,18 @@ mod tests {
         reg.record_kill_garrisoned(1);
         assert!(reg.honesty_kill_garrisoned_ok());
         assert_eq!(reg.occupants_killed, 3);
+    }
+
+    #[test]
+    fn bunker_buster_residual_pack_honesty_wave66() {
+        assert_eq!(bunker_buster_ms_to_frames(200), 6);
+        assert_eq!(bunker_buster_ms_to_frames(8000), 240);
+        assert!(honesty_bunker_buster_missile_residual_ok());
+        assert!(honesty_bunker_buster_behavior_residual_ok());
+        assert!(honesty_bunker_buster_body_residual_ok());
+        assert!(honesty_bunker_buster_residual_pack_ok());
+        assert_eq!(STEALTH_JET_MISSILE_DAMAGE_TYPE, "STEALTHJET_MISSILES");
+        assert_eq!(STEALTH_FIGHTER_BUILD_TIME_FRAMES, 750);
+        assert_eq!(STEALTH_JET_MISSILE_CLIP_SIZE, 2);
     }
 }
