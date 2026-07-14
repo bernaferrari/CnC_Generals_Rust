@@ -325,7 +325,9 @@ pub fn geometry_bounding_circle_radius(
 ) -> Option<f32> {
     match geom_type {
         GEOMETRY_SPHERE_RESIDUAL | GEOMETRY_CYLINDER_RESIDUAL => Some(major_radius),
-        GEOMETRY_BOX_RESIDUAL => Some((major_radius * major_radius + minor_radius * minor_radius).sqrt()),
+        GEOMETRY_BOX_RESIDUAL => {
+            Some((major_radius * major_radius + minor_radius * minor_radius).sqrt())
+        }
         _ => None,
     }
 }
@@ -346,9 +348,7 @@ pub fn geometry_bounding_sphere_radius(
         GEOMETRY_BOX_RESIDUAL => {
             let half_h = height * 0.5;
             Some(
-                (major_radius * major_radius
-                    + minor_radius * minor_radius
-                    + half_h * half_h)
+                (major_radius * major_radius + minor_radius * minor_radius + half_h * half_h)
                     .sqrt(),
             )
         }
@@ -357,7 +357,11 @@ pub fn geometry_bounding_sphere_radius(
 }
 
 /// Residual: `getMaxHeightAbovePosition` (Sphere→majorRadius; Box/Cylinder→height).
-pub fn geometry_max_height_above_position(geom_type: u32, height: f32, major_radius: f32) -> Option<f32> {
+pub fn geometry_max_height_above_position(
+    geom_type: u32,
+    height: f32,
+    major_radius: f32,
+) -> Option<f32> {
     match geom_type {
         GEOMETRY_SPHERE_RESIDUAL => Some(major_radius),
         GEOMETRY_BOX_RESIDUAL | GEOMETRY_CYLINDER_RESIDUAL => Some(height),

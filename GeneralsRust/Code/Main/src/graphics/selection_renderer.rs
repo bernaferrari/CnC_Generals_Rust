@@ -425,11 +425,9 @@ pub fn collect_selected_units_from_presentation(
                 CIRCLE_ALPHA,
             ]
         };
-        let radius = object.selection_radius.max(if object.is_structure {
-            12.0
-        } else {
-            5.0
-        });
+        let radius = object
+            .selection_radius
+            .max(if object.is_structure { 12.0 } else { 5.0 });
         units.push(SelectedUnit {
             position: object.position,
             radius,

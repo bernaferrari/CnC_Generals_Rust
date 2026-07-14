@@ -109,7 +109,8 @@ pub fn is_rpg_trooper_template(template_name: &str) -> bool {
         || n.contains("voice")
         || n.contains("biker")
         || n.contains("site") // StingerSite
-        || n.contains("network") // TunnelNetwork structure
+        || n.contains("network")
+    // TunnelNetwork structure
     {
         return false;
     }
@@ -356,7 +357,9 @@ mod tests {
         assert!(should_apply_rpg_trooper_residual(true));
         assert!(!should_apply_rpg_trooper_residual(false));
         assert!(is_legal_rpg_trooper_splash_target(true, false, false, true));
-        assert!(!is_legal_rpg_trooper_splash_target(false, false, false, true));
+        assert!(!is_legal_rpg_trooper_splash_target(
+            false, false, false, true
+        ));
         assert!(!is_legal_rpg_trooper_splash_target(true, true, false, true));
     }
 

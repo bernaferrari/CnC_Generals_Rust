@@ -335,7 +335,9 @@ mod tests {
             .iter()
             .map(|m| m.get_type().clone())
             .collect();
-        assert!(types.iter().any(|t| matches!(t, GameMessageType::ClearGameData)));
+        assert!(types
+            .iter()
+            .any(|t| matches!(t, GameMessageType::ClearGameData)));
         assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
         assert!(!types.iter().any(|t| matches!(t, GameMessageType::NewGame)));
         // silence unused import if GameMessage only used above via type
@@ -1950,10 +1952,12 @@ impl CnCGameEngine {
                 let skirmish = if matches!(mode, GameMode::Skirmish) {
                     #[cfg(feature = "game_client")]
                     {
-                        crate::skirmish_config::config_from_client_skirmish_setup(Some(map.as_str()))
-                            .or_else(|| {
-                                Some(crate::skirmish_config::golden_skirmish_config(map.as_str()))
-                            })
+                        crate::skirmish_config::config_from_client_skirmish_setup(Some(
+                            map.as_str(),
+                        ))
+                        .or_else(|| {
+                            Some(crate::skirmish_config::golden_skirmish_config(map.as_str()))
+                        })
                     }
                     #[cfg(not(feature = "game_client"))]
                     {
@@ -1978,9 +1982,7 @@ impl CnCGameEngine {
             // WND parity: enqueue MSG_NEW_GAME on the common stream so Menu drain
             // (take_pending_new_game_start_request) is exercised on the live engine.
             "queue_new_game" => {
-                use game_engine::common::message_stream::{
-                    get_message_stream, GameMessageType,
-                };
+                use game_engine::common::message_stream::{get_message_stream, GameMessageType};
                 let mode_code = args
                     .get("mode")
                     .and_then(|m| match m.trim().to_ascii_lowercase().as_str() {
@@ -2014,17 +2016,13 @@ impl CnCGameEngine {
                         .unwrap_or(true)
                     {
                         use game_client::SlotState;
-                        if let Some(slot) =
-                            setup.game_info_mut().game_info_mut().get_slot_mut(0)
-                        {
+                        if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(0) {
                             slot.set_state(SlotState::Player, "Player".into(), 1);
                             slot.set_player_template(-1);
                             slot.set_team_number(0);
                             slot.set_start_pos(0);
                         }
-                        if let Some(slot) =
-                            setup.game_info_mut().game_info_mut().get_slot_mut(1)
-                        {
+                        if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(1) {
                             slot.set_state(SlotState::MedAI, "AI".into(), 0);
                             slot.set_player_template(-1);
                             slot.set_team_number(1);
@@ -2038,9 +2036,7 @@ impl CnCGameEngine {
                     msg.append_integer_argument(1); // DIFFICULTY_NORMAL
                     msg.append_integer_argument(0); // rank points
                     msg.append_integer_argument(30); // max fps residual
-                    info!(
-                        "Runtime host queued NewGame mode_code={mode_code} map={map}"
-                    );
+                    info!("Runtime host queued NewGame mode_code={mode_code} map={map}");
                 } else {
                     warn!("Runtime host failed to lock message stream for NewGame");
                 }

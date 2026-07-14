@@ -364,7 +364,6 @@ impl HostNukeCannonRegistry {
     }
 }
 
-
 // --- Wave 67 residual honesty packs ---
 
 /// Wave 67 residual honesty: Nuke Cannon weapon residual peel.
@@ -448,15 +447,9 @@ mod tests {
         assert!(!should_apply_nuke_cannon_primary(true, 1));
         assert!(!should_apply_nuke_cannon_primary(false, 0));
 
-        assert!(
-            (nuke_cannon_primary_damage_at(0.0) - NUKE_CANNON_PRIMARY_DAMAGE).abs() < 0.01
-        );
-        assert!(
-            (nuke_cannon_primary_damage_at(50.0) - NUKE_CANNON_PRIMARY_DAMAGE).abs() < 0.01
-        );
-        assert!(
-            (nuke_cannon_primary_damage_at(55.0) - NUKE_CANNON_SECONDARY_DAMAGE).abs() < 0.01
-        );
+        assert!((nuke_cannon_primary_damage_at(0.0) - NUKE_CANNON_PRIMARY_DAMAGE).abs() < 0.01);
+        assert!((nuke_cannon_primary_damage_at(50.0) - NUKE_CANNON_PRIMARY_DAMAGE).abs() < 0.01);
+        assert!((nuke_cannon_primary_damage_at(55.0) - NUKE_CANNON_SECONDARY_DAMAGE).abs() < 0.01);
         assert!((nuke_cannon_primary_damage_at(61.0)).abs() < 0.01);
         assert!((nuke_cannon_splash_radius() - NUKE_CANNON_SECONDARY_RADIUS).abs() < 0.01);
     }
@@ -468,12 +461,7 @@ mod tests {
         reg.record_primary_blast(2);
         assert!(reg.honesty_primary_ok());
 
-        let id = reg.spawn_radiation_zone(
-            ObjectId(1),
-            Team::China,
-            Vec3::new(0.0, 0.0, 0.0),
-            0,
-        );
+        let id = reg.spawn_radiation_zone(ObjectId(1), Team::China, Vec3::new(0.0, 0.0, 0.0), 0);
         assert_eq!(id, 0);
         assert!(reg.honesty_radiation_ok());
         assert_eq!(reg.active_count(), 1);

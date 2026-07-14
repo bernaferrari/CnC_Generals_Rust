@@ -216,7 +216,6 @@ pub fn honesty_emergency_repair_residual_pack_ok() -> bool {
     honesty_emergency_repair_residual_ok()
 }
 
-
 /// One active residual Emergency Repair activation bookkeeping entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostEmergencyRepair {
@@ -372,21 +371,50 @@ mod tests {
     #[test]
     fn legal_emergency_repair_target_matrix() {
         // is_vehicle, alive, same_team, under_construction, is_damaged
-        assert!(is_legal_emergency_repair_target(true, true, true, false, true));
-        assert!(!is_legal_emergency_repair_target(false, true, true, false, true)); // infantry
-        assert!(!is_legal_emergency_repair_target(true, false, true, false, true)); // dead
-        assert!(!is_legal_emergency_repair_target(true, true, false, false, true)); // enemy
-        assert!(!is_legal_emergency_repair_target(true, true, true, true, true)); // constructing
-        assert!(!is_legal_emergency_repair_target(true, true, true, false, false)); // full HP
+        assert!(is_legal_emergency_repair_target(
+            true, true, true, false, true
+        ));
+        assert!(!is_legal_emergency_repair_target(
+            false, true, true, false, true
+        )); // infantry
+        assert!(!is_legal_emergency_repair_target(
+            true, false, true, false, true
+        )); // dead
+        assert!(!is_legal_emergency_repair_target(
+            true, true, false, false, true
+        )); // enemy
+        assert!(!is_legal_emergency_repair_target(
+            true, true, true, true, true
+        )); // constructing
+        assert!(!is_legal_emergency_repair_target(
+            true, true, true, false, false
+        )); // full HP
     }
 
     #[test]
     fn emergency_repair_radius_and_level_parse() {
-        assert!(in_emergency_repair_radius_2d((0.0, 0.0), (50.0, 0.0), 100.0));
-        assert!(!in_emergency_repair_radius_2d((0.0, 0.0), (150.0, 0.0), 100.0));
-        assert_eq!(HostEmergencyRepairLevel::from_u8(1), HostEmergencyRepairLevel::One);
-        assert_eq!(HostEmergencyRepairLevel::from_u8(2), HostEmergencyRepairLevel::Two);
-        assert_eq!(HostEmergencyRepairLevel::from_u8(3), HostEmergencyRepairLevel::Three);
+        assert!(in_emergency_repair_radius_2d(
+            (0.0, 0.0),
+            (50.0, 0.0),
+            100.0
+        ));
+        assert!(!in_emergency_repair_radius_2d(
+            (0.0, 0.0),
+            (150.0, 0.0),
+            100.0
+        ));
+        assert_eq!(
+            HostEmergencyRepairLevel::from_u8(1),
+            HostEmergencyRepairLevel::One
+        );
+        assert_eq!(
+            HostEmergencyRepairLevel::from_u8(2),
+            HostEmergencyRepairLevel::Two
+        );
+        assert_eq!(
+            HostEmergencyRepairLevel::from_u8(3),
+            HostEmergencyRepairLevel::Three
+        );
         assert_eq!(
             HostEmergencyRepairLevel::from_u8(99),
             HostEmergencyRepairLevel::One
@@ -424,5 +452,4 @@ mod tests {
         assert_eq!(EMERGENCY_REPAIR_LEVEL3_HEAL, 300.0);
         assert_eq!(EMERGENCY_REPAIR_RELOAD_TIME_FRAMES, 7200);
     }
-
 }

@@ -1523,9 +1523,7 @@ impl CommandSystem {
         }
         for &unit_id in units {
             if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.can_repair()
-                    && (unit.team == target.team || target.team == Team::Neutral)
-                {
+                if unit.can_repair() && (unit.team == target.team || target.team == Team::Neutral) {
                     return true;
                 }
             }
@@ -1547,8 +1545,7 @@ impl CommandSystem {
         let target_has_occupants = !target.contained_units().is_empty();
         // Structures + Overlord BattleBunker residual: infantry/heroes only.
         let infantry_only = target.is_kind_of(KindOf::Structure)
-            || (target.is_overlord_style_container()
-                && target.overlord_bunker_slot_capacity() > 0);
+            || (target.is_overlord_style_container() && target.overlord_bunker_slot_capacity() > 0);
 
         for &unit_id in units {
             let Some(unit) = game_logic.get_object(unit_id) else {
@@ -1757,9 +1754,7 @@ impl CommandableObject for Object {
                 matches!(
                     b.building_type,
                     // RepairPad + Airfield + WarFactory (China RepairDock residual).
-                    BuildingType::RepairPad
-                        | BuildingType::Airfield
-                        | BuildingType::WarFactory
+                    BuildingType::RepairPad | BuildingType::Airfield | BuildingType::WarFactory
                 )
             })
             .unwrap_or_else(|| {

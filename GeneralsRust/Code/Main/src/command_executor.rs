@@ -946,7 +946,9 @@ impl<'a> CommandExecutor<'a> {
                         .get_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
-                    let placed = self.game_logic.place_cluster_mines(team, pos, Some(unit_id));
+                    let placed = self
+                        .game_logic
+                        .place_cluster_mines(team, pos, Some(unit_id));
                     if placed.is_empty() {
                         continue;
                     }
@@ -1070,11 +1072,7 @@ impl<'a> CommandExecutor<'a> {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::FireWall {
-                    if self
-                        .game_logic
-                        .activate_firewall(unit_id, pos)
-                        .is_none()
-                    {
+                    if self.game_logic.activate_firewall(unit_id, pos).is_none() {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::HelixNapalmBomb {
@@ -1146,8 +1144,7 @@ impl<'a> CommandExecutor<'a> {
                 t.is_kind_of(crate::game_logic::KindOf::Aircraft) || t.status.airborne_target,
                 t.is_unmanned(),
                 t.status.under_construction,
-                t.is_worker()
-                    || t.template_name.to_ascii_lowercase().contains("dozer"),
+                t.is_worker() || t.template_name.to_ascii_lowercase().contains("dozer"),
             )
         });
         let target_pos = match self.game_logic.get_object(target_id) {
@@ -1180,8 +1177,7 @@ impl<'a> CommandExecutor<'a> {
                 .team_holding_unit(unit_id)
                 .is_some();
             let previous_container = self.game_logic.get_object(unit_id).and_then(|unit| {
-                if matches!(unit.ai_state, AIState::Docked | AIState::Garrisoned)
-                    || unit_in_tunnel
+                if matches!(unit.ai_state, AIState::Docked | AIState::Garrisoned) || unit_in_tunnel
                 {
                     unit.container_id().or(unit.target)
                 } else {
@@ -1320,8 +1316,7 @@ impl<'a> CommandExecutor<'a> {
 
             let tunnel_exit = tunnel_exit_for.get(&unit_id).copied();
             let was_tunnel = if let Some(exit_tid) = tunnel_exit {
-                self.game_logic
-                    .exit_tunnel_network_unit(unit_id, exit_tid)
+                self.game_logic.exit_tunnel_network_unit(unit_id, exit_tid)
             } else if let Some(cid) = container_id {
                 // Fallback: unit in shared pool exiting via entry tunnel.
                 if self
@@ -1777,8 +1772,7 @@ impl<'a> CommandExecutor<'a> {
             | "upgradeglarebelcapturebuilding"
             | "upgradeinfantrycapturebuilding" => 1000,
             // Retail Upgrade_AmericaRangerFlashBangGrenade BuildCost 800.
-            "upgradeamericaflashbanggrenade"
-            | "upgradeamericarangerflashbanggrenade" => 800,
+            "upgradeamericaflashbanggrenade" | "upgradeamericarangerflashbanggrenade" => 800,
             // Retail Upgrade_AmericaSupplyLines BuildCost 800.
             "upgradeamericasupplylines" => 800,
             // Retail Upgrade_AmericaAdvancedTraining BuildCost 1500.
@@ -2079,8 +2073,8 @@ impl<'a> CommandExecutor<'a> {
         let (target_pos, target_ok) = match self.game_logic.get_object(target_id) {
             Some(target) if target.is_alive() => {
                 let is_vehicle = target.is_kind_of(KindOf::Vehicle);
-                let is_airborne = target.is_kind_of(KindOf::Aircraft)
-                    || target.status.airborne_target;
+                let is_airborne =
+                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
                 let already_bomb = target.status.is_carbomb;
                 (
                     target.get_position(),
@@ -2205,18 +2199,24 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_snipe_vehicle(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
-        let (target_team, target_pos, target_alive, target_is_vehicle, target_is_airborne, target_unmanned) =
-            match self.game_logic.get_object(target_id) {
-                Some(target) => (
-                    target.team,
-                    target.get_position(),
-                    target.is_alive(),
-                    target.is_kind_of(KindOf::Vehicle),
-                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
-                    target.is_unmanned(),
-                ),
-                None => return CommandResult::InvalidTarget,
-            };
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_unmanned,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_unmanned(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
 
         // Kill-pilot residual only applies to manned enemy ground vehicles.
         if !target_alive
@@ -2342,18 +2342,24 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        let (target_team, target_pos, target_alive, target_is_structure, target_is_vehicle, target_is_airborne) =
-            match self.game_logic.get_object(target_id) {
-                Some(target) => (
-                    target.team,
-                    target.get_position(),
-                    target.is_alive(),
-                    target.is_kind_of(KindOf::Structure),
-                    target.is_kind_of(KindOf::Vehicle),
-                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
-                ),
-                None => return CommandResult::InvalidTarget,
-            };
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_is_vehicle,
+            target_is_airborne,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
 
         let valid_target = target_alive
             && target_team != Team::Neutral
@@ -2408,18 +2414,24 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        let (target_team, target_pos, target_alive, target_is_structure, target_is_vehicle, target_is_airborne) =
-            match self.game_logic.get_object(target_id) {
-                Some(target) => (
-                    target.team,
-                    target.get_position(),
-                    target.is_alive(),
-                    target.is_kind_of(KindOf::Structure),
-                    target.is_kind_of(KindOf::Vehicle),
-                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
-                ),
-                None => return CommandResult::InvalidTarget,
-            };
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_is_vehicle,
+            target_is_airborne,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
 
         let valid_target = target_alive
             && target_team != Team::Neutral
@@ -2836,10 +2848,7 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .get_object(unit_id)
-                .map(|unit| {
-                    unit.is_alive()
-                        && is_bomb_truck_template(&unit.template_name)
-                })
+                .map(|unit| unit.is_alive() && is_bomb_truck_template(&unit.template_name))
                 .unwrap_or(false);
             if !can_issue {
                 continue;
@@ -3115,10 +3124,7 @@ impl<'a> CommandExecutor<'a> {
         let max_x = max.x.max(1000.0) + pad;
         let min_z = min.z.min(-1000.0) - pad;
         let max_z = max.z.max(1000.0) + pad;
-        location.x >= min_x
-            && location.x <= max_x
-            && location.z >= min_z
-            && location.z <= max_z
+        location.x >= min_x && location.x <= max_x && location.z >= min_z && location.z <= max_z
     }
 
     /// Minimal `canEnterObject`/`canDockAt` legality mirror for Main command execution.
@@ -3166,8 +3172,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
                 target.is_unmanned(),
                 target.status.under_construction,
-                target.is_worker()
-                    || target.template_name.to_ascii_lowercase().contains("dozer"),
+                target.is_worker() || target.template_name.to_ascii_lowercase().contains("dozer"),
             ),
         );
         if pilot_recrew {
@@ -3208,15 +3213,11 @@ impl<'a> CommandExecutor<'a> {
         }
 
         let infantry_only_container = target.is_kind_of(KindOf::Structure)
-            || (target.is_overlord_style_container()
-                && target.overlord_bunker_slot_capacity() > 0)
+            || (target.is_overlord_style_container() && target.overlord_bunker_slot_capacity() > 0)
             || target.is_battle_bus_style_container()
             || target.is_listening_outpost_style_container()
             || target.is_troop_crawler_style_container();
-        if infantry_only_container
-            && !unit.is_kind_of(KindOf::Infantry)
-            && !unit.is_hero()
-        {
+        if infantry_only_container && !unit.is_kind_of(KindOf::Infantry) && !unit.is_hero() {
             return false;
         }
         // Combat Chinook ForbidInsideKindOf = AIRCRAFT residual.
@@ -3245,4 +3246,3 @@ impl<'a> CommandExecutor<'a> {
         (self.commands_executed, self.commands_failed)
     }
 }
-

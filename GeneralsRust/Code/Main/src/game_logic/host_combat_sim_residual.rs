@@ -147,8 +147,12 @@ pub fn honesty_science_name_table_residual_wave92() -> bool {
         if !seen.insert(*n) {
             return false;
         }
-        if !n.contains("SCIENCE") && !n.starts_with("Early_") && !n.starts_with("Chem_")
-            && !n.starts_with("Slth_") && !n.starts_with("Nuke_") && !n.starts_with("AirF_")
+        if !n.contains("SCIENCE")
+            && !n.starts_with("Early_")
+            && !n.starts_with("Chem_")
+            && !n.starts_with("Slth_")
+            && !n.starts_with("Nuke_")
+            && !n.starts_with("AirF_")
             && !n.starts_with("Infa_")
         {
             // All residual names contain SCIENCE token or known general prefix.
@@ -367,7 +371,10 @@ mod tests {
         assert_eq!(body_max_health_residual("AmericaTankCrusader"), Some(480.0));
         assert_eq!(body_max_health_residual("GLATankScorpion"), Some(370.0));
         assert_eq!(body_max_health_residual("ChinaTankDragon"), Some(280.0));
-        assert_eq!(body_max_health_residual("AmericaVehicleComanche"), Some(220.0));
+        assert_eq!(
+            body_max_health_residual("AmericaVehicleComanche"),
+            Some(220.0)
+        );
         assert!(body_max_health_residual("NotAUnit").is_none());
     }
 

@@ -456,9 +456,15 @@ mod tests {
 
     #[test]
     fn science_tiers_map_to_retail_percents() {
-        assert!((cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY1).unwrap() - 0.05).abs() < 1e-6);
-        assert!((cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY2).unwrap() - 0.10).abs() < 1e-6);
-        assert!((cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY3).unwrap() - 0.20).abs() < 1e-6);
+        assert!(
+            (cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY1).unwrap() - 0.05).abs() < 1e-6
+        );
+        assert!(
+            (cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY2).unwrap() - 0.10).abs() < 1e-6
+        );
+        assert!(
+            (cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY3).unwrap() - 0.20).abs() < 1e-6
+        );
         assert!((cash_bounty_percent_for_science("cashbounty1").unwrap() - 0.05).abs() < 1e-6);
         assert!(cash_bounty_percent_for_science("SCIENCE_A10").is_none());
     }
@@ -544,5 +550,4 @@ mod tests {
         );
         assert!(CASH_BOUNTY_IS_GRANTABLE);
     }
-
 }

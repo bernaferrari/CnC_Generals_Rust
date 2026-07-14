@@ -27,36 +27,36 @@ pub const RADIUSCURSOR_COUNT: u32 = 30;
 /// Ordered C++ `TheRadiusCursorNames` residual (excluding trailing NULL).
 /// Discriminants 0..29 match RadiusCursorType enum order.
 pub const RADIUS_CURSOR_NAME_LIST: &[&str] = &[
-    "NONE",                      // 0  RADIUSCURSOR_NONE
-    "ATTACK_DAMAGE_AREA",        // 1
-    "ATTACK_SCATTER_AREA",       // 2
-    "ATTACK_CONTINUE_AREA",      // 3
-    "GUARD_AREA",                // 4
-    "EMERGENCY_REPAIR",          // 5
-    "FRIENDLY_SPECIALPOWER",     // 6 green
-    "OFFENSIVE_SPECIALPOWER",    // 7 red
-    "SUPERWEAPON_SCATTER_AREA",  // 8 red
-    "PARTICLECANNON",            // 9
-    "A10STRIKE",                 // 10
-    "CARPETBOMB",                // 11
-    "DAISYCUTTER",               // 12
-    "PARADROP",                  // 13
-    "SPYSATELLITE",              // 14
-    "SPECTREGUNSHIP",            // 15
-    "HELIX_NAPALM_BOMB",         // 16
-    "NUCLEARMISSILE",            // 17
-    "EMPPULSE",                  // 18
-    "ARTILLERYBARRAGE",          // 19
-    "NAPALMSTRIKE",              // 20
-    "CLUSTERMINES",              // 21
-    "SCUDSTORM",                 // 22
-    "ANTHRAXBOMB",               // 23
-    "AMBUSH",                    // 24
-    "RADAR",                     // 25
-    "SPYDRONE",                  // 26
-    "FRENZY",                    // 27
-    "CLEARMINES",                // 28
-    "AMBULANCE",                 // 29
+    "NONE",                     // 0  RADIUSCURSOR_NONE
+    "ATTACK_DAMAGE_AREA",       // 1
+    "ATTACK_SCATTER_AREA",      // 2
+    "ATTACK_CONTINUE_AREA",     // 3
+    "GUARD_AREA",               // 4
+    "EMERGENCY_REPAIR",         // 5
+    "FRIENDLY_SPECIALPOWER",    // 6 green
+    "OFFENSIVE_SPECIALPOWER",   // 7 red
+    "SUPERWEAPON_SCATTER_AREA", // 8 red
+    "PARTICLECANNON",           // 9
+    "A10STRIKE",                // 10
+    "CARPETBOMB",               // 11
+    "DAISYCUTTER",              // 12
+    "PARADROP",                 // 13
+    "SPYSATELLITE",             // 14
+    "SPECTREGUNSHIP",           // 15
+    "HELIX_NAPALM_BOMB",        // 16
+    "NUCLEARMISSILE",           // 17
+    "EMPPULSE",                 // 18
+    "ARTILLERYBARRAGE",         // 19
+    "NAPALMSTRIKE",             // 20
+    "CLUSTERMINES",             // 21
+    "SCUDSTORM",                // 22
+    "ANTHRAXBOMB",              // 23
+    "AMBUSH",                   // 24
+    "RADAR",                    // 25
+    "SPYDRONE",                 // 26
+    "FRENZY",                   // 27
+    "CLEARMINES",               // 28
+    "AMBULANCE",                // 29
 ];
 
 /// Lookup RadiusCursorType name index residual (case-insensitive).
@@ -111,49 +111,49 @@ pub const NUM_MOUSE_CURSORS: u32 = 40;
 
 /// Ordered C++ `CursorININames` residual (ALLOW_SURRENDER / ALLOW_DEMORALIZE off).
 pub const MOUSE_CURSOR_INI_NAME_LIST: &[&str] = &[
-    "None",                  // 0  NONE
-    "Normal",                // 1  NORMAL = FIRST_CURSOR
-    "Arrow",                 // 2
-    "Scroll",                // 3
-    "Target",                // 4  CROSS
-    "Move",                  // 5  MOVETO
-    "AttackMove",            // 6
-    "AttackObj",             // 7
-    "ForceAttackObj",        // 8
-    "ForceAttackGround",     // 9
-    "Build",                 // 10
-    "InvalidBuild",          // 11
-    "GenericInvalid",        // 12  SUPERWEAPON_INVALID_CURSOR residual
-    "Select",                // 13
-    "EnterFriendly",         // 14
-    "EnterAggressive",       // 15
-    "SetRallyPoint",         // 16
-    "GetRepaired",           // 17
-    "GetHealed",             // 18
-    "DoRepair",              // 19
-    "ResumeConstruction",    // 20
-    "CaptureBuilding",       // 21
-    "SnipeVehicle",          // 22
-    "LaserGuidedMissiles",   // 23
-    "TankHunterTNTAttack",   // 24
-    "StabAttack",            // 25
-    "PlaceRemoteCharge",     // 26
-    "PlaceTimedCharge",      // 27
-    "Defector",              // 28
+    "None",                // 0  NONE
+    "Normal",              // 1  NORMAL = FIRST_CURSOR
+    "Arrow",               // 2
+    "Scroll",              // 3
+    "Target",              // 4  CROSS
+    "Move",                // 5  MOVETO
+    "AttackMove",          // 6
+    "AttackObj",           // 7
+    "ForceAttackObj",      // 8
+    "ForceAttackGround",   // 9
+    "Build",               // 10
+    "InvalidBuild",        // 11
+    "GenericInvalid",      // 12  SUPERWEAPON_INVALID_CURSOR residual
+    "Select",              // 13
+    "EnterFriendly",       // 14
+    "EnterAggressive",     // 15
+    "SetRallyPoint",       // 16
+    "GetRepaired",         // 17
+    "GetHealed",           // 18
+    "DoRepair",            // 19
+    "ResumeConstruction",  // 20
+    "CaptureBuilding",     // 21
+    "SnipeVehicle",        // 22
+    "LaserGuidedMissiles", // 23
+    "TankHunterTNTAttack", // 24
+    "StabAttack",          // 25
+    "PlaceRemoteCharge",   // 26
+    "PlaceTimedCharge",    // 27
+    "Defector",            // 28
     // ALLOW_DEMORALIZE off — no Demoralize entry
-    "Dock",                  // 29
+    "Dock", // 29
     // ALLOW_SURRENDER off — no PickUpPrisoner / ReturnToPrison
-    "FireFlame",             // 30
+    "FireFlame", // 30
     // ALLOW_SURRENDER off — no FireTranqDarts / FireStunBullets
-    "FireBomb",              // 31
-    "PlaceBeacon",           // 32
-    "DisguiseAsVehicle",     // 33
-    "Waypoint",              // 34
-    "OutRange",              // 35
-    "StabAttackInvalid",     // 36
-    "PlaceChargeInvalid",    // 37
-    "Hack",                  // 38
-    "ParticleUplinkCannon",  // 39  PARTICLE_UPLINK_CANNON
+    "FireBomb",             // 31
+    "PlaceBeacon",          // 32
+    "DisguiseAsVehicle",    // 33
+    "Waypoint",             // 34
+    "OutRange",             // 35
+    "StabAttackInvalid",    // 36
+    "PlaceChargeInvalid",   // 37
+    "Hack",                 // 38
+    "ParticleUplinkCannon", // 39  PARTICLE_UPLINK_CANNON
 ];
 
 /// Lookup MouseCursor INI name index residual (case-insensitive).

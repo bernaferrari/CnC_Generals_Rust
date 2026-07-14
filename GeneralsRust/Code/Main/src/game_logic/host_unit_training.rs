@@ -371,7 +371,6 @@ impl HostUnitTrainingRegistry {
     }
 }
 
-
 /// Whether residual free always-Veteran path applies (no ScienceRequired).
 ///
 /// Retail: AmericaInfantryPilot VeterancyGainCreate StartingLevel=VETERAN with
@@ -650,8 +649,14 @@ mod tests {
     #[test]
     fn xp_seed_and_rank() {
         let thr = [60.0, 150.0, 300.0];
-        assert_eq!(residual_xp_seed_for_level(VeterancyLevel::Veteran, thr), 60.0);
-        assert_eq!(residual_xp_seed_for_level(VeterancyLevel::Elite, thr), 150.0);
+        assert_eq!(
+            residual_xp_seed_for_level(VeterancyLevel::Veteran, thr),
+            60.0
+        );
+        assert_eq!(
+            residual_xp_seed_for_level(VeterancyLevel::Elite, thr),
+            150.0
+        );
         assert!(veterancy_rank(VeterancyLevel::Elite) > veterancy_rank(VeterancyLevel::Veteran));
     }
 

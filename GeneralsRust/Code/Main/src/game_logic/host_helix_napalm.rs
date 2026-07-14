@@ -389,7 +389,6 @@ impl HostHelixNapalmRegistry {
     }
 }
 
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn helix_napalm_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -442,8 +441,7 @@ pub fn honesty_helix_napalm_firestorm_residual_ok() -> bool {
             == helix_napalm_ms_to_frames(HELIX_FIRESTORM_TICK_MS)
         && HELIX_FIRESTORM_TICK_INTERVAL_FRAMES == 15
         && HELIX_FIRESTORM_DURATION_MS == 6_000
-        && HELIX_FIRESTORM_DURATION_FRAMES
-            == helix_napalm_ms_to_frames(HELIX_FIRESTORM_DURATION_MS)
+        && HELIX_FIRESTORM_DURATION_FRAMES == helix_napalm_ms_to_frames(HELIX_FIRESTORM_DURATION_MS)
         && HELIX_FIRESTORM_DURATION_FRAMES == 180
 }
 
@@ -489,10 +487,7 @@ mod tests {
     fn unlock_requires_upgrade_except_test_host() {
         assert!(helix_napalm_unlocked("TestHelix", false));
         assert!(!helix_napalm_unlocked("ChinaVehicleHelix", false));
-        assert!(helix_napalm_unlocked(
-            "ChinaVehicleHelix",
-            true
-        ));
+        assert!(helix_napalm_unlocked("ChinaVehicleHelix", true));
         assert!(!helix_napalm_unlocked("USA_Ranger", true));
     }
 
@@ -542,15 +537,7 @@ mod tests {
     #[test]
     fn black_napalm_uses_higher_firestorm_damage() {
         let mut reg = HostHelixNapalmRegistry::new();
-        reg.record_drop_and_spawn_firestorm(
-            ObjectId(1),
-            Team::China,
-            Vec3::ZERO,
-            0,
-            true,
-            0,
-            0.0,
-        );
+        reg.record_drop_and_spawn_firestorm(ObjectId(1), Team::China, Vec3::ZERO, 0, true, 0, 0.0);
         assert_eq!(reg.black_napalm_drops, 1);
         assert!(
             (reg.active_zones()[0].damage_per_tick - HELIX_FIRESTORM_DAMAGE_UPGRADED).abs() < 0.01

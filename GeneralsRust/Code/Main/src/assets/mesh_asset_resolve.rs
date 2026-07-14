@@ -432,10 +432,7 @@ pub fn model_key_from_template(template: &ThingTemplate) -> String {
 }
 
 /// Model key from presentation fields (model_key preferred, else template_name).
-pub fn model_key_from_presentation(
-    model_key: Option<&str>,
-    template_name: &str,
-) -> String {
+pub fn model_key_from_presentation(model_key: Option<&str>, template_name: &str) -> String {
     let raw = model_key
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -1033,7 +1030,11 @@ mod tests {
             ..
         } = &result
         {
-            assert!(path.is_file(), "source path should exist: {}", path.display());
+            assert!(
+                path.is_file(),
+                "source path should exist: {}",
+                path.display()
+            );
         }
     }
 
@@ -1138,8 +1139,10 @@ mod tests {
             retail_w3d_basename_for_key("airanger_s").to_ascii_lowercase(),
             "airanger_s"
         );
-        assert!(retail_w3d_basename_for_key("airanger_s").contains('R')
-            || retail_w3d_basename_for_key("airanger_s") == "AIRanger_S");
+        assert!(
+            retail_w3d_basename_for_key("airanger_s").contains('R')
+                || retail_w3d_basename_for_key("airanger_s") == "AIRanger_S"
+        );
         assert_eq!(
             remap_model_key_alias("USA_Raptor").to_ascii_lowercase(),
             "avraptorag"
@@ -1173,7 +1176,9 @@ mod tests {
         );
         // Oldest dropped.
         assert!(
-            !keys.iter().any(|k| k.ends_with("_0__") && k.contains("ring_placeholder_0")),
+            !keys
+                .iter()
+                .any(|k| k.ends_with("_0__") && k.contains("ring_placeholder_0")),
             "oldest key should be dropped from ring: {keys:?}"
         );
     }

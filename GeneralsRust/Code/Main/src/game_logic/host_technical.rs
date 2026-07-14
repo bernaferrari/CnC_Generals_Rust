@@ -191,9 +191,13 @@ pub fn technical_weapon_name_for_tier(tier: TechnicalWeaponTier) -> &'static str
 /// (damage, range, min_range, delay_frames, splash_radius) for salvage tier.
 pub fn technical_weapon_stats(tier: TechnicalWeaponTier) -> (f32, f32, f32, u32, f32) {
     match tier {
-        TechnicalWeaponTier::Base => {
-            (TECH_MG_DAMAGE, TECH_MG_RANGE, 0.0, TECH_MG_DELAY_FRAMES, 0.0)
-        }
+        TechnicalWeaponTier::Base => (
+            TECH_MG_DAMAGE,
+            TECH_MG_RANGE,
+            0.0,
+            TECH_MG_DELAY_FRAMES,
+            0.0,
+        ),
         TechnicalWeaponTier::One => (
             TECH_CANNON_DAMAGE,
             TECH_CANNON_RANGE,
@@ -412,11 +416,15 @@ mod tests {
         assert!(
             (technical_splash_damage_at(TechnicalWeaponTier::One, false, 20.0) - 45.0).abs() < 0.01
         );
-        assert!(
-            (technical_splash_damage_at(TechnicalWeaponTier::One, false, 30.0)).abs() < 0.01
-        );
-        assert!(!should_apply_technical_splash(true, TechnicalWeaponTier::Base));
-        assert!(should_apply_technical_splash(true, TechnicalWeaponTier::One));
+        assert!((technical_splash_damage_at(TechnicalWeaponTier::One, false, 30.0)).abs() < 0.01);
+        assert!(!should_apply_technical_splash(
+            true,
+            TechnicalWeaponTier::Base
+        ));
+        assert!(should_apply_technical_splash(
+            true,
+            TechnicalWeaponTier::One
+        ));
     }
 
     #[test]

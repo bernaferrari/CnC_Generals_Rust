@@ -163,7 +163,10 @@ pub fn is_raptor_template(template_name: &str) -> bool {
         return false;
     }
     // Explicit residual test / shorthand names.
-    if n == "usaraptor" || n == "testraptor" || n == "americajetraptor" || n == "airfamericajetraptor"
+    if n == "usaraptor"
+        || n == "testraptor"
+        || n == "americajetraptor"
+        || n == "airfamericajetraptor"
     {
         return true;
     }
@@ -300,11 +303,7 @@ pub fn raptor_weapon(is_king: bool, has_laser_missiles: bool) -> Weapon {
 }
 
 /// Residual damage at distance from impact (intended / primary ring).
-pub fn raptor_damage_at(
-    distance_from_impact: f32,
-    is_king: bool,
-    has_laser_missiles: bool,
-) -> f32 {
+pub fn raptor_damage_at(distance_from_impact: f32, is_king: bool, has_laser_missiles: bool) -> f32 {
     if distance_from_impact <= RAPTOR_PRIMARY_RADIUS {
         raptor_primary_damage(is_king, has_laser_missiles)
     } else {
@@ -321,7 +320,6 @@ pub fn is_legal_raptor_target(
 ) -> bool {
     is_alive && !is_self && !under_construction && is_combat_kind
 }
-
 
 // --- Wave 67 residual honesty packs ---
 
@@ -376,8 +374,7 @@ pub fn honesty_raptor_body_residual_ok() -> bool {
         && (RAPTOR_SHROUD_CLEARING_RANGE - 400.0).abs() < 0.01
         && RAPTOR_BUILD_COST == 1_400
         && (RAPTOR_BUILD_TIME_SEC - 20.0).abs() < 0.01
-        && RAPTOR_BUILD_TIME_FRAMES
-            == (RAPTOR_BUILD_TIME_SEC * RAPTOR_LOGIC_FPS).round() as u32
+        && RAPTOR_BUILD_TIME_FRAMES == (RAPTOR_BUILD_TIME_SEC * RAPTOR_LOGIC_FPS).round() as u32
         && RAPTOR_BUILD_TIME_FRAMES == 600
         && RAPTOR_TRANSPORT_SLOT_COUNT == 0
         && (RAPTOR_GEOMETRY_MAJOR - 14.0).abs() < 0.01

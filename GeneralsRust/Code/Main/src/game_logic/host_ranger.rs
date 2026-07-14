@@ -156,11 +156,7 @@ pub fn is_ranger_template(template_name: &str) -> bool {
         return false;
     }
     // Explicit residual test / shorthand names.
-    if n == "testranger"
-        || n == "usa_ranger"
-        || n == "goldenranger"
-        || n == "airanger"
-    {
+    if n == "testranger" || n == "usa_ranger" || n == "goldenranger" || n == "airanger" {
         return true;
     }
     n.contains("ranger") || n.contains("infantryranger")
@@ -172,7 +168,10 @@ pub fn should_apply_ranger_residual(is_ranger: bool) -> bool {
 }
 
 /// Whether flashbang secondary is residual-equipped.
-pub fn has_flashbang_equipped(has_secondary: bool, applied_upgrades: &std::collections::HashSet<String>) -> bool {
+pub fn has_flashbang_equipped(
+    has_secondary: bool,
+    applied_upgrades: &std::collections::HashSet<String>,
+) -> bool {
     if has_secondary {
         return true;
     }
@@ -219,7 +218,11 @@ pub fn ranger_flashbang_weapon() -> Weapon {
 
 /// (damage, range, delay_frames) for rifle residual.
 pub fn ranger_rifle_stats() -> (f32, f32, u32) {
-    (RANGER_RIFLE_DAMAGE, RANGER_RIFLE_RANGE, RANGER_RIFLE_DELAY_FRAMES)
+    (
+        RANGER_RIFLE_DAMAGE,
+        RANGER_RIFLE_RANGE,
+        RANGER_RIFLE_DELAY_FRAMES,
+    )
 }
 
 /// Dual-radius flashbang residual damage at distance from impact.
@@ -279,8 +282,7 @@ pub fn honesty_ranger_rifle_residual_ok() -> bool {
         && RANGER_RIFLE_DELAY_FRAMES == 3
         && RANGER_RIFLE_CLIP_SIZE == 3
         && RANGER_RIFLE_CLIP_RELOAD_MS == 700
-        && RANGER_RIFLE_CLIP_RELOAD_FRAMES
-            == ranger_ms_to_frames(RANGER_RIFLE_CLIP_RELOAD_MS)
+        && RANGER_RIFLE_CLIP_RELOAD_FRAMES == ranger_ms_to_frames(RANGER_RIFLE_CLIP_RELOAD_MS)
         && RANGER_RIFLE_CLIP_RELOAD_FRAMES == 21
         && RANGER_RIFLE_DAMAGE_TYPE == "SMALL_ARMS"
         && RANGER_RIFLE_DEATH_TYPE == "NORMAL"
@@ -317,8 +319,7 @@ pub fn honesty_ranger_body_residual_ok() -> bool {
         && (RANGER_SHROUD_CLEARING_RANGE - 400.0).abs() < 0.01
         && RANGER_BUILD_COST == 225
         && (RANGER_BUILD_TIME_SEC - 5.0).abs() < 0.01
-        && RANGER_BUILD_TIME_FRAMES
-            == ((RANGER_BUILD_TIME_SEC * RANGER_LOGIC_FPS).round() as u32)
+        && RANGER_BUILD_TIME_FRAMES == ((RANGER_BUILD_TIME_SEC * RANGER_LOGIC_FPS).round() as u32)
         && RANGER_BUILD_TIME_FRAMES == 150
         && RANGER_TRANSPORT_SLOT_COUNT == 1
         && (RANGER_LOCOMOTOR_SPEED - 20.0).abs() < 0.01

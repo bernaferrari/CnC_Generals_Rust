@@ -302,7 +302,8 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert_eq!(reg.active_count(), 2);
         assert_eq!(
-            reg.systems_of_kind(CombatParticleKind::DeathExplosion).len(),
+            reg.systems_of_kind(CombatParticleKind::DeathExplosion)
+                .len(),
             1
         );
         assert_eq!(reg.systems_of_kind(CombatParticleKind::DeathSmoke).len(), 1);

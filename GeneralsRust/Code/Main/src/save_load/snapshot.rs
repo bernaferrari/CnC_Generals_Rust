@@ -3259,12 +3259,17 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 total_damage_applied: 0.0,
                 objects_hit: 0,
                 objects_destroyed: 0,
-                artillery_tier: crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier::Level1,
-                spectre_tier: crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
-                scud_anthrax_tier: crate::game_logic::special_power_strikes::ScudStormAnthraxTier::Base,
+                artillery_tier:
+                    crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier::Level1,
+                spectre_tier:
+                    crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
+                scud_anthrax_tier:
+                    crate::game_logic::special_power_strikes::ScudStormAnthraxTier::Base,
                 multi_strike_applied: 0,
-                particle_status: crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
-                particle_status_peak: crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
+                particle_status:
+                    crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
+                particle_status_peak:
+                    crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
                 particle_intensity_transitions: 0,
                 particle_charging_applications: 0,
                 particle_preparing_applications: 0,
@@ -3292,7 +3297,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 ocl_once_at_queue_armed: 0,
                 scud_spawn_height_applications: 0,
                 scud_preferred_height_spring_applications: 0,
-                scud_loft_phase_peak: crate::game_logic::special_power_strikes::ScudMissileLoftPhase::Loft,
+                scud_loft_phase_peak:
+                    crate::game_logic::special_power_strikes::ScudMissileLoftPhase::Loft,
                 scud_last_spring_height: 0.0,
                 scud_ballistic_flight_applications: 0,
                 scud_only_moving_down_applications: 0,
@@ -3318,7 +3324,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_weapon_special_applications: 0,
                 scud_missile_ai_defaults_applications: 0,
                 scud_thing_factory_spawn_applications: 0,
-                carpet_tier: crate::game_logic::special_power_strikes::CarpetBombFactionTier::America,
+                carpet_tier:
+                    crate::game_logic::special_power_strikes::CarpetBombFactionTier::America,
                 carpet_residual_pack_armed: 0,
                 carpet_preferred_height_applications: 0,
                 carpet_drop_delay_applications: 0,
@@ -3395,9 +3402,11 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 toxin_residual_pack_armed: 0,
                 toxin_fire_fx_applications: 0,
                 toxin_damage_type_applications: 0,
-                damage_per_tick: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+                damage_per_tick:
+                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DAMAGE_PER_TICK,
                 radius: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_RADIUS,
-                tick_interval_frames: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
+                tick_interval_frames:
+                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
             },
         )?;
         xfer.xfer_marker_label("ToxinFieldsSpawnedTotal")?;
@@ -3524,8 +3533,10 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 ground_to_orbit_laser_created: 0,
                 status: crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
                 outer_intensity: crate::game_logic::special_power_strikes::ParticleIntensity::None,
-                connector_intensity: crate::game_logic::special_power_strikes::ParticleIntensity::None,
-                laser_base_intensity: crate::game_logic::special_power_strikes::ParticleIntensity::None,
+                connector_intensity:
+                    crate::game_logic::special_power_strikes::ParticleIntensity::None,
+                laser_base_intensity:
+                    crate::game_logic::special_power_strikes::ParticleIntensity::None,
                 beam_launch_fx_applications: 0,
                 next_launch_fx_frame: 0,
                 postfire_applications: 0,
@@ -6060,9 +6071,7 @@ mod tests {
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable);
-        source
-            .templates
-            .insert("USA_Ranger".to_string(), ranger);
+        source.templates.insert("USA_Ranger".to_string(), ranger);
 
         let ranger_id = source
             .create_object("USA_Ranger", Team::USA, Vec3::new(5.0, 0.0, 5.0))
@@ -6131,7 +6140,10 @@ mod tests {
         let unit = restored
             .find_object(ranger_id)
             .expect("restored ranger should exist");
-        let restored_primary = unit.weapon.as_ref().expect("primary weapon must survive load");
+        let restored_primary = unit
+            .weapon
+            .as_ref()
+            .expect("primary weapon must survive load");
         let restored_secondary = unit
             .secondary_weapon
             .as_ref()
@@ -6187,9 +6199,7 @@ mod tests {
         }
 
         let builder = SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         let mut restored = GameLogic::new();
         restored.templates = source.templates.clone();
         builder
@@ -6247,9 +6257,7 @@ mod tests {
     /// End-to-end SaveFileManager path: secondary stays bound after save → load.
     #[test]
     fn save_file_roundtrip_preserves_secondary_weapon() {
-        use crate::save_load::{
-            GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
-        };
+        use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
         use std::time::{Duration, SystemTime};
 
         let save_dir = tempfile::TempDir::new().expect("temp save dir");
@@ -6267,11 +6275,7 @@ mod tests {
             .insert("SaveSecondaryRanger".to_string(), template);
 
         let id = source
-            .create_object(
-                "SaveSecondaryRanger",
-                Team::USA,
-                Vec3::new(12.0, 0.0, 8.0),
-            )
+            .create_object("SaveSecondaryRanger", Team::USA, Vec3::new(12.0, 0.0, 8.0))
             .expect("create ranger");
         {
             let unit = source.find_object_mut(id).expect("ranger");
@@ -6376,11 +6380,9 @@ mod tests {
             1,
             "strike must still be queued mid-flight"
         );
-        assert!(
-            source
-                .special_power_strikes()
-                .honesty_queue_ok(HostSuperweaponKind::DaisyCutter)
-        );
+        assert!(source
+            .special_power_strikes()
+            .honesty_queue_ok(HostSuperweaponKind::DaisyCutter));
         let health_mid = source.find_object(enemy_id).unwrap().health.current;
         assert!((health_mid - 500.0).abs() < 0.1, "no damage mid-flight");
 
@@ -6491,7 +6493,11 @@ mod tests {
             )
             .expect("A10 must queue");
         assert_eq!(
-            source.special_power_strikes().get(strike_id).unwrap().impact_frame,
+            source
+                .special_power_strikes()
+                .get(strike_id)
+                .unwrap()
+                .impact_frame,
             160
         );
 
@@ -6538,9 +6544,7 @@ mod tests {
     #[test]
     fn save_file_roundtrip_preserves_pending_special_power_strike() {
         use crate::command_system::SpecialPowerType;
-        use crate::save_load::{
-            GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
-        };
+        use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
         use std::time::{Duration, SystemTime};
 
         let save_dir = tempfile::TempDir::new().expect("temp save dir");
@@ -6720,11 +6724,10 @@ mod tests {
             HostUpgradeKind::CaptureBuilding
         );
         assert!(
-            snapshot
-                .players
+            snapshot.players.iter().any(|p| p
+                .research_queue
                 .iter()
-                .any(|p| p.research_queue.iter().any(|n| n.contains("Capture")
-                    || n == UPGRADE_INFANTRY_CAPTURE)),
+                .any(|n| n.contains("Capture") || n == UPGRADE_INFANTRY_CAPTURE)),
             "player research_queue must also capture in-flight upgrade"
         );
 
@@ -6783,7 +6786,9 @@ mod tests {
                 .honesty_host_path_ok(HostUpgradeKind::CaptureBuilding),
             "host path honesty for Capture after load"
         );
-        let captor = restored.find_object(captor_id).expect("captor after complete");
+        let captor = restored
+            .find_object(captor_id)
+            .expect("captor after complete");
         assert!(
             captor.has_upgrade_tag(UPGRADE_INFANTRY_CAPTURE),
             "captor must receive capture upgrade tag after post-load complete"
@@ -6801,7 +6806,9 @@ mod tests {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         restored.process_commands();
-        let captor = restored.find_object(captor_id).expect("captor after unlock");
+        let captor = restored
+            .find_object(captor_id)
+            .expect("captor after unlock");
         assert_eq!(
             captor.ai_state,
             AIState::Capturing,
@@ -6868,11 +6875,9 @@ mod tests {
 
         assert_eq!(loaded.get_current_frame(), 5);
         assert_eq!(loaded.host_upgrades().pending_count(), 1);
-        assert!(
-            loaded
-                .host_upgrades()
-                .honesty_queue_ok(HostUpgradeKind::CaptureBuilding)
-        );
+        assert!(loaded
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::CaptureBuilding));
         loaded.update();
         assert!(
             loaded
@@ -6897,9 +6902,7 @@ mod tests {
         template
             .add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::Selectable);
-        source
-            .templates
-            .insert("CamoDrawableSnap".into(), template);
+        source.templates.insert("CamoDrawableSnap".into(), template);
         let id = source
             .create_object("CamoDrawableSnap", Team::GLA, glam::Vec3::ZERO)
             .expect("create");

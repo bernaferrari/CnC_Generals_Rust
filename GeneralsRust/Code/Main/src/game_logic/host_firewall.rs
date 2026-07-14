@@ -328,7 +328,6 @@ impl HostFireWallRegistry {
     }
 }
 
-
 // --- Wave 69 residual honesty peels (retail FireWallSegment weapon / ability) ---
 
 /// Retail FireWallSegmentWeapon name residual.
@@ -391,11 +390,8 @@ pub fn honesty_firewall_ability_residual_ok() -> bool {
         && (FIREWALL_MIN_LENGTH - 36.0).abs() < 0.01
         && (FIREWALL_SEGMENT_MAX_HEALTH - 50.0).abs() < 0.01
         && FIREWALL_ACTIVATE_AUDIO == "DragonTankVoiceModeFireStorm"
-        && !HostFireWallRegistry::build_segments(
-            glam::Vec3::ZERO,
-            glam::Vec3::new(100.0, 0.0, 0.0),
-        )
-        .is_empty()
+        && !HostFireWallRegistry::build_segments(glam::Vec3::ZERO, glam::Vec3::new(100.0, 0.0, 0.0))
+            .is_empty()
 }
 
 /// Combined Wave 69 FireWall residual honesty pack.
@@ -414,7 +410,11 @@ mod tests {
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(100.0, 0.0, 0.0),
         );
-        assert!(segs.len() >= 3, "expected multiple segments, got {}", segs.len());
+        assert!(
+            segs.len() >= 3,
+            "expected multiple segments, got {}",
+            segs.len()
+        );
         // First segment starts near FIREWALL_START_OFFSET along +X.
         assert!((segs[0].position.x - FIREWALL_START_OFFSET).abs() < 0.1);
         assert!(segs.last().unwrap().position.x > segs[0].position.x);
@@ -462,7 +462,9 @@ mod tests {
 
         // Not due again until interval elapses.
         assert!(reg.plan_due_ticks(1, &objects).is_empty());
-        assert!(!reg.plan_due_ticks(FIREWALL_TICK_INTERVAL_FRAMES, &objects).is_empty());
+        assert!(!reg
+            .plan_due_ticks(FIREWALL_TICK_INTERVAL_FRAMES, &objects)
+            .is_empty());
     }
 
     #[test]

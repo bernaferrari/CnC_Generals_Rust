@@ -43,8 +43,7 @@ pub const STEALTH_JET_MISSILE_PROJECTILE: &str = "StealthJetMissile";
 /// Retail shockwave temp weapon residual.
 pub const BUNKER_BUSTER_SHOCKWAVE_WEAPON: &str = "BunkerBusterShockwaveWeaponSmall";
 /// Retail occupant damage weapon residual.
-pub const BUNKER_BUSTER_OCCUPANT_WEAPON: &str =
-    "BunkerBusterAntiTunnelGarrisonWeaponWithABigName";
+pub const BUNKER_BUSTER_OCCUPANT_WEAPON: &str = "BunkerBusterAntiTunnelGarrisonWeaponWithABigName";
 
 /// Retail MicrowaveTankBuildingClearer — DamageType = KILL_GARRISONED.
 pub const MICROWAVE_BUILDING_CLEARER_WEAPON: &str = "MicrowaveTankBuildingClearer";
@@ -308,8 +307,7 @@ pub fn honesty_bunker_buster_missile_residual_ok() -> bool {
 pub fn honesty_bunker_buster_behavior_residual_ok() -> bool {
     UPGRADE_AMERICA_BUNKER_BUSTERS == "Upgrade_AmericaBunkerBusters"
         && BUNKER_BUSTER_SHOCKWAVE_WEAPON == "BunkerBusterShockwaveWeaponSmall"
-        && BUNKER_BUSTER_OCCUPANT_WEAPON
-            == "BunkerBusterAntiTunnelGarrisonWeaponWithABigName"
+        && BUNKER_BUSTER_OCCUPANT_WEAPON == "BunkerBusterAntiTunnelGarrisonWeaponWithABigName"
         && (BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT - 1.5).abs() < 0.001
         && (BUNKER_BUSTER_OCCUPANT_DAMAGE - 400.0).abs() < 0.01
         && (BUNKER_BUSTER_OCCUPANT_RADIUS - 10.0).abs() < 0.01

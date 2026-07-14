@@ -113,6 +113,7 @@ pub mod ai_skirmish_activity;
 pub mod authoritative_world;
 pub mod authority_bridge;
 pub mod breadth_scenarios;
+pub mod executable_smoke;
 pub mod gameplay_layout;
 pub mod golden_campaign;
 pub mod golden_skirmish;
@@ -121,7 +122,6 @@ pub mod playability_integration;
 pub mod presentation_frame;
 pub mod release_candidate;
 pub mod shell_smoke;
-pub mod executable_smoke;
 pub mod skirmish_config;
 
 // New factory pattern modules

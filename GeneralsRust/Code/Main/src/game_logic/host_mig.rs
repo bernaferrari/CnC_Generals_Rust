@@ -252,10 +252,7 @@ pub fn has_tactical_nuke_mig_upgrade(applied_upgrades: &HashSet<String>) -> bool
 }
 
 /// Resolve residual loadout from chassis + upgrades.
-pub fn mig_loadout(
-    is_nuke_chassis: bool,
-    applied_upgrades: &HashSet<String>,
-) -> MigLoadout {
+pub fn mig_loadout(is_nuke_chassis: bool, applied_upgrades: &HashSet<String>) -> MigLoadout {
     if is_nuke_chassis {
         if has_tactical_nuke_mig_upgrade(applied_upgrades) {
             MigLoadout::NukeTactical
@@ -372,13 +369,8 @@ pub fn is_legal_mig_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
-
 /// Apply Aircraft Armor residual: +AddMaxHealth current+max (ADD_CURRENT_HEALTH_TOO).
-pub fn apply_mig_aircraft_armor_health(
-    max_health: &mut f32,
-    current: &mut f32,
-    maximum: &mut f32,
-) {
+pub fn apply_mig_aircraft_armor_health(max_health: &mut f32, current: &mut f32, maximum: &mut f32) {
     *max_health = (*max_health + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
     *maximum = (*maximum + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
     *current = (*current + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);

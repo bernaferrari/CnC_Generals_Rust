@@ -88,14 +88,14 @@ pub const AI_DOCK_STATE_COUNT_RESIDUAL: usize = 8;
 
 /// Ordered C++ AI_DOCK_* residual names (index = discriminant).
 pub const AI_DOCK_STATE_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "AI_DOCK_APPROACH",            // 0
-    "AI_DOCK_WAIT_FOR_CLEARANCE",  // 1
-    "AI_DOCK_ADVANCE_POSITION",    // 2
-    "AI_DOCK_MOVE_TO_ENTRY",       // 3
-    "AI_DOCK_MOVE_TO_DOCK",        // 4
-    "AI_DOCK_PROCESS_DOCK",        // 5
-    "AI_DOCK_MOVE_TO_EXIT",        // 6
-    "AI_DOCK_MOVE_TO_RALLY",       // 7
+    "AI_DOCK_APPROACH",           // 0
+    "AI_DOCK_WAIT_FOR_CLEARANCE", // 1
+    "AI_DOCK_ADVANCE_POSITION",   // 2
+    "AI_DOCK_MOVE_TO_ENTRY",      // 3
+    "AI_DOCK_MOVE_TO_DOCK",       // 4
+    "AI_DOCK_PROCESS_DOCK",       // 5
+    "AI_DOCK_MOVE_TO_EXIT",       // 6
+    "AI_DOCK_MOVE_TO_RALLY",      // 7
 ];
 
 /// C++ AIDockWaitForClearanceState timeout residual: 30 * LOGICFRAMES_PER_SECOND.
@@ -272,19 +272,19 @@ pub const OPEN_CONTAIN_DEFAULT_ENCLOSING: bool = true;
 pub const OBJECT_ENTER_EXIT_TYPE_COUNT_RESIDUAL: usize = 3;
 /// Ordered ObjectEnterExitType residual names.
 pub const OBJECT_ENTER_EXIT_TYPE_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "WANTS_TO_ENTER",  // 0
-    "WANTS_TO_EXIT",   // 1
-    "WANTS_NEITHER",   // 2
+    "WANTS_TO_ENTER", // 0
+    "WANTS_TO_EXIT",  // 1
+    "WANTS_NEITHER",  // 2
 ];
 
 /// C++ EvacDisposition residual (ContainModule.h).
 pub const EVAC_DISPOSITION_COUNT_RESIDUAL: usize = 4;
 /// Ordered EvacDisposition residual names.
 pub const EVAC_DISPOSITION_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "EVAC_INVALID",            // 0
-    "EVAC_TO_LEFT",            // 1
-    "EVAC_TO_RIGHT",           // 2
-    "EVAC_BURST_FROM_CENTER",  // 3
+    "EVAC_INVALID",           // 0
+    "EVAC_TO_LEFT",           // 1
+    "EVAC_TO_RIGHT",          // 2
+    "EVAC_BURST_FROM_CENTER", // 3
 ];
 
 /// C++ HealContain isHealContain residual (TRUE).

@@ -292,14 +292,18 @@ pub fn run_golden_campaign_ex(
         None => resolve_first_existing(CAMPAIGN_MAP_CANDIDATES),
     };
 
-    let (campaign_map_identity, campaign_map_path, campaign_scripts_resolved, campaign_script_count) =
-        match &campaign_resolved {
-            Some((id, path)) => {
-                let (ok, count) = count_scripts_in_map(path);
-                (id.clone(), Some(path.clone()), ok, count)
-            }
-            None => ("<none>".into(), None, false, 0),
-        };
+    let (
+        campaign_map_identity,
+        campaign_map_path,
+        campaign_scripts_resolved,
+        campaign_script_count,
+    ) = match &campaign_resolved {
+        Some((id, path)) => {
+            let (ok, count) = count_scripts_in_map(path);
+            (id.clone(), Some(path.clone()), ok, count)
+        }
+        None => ("<none>".into(), None, false, 0),
+    };
 
     // Default: retail campaign map load when available. Host-safe only when
     // force_full_campaign=false or retail assets missing.
@@ -372,21 +376,19 @@ pub fn run_golden_campaign_ex(
         .is_ok();
 
     // Victory rule must be visible before map configure.
-    let victory_rule_applied =
-        victory_rules_for_map(&victory_map_key) == VictoryType::NO_UNITS
-            || campaign_resolved
-                .as_ref()
-                .map(|(id, path)| {
-                    victory_rules_for_map(id) == VictoryType::NO_UNITS
-                        || victory_rules_for_map(path.to_str().unwrap_or(id))
-                            == VictoryType::NO_UNITS
-                        || path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .map(|stem| victory_rules_for_map(stem) == VictoryType::NO_UNITS)
-                            .unwrap_or(false)
-                })
-                .unwrap_or(false);
+    let victory_rule_applied = victory_rules_for_map(&victory_map_key) == VictoryType::NO_UNITS
+        || campaign_resolved
+            .as_ref()
+            .map(|(id, path)| {
+                victory_rules_for_map(id) == VictoryType::NO_UNITS
+                    || victory_rules_for_map(path.to_str().unwrap_or(id)) == VictoryType::NO_UNITS
+                    || path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(|stem| victory_rules_for_map(stem) == VictoryType::NO_UNITS)
+                        .unwrap_or(false)
+            })
+            .unwrap_or(false);
 
     // --- SinglePlayer world ---
     let mut logic = GameLogic::new();
@@ -443,9 +445,8 @@ pub fn run_golden_campaign_ex(
     let frame_after = logic.get_frame();
     let frames_advanced = frame_after.saturating_sub(frame_before);
     let mission_script_counter = logic.mission_script_counter;
-    let scripts_tick_ok = scripts_installed
-        && mission_script_counter > script_counter_before
-        && frames_advanced > 0;
+    let scripts_tick_ok =
+        scripts_installed && mission_script_counter > script_counter_before && frames_advanced > 0;
 
     // Victory evaluation must not panic; result may be None mid-mission.
     let victory_eval_ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -655,8 +656,7 @@ mod tests {
                 "default residual should load retail campaign map when present: {report}"
             );
             assert!(
-                result.mission_scripts_installed_count > 0
-                    || result.campaign_script_count > 0,
+                result.mission_scripts_installed_count > 0 || result.campaign_script_count > 0,
                 "retail residual should install or decode campaign scripts: {report}"
             );
         }
@@ -675,8 +675,7 @@ mod tests {
             return;
         };
 
-        let result =
-            run_golden_campaign_ex(Some(map_path.to_str().unwrap_or("MD_USA01")), 3, true);
+        let result = run_golden_campaign_ex(Some(map_path.to_str().unwrap_or("MD_USA01")), 3, true);
         let report = format_campaign_report(&result);
         assert!(
             result.campaign_playable_claim,
@@ -756,11 +755,7 @@ mod tests {
             "{}",
             format_campaign_report(&result)
         );
-        assert!(
-            result.single_player,
-            "{}",
-            format_campaign_report(&result)
-        );
+        assert!(result.single_player, "{}", format_campaign_report(&result));
         assert!(
             result.victory_eval_ok,
             "{}",

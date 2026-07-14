@@ -147,10 +147,8 @@ pub enum HelpBoxSubjectResidual {
 
 /// CanMakeStatus residual status message strings (ControlBarPopupDescription).
 pub const HELP_BOX_STATUS_NO_MONEY_RESIDUAL: &str = "Not enough money to build";
-pub const HELP_BOX_STATUS_QUEUE_FULL_RESIDUAL: &str =
-    "Cannot purchase because build queue is full";
-pub const HELP_BOX_STATUS_PARKING_FULL_RESIDUAL: &str =
-    "Cannot build unit because parking is full";
+pub const HELP_BOX_STATUS_QUEUE_FULL_RESIDUAL: &str = "Cannot purchase because build queue is full";
+pub const HELP_BOX_STATUS_PARKING_FULL_RESIDUAL: &str = "Cannot build unit because parking is full";
 pub const HELP_BOX_STATUS_MAXED_UNIT_RESIDUAL: &str =
     "Cannot build unit because maximum number reached";
 pub const HELP_BOX_STATUS_MAXED_STRUCTURE_RESIDUAL: &str =
@@ -196,10 +194,8 @@ pub fn help_box_can_make_status_message_residual(
 /// Wave 91 honesty: HelpBox residual peels pack.
 pub fn honesty_help_box_residual_pack_wave91() -> bool {
     HELP_BOX_LAYOUT_WND_RESIDUAL == "ControlBarPopupDescription.wnd"
-        && HELP_BOX_STATIC_TEXT_NAME_ID_RESIDUAL
-            == "ControlBarPopupDescription.wnd:StaticTextName"
-        && HELP_BOX_STATIC_TEXT_COST_ID_RESIDUAL
-            == "ControlBarPopupDescription.wnd:StaticTextCost"
+        && HELP_BOX_STATIC_TEXT_NAME_ID_RESIDUAL == "ControlBarPopupDescription.wnd:StaticTextName"
+        && HELP_BOX_STATIC_TEXT_COST_ID_RESIDUAL == "ControlBarPopupDescription.wnd:StaticTextCost"
         && HELP_BOX_STATIC_TEXT_DESCRIPTION_ID_RESIDUAL
             == "ControlBarPopupDescription.wnd:StaticTextDescription"
         && HELP_BOX_MONEY_DISPLAY_ID_RESIDUAL == "ControlBar.wnd:MoneyDisplay"
@@ -209,14 +205,10 @@ pub fn honesty_help_box_residual_pack_wave91() -> bool {
         && HelpBoxSubjectResidual::GeneralsExp as u8 == 3
         && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::Ok, false)
             .is_none()
-        && help_box_can_make_status_message_residual(
-            HelpBoxCanMakeStatusResidual::NoMoney,
-            false,
-        ) == Some(HELP_BOX_STATUS_NO_MONEY_RESIDUAL)
-        && help_box_can_make_status_message_residual(
-            HelpBoxCanMakeStatusResidual::QueueFull,
-            false,
-        ) == Some(HELP_BOX_STATUS_QUEUE_FULL_RESIDUAL)
+        && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::NoMoney, false)
+            == Some(HELP_BOX_STATUS_NO_MONEY_RESIDUAL)
+        && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::QueueFull, false)
+            == Some(HELP_BOX_STATUS_QUEUE_FULL_RESIDUAL)
         && help_box_can_make_status_message_residual(
             HelpBoxCanMakeStatusResidual::ParkingPlacesFull,
             false,
@@ -229,11 +221,8 @@ pub fn honesty_help_box_residual_pack_wave91() -> bool {
             HelpBoxCanMakeStatusResidual::MaxedOutForPlayer,
             true,
         ) == Some(HELP_BOX_STATUS_MAXED_STRUCTURE_RESIDUAL)
-        && help_box_can_make_status_message_residual(
-            HelpBoxCanMakeStatusResidual::NoPrereq,
-            false,
-        )
-        .is_none()
+        && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::NoPrereq, false)
+            .is_none()
 }
 
 // ---------------------------------------------------------------------------
@@ -334,59 +323,59 @@ pub const EVA_NEXT_CHECK_NOW_RESIDUAL: u32 = 0;
 
 /// Ordered C++ `TheEvaMessageNames` residual (EVA_FIRST..EVA_COUNT-1).
 pub const EVA_MESSAGE_NAME_LIST: &[&str] = &[
-    "LOWPOWER",                                       // 0
-    "INSUFFICIENTFUNDS",                              // 1
-    "SUPERWEAPONDETECTED_OWN_PARTICLECANNON",         // 2
-    "SUPERWEAPONDETECTED_OWN_NUKE",                   // 3
-    "SUPERWEAPONDETECTED_OWN_SCUDSTORM",              // 4
-    "SUPERWEAPONDETECTED_ALLY_PARTICLECANNON",        // 5
-    "SUPERWEAPONDETECTED_ALLY_NUKE",                  // 6
-    "SUPERWEAPONDETECTED_ALLY_SCUDSTORM",             // 7
-    "SUPERWEAPONDETECTED_ENEMY_PARTICLECANNON",       // 8
-    "SUPERWEAPONDETECTED_ENEMY_NUKE",                 // 9
-    "SUPERWEAPONDETECTED_ENEMY_SCUDSTORM",            // 10
-    "SUPERWEAPONLAUNCHED_OWN_PARTICLECANNON",         // 11
-    "SUPERWEAPONLAUNCHED_OWN_NUKE",                   // 12
-    "SUPERWEAPONLAUNCHED_OWN_SCUDSTORM",              // 13
-    "SUPERWEAPONLAUNCHED_ALLY_PARTICLECANNON",        // 14
-    "SUPERWEAPONLAUNCHED_ALLY_NUKE",                  // 15
-    "SUPERWEAPONLAUNCHED_ALLY_SCUDSTORM",             // 16
-    "SUPERWEAPONLAUNCHED_ENEMY_PARTICLECANNON",       // 17
-    "SUPERWEAPONLAUNCHED_ENEMY_NUKE",                 // 18
-    "SUPERWEAPONLAUNCHED_ENEMY_SCUDSTORM",            // 19
-    "SUPERWEAPONREADY_OWN_PARTICLECANNON",            // 20
-    "SUPERWEAPONREADY_OWN_NUKE",                      // 21
-    "SUPERWEAPONREADY_OWN_SCUDSTORM",                 // 22
-    "SUPERWEAPONREADY_ALLY_PARTICLECANNON",           // 23
-    "SUPERWEAPONREADY_ALLY_NUKE",                     // 24
-    "SUPERWEAPONREADY_ALLY_SCUDSTORM",                // 25
-    "SUPERWEAPONREADY_ENEMY_PARTICLECANNON",          // 26
-    "SUPERWEAPONREADY_ENEMY_NUKE",                    // 27
-    "SUPERWEAPONREADY_ENEMY_SCUDSTORM",               // 28
-    "BUILDINGLOST",                                   // 29
-    "BASEUNDERATTACK",                                // 30
-    "ALLYUNDERATTACK",                                // 31
-    "BEACONDETECTED",                                 // 32
-    "ENEMYBLACKLOTUSDETECTED",                        // 33
-    "ENEMYJARMENKELLDETECTED",                        // 34
-    "ENEMYCOLONELBURTONDETECTED",                     // 35
-    "OWNBLACKLOTUSDETECTED",                          // 36
-    "OWNJARMENKELLDETECTED",                          // 37
-    "OWNCOLONELBURTONDETECTED",                       // 38
-    "UNITLOST",                                       // 39
-    "GENERALLEVELUP",                                 // 40
-    "VEHICLESTOLEN",                                  // 41
-    "BUILDINGSTOLEN",                                 // 42
-    "CASHSTOLEN",                                     // 43
-    "UPGRADECOMPLETE",                                // 44
-    "BUILDINGBEINGSTOLEN",                            // 45
-    "BUILDINGSABOTAGED",                              // 46
-    "SUPERWEAPONLAUNCHED_OWN_GPS_SCRAMBLER",          // 47
-    "SUPERWEAPONLAUNCHED_ALLY_GPS_SCRAMBLER",         // 48
-    "SUPERWEAPONLAUNCHED_ENEMY_GPS_SCRAMBLER",        // 49
-    "SUPERWEAPONLAUNCHED_OWN_SNEAK_ATTACK",           // 50
-    "SUPERWEAPONLAUNCHED_ALLY_SNEAK_ATTACK",          // 51
-    "SUPERWEAPONLAUNCHED_ENEMY_SNEAK_ATTACK",         // 52
+    "LOWPOWER",                                 // 0
+    "INSUFFICIENTFUNDS",                        // 1
+    "SUPERWEAPONDETECTED_OWN_PARTICLECANNON",   // 2
+    "SUPERWEAPONDETECTED_OWN_NUKE",             // 3
+    "SUPERWEAPONDETECTED_OWN_SCUDSTORM",        // 4
+    "SUPERWEAPONDETECTED_ALLY_PARTICLECANNON",  // 5
+    "SUPERWEAPONDETECTED_ALLY_NUKE",            // 6
+    "SUPERWEAPONDETECTED_ALLY_SCUDSTORM",       // 7
+    "SUPERWEAPONDETECTED_ENEMY_PARTICLECANNON", // 8
+    "SUPERWEAPONDETECTED_ENEMY_NUKE",           // 9
+    "SUPERWEAPONDETECTED_ENEMY_SCUDSTORM",      // 10
+    "SUPERWEAPONLAUNCHED_OWN_PARTICLECANNON",   // 11
+    "SUPERWEAPONLAUNCHED_OWN_NUKE",             // 12
+    "SUPERWEAPONLAUNCHED_OWN_SCUDSTORM",        // 13
+    "SUPERWEAPONLAUNCHED_ALLY_PARTICLECANNON",  // 14
+    "SUPERWEAPONLAUNCHED_ALLY_NUKE",            // 15
+    "SUPERWEAPONLAUNCHED_ALLY_SCUDSTORM",       // 16
+    "SUPERWEAPONLAUNCHED_ENEMY_PARTICLECANNON", // 17
+    "SUPERWEAPONLAUNCHED_ENEMY_NUKE",           // 18
+    "SUPERWEAPONLAUNCHED_ENEMY_SCUDSTORM",      // 19
+    "SUPERWEAPONREADY_OWN_PARTICLECANNON",      // 20
+    "SUPERWEAPONREADY_OWN_NUKE",                // 21
+    "SUPERWEAPONREADY_OWN_SCUDSTORM",           // 22
+    "SUPERWEAPONREADY_ALLY_PARTICLECANNON",     // 23
+    "SUPERWEAPONREADY_ALLY_NUKE",               // 24
+    "SUPERWEAPONREADY_ALLY_SCUDSTORM",          // 25
+    "SUPERWEAPONREADY_ENEMY_PARTICLECANNON",    // 26
+    "SUPERWEAPONREADY_ENEMY_NUKE",              // 27
+    "SUPERWEAPONREADY_ENEMY_SCUDSTORM",         // 28
+    "BUILDINGLOST",                             // 29
+    "BASEUNDERATTACK",                          // 30
+    "ALLYUNDERATTACK",                          // 31
+    "BEACONDETECTED",                           // 32
+    "ENEMYBLACKLOTUSDETECTED",                  // 33
+    "ENEMYJARMENKELLDETECTED",                  // 34
+    "ENEMYCOLONELBURTONDETECTED",               // 35
+    "OWNBLACKLOTUSDETECTED",                    // 36
+    "OWNJARMENKELLDETECTED",                    // 37
+    "OWNCOLONELBURTONDETECTED",                 // 38
+    "UNITLOST",                                 // 39
+    "GENERALLEVELUP",                           // 40
+    "VEHICLESTOLEN",                            // 41
+    "BUILDINGSTOLEN",                           // 42
+    "CASHSTOLEN",                               // 43
+    "UPGRADECOMPLETE",                          // 44
+    "BUILDINGBEINGSTOLEN",                      // 45
+    "BUILDINGSABOTAGED",                        // 46
+    "SUPERWEAPONLAUNCHED_OWN_GPS_SCRAMBLER",    // 47
+    "SUPERWEAPONLAUNCHED_ALLY_GPS_SCRAMBLER",   // 48
+    "SUPERWEAPONLAUNCHED_ENEMY_GPS_SCRAMBLER",  // 49
+    "SUPERWEAPONLAUNCHED_OWN_SNEAK_ATTACK",     // 50
+    "SUPERWEAPONLAUNCHED_ALLY_SNEAK_ATTACK",    // 51
+    "SUPERWEAPONLAUNCHED_ENEMY_SNEAK_ATTACK",   // 52
 ];
 
 /// Sentinel after EVA_COUNT residual.
@@ -446,11 +435,11 @@ pub fn honesty_eva_residual_pack_wave91() -> bool {
 pub const VIDEO_BUFFER_NUM_TYPES_RESIDUAL: u32 = 5;
 /// VideoBuffer type residual ordered names (TYPE_UNKNOWN..TYPE_X1R5G5B5).
 pub const VIDEO_BUFFER_TYPE_NAME_LIST: &[&str] = &[
-    "TYPE_UNKNOWN",   // 0
-    "TYPE_R8G8B8",    // 1
-    "TYPE_X8R8G8B8",  // 2
-    "TYPE_R5G6B5",    // 3
-    "TYPE_X1R5G5B5",  // 4
+    "TYPE_UNKNOWN",  // 0
+    "TYPE_R8G8B8",   // 1
+    "TYPE_X8R8G8B8", // 2
+    "TYPE_R5G6B5",   // 3
+    "TYPE_X1R5G5B5", // 4
 ];
 
 /// Retail Video.ini residual entry (internal name + filename on disk).
@@ -825,10 +814,7 @@ pub const CAMPAIGN_NAME_LIST_RESIDUAL: &[&str] = &["TRAINING", "USA", "GLA", "Ch
 pub const FACTION_CAMPAIGN_MISSION_COUNT_RESIDUAL: usize = 5;
 
 /// Scale military caption position residual from 800×600 design space.
-pub fn military_caption_scaled_position_residual(
-    display_w: f32,
-    display_h: f32,
-) -> (f32, f32) {
+pub fn military_caption_scaled_position_residual(display_w: f32, display_h: f32) -> (f32, f32) {
     let mx = display_w / MILITARY_CAPTION_BASE_DISPLAY_W_RESIDUAL;
     let my = display_h / MILITARY_CAPTION_BASE_DISPLAY_H_RESIDUAL;
     (
@@ -890,8 +876,7 @@ pub fn honesty_mission_briefing_residual_pack_wave91() -> bool {
         }
         && {
             let chi1 = mission_briefing_residual("China", "Mission01").unwrap();
-            chi1.intro_movie == "MD_China01"
-                && chi1.map == r"Maps\MD_CHI01\MD_CHI01.map"
+            chi1.intro_movie == "MD_China01" && chi1.map == r"Maps\MD_CHI01\MD_CHI01.map"
         }
         && {
             let ch0 = mission_briefing_residual("CHALLENGE_0", "Mission01").unwrap();

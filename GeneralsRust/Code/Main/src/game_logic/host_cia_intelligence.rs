@@ -255,9 +255,9 @@ impl HostCiaIntelligenceRegistry {
 
     /// True if any active residual still spies `object_id` for `player_id`.
     pub fn is_object_vision_spied(&self, player_id: u32, object_id: ObjectId) -> bool {
-        self.active.iter().any(|a| {
-            a.player_id == player_id && a.is_object_spied(object_id)
-        })
+        self.active
+            .iter()
+            .any(|a| a.player_id == player_id && a.is_object_spied(object_id))
     }
 
     /// True if any active residual for `player_id` covers horizontal `pos`

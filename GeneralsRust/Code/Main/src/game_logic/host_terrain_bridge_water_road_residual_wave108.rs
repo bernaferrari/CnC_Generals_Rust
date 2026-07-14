@@ -37,8 +37,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// C++ `MAP_XY_FACTOR` residual (MapObject.h) — world units per heightmap cell.
 pub const HEIGHTMAP_MAP_XY_FACTOR_RESIDUAL: f32 = 10.0;
 /// C++ `MAP_HEIGHT_SCALE` residual (`MAP_XY_FACTOR / 16`).
-pub const HEIGHTMAP_MAP_HEIGHT_SCALE_RESIDUAL: f32 =
-    HEIGHTMAP_MAP_XY_FACTOR_RESIDUAL / 16.0;
+pub const HEIGHTMAP_MAP_HEIGHT_SCALE_RESIDUAL: f32 = HEIGHTMAP_MAP_XY_FACTOR_RESIDUAL / 16.0;
 /// C++ `K_MIN_HEIGHT` residual (WorldHeightMap.h).
 pub const HEIGHTMAP_K_MIN_HEIGHT_RESIDUAL: i32 = 0;
 /// C++ `K_MAX_HEIGHT` residual (WorldHeightMap.h) — raw 8-bit sample max.
@@ -98,16 +97,13 @@ pub fn heightmap_world_z_max_residual() -> f32 {
 pub fn honesty_heightmap_residual_deepen_pack_wave108() -> bool {
     let scale_ok = (HEIGHTMAP_MAP_XY_FACTOR_RESIDUAL - 10.0).abs() < 1e-5
         && (HEIGHTMAP_MAP_HEIGHT_SCALE_RESIDUAL - 0.625).abs() < 1e-5
-        && (HEIGHTMAP_MAP_HEIGHT_SCALE_RESIDUAL
-            - HEIGHTMAP_MAP_XY_FACTOR_RESIDUAL / 16.0)
-            .abs()
+        && (HEIGHTMAP_MAP_HEIGHT_SCALE_RESIDUAL - HEIGHTMAP_MAP_XY_FACTOR_RESIDUAL / 16.0).abs()
             < 1e-5
         && HEIGHTMAP_K_MIN_HEIGHT_RESIDUAL == 0
         && HEIGHTMAP_K_MAX_HEIGHT_RESIDUAL == 255
         && (heightmap_raw_sample_to_world_residual(0) - 0.0).abs() < 1e-5
         && (heightmap_raw_sample_to_world_residual(16) - 10.0).abs() < 1e-3
-        && (heightmap_raw_sample_to_world_residual(255) - heightmap_world_z_max_residual())
-            .abs()
+        && (heightmap_raw_sample_to_world_residual(255) - heightmap_world_z_max_residual()).abs()
             < 1e-2
         && (heightmap_world_z_max_residual() - 255.0 * 0.625).abs() < 1e-2;
 
@@ -371,8 +367,7 @@ pub const WATER_SCROLL_PER_MS_DAY_RESIDUAL: f32 = 0.002;
 pub const WATER_SCROLL_PER_MS_NIGHT_RESIDUAL: f32 = 0.0;
 
 /// Ordered WaterSet TOD residual names (MORNING..NIGHT).
-pub const WATER_SET_TOD_NAMES_RESIDUAL: &[&str] =
-    &["MORNING", "AFTERNOON", "EVENING", "NIGHT"];
+pub const WATER_SET_TOD_NAMES_RESIDUAL: &[&str] = &["MORNING", "AFTERNOON", "EVENING", "NIGHT"];
 
 /// Wave 108 honesty: water residual deepen pack.
 pub fn honesty_water_residual_deepen_pack_wave108() -> bool {
@@ -384,8 +379,7 @@ pub fn honesty_water_residual_deepen_pack_wave108() -> bool {
         && WATER_TYPE_NAME_TABLE_RESIDUAL.len() == 4
         && residual_name_index(WATER_TYPE_NAME_TABLE_RESIDUAL, "WATER_TYPE_0_TRANSLUCENT")
             == Some(0)
-        && residual_name_index(WATER_TYPE_NAME_TABLE_RESIDUAL, "WATER_TYPE_3_GRIDMESH")
-            == Some(3)
+        && residual_name_index(WATER_TYPE_NAME_TABLE_RESIDUAL, "WATER_TYPE_3_GRIDMESH") == Some(3)
         && (INVALID_WATER_HEIGHT_RESIDUAL - 0.0).abs() < 1e-5
         && WATER_NUM_BUMP_FRAMES_RESIDUAL == 32
         && MAX_DYNAMIC_WATER_RESIDUAL == 64;
@@ -396,8 +390,7 @@ pub fn honesty_water_residual_deepen_pack_wave108() -> bool {
         && WATER_SKYBOX_TEXTURE_S_RESIDUAL == "TSMorningS.tga"
         && WATER_SKYBOX_TEXTURE_W_RESIDUAL == "TSMorningW.tga"
         && WATER_SKYBOX_TEXTURE_T_RESIDUAL == "TSMorningT.tga"
-        && residual_name_index(WATER_SKYBOX_TEXTURE_TABLE_RESIDUAL, "TSMorningT.tga")
-            == Some(4);
+        && residual_name_index(WATER_SKYBOX_TEXTURE_TABLE_RESIDUAL, "TSMorningT.tga") == Some(4);
 
     let field_ok = WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL.len() >= 11
         && residual_name_index(
@@ -405,10 +398,8 @@ pub fn honesty_water_residual_deepen_pack_wave108() -> bool {
             "TransparentWaterDepth",
         )
         .is_some()
-        && residual_name_index(WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL, "SkyboxTextureN")
-            .is_some()
-        && residual_name_index(WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL, "RadarWaterColor")
-            .is_some();
+        && residual_name_index(WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL, "SkyboxTextureN").is_some()
+        && residual_name_index(WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL, "RadarWaterColor").is_some();
 
     let wave87_hold = (WATER_TRANSPARENT_DEPTH_RESIDUAL - 3.0).abs() < 1e-5
         && (WATER_MIN_OPACITY_RESIDUAL - 1.0).abs() < 1e-5
@@ -472,8 +463,7 @@ pub const MAX_ROAD_INDEX_RESIDUAL: i32 = 5000;
 pub const MAX_ROAD_TYPES_RESIDUAL: i32 = 100;
 
 /// Road FieldParse residual keys.
-pub const ROAD_FIELD_PARSE_KEYS_RESIDUAL: &[&str] =
-    &["Texture", "RoadWidth", "RoadWidthInTexture"];
+pub const ROAD_FIELD_PARSE_KEYS_RESIDUAL: &[&str] = &["Texture", "RoadWidth", "RoadWidthInTexture"];
 
 /// Retail Roads.ini expanded sample residual table (≥10 road names).
 pub const SAMPLE_ROAD_NAME_TABLE_RESIDUAL: &[&str] = &[
@@ -532,8 +522,7 @@ pub fn honesty_road_residual_deepen_pack_wave108() -> bool {
     let field_ok = ROAD_FIELD_PARSE_KEYS_RESIDUAL.len() == 3
         && residual_name_index(ROAD_FIELD_PARSE_KEYS_RESIDUAL, "Texture") == Some(0)
         && residual_name_index(ROAD_FIELD_PARSE_KEYS_RESIDUAL, "RoadWidth") == Some(1)
-        && residual_name_index(ROAD_FIELD_PARSE_KEYS_RESIDUAL, "RoadWidthInTexture")
-            == Some(2);
+        && residual_name_index(ROAD_FIELD_PARSE_KEYS_RESIDUAL, "RoadWidthInTexture") == Some(2);
 
     let sample_ok = SAMPLE_ROAD_NAME_TABLE_RESIDUAL.len() >= 10
         && residual_name_index(SAMPLE_ROAD_NAME_TABLE_RESIDUAL, "TwoLane") == Some(0)
@@ -542,8 +531,7 @@ pub fn honesty_road_residual_deepen_pack_wave108() -> bool {
         && (SAMPLE_ROAD_TWO_LANE_WIDTH_RESIDUAL - 35.0).abs() < 1e-5
         && (SAMPLE_ROAD_FOUR_LANE_WIDTH_RESIDUAL - 60.0).abs() < 1e-5
         && (SAMPLE_ROAD_COBBLESTONE_WIDTH_RESIDUAL - 30.0).abs() < 1e-5
-        && (SAMPLE_ROAD_GRASS_STRIP_WIDTH_RESIDUAL - ROAD_DEFAULT_SCALE_RESIDUAL).abs()
-            < 1e-5
+        && (SAMPLE_ROAD_GRASS_STRIP_WIDTH_RESIDUAL - ROAD_DEFAULT_SCALE_RESIDUAL).abs() < 1e-5
         && SAMPLE_ROAD_TWO_LANE_TEXTURE_RESIDUAL == "TRTwoLane.tga"
         && SAMPLE_ROAD_DIRT_ROAD_NAME_RESIDUAL == "DirtRoad"
         && SAMPLE_ROAD_SIDEWALK_NAME_RESIDUAL == "Sidewalk"
@@ -642,8 +630,7 @@ pub fn honesty_cliff_residual_peels_pack_wave108() -> bool {
         && PATHFIND_CELL_BRIDGE_IMPASSABLE_RESIDUAL == 0x05
         && PATHFIND_CELL_IMPASSABLE_RESIDUAL == 0x06
         && PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL.len() == 7
-        && residual_name_index(PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL, "CELL_CLIFF")
-            == Some(2)
+        && residual_name_index(PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL, "CELL_CLIFF") == Some(2)
         && residual_name_index(
             PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL,
             "CELL_BRIDGE_IMPASSABLE",
@@ -671,7 +658,14 @@ pub fn honesty_cliff_residual_peels_pack_wave108() -> bool {
         && !cliff_uv_needs_stretch_residual(20) // 20*0.0625=1.25 < 1.5
         && cliff_uv_needs_stretch_residual(40);
 
-    slope_ok && cell_type_ok && flat_ok && just_under_ok && cliff_ok && steep_ok && bit_ok && stretch_ok
+    slope_ok
+        && cell_type_ok
+        && flat_ok
+        && just_under_ok
+        && cliff_ok
+        && steep_ok
+        && bit_ok
+        && stretch_ok
 }
 
 // ---------------------------------------------------------------------------

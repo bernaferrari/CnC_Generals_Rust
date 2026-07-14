@@ -394,8 +394,7 @@ pub const GARRISON_POINT_REALLY_DAMAGED: u32 = 2;
 pub const MAX_GARRISON_POINT_CONDITIONS: u32 = 3;
 
 /// C++ MUZZLE_FLASH_LIFETIME residual: LOGICFRAMES_PER_SECOND / 7 → 4 (integer).
-pub const GARRISON_MUZZLE_FLASH_LIFETIME_FRAMES: u32 =
-    (ENV_CONTAIN_LOGIC_FPS as u32) / 7;
+pub const GARRISON_MUZZLE_FLASH_LIFETIME_FRAMES: u32 = (ENV_CONTAIN_LOGIC_FPS as u32) / 7;
 
 /// Retail faction bunker ContainMax residual (ChinaBunker / GLAPalace).
 pub const GARRISON_BUNKER_CONTAIN_MAX: i32 = 5;

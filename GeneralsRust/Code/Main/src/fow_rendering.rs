@@ -131,12 +131,7 @@ impl PresentationFowGrid {
     }
 
     /// Build from shroud manager snapshot bytes (0/1/2 per cell).
-    pub fn from_snapshot(
-        width: u32,
-        height: u32,
-        cell_size: f32,
-        cells: Vec<u8>,
-    ) -> Self {
+    pub fn from_snapshot(width: u32, height: u32, cell_size: f32, cells: Vec<u8>) -> Self {
         let expected = (width as usize).saturating_mul(height as usize);
         let mut cells = cells;
         if cells.len() != expected {

@@ -114,8 +114,8 @@ pub fn gps_scrambler_ms_to_frames(ms: u32) -> u32 {
 /// each update does `+= RadiusGrowRate` then clamps to FinalRadius.
 /// `update_index` is 0-based (first update = 0 → Start + Rate).
 pub fn gps_scrambler_scan_radius_after_updates(update_index: u32) -> f32 {
-    let r = GPS_SCRAMBLER_START_RADIUS
-        + (update_index as f32 + 1.0) * GPS_SCRAMBLER_RADIUS_GROW_RATE;
+    let r =
+        GPS_SCRAMBLER_START_RADIUS + (update_index as f32 + 1.0) * GPS_SCRAMBLER_RADIUS_GROW_RATE;
     r.min(GPS_SCRAMBLER_FINAL_RADIUS)
 }
 
@@ -317,13 +317,27 @@ mod tests {
     #[test]
     fn legal_gps_scrambler_target_matrix() {
         // vehicle, infantry, alive, same_team, under_construction, disguise
-        assert!(is_legal_gps_scrambler_target(true, false, true, true, false, false));
-        assert!(is_legal_gps_scrambler_target(false, true, true, true, false, false));
-        assert!(!is_legal_gps_scrambler_target(false, false, true, true, false, false)); // structure
-        assert!(!is_legal_gps_scrambler_target(true, false, false, true, false, false)); // dead
-        assert!(!is_legal_gps_scrambler_target(true, false, true, false, false, false)); // enemy
-        assert!(!is_legal_gps_scrambler_target(true, false, true, true, true, false)); // constructing
-        assert!(!is_legal_gps_scrambler_target(true, false, true, true, false, true)); // bombtruck
+        assert!(is_legal_gps_scrambler_target(
+            true, false, true, true, false, false
+        ));
+        assert!(is_legal_gps_scrambler_target(
+            false, true, true, true, false, false
+        ));
+        assert!(!is_legal_gps_scrambler_target(
+            false, false, true, true, false, false
+        )); // structure
+        assert!(!is_legal_gps_scrambler_target(
+            true, false, false, true, false, false
+        )); // dead
+        assert!(!is_legal_gps_scrambler_target(
+            true, false, true, false, false, false
+        )); // enemy
+        assert!(!is_legal_gps_scrambler_target(
+            true, false, true, true, true, false
+        )); // constructing
+        assert!(!is_legal_gps_scrambler_target(
+            true, false, true, true, false, true
+        )); // bombtruck
     }
 
     #[test]
@@ -378,12 +392,17 @@ mod tests {
     fn gps_scrambler_residual_pack_wave78_honesty() {
         assert!(honesty_gps_scrambler_residual_pack_wave78());
         assert_eq!(GPS_SCRAMBLER_SCIENCE_POINT_COST, 1);
-        assert_eq!(GPS_SCRAMBLER_PREREQ_SCIENCES, ["SCIENCE_GLA", "SCIENCE_Rank5"]);
-        assert_eq!(GPS_SCRAMBLER_SLTH_PREREQ_SCIENCES, ["SCIENCE_GLA", "SCIENCE_Rank3"]);
+        assert_eq!(
+            GPS_SCRAMBLER_PREREQ_SCIENCES,
+            ["SCIENCE_GLA", "SCIENCE_Rank5"]
+        );
+        assert_eq!(
+            GPS_SCRAMBLER_SLTH_PREREQ_SCIENCES,
+            ["SCIENCE_GLA", "SCIENCE_Rank3"]
+        );
         assert_eq!(GPS_SCRAMBLER_PARTICLE_MICROWAVE, "GPSMicrowaveScambler");
         assert_eq!(GPS_SCRAMBLER_PARTICLE_CLOUD, "gpsScrambleCloud");
         assert_eq!(GPS_SCRAMBLER_ENUM, "SPECIAL_GPS_SCRAMBLER");
         assert!(GPS_SCRAMBLER_SLTH_RELOAD_MS < GPS_SCRAMBLER_RELOAD_MS);
     }
-
 }

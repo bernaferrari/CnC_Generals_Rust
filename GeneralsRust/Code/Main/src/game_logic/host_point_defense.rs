@@ -356,7 +356,6 @@ pub fn honesty_point_defense_residual_pack_ok() -> bool {
     honesty_point_defense_residual_ok()
 }
 
-
 /// Whether residual target is a primary intercept candidate (missile / projectile).
 ///
 /// Retail PrimaryTargetTypes = BALLISTIC_MISSILE SMALL_MISSILE.
@@ -422,10 +421,7 @@ pub fn in_pdl_range_2d(carrier_pos: (f32, f32), target_pos: (f32, f32), range: f
 }
 
 /// Priority score: lower is better. Primary missiles = 0, secondary infantry = 1.
-pub fn intercept_priority(
-    is_primary: bool,
-    is_secondary: bool,
-) -> Option<u8> {
+pub fn intercept_priority(is_primary: bool, is_secondary: bool) -> Option<u8> {
     if is_primary {
         Some(0)
     } else if is_secondary {
@@ -521,7 +517,12 @@ mod tests {
             true,
             "ScudMissile"
         ));
-        assert!(!is_primary_intercept_target(false, false, false, "ScudMissile"));
+        assert!(!is_primary_intercept_target(
+            false,
+            false,
+            false,
+            "ScudMissile"
+        ));
         assert!(is_secondary_intercept_target(true, true, false, false));
         assert!(!is_secondary_intercept_target(true, true, true, false));
         assert!(!is_secondary_intercept_target(false, true, false, false));
@@ -549,7 +550,9 @@ mod tests {
         // Avenger ScanRange residual = retail **200** (not fire*1.2).
         assert!((pdl_scan_range("USA_Avenger") - AVENGER_PDL_SCAN_RANGE).abs() < 0.01);
         assert!((pdl_scan_range("USA_Paladin") - PALADIN_PDL_SCAN_RANGE).abs() < 0.01);
-        assert!((pdl_scan_range("AirF_AmericaJetRaptor") - KING_RAPTOR_PDL_SCAN_RANGE).abs() < 0.01);
+        assert!(
+            (pdl_scan_range("AirF_AmericaJetRaptor") - KING_RAPTOR_PDL_SCAN_RANGE).abs() < 0.01
+        );
         assert!(
             (pdl_scan_range("AirF_AmericaVehicleChinook") - COMBAT_CHINOOK_PDL_SCAN_RANGE).abs()
                 < 0.01
@@ -584,5 +587,4 @@ mod tests {
         assert_eq!(AVENGER_PDL_DELAY_FRAMES, 15);
         assert!((PALADIN_PDL_DAMAGE - 100.0).abs() < 0.01);
     }
-
 }

@@ -272,7 +272,10 @@ pub fn is_hellfire_drone_template(template_name: &str) -> bool {
     if n.contains("hulk") || n.contains("die") || n.contains("debris") || n.contains("explode") {
         return false;
     }
-    if n.contains("weapon") || n.contains("missile") || n.starts_with("upgrade") || n.starts_with("ocl")
+    if n.contains("weapon")
+        || n.contains("missile")
+        || n.starts_with("upgrade")
+        || n.starts_with("ocl")
     {
         return false;
     }
@@ -627,8 +630,12 @@ mod tests {
         assert!(!battle_drone_should_repair_master(true, 80.0, true, 10.0));
         assert!((battle_drone_repair_amount_for_frame(1.0) - 10.0).abs() < 0.01);
         assert!((battle_drone_repair_amount_for_frame(1.0 / 30.0) - 10.0 / 30.0).abs() < 0.001);
-        assert!(battle_drone_auto_fire_eligible(true, true, true, true, true));
-        assert!(!battle_drone_auto_fire_eligible(true, false, true, true, true));
+        assert!(battle_drone_auto_fire_eligible(
+            true, true, true, true, true
+        ));
+        assert!(!battle_drone_auto_fire_eligible(
+            true, false, true, true, true
+        ));
     }
 
     #[test]

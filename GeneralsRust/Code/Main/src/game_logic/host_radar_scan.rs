@@ -237,8 +237,7 @@ impl HostRadarScanRegistry {
             scan.stealth_detector_applied = true;
         }
         if scan.dynamic_shroud_applied {
-            self.dynamic_shroud_applications =
-                self.dynamic_shroud_applications.saturating_add(1);
+            self.dynamic_shroud_applications = self.dynamic_shroud_applications.saturating_add(1);
         }
         if scan.stealth_detector_applied {
             self.stealth_detector_applications =
@@ -327,7 +326,6 @@ pub fn honesty_radar_scan_residual_pack_ok() -> bool {
     honesty_radar_scan_dynamic_shroud_constants_ok()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,16 +379,12 @@ mod tests {
     #[test]
     fn radar_scan_dynamic_shroud_shrink_curve_residual() {
         // Instant full range (no grow).
-        assert!(
-            (radar_scan_dynamic_shroud_radius_at_elapsed(0) - 150.0).abs() < 0.01
-        );
+        assert!((radar_scan_dynamic_shroud_radius_at_elapsed(0) - 150.0).abs() < 0.01);
         assert_eq!(
             radar_scan_dynamic_shroud_state_at_elapsed(0),
             RadarScanShroudState::Sustaining
         );
-        assert!(
-            (radar_scan_dynamic_shroud_radius_at_elapsed(100) - 150.0).abs() < 0.01
-        );
+        assert!((radar_scan_dynamic_shroud_radius_at_elapsed(100) - 150.0).abs() < 0.01);
 
         // Shrink starts at 225.
         assert_eq!(
@@ -405,9 +399,7 @@ mod tests {
             radar_scan_dynamic_shroud_state_at_elapsed(300),
             RadarScanShroudState::Done
         );
-        assert!(
-            (radar_scan_dynamic_shroud_radius_at_elapsed(300) - 0.0).abs() < 0.01
-        );
+        assert!((radar_scan_dynamic_shroud_radius_at_elapsed(300) - 0.0).abs() < 0.01);
 
         // Deletion lifetime aligns with end of shrink window.
         assert_eq!(RADAR_SCAN_DURATION_FRAMES, 300);
@@ -420,5 +412,4 @@ mod tests {
         assert_eq!(RADAR_SCAN_SHRINK_DELAY_FRAMES, 225);
         assert_eq!(RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES, 15);
     }
-
 }

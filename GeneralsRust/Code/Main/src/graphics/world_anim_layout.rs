@@ -273,11 +273,7 @@ pub fn anim2d_ini_template_meta(name: &str) -> Option<&'static Anim2DIniTemplate
 ///
 /// Single-image templates (AmmoFull/AmmoEmpty) use the prefix as the full name
 /// (no numeric suffix). Fail-closed vs live ImageCollection load.
-pub fn anim2d_residual_image_list(
-    prefix: &str,
-    num_images: u16,
-    start_index: u16,
-) -> Vec<String> {
+pub fn anim2d_residual_image_list(prefix: &str, num_images: u16, start_index: u16) -> Vec<String> {
     if num_images == 0 {
         return Vec::new();
     }
@@ -349,7 +345,8 @@ pub fn honesty_anim2d_full_template_table_residual_wave102() -> bool {
     }
     // Enthusiastic residual starts at SCPCross003.
     let enth = anim2d_ini_template_meta("Enthusiastic").expect("enth");
-    let enth_imgs = anim2d_residual_image_list(enth.image_prefix, enth.num_images, enth.image_start_index);
+    let enth_imgs =
+        anim2d_residual_image_list(enth.image_prefix, enth.num_images, enth.image_start_index);
     if enth_imgs.len() != 9 || enth_imgs[0] != "SCPCross003" || enth_imgs[8] != "SCPCross011" {
         return false;
     }
@@ -411,7 +408,9 @@ pub fn honesty_anim2d_collection_init_residual_wave102() -> bool {
         return false;
     }
     // Head-insert residual: last registered name is head (Subliminal).
-    if col.template_head.map(|id| col.templates.get(&id).map(|t| t.name.as_str()))
+    if col
+        .template_head
+        .map(|id| col.templates.get(&id).map(|t| t.name.as_str()))
         != Some(Some("Subliminal"))
     {
         return false;
@@ -603,7 +602,8 @@ pub fn honesty_money_pickup_frame(age_frames: u32, frame: u16, image: &str) -> b
     frame == expected
         && image == money_pickup_frame_image_name(expected)
         && expected < MONEY_PICKUP_NUM_FRAMES
-        && anim_delay_ms_to_frames(MONEY_PICKUP_ANIM_DELAY_MS) == MONEY_PICKUP_FRAMES_BETWEEN_UPDATES
+        && anim_delay_ms_to_frames(MONEY_PICKUP_ANIM_DELAY_MS)
+            == MONEY_PICKUP_FRAMES_BETWEEN_UPDATES
         && MONEY_PICKUP_ANIM_MODE_LOOP
         && !MONEY_PICKUP_RANDOMIZE_START_FRAME
 }
@@ -827,43 +827,91 @@ pub fn anim2d_try_next_frame(
     match mode {
         Anim2DModeResidual::Once => {
             if current < max_frame {
-                Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+                Anim2DFrameStep {
+                    frame: current.saturating_add(1),
+                    reversed: false,
+                    complete: false,
+                }
             } else {
-                Anim2DFrameStep { frame: current, reversed: false, complete: true }
+                Anim2DFrameStep {
+                    frame: current,
+                    reversed: false,
+                    complete: true,
+                }
             }
         }
         Anim2DModeResidual::OnceBackwards => {
             if current > min_frame {
-                Anim2DFrameStep { frame: current.saturating_sub(1), reversed: false, complete: false }
+                Anim2DFrameStep {
+                    frame: current.saturating_sub(1),
+                    reversed: false,
+                    complete: false,
+                }
             } else {
-                Anim2DFrameStep { frame: current, reversed: false, complete: true }
+                Anim2DFrameStep {
+                    frame: current,
+                    reversed: false,
+                    complete: true,
+                }
             }
         }
         Anim2DModeResidual::Loop => {
             if current == max_frame {
-                Anim2DFrameStep { frame: min_frame, reversed: false, complete: false }
+                Anim2DFrameStep {
+                    frame: min_frame,
+                    reversed: false,
+                    complete: false,
+                }
             } else {
-                Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+                Anim2DFrameStep {
+                    frame: current.saturating_add(1),
+                    reversed: false,
+                    complete: false,
+                }
             }
         }
         Anim2DModeResidual::LoopBackwards => {
             if current > min_frame {
-                Anim2DFrameStep { frame: current.saturating_sub(1), reversed: false, complete: false }
+                Anim2DFrameStep {
+                    frame: current.saturating_sub(1),
+                    reversed: false,
+                    complete: false,
+                }
             } else {
-                Anim2DFrameStep { frame: max_frame, reversed: false, complete: false }
+                Anim2DFrameStep {
+                    frame: max_frame,
+                    reversed: false,
+                    complete: false,
+                }
             }
         }
         Anim2DModeResidual::PingPong | Anim2DModeResidual::PingPongBackwards => {
             if reversed {
                 if current == min_frame {
-                    Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+                    Anim2DFrameStep {
+                        frame: current.saturating_add(1),
+                        reversed: false,
+                        complete: false,
+                    }
                 } else {
-                    Anim2DFrameStep { frame: current.saturating_sub(1), reversed: true, complete: false }
+                    Anim2DFrameStep {
+                        frame: current.saturating_sub(1),
+                        reversed: true,
+                        complete: false,
+                    }
                 }
             } else if current == max_frame {
-                Anim2DFrameStep { frame: current.saturating_sub(1), reversed: true, complete: false }
+                Anim2DFrameStep {
+                    frame: current.saturating_sub(1),
+                    reversed: true,
+                    complete: false,
+                }
             } else {
-                Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+                Anim2DFrameStep {
+                    frame: current.saturating_add(1),
+                    reversed: false,
+                    complete: false,
+                }
             }
         }
     }
@@ -1185,7 +1233,12 @@ impl Anim2DCollectionResidual {
         if !self.instances.contains_key(&id) {
             return;
         }
-        if self.instances.get(&id).map(|i| i.registered).unwrap_or(false) {
+        if self
+            .instances
+            .get(&id)
+            .map(|i| i.registered)
+            .unwrap_or(false)
+        {
             return;
         }
         self.instance_next.insert(id, self.instance_head);
@@ -1201,7 +1254,12 @@ impl Anim2DCollectionResidual {
 
     /// C++ `unRegisterAnimation`: unlink from doubly-linked instance list.
     pub fn unregister_animation(&mut self, id: Anim2DInstanceId) {
-        if !self.instances.get(&id).map(|i| i.registered).unwrap_or(false) {
+        if !self
+            .instances
+            .get(&id)
+            .map(|i| i.registered)
+            .unwrap_or(false)
+        {
             return;
         }
         let n = self.instance_next.get(&id).copied().flatten();
@@ -1699,7 +1757,6 @@ mod tests {
         assert_eq!(step.frame, 30);
     }
 
-
     #[test]
     fn anim2d_mode_table_residual_honesty() {
         assert!(honesty_anim2d_mode_table());
@@ -1725,14 +1782,20 @@ mod tests {
     #[test]
     fn anim2d_status_alpha_residual_honesty() {
         assert!(honesty_anim2d_status_alpha());
-        assert_eq!(anim2d_set_status(0, ANIM_2D_STATUS_COMPLETE), ANIM_2D_STATUS_COMPLETE);
+        assert_eq!(
+            anim2d_set_status(0, ANIM_2D_STATUS_COMPLETE),
+            ANIM_2D_STATUS_COMPLETE
+        );
         assert_eq!(
             anim2d_clear_status(ANIM_2D_STATUS_COMPLETE, ANIM_2D_STATUS_COMPLETE),
             ANIM_2D_STATUS_NONE
         );
         assert_eq!(anim2d_draw_color_alpha(ANIM_2D_DEFAULT_ALPHA), 255);
         // FROZEN residual blocks tryNextFrame advances in C++.
-        assert!(anim2d_status_test(ANIM_2D_STATUS_FROZEN, ANIM_2D_STATUS_FROZEN));
+        assert!(anim2d_status_test(
+            ANIM_2D_STATUS_FROZEN,
+            ANIM_2D_STATUS_FROZEN
+        ));
     }
 
     #[test]
@@ -1783,7 +1846,10 @@ mod tests {
         assert_eq!(ANIM2D_INI_TEMPLATE_COUNT, 14);
         assert_eq!(ANIM2D_INI_TEMPLATE_NAMES.len(), 14);
         assert_eq!(ANIM2D_INI_TEMPLATE_NAMES[3], "MoneyPickUp");
-        assert_eq!(MONEY_PICKUP_IMAGE_LIST.len() as u16, MONEY_PICKUP_NUM_FRAMES);
+        assert_eq!(
+            MONEY_PICKUP_IMAGE_LIST.len() as u16,
+            MONEY_PICKUP_NUM_FRAMES
+        );
 
         let mut col = Anim2DCollectionResidual::new();
         col.init();
@@ -1820,7 +1886,9 @@ mod tests {
         for name in ANIM2D_INI_TEMPLATE_NAMES {
             col.new_template(name);
         }
-        let money = col.find_template("MoneyPickUp").expect("MoneyPickUp after init");
+        let money = col
+            .find_template("MoneyPickUp")
+            .expect("MoneyPickUp after init");
         let t = &col.templates[&money];
         assert_eq!(t.images.len(), 31);
         for (frame, name) in money_pickup_image_list_bind_residual() {

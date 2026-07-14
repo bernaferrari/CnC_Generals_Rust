@@ -180,8 +180,7 @@ pub fn honesty_hacker_disable_duration_range_residual_ok() -> bool {
     (HACKER_DISABLE_START_ABILITY_RANGE - 150.0).abs() < 0.01
         && HACKER_DISABLE_EFFECT_DURATION_MS == 2_000
         && HACKER_DISABLE_EFFECT_DURATION_FRAMES == 60
-        && HACKER_DISABLE_EFFECT_DURATION_FRAMES
-            == (HACKER_DISABLE_EFFECT_DURATION_MS * 30) / 1000
+        && HACKER_DISABLE_EFFECT_DURATION_FRAMES == (HACKER_DISABLE_EFFECT_DURATION_MS * 30) / 1000
         && HACKER_DISABLE_RELOAD_MS == 500
         && HACKER_DISABLE_RELOAD_FRAMES == hacker_ms_to_frames(HACKER_DISABLE_RELOAD_MS)
         && SPECIAL_ABILITY_HACKER_DISABLE_BUILDING == "SpecialAbilityHackerDisableBuilding"
@@ -190,8 +189,7 @@ pub fn honesty_hacker_disable_duration_range_residual_ok() -> bool {
 /// Wave 54 residual honesty: pack / unpack / prep residual.
 pub fn honesty_hacker_disable_pack_unpack_residual_ok() -> bool {
     HACKER_DISABLE_UNPACK_TIME_MS == 7_300
-        && HACKER_DISABLE_UNPACK_TIME_FRAMES
-            == hacker_ms_to_frames(HACKER_DISABLE_UNPACK_TIME_MS)
+        && HACKER_DISABLE_UNPACK_TIME_FRAMES == hacker_ms_to_frames(HACKER_DISABLE_UNPACK_TIME_MS)
         && HACKER_DISABLE_PACK_TIME_MS == 5_133
         && HACKER_DISABLE_PACK_TIME_FRAMES == hacker_ms_to_frames(HACKER_DISABLE_PACK_TIME_MS)
         && HACKER_DISABLE_PREPARATION_TIME_MS == 3_000
@@ -261,12 +259,24 @@ mod tests {
 
     #[test]
     fn legal_target_matrix() {
-        assert!(is_legal_hacker_disable_target(true, true, false, true, false));
-        assert!(!is_legal_hacker_disable_target(false, true, false, true, false));
-        assert!(!is_legal_hacker_disable_target(true, false, false, true, false));
-        assert!(!is_legal_hacker_disable_target(true, true, true, true, false));
-        assert!(!is_legal_hacker_disable_target(true, true, false, false, false));
-        assert!(!is_legal_hacker_disable_target(true, true, false, true, true));
+        assert!(is_legal_hacker_disable_target(
+            true, true, false, true, false
+        ));
+        assert!(!is_legal_hacker_disable_target(
+            false, true, false, true, false
+        ));
+        assert!(!is_legal_hacker_disable_target(
+            true, false, false, true, false
+        ));
+        assert!(!is_legal_hacker_disable_target(
+            true, true, true, true, false
+        ));
+        assert!(!is_legal_hacker_disable_target(
+            true, true, false, false, false
+        ));
+        assert!(!is_legal_hacker_disable_target(
+            true, true, false, true, true
+        ));
     }
 
     #[test]

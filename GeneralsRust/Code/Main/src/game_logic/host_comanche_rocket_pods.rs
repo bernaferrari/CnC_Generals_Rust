@@ -158,7 +158,6 @@ pub fn honesty_comanche_rocket_pods_residual_pack_ok() -> bool {
     honesty_comanche_rocket_pod_clip_residual_ok()
 }
 
-
 /// Whether template is a residual Comanche that receives rocket pods / combat residual.
 ///
 /// Fail-closed: name residual (not full JetAIUpdate / helipad matrix).
@@ -168,8 +167,7 @@ pub fn is_comanche_template(template_name: &str) -> bool {
         return false;
     }
     // Projectile / shell / blade debris are not the aircraft.
-    if n.contains("rocket") || n.contains("missile") || n.contains("blade") || n.contains("shell")
-    {
+    if n.contains("rocket") || n.contains("missile") || n.contains("blade") || n.contains("shell") {
         return false;
     }
     n.contains("comanche")
@@ -412,10 +410,14 @@ mod tests {
     #[test]
     fn splash_target_matrix() {
         assert!(is_legal_rocket_pod_splash_target(true, false, false, true));
-        assert!(!is_legal_rocket_pod_splash_target(false, false, false, true));
+        assert!(!is_legal_rocket_pod_splash_target(
+            false, false, false, true
+        ));
         assert!(!is_legal_rocket_pod_splash_target(true, true, false, true));
         assert!(!is_legal_rocket_pod_splash_target(true, false, true, true));
-        assert!(!is_legal_rocket_pod_splash_target(true, false, false, false));
+        assert!(!is_legal_rocket_pod_splash_target(
+            true, false, false, false
+        ));
     }
 
     #[test]
@@ -454,5 +456,4 @@ mod tests {
         assert_eq!(ROCKET_POD_CLIP_RELOAD_FRAMES, 900);
         assert_eq!(ROCKET_POD_SCATTER_TARGETS.len(), 20);
     }
-
 }

@@ -416,9 +416,7 @@ fn color_rgb_from_multiplayer_index(color_idx: i32, slot_index: usize) -> (u8, u
     {
         use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
         if color_idx >= 0 {
-            if let Some(packed) =
-                with_multiplayer_settings(|s| s.get_color_value(color_idx))
-            {
+            if let Some(packed) = with_multiplayer_settings(|s| s.get_color_value(color_idx)) {
                 let r = ((packed >> 16) & 0xFF) as u8;
                 let g = ((packed >> 8) & 0xFF) as u8;
                 let b = (packed & 0xFF) as u8;
@@ -568,8 +566,14 @@ mod tests {
             logic.host_ai_player_count() >= ai_before,
             "host AI count must not shrink on load_map"
         );
-        let cash0_after = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
-        let cash1_after = logic.get_player(1).map(|p| p.resources.supplies).unwrap_or(0);
+        let cash0_after = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        let cash1_after = logic
+            .get_player(1)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
         assert_eq!(
             cash0_after, cash0,
             "human cash must be unchanged across load_map preserve (before={cash0} after={cash0_after})"
@@ -579,22 +583,10 @@ mod tests {
             "AI cash must be unchanged across load_map preserve (before={cash1} after={cash1_after})"
         );
         // Slot identity proves preserve (map wipe path would rename to PlayerN defaults).
-        assert_eq!(
-            logic.get_player(0).map(|p| p.name.as_str()),
-            Some("Player")
-        );
-        assert_eq!(
-            logic.get_player(1).map(|p| p.name.as_str()),
-            Some("GLA AI")
-        );
-        assert_eq!(
-            logic.get_player(0).map(|p| p.color_rgb),
-            Some((0, 0, 200))
-        );
-        assert_eq!(
-            logic.get_player(1).map(|p| p.color_rgb),
-            Some((200, 0, 0))
-        );
+        assert_eq!(logic.get_player(0).map(|p| p.name.as_str()), Some("Player"));
+        assert_eq!(logic.get_player(1).map(|p| p.name.as_str()), Some("GLA AI"));
+        assert_eq!(logic.get_player(0).map(|p| p.color_rgb), Some((0, 0, 200)));
+        assert_eq!(logic.get_player(1).map(|p| p.color_rgb), Some((200, 0, 0)));
         assert!(
             logic.host_ai_player_count() >= 1,
             "host AI registration must survive load_map"
@@ -722,7 +714,10 @@ mod tests {
 
         let mut logic = GameLogic::new();
         apply_skirmish_config(&mut logic, &cfg).expect("apply");
-        assert_eq!(logic.get_player(0).map(|p| p.resources.supplies), Some(20_000));
+        assert_eq!(
+            logic.get_player(0).map(|p| p.resources.supplies),
+            Some(20_000)
+        );
         assert!(logic.host_ai_player_count() >= 1);
 
         let snap = PresentationFrame::build_from_logic(&logic, 0);
@@ -731,5 +726,4 @@ mod tests {
         assert_eq!(snap.world_env.world_max, [b.x, b.y, b.z]);
         assert_eq!(snap.local_player_id, 0);
     }
-
 }

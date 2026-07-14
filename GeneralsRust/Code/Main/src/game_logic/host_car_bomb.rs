@@ -179,8 +179,7 @@ pub fn car_bomb_damage_at_distance(distance: f32) -> f32 {
         if distance <= half {
             SUICIDE_CAR_BOMB_SECONDARY_DAMAGE
         } else {
-            let t =
-                (distance - half) / (SUICIDE_CAR_BOMB_SECONDARY_RADIUS - half).max(0.001);
+            let t = (distance - half) / (SUICIDE_CAR_BOMB_SECONDARY_RADIUS - half).max(0.001);
             SUICIDE_CAR_BOMB_SECONDARY_DAMAGE * (1.0 - t).max(0.0)
         }
     } else {

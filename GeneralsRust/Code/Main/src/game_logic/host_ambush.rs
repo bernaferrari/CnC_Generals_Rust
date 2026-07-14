@@ -362,7 +362,6 @@ impl HostAmbushRegistry {
     }
 }
 
-
 // --- Wave 69 residual honesty peels (retail SpecialPower / OCL) ---
 
 /// Retail SpecialPower template name residual.
@@ -424,9 +423,8 @@ pub fn honesty_ambush_special_power_residual_ok() -> bool {
         && !AMBUSH_PUBLIC_TIMER
         && AMBUSH_SHORTCUT_POWER
         && HostAmbushKind::GLARebelAmbush.activate_audio() == "RebelAmbushActivated"
-        && HostAmbushKind::from_command_power(
-            &crate::command_system::SpecialPowerType::Ambush,
-        ) == Some(HostAmbushKind::GLARebelAmbush)
+        && HostAmbushKind::from_command_power(&crate::command_system::SpecialPowerType::Ambush)
+            == Some(HostAmbushKind::GLARebelAmbush)
 }
 
 /// Wave 69 residual honesty: OCL spawn residual peel.

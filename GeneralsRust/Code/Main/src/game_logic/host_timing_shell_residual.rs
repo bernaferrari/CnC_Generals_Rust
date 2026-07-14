@@ -508,8 +508,7 @@ pub fn honesty_credits_residual_pack_wave90() -> bool {
         && CREDITS_NORMAL_COLOR_RGBA_RESIDUAL == (209, 218, 255, 255)
         && CREDITS_DEFAULT_COLOR_RGBA_RESIDUAL == (255, 255, 255, 255)
         && game_make_color_residual(255, 255, 255, 255) == 0xFFFFFFFF
-        && credits_title_color_packed_residual()
-            == game_make_color_residual(161, 179, 255, 255)
+        && credits_title_color_packed_residual() == game_make_color_residual(161, 179, 255, 255)
         && CREDITS_INI_PATH_RESIDUAL == "Data\\INI\\Credits.ini"
         && CREDITS_MENU_LAYOUT_RESIDUAL == "CreditsMenu.wnd"
         && CREDITS_BUTTON_CONTROL_RESIDUAL.contains("ButtonCredits")

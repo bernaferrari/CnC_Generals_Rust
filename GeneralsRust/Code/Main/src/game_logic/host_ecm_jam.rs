@@ -147,12 +147,7 @@ pub fn is_legal_ecm_jam_target(
     under_construction: bool,
     has_weapon: bool,
 ) -> bool {
-    !is_structure
-        && is_alive
-        && enemy_or_neutral
-        && !is_self
-        && !under_construction
-        && has_weapon
+    !is_structure && is_alive && enemy_or_neutral && !is_self && !under_construction && has_weapon
 }
 
 /// KindOf residual filter for vehicle-disabler path (ground vehicle, not aircraft).
@@ -164,12 +159,7 @@ pub fn is_legal_ecm_vehicle_disabler_target(
     is_self: bool,
     under_construction: bool,
 ) -> bool {
-    is_vehicle
-        && !is_aircraft
-        && is_alive
-        && enemy_or_neutral
-        && !is_self
-        && !under_construction
+    is_vehicle && !is_aircraft && is_alive && enemy_or_neutral && !is_self && !under_construction
 }
 
 /// 2D distance check residual (C++ FROM_CENTER_2D).
@@ -182,7 +172,11 @@ pub fn in_ecm_jam_radius_2d(jammer_pos: (f32, f32), target_pos: (f32, f32), radi
 /// True when jammer team vs target team is residual-hostile (enemy) or Neutral victim.
 ///
 /// Retail ECMTankMissileJammer: RadiusDamageAffects = ENEMIES NEUTRALS.
-pub fn is_ecm_hostile_team(jammer_team_is_neutral: bool, same_team: bool, target_is_neutral: bool) -> bool {
+pub fn is_ecm_hostile_team(
+    jammer_team_is_neutral: bool,
+    same_team: bool,
+    target_is_neutral: bool,
+) -> bool {
     if jammer_team_is_neutral {
         // Neutral jammer residual does not jam anyone (fail-closed).
         return false;
@@ -242,7 +236,8 @@ pub fn honesty_ecm_vehicle_list_kindof_residual_ok() -> bool {
         && !is_ecm_jammer("ChinaTankBattleMaster")
         && is_legal_ecm_vehicle_disabler_target(true, false, true, true, false, false)
         && !is_legal_ecm_vehicle_disabler_target(true, true, true, true, false, false) // aircraft
-        && !is_legal_ecm_vehicle_disabler_target(false, false, true, true, false, false) // infantry
+        && !is_legal_ecm_vehicle_disabler_target(false, false, true, true, false, false)
+    // infantry
 }
 
 /// Combined Wave 54 ECM residual honesty pack.
@@ -276,13 +271,27 @@ mod tests {
     #[test]
     fn legal_ecm_jam_target_matrix() {
         // structure, alive, enemy_or_neutral, is_self, under_construction, has_weapon
-        assert!(is_legal_ecm_jam_target(false, true, true, false, false, true));
-        assert!(!is_legal_ecm_jam_target(true, true, true, false, false, true));
-        assert!(!is_legal_ecm_jam_target(false, false, true, false, false, true));
-        assert!(!is_legal_ecm_jam_target(false, true, false, false, false, true));
-        assert!(!is_legal_ecm_jam_target(false, true, true, true, false, true));
-        assert!(!is_legal_ecm_jam_target(false, true, true, false, true, true));
-        assert!(!is_legal_ecm_jam_target(false, true, true, false, false, false));
+        assert!(is_legal_ecm_jam_target(
+            false, true, true, false, false, true
+        ));
+        assert!(!is_legal_ecm_jam_target(
+            true, true, true, false, false, true
+        ));
+        assert!(!is_legal_ecm_jam_target(
+            false, false, true, false, false, true
+        ));
+        assert!(!is_legal_ecm_jam_target(
+            false, true, false, false, false, true
+        ));
+        assert!(!is_legal_ecm_jam_target(
+            false, true, true, true, false, true
+        ));
+        assert!(!is_legal_ecm_jam_target(
+            false, true, true, false, true, true
+        ));
+        assert!(!is_legal_ecm_jam_target(
+            false, true, true, false, false, false
+        ));
     }
 
     #[test]

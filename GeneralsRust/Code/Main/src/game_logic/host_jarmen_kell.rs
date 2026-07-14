@@ -393,7 +393,9 @@ mod tests {
         assert!(is_jarmen_kell_template("GC_Slth_GLAInfantryJarmenKell"));
         assert!(!is_jarmen_kell_template("GLAJarmenKellRifle"));
         assert!(!is_jarmen_kell_template("GLABikerKellSniperRifle"));
-        assert!(!is_jarmen_kell_template("GLAJarmenKellVehiclePilotSniperRifle"));
+        assert!(!is_jarmen_kell_template(
+            "GLAJarmenKellVehiclePilotSniperRifle"
+        ));
         assert!(!is_jarmen_kell_template("GLAInfantryRebel"));
         assert!(!is_jarmen_kell_template("AmericaInfantryColonelBurton"));
         assert!(!is_jarmen_kell_template("GLAVehicleCombatBike"));

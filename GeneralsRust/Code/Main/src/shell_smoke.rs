@@ -182,7 +182,28 @@
 use crate::ai_skirmish_activity::honesty_ai_skirmish_residual_pack_wave77;
 use crate::assets::mesh_asset_resolve::honesty_mesh_asset_residual_ok;
 use crate::fow_rendering::honesty_fow_residual_pack_wave77;
+use crate::game_logic::host_ai_ability_upgrade_residual::{
+    honesty_ai_state_residual_table_wave94, honesty_command_set_superweapon_residual_wave94,
+    honesty_special_ability_residual_deepen_wave94, honesty_upgrade_name_table_residual_wave94,
+};
+use crate::game_logic::host_ai_path_combat_residual_wave105::{
+    honesty_ai_group_residual_pack_wave105, honesty_ai_path_residual_deepen_pack_wave105,
+    honesty_damage_application_residual_deepen_pack_wave105,
+    honesty_veterancy_residual_deepen_pack_wave105,
+    honesty_weapon_fire_residual_deepen_pack_wave105,
+};
+use crate::game_logic::host_armor_residual::honesty_armor_residual_expand_wave103;
+use crate::game_logic::host_armor_residual::honesty_armor_residual_expand_wave92;
 use crate::game_logic::host_armor_residual::honesty_armor_residual_table_wave81;
+use crate::game_logic::host_cash_bounty::honesty_cash_bounty_residual_pack_wave78;
+use crate::game_logic::host_combat_sim_residual::{
+    honesty_body_max_health_residual_table_wave92, honesty_science_name_table_residual_wave92,
+};
+use crate::game_logic::host_command_button_residual::honesty_command_button_superweapon_residual_pack_wave80;
+use crate::game_logic::host_dock_contain_exit_heal_residual::{
+    honesty_contain_residual_deepen_pack_wave98, honesty_dock_residual_pack_wave98,
+    honesty_exit_residual_pack_wave98, honesty_heal_residual_deepen_pack_wave98,
+};
 use crate::game_logic::host_enum_table_residual::{
     honesty_damage_type_enum_table_wave82, honesty_death_type_enum_table_wave82,
     honesty_geometry_type_enum_table_wave84, honesty_kindof_enum_table_wave84,
@@ -191,20 +212,15 @@ use crate::game_logic::host_enum_table_residual::{
     honesty_veterancy_level_enum_table_wave84, honesty_weapon_bonus_enum_table_wave82,
     honesty_weapon_slot_enum_table_wave84,
 };
-use crate::game_logic::host_structure_economy_residual::{
-    honesty_capture_building_residual_pack_wave83, honesty_command_center_residual_pack_wave83,
-    honesty_dozer_build_residual_pack_wave83, honesty_power_plant_residual_pack_wave83,
-    honesty_production_queue_residual_pack_wave83, honesty_supply_warehouse_residual_pack_wave83,
-};
-use crate::game_logic::host_faction_skirmish_residual::{
-    honesty_faction_side_residual_table_wave85, honesty_player_template_residual_pack_wave85,
-    honesty_skirmish_ai_personality_residual_pack_wave85, honesty_starting_cash_residual_pack_wave85,
-    honesty_victory_condition_residual_pack_wave85,
-};
 use crate::game_logic::host_env_contain_residual::{
     honesty_bridge_residual_pack_wave87, honesty_garrison_residual_pack_wave87,
     honesty_transport_residual_pack_wave87, honesty_tunnel_residual_deepen_wave87,
     honesty_water_residual_pack_wave87, honesty_weather_residual_pack_wave87,
+};
+use crate::game_logic::host_faction_skirmish_residual::{
+    honesty_faction_side_residual_table_wave85, honesty_player_template_residual_pack_wave85,
+    honesty_skirmish_ai_personality_residual_pack_wave85,
+    honesty_starting_cash_residual_pack_wave85, honesty_victory_condition_residual_pack_wave85,
 };
 use crate::game_logic::host_fx_audio_cursor_residual::{
     honesty_mouse_cursor_name_table_wave88, honesty_radius_cursor_name_table_wave88,
@@ -212,16 +228,99 @@ use crate::game_logic::host_fx_audio_cursor_residual::{
     honesty_superweapon_fxlist_name_table_wave88, honesty_superweapon_ocl_name_table_wave88,
     honesty_superweapon_particle_name_table_wave88,
 };
+use crate::game_logic::host_fx_ocl_particle_audio_residual_wave107::{
+    honesty_audio_residual_deepen_pack_wave107, honesty_fxlist_entry_residual_deepen_pack_wave107,
+    honesty_ocl_create_residual_deepen_pack_wave107,
+    honesty_particle_system_residual_deepen_pack_wave107,
+};
+use crate::game_logic::host_game_logic_residual_wave103::{
+    honesty_object_kindof_residual_pack_wave103,
+    honesty_special_power_superweapon_residual_deepen_wave103,
+};
 use crate::game_logic::host_gamedata_lobby_residual::{
     honesty_crate_residual_deepen_pack_wave86, honesty_gamedata_camera_fps_residual_pack_wave86,
     honesty_gamedata_world_constants_residual_pack_wave86,
     honesty_map_selection_residual_pack_wave86, honesty_multiplayer_options_residual_pack_wave86,
+};
+use crate::game_logic::host_gps_scrambler::honesty_gps_scrambler_residual_pack_wave78;
+use crate::game_logic::host_mines::honesty_cluster_mines_residual_pack_wave78;
+use crate::game_logic::host_object_register_drawable_residual_wave104::{
+    honesty_active_body_max_health_apply_residual_wave104,
+    honesty_drawable_create_residual_wave104, honesty_gamelogic_register_object_residual_wave104,
+    honesty_object_create_order_residual_wave104,
+    honesty_object_status_state_machine_residual_wave104,
+};
+use crate::game_logic::host_paradrop::honesty_paradrop_residual_pack_wave76_ok;
+use crate::game_logic::host_partition_collision_physics_residual::{
+    honesty_collision_residual_pack_wave96, honesty_partition_residual_pack_wave96,
+    honesty_physics_residual_pack_wave96, honesty_projectile_residual_deepen_pack_wave96,
+};
+use crate::game_logic::host_pathfinder::honesty_pathfinder_residual_pack_wave81;
+use crate::game_logic::host_production_buildable_command_residual::{
+    honesty_buildable_residual_pack_wave99, honesty_command_button_residual_deepen_pack_wave99,
+    honesty_control_bar_residual_deepen_pack_wave99, honesty_prerequisite_residual_pack_wave99,
+    honesty_production_residual_deepen_pack_wave99,
+};
+use crate::game_logic::host_radar_stealth_vision_residual::{
+    honesty_detector_residual_deepen_pack_wave97, honesty_radar_residual_deepen_pack_wave97,
+    honesty_spotter_residual_pack_wave97, honesty_stealth_residual_deepen_pack_wave97,
+    honesty_vision_residual_pack_wave97,
 };
 use crate::game_logic::host_rank_ui_residual::{
     honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
     honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,
     honesty_rank_skill_points_application_residual_pack_wave89,
     honesty_replay_residual_host_pack_wave89,
+};
+use crate::game_logic::host_render_terrain_residual::{
+    honesty_drawable_opacity_shroud_residual_deepen_pack_wave93,
+    honesty_particle_system_emit_rate_residual_deepen_pack_wave93,
+    honesty_road_residual_pack_wave93, honesty_shadow_residual_deepen_pack_wave93,
+    honesty_terrain_texture_residual_pack_wave93,
+};
+use crate::game_logic::host_rng_residual::{
+    exercise_host_rng_residual, honesty_rng_residual_pack_ok,
+};
+use crate::game_logic::host_science_rank::honesty_science_rank_residual_pack_wave80;
+use crate::game_logic::host_script_map_team_player_residual::{
+    honesty_map_object_residual_pack_wave95, honesty_player_residual_deepen_pack_wave95,
+    honesty_script_action_name_table_residual_wave95,
+    honesty_script_condition_name_table_residual_wave95, honesty_team_residual_pack_wave95,
+    honesty_waypoint_residual_pack_wave95,
+};
+use crate::game_logic::host_shell_campaign_save_residual_wave106::{
+    honesty_campaign_mission_residual_deepen_pack_wave106,
+    honesty_game_state_residual_deepen_pack_wave106,
+    honesty_game_window_residual_deepen_pack_wave106,
+    honesty_main_menu_residual_deepen_pack_wave106,
+    honesty_window_layout_residual_deepen_pack_wave106,
+};
+use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
+    honesty_player_residual_deepen_pack_wave109,
+    honesty_science_store_residual_deepen_pack_wave109,
+    honesty_special_power_template_store_residual_wave109,
+    honesty_team_residual_deepen_pack_wave109, honesty_upgrade_store_residual_deepen_pack_wave109,
+};
+use crate::game_logic::host_special_power_enum_residual::honesty_special_power_enum_residual_pack_wave80;
+use crate::game_logic::host_structure_economy_residual::{
+    honesty_capture_building_residual_pack_wave83, honesty_command_center_residual_pack_wave83,
+    honesty_dozer_build_residual_pack_wave83, honesty_power_plant_residual_pack_wave83,
+    honesty_production_queue_residual_pack_wave83, honesty_supply_warehouse_residual_pack_wave83,
+};
+use crate::game_logic::host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
+use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::{
+    honesty_bridge_residual_deepen_pack_wave108, honesty_cliff_residual_peels_pack_wave108,
+    honesty_heightmap_residual_deepen_pack_wave108, honesty_road_residual_deepen_pack_wave108,
+    honesty_water_residual_deepen_pack_wave108,
+};
+use crate::game_logic::host_thing_factory_module_xfer_residual::{
+    honesty_module_factory_residual_deepen_pack_wave101,
+    honesty_module_type_table_residual_pack_wave100,
+    honesty_partition_register_residual_pack_wave101,
+    honesty_thing_factory_create_residual_deepen_pack_wave101,
+    honesty_thing_factory_module_partition_crosslink_wave101,
+    honesty_thing_factory_residual_deepen_pack_wave100,
+    honesty_thing_factory_spawn_crosslink_wave100, honesty_xfer_residual_deepen_pack_wave100,
 };
 use crate::game_logic::host_timing_shell_residual::{
     honesty_credits_residual_pack_wave90, honesty_debug_residual_tables_pack_wave90,
@@ -233,114 +332,10 @@ use crate::game_logic::host_ui_presentation_residual::{
     honesty_message_residual_pack_wave91, honesty_mission_briefing_residual_pack_wave91,
     honesty_tooltip_residual_pack_wave91, honesty_video_residual_name_table_wave91,
 };
-use crate::game_logic::host_combat_sim_residual::{
-    honesty_body_max_health_residual_table_wave92, honesty_science_name_table_residual_wave92,
-};
-use crate::game_logic::host_armor_residual::honesty_armor_residual_expand_wave92;
-use crate::game_logic::locomotor_bootstrap::honesty_locomotor_residual_expand_wave92;
-use crate::game_logic::weapon_bootstrap::honesty_weapon_store_deepen_residual_wave92;
-use crate::game_logic::host_render_terrain_residual::{
-    honesty_drawable_opacity_shroud_residual_deepen_pack_wave93,
-    honesty_particle_system_emit_rate_residual_deepen_pack_wave93,
-    honesty_road_residual_pack_wave93, honesty_shadow_residual_deepen_pack_wave93,
-    honesty_terrain_texture_residual_pack_wave93,
-};
-use crate::game_logic::host_ai_ability_upgrade_residual::{
-    honesty_ai_state_residual_table_wave94, honesty_command_set_superweapon_residual_wave94,
-    honesty_special_ability_residual_deepen_wave94, honesty_upgrade_name_table_residual_wave94,
-};
-use crate::game_logic::host_script_map_team_player_residual::{
-    honesty_map_object_residual_pack_wave95, honesty_player_residual_deepen_pack_wave95,
-    honesty_script_action_name_table_residual_wave95,
-    honesty_script_condition_name_table_residual_wave95,
-    honesty_team_residual_pack_wave95, honesty_waypoint_residual_pack_wave95,
-};
-use crate::game_logic::host_radar_stealth_vision_residual::{
-    honesty_detector_residual_deepen_pack_wave97, honesty_radar_residual_deepen_pack_wave97,
-    honesty_spotter_residual_pack_wave97, honesty_stealth_residual_deepen_pack_wave97,
-    honesty_vision_residual_pack_wave97,
-};
-use crate::game_logic::host_partition_collision_physics_residual::{
-    honesty_collision_residual_pack_wave96, honesty_partition_residual_pack_wave96,
-    honesty_physics_residual_pack_wave96, honesty_projectile_residual_deepen_pack_wave96,
-};
-use crate::game_logic::host_dock_contain_exit_heal_residual::{
-    honesty_contain_residual_deepen_pack_wave98, honesty_dock_residual_pack_wave98,
-    honesty_exit_residual_pack_wave98, honesty_heal_residual_deepen_pack_wave98,
-};
-use crate::game_logic::host_production_buildable_command_residual::{
-    honesty_buildable_residual_pack_wave99, honesty_command_button_residual_deepen_pack_wave99,
-    honesty_control_bar_residual_deepen_pack_wave99, honesty_prerequisite_residual_pack_wave99,
-    honesty_production_residual_deepen_pack_wave99,
-};
-use crate::game_logic::host_thing_factory_module_xfer_residual::{
-    honesty_module_factory_residual_deepen_pack_wave101,
-    honesty_module_type_table_residual_pack_wave100,
-    honesty_partition_register_residual_pack_wave101,
-    honesty_thing_factory_create_residual_deepen_pack_wave101,
-    honesty_thing_factory_module_partition_crosslink_wave101,
-    honesty_thing_factory_residual_deepen_pack_wave100,
-    honesty_thing_factory_spawn_crosslink_wave100, honesty_xfer_residual_deepen_pack_wave100,
-};
-use crate::game_logic::host_game_logic_residual_wave103::{
-    honesty_object_kindof_residual_pack_wave103,
-    honesty_special_power_superweapon_residual_deepen_wave103,
-};
-use crate::game_logic::host_object_register_drawable_residual_wave104::{
-    honesty_active_body_max_health_apply_residual_wave104,
-    honesty_drawable_create_residual_wave104,
-    honesty_gamelogic_register_object_residual_wave104,
-    honesty_object_create_order_residual_wave104,
-    honesty_object_status_state_machine_residual_wave104,
-};
-use crate::game_logic::host_ai_path_combat_residual_wave105::{
-    honesty_ai_group_residual_pack_wave105, honesty_ai_path_residual_deepen_pack_wave105,
-    honesty_damage_application_residual_deepen_pack_wave105,
-    honesty_veterancy_residual_deepen_pack_wave105,
-    honesty_weapon_fire_residual_deepen_pack_wave105,
-};
-use crate::game_logic::host_shell_campaign_save_residual_wave106::{
-    honesty_campaign_mission_residual_deepen_pack_wave106,
-    honesty_game_state_residual_deepen_pack_wave106,
-    honesty_game_window_residual_deepen_pack_wave106,
-    honesty_main_menu_residual_deepen_pack_wave106,
-    honesty_window_layout_residual_deepen_pack_wave106,
-};
-use crate::game_logic::host_fx_ocl_particle_audio_residual_wave107::{
-    honesty_audio_residual_deepen_pack_wave107,
-    honesty_fxlist_entry_residual_deepen_pack_wave107,
-    honesty_ocl_create_residual_deepen_pack_wave107,
-    honesty_particle_system_residual_deepen_pack_wave107,
-};
-use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::{
-    honesty_bridge_residual_deepen_pack_wave108, honesty_cliff_residual_peels_pack_wave108,
-    honesty_heightmap_residual_deepen_pack_wave108,
-    honesty_road_residual_deepen_pack_wave108, honesty_water_residual_deepen_pack_wave108,
-};
-use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
-    honesty_player_residual_deepen_pack_wave109,
-    honesty_science_store_residual_deepen_pack_wave109,
-    honesty_special_power_template_store_residual_wave109,
-    honesty_team_residual_deepen_pack_wave109,
-    honesty_upgrade_store_residual_deepen_pack_wave109,
-};
-use crate::game_logic::host_armor_residual::honesty_armor_residual_expand_wave103;
-use crate::game_logic::locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
-use crate::game_logic::weapon_bootstrap::honesty_weapon_store_deepen_residual_wave103;
-use crate::game_logic::host_paradrop::honesty_paradrop_residual_pack_wave76_ok;
-use crate::game_logic::host_pathfinder::honesty_pathfinder_residual_pack_wave81;
-use crate::game_logic::host_rng_residual::{
-    exercise_host_rng_residual, honesty_rng_residual_pack_ok,
-};
-use crate::game_logic::host_cash_bounty::honesty_cash_bounty_residual_pack_wave78;
-use crate::game_logic::host_command_button_residual::honesty_command_button_superweapon_residual_pack_wave80;
-use crate::game_logic::host_gps_scrambler::honesty_gps_scrambler_residual_pack_wave78;
-use crate::game_logic::host_mines::honesty_cluster_mines_residual_pack_wave78;
-use crate::game_logic::host_science_rank::honesty_science_rank_residual_pack_wave80;
-use crate::game_logic::host_special_power_enum_residual::honesty_special_power_enum_residual_pack_wave80;
-use crate::game_logic::host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 use crate::game_logic::host_unit_training::honesty_unit_training_residual_pack_wave79_ok;
 use crate::game_logic::host_upgrades::honesty_upgrades_cost_time_application_wave79_ok;
+use crate::game_logic::locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
+use crate::game_logic::locomotor_bootstrap::honesty_locomotor_residual_expand_wave92;
 use crate::game_logic::locomotor_bootstrap::honesty_locomotor_residual_table_wave81;
 use crate::game_logic::special_power_strikes::{
     honesty_particle_outer_node_flare_name_table_wave81, honesty_special_power_residual_pack_ok,
@@ -348,22 +343,17 @@ use crate::game_logic::special_power_strikes::{
     honesty_special_power_residual_pack_wave77_ok, honesty_special_power_residual_pack_wave78_ok,
 };
 use crate::game_logic::terrain::honesty_map_height_sample_residual_pack_wave81;
+use crate::game_logic::weapon_bootstrap::honesty_weapon_store_deepen_residual_wave103;
+use crate::game_logic::weapon_bootstrap::honesty_weapon_store_deepen_residual_wave92;
 use crate::game_logic::weapon_bootstrap::honesty_weapon_store_host_seed_residual_wave77;
 use crate::game_logic::GameLogic;
-use crate::graphics::minimap_renderer::honesty_minimap_residual_pack_wave79;
-use crate::presentation_frame::{
-    honesty_presentation_residual_deepen_pack_wave102, honesty_spectre_orbit_decal_presentation_ok,
-};
-use crate::save_load::honesty_drawable_residual_fields_wave79_ok;
-use crate::selection_renderer::honesty_selection_hud_residual_pack_wave79;
-use crate::unit_input_handler::honesty_input_residual_pack_wave79;
 use crate::gameplay_layout::{
     control_bar_layout_honesty, format_control_bar_honesty,
     honesty_control_bar_residual_pack_wave76_ok, GameplayLayoutStatus,
 };
 use crate::graphics::floating_text_layout::{
-    honesty_display_string_residual_deepen_pack_wave102,
-    honesty_graphics_residual_pack_wave76_ok, pack_floating_text_and_mark_ready, FloatingTextLayout,
+    honesty_display_string_residual_deepen_pack_wave102, honesty_graphics_residual_pack_wave76_ok,
+    pack_floating_text_and_mark_ready, FloatingTextLayout,
 };
 use crate::graphics::game_text_residual::{
     exercise_host_game_text_residual, honesty_csf_multi_locale_residual_deepen_pack_wave102,
@@ -373,20 +363,25 @@ use crate::graphics::laser_segment_upload::{
     honesty_laser_segliner_residual_deepen_pack_wave102, pack_and_mark_upload_ready,
     LaserSegmentUpload,
 };
+use crate::graphics::minimap_renderer::honesty_minimap_residual_pack_wave79;
 use crate::graphics::world_anim_layout::{
     honesty_anim2d_collection_residual, honesty_anim2d_residual_deepen_pack_wave102,
     pack_world_anim_and_mark_ready, WorldAnimLayout,
 };
 use crate::map_frame_scenario::resolve_first_map;
 use crate::presentation_frame::{
+    honesty_presentation_residual_deepen_pack_wave102, honesty_spectre_orbit_decal_presentation_ok,
+};
+use crate::presentation_frame::{
     PresentationFloatingText, PresentationFrame, PresentationLaserBeam, PresentationWorldAnim,
     PRESENTATION_ORBITAL_SOFT_EDGE,
 };
+use crate::save_load::honesty_drawable_residual_fields_wave79_ok;
+use crate::selection_renderer::honesty_selection_hud_residual_pack_wave79;
 use crate::skirmish_config::{apply_skirmish_config, config_from_skirmish_menu};
 use crate::ui::skirmish_menu::SkirmishMenu;
-use crate::ui::{
-    GameHUD, GameUIState, RTSInterface, Screen, UIManager, UnitCommandPanel,
-};
+use crate::ui::{GameHUD, GameUIState, RTSInterface, Screen, UIManager, UnitCommandPanel};
+use crate::unit_input_handler::honesty_input_residual_pack_wave79;
 
 const HOST_MAP_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
@@ -965,8 +960,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     // OrbitalLaser multi-beam soft-edge: presentation residual fields → CPU pack.
     let orbital = PresentationLaserBeam::synthetic_orbital_soft_edge(pres.frame.0);
     let se = orbital.soft_edge.unwrap_or(PRESENTATION_ORBITAL_SOFT_EDGE);
-    let (mb_start, mb_end, mb_elapsed, mb_width) =
-        se.pack_endpoints(orbital.from, orbital.to, 1.0);
+    let (mb_start, mb_end, mb_elapsed, mb_width) = se.pack_endpoints(orbital.from, orbital.to, 1.0);
     let multi_beam_pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
         mb_start, mb_end, mb_elapsed, mb_width,
     );
@@ -982,7 +976,8 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     // Empty host texts → honest empty pack; synthetic cash exercises geometry.
     let ft_empty = pack_floating_text_and_mark_ready(&pres);
     let mut ft_synth_frame = pres.clone();
-    ft_synth_frame.floating_texts = vec![PresentationFloatingText::synthetic_cash(100, pres.frame.0)];
+    ft_synth_frame.floating_texts =
+        vec![PresentationFloatingText::synthetic_cash(100, pres.frame.0)];
     ft_synth_frame.world_anims = vec![PresentationWorldAnim::synthetic_money_pickup(pres.frame.0)];
     let ft_synth = FloatingTextLayout::pack_from_presentation(&ft_synth_frame);
     let floating_text_layout_ok = presentation_ok
@@ -1114,8 +1109,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let faction_side_wave85_ok = honesty_faction_side_residual_table_wave85();
     let player_template_wave85_ok = honesty_player_template_residual_pack_wave85();
     let starting_cash_wave85_ok = honesty_starting_cash_residual_pack_wave85();
-    let skirmish_ai_personality_wave85_ok =
-        honesty_skirmish_ai_personality_residual_pack_wave85();
+    let skirmish_ai_personality_wave85_ok = honesty_skirmish_ai_personality_residual_pack_wave85();
     let victory_condition_wave85_ok = honesty_victory_condition_residual_pack_wave85();
     // Wave 86 residual honesty packs (GameData/lobby/map/crate residual; no playable_claim flip).
     let gamedata_camera_fps_wave86_ok = honesty_gamedata_camera_fps_residual_pack_wave86();
@@ -1218,7 +1212,8 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let display_string_deepen_wave102_ok = honesty_display_string_residual_deepen_pack_wave102();
     let anim2d_deepen_wave102_ok = honesty_anim2d_residual_deepen_pack_wave102();
     let laser_segliner_deepen_wave102_ok = honesty_laser_segliner_residual_deepen_pack_wave102();
-    let csf_multi_locale_deepen_wave102_ok = honesty_csf_multi_locale_residual_deepen_pack_wave102();
+    let csf_multi_locale_deepen_wave102_ok =
+        honesty_csf_multi_locale_residual_deepen_pack_wave102();
     let presentation_deepen_wave102_ok = honesty_presentation_residual_deepen_pack_wave102();
     // Wave 103 residual honesty packs (weapon/armor/loco/special-power/KindOf; no playable_claim flip).
     let weapon_deepen_wave103_ok = honesty_weapon_store_deepen_residual_wave103();
@@ -1274,9 +1269,8 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         let ids_ok = hud.selected_unit_ids().contains(&id);
         let minimap_ok = !pres.hud_minimap_units().is_empty() || !map_loaded;
         let panel = hud.selection_panel();
-        let panel_ok = panel.visible
-            && panel.has_positive_health()
-            && panel.primary_object_id == Some(id);
+        let panel_ok =
+            panel.visible && panel.has_positive_health() && panel.primary_object_id == Some(id);
         // Optional ControlBar path (headless selection health; not full WND claim).
         #[cfg(feature = "game_client")]
         let control_bar_ok = {
@@ -1290,7 +1284,8 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         let control_bar_ok = true;
         let ui_ok = ui_state.selection_panel.has_positive_health()
             && ui_state.selection_panel.primary_object_id == Some(id);
-        let rts_ok = rts.selection_panel().has_positive_health() && rts.selected_ids().contains(&id);
+        let rts_ok =
+            rts.selection_panel().has_positive_health() && rts.selected_ids().contains(&id);
         let cmd_ok = command_panel.is_visible()
             && command_panel.selection_panel().has_positive_health()
             && command_panel.selected_ids().contains(&id);
@@ -1343,9 +1338,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         }
         // Honest residual when WindowZH assets are not checked out.
         GameplayLayoutStatus::AssetsUnavailable { searched } => {
-            !searched.is_empty()
-                && layout_honesty.assets_unavailable
-                && !control_bar_window_loaded
+            !searched.is_empty() && layout_honesty.assets_unavailable && !control_bar_window_loaded
         }
         GameplayLayoutStatus::LoadFailed { .. } => false,
     };
@@ -2142,11 +2135,7 @@ mod tests {
             "message residual pack wave91: {}",
             r.detail
         );
-        assert!(
-            r.eva_wave91_ok,
-            "eva residual pack wave91: {}",
-            r.detail
-        );
+        assert!(r.eva_wave91_ok, "eva residual pack wave91: {}", r.detail);
         assert!(
             r.video_wave91_ok,
             "video residual name table wave91: {}",
@@ -2202,11 +2191,7 @@ mod tests {
             "terrain texture residual pack wave93: {}",
             r.detail
         );
-        assert!(
-            r.road_wave93_ok,
-            "road residual pack wave93: {}",
-            r.detail
-        );
+        assert!(r.road_wave93_ok, "road residual pack wave93: {}", r.detail);
         assert!(
             r.ai_state_wave94_ok,
             "AI state residual table wave94: {}",
@@ -2247,11 +2232,7 @@ mod tests {
             "waypoint residual pack wave95: {}",
             r.detail
         );
-        assert!(
-            r.team_wave95_ok,
-            "team residual pack wave95: {}",
-            r.detail
-        );
+        assert!(r.team_wave95_ok, "team residual pack wave95: {}", r.detail);
         assert!(
             r.player_deepen_wave95_ok,
             "player residual deepen pack wave95: {}",
@@ -2303,21 +2284,13 @@ mod tests {
             "vision residual pack wave97: {}",
             r.detail
         );
-        assert!(
-            r.dock_wave98_ok,
-            "dock residual pack wave98: {}",
-            r.detail
-        );
+        assert!(r.dock_wave98_ok, "dock residual pack wave98: {}", r.detail);
         assert!(
             r.contain_wave98_ok,
             "contain residual deepen pack wave98: {}",
             r.detail
         );
-        assert!(
-            r.exit_wave98_ok,
-            "exit residual pack wave98: {}",
-            r.detail
-        );
+        assert!(r.exit_wave98_ok, "exit residual pack wave98: {}", r.detail);
         assert!(
             r.heal_wave98_ok,
             "heal residual deepen pack wave98: {}",
@@ -2653,7 +2626,10 @@ mod tests {
             "shell_host_playable_ok for successful headless host path: {}",
             r.detail
         );
-        assert!(!r.playable_claim, "headless smoke must not claim retail playable");
+        assert!(
+            !r.playable_claim,
+            "headless smoke must not claim retail playable"
+        );
         assert_eq!(r.status, "success", "{}", r.detail);
         assert_eq!(
             r.shell_host_playable_ok,

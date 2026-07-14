@@ -318,9 +318,10 @@ impl HostHackerIncomeRegistry {
         if amount == 0 || !self.active_hackers.contains(&hacker_id) {
             return 0;
         }
-        let next = *self.next_deposit_frame.entry(hacker_id).or_insert_with(|| {
-            current_frame.saturating_add(interval_frames.max(1))
-        });
+        let next = *self
+            .next_deposit_frame
+            .entry(hacker_id)
+            .or_insert_with(|| current_frame.saturating_add(interval_frames.max(1)));
         if current_frame < next {
             return 0;
         }
@@ -416,7 +417,6 @@ impl HostHackerIncomeRegistry {
     }
 }
 
-
 // --- Wave 69 residual honesty peels (retail HackInternet / body / floating text) ---
 
 /// Retail unpack residual (msec) — honesty peel only (host skips anim matrix).
@@ -439,8 +439,7 @@ pub const HACKER_TRANSPORT_SLOT_COUNT: u32 = 1;
 pub fn honesty_hacker_income_cash_residual_ok() -> bool {
     HACKER_CASH_UPDATE_DELAY_MS == 2_000
         && HACKER_CASH_UPDATE_DELAY_FAST_MS == 1_800
-        && HACKER_CASH_INTERVAL_FRAMES
-            == cash_interval_frames_from_ms(HACKER_CASH_UPDATE_DELAY_MS)
+        && HACKER_CASH_INTERVAL_FRAMES == cash_interval_frames_from_ms(HACKER_CASH_UPDATE_DELAY_MS)
         && HACKER_CASH_INTERVAL_FRAMES == 60
         && HACKER_CASH_INTERVAL_FAST_FRAMES
             == cash_interval_frames_from_ms(HACKER_CASH_UPDATE_DELAY_FAST_MS)
@@ -468,16 +467,8 @@ pub fn honesty_hacker_income_floating_text_residual_ok() -> bool {
         && HACKER_FLOATING_TEXT_COLOR_RGBA == (0, 255, 0, 255)
         && (HACKER_IC_FLOATING_TEXT_SCATTER_SCALE - 0.3).abs() < 0.001
         && {
-            let ft = HostHackerFloatingText::new(
-                ObjectId(1),
-                glam::Vec3::ZERO,
-                5,
-                0,
-                false,
-            );
-            ft.text == "+$5"
-                && ft.text_key == "GUI:AddCash"
-                && (ft.position.y - 20.0).abs() < 0.01
+            let ft = HostHackerFloatingText::new(ObjectId(1), glam::Vec3::ZERO, 5, 0, false);
+            ft.text == "+$5" && ft.text_key == "GUI:AddCash" && (ft.position.y - 20.0).abs() < 0.01
         }
         && should_display_hacker_floating_cash(true, false, true, false, false, false, false)
         && !should_display_hacker_floating_cash(true, false, false, false, false, false, false)
@@ -488,8 +479,7 @@ pub fn honesty_hacker_income_body_residual_ok() -> bool {
     (HACKER_MAX_HEALTH - 100.0).abs() < 0.01
         && HACKER_BUILD_COST == 625
         && (HACKER_BUILD_TIME_SEC - 20.0).abs() < 0.01
-        && HACKER_BUILD_TIME_FRAMES
-            == ((HACKER_BUILD_TIME_SEC * HACKER_LOGIC_FPS).round() as u32)
+        && HACKER_BUILD_TIME_FRAMES == ((HACKER_BUILD_TIME_SEC * HACKER_LOGIC_FPS).round() as u32)
         && HACKER_BUILD_TIME_FRAMES == 600
         && (HACKER_VISION_RANGE - 150.0).abs() < 0.01
         && (HACKER_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
@@ -555,15 +545,33 @@ mod tests {
         reg.start_hacking(id, 0);
         assert!(reg.is_hacking(id));
         assert_eq!(
-            reg.try_deposit(id, 0, HACKER_CASH_REGULAR, HACKER_CASH_INTERVAL_FRAMES, false),
+            reg.try_deposit(
+                id,
+                0,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
             0
         );
         assert_eq!(
-            reg.try_deposit(id, 60, HACKER_CASH_REGULAR, HACKER_CASH_INTERVAL_FRAMES, false),
+            reg.try_deposit(
+                id,
+                60,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
             5
         );
         assert_eq!(
-            reg.try_deposit(id, 120, HACKER_CASH_REGULAR, HACKER_CASH_INTERVAL_FRAMES, false),
+            reg.try_deposit(
+                id,
+                120,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
             5
         );
         assert!(reg.honesty_deposit_ok());
@@ -579,7 +587,13 @@ mod tests {
         assert!(reg.ensure_internet_center_hacking(id, 0));
         assert!(!reg.ensure_internet_center_hacking(id, 0)); // already active
         assert_eq!(
-            reg.try_deposit(id, 54, HACKER_CASH_REGULAR, HACKER_CASH_INTERVAL_FAST_FRAMES, true),
+            reg.try_deposit(
+                id,
+                54,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FAST_FRAMES,
+                true
+            ),
             5
         );
         assert!(reg.honesty_internet_center_ok());

@@ -48,22 +48,42 @@ pub const SUPERWEAPON_SPECIAL_POWER_RELOAD_TABLE_WAVE103: &[(&str, &str, u32)] =
     ("SuperweaponMOAB", "SPECIAL_DAISY_CUTTER", 360_000),
     ("SuperweaponEMPPulse", "SPECIAL_EMP_PULSE", 360_000),
     ("SuperweaponNapalmStrike", "SPECIAL_NAPALM_STRIKE", 600_000),
-    ("SuperweaponBlackMarketNuke", "SPECIAL_BLACK_MARKET_NUKE", 600_000),
+    (
+        "SuperweaponBlackMarketNuke",
+        "SPECIAL_BLACK_MARKET_NUKE",
+        600_000,
+    ),
     ("SuperweaponTerrorCell", "SPECIAL_TERROR_CELL", 600_000),
     ("SuperweaponCrateDrop", "SPECIAL_CRATE_DROP", 600_000),
     ("SuperweaponFrenzy", "SPECIAL_FRENZY", 240_000),
     ("SuperweaponCashHack", "SPECIAL_CASH_HACK", 240_000),
-    ("SuperweaponDetonateDirtyNuke", "SPECIAL_DETONATE_DIRTY_NUKE", 30_000),
+    (
+        "SuperweaponDetonateDirtyNuke",
+        "SPECIAL_DETONATE_DIRTY_NUKE",
+        30_000,
+    ),
     ("SuperweaponLeafletDrop", "SPECIAL_LEAFLET_DROP", 300_000),
     ("SpecialPowerSpySatellite", "SPECIAL_SPY_SATELLITE", 60_000),
     ("SpecialPowerSpyDrone", "SPECIAL_SPY_DRONE", 90_000),
     ("SpecialPowerRadarVanScan", "SPECIAL_RADAR_VAN_SCAN", 30_000),
-    ("SuperweaponEmergencyRepair", "SPECIAL_REPAIR_VEHICLES", 240_000),
+    (
+        "SuperweaponEmergencyRepair",
+        "SPECIAL_REPAIR_VEHICLES",
+        240_000,
+    ),
     ("SuperweaponGPSScrambler", "SPECIAL_GPS_SCRAMBLER", 240_000),
-    ("SuperweaponCIAIntelligence", "SPECIAL_CIA_INTELLIGENCE", 300_000),
+    (
+        "SuperweaponCIAIntelligence",
+        "SPECIAL_CIA_INTELLIGENCE",
+        300_000,
+    ),
     ("SuperweaponSneakAttack", "SPECIAL_SNEAK_ATTACK", 150_000),
     ("SuperweaponRebelAmbush", "SPECIAL_AMBUSH", 240_000),
-    ("SuperweaponLaunchBaikonurRocket", "SPECIAL_LAUNCH_BAIKONUR_ROCKET", 0),
+    (
+        "SuperweaponLaunchBaikonurRocket",
+        "SPECIAL_LAUNCH_BAIKONUR_ROCKET",
+        0,
+    ),
     (
         "SupW_SuperweaponParticleUplinkCannon",
         "SUPW_SPECIAL_PARTICLE_UPLINK_CANNON",
@@ -107,60 +127,60 @@ pub fn honesty_special_power_superweapon_residual_deepen_wave103() -> bool {
     let dirty = superweapon_special_power_row_wave103("SuperweaponDetonateDirtyNuke");
     let spy = superweapon_special_power_row_wave103("SpecialPowerSpySatellite");
     let baikonur = superweapon_special_power_row_wave103("SuperweaponLaunchBaikonurRocket");
-    let supw_puc =
-        superweapon_special_power_row_wave103("SupW_SuperweaponParticleUplinkCannon");
-    let anchors_ok = matches!(moab, Some(("SuperweaponMOAB", "SPECIAL_DAISY_CUTTER", 360_000)))
-        && matches!(emp, Some(("SuperweaponEMPPulse", "SPECIAL_EMP_PULSE", 360_000)))
-        && matches!(
-            napalm,
-            Some(("SuperweaponNapalmStrike", "SPECIAL_NAPALM_STRIKE", 600_000))
-        )
-        && matches!(
-            dirty,
-            Some((
-                "SuperweaponDetonateDirtyNuke",
-                "SPECIAL_DETONATE_DIRTY_NUKE",
-                30_000
-            ))
-        )
-        && matches!(
-            spy,
-            Some(("SpecialPowerSpySatellite", "SPECIAL_SPY_SATELLITE", 60_000))
-        )
-        && matches!(
-            baikonur,
-            Some((
-                "SuperweaponLaunchBaikonurRocket",
-                "SPECIAL_LAUNCH_BAIKONUR_ROCKET",
-                0
-            ))
-        )
-        && matches!(
-            supw_puc,
-            Some((
-                "SupW_SuperweaponParticleUplinkCannon",
-                "SUPW_SPECIAL_PARTICLE_UPLINK_CANNON",
-                180_000
-            ))
-        );
+    let supw_puc = superweapon_special_power_row_wave103("SupW_SuperweaponParticleUplinkCannon");
+    let anchors_ok = matches!(
+        moab,
+        Some(("SuperweaponMOAB", "SPECIAL_DAISY_CUTTER", 360_000))
+    ) && matches!(
+        emp,
+        Some(("SuperweaponEMPPulse", "SPECIAL_EMP_PULSE", 360_000))
+    ) && matches!(
+        napalm,
+        Some(("SuperweaponNapalmStrike", "SPECIAL_NAPALM_STRIKE", 600_000))
+    ) && matches!(
+        dirty,
+        Some((
+            "SuperweaponDetonateDirtyNuke",
+            "SPECIAL_DETONATE_DIRTY_NUKE",
+            30_000
+        ))
+    ) && matches!(
+        spy,
+        Some(("SpecialPowerSpySatellite", "SPECIAL_SPY_SATELLITE", 60_000))
+    ) && matches!(
+        baikonur,
+        Some((
+            "SuperweaponLaunchBaikonurRocket",
+            "SPECIAL_LAUNCH_BAIKONUR_ROCKET",
+            0
+        ))
+    ) && matches!(
+        supw_puc,
+        Some((
+            "SupW_SuperweaponParticleUplinkCannon",
+            "SUPW_SPECIAL_PARTICLE_UPLINK_CANNON",
+            180_000
+        ))
+    );
     if !anchors_ok {
         return false;
     }
     // Enum residual present in Wave 80 bit-name list; ReloadTime → frames residual.
-    let enum_reload_ok = SUPERWEAPON_SPECIAL_POWER_RELOAD_TABLE_WAVE103
-        .iter()
-        .all(|(_, enum_name, reload_ms)| {
-            let in_list = special_power_bit_name_index(enum_name).is_some()
-                || SPECIAL_POWER_BIT_NAME_LIST.contains(enum_name);
-            let frames = duration_ms_to_logic_frames(*reload_ms);
-            // 0 ms → 0 frames; else ceil(ms*30/1000) residual.
-            let expected = if *reload_ms == 0 {
-                0
-            } else {
-                ((*reload_ms as u64 * 30 + 999) / 1000) as u32
-            };
-            in_list && frames == expected
-        });
+    let enum_reload_ok =
+        SUPERWEAPON_SPECIAL_POWER_RELOAD_TABLE_WAVE103
+            .iter()
+            .all(|(_, enum_name, reload_ms)| {
+                let in_list = special_power_bit_name_index(enum_name).is_some()
+                    || SPECIAL_POWER_BIT_NAME_LIST.contains(enum_name);
+                let frames = duration_ms_to_logic_frames(*reload_ms);
+                // 0 ms → 0 frames; else ceil(ms*30/1000) residual.
+                let expected = if *reload_ms == 0 {
+                    0
+                } else {
+                    ((*reload_ms as u64 * 30 + 999) / 1000) as u32
+                };
+                in_list && frames == expected
+            });
     // Ordering residual: DirtyNuke 30s < SpySat 60s < Sneak 150s < SupW PUC 180s
     // < Frenzy/CashHack/GPS/Repair 240s < Leaflet/CIA 300s < MOAB/EMP 360s
     // < Napalm/Terror/Crate/BlackMarket 600s.
@@ -476,7 +496,11 @@ pub fn honesty_object_kindof_residual_pack_wave103() -> bool {
         let stru = kindof_has_token(p.kind_of, "STRUCTURE") == p.is_structure;
         let transport = kindof_has_token(p.kind_of, "TRANSPORT") == p.is_transport;
         let salvager = kindof_has_token(p.kind_of, "SALVAGER") == p.is_salvager;
-        inf && veh && air && stru && transport && salvager
+        inf && veh
+            && air
+            && stru
+            && transport
+            && salvager
             && p.build_cost > 0
             && p.build_time_sec > 0.0
             && p.max_health > 0.0
@@ -589,8 +613,7 @@ mod tests {
     fn special_power_residual_pack_honesty_wave103() {
         assert!(honesty_special_power_superweapon_residual_deepen_wave103());
         assert_eq!(
-            superweapon_special_power_row_wave103("SuperweaponMOAB")
-                .map(|(_, e, ms)| (e, ms)),
+            superweapon_special_power_row_wave103("SuperweaponMOAB").map(|(_, e, ms)| (e, ms)),
             Some(("SPECIAL_DAISY_CUTTER", 360_000))
         );
         assert_eq!(

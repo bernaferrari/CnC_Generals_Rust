@@ -326,7 +326,6 @@ pub fn in_plant_range(
     dist <= BOOBY_START_ABILITY_RANGE + planter_radius + target_radius
 }
 
-
 // --- Wave 68 residual honesty packs ---
 
 pub fn honesty_booby_trap_weapon_residual_ok() -> bool {
