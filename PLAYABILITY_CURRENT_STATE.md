@@ -56,6 +56,8 @@
 - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
   radar97=true spotter97=true stealth97=true detector97=true vision97=true
 
+*(Verified 2026-07-14: unit 6/6, golden playable_claim=true, shell playable_claim=false.)*
+
 **Not claimed:**
 - Full W3DRadar GPU atlas / event marker draw residual
 - Full StealthUpdate exclusive allowedToStealth matrix / disguise path residual
