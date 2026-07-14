@@ -2201,6 +2201,49 @@ impl PresentationFrame {
             .unwrap_or(false)
     }
 
+    /// Drag-box residual: friendly selectable units whose XZ pose is inside the rect.
+    ///
+    /// Prefer non-structures when any unit is in the box (C++ InGameUI drag residual).
+    /// If only structures are hit, keep a single structure when exactly one is present.
+    pub fn box_select_unit_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+        min_x: f32,
+        max_x: f32,
+        min_z: f32,
+        max_z: f32,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::KindOf;
+        use crate::unit_control::UnitControlSystem;
+        let mut units = Vec::new();
+        let mut structures = Vec::new();
+        for o in &self.objects {
+            if o.team != player_team || !UnitControlSystem::presentation_is_selectable(o) {
+                continue;
+            }
+            let pos = o.position;
+            if pos.x < min_x || pos.x > max_x || pos.z < min_z || pos.z > max_z {
+                continue;
+            }
+            let is_structure = o.is_structure
+                || Self::object_has_kind(o, KindOf::Structure)
+                || o.object_type == PresentationObjectType::Building;
+            if is_structure {
+                structures.push(o.id);
+            } else {
+                units.push(o.id);
+            }
+        }
+        if !units.is_empty() {
+            units
+        } else if structures.len() == 1 {
+            structures
+        } else {
+            // Multi-structure-only box: fail-closed empty (parity with unit_control residual).
+            Vec::new()
+        }
+    }
+
     /// Structures residual (KindOf::Structure or object_type Building).
     pub fn structure_objects(&self) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
@@ -3035,6 +3078,44 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn box_select_unit_ids_from_presentation() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tu = ThingTemplate::new("Ranger");
+        tu.set_health(100.0);
+        tu.add_kind_of(KindOf::Infantry);
+        tu.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Ranger".into(), tu);
+        let mut ts = ThingTemplate::new("WarFactory");
+        ts.set_health(1000.0);
+        ts.add_kind_of(KindOf::Structure);
+        ts.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("WarFactory".into(), ts);
+        let u1 = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let u2 = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .unwrap();
+        let s = logic
+            .create_object("WarFactory", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .unwrap();
+        let _enemy = logic
+            .create_object("Ranger", Team::China, glam::Vec3::new(1.0, 0.0, 1.0))
+            .unwrap();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut ids = frame.box_select_unit_ids(Team::USA, -1.0, 10.0, -1.0, 10.0);
+        ids.sort_by_key(|id| id.0);
+        let mut expect = vec![u1, u2];
+        expect.sort_by_key(|id| id.0);
+        assert_eq!(ids, expect);
+        assert!(!ids.contains(&s));
+        // Structure-only box around factory.
+        let only_s = frame.box_select_unit_ids(Team::USA, 1.5, 2.5, 1.5, 2.5);
+        assert_eq!(only_s, vec![s]);
     }
 
     #[test]
