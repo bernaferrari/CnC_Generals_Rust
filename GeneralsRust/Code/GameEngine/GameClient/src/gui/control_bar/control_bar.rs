@@ -109,6 +109,8 @@ pub struct SciencePurchaseState {
     pub experience_progress: f32,
     pub rank_title_label: String,
     pub is_visible: bool,
+    /// Unlocked science names residual from PresentationFrame (not live player list).
+    pub unlocked_sciences: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +141,7 @@ impl Default for SciencePurchaseState {
             experience_progress: 0.0,
             rank_title_label: String::new(),
             is_visible: false,
+            unlocked_sciences: Vec::new(),
         }
     }
 }
@@ -2517,6 +2520,59 @@ impl ControlBar {
         };
 
         self.science_state.available_points = player.get_science_purchase_points();
+    }
+
+    /// Feed unlocked science names from PresentationFrame into purchase UI residual.
+    ///
+    /// Prefer this over live player-list / OBJECT_REGISTRY for dual-tick host paths.
+    /// Marks matching rank buttons purchased; stores the full unlocked name list.
+    /// Fail-closed: does not claim full ScienceStore / rank-point parity.
+    pub fn sync_sciences_from_presentation(&mut self, unlocked_sciences: &[String]) {
+        let mut unlocked: Vec<String> = unlocked_sciences.to_vec();
+        unlocked.sort();
+        unlocked.dedup();
+        self.science_state.unlocked_sciences = unlocked.clone();
+
+        let mark = |buttons: &mut Vec<ScienceButtonState>| {
+            for btn in buttons.iter_mut() {
+                let purchased = unlocked.iter().any(|name| {
+                    name.eq_ignore_ascii_case(&btn.command_name)
+                        || (!btn.command_name.is_empty()
+                            && name
+                                .to_ascii_lowercase()
+                                .contains(&btn.command_name.to_ascii_lowercase()))
+                        || name.eq_ignore_ascii_case(&format!("{:?}", btn.science_type))
+                });
+                if purchased {
+                    btn.is_purchased = true;
+                    btn.is_enabled = false;
+                }
+            }
+        };
+        mark(&mut self.science_state.rank1_buttons);
+        mark(&mut self.science_state.rank3_buttons);
+        mark(&mut self.science_state.rank8_buttons);
+
+        // When no INI buttons are loaded yet, seed purchased placeholders so HUD
+        // residual still reflects snapshot sciences (fail-closed CommandSet art).
+        if self.science_state.rank1_buttons.is_empty()
+            && self.science_state.rank3_buttons.is_empty()
+            && self.science_state.rank8_buttons.is_empty()
+            && !unlocked.is_empty()
+        {
+            self.science_state.rank1_buttons = unlocked
+                .iter()
+                .take(8)
+                .map(|name| ScienceButtonState {
+                    command_name: name.clone(),
+                    science_type: SCIENCE_INVALID,
+                    is_hidden: false,
+                    is_enabled: false,
+                    is_purchased: true,
+                })
+                .collect();
+        }
+        self.mark_ui_dirty();
     }
 
     pub fn get_science_state(&self) -> &SciencePurchaseState {
