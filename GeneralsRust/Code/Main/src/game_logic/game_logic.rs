@@ -35718,6 +35718,127 @@ impl GameLogic {
             .or_else(|| self.team_base_position(team))
     }
 
+    pub fn peek_pending_camera_zoom(
+        &self,
+    ) -> Option<&crate::game_logic::mission_scripts::CameraZoomRequest> {
+        self.pending_camera_zoom.as_ref()
+    }
+
+    pub fn peek_pending_camera_zoom_reset(&self) -> bool {
+        self.pending_camera_zoom_reset
+    }
+
+    pub fn peek_pending_camera_pitch(
+        &self,
+    ) -> Option<&crate::game_logic::mission_scripts::CameraPitchRequest> {
+        self.pending_camera_pitch.as_ref()
+    }
+
+    pub fn peek_pending_camera_rotate(
+        &self,
+    ) -> Option<&crate::game_logic::mission_scripts::CameraRotateRequest> {
+        self.pending_camera_rotate.as_ref()
+    }
+
+    pub fn peek_pending_camera_look_toward(
+        &self,
+    ) -> Option<&crate::game_logic::mission_scripts::CameraLookTowardWaypointRequest> {
+        self.pending_camera_look_toward.as_ref()
+    }
+
+    pub fn peek_pending_camera_slave_enable(
+        &self,
+    ) -> Option<&crate::game_logic::mission_scripts::CameraSlaveModeRequest> {
+        self.pending_camera_slave_mode_enable.as_ref()
+    }
+
+    pub fn peek_pending_camera_slave_disable(&self) -> bool {
+        self.pending_camera_slave_mode_disable
+    }
+
+    pub fn peek_script_named_timers(&self) -> &std::collections::HashMap<String, (String, bool)> {
+        &self.script_named_timers
+    }
+
+    pub fn peek_script_cameo_flash_count(&self) -> &std::collections::HashMap<String, i32> {
+        &self.script_cameo_flash_count
+    }
+
+    pub fn queue_pending_camera_zoom(&mut self, zoom: f32, duration_seconds: f32) {
+        self.pending_camera_zoom = Some(crate::game_logic::mission_scripts::CameraZoomRequest {
+            zoom,
+            duration_seconds,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    }
+
+    pub fn queue_pending_camera_zoom_reset(&mut self) {
+        self.pending_camera_zoom_reset = true;
+    }
+
+    pub fn queue_pending_camera_pitch(&mut self, pitch: f32, duration_seconds: f32) {
+        self.pending_camera_pitch = Some(crate::game_logic::mission_scripts::CameraPitchRequest {
+            pitch,
+            duration_seconds,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    }
+
+    pub fn queue_pending_camera_rotate(&mut self, rotations: f32, duration_seconds: f32) {
+        self.pending_camera_rotate =
+            Some(crate::game_logic::mission_scripts::CameraRotateRequest {
+                rotations,
+                duration_seconds,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+            });
+    }
+
+    pub fn queue_pending_camera_look_toward(&mut self, position: Vec3, duration_seconds: f32) {
+        self.pending_camera_look_toward = Some(
+            crate::game_logic::mission_scripts::CameraLookTowardWaypointRequest {
+                position,
+                duration_seconds,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+                reverse_rotation: false,
+            },
+        );
+    }
+
+    pub fn queue_pending_camera_slave_enable(
+        &mut self,
+        thing_template_name: impl Into<String>,
+        bone_name: impl Into<String>,
+    ) {
+        self.pending_camera_slave_mode_enable =
+            Some(crate::game_logic::mission_scripts::CameraSlaveModeRequest {
+                thing_template_name: thing_template_name.into(),
+                bone_name: bone_name.into(),
+            });
+    }
+
+    pub fn queue_pending_camera_slave_disable(&mut self) {
+        self.pending_camera_slave_mode_disable = true;
+    }
+
+    pub fn upsert_script_named_timer(
+        &mut self,
+        name: impl Into<String>,
+        text: impl Into<String>,
+        countdown: bool,
+    ) {
+        self.script_named_timers
+            .insert(name.into(), (text.into(), countdown));
+    }
+
+    pub fn set_script_cameo_flash(&mut self, button: impl Into<String>, flash_count: i32) {
+        self.script_cameo_flash_count
+            .insert(button.into(), flash_count);
+    }
+
     pub fn peek_pending_camera_focus(&self) -> Option<Vec3> {
         self.pending_camera_focus
     }
