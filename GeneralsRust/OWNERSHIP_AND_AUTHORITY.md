@@ -102,7 +102,7 @@ The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for leg
 
 ## Still Main mid-frame (not sole GameWorld)
 
-Host still executes AI decision, pathfinding step, and combat resolution mid-frame. AI `launch_attack` now prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression. Shadow session runs after host `update` + projectiles + pathfinding (same frame logs), then PresentationFrame overlay. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations and presentation overlay — not yet the sole simulation owner.
+Host still executes AI decision, pathfinding step, and combat resolution mid-frame. AI `launch_attack` now prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression. Shadow session runs after host `update` + projectiles + pathfinding (same frame logs), then PresentationFrame overlay. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations (`writeback_transforms_to_host` after session SetTransform) and presentation overlay — not yet the sole simulation owner.
 
 ## Gates (honest reading)
 

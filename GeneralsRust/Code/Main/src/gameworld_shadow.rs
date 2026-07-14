@@ -535,6 +535,34 @@ impl GameWorldShadow {
     }
 
     /// Apply drained host economy events as SetSupplies/SetPower mutations.
+
+    /// Write shadow entity pose (position + orientation) onto host objects.
+    /// Last-writer residual after SetTransform / apply_host_positions channel.
+    pub fn writeback_transforms_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut n = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let p = ent.transform.position;
+            let host_p = obj.get_position();
+            let host_o = obj.get_orientation();
+            let dx = (host_p.x - p.x).abs();
+            let dy = (host_p.y - p.y).abs();
+            let dz = (host_p.z - p.z).abs();
+            let d_o = (host_o - ent.transform.orientation).abs();
+            if dx > 1e-3 || dy > 1e-3 || dz > 1e-3 || d_o > 1e-3 {
+                obj.set_position(glam::Vec3::new(p.x, p.y, p.z));
+                obj.set_orientation(ent.transform.orientation);
+                n += 1;
+            }
+        }
+        n
+    }
+
     pub fn apply_host_economy_events(
         &mut self,
         events: &[crate::game_logic::host_economy_log::HostEconomyEvent],
@@ -1071,6 +1099,8 @@ pub fn shadow_session_after_host_tick(
     // (and host bulk resync above) settle, then writeback keeps host Object::target aligned.
     let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
+    // Pose last-writer after all SetTransform mutations this session.
+    let _pose_wb = shadow.writeback_transforms_to_host(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -1393,6 +1423,31 @@ mod tests {
             after < before,
             "overlay should pull lower shadow HP {after} vs {before}"
         );
+    }
+
+    #[test]
+    fn pose_writeback_is_last_writer() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PoseWB");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "PoseU", 80.0);
+        let id = logic
+            .create_object("PoseU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.queue_set_transform_for_host(id, [42.0, 1.0, 7.0], 0.5));
+        let _ = shadow.apply_pending();
+        // Host still at origin until writeback.
+        {
+            let p = logic.get_objects().get(&id).unwrap().get_position();
+            assert!(p.x.abs() < 0.1, "pre-writeback host x={}", p.x);
+        }
+        let n = shadow.writeback_transforms_to_host(&mut logic);
+        assert!(n >= 1, "writeback count {n}");
+        let p = logic.get_objects().get(&id).unwrap().get_position();
+        assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
+        assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
     }
 
     #[test]
