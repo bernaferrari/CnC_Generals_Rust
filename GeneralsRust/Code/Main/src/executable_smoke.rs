@@ -110,17 +110,20 @@ fn write_control(path: &Path, lines: &[&str]) -> std::io::Result<()> {
 }
 
 fn kill_stale_runtime_host_generals(exe: &Path) {
-    // Only target processes whose argv contains both our binary path and runtime-host.
-    // Fail-soft: never abort the smoke for cleanup issues.
+    // Fail-soft: prior smoke / cargo runs can leave a hanging `generals` holding
+    // GPU/display and cause Booting→exit before Menu.
     #[cfg(unix)]
     {
         let exe_s = exe.to_string_lossy().to_string();
-        let _ = std::process::Command::new("pkill")
-            .args(["-f", &format!("{exe_s}.*runtime-host")])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-        std::thread::sleep(Duration::from_millis(200));
+        // Prefer exact binary path matches (runtime-host first, then any generals).
+        for pat in [format!("{exe_s}.*runtime-host"), format!("{exe_s}")] {
+            let _ = std::process::Command::new("pkill")
+                .args(["-9", "-f", &pat])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
     }
     let _ = exe;
 }
