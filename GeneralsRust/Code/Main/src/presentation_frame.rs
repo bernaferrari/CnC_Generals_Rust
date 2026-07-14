@@ -50,6 +50,16 @@ impl PresentationVeterancy {
             V::Heroic => Self::Heroic,
         }
     }
+
+    /// C++ ControlBar portrait chevron image residual (SSChevron*).
+    pub fn chevron_overlay(self) -> Option<&'static str> {
+        match self {
+            Self::Rookie => None,
+            Self::Veteran => Some("SSChevron1L"),
+            Self::Elite => Some("SSChevron2L"),
+            Self::Heroic => Some("SSChevron3L"),
+        }
+    }
 }
 
 /// Snapshot-owned object kind residual (host ObjectType).
@@ -2855,6 +2865,11 @@ impl PresentationFrame {
     }
 
     fn unit_display_info_from_renderable(ro: &RenderableObject) -> crate::ui::UnitDisplayInfo {
+        let (production_template, production_progress) = ro
+            .production_queue
+            .first()
+            .map(|p| (Some(p.template_name.clone()), Some(p.progress)))
+            .unwrap_or((None, None));
         crate::ui::UnitDisplayInfo {
             object_id: ro.id,
             name: ro.template_name.clone(),
@@ -2867,7 +2882,18 @@ impl PresentationFrame {
             } else {
                 "Object".into()
             },
-            current_order: "Idle".into(),
+            current_order: if ro.attacking {
+                "Attack".into()
+            } else if ro.moving {
+                "Move".into()
+            } else if production_template.is_some() {
+                "Produce".into()
+            } else {
+                "Idle".into()
+            },
+            veterancy_overlay: ro.veterancy.chevron_overlay().map(str::to_string),
+            production_progress,
+            production_template,
         }
     }
 
@@ -3110,9 +3136,28 @@ impl PresentationFrame {
 
     /// Snapshot-owned ControlBar / WND selection panel (health + name).
     pub fn control_bar_selection_panel(&self) -> crate::ui::ControlBarSelectionPanelState {
-        crate::ui::ControlBarSelectionPanelState::from_unit_infos(
+        let mut panel = crate::ui::ControlBarSelectionPanelState::from_unit_infos(
             &self.selected_unit_display_infos(),
-        )
+        );
+        // Prefer full queue from the primary selected renderable when present.
+        if let Some(id) = panel.primary_object_id {
+            if let Some(ro) = self.objects.iter().find(|o| o.id == id) {
+                panel.production_queue = ro
+                    .production_queue
+                    .iter()
+                    .map(|p| (p.template_name.clone(), p.progress))
+                    .collect();
+                if panel.production_progress.is_none() {
+                    panel.production_progress = panel.production_queue.first().map(|(_, p)| *p);
+                    panel.production_template =
+                        panel.production_queue.first().map(|(t, _)| t.clone());
+                }
+                if panel.veterancy_overlay.is_none() {
+                    panel.veterancy_overlay = ro.veterancy.chevron_overlay().map(str::to_string);
+                }
+            }
+        }
+        panel
     }
 
     /// Apply selection health/name to GameClient ControlBar without OBJECT_REGISTRY.
@@ -3135,6 +3180,10 @@ impl PresentationFrame {
             panel.health_current,
             panel.health_maximum,
             panel.selected_count,
+            panel.veterancy_overlay.as_deref(),
+            panel.production_progress,
+            panel.production_template.as_deref(),
+            &panel.production_queue,
         );
     }
 
@@ -5112,6 +5161,65 @@ mod tests {
             "selection panel HP from presentation: {}",
             ui.selection_panel.health_current
         );
+    }
+
+    #[test]
+    fn presentation_feeds_control_bar_veterancy_and_production() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType, ProductionItem},
+            Experience, KindOf, Team, ThingTemplate, VeterancyLevel,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tb = ThingTemplate::new("VetBarracks");
+        tb.set_health(1200.0);
+        tb.add_kind_of(KindOf::Structure);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("VetBarracks".into(), tb);
+        let id = logic
+            .create_object("VetBarracks", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
+            .expect("building");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.selected = true;
+            o.experience = Experience {
+                current: 500.0,
+                level: VeterancyLevel::Elite,
+            };
+            let mut bd = BuildingData::new(BuildingType::Barracks);
+            bd.production_queue.push(ProductionItem {
+                template_name: "Ranger".into(),
+                progress: 0.55,
+                total_time: 10.0,
+                cost: crate::game_logic::Resources {
+                    supplies: 200,
+                    power: 0,
+                },
+            });
+            o.building_data = Some(bd);
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let panel = frame.control_bar_selection_panel();
+        assert!(panel.visible);
+        assert_eq!(panel.veterancy_overlay.as_deref(), Some("SSChevron2L"));
+        assert_eq!(panel.production_template.as_deref(), Some("Ranger"));
+        assert!((panel.production_progress.unwrap_or(0.0) - 0.55).abs() < 0.01);
+        assert_eq!(panel.production_queue.len(), 1);
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame.apply_to_control_bar(&mut bar);
+            let portrait = bar.get_portrait_state();
+            assert_eq!(portrait.veterancy_overlay.as_deref(), Some("SSChevron2L"));
+            assert_eq!(portrait.production_template.as_deref(), Some("Ranger"));
+            assert!((portrait.production_progress.unwrap_or(0.0) - 0.55).abs() < 0.01);
+            assert_eq!(bar.get_build_queue_data().len(), 1);
+            assert_eq!(bar.get_build_queue_data()[0].upgrade_name, "Ranger");
+        }
     }
 
     #[test]
