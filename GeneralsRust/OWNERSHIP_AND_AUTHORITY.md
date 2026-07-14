@@ -60,8 +60,9 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 
 `gameworld_shadow` maintains a `GameWorldShadow` session: stable host `ObjectId`→
 `EntityId` map, delta sync (health/transform/economy), and `WorldMutation` damage
-parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime:
-`GENERALS_GAMEWORLD_SHADOW=1`. Still not production authority. Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
+parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime: `GENERALS_GAMEWORLD_SHADOW=1` holds a session on `CnCGameEngine`.
+`Object::take_damage_from` records `host_damage_log` events drained each tick.
+Still not production authority. Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
 ### Presentation boundary residual (2026-07-14)

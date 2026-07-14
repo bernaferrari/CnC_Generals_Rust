@@ -1172,6 +1172,9 @@ pub struct CnCGameEngine {
     game_logic: GameLogic,
     /// Immutable presentation feed for client/render after last logic step.
     last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    /// Optional GameWorld shadow session (stable ObjectId→EntityId). Opt-in:
+    /// `GENERALS_GAMEWORLD_SHADOW=1`. Not production authority.
+    gameworld_shadow: Option<crate::gameworld_shadow::GameWorldShadow>,
     /// Last presentation-overlaid UI state (selection health/minimap identity retained
     /// after render build so consumers are not dropped each frame).
     last_ui_state: Option<GameUIState>,
@@ -4041,6 +4044,11 @@ impl CnCGameEngine {
 
             game_logic,
             last_presentation_frame: None,
+            gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
+                Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
+            } else {
+                None
+            },
             last_ui_state: None,
             combat_system,
             pathfinding_system,
@@ -5974,8 +5982,19 @@ impl CnCGameEngine {
                     panic!("{e}");
                 }
             }
-            // Optional GameWorld shadow parity (counts/frame). Opt-in via env.
-            let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&self.game_logic);
+            // Optional GameWorld shadow session (stable IDs + damage log drain).
+            // Opt-in: GENERALS_GAMEWORLD_SHADOW=1. Host remains production authority.
+            if let Some(ref mut shadow) = self.gameworld_shadow {
+                let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
+                    shadow,
+                    &self.game_logic,
+                );
+                if !probe.full_match() {
+                    log::warn!("{}", probe.format_report());
+                }
+            } else {
+                let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&self.game_logic);
+            }
 
             // C++ parity: when script time-freeze is active, gameplay simulation should not
             // advance outside script evaluation.

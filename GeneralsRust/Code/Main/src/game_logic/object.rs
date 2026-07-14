@@ -1595,14 +1595,19 @@ impl Object {
         self.health.damage(actual_damage);
 
         // Check if object is destroyed
-        if !self.health.is_alive() {
+        let destroyed = if !self.health.is_alive() {
             self.status.destroyed = true;
             self.ai_state = AIState::Idle;
             self.target = None;
             true // Object was destroyed
         } else {
             false
-        }
+        };
+
+        // Frame-local log for GameWorld shadow mutation parity (actual HP damage).
+        crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
+
+        destroyed
     }
 
     /// C++ AttitudeType residual (Sleep/Passive/Normal/Alert/Aggressive).
