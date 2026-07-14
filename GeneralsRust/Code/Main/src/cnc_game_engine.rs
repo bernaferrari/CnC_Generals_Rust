@@ -5987,7 +5987,7 @@ impl CnCGameEngine {
             if let Some(ref mut shadow) = self.gameworld_shadow {
                 let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
                     shadow,
-                    &self.game_logic,
+                    &mut self.game_logic,
                 );
                 if !probe.full_match() {
                     log::warn!("{}", probe.format_report());
