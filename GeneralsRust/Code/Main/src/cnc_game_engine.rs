@@ -10308,18 +10308,20 @@ impl CnCGameEngine {
 
         println!("🎨 PRELOAD: Starting model preloading for all game objects...");
 
-        // Collect unique model names from all game objects
+        // Prefer PresentationFrame model_key freeze; live template fallback.
         let mut unique_models: HashSet<String> = HashSet::new();
-
-        for (object_id, object) in game_logic.get_objects() {
-            if !object.is_alive() {
-                continue;
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(game_logic, 0);
+        for key in frame.unique_model_keys() {
+            unique_models.insert(key);
+        }
+        if unique_models.is_empty() {
+            for object in game_logic.get_objects().values() {
+                if !object.is_alive() {
+                    continue;
+                }
+                let model_name = object.get_template().get_model_name();
+                unique_models.insert(model_name.to_string());
             }
-
-            let model_name = object.get_template().get_model_name();
-            unique_models.insert(model_name.to_string());
-
-            // Object uses model (logging disabled)
         }
 
         println!("📦 Loading {} models...", unique_models.len());

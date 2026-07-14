@@ -153,6 +153,8 @@ pub struct RenderableObject {
     pub power_provided: i32,
     /// Structure/unit power consumed residual.
     pub power_consumed: i32,
+    /// Host Object::stored_resources.supplies residual (supply center / drop zone).
+    pub stored_supplies: u32,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
@@ -1659,6 +1661,7 @@ impl PresentationFrame {
                     .unwrap_or(0),
                 power_provided: obj.power_provided,
                 power_consumed: obj.power_consumed,
+                stored_supplies: obj.stored_resources.supplies,
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
@@ -2327,6 +2330,55 @@ impl PresentationFrame {
     }
 
     /// Runtime-host residual: first alive enemy attackable.
+
+    /// Unique non-empty model keys from alive objects (GPU preload residual).
+    pub fn unique_model_keys(&self) -> Vec<String> {
+        let mut keys = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for o in &self.objects {
+            if o.destroyed {
+                continue;
+            }
+            if let Some(k) = o.model_key.as_ref() {
+                if !k.is_empty() && seen.insert(k.clone()) {
+                    keys.push(k.clone());
+                }
+            }
+        }
+        keys
+    }
+
+    /// Structures holding supply crates residual (ControlBar / gather UI).
+    pub fn supply_storage_structures(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && o.stored_supplies > 0
+                    && (o.is_structure
+                        || o.building_type.is_some()
+                        || o.object_type == PresentationObjectType::Building
+                        || o.object_type == PresentationObjectType::Supply)
+            })
+            .collect()
+    }
+
+    /// Friendly workers residual (dozer / worker command feed by team).
+    pub fn friendly_workers(&self, player_team: crate::game_logic::Team) -> Vec<&RenderableObject> {
+        use crate::game_logic::KindOf;
+        self.objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && (Self::object_has_kind(o, KindOf::Worker)
+                        || o.template_name.contains("Dozer")
+                        || o.template_name.contains("Worker")
+                        || o.template_name.contains("Construction"))
+            })
+            .collect()
+    }
+
     pub fn first_enemy_attackable_id(
         &self,
         player_team: crate::game_logic::Team,
@@ -3278,6 +3330,53 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn supply_and_model_keys_freeze_from_host() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType},
+            KindOf, Resources, Team, ThingTemplate,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut ts = ThingTemplate::new("SupplyCenter");
+        ts.set_health(1000.0);
+        ts.add_kind_of(KindOf::Structure);
+        ts.set_model("SCModel");
+        logic.templates.insert("SupplyCenter".into(), ts);
+        let mut tw = ThingTemplate::new("AmericaDozer");
+        tw.set_health(200.0);
+        tw.add_kind_of(KindOf::Vehicle);
+        tw.add_kind_of(KindOf::Worker);
+        tw.set_model("DozerModel");
+        logic.templates.insert("AmericaDozer".into(), tw);
+        let sc = logic
+            .create_object("SupplyCenter", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let dz = logic
+            .create_object("AmericaDozer", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.get_object_mut(sc) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.building_data = Some(BuildingData::new(BuildingType::SupplyCenter));
+            o.stored_resources = Resources {
+                supplies: 1500,
+                power: 0,
+            };
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let s = frame.objects.iter().find(|o| o.id == sc).unwrap();
+        assert_eq!(s.stored_supplies, 1500);
+        assert_eq!(s.model_key.as_deref(), Some("SCModel"));
+        let d = frame.objects.iter().find(|o| o.id == dz).unwrap();
+        assert_eq!(d.model_key.as_deref(), Some("DozerModel"));
+        assert_eq!(frame.supply_storage_structures().len(), 1);
+        assert_eq!(frame.friendly_workers(Team::USA).len(), 1);
+        let keys = frame.unique_model_keys();
+        assert!(keys.iter().any(|k| k == "SCModel"));
+        assert!(keys.iter().any(|k| k == "DozerModel"));
+        assert_eq!(keys.len(), 2);
     }
 
     #[test]
