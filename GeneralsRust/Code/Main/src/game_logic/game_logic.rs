@@ -14749,6 +14749,15 @@ impl GameLogic {
         &self.combat_particles
     }
 
+    /// Host combat system (projectiles) for presentation freeze.
+    pub fn combat_system(&self) -> &crate::game_logic::combat::CombatSystem {
+        &self.combat_system
+    }
+
+    pub fn combat_system_mut(&mut self) -> &mut crate::game_logic::combat::CombatSystem {
+        &mut self.combat_system
+    }
+
     /// Mutable access for tests / presentation drain of frame events.
     pub fn combat_particles_mut(&mut self) -> &mut CombatParticleRegistry {
         &mut self.combat_particles

@@ -226,6 +226,15 @@ impl CombatSystem {
         }
     }
 
+    /// Snapshot active projectiles for PresentationFrame freeze (read-only).
+    pub fn projectiles_snapshot(&self) -> Vec<&Projectile> {
+        self.projectiles.values().collect()
+    }
+
+    pub fn projectile_count(&self) -> usize {
+        self.projectiles.len()
+    }
+
     /// Fire a projectile from one object to another
     pub fn fire_projectile(
         &mut self,
