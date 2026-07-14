@@ -1,3 +1,72 @@
+## Residual Host Playability — Wave 89: rank skill-points / experience / hotkey / chat / replay / options residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal GeneralsExperience + local UI residual):**
+1. **Rank skill-points application residual deepen** (`host_rank_ui_residual`, beyond Wave 80 Rank.ini table):
+   - Freezes C++ `Player::addSkillPoints` / `setRankLevel` / `resetRank` residual path.
+   - SkillPointsModifier default **1.0**; RankLevelLimit default **1000**.
+   - REAL_TO_INT_CEIL modifier scale residual; pointCap at SkillPointsNeeded of cap level
+     (Rank5 **5000** under default limit).
+   - resetRank: rank **1**, skill **0**, levelUp **800**, SPP = intrinsic + Rank1 grant **1**.
+   - Multi-rank while-loop residual (800→2, 5000→5); downgrade resets then re-grants.
+   - ControlBar progress residual `((skill-levelDown)*100)/(levelUp-levelDown)`.
+   - Honesty: `honesty_rank_skill_points_application_residual_pack_wave89`.
+2. **Experience residual tables pack**:
+   - Veterancy levels REGULAR/VETERAN/ELITE/HEROIC **0..3**, LEVEL_COUNT **4**.
+   - USE_EXP_VALUE_FOR_SKILL_VALUE sentinel **−999** (SkillPointValue defaults to ExperienceValue).
+   - ExperienceRequired ladders: light infantry **0/40/60/120**, standard **0/100/200/400**,
+     heavy **0/200/400/800**, vehicle alt **0/100/150/300**.
+   - ExperienceValue anchors: Ranger **20/20/40/60**, air **50/100/150/200**, structure flat **200**.
+   - HealthBonus residual Regular **100%** / Vet **120%** / Elite **130%** / Heroic **150%**.
+   - Scalar default **1.0**; ally kill XP residual **0**; scaled addExperience residual.
+   - Honesty: `honesty_experience_residual_tables_pack_wave89`.
+3. **Hotkey residual table** (English CommandMap.ini):
+   - Active CommandMap count residual **96**; control groups **0..9**; save views **1..8**.
+   - Anchors: CHAT_ALLIES **KEY_BACKSPACE**, CHAT_EVERYONE **KEY_ENTER**,
+     SELECT_MATCHING_UNITS **KEY_E**, CREATE_TEAM0 **CTRL+0**, SELECT_TEAM0 **0**,
+     PLACE_BEACON **CTRL+B**, TOGGLE_FAST_FORWARD_REPLAY **KEY_F**, SAVE/VIEW F1 split.
+   - CHAT_PLAYERS CommandMap residual **commented out** in retail English map.
+   - HotKeyManager residual: lowercase store; raw-key path requires no modifiers.
+   - Honesty: `honesty_hotkey_residual_table_pack_wave89`.
+4. **Chat residual host peels** (local UI; not network):
+   - InGameChatType residual Allies **0** / Everyone **1** / Players **2**.
+   - Labels Chat:Everyone/Allies/Players/Observers; default show type **Everyone**.
+   - InGameChat.wnd + TextEntryChat / StaticTextChatType id residual.
+   - MAX_SLOTS residual **8**; chat blocked in replay residual.
+   - Honesty: `honesty_chat_residual_host_pack_wave89`.
+5. **Replay residual host peels** (local Recorder; not network):
+   - RecorderModeType RECORD **0** / PLAYBACK **1** / NONE **2**.
+   - Extension **.rep**; dir **Replays\\**; last replay stem **00000000**.
+   - SaveCameraInReplays / UseCameraInReplays default **Yes**.
+   - TOGGLE_FAST_FORWARD_REPLAY residual + chat-in-replay block shared residual.
+   - Honesty: `honesty_replay_residual_host_pack_wave89`.
+6. **Options residual peels** (OptionPreferences defaults):
+   - AudioSettings volumes Music **55%** / Speech **70%** / SFX **80%** / SFX3D **80%**;
+     Relative2DVolume **−10%** → default 2D SFX residual **72**.
+   - Gamma default **50**; ScrollFactor default **0.5** (0..100 clamp).
+   - LanguageFilter **Yes**; SendDelay **No**; UseSystemMapDir **Yes**; FPSLimit **Yes**.
+   - Particle cap min clamp **100**; TextureReduction max **2**.
+   - Honesty: `honesty_options_residual_pack_wave89`.
+7. Tests / gates:
+   - Combined honesty: `honesty_rank_ui_residual_pack_wave89`.
+   - shell_smoke: rank89/exp89/hotkey89/chat89/replay89/options89 honesty flags wired
+     (playable_claim stays false)
+   - Unit: 7 wave89 honesty tests PASS
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     rank89=true exp89=true hotkey89=true chat89=true replay89=true options89=true
+
+**Still residual (fail-closed, not claimed):**
+- Full RankInfoStore live INI load / GeneralsExperience skill-point UI GPU residual
+- Full ExperienceTracker exclusive module matrix / XP sink live path residual
+- Full HotKeyManager WND binding / MetaEvent message stream residual
+- Full InGameChat.wnd GPU / network chat replication residual
+- Full Recorder .rep I/O / TiVo playback GPU residual
+- Full OptionsMenu.wnd GPU / Options.ini write residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+---
+
 ## Residual Host Playability — Wave 88: FX/OCL/particle/audio/cursor residual name tables (2026-07-13)
 
 **Closed (host-testable residual peels; C++ / INI name-table honesty for superweapon FX stack):**
