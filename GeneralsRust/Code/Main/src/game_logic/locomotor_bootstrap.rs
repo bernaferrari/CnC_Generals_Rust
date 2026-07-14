@@ -76,7 +76,37 @@ pub const AMERICA_DOZER_LOCOMOTOR: &str = "AmericaVehicleDozerLocomotor";
 /// Retail ChinaVehicleHelix residual.
 pub const HELIX_LOCOMOTOR: &str = "HelixLocomotor";
 
-/// Wave 81/92 residual seed table: (name, Speed, Acceleration, TurnRate deg).
+// --- Wave 103 common-unit locomotor residual expand ---
+/// Retail GLAVehicleBombTruck residual.
+pub const BOMB_TRUCK_LOCOMOTOR: &str = "BombTruckLocomotor";
+/// Retail ChinaVehicleTroopCrawler residual.
+pub const TROOP_CRAWLER_LOCOMOTOR: &str = "TroopCrawlerLocomotor";
+/// Retail GLAVehicleRadarVan residual.
+pub const RADAR_VAN_LOCOMOTOR: &str = "RadarVanLocomotor";
+/// Retail GLAVehicleToxinTruck residual.
+pub const TOXIN_TRUCK_LOCOMOTOR: &str = "ToxinTruckLocomotor";
+/// Retail AmericaVehicleChinook residual.
+pub const CHINOOK_LOCOMOTOR: &str = "ChinookLocomotor";
+/// Retail AmericaJetA10Thunderbolt residual.
+pub const A10_THUNDERBOLT_LOCOMOTOR: &str = "A10ThunderboltLocomotor";
+/// Retail AmericaJetB52 residual.
+pub const B52_LOCOMOTOR: &str = "B52Locomotor";
+/// Retail GLAVehicleCombatBike residual.
+pub const COMBAT_BIKE_GROUND_LOCOMOTOR: &str = "CombatBikeGroundLocomotor";
+/// Retail AmericaVehiclePOWTruck residual.
+pub const POW_TRUCK_LOCOMOTOR: &str = "POWTruckLocomotor";
+/// Retail Nuke_ChinaTankBattleMaster residual.
+pub const NUCLEAR_BATTLE_MASTER_LOCOMOTOR: &str = "NuclearBattleMasterLocomotor";
+/// Retail GLAInfantryJarmenKell residual.
+pub const JARMEN_KELL_LOCOMOTOR: &str = "JarmenKellLocomotor";
+/// Retail ChinaInfantryBlackLotus residual.
+pub const BLACK_LOTUS_LOCOMOTOR: &str = "BlackLotusLocomotor";
+/// Retail GLAInfantrySaboteur residual.
+pub const SABOTEUR_GROUND_LOCOMOTOR: &str = "SaboteurGroundLocomotor";
+/// Retail AmericaInfantryMissileDefender residual.
+pub const MISSILE_DEFENDER_LOCOMOTOR: &str = "MissileDefenderLocomotor";
+
+/// Wave 81/92/103 residual seed table: (name, Speed, Acceleration, TurnRate deg).
 /// Values match retail Locomotor.ini for common host units.
 pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
     (BASIC_HUMAN_LOCOMOTOR, 20.0, 100.0, 500.0),
@@ -106,6 +136,21 @@ pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
     (INFERNO_LOCOMOTOR, 30.0, 1000.0, 120.0),
     (AMERICA_DOZER_LOCOMOTOR, 30.0, 30.0, 90.0),
     (HELIX_LOCOMOTOR, 75.0, 60.0, 180.0),
+    // Wave 103 expand:
+    (BOMB_TRUCK_LOCOMOTOR, 50.0, 1000.0, 90.0),
+    (TROOP_CRAWLER_LOCOMOTOR, 40.0, 1000.0, 120.0),
+    (RADAR_VAN_LOCOMOTOR, 40.0, 50.0, 180.0),
+    (TOXIN_TRUCK_LOCOMOTOR, 30.0, 100.0, 180.0),
+    (CHINOOK_LOCOMOTOR, 150.0, 60.0, 180.0),
+    (A10_THUNDERBOLT_LOCOMOTOR, 120.0, 80.0, 200.0),
+    (B52_LOCOMOTOR, 125.0, 60.0, 25.0),
+    (COMBAT_BIKE_GROUND_LOCOMOTOR, 120.0, 90.0, 120.0),
+    (POW_TRUCK_LOCOMOTOR, 60.0, 120.0, 120.0),
+    (NUCLEAR_BATTLE_MASTER_LOCOMOTOR, 35.0, 1000.0, 180.0),
+    (JARMEN_KELL_LOCOMOTOR, 30.0, 100.0, 500.0),
+    (BLACK_LOTUS_LOCOMOTOR, 30.0, 100.0, 500.0),
+    (SABOTEUR_GROUND_LOCOMOTOR, 30.0, 100.0, 500.0),
+    (MISSILE_DEFENDER_LOCOMOTOR, 20.0, 100.0, 500.0),
 ];
 
 /// Logic FPS used by C++ Locomotor.ini unit conversion (Speed / 30 → dist/frame).
@@ -188,6 +233,25 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
         // Supply trucks (all factions share residual)
         "AmericaVehicleSupplyTruck" | "ChinaVehicleSupplyTruck" | "GLAVehicleSupplyTruck" => {
             Some(SUPPLY_TRUCK_LOCOMOTOR)
+        }
+        // Wave 103 expand unit → SET_NORMAL residual
+        "GLA_BombTruck" | "GLAVehicleBombTruck" => Some(BOMB_TRUCK_LOCOMOTOR),
+        "China_TroopCrawler" | "ChinaVehicleTroopCrawler" => Some(TROOP_CRAWLER_LOCOMOTOR),
+        "GLA_RadarVan" | "GLAVehicleRadarVan" => Some(RADAR_VAN_LOCOMOTOR),
+        "GLA_ToxinTractor" | "GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_LOCOMOTOR),
+        "USA_Chinook" | "AmericaVehicleChinook" => Some(CHINOOK_LOCOMOTOR),
+        "USA_A10" | "AmericaJetA10Thunderbolt" => Some(A10_THUNDERBOLT_LOCOMOTOR),
+        "USA_B52" | "AmericaJetB52" => Some(B52_LOCOMOTOR),
+        "GLA_CombatBike" | "GLAVehicleCombatBike" => Some(COMBAT_BIKE_GROUND_LOCOMOTOR),
+        "USA_POWTruck" | "AmericaVehiclePOWTruck" => Some(POW_TRUCK_LOCOMOTOR),
+        "Nuke_ChinaTankBattleMaster" | "China_NuclearBattleMaster" => {
+            Some(NUCLEAR_BATTLE_MASTER_LOCOMOTOR)
+        }
+        "GLA_JarmenKell" | "GLAInfantryJarmenKell" => Some(JARMEN_KELL_LOCOMOTOR),
+        "China_BlackLotus" | "ChinaInfantryBlackLotus" => Some(BLACK_LOTUS_LOCOMOTOR),
+        "GLA_Saboteur" | "GLAInfantrySaboteur" => Some(SABOTEUR_GROUND_LOCOMOTOR),
+        "USA_MissileDefender" | "AmericaInfantryMissileDefender" => {
+            Some(MISSILE_DEFENDER_LOCOMOTOR)
         }
         _ => None,
     }
@@ -298,6 +362,77 @@ pub fn honesty_locomotor_residual_expand_wave92() -> bool {
         && locomotor_name_for_unit("AmericaTankAvenger") == Some(AVENGER_LOCOMOTOR)
         && locomotor_name_for_unit("ChinaVehicleHelix") == Some(HELIX_LOCOMOTOR)
         && honesty_locomotor_residual_table_wave81()
+}
+
+/// Wave 103 residual honesty: expand more common-unit locomotor residual names.
+///
+/// Adds BombTruck / TroopCrawler / RadarVan / ToxinTruck / Chinook / A10 / B52 /
+/// CombatBike / POWTruck / NuclearBattleMaster / JarmenKell / BlackLotus /
+/// Saboteur / MissileDefender residual.
+/// Fail-closed: not full multi-surface / SET_PANIC / pitch-roll matrix.
+pub fn honesty_locomotor_residual_expand_wave103() -> bool {
+    let _ = ensure_host_locomotor_store();
+    if !honesty_locomotor_residual_expand_wave92() {
+        return false;
+    }
+    // Wave 81+92+103 (≥ 39 rows).
+    if HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() < 39 {
+        return false;
+    }
+    let wave103_names = [
+        BOMB_TRUCK_LOCOMOTOR,
+        TROOP_CRAWLER_LOCOMOTOR,
+        RADAR_VAN_LOCOMOTOR,
+        TOXIN_TRUCK_LOCOMOTOR,
+        CHINOOK_LOCOMOTOR,
+        A10_THUNDERBOLT_LOCOMOTOR,
+        B52_LOCOMOTOR,
+        COMBAT_BIKE_GROUND_LOCOMOTOR,
+        POW_TRUCK_LOCOMOTOR,
+        NUCLEAR_BATTLE_MASTER_LOCOMOTOR,
+        JARMEN_KELL_LOCOMOTOR,
+        BLACK_LOTUS_LOCOMOTOR,
+        SABOTEUR_GROUND_LOCOMOTOR,
+        MISSILE_DEFENDER_LOCOMOTOR,
+    ];
+    let names_ok = wave103_names
+        .iter()
+        .all(|n| HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.iter().any(|(name, ..)| name == n));
+    if !names_ok {
+        return false;
+    }
+    let speed_ok = |name: &str, expected: f32| {
+        movement_from_store(name)
+            .map(|m| (m.max_speed - expected).abs() < 0.5)
+            .unwrap_or(false)
+    };
+    names_ok
+        && speed_ok(BOMB_TRUCK_LOCOMOTOR, 50.0)
+        && speed_ok(TROOP_CRAWLER_LOCOMOTOR, 40.0)
+        && speed_ok(RADAR_VAN_LOCOMOTOR, 40.0)
+        && speed_ok(TOXIN_TRUCK_LOCOMOTOR, 30.0)
+        && speed_ok(CHINOOK_LOCOMOTOR, 150.0)
+        && speed_ok(A10_THUNDERBOLT_LOCOMOTOR, 120.0)
+        && speed_ok(B52_LOCOMOTOR, 125.0)
+        && speed_ok(COMBAT_BIKE_GROUND_LOCOMOTOR, 120.0)
+        && speed_ok(POW_TRUCK_LOCOMOTOR, 60.0)
+        && speed_ok(NUCLEAR_BATTLE_MASTER_LOCOMOTOR, 35.0)
+        && speed_ok(JARMEN_KELL_LOCOMOTOR, 30.0)
+        && speed_ok(BLACK_LOTUS_LOCOMOTOR, 30.0)
+        && speed_ok(SABOTEUR_GROUND_LOCOMOTOR, 30.0)
+        && speed_ok(MISSILE_DEFENDER_LOCOMOTOR, 20.0)
+        && locomotor_name_for_unit("GLAVehicleBombTruck") == Some(BOMB_TRUCK_LOCOMOTOR)
+        && locomotor_name_for_unit("ChinaVehicleTroopCrawler") == Some(TROOP_CRAWLER_LOCOMOTOR)
+        && locomotor_name_for_unit("GLAVehicleRadarVan") == Some(RADAR_VAN_LOCOMOTOR)
+        && locomotor_name_for_unit("GLAVehicleToxinTruck") == Some(TOXIN_TRUCK_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaVehicleChinook") == Some(CHINOOK_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaJetA10Thunderbolt") == Some(A10_THUNDERBOLT_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaJetB52") == Some(B52_LOCOMOTOR)
+        && locomotor_name_for_unit("GLAVehicleCombatBike") == Some(COMBAT_BIKE_GROUND_LOCOMOTOR)
+        && locomotor_name_for_unit("GLAInfantryJarmenKell") == Some(JARMEN_KELL_LOCOMOTOR)
+        && locomotor_name_for_unit("ChinaInfantryBlackLotus") == Some(BLACK_LOTUS_LOCOMOTOR)
+        && locomotor_name_for_unit("AmericaInfantryMissileDefender")
+            == Some(MISSILE_DEFENDER_LOCOMOTOR)
 }
 
 /// Resolve host Movement stats from the Locomotor catalog by template name.
@@ -429,6 +564,9 @@ fn seed_known_host_locomotors() -> usize {
             || name == COMANCHE_LOCOMOTOR
             || name == MIG_LOCOMOTOR
             || name == HELIX_LOCOMOTOR
+            || name == CHINOOK_LOCOMOTOR
+            || name == A10_THUNDERBOLT_LOCOMOTOR
+            || name == B52_LOCOMOTOR
         {
             "AIR"
         } else {
@@ -582,6 +720,24 @@ mod tests {
         assert_eq!(
             locomotor_name_for_unit("AmericaVehicleComanche"),
             Some(COMANCHE_LOCOMOTOR)
+        );
+    }
+
+    #[test]
+    fn locomotor_residual_expand_pack_honesty_wave103() {
+        assert!(honesty_locomotor_residual_expand_wave103());
+        assert!(HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() >= 39);
+        assert!(store_has(BOMB_TRUCK_LOCOMOTOR));
+        assert!(store_has(CHINOOK_LOCOMOTOR));
+        assert!(store_has(COMBAT_BIKE_GROUND_LOCOMOTOR));
+        assert!(store_has(JARMEN_KELL_LOCOMOTOR));
+        assert_eq!(
+            locomotor_name_for_unit("GLAVehicleBombTruck"),
+            Some(BOMB_TRUCK_LOCOMOTOR)
+        );
+        assert_eq!(
+            locomotor_name_for_unit("AmericaVehicleChinook"),
+            Some(CHINOOK_LOCOMOTOR)
         );
     }
 

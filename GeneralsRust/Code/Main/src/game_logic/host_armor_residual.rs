@@ -1,11 +1,15 @@
 //! Host armor residual table honesty (ProjectileArmor / HazardousMaterialArmor
-//! + Wave 92 common unit armors).
+//! + Wave 92 common unit armors + Wave 103 specialized unit armors).
 //!
 //! Wave 81 residual peel: Armor.ini coefficient residual for projectile shells
 //! and cleanup-hazard fields. Host-testable without full Armor.ini archive load.
 //!
 //! Wave 92 residual expand: HumanArmor / TankArmor / StructureArmor /
 //! AirplaneArmor / TruckArmor key coefficient residual (common unit classes).
+//!
+//! Wave 103 residual expand: HazMatHumanArmor / ChemSuitHumanArmor / DozerArmor /
+//! UpgradedTankArmor / HumveeArmor / DragonTankArmor / ToxinTruckArmor /
+//! ComancheArmor / StructureArmorTough key coefficient residual.
 //!
 //! Fail-closed:
 //! - Not full Armor.ini multi-template matrix / ArmorSet upgrade graph
@@ -298,6 +302,241 @@ pub fn build_truck_armor_residual() -> ArmorTemplate {
     t
 }
 
+// --- Wave 103 specialized unit armor residual coefficients (Armor.ini key scalars) ---
+// HazMatHumanArmor: FLAME 25%, POISON 0%, RADIATION 0%, SNIPER 200%, LASER 25%.
+// ChemSuitHumanArmor: FLAME 150%, POISON 20%, RADIATION 20%, SNIPER 200%.
+// DozerArmor: SMALL_ARMS 25%, GATTLING 10%, FLAME 25%, SNIPER 0%.
+// UpgradedTankArmor: SMALL_ARMS 20%, GATTLING 10%, FLAME 10%, POISON 10%, SNIPER 0%.
+// HumveeArmor: SMALL_ARMS 50%, GATTLING 50%, JET_MISSILES 30%, FLAME 50%, SNIPER 0%.
+// DragonTankArmor: SMALL_ARMS 25%, GATTLING 25%, FLAME 0%, POISON 25%, SNIPER 0%.
+// ToxinTruckArmor: SMALL_ARMS 50%, GATTLING 50%, POISON 0%, SNIPER 0%.
+// ComancheArmor: SMALL_ARMS 120%, GATTLING 120%, EXPLOSION 130%, POISON 25%, SNIPER 0%.
+// StructureArmorTough: SMALL_ARMS 50%, GATTLING 10%, EXPLOSION 80%, SNIPER 0%, FLAME 50%.
+
+/// Retail HazMatHumanArmor residual name.
+pub const HAZMAT_HUMAN_ARMOR: &str = "HazMatHumanArmor";
+/// Retail ChemSuitHumanArmor residual name.
+pub const CHEM_SUIT_HUMAN_ARMOR: &str = "ChemSuitHumanArmor";
+/// Retail DozerArmor residual name.
+pub const DOZER_ARMOR: &str = "DozerArmor";
+/// Retail UpgradedTankArmor residual name.
+pub const UPGRADED_TANK_ARMOR: &str = "UpgradedTankArmor";
+/// Retail HumveeArmor residual name.
+pub const HUMVEE_ARMOR: &str = "HumveeArmor";
+/// Retail DragonTankArmor residual name.
+pub const DRAGON_TANK_ARMOR: &str = "DragonTankArmor";
+/// Retail ToxinTruckArmor residual name.
+pub const TOXIN_TRUCK_ARMOR: &str = "ToxinTruckArmor";
+/// Retail ComancheArmor residual name.
+pub const COMANCHE_ARMOR: &str = "ComancheArmor";
+/// Retail StructureArmorTough residual name.
+pub const STRUCTURE_ARMOR_TOUGH: &str = "StructureArmorTough";
+
+/// HazMatHumanArmor FLAME residual.
+pub const HAZMAT_HUMAN_ARMOR_FLAME: f32 = 0.25;
+/// HazMatHumanArmor POISON residual (immune).
+pub const HAZMAT_HUMAN_ARMOR_POISON: f32 = 0.0;
+/// HazMatHumanArmor SNIPER residual.
+pub const HAZMAT_HUMAN_ARMOR_SNIPER: f32 = 2.0;
+/// HazMatHumanArmor LASER residual.
+pub const HAZMAT_HUMAN_ARMOR_LASER: f32 = 0.25;
+
+/// ChemSuitHumanArmor POISON residual.
+pub const CHEM_SUIT_HUMAN_ARMOR_POISON: f32 = 0.20;
+/// ChemSuitHumanArmor FLAME residual.
+pub const CHEM_SUIT_HUMAN_ARMOR_FLAME: f32 = 1.50;
+/// ChemSuitHumanArmor SNIPER residual.
+pub const CHEM_SUIT_HUMAN_ARMOR_SNIPER: f32 = 2.0;
+
+/// DozerArmor SMALL_ARMS residual.
+pub const DOZER_ARMOR_SMALL_ARMS: f32 = 0.25;
+/// DozerArmor GATTLING residual.
+pub const DOZER_ARMOR_GATTLING: f32 = 0.10;
+/// DozerArmor SNIPER residual (immune).
+pub const DOZER_ARMOR_SNIPER: f32 = 0.0;
+
+/// UpgradedTankArmor SMALL_ARMS residual.
+pub const UPGRADED_TANK_ARMOR_SMALL_ARMS: f32 = 0.20;
+/// UpgradedTankArmor FLAME residual.
+pub const UPGRADED_TANK_ARMOR_FLAME: f32 = 0.10;
+/// UpgradedTankArmor POISON residual.
+pub const UPGRADED_TANK_ARMOR_POISON: f32 = 0.10;
+
+/// HumveeArmor SMALL_ARMS residual.
+pub const HUMVEE_ARMOR_SMALL_ARMS: f32 = 0.50;
+/// HumveeArmor JET_MISSILES residual.
+pub const HUMVEE_ARMOR_JET_MISSILES: f32 = 0.30;
+/// HumveeArmor FLAME residual.
+pub const HUMVEE_ARMOR_FLAME: f32 = 0.50;
+
+/// DragonTankArmor SMALL_ARMS residual.
+pub const DRAGON_TANK_ARMOR_SMALL_ARMS: f32 = 0.25;
+/// DragonTankArmor FLAME residual (immune).
+pub const DRAGON_TANK_ARMOR_FLAME: f32 = 0.0;
+/// DragonTankArmor GATTLING residual.
+pub const DRAGON_TANK_ARMOR_GATTLING: f32 = 0.25;
+
+/// ToxinTruckArmor POISON residual (immune).
+pub const TOXIN_TRUCK_ARMOR_POISON: f32 = 0.0;
+/// ToxinTruckArmor SMALL_ARMS residual.
+pub const TOXIN_TRUCK_ARMOR_SMALL_ARMS: f32 = 0.50;
+
+/// ComancheArmor SMALL_ARMS residual.
+pub const COMANCHE_ARMOR_SMALL_ARMS: f32 = 1.20;
+/// ComancheArmor EXPLOSION residual.
+pub const COMANCHE_ARMOR_EXPLOSION: f32 = 1.30;
+/// ComancheArmor SNIPER residual (immune).
+pub const COMANCHE_ARMOR_SNIPER: f32 = 0.0;
+
+/// StructureArmorTough EXPLOSION residual.
+pub const STRUCTURE_ARMOR_TOUGH_EXPLOSION: f32 = 0.80;
+/// StructureArmorTough SMALL_ARMS residual.
+pub const STRUCTURE_ARMOR_TOUGH_SMALL_ARMS: f32 = 0.50;
+/// StructureArmorTough GATTLING residual.
+pub const STRUCTURE_ARMOR_TOUGH_GATTLING: f32 = 0.10;
+
+/// Build retail HazMatHumanArmor residual template.
+pub fn build_hazmat_human_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::Crush, 2.0);
+    t.set_coefficient(DamageType::ArmorPiercing, 0.10);
+    t.set_coefficient(DamageType::Sniper, HAZMAT_HUMAN_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::Flame, HAZMAT_HUMAN_ARMOR_FLAME);
+    t.set_coefficient(DamageType::Laser, HAZMAT_HUMAN_ARMOR_LASER);
+    t.set_coefficient(DamageType::Poison, HAZMAT_HUMAN_ARMOR_POISON);
+    t.set_coefficient(DamageType::Radiation, 0.0);
+    t.set_coefficient(DamageType::Microwave, 0.0);
+    t.set_coefficient(DamageType::ParticleBeam, 1.50);
+    t.set_coefficient(DamageType::HazardCleanup, 0.0);
+    t.set_coefficient(DamageType::KillPilot, 0.0);
+    t.set_coefficient(DamageType::Surrender, 1.0);
+    t.set_coefficient(DamageType::SubdualMissile, 0.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 0.0);
+    t.set_coefficient(DamageType::SubdualBuilding, 0.0);
+    t
+}
+
+/// Build retail ChemSuitHumanArmor residual template.
+pub fn build_chem_suit_human_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::Crush, 2.0);
+    t.set_coefficient(DamageType::ArmorPiercing, 0.10);
+    t.set_coefficient(DamageType::InfantryMissile, 0.10);
+    t.set_coefficient(DamageType::Flame, CHEM_SUIT_HUMAN_ARMOR_FLAME);
+    t.set_coefficient(DamageType::Poison, CHEM_SUIT_HUMAN_ARMOR_POISON);
+    t.set_coefficient(DamageType::Radiation, 0.20);
+    t.set_coefficient(DamageType::Microwave, 0.20);
+    t.set_coefficient(DamageType::ParticleBeam, 1.50);
+    t.set_coefficient(DamageType::Sniper, CHEM_SUIT_HUMAN_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::Laser, 0.50);
+    t.set_coefficient(DamageType::HazardCleanup, 0.0);
+    t.set_coefficient(DamageType::KillPilot, 0.0);
+    t.set_coefficient(DamageType::Surrender, 1.0);
+    t.set_coefficient(DamageType::SubdualMissile, 0.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 0.0);
+    t.set_coefficient(DamageType::SubdualBuilding, 0.0);
+    t
+}
+
+/// Build retail DozerArmor residual template.
+pub fn build_dozer_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::SmallArms, DOZER_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, DOZER_ARMOR_GATTLING);
+    t.set_coefficient(DamageType::Flame, 0.25);
+    t.set_coefficient(DamageType::Poison, 0.25);
+    t.set_coefficient(DamageType::Sniper, DOZER_ARMOR_SNIPER);
+    t.set_coefficient(DamageType::KillPilot, 1.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 1.0);
+    t
+}
+
+/// Build retail UpgradedTankArmor residual template.
+pub fn build_upgraded_tank_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::SmallArms, UPGRADED_TANK_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, 0.10);
+    t.set_coefficient(DamageType::Flame, UPGRADED_TANK_ARMOR_FLAME);
+    t.set_coefficient(DamageType::Poison, UPGRADED_TANK_ARMOR_POISON);
+    t.set_coefficient(DamageType::Sniper, 0.0);
+    t.set_coefficient(DamageType::Laser, 0.0);
+    t.set_coefficient(DamageType::KillPilot, 1.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 1.0);
+    t
+}
+
+/// Build retail HumveeArmor residual template.
+pub fn build_humvee_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::JetMissiles, HUMVEE_ARMOR_JET_MISSILES);
+    t.set_coefficient(DamageType::SmallArms, HUMVEE_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, 0.50);
+    t.set_coefficient(DamageType::Poison, 0.50);
+    t.set_coefficient(DamageType::Sniper, 0.0);
+    t.set_coefficient(DamageType::Flame, HUMVEE_ARMOR_FLAME);
+    t.set_coefficient(DamageType::KillPilot, 1.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 1.0);
+    t
+}
+
+/// Build retail DragonTankArmor residual template.
+pub fn build_dragon_tank_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::SmallArms, DRAGON_TANK_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, DRAGON_TANK_ARMOR_GATTLING);
+    t.set_coefficient(DamageType::Flame, DRAGON_TANK_ARMOR_FLAME);
+    t.set_coefficient(DamageType::Poison, 0.25);
+    t.set_coefficient(DamageType::Sniper, 0.0);
+    t.set_coefficient(DamageType::KillPilot, 1.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 1.0);
+    t
+}
+
+/// Build retail ToxinTruckArmor residual template.
+pub fn build_toxin_truck_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::SmallArms, TOXIN_TRUCK_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, 0.50);
+    t.set_coefficient(DamageType::Poison, TOXIN_TRUCK_ARMOR_POISON);
+    t.set_coefficient(DamageType::Sniper, 0.0);
+    t.set_coefficient(DamageType::KillPilot, 1.0);
+    t.set_coefficient(DamageType::SubdualVehicle, 1.0);
+    t
+}
+
+/// Build retail ComancheArmor residual template.
+pub fn build_comanche_armor_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::SmallArms, COMANCHE_ARMOR_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, 1.20);
+    t.set_coefficient(DamageType::Explosion, COMANCHE_ARMOR_EXPLOSION);
+    t.set_coefficient(DamageType::Poison, 0.25);
+    t.set_coefficient(DamageType::Sniper, COMANCHE_ARMOR_SNIPER);
+    t
+}
+
+/// Build retail StructureArmorTough residual template.
+pub fn build_structure_armor_tough_residual() -> ArmorTemplate {
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t.set_coefficient(DamageType::SmallArms, STRUCTURE_ARMOR_TOUGH_SMALL_ARMS);
+    t.set_coefficient(DamageType::Gattling, STRUCTURE_ARMOR_TOUGH_GATTLING);
+    t.set_coefficient(DamageType::Sniper, 0.0);
+    t.set_coefficient(DamageType::Poison, 0.01);
+    t.set_coefficient(DamageType::Flame, 0.50);
+    t.set_coefficient(DamageType::Explosion, STRUCTURE_ARMOR_TOUGH_EXPLOSION);
+    t.set_coefficient(DamageType::SubdualBuilding, 1.0);
+    t
+}
+
 /// Ensure residual armor templates are registered when store lacks them.
 ///
 /// Prefer full Armor.ini load when available; only seed missing names.
@@ -314,6 +553,16 @@ pub fn ensure_host_armor_residual_seed() -> usize {
         (STRUCTURE_ARMOR, build_structure_armor_residual),
         (AIRPLANE_ARMOR, build_airplane_armor_residual),
         (TRUCK_ARMOR, build_truck_armor_residual),
+        // Wave 103 expand:
+        (HAZMAT_HUMAN_ARMOR, build_hazmat_human_armor_residual),
+        (CHEM_SUIT_HUMAN_ARMOR, build_chem_suit_human_armor_residual),
+        (DOZER_ARMOR, build_dozer_armor_residual),
+        (UPGRADED_TANK_ARMOR, build_upgraded_tank_armor_residual),
+        (HUMVEE_ARMOR, build_humvee_armor_residual),
+        (DRAGON_TANK_ARMOR, build_dragon_tank_armor_residual),
+        (TOXIN_TRUCK_ARMOR, build_toxin_truck_armor_residual),
+        (COMANCHE_ARMOR, build_comanche_armor_residual),
+        (STRUCTURE_ARMOR_TOUGH, build_structure_armor_tough_residual),
     ];
     for &(name, builder) in seeds {
         let key = AsciiString::from(name);
@@ -523,6 +772,142 @@ pub fn honesty_armor_residual_expand_wave92() -> bool {
     human_ok && tank_ok && structure_ok && airplane_ok && truck_ok && store_ok && store_coeff_ok
 }
 
+/// Wave 103 residual honesty: specialized unit armor residual expand.
+///
+/// Verifies HazMat / ChemSuit / Dozer / UpgradedTank / Humvee / Dragon /
+/// ToxinTruck / Comanche / StructureTough key Armor.ini residual scalars.
+/// Fail-closed: not full ArmorSet PLAYER_UPGRADE matrix / exclusive general armors.
+pub fn honesty_armor_residual_expand_wave103() -> bool {
+    let _ = ensure_host_armor_residual_seed();
+    if !honesty_armor_residual_expand_wave92() {
+        return false;
+    }
+
+    let names_ok = HAZMAT_HUMAN_ARMOR == "HazMatHumanArmor"
+        && CHEM_SUIT_HUMAN_ARMOR == "ChemSuitHumanArmor"
+        && DOZER_ARMOR == "DozerArmor"
+        && UPGRADED_TANK_ARMOR == "UpgradedTankArmor"
+        && HUMVEE_ARMOR == "HumveeArmor"
+        && DRAGON_TANK_ARMOR == "DragonTankArmor"
+        && TOXIN_TRUCK_ARMOR == "ToxinTruckArmor"
+        && COMANCHE_ARMOR == "ComancheArmor"
+        && STRUCTURE_ARMOR_TOUGH == "StructureArmorTough"
+        && (HAZMAT_HUMAN_ARMOR_FLAME - 0.25).abs() < 0.001
+        && HAZMAT_HUMAN_ARMOR_POISON == 0.0
+        && (HAZMAT_HUMAN_ARMOR_SNIPER - 2.0).abs() < 0.001
+        && (CHEM_SUIT_HUMAN_ARMOR_POISON - 0.20).abs() < 0.001
+        && (CHEM_SUIT_HUMAN_ARMOR_FLAME - 1.50).abs() < 0.001
+        && (DOZER_ARMOR_SMALL_ARMS - 0.25).abs() < 0.001
+        && DOZER_ARMOR_SNIPER == 0.0
+        && (UPGRADED_TANK_ARMOR_SMALL_ARMS - 0.20).abs() < 0.001
+        && (UPGRADED_TANK_ARMOR_FLAME - 0.10).abs() < 0.001
+        && (HUMVEE_ARMOR_SMALL_ARMS - 0.50).abs() < 0.001
+        && (HUMVEE_ARMOR_JET_MISSILES - 0.30).abs() < 0.001
+        && (HUMVEE_ARMOR_FLAME - 0.50).abs() < 0.001
+        && DRAGON_TANK_ARMOR_FLAME == 0.0
+        && TOXIN_TRUCK_ARMOR_POISON == 0.0
+        && (COMANCHE_ARMOR_SMALL_ARMS - 1.20).abs() < 0.001
+        && (COMANCHE_ARMOR_EXPLOSION - 1.30).abs() < 0.001
+        && (STRUCTURE_ARMOR_TOUGH_EXPLOSION - 0.80).abs() < 0.001;
+
+    if !names_ok {
+        return false;
+    }
+
+    let hazmat = build_hazmat_human_armor_residual();
+    let hazmat_ok = approx_eq(hazmat.adjust_damage(DamageType::Flame, 100.0), 25.0)
+        && approx_eq(hazmat.adjust_damage(DamageType::Poison, 100.0), 0.0)
+        && approx_eq(hazmat.adjust_damage(DamageType::Sniper, 100.0), 200.0)
+        && approx_eq(hazmat.adjust_damage(DamageType::Radiation, 100.0), 0.0);
+
+    let chem = build_chem_suit_human_armor_residual();
+    let chem_ok = approx_eq(chem.adjust_damage(DamageType::Poison, 100.0), 20.0)
+        && approx_eq(chem.adjust_damage(DamageType::Flame, 100.0), 150.0)
+        && approx_eq(chem.adjust_damage(DamageType::Sniper, 100.0), 200.0);
+
+    let dozer = build_dozer_armor_residual();
+    let dozer_ok = approx_eq(dozer.adjust_damage(DamageType::SmallArms, 100.0), 25.0)
+        && approx_eq(dozer.adjust_damage(DamageType::Gattling, 100.0), 10.0)
+        && approx_eq(dozer.adjust_damage(DamageType::Sniper, 100.0), 0.0);
+
+    let upgraded = build_upgraded_tank_armor_residual();
+    let upgraded_ok = approx_eq(upgraded.adjust_damage(DamageType::SmallArms, 100.0), 20.0)
+        && approx_eq(upgraded.adjust_damage(DamageType::Flame, 100.0), 10.0)
+        && approx_eq(upgraded.adjust_damage(DamageType::Poison, 100.0), 10.0);
+
+    let humvee = build_humvee_armor_residual();
+    let humvee_ok = approx_eq(humvee.adjust_damage(DamageType::SmallArms, 100.0), 50.0)
+        && approx_eq(humvee.adjust_damage(DamageType::JetMissiles, 100.0), 30.0)
+        && approx_eq(humvee.adjust_damage(DamageType::Flame, 100.0), 50.0)
+        && approx_eq(humvee.adjust_damage(DamageType::Sniper, 100.0), 0.0);
+
+    let dragon = build_dragon_tank_armor_residual();
+    let dragon_ok = approx_eq(dragon.adjust_damage(DamageType::SmallArms, 100.0), 25.0)
+        && approx_eq(dragon.adjust_damage(DamageType::Flame, 100.0), 0.0)
+        && approx_eq(dragon.adjust_damage(DamageType::Gattling, 100.0), 25.0);
+
+    let toxin = build_toxin_truck_armor_residual();
+    let toxin_ok = approx_eq(toxin.adjust_damage(DamageType::Poison, 100.0), 0.0)
+        && approx_eq(toxin.adjust_damage(DamageType::SmallArms, 100.0), 50.0);
+
+    let comanche = build_comanche_armor_residual();
+    let comanche_ok = approx_eq(comanche.adjust_damage(DamageType::SmallArms, 100.0), 120.0)
+        && approx_eq(comanche.adjust_damage(DamageType::Explosion, 100.0), 130.0)
+        && approx_eq(comanche.adjust_damage(DamageType::Sniper, 100.0), 0.0);
+
+    let tough = build_structure_armor_tough_residual();
+    let tough_ok = approx_eq(tough.adjust_damage(DamageType::Explosion, 100.0), 80.0)
+        && approx_eq(tough.adjust_damage(DamageType::SmallArms, 100.0), 50.0)
+        && approx_eq(tough.adjust_damage(DamageType::Gattling, 100.0), 10.0)
+        && approx_eq(tough.adjust_damage(DamageType::Sniper, 100.0), 0.0);
+
+    let store_names = [
+        HAZMAT_HUMAN_ARMOR,
+        CHEM_SUIT_HUMAN_ARMOR,
+        DOZER_ARMOR,
+        UPGRADED_TANK_ARMOR,
+        HUMVEE_ARMOR,
+        DRAGON_TANK_ARMOR,
+        TOXIN_TRUCK_ARMOR,
+        COMANCHE_ARMOR,
+        STRUCTURE_ARMOR_TOUGH,
+    ];
+    let store_ok = store_names
+        .iter()
+        .all(|n| TheArmorStore::find_template(&AsciiString::from(*n)).is_some());
+
+    // If store loaded full Armor.ini, verify key scalars still match residual.
+    let store_coeff_ok = match (
+        TheArmorStore::find_template(&AsciiString::from(HAZMAT_HUMAN_ARMOR)),
+        TheArmorStore::find_template(&AsciiString::from(DRAGON_TANK_ARMOR)),
+        TheArmorStore::find_template(&AsciiString::from(TOXIN_TRUCK_ARMOR)),
+        TheArmorStore::find_template(&AsciiString::from(STRUCTURE_ARMOR_TOUGH)),
+        TheArmorStore::find_template(&AsciiString::from(HUMVEE_ARMOR)),
+    ) {
+        (Some(h), Some(d), Some(t), Some(s), Some(u)) => {
+            approx_eq(h.adjust_damage(DamageType::Poison, 100.0), 0.0)
+                && approx_eq(h.adjust_damage(DamageType::Flame, 100.0), 25.0)
+                && approx_eq(d.adjust_damage(DamageType::Flame, 100.0), 0.0)
+                && approx_eq(t.adjust_damage(DamageType::Poison, 100.0), 0.0)
+                && approx_eq(s.adjust_damage(DamageType::Explosion, 100.0), 80.0)
+                && approx_eq(u.adjust_damage(DamageType::JetMissiles, 100.0), 30.0)
+        }
+        _ => false,
+    };
+
+    hazmat_ok
+        && chem_ok
+        && dozer_ok
+        && upgraded_ok
+        && humvee_ok
+        && dragon_ok
+        && toxin_ok
+        && comanche_ok
+        && tough_ok
+        && store_ok
+        && store_coeff_ok
+}
+
 #[inline]
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.05
@@ -562,5 +947,19 @@ mod tests {
         assert_eq!(STRUCTURE_ARMOR, "StructureArmor");
         assert_eq!(AIRPLANE_ARMOR, "AirplaneArmor");
         assert_eq!(TRUCK_ARMOR, "TruckArmor");
+        assert_eq!(HAZMAT_HUMAN_ARMOR, "HazMatHumanArmor");
+        assert_eq!(DRAGON_TANK_ARMOR, "DragonTankArmor");
+        assert_eq!(STRUCTURE_ARMOR_TOUGH, "StructureArmorTough");
+    }
+
+    #[test]
+    fn armor_residual_expand_pack_honesty_wave103() {
+        assert!(honesty_armor_residual_expand_wave103());
+        let dragon = build_dragon_tank_armor_residual();
+        assert!((dragon.adjust_damage(DamageType::Flame, 100.0)).abs() < 0.01);
+        let hazmat = build_hazmat_human_armor_residual();
+        assert!((hazmat.adjust_damage(DamageType::Poison, 100.0)).abs() < 0.01);
+        let tough = build_structure_armor_tough_residual();
+        assert!((tough.adjust_damage(DamageType::Explosion, 100.0) - 80.0).abs() < 0.01);
     }
 }

@@ -38,6 +38,12 @@
 //!   + UV_Offset_Rate (U=0, V=ScrollRate×elapsed) honesty on packed layers
 //! - Fail-closed vs wgpu `Queue::write_buffer` (ready flag is bookkeeping only)
 //!
+//! Wave 102 residual closed (host-testable, fail-closed vs GPU):
+//! - Soft-edge UV atlas residual texture bind expand (TextureMapMode table
+//!   UNIFORM_WIDTH **0** / TILED **2**, UVOffsetDeltaPerMS = rate×0.001,
+//!   CurrentUVOffset advance residual, atlas bind name pack expanded)
+//! - Multi-beam soft-edge residual fields retained + UV atlas honesty cross-link
+//!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
 //! - Texture atlas GPU sample bind / sampler state
@@ -115,6 +121,192 @@ pub const ORBITAL_LASER_SOFTNESS_DISTANCE: f32 = 0.0;
 pub const ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD: bool = false;
 /// Honesty: SoftnessDistance is not a W3DLaserDraw field (always absent).
 pub const ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD: bool = false;
+
+// ---------------------------------------------------------------------------
+// Wave 102: SegLine soft-edge UV atlas residual texture bind expand
+// ---------------------------------------------------------------------------
+
+/// C++ `SegLineRendererClass::TextureMapMode` residual (seglinerenderer.h).
+/// UNIFORM_WIDTH_TEXTURE_MAP = 0x00000000
+pub const SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH: u32 = 0x00000000;
+/// C++ TILED_TEXTURE_MAP residual = 0x00000002
+pub const SEGLINE_TEXTURE_MAP_TILED: u32 = 0x00000002;
+/// Residual TextureMapMode name table (OrbitalLaser uses TILED when Tile=Yes).
+pub const SEGLINE_TEXTURE_MAP_MODE_NAMES: [&str; 2] = [
+    "UNIFORM_WIDTH_TEXTURE_MAP",
+    "TILED_TEXTURE_MAP",
+];
+/// Residual TextureMapMode discriminant table matching names order.
+pub const SEGLINE_TEXTURE_MAP_MODE_VALUES: [u32; 2] = [
+    SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH,
+    SEGLINE_TEXTURE_MAP_TILED,
+];
+/// Retail OrbitalLaser atlas residual texture bind name (EXNoise02.tga).
+pub const SEGLINE_SOFT_EDGE_ATLAS_TEXTURE: &str = "EXNoise02.tga";
+/// Binary stream atlas residual texture bind name.
+pub const SEGLINE_BINARY_STREAM_ATLAS_TEXTURE: &str = "EXBinaryStream32.tga";
+/// Connector atlas residual texture bind name.
+pub const SEGLINE_CONNECTOR_ATLAS_TEXTURE: &str = "EXLaser.tga";
+/// Soft-edge atlas residual bind table (name order for host honesty pack).
+pub const SEGLINE_SOFT_EDGE_ATLAS_BIND_TABLE: [&str; 3] = [
+    SEGLINE_SOFT_EDGE_ATLAS_TEXTURE,
+    SEGLINE_BINARY_STREAM_ATLAS_TEXTURE,
+    SEGLINE_CONNECTOR_ATLAS_TEXTURE,
+];
+
+/// C++ `Set_UV_Offset_Rate`: `UVOffsetDeltaPerMS = rate * 0.001`.
+#[inline]
+pub fn segliner_uv_offset_delta_per_ms_residual(rate_u: f32, rate_v: f32) -> (f32, f32) {
+    (rate_u * 0.001, rate_v * 0.001)
+}
+
+/// C++ Render residual UV advance: `CurrentUVOffset + UVOffsetDeltaPerMS * del_ms`.
+///
+/// Fail-closed vs live SegLineRenderer vertex UV write / texture sample.
+#[inline]
+pub fn segliner_advance_current_uv_offset_residual(
+    current_u: f32,
+    current_v: f32,
+    rate_u: f32,
+    rate_v: f32,
+    del_ms: f32,
+) -> (f32, f32) {
+    let (du, dv) = segliner_uv_offset_delta_per_ms_residual(rate_u, rate_v);
+    (current_u + du * del_ms, current_v + dv * del_ms)
+}
+
+/// Host residual soft-edge UV atlas texture bind expand pack (Wave 102).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SoftEdgeUvAtlasBindResidual {
+    pub texture_name: &'static str,
+    pub map_mode_value: u32,
+    pub map_mode_name: &'static str,
+    pub tile: bool,
+    pub uv_rate_u: f32,
+    pub uv_rate_v: f32,
+    pub current_uv_u: f32,
+    pub current_uv_v: f32,
+    /// Always false — host never claims live atlas sampler bind.
+    pub gpu_atlas_bound: bool,
+}
+
+/// OrbitalLaser soft-edge UV atlas residual after `elapsed_sec` of scroll.
+pub fn orbital_soft_edge_uv_atlas_bind_residual(elapsed_sec: f32) -> SoftEdgeUvAtlasBindResidual {
+    let rate_u = ORBITAL_LASER_UV_OFFSET_U;
+    let rate_v = ORBITAL_LASER_SCROLL_RATE;
+    let del_ms = elapsed_sec * 1000.0;
+    let (cu, cv) = segliner_advance_current_uv_offset_residual(0.0, 0.0, rate_u, rate_v, del_ms);
+    SoftEdgeUvAtlasBindResidual {
+        texture_name: SEGLINE_SOFT_EDGE_ATLAS_TEXTURE,
+        map_mode_value: SEGLINE_TEXTURE_MAP_TILED,
+        map_mode_name: "TILED_TEXTURE_MAP",
+        tile: ORBITAL_LASER_TILE,
+        uv_rate_u: rate_u,
+        uv_rate_v: rate_v,
+        current_uv_u: cu,
+        current_uv_v: cv,
+        gpu_atlas_bound: false,
+    }
+}
+
+/// Honesty: soft-edge UV atlas residual texture bind expand (Wave 102).
+pub fn honesty_soft_edge_uv_atlas_texture_bind_expand_wave102() -> bool {
+    // TextureMapMode residual table.
+    if SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH != 0 {
+        return false;
+    }
+    if SEGLINE_TEXTURE_MAP_TILED != 2 {
+        return false;
+    }
+    if SEGLINE_TEXTURE_MAP_MODE_NAMES.len() != 2 || SEGLINE_TEXTURE_MAP_MODE_VALUES.len() != 2 {
+        return false;
+    }
+    if SEGLINE_TEXTURE_MAP_MODE_VALUES[0] != SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH {
+        return false;
+    }
+    if SEGLINE_TEXTURE_MAP_MODE_VALUES[1] != SEGLINE_TEXTURE_MAP_TILED {
+        return false;
+    }
+    if SEGLINE_TEXTURE_MAP_MODE_NAMES[1] != "TILED_TEXTURE_MAP" {
+        return false;
+    }
+    // Atlas bind table residual expand.
+    if SEGLINE_SOFT_EDGE_ATLAS_BIND_TABLE.len() != 3 {
+        return false;
+    }
+    if SEGLINE_SOFT_EDGE_ATLAS_TEXTURE != "EXNoise02.tga" {
+        return false;
+    }
+    if SEGLINE_BINARY_STREAM_ATLAS_TEXTURE != "EXBinaryStream32.tga" {
+        return false;
+    }
+    if SEGLINE_CONNECTOR_ATLAS_TEXTURE != "EXLaser.tga" {
+        return false;
+    }
+    // Cross-link existing texture bind pack.
+    if !honesty_laser_texture_bind_pack() {
+        return false;
+    }
+    // UVOffsetDeltaPerMS residual: rate * 0.001.
+    let (du, dv) = segliner_uv_offset_delta_per_ms_residual(0.0, -1.75);
+    if du.abs() >= 1e-9 {
+        return false;
+    }
+    if (dv - (-1.75 * 0.001)).abs() >= 1e-9 {
+        return false;
+    }
+    // Advance residual: 1000ms × delta = full rate.
+    let (cu, cv) = segliner_advance_current_uv_offset_residual(0.0, 0.0, 0.0, -1.75, 1000.0);
+    if cu.abs() >= 1e-6 {
+        return false;
+    }
+    if (cv - (-1.75)).abs() >= 1e-4 {
+        return false;
+    }
+    // Orbital soft-edge atlas residual after 1s.
+    let bind = orbital_soft_edge_uv_atlas_bind_residual(1.0);
+    if bind.texture_name != ORBITAL_LASER_TEXTURE {
+        return false;
+    }
+    if bind.map_mode_value != SEGLINE_TEXTURE_MAP_TILED {
+        return false;
+    }
+    if bind.map_mode_name != ORBITAL_LASER_TEXTURE_MAPPING {
+        return false;
+    }
+    if !bind.tile || bind.gpu_atlas_bound {
+        return false;
+    }
+    if (bind.uv_rate_v - ORBITAL_LASER_SCROLL_RATE).abs() >= 0.001 {
+        return false;
+    }
+    if (bind.current_uv_v - ORBITAL_LASER_SCROLL_RATE).abs() >= 0.01 {
+        return false;
+    }
+    // Multi-beam soft-edge residual field pack still honest.
+    if !honesty_soft_edge_multi_beam_uv_residual_pack() {
+        return false;
+    }
+    // Multi-beam layers carry scroll_uv = rate * elapsed matching atlas V residual.
+    let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 200.0),
+        1.0,
+        1.0,
+    );
+    pack.honesty.honesty_multi_beam_soft_edge_ok()
+        && pack.honesty.honesty_additive_tiled_ok()
+        && pack.honesty.texture_name == SEGLINE_SOFT_EDGE_ATLAS_TEXTURE
+        && (pack.honesty.multi_beam_scroll_uv - bind.current_uv_v).abs() < 0.01
+        && !bind.gpu_atlas_bound
+}
+
+/// Combined Wave 102 laser SegLine residual honesty pack.
+pub fn honesty_laser_segliner_residual_deepen_pack_wave102() -> bool {
+    honesty_soft_edge_uv_atlas_texture_bind_expand_wave102()
+        && honesty_outer_beam_width_multi_beam_pack()
+        && honesty_soft_edge_multi_beam_uv_residual_pack()
+}
 
 /// Convert residual MaxIntensityLifetime / FadeLifetime milliseconds → frames.
 pub fn laser_duration_ms_to_frames(ms: u32) -> u32 {
@@ -1177,5 +1369,23 @@ mod tests {
         );
         assert!(layers[0].tile_factor > layers[11].tile_factor);
         assert!((layers[0].scroll_uv - layers[11].scroll_uv).abs() < 0.001);
+    }
+
+    /// Wave 102 residual: soft-edge UV atlas texture bind expand + multi-beam fields.
+    #[test]
+    fn laser_segliner_residual_deepen_wave102_honesty() {
+        assert!(honesty_soft_edge_uv_atlas_texture_bind_expand_wave102());
+        assert!(honesty_laser_segliner_residual_deepen_pack_wave102());
+        assert_eq!(SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH, 0);
+        assert_eq!(SEGLINE_TEXTURE_MAP_TILED, 2);
+        assert_eq!(SEGLINE_SOFT_EDGE_ATLAS_BIND_TABLE.len(), 3);
+        let (du, dv) = segliner_uv_offset_delta_per_ms_residual(0.0, -1.75);
+        assert!((dv - (-0.00175)).abs() < 1e-9);
+        assert!(du.abs() < 1e-12);
+        let bind = orbital_soft_edge_uv_atlas_bind_residual(1.0);
+        assert_eq!(bind.texture_name, "EXNoise02.tga");
+        assert_eq!(bind.map_mode_value, SEGLINE_TEXTURE_MAP_TILED);
+        assert!(!bind.gpu_atlas_bound);
+        assert!((bind.current_uv_v - (-1.75)).abs() < 0.01);
     }
 }
