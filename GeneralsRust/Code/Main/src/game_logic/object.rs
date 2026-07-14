@@ -1644,7 +1644,11 @@ impl Object {
 
     pub fn heal(&mut self, amount: f32) {
         if !self.status.destroyed {
+            let before = self.health.current;
             self.health.heal(amount);
+            if self.health.current > before {
+                crate::game_logic::host_heal_log::record(self.id, self.health.current);
+            }
         }
     }
 
