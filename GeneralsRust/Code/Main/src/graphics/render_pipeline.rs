@@ -2816,6 +2816,18 @@ impl RenderPipeline {
         }
     }
 
+    /// Pack presentation move-order lines into CPU buffer (no live GameLogic).
+    pub fn pack_presentation_move_lines(
+        &self,
+    ) -> crate::graphics::move_line_upload::MoveLineUpload {
+        match self.presentation_frame.as_ref() {
+            Some(frame) => {
+                crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(frame)
+            }
+            None => crate::graphics::move_line_upload::MoveLineUpload::empty(),
+        }
+    }
+
     pub fn get_minimap_texture_id(&self) -> Option<UiTextureId> {
         self.minimap_renderer.as_ref()?.get_texture_id()
     }
