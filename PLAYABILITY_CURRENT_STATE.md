@@ -49,6 +49,58 @@
 - Shell `playable_claim` remains false (no windowed W3D retail claim)
 - Network residual replication (network deferred)
 
+## Residual Host Playability — Wave 74: multi-locale CSF + ThingFactory spawn bookkeeping (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Multi-locale CSF pack load residual deepen** (`game_text_residual`):
+   - Beyond English pack load: residual path resolve for German/French/Spanish/Italian
+     (plus English) via `load_locale_csf_pack_residual` / `PRIMARY_LOCALE_CSF_PACKS`.
+   - Label-count residual honesty when a locale path is present and parses.
+   - Empty-table honesty when locale pack is absent (fail-closed, not boot UI).
+   - Wired into `GameTextResidualHonesty` + `exercise_host_game_text_residual`.
+   - Honesty: `honesty_multi_locale_csf_pack_load` +
+     `exercise_multi_locale_csf_pack_load_residual`.
+2. **ThingFactory object residual spawn bookkeeping** (`special_power_strikes`):
+   - `ThingFactoryObjectSpawnResidual` ledger (object name / mass / health /
+     geometry / KindOf / armor / body module / spawn frame / position).
+   - ScudStormMissile live residual spawn bookkeeping on impact
+     (`scud_storm_missile_spawn_residual` +
+     `scud_thing_factory_spawn_applications`).
+   - SpectreHowitzerShell residual spawn bookkeeping
+     (`spectre_howitzer_shell_spawn_residual` +
+     `howitzer_shell_thing_factory_spawn_applications`).
+   - TrailRemnant residual spawn bookkeeping with ImmortalBody/DeletionUpdate
+     already closed (`trail_remnant_spawn_residual` +
+     `remnant_thing_factory_spawn_applications`).
+   - Honesty: `honesty_thing_factory_spawn_bookkeeping_wave74` + registry
+     honesty methods; Snapshot/Xfer default fields appended.
+3. **Anim2D MoneyPickUp image list residual bind** (`world_anim_layout`):
+   - Complete `SCPDollar000`..`SCPDollar030` image name table bind residual.
+   - Collection `findTemplate("MoneyPickUp")` after residual init path with full
+     image list residual bind honesty.
+   - Honesty: `honesty_money_pickup_image_list_bind` +
+     `honesty_money_pickup_find_template_after_init`.
+4. **Laser soft-edge multi-beam UV residual deepen** (`laser_segment_upload`):
+   - Per-layer scroll_uv + tile_factor + UV_Offset_Rate (U=0, V=ScrollRate×elapsed).
+   - Fail-closed vs wgpu `Queue::write_buffer` (ready flag bookkeeping only).
+   - Honesty: `honesty_soft_edge_multi_beam_uv_residual_pack`.
+5. Tests / gates (not log-only):
+   - `multi_locale_csf_pack_load_residual_wave74_honesty`
+   - `thing_factory_spawn_bookkeeping_wave74_honesty`
+   - `money_pickup_image_list_bind_and_find_template_wave74_honesty`
+   - `soft_edge_multi_beam_uv_residual_wave74_honesty`
+   - game_text lib: **12** ok; world_anim: **12** ok; special_power_strikes: **103** ok;
+     laser_segment: **12** ok
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full ThingFactory Object / live MissileAIUpdate / DumbProjectileBehavior physics
+- Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
+- Actual `wgpu::Queue::write_buffer` against a live device/pipeline
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 73: Spectre/Nuke/SupW residual deepen + presentation decal (2026-07-13)
 
 **Closed (host-testable residual peels):**

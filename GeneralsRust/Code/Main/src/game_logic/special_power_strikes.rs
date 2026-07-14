@@ -197,7 +197,11 @@
 //! HazardousMaterialArmor / Geometry CYLINDER h1 / HazardFieldCoreWeapon /
 //! DeathFX FX_RadiationPoolDie / SuperweaponNeutronMissile Reload 360s);
 //! SupW variants residual pack (SupW Neutron Reload 240s / SupW PUC 180s /
-//! Nuke_ Neutron 300s / AirF Spectre 180s / RadiusCursor 210). Fail-closed:
+//! Nuke_ Neutron 300s / AirF Spectre 180s / RadiusCursor 210).
+//! Wave 74 residual closed: ThingFactory object residual spawn bookkeeping
+//! (ScudStormMissile impact spawn residual ledger + SpectreHowitzerShell
+//! spawn residual ledger + TrailRemnant spawn residual ledger with
+//! ImmortalBody/DeletionUpdate already closed). Fail-closed:
 //! not full SpectreGunshipUpdate OCL aircraft / HazardousMaterialArmor cleanup
 //! stack / SupW ThingFactory Object.
 
@@ -2677,6 +2681,174 @@ pub fn honesty_trail_remnant_thing_factory_pack() -> bool {
         && honesty_deletion_update_sleep_delay()
 }
 
+// ---------------------------------------------------------------------------
+// Wave 74: ThingFactory residual spawn bookkeeping (fail-closed vs live Object)
+// ---------------------------------------------------------------------------
+
+/// Host residual ThingFactory object spawn ledger entry (Wave 74).
+///
+/// Records object identity + pack fields at residual spawn/impact time without
+/// creating a full GameLogic Object. Fail-closed: not full ThingFactory
+/// `newObject` / partition KindOf matrix / live Physics module stack.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThingFactoryObjectSpawnResidual {
+    /// Retail Object name residual (`ScudStormMissile` / shell / remnant).
+    pub object_name: &'static str,
+    /// Physics Mass residual.
+    pub mass: f32,
+    /// ActiveBody / ImmortalBody MaxHealth residual.
+    pub max_health: f32,
+    /// Geometry type residual (`Cylinder` or empty for remnant).
+    pub geometry: &'static str,
+    /// KindOf residual pack string.
+    pub kind_of: &'static str,
+    /// Armor residual name.
+    pub armor: &'static str,
+    /// Body module residual name (`ActiveBody` / `ImmortalBody` honesty).
+    pub body_module: &'static str,
+    /// Absolute spawn/impact frame residual.
+    pub spawn_frame: u32,
+    /// Spawn position residual (impact / orbit / pulse epicenter).
+    pub position: Vec3,
+    /// True when ImmortalBody residual is armed (TrailRemnant only).
+    pub immortal_body: bool,
+    /// True when DeletionUpdate residual is armed (TrailRemnant only).
+    pub deletion_update: bool,
+}
+
+/// Build ScudStormMissile ThingFactory residual spawn ledger on impact.
+///
+/// Host residual only — not full MissileAIUpdate Object spawn.
+#[inline]
+pub fn scud_storm_missile_spawn_residual(
+    spawn_frame: u32,
+    position: Vec3,
+) -> ThingFactoryObjectSpawnResidual {
+    ThingFactoryObjectSpawnResidual {
+        object_name: SCUD_STORM_MISSILE_OBJECT,
+        mass: SCUD_STORM_MISSILE_MASS,
+        max_health: SCUD_STORM_MISSILE_MAX_HEALTH,
+        geometry: SCUD_STORM_MISSILE_GEOMETRY,
+        kind_of: SCUD_STORM_MISSILE_KIND_OF,
+        armor: SCUD_STORM_MISSILE_ARMOR,
+        body_module: "ActiveBody",
+        spawn_frame,
+        position,
+        immortal_body: false,
+        deletion_update: false,
+    }
+}
+
+/// Build SpectreHowitzerShell ThingFactory residual spawn ledger.
+///
+/// Host residual only — not full DumbProjectileBehavior Object spawn.
+#[inline]
+pub fn spectre_howitzer_shell_spawn_residual(
+    spawn_frame: u32,
+    position: Vec3,
+) -> ThingFactoryObjectSpawnResidual {
+    ThingFactoryObjectSpawnResidual {
+        object_name: SPECTRE_HOWITZER_SHELL_OBJECT,
+        mass: SPECTRE_HOWITZER_SHELL_MASS,
+        max_health: SPECTRE_HOWITZER_SHELL_MAX_HEALTH,
+        geometry: SPECTRE_HOWITZER_SHELL_GEOMETRY,
+        kind_of: SPECTRE_HOWITZER_SHELL_KIND_OF,
+        armor: SPECTRE_HOWITZER_SHELL_ARMOR,
+        body_module: "ActiveBody",
+        spawn_frame,
+        position,
+        immortal_body: false,
+        deletion_update: false,
+    }
+}
+
+/// Build TrailRemnant ThingFactory residual spawn ledger.
+///
+/// ImmortalBody + DeletionUpdate residual already closed (Wave 43/44/65) —
+/// spawn bookkeeping records that pack identity on remnant field spawn.
+#[inline]
+pub fn trail_remnant_spawn_residual(
+    spawn_frame: u32,
+    position: Vec3,
+) -> ThingFactoryObjectSpawnResidual {
+    ThingFactoryObjectSpawnResidual {
+        object_name: PARTICLE_REMNANT_OBJECT_NAME,
+        mass: 0.0, // remnant has no Physics Mass residual
+        max_health: PARTICLE_REMNANT_MAX_HEALTH,
+        geometry: "", // remnant has no Geometry residual
+        kind_of: PARTICLE_REMNANT_KIND_OF,
+        armor: "", // remnant has no Armor residual
+        body_module: PARTICLE_REMNANT_BODY,
+        spawn_frame,
+        position,
+        immortal_body: true,
+        deletion_update: PARTICLE_REMNANT_DELETION_UPDATE,
+    }
+}
+
+/// Honesty: residual spawn ledger matches ThingFactory object pack constants.
+pub fn honesty_thing_factory_spawn_residual(spawn: &ThingFactoryObjectSpawnResidual) -> bool {
+    match spawn.object_name {
+        name if name == SCUD_STORM_MISSILE_OBJECT => {
+            (spawn.mass - SCUD_STORM_MISSILE_MASS).abs() < 0.01
+                && (spawn.max_health - SCUD_STORM_MISSILE_MAX_HEALTH).abs() < 0.01
+                && spawn.geometry == SCUD_STORM_MISSILE_GEOMETRY
+                && spawn.kind_of == SCUD_STORM_MISSILE_KIND_OF
+                && spawn.armor == SCUD_STORM_MISSILE_ARMOR
+                && spawn.body_module == "ActiveBody"
+                && !spawn.immortal_body
+                && !spawn.deletion_update
+                && honesty_scud_storm_missile_thing_factory_pack()
+        }
+        name if name == SPECTRE_HOWITZER_SHELL_OBJECT => {
+            (spawn.mass - SPECTRE_HOWITZER_SHELL_MASS).abs() < 0.01
+                && (spawn.max_health - SPECTRE_HOWITZER_SHELL_MAX_HEALTH).abs() < 0.01
+                && spawn.geometry == SPECTRE_HOWITZER_SHELL_GEOMETRY
+                && spawn.kind_of == SPECTRE_HOWITZER_SHELL_KIND_OF
+                && spawn.armor == SPECTRE_HOWITZER_SHELL_ARMOR
+                && spawn.body_module == "ActiveBody"
+                && !spawn.immortal_body
+                && !spawn.deletion_update
+                && honesty_spectre_howitzer_shell_thing_factory_pack()
+        }
+        name if name == PARTICLE_REMNANT_OBJECT_NAME => {
+            (spawn.max_health - PARTICLE_REMNANT_MAX_HEALTH).abs() < 0.01
+                && spawn.kind_of == PARTICLE_REMNANT_KIND_OF
+                && spawn.body_module == PARTICLE_REMNANT_BODY
+                && spawn.immortal_body
+                && spawn.deletion_update
+                && honesty_trail_remnant_thing_factory_pack()
+        }
+        _ => false,
+    }
+}
+
+/// Wave 74 residual honesty: ThingFactory spawn bookkeeping pack for Scud /
+/// Howitzer shell / TrailRemnant residual objects.
+///
+/// Fail-closed: not full ThingFactory Object / live module stack / partition.
+pub fn honesty_thing_factory_spawn_bookkeeping_wave74() -> bool {
+    let scud = scud_storm_missile_spawn_residual(10, Vec3::new(1.0, 0.0, 2.0));
+    let shell = spectre_howitzer_shell_spawn_residual(20, Vec3::new(3.0, 80.0, 4.0));
+    let remnant = trail_remnant_spawn_residual(30, Vec3::new(5.0, 0.0, 6.0));
+    honesty_thing_factory_spawn_residual(&scud)
+        && honesty_thing_factory_spawn_residual(&shell)
+        && honesty_thing_factory_spawn_residual(&remnant)
+        && scud.spawn_frame == 10
+        && shell.spawn_frame == 20
+        && remnant.spawn_frame == 30
+        && (scud.position.x - 1.0).abs() < 0.01
+        && (shell.position.y - 80.0).abs() < 0.01
+        && (remnant.position.z - 6.0).abs() < 0.01
+        && scud.object_name == "ScudStormMissile"
+        && shell.object_name == "SpectreHowitzerShell"
+        && remnant.object_name == "ParticleUplinkCannonTrailRemnant"
+        && remnant.immortal_body
+        && remnant.deletion_update
+        && !scud.immortal_body
+        && !shell.deletion_update
+}
+
 /// Retail ImmortalBody health floor residual (never drop below 1 HP).
 pub const PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR: f32 = 1.0;
 /// Retail ImmortalBody never-dead residual (never mark effectively dead).
@@ -4575,6 +4747,10 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: MissileAIUpdate defaults residual applications.
     #[serde(default)]
     pub scud_missile_ai_defaults_applications: u32,
+    /// Honesty: ScudStormMissile ThingFactory residual spawn bookkeeping
+    /// applications (Wave 74; impact-time object pack ledger).
+    #[serde(default)]
+    pub scud_thing_factory_spawn_applications: u32,
     /// CarpetBomb faction residual (USA15 / AirF12 / China10). Default America.
     #[serde(default)]
     pub carpet_tier: CarpetBombFactionTier,
@@ -4949,6 +5125,10 @@ pub struct HostSpectreOrbitField {
     /// Honesty: Armor DamageFX=None residual applications.
     #[serde(default)]
     pub howitzer_shell_damage_fx_applications: u32,
+    /// Honesty: SpectreHowitzerShell ThingFactory residual spawn bookkeeping
+    /// applications (Wave 74; shell spawn object pack ledger).
+    #[serde(default)]
+    pub howitzer_shell_thing_factory_spawn_applications: u32,
     /// Honesty: SpectreHowitzerGun AcceptableAimDelta/AttackRange residual applications.
     #[serde(default)]
     pub howitzer_gun_aim_params_applications: u32,
@@ -5580,6 +5760,10 @@ pub struct HostParticleRemnantField {
     /// Honesty: ImmortalBody health-floor residual applications.
     #[serde(default)]
     pub remnant_immortal_body_applications: u32,
+    /// Honesty: TrailRemnant ThingFactory residual spawn bookkeeping
+    /// applications (Wave 74; ImmortalBody/DeletionUpdate pack ledger).
+    #[serde(default)]
+    pub remnant_thing_factory_spawn_applications: u32,
 }
 
 impl HostParticleRemnantField {
@@ -6214,6 +6398,7 @@ impl HostSpecialPowerStrikeRegistry {
             scud_weapon_launch_applications: 0,
             scud_weapon_special_applications: 0,
             scud_missile_ai_defaults_applications: 0,
+            scud_thing_factory_spawn_applications: 0,
             carpet_tier: CarpetBombFactionTier::America,
             carpet_residual_pack_armed: 0,
             carpet_preferred_height_applications: 0,
@@ -6705,6 +6890,16 @@ impl HostSpecialPowerStrikeRegistry {
                     // MissileAIUpdate defaults residual (IgnitionDelay / Lock / KillSelf).
                     strike.scud_missile_ai_defaults_applications = strike
                         .scud_missile_ai_defaults_applications
+                        .saturating_add(shells);
+                    // Wave 74: ScudStormMissile ThingFactory residual spawn
+                    // bookkeeping on impact (object pack ledger; not full Object).
+                    let _scud_spawn = scud_storm_missile_spawn_residual(
+                        frame,
+                        flight_target,
+                    );
+                    debug_assert!(honesty_thing_factory_spawn_residual(&_scud_spawn));
+                    strike.scud_thing_factory_spawn_applications = strike
+                        .scud_thing_factory_spawn_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -7225,6 +7420,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_loft_height_die_applications: 0,
             howitzer_shell_locomotor_template_applications: 0,
             howitzer_shell_damage_fx_applications: 0,
+            howitzer_shell_thing_factory_spawn_applications: 0,
             howitzer_gun_aim_params_applications: 0,
             howitzer_gun_fire_params_applications: 0,
             howitzer_gun_anti_params_applications: 0,
@@ -7392,6 +7588,16 @@ impl HostSpecialPowerStrikeRegistry {
                     .saturating_add(1);
                 field.howitzer_shell_damage_fx_applications = field
                     .howitzer_shell_damage_fx_applications
+                    .saturating_add(1);
+                // Wave 74: SpectreHowitzerShell ThingFactory residual spawn
+                // bookkeeping (object pack ledger; not full shell Object).
+                let _shell_spawn = spectre_howitzer_shell_spawn_residual(
+                    current_frame,
+                    field.position + Vec3::new(0.0, 80.0, 0.0),
+                );
+                debug_assert!(honesty_thing_factory_spawn_residual(&_shell_spawn));
+                field.howitzer_shell_thing_factory_spawn_applications = field
+                    .howitzer_shell_thing_factory_spawn_applications
                     .saturating_add(1);
                 // SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
                 field.howitzer_gun_aim_params_applications = field
@@ -8242,7 +8448,12 @@ impl HostSpecialPowerStrikeRegistry {
             remnant_fire_deletion_applications: 1,
             // ImmortalBody health-floor residual armed on spawn.
             remnant_immortal_body_applications: 1,
+            // Wave 74: TrailRemnant ThingFactory residual spawn bookkeeping.
+            remnant_thing_factory_spawn_applications: 1,
         };
+        // Wave 74: residual spawn ledger honesty (ImmortalBody/DeletionUpdate closed).
+        let _remnant_spawn = trail_remnant_spawn_residual(spawn_frame, position);
+        debug_assert!(honesty_thing_factory_spawn_residual(&_remnant_spawn));
         self.remnant_fields.push(field);
         self.remnant_spawned_this_frame.push(id);
         self.remnant_fields_spawned_total = self.remnant_fields_spawned_total.saturating_add(1);
@@ -9038,6 +9249,38 @@ impl HostSpecialPowerStrikeRegistry {
         }) && SCUD_STORM_MISSILE_DESTROY_DIE
             && SCUD_STORM_MISSILE_LOCOMOTOR_NAME == "SCUDStormMissileLocomotor"
             && SCUD_STORM_MISSILE_DAMAGE_FX == "None"
+    }
+
+    /// Wave 74 residual honesty: ScudStormMissile ThingFactory spawn bookkeeping.
+    ///
+    /// Tracks impact-time object pack ledger residual applications (not full
+    /// ThingFactory Object / live MissileAIUpdate physics flight).
+    pub fn honesty_scud_thing_factory_spawn_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_thing_factory_spawn_applications > 0
+                && s.scud_thing_factory_spawn_applications
+                    >= s.scud_object_params_applications
+        }) && honesty_thing_factory_spawn_bookkeeping_wave74()
+            && honesty_scud_storm_missile_thing_factory_pack()
+    }
+
+    /// Wave 74 residual honesty: SpectreHowitzerShell ThingFactory spawn bookkeeping.
+    pub fn honesty_howitzer_shell_thing_factory_spawn_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_thing_factory_spawn_applications > 0
+                && f.howitzer_shell_thing_factory_spawn_applications
+                    >= f.howitzer_shells_spawned
+        }) && honesty_spectre_howitzer_shell_thing_factory_pack()
+    }
+
+    /// Wave 74 residual honesty: TrailRemnant ThingFactory spawn bookkeeping.
+    pub fn honesty_remnant_thing_factory_spawn_ok(&self) -> bool {
+        self.remnant_fields.iter().any(|f| {
+            f.remnant_thing_factory_spawn_applications >= 1
+                && f.remnant_immortal_body_applications >= 1
+                && f.remnant_fire_deletion_applications >= 1
+        }) && honesty_trail_remnant_thing_factory_pack()
     }
 
     /// Residual honesty: Scud DeathWeapon FireOCL PoisonField residual.
@@ -14556,6 +14799,96 @@ mod tests {
         assert_eq!(PARTICLE_REMNANT_DURATION_FRAMES, 120);
         assert!(honesty_immortal_body_health_floor(50.0, -100.0, 1.0));
         assert!(honesty_deletion_update_sleep_delay());
+    }
+
+    /// Wave 74: ThingFactory residual spawn bookkeeping on impact / shell / remnant.
+    #[test]
+    fn thing_factory_spawn_bookkeeping_wave74_honesty() {
+        assert!(honesty_thing_factory_spawn_bookkeeping_wave74());
+
+        // ScudStormMissile impact residual spawn bookkeeping.
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let scud_id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(50.0, 0.0, 50.0),
+            0,
+        );
+        reg.record_impact_wave(
+            scud_id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(50.0, 0.0, 50.0)],
+        );
+        {
+            let s = reg.get(scud_id).unwrap();
+            assert!(s.scud_thing_factory_spawn_applications >= 1);
+            let spawn = scud_storm_missile_spawn_residual(
+                s.impact_frame,
+                s.target_position,
+            );
+            assert!(honesty_thing_factory_spawn_residual(&spawn));
+            assert_eq!(spawn.object_name, "ScudStormMissile");
+            assert!((spawn.mass - 500.0).abs() < 0.01);
+        }
+        assert!(reg.honesty_scud_thing_factory_spawn_ok());
+
+        // SpectreHowitzerShell residual spawn bookkeeping.
+        let spectre_id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(2),
+            Team::USA,
+            Vec3::new(10.0, 0.0, 10.0),
+            0,
+        );
+        reg.record_impact_complete(spectre_id, 0.0, 0, 0);
+        assert!(!reg.orbit_fields().is_empty());
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_frame = reg.orbit_fields()[0].spawn_frame;
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_frame);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert!(f.howitzer_shell_thing_factory_spawn_applications >= 1);
+            let shell = spectre_howitzer_shell_spawn_residual(
+                spawn_frame,
+                f.position + Vec3::new(0.0, 80.0, 0.0),
+            );
+            assert!(honesty_thing_factory_spawn_residual(&shell));
+            assert_eq!(shell.object_name, "SpectreHowitzerShell");
+            assert!((shell.max_health - 100.0).abs() < 0.01);
+        }
+        assert!(reg.honesty_howitzer_shell_thing_factory_spawn_ok());
+
+        // TrailRemnant residual spawn bookkeeping (ImmortalBody/DeletionUpdate closed).
+        let remnant_id = reg.spawn_remnant_field(
+            ObjectId(3),
+            Team::USA,
+            Vec3::new(7.0, 0.0, 8.0),
+            40,
+            0,
+            0,
+        );
+        assert!(remnant_id >= 1);
+        {
+            let f = reg
+                .remnant_fields()
+                .iter()
+                .find(|f| f.id == remnant_id)
+                .expect("remnant field");
+            assert_eq!(f.remnant_thing_factory_spawn_applications, 1);
+            assert!(f.remnant_immortal_body_applications >= 1);
+            assert!(f.remnant_fire_deletion_applications >= 1);
+            let rem = trail_remnant_spawn_residual(f.spawn_frame, f.position);
+            assert!(honesty_thing_factory_spawn_residual(&rem));
+            assert!(rem.immortal_body);
+            assert!(rem.deletion_update);
+            assert_eq!(rem.body_module, "ImmortalBody");
+        }
+        assert!(reg.honesty_remnant_thing_factory_spawn_ok());
     }
 
     /// Wave 72 residual pack honesty: DaisyCutter / A10 deepen + combined pack.

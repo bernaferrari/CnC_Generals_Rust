@@ -2942,6 +2942,9 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_locomotor_template_applications)?;
         xfer.xfer_marker_label("HowitzerShellDamageFxApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_damage_fx_applications)?;
+        // Wave 74: SpectreHowitzerShell ThingFactory spawn bookkeeping residual.
+        xfer.xfer_marker_label("HowitzerShellThingFactorySpawnApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_thing_factory_spawn_applications)?;
         xfer.xfer_marker_label("HowitzerGunAimParamsApplications")?;
         xfer.xfer_u32(&mut self.howitzer_gun_aim_params_applications)?;
         xfer.xfer_marker_label("HowitzerGunFireParamsApplications")?;
@@ -3299,6 +3302,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_weapon_launch_applications: 0,
                 scud_weapon_special_applications: 0,
                 scud_missile_ai_defaults_applications: 0,
+                scud_thing_factory_spawn_applications: 0,
                 carpet_tier: crate::game_logic::special_power_strikes::CarpetBombFactionTier::America,
                 carpet_residual_pack_armed: 0,
                 carpet_preferred_height_applications: 0,
@@ -3443,6 +3447,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_loft_height_die_applications: 0,
                 howitzer_shell_locomotor_template_applications: 0,
                 howitzer_shell_damage_fx_applications: 0,
+                howitzer_shell_thing_factory_spawn_applications: 0,
                 howitzer_gun_aim_params_applications: 0,
                 howitzer_gun_fire_params_applications: 0,
                 howitzer_gun_anti_params_applications: 0,
@@ -3600,6 +3605,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 remnant_object_params_applications: 0,
                 remnant_fire_deletion_applications: 0,
                 remnant_immortal_body_applications: 0,
+                remnant_thing_factory_spawn_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("RemnantFieldsSpawnedTotal")?;
@@ -3646,6 +3652,9 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleRemnantF
         // TrailRemnant ImmortalBody health-floor residual (appended).
         xfer.xfer_marker_label("RemnantImmortalBodyApplications")?;
         xfer.xfer_u32(&mut self.remnant_immortal_body_applications)?;
+        // Wave 74: TrailRemnant ThingFactory spawn bookkeeping residual.
+        xfer.xfer_marker_label("RemnantThingFactorySpawnApplications")?;
+        xfer.xfer_u32(&mut self.remnant_thing_factory_spawn_applications)?;
         Ok(())
     }
 }
