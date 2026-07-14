@@ -8526,17 +8526,21 @@ impl CnCGameEngine {
         }
 
         if let Some(mode) = self.camera_slave_mode.as_ref() {
-            let target = self
-                .game_logic
-                .get_objects()
-                .values()
-                .find(|obj| {
-                    obj.is_alive()
-                        && obj
-                            .template_name
-                            .eq_ignore_ascii_case(&mode.thing_template_name)
-                })
-                .map(|obj| obj.get_position());
+            // Prefer dual-tick presentation pose so camera follow does not re-read live transforms.
+            let target = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.first_alive_position_for_template(&mode.thing_template_name)
+            } else {
+                self.game_logic
+                    .get_objects()
+                    .values()
+                    .find(|obj| {
+                        obj.is_alive()
+                            && obj
+                                .template_name
+                                .eq_ignore_ascii_case(&mode.thing_template_name)
+                    })
+                    .map(|obj| obj.get_position())
+            };
             if let Some(target) = target {
                 let clamped = self.clamp_to_world_bounds(target);
                 if (self.camera_target.x - clamped.x).abs() > 0.001

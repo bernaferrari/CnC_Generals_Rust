@@ -2206,6 +2206,14 @@ impl PresentationFrame {
     /// Prefer non-structures when any unit is in the box (C++ InGameUI drag residual).
     /// If only structures are hit, keep a single structure when exactly one is present.
     /// Filter stored ids to alive selectable friendlies (control-group recall residual).
+    /// Script camera-slave residual: first non-destroyed object matching template (case-insensitive).
+    pub fn first_alive_position_for_template(&self, template_name: &str) -> Option<glam::Vec3> {
+        self.objects
+            .iter()
+            .find(|o| !o.destroyed && o.template_name.eq_ignore_ascii_case(template_name))
+            .map(|o| o.position)
+    }
+
     pub fn filter_alive_selectable_ids(
         &self,
         ids: &[ObjectId],
@@ -3112,6 +3120,33 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn first_alive_position_for_template_from_presentation() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("HeroJet");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Aircraft);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("HeroJet".into(), t);
+        let id = logic
+            .create_object("HeroJet", Team::USA, glam::Vec3::new(42.0, 5.0, -7.0))
+            .unwrap();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let pos = frame
+            .first_alive_position_for_template("herojet")
+            .expect("pos");
+        assert!((pos.x - 42.0).abs() < 0.01);
+        assert!((pos.z + 7.0).abs() < 0.01);
+        // Move live after snapshot — presentation still returns frozen pose.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(glam::Vec3::new(900.0, 0.0, 900.0));
+        }
+        let pos2 = frame.first_alive_position_for_template("HeroJet").unwrap();
+        assert!((pos2.x - 42.0).abs() < 0.01);
+        assert!(frame.first_alive_position_for_template("Missing").is_none());
     }
 
     #[test]
