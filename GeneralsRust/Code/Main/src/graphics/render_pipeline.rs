@@ -2802,6 +2802,20 @@ impl RenderPipeline {
     }
 
     /// Get minimap texture ID for UI rendering.
+    /// Pack presentation projectiles into CPU trail buffer (no live GameLogic).
+    pub fn pack_presentation_projectiles(
+        &self,
+    ) -> crate::graphics::projectile_segment_upload::ProjectileSegmentUpload {
+        match self.presentation_frame.as_ref() {
+            Some(frame) => {
+                crate::graphics::projectile_segment_upload::ProjectileSegmentUpload::pack_from_presentation(
+                    frame,
+                )
+            }
+            None => crate::graphics::projectile_segment_upload::ProjectileSegmentUpload::empty(),
+        }
+    }
+
     pub fn get_minimap_texture_id(&self) -> Option<UiTextureId> {
         self.minimap_renderer.as_ref()?.get_texture_id()
     }
