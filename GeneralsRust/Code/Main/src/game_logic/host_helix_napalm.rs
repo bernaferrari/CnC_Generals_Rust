@@ -12,6 +12,17 @@
 //! - Reload residual: **10000** ms (300 frames @ 30 FPS).
 //! - Honesty counters/flags for residual gates and tests.
 //!
+//! Wave 70 residual pack (retail Weapon.ini / SpecialPower.ini / Upgrade.ini /
+//! System.ini / ChinaAir.ini):
+//! - Weapon residual: NapalmBombWeapon Primary **75**/r**5** + Secondary **40**/r**30**,
+//!   DamageType **EXPLOSION**, DeathType **EXPLODED**, FireOCL **OCL_FirestormSmall**.
+//! - Ability residual: ReloadTime **10000**ms → **300**f, RadiusCursor **100**,
+//!   StartAbilityRange **3**, MaxSpecialObjects **1**.
+//! - Firestorm residual: Damage **100** / Black **150**, tick **500**ms → **15**f,
+//!   lifetime **6000**ms → **180**f, FinalMajorRadius **90**.
+//! - Upgrade residual: Upgrade_HelixNapalmBomb BuildCost **800**, BuildTime **20**s → **600**f.
+//! - Honesty: `honesty_helix_napalm_residual_pack_ok` + layer honesty tests.
+//!
 //! Fail-closed honesty:
 //! - Not full SpecialObject NapalmBomb projectile / HeightDieUpdate fall path
 //! - Not full FirestormDynamicGeometryInfoUpdate expand/reverse radius animation
@@ -27,7 +38,35 @@ use serde::{Deserialize, Serialize};
 pub const HELIX_NAPALM_LOGIC_FPS: f32 = 30.0;
 
 /// Retail SpecialAbilityHelixNapalmBomb ReloadTime = 10000 ms → 300 frames.
+pub const HELIX_NAPALM_RELOAD_MS: u32 = 10_000;
+/// Retail SpecialAbilityHelixNapalmBomb ReloadTime = 10000 ms → 300 frames.
 pub const HELIX_NAPALM_RELOAD_FRAMES: u32 = 300;
+/// Retail SpecialAbilityHelixNapalmBomb RadiusCursorRadius residual.
+pub const HELIX_NAPALM_RADIUS_CURSOR: f32 = 100.0;
+/// Retail SpecialAbilityUpdate StartAbilityRange residual.
+pub const HELIX_NAPALM_START_ABILITY_RANGE: f32 = 3.0;
+/// Retail MaxSpecialObjects residual.
+pub const HELIX_NAPALM_MAX_SPECIAL_OBJECTS: u32 = 1;
+/// Retail NapalmBombWeapon DamageType residual.
+pub const HELIX_NAPALM_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail NapalmBombWeapon DeathType residual.
+pub const HELIX_NAPALM_DEATH_TYPE: &str = "EXPLODED";
+/// Retail NapalmBombWeapon FireOCL residual.
+pub const HELIX_NAPALM_FIRE_OCL: &str = "OCL_FirestormSmall";
+/// Retail BlackNapalmBombWeapon FireOCL residual.
+pub const HELIX_NAPALM_BLACK_FIRE_OCL: &str = "OCL_BlackNapalmFirestormSmall";
+/// Retail FirestormSmall DelayBetweenDamageFrames residual (msec).
+pub const HELIX_FIRESTORM_TICK_MS: u32 = 500;
+/// Retail FirestormSmall LifetimeUpdate residual (msec).
+pub const HELIX_FIRESTORM_DURATION_MS: u32 = 6_000;
+/// Retail Upgrade_HelixNapalmBomb BuildCost residual.
+pub const HELIX_NAPALM_UPGRADE_BUILD_COST: u32 = 800;
+/// Retail Upgrade_HelixNapalmBomb BuildTime residual (seconds).
+pub const HELIX_NAPALM_UPGRADE_BUILD_TIME_SEC: f32 = 20.0;
+/// BuildTime 20s → 600 frames @ 30 FPS.
+pub const HELIX_NAPALM_UPGRADE_BUILD_TIME_FRAMES: u32 = 600;
+/// Retail SpecialAbilityHelixNapalmBomb Enum residual.
+pub const HELIX_NAPALM_SPECIAL_POWER: &str = "SpecialAbilityHelixNapalmBomb";
 
 /// Retail NapalmBombWeapon PrimaryDamage / PrimaryDamageRadius.
 pub const HELIX_NAPALM_PRIMARY_DAMAGE: f32 = 75.0;
@@ -350,6 +389,84 @@ impl HostHelixNapalmRegistry {
     }
 }
 
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn helix_napalm_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * HELIX_NAPALM_LOGIC_FPS / 1000.0).round() as u32
+}
+
+// --- Wave 70 residual honesty packs ---
+
+/// Wave 70 residual honesty: NapalmBomb weapon residual peel.
+pub fn honesty_helix_napalm_weapon_residual_ok() -> bool {
+    NAPALM_BOMB_WEAPON == "NapalmBombWeapon"
+        && BLACK_NAPALM_BOMB_WEAPON == "BlackNapalmBombWeapon"
+        && (HELIX_NAPALM_PRIMARY_DAMAGE - 75.0).abs() < 0.01
+        && (HELIX_NAPALM_PRIMARY_RADIUS - 5.0).abs() < 0.01
+        && (HELIX_NAPALM_SECONDARY_DAMAGE - 40.0).abs() < 0.01
+        && (HELIX_NAPALM_SECONDARY_RADIUS - 30.0).abs() < 0.01
+        && HELIX_NAPALM_DAMAGE_TYPE == "EXPLOSION"
+        && HELIX_NAPALM_DEATH_TYPE == "EXPLODED"
+        && HELIX_NAPALM_FIRE_OCL == "OCL_FirestormSmall"
+        && HELIX_NAPALM_BLACK_FIRE_OCL == "OCL_BlackNapalmFirestormSmall"
+        && {
+            let d0 = helix_napalm_blast_damage_at(0.0);
+            let d10 = helix_napalm_blast_damage_at(10.0);
+            (d0 - 75.0).abs() < 0.01 && (d10 - 40.0).abs() < 0.01
+        }
+}
+
+/// Wave 70 residual honesty: SpecialAbilityHelixNapalmBomb residual peel.
+pub fn honesty_helix_napalm_ability_residual_ok() -> bool {
+    HELIX_NAPALM_SPECIAL_POWER == "SpecialAbilityHelixNapalmBomb"
+        && HELIX_NAPALM_RELOAD_MS == 10_000
+        && HELIX_NAPALM_RELOAD_FRAMES == helix_napalm_ms_to_frames(HELIX_NAPALM_RELOAD_MS)
+        && HELIX_NAPALM_RELOAD_FRAMES == 300
+        && (HELIX_NAPALM_RADIUS_CURSOR - 100.0).abs() < 0.01
+        && (HELIX_NAPALM_START_ABILITY_RANGE - 3.0).abs() < 0.01
+        && HELIX_NAPALM_MAX_SPECIAL_OBJECTS == 1
+        && UPGRADE_HELIX_NAPALM_BOMB == "Upgrade_HelixNapalmBomb"
+        && UPGRADE_CHINA_BLACK_NAPALM == "Upgrade_ChinaBlackNapalm"
+}
+
+/// Wave 70 residual honesty: FirestormSmall DoT residual peel.
+pub fn honesty_helix_napalm_firestorm_residual_ok() -> bool {
+    (HELIX_FIRESTORM_RADIUS - 90.0).abs() < 0.01
+        && (HELIX_FIRESTORM_DAMAGE_PER_TICK - 100.0).abs() < 0.01
+        && (HELIX_FIRESTORM_DAMAGE_UPGRADED - 150.0).abs() < 0.01
+        && HELIX_FIRESTORM_TICK_MS == 500
+        && HELIX_FIRESTORM_TICK_INTERVAL_FRAMES
+            == helix_napalm_ms_to_frames(HELIX_FIRESTORM_TICK_MS)
+        && HELIX_FIRESTORM_TICK_INTERVAL_FRAMES == 15
+        && HELIX_FIRESTORM_DURATION_MS == 6_000
+        && HELIX_FIRESTORM_DURATION_FRAMES
+            == helix_napalm_ms_to_frames(HELIX_FIRESTORM_DURATION_MS)
+        && HELIX_FIRESTORM_DURATION_FRAMES == 180
+}
+
+/// Wave 70 residual honesty: Helix NapalmBomb object upgrade residual peel.
+pub fn honesty_helix_napalm_upgrade_residual_ok() -> bool {
+    HELIX_NAPALM_UPGRADE_BUILD_COST == 800
+        && (HELIX_NAPALM_UPGRADE_BUILD_TIME_SEC - 20.0).abs() < 0.01
+        && HELIX_NAPALM_UPGRADE_BUILD_TIME_FRAMES
+            == (HELIX_NAPALM_UPGRADE_BUILD_TIME_SEC * HELIX_NAPALM_LOGIC_FPS).round() as u32
+        && HELIX_NAPALM_UPGRADE_BUILD_TIME_FRAMES == 600
+        && helix_napalm_unlocked("TestHelix", false)
+        && !helix_napalm_unlocked("ChinaVehicleHelix", false)
+        && helix_napalm_unlocked("ChinaVehicleHelix", true)
+}
+
+/// Combined Wave 70 Helix Napalm residual honesty pack.
+pub fn honesty_helix_napalm_residual_pack_ok() -> bool {
+    honesty_helix_napalm_weapon_residual_ok()
+        && honesty_helix_napalm_ability_residual_ok()
+        && honesty_helix_napalm_firestorm_residual_ok()
+        && honesty_helix_napalm_upgrade_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +574,21 @@ mod tests {
         reg.prune_expired(10 + HELIX_FIRESTORM_DURATION_FRAMES);
         assert_eq!(reg.active_count(), 0);
         assert_eq!(reg.expirations, 1);
+    }
+
+    #[test]
+    fn helix_napalm_residual_pack_honesty_wave70() {
+        assert!(honesty_helix_napalm_weapon_residual_ok());
+        assert!(honesty_helix_napalm_ability_residual_ok());
+        assert!(honesty_helix_napalm_firestorm_residual_ok());
+        assert!(honesty_helix_napalm_upgrade_residual_ok());
+        assert!(honesty_helix_napalm_residual_pack_ok());
+        assert_eq!(helix_napalm_ms_to_frames(10_000), 300);
+        assert_eq!(helix_napalm_ms_to_frames(500), 15);
+        assert_eq!(helix_napalm_ms_to_frames(6_000), 180);
+        assert_eq!(HELIX_NAPALM_UPGRADE_BUILD_TIME_FRAMES, 600);
+        assert_eq!(HELIX_NAPALM_FIRE_OCL, "OCL_FirestormSmall");
+        assert_eq!(HELIX_NAPALM_DAMAGE_TYPE, "EXPLOSION");
+        assert!((HELIX_NAPALM_START_ABILITY_RANGE - 3.0).abs() < 0.01);
     }
 }

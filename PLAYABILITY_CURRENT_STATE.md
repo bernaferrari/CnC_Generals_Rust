@@ -1,3 +1,86 @@
+## Residual Host Playability — Wave 70: helix-napalm/inferno/leaflet/minigunner residual packs (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Helix Napalm residual pack** (`host_helix_napalm`):
+   - Weapon residual: NapalmBombWeapon Primary **75**/r**5** + Secondary **40**/r**30**,
+     DamageType **EXPLOSION**, DeathType **EXPLODED**, FireOCL **OCL_FirestormSmall**.
+   - Ability residual: ReloadTime **10000**ms → **300**f, RadiusCursor **100**,
+     StartAbilityRange **3**, MaxSpecialObjects **1**.
+   - Firestorm residual: Damage **100** / Black **150**, tick **500**ms → **15**f,
+     lifetime **6000**ms → **180**f, FinalMajorRadius **90**.
+   - Upgrade residual: Upgrade_HelixNapalmBomb BuildCost **800**, BuildTime **20**s → **600**f.
+   - Honesty: `honesty_helix_napalm_residual_pack_ok` + layer honesty tests.
+2. **Inferno Cannon residual pack** (`host_inferno_cannon`):
+   - Weapon residual: InfernoCannonGun Primary **30**/r**15**, range **300**/min **50**,
+     Delay **4000**ms → **120**f, ScatterVsInfantry **30**, DamageType **EXPLOSION**,
+     Projectile **InfernoTankShell**, FireFX **WeaponFX_GenericTankGunNoTracer**.
+   - Fire field residual: SmallFireFieldWeapon **5**/r**30** / tick **250**ms → **8**f /
+     lifetime **2500**ms → **75**f; upgraded **7.5** damage; DamageType **FLAME**.
+   - Body residual: MaxHealth **120**, BuildCost **900**, BuildTime **15**s → **450**f,
+     Vision **180**/Shroud **300**, slots **3**, Geometry BOX **15**/**10**/**15**,
+     Speed **30**/Damaged **20**.
+   - Honesty: `honesty_inferno_cannon_residual_pack_ok` + layer honesty tests.
+3. **Leaflet Drop residual pack** (`host_leaflet_drop`):
+   - Special power residual: SuperweaponLeafletDrop ReloadTime **300000**ms → **9000**f,
+     RadiusCursor **110**, ViewObjectDuration **30000**ms → **900**f / Range **250**,
+     RequiredScience **SCIENCE_LeafletDrop**, SharedSyncedTimer **Yes**.
+   - Container residual: Delay **2500**ms → **75**f, DisabledDuration **20000**ms → **600**f,
+     AffectRadius **110**, MaxHealth **100**, Geometry radius **30**,
+     LeafletFX **LeafletParticles1**.
+   - Honesty: `honesty_leaflet_drop_residual_pack_ok` + layer honesty tests.
+4. **MiniGunner residual pack** (`host_minigunner`):
+   - Weapon residual: Infa_MiniGunnerGun dmg **10**/range **125**, DamageType **Gattling**,
+     Delay **500**ms → **15**f, ContinuousFireOne **6**/Two **12**/Coast **1000**ms → **30**f,
+     ChainGuns DAMAGE **125%**; AA gun range **350** DamageType **SMALL_ARMS**.
+   - Body residual: MaxHealth **120**, Vision **100**/Shroud **200**, BuildCost **350**,
+     BuildTime **10**s → **300**f, slots **1**, Geometry CYLINDER **10**/**12**,
+     Speed **25**/Damaged **15**, Horde Radius **30**/Count **5**.
+   - Honesty: `honesty_minigunner_residual_pack_ok` + layer honesty tests.
+5. **Nuclear Tanks residual pack** (`host_nuclear_tanks`):
+   - Death weapon residual: NuclearTankDeathWeapon Primary **25**/r**25** + Secondary
+     **10**/r**75**, DamageType **EXPLOSION**, FireOCL **OCL_RadiationFieldSmall**;
+     Nuke_ general **110**/r**80** + **70**/r**100**.
+   - Radiation residual: SmallRadiationFieldWeapon **5**/r**15**, tick **750**ms → **23**f,
+     lifetime **2500**ms → **75**f, DamageType **RADIATION**.
+   - Speed residual: Battlemaster **25 → 35** / Damaged **32**; Overlord **20 → 30**.
+   - Upgrade residual: BuildCost **2000**, BuildTime **60**s → **1800**f.
+   - Honesty: `honesty_nuclear_tanks_residual_pack_ok` + layer honesty tests.
+6. **Paradrop residual pack** (`host_paradrop`):
+   - Special power residual: SuperweaponParadropAmerica ReloadTime **240000**ms → **7200**f,
+     RadiusCursor **50**, RequiredScience **SCIENCE_Paradrop1**, SharedSyncedTimer **Yes**.
+   - Payload residual: SUPERWEAPON_Paradrop1 → AmericaInfantryRanger × **5**,
+     DropDelay **150**ms → **5**f, DropSpacing **30**, approach residual **90**f,
+     PutInContainer **AmericaParachute**, Transport **AmericaJetCargoPlane**.
+   - Honesty: `honesty_paradrop_residual_pack_ok` + layer honesty tests.
+7. **Saboteur residual pack** (`host_saboteur`):
+   - Effect residual: Power/Military SabotageDuration **30000**ms → **900**f,
+     Internet **15000**ms → **450**f, StealCashAmount **1000**.
+   - Body residual: MaxHealth **120**, Vision **150**/Shroud **300**, BuildCost **800**,
+     BuildTime **15**s → **450**f, slots **1**, Geometry CYLINDER **10**/**12**,
+     Speed **30**/Damaged **20**, IsTrainable **No**, StealthDelay **2500**ms → **75**f.
+   - Honesty: `honesty_saboteur_residual_pack_ok` + layer honesty tests.
+8. **SCUD Launcher residual pack** (`host_scud_launcher`):
+   - Weapon residual: Explosive **300**/r**50** + **50**/r**100**; Toxin **200**/r**30** +
+     **25**/r**60**; range **350**/min **200**; Clip **1**/reload **10000**ms → **300**f;
+     PreAttack **500**ms → **15**f; Projectile **SCUDMissile**; DamageType **EXPLOSION**.
+   - Poison residual: MediumPoisonFieldWeapon **2**/r**80**, tick **500**ms → **15**f,
+     lifetime **30000**ms → **900**f; upgraded **2.5**; DamageType **POISON**.
+   - Body residual: MaxHealth **180**, BuildCost **1200**, BuildTime **15**s → **450**f,
+     Vision **180**/Shroud **300**, slots **3**, Geometry BOX **14**/**7**/**11.5**,
+     Speed **20**/Damaged **15**.
+   - Honesty: `honesty_scud_launcher_residual_pack_ok` + layer honesty tests.
+9. Tests / gates (not log-only):
+   - `helix_napalm_residual_pack_honesty_wave70` / weapon / ability / firestorm / upgrade
+   - `inferno_cannon_residual_pack_honesty_wave70` / weapon / fire_field / body
+   - `leaflet_drop_residual_pack_honesty_wave70` / special_power / container
+   - `minigunner_residual_pack_honesty_wave70` / weapon / body
+   - `nuclear_tanks_residual_pack_honesty_wave70` / death_weapon / radiation / upgrade_speed
+   - `paradrop_residual_pack_honesty_wave70` / special_power / payload
+   - `saboteur_residual_pack_honesty_wave70` / effect / body
+   - `scud_launcher_residual_pack_honesty_wave70` / weapon / poison / body
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
 ## Residual Host Playability — Wave 68: black-market/booby/listening + graphics residual (2026-07-13)
 
 **Closed (host-testable residual peels):**
