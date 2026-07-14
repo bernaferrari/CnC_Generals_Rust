@@ -13,6 +13,18 @@
 //!   Retail ZH WeaponSet is PRIMARY-only; bayonet is residual from weapon def +
 //!   PREATTACK_C/FIRING_C animations (CINE units bind TERTIARY).
 //!
+//! Wave 67 residual pack (retail ChinaInfantry.ini / Weapon.ini / Locomotor.ini):
+//! - Weapon residual: DamageType **SMALL_ARMS**, DeathType **NORMAL**,
+//!   PrimaryDamageRadius **0**, FireFX **WeaponFX_GenericMachineGunFire**,
+//!   WeaponSpeed instant, ClipSize **0**, Delay **1000**ms → **30**f.
+//! - Bayonet residual: DamageType **MELEE**, PreAttackDelay **1400**ms → **42**f,
+//!   Delay **1900**ms → **57**f, range **2**.
+//! - Body residual: MaxHealth **120**, Vision **100**, Shroud **200**,
+//!   BuildCost **300**, BuildTime **10**s → **300**f, TransportSlotCount **1**,
+//!   Locomotor Speed **25**/Damaged **15**, Geometry CYLINDER r**7**/h**12**.
+//! - Capture residual: SpecialAbilityRedGuardCaptureBuilding StartAbilityRange **5**,
+//!   Unpack **3000**ms / Prep **20000**ms / Pack **2000**ms honesty.
+//!
 //! Fail-closed honesty:
 //! - Not full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
 //! - Not full Fanaticism infantry-general nationalism branch
@@ -29,26 +41,51 @@ use crate::game_logic::host_battlemaster::{
 pub use crate::game_logic::host_battlemaster::{has_nationalism_upgrade as red_guard_has_nationalism};
 pub use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM as RED_GUARD_UPGRADE_NATIONALISM;
 
+/// Logic frames per second (host fixed step).
+pub const RED_GUARD_LOGIC_FPS: f32 = 30.0;
+
 /// Retail primary weapon.
 pub const REDGUARD_MACHINE_GUN: &str = "RedguardMachineGun";
 /// Residual bayonet weapon name.
 pub const REDGUARD_BAYONET: &str = "RedguardBayonet";
+/// Retail capture special ability residual.
+pub const SPECIAL_ABILITY_RED_GUARD_CAPTURE: &str = "SpecialAbilityRedGuardCaptureBuilding";
+/// Retail Upgrade_InfantryCaptureBuilding residual.
+pub const UPGRADE_INFANTRY_CAPTURE_BUILDING: &str = "Upgrade_InfantryCaptureBuilding";
 
 /// Retail PrimaryDamage base.
 pub const REDGUARD_DAMAGE: f32 = 15.0;
+/// Retail PrimaryDamageRadius residual (0 = intended only).
+pub const REDGUARD_PRIMARY_RADIUS: f32 = 0.0;
 /// Retail AttackRange.
 pub const REDGUARD_RANGE: f32 = 100.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const REDGUARD_BASE_DELAY_MS: u32 = 1_000;
 /// Retail DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
 pub const REDGUARD_BASE_DELAY_FRAMES: u32 = 30;
+/// Retail DamageType residual.
+pub const REDGUARD_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail DeathType residual.
+pub const REDGUARD_DEATH_TYPE: &str = "NORMAL";
+/// Retail FireFX residual.
+pub const REDGUARD_FIRE_FX: &str = "WeaponFX_GenericMachineGunFire";
+/// Retail ClipSize residual (0 == infinite).
+pub const REDGUARD_CLIP_SIZE: u32 = 0;
 
 /// Bayonet PrimaryDamage residual (one-shot kill).
 pub const BAYONET_DAMAGE: f32 = 10_000.0;
 /// Bayonet AttackRange residual.
 pub const BAYONET_RANGE: f32 = 2.0;
+/// Bayonet DelayBetweenShots residual (msec).
+pub const BAYONET_DELAY_MS: u32 = 1_900;
 /// Bayonet DelayBetweenShots 1900ms → 57 frames @ 30 FPS.
 pub const BAYONET_DELAY_FRAMES: u32 = 57;
+/// Bayonet PreAttackDelay residual (msec).
+pub const BAYONET_PRE_ATTACK_MS: u32 = 1_400;
 /// Bayonet PreAttackDelay 1400ms residual (fail-closed vs full pre-attack lock).
 pub const BAYONET_PRE_ATTACK_FRAMES: u32 = 42;
+/// Bayonet DamageType residual.
+pub const BAYONET_DAMAGE_TYPE: &str = "MELEE";
 
 /// HORDE WeaponBonus RATE_OF_FIRE 150%.
 pub const INFANTRY_HORDE_ROF_MULT: f32 = 1.5;
@@ -59,13 +96,69 @@ pub const INFANTRY_NATIONALISM_ROF_MULT: f32 = 1.25;
 pub const INFANTRY_HORDE_RADIUS: f32 = 30.0;
 /// Retail HordeUpdate Count (includes self via C++ minCount-1 others).
 pub const INFANTRY_HORDE_COUNT: u32 = 5;
+/// Retail HordeUpdate UpdateRate residual (msec).
+pub const INFANTRY_HORDE_UPDATE_MS: u32 = 1_000;
 /// Retail HordeUpdate UpdateRate 1000ms → 30 frames @ 30 FPS.
 pub const INFANTRY_HORDE_UPDATE_FRAMES: u32 = 30;
+/// Retail HordeUpdate ExactMatch residual (No for infantry).
+pub const INFANTRY_HORDE_EXACT_MATCH: bool = false;
+/// Retail HordeUpdate KindOf residual.
+pub const INFANTRY_HORDE_KIND_OF: &str = "INFANTRY";
 
 /// Residual fire audio.
 pub const REDGUARD_FIRE_AUDIO: &str = "RedGuardWeapon";
 /// Residual bayonet audio.
 pub const BAYONET_FIRE_AUDIO: &str = "HeroUSAKnifeAttack";
+
+// --- Body residual (ChinaInfantryRedguard) ---
+
+/// Retail MaxHealth residual.
+pub const REDGUARD_MAX_HEALTH: f32 = 120.0;
+/// Retail VisionRange residual.
+pub const REDGUARD_VISION_RANGE: f32 = 100.0;
+/// Retail ShroudClearingRange residual.
+pub const REDGUARD_SHROUD_CLEARING_RANGE: f32 = 200.0;
+/// Retail BuildCost residual.
+pub const REDGUARD_BUILD_COST: u32 = 300;
+/// Retail BuildTime residual (seconds).
+pub const REDGUARD_BUILD_TIME_SEC: f32 = 10.0;
+/// BuildTime 10s → 300 frames @ 30 FPS.
+pub const REDGUARD_BUILD_TIME_FRAMES: u32 = 300;
+/// Retail TransportSlotCount residual.
+pub const REDGUARD_TRANSPORT_SLOT_COUNT: u32 = 1;
+/// Retail RedguardLocomotor Speed residual.
+pub const REDGUARD_LOCOMOTOR_SPEED: f32 = 25.0;
+/// Retail RedguardLocomotor SpeedDamaged residual.
+pub const REDGUARD_LOCOMOTOR_SPEED_DAMAGED: f32 = 15.0;
+/// Retail Geometry CYLINDER MajorRadius residual.
+pub const REDGUARD_GEOMETRY_RADIUS: f32 = 7.0;
+/// Retail GeometryHeight residual.
+pub const REDGUARD_GEOMETRY_HEIGHT: f32 = 12.0;
+/// Retail ExperienceValue residual.
+pub const REDGUARD_EXPERIENCE_VALUE: [u32; 4] = [5, 5, 10, 20];
+/// Retail ExperienceRequired residual.
+pub const REDGUARD_EXPERIENCE_REQUIRED: [u32; 4] = [0, 20, 40, 80];
+
+/// Capture residual: StartAbilityRange.
+pub const REDGUARD_CAPTURE_START_RANGE: f32 = 5.0;
+/// Capture residual: UnpackTime (msec).
+pub const REDGUARD_CAPTURE_UNPACK_MS: u32 = 3_000;
+/// Capture residual: PreparationTime (msec).
+pub const REDGUARD_CAPTURE_PREP_MS: u32 = 20_000;
+/// Capture residual: PackTime (msec).
+pub const REDGUARD_CAPTURE_PACK_MS: u32 = 2_000;
+/// Capture residual frames.
+pub const REDGUARD_CAPTURE_UNPACK_FRAMES: u32 = 90;
+pub const REDGUARD_CAPTURE_PREP_FRAMES: u32 = 600;
+pub const REDGUARD_CAPTURE_PACK_FRAMES: u32 = 60;
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn red_guard_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * RED_GUARD_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Whether template is a residual Red Guard infantry.
 ///
@@ -247,6 +340,88 @@ pub fn apply_nationalism_tag_detect(applied_upgrades: &std::collections::HashSet
     has_nationalism_upgrade(applied_upgrades)
 }
 
+
+// --- Wave 67 residual honesty packs ---
+
+/// Wave 67 residual honesty: Red Guard gun / bayonet residual peel.
+pub fn honesty_red_guard_weapon_residual_ok() -> bool {
+    REDGUARD_MACHINE_GUN == "RedguardMachineGun"
+        && REDGUARD_BAYONET == "RedguardBayonet"
+        && (REDGUARD_DAMAGE - 15.0).abs() < 0.01
+        && (REDGUARD_PRIMARY_RADIUS - 0.0).abs() < 0.01
+        && (REDGUARD_RANGE - 100.0).abs() < 0.01
+        && REDGUARD_BASE_DELAY_MS == 1_000
+        && REDGUARD_BASE_DELAY_FRAMES == red_guard_ms_to_frames(REDGUARD_BASE_DELAY_MS)
+        && REDGUARD_BASE_DELAY_FRAMES == 30
+        && REDGUARD_DAMAGE_TYPE == "SMALL_ARMS"
+        && REDGUARD_DEATH_TYPE == "NORMAL"
+        && REDGUARD_FIRE_FX == "WeaponFX_GenericMachineGunFire"
+        && REDGUARD_CLIP_SIZE == 0
+        && REDGUARD_FIRE_AUDIO == "RedGuardWeapon"
+        && (BAYONET_DAMAGE - 10_000.0).abs() < 0.1
+        && (BAYONET_RANGE - 2.0).abs() < 0.01
+        && BAYONET_DELAY_MS == 1_900
+        && BAYONET_DELAY_FRAMES == red_guard_ms_to_frames(BAYONET_DELAY_MS)
+        && BAYONET_PRE_ATTACK_MS == 1_400
+        && BAYONET_PRE_ATTACK_FRAMES == red_guard_ms_to_frames(BAYONET_PRE_ATTACK_MS)
+        && BAYONET_DAMAGE_TYPE == "MELEE"
+        && BAYONET_FIRE_AUDIO == "HeroUSAKnifeAttack"
+        && {
+            let w = red_guard_weapon(false, false);
+            (w.damage - 15.0).abs() < 0.01 && !w.can_target_air && w.can_target_ground
+        }
+}
+
+/// Wave 67 residual honesty: infantry horde residual peel.
+pub fn honesty_red_guard_horde_residual_ok() -> bool {
+    (INFANTRY_HORDE_RADIUS - 30.0).abs() < 0.01
+        && INFANTRY_HORDE_COUNT == 5
+        && INFANTRY_HORDE_UPDATE_MS == 1_000
+        && INFANTRY_HORDE_UPDATE_FRAMES
+            == red_guard_ms_to_frames(INFANTRY_HORDE_UPDATE_MS)
+        && !INFANTRY_HORDE_EXACT_MATCH
+        && INFANTRY_HORDE_KIND_OF == "INFANTRY"
+        && (INFANTRY_HORDE_ROF_MULT - 1.5).abs() < 0.001
+        && (INFANTRY_NATIONALISM_ROF_MULT - 1.25).abs() < 0.001
+        && red_guard_delay_frames(true, false) == 20
+        && red_guard_delay_frames(true, true) == 16
+        && is_in_infantry_horde(4)
+        && !is_in_infantry_horde(3)
+}
+
+/// Wave 67 residual honesty: Red Guard body / capture residual peel.
+pub fn honesty_red_guard_body_residual_ok() -> bool {
+    (REDGUARD_MAX_HEALTH - 120.0).abs() < 0.01
+        && (REDGUARD_VISION_RANGE - 100.0).abs() < 0.01
+        && (REDGUARD_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
+        && REDGUARD_BUILD_COST == 300
+        && (REDGUARD_BUILD_TIME_SEC - 10.0).abs() < 0.01
+        && REDGUARD_BUILD_TIME_FRAMES
+            == (REDGUARD_BUILD_TIME_SEC * RED_GUARD_LOGIC_FPS).round() as u32
+        && REDGUARD_BUILD_TIME_FRAMES == 300
+        && REDGUARD_TRANSPORT_SLOT_COUNT == 1
+        && (REDGUARD_LOCOMOTOR_SPEED - 25.0).abs() < 0.01
+        && (REDGUARD_LOCOMOTOR_SPEED_DAMAGED - 15.0).abs() < 0.01
+        && (REDGUARD_GEOMETRY_RADIUS - 7.0).abs() < 0.01
+        && (REDGUARD_GEOMETRY_HEIGHT - 12.0).abs() < 0.01
+        && REDGUARD_EXPERIENCE_VALUE == [5, 5, 10, 20]
+        && REDGUARD_EXPERIENCE_REQUIRED == [0, 20, 40, 80]
+        && SPECIAL_ABILITY_RED_GUARD_CAPTURE == "SpecialAbilityRedGuardCaptureBuilding"
+        && UPGRADE_INFANTRY_CAPTURE_BUILDING == "Upgrade_InfantryCaptureBuilding"
+        && (REDGUARD_CAPTURE_START_RANGE - 5.0).abs() < 0.01
+        && REDGUARD_CAPTURE_UNPACK_FRAMES
+            == red_guard_ms_to_frames(REDGUARD_CAPTURE_UNPACK_MS)
+        && REDGUARD_CAPTURE_PREP_FRAMES == red_guard_ms_to_frames(REDGUARD_CAPTURE_PREP_MS)
+        && REDGUARD_CAPTURE_PACK_FRAMES == red_guard_ms_to_frames(REDGUARD_CAPTURE_PACK_MS)
+}
+
+/// Combined Wave 67 Red Guard residual honesty pack.
+pub fn honesty_red_guard_residual_pack_ok() -> bool {
+    honesty_red_guard_weapon_residual_ok()
+        && honesty_red_guard_horde_residual_ok()
+        && honesty_red_guard_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -340,5 +515,20 @@ mod tests {
         assert!(!counts_toward_infantry_horde(
             true, true, true, false, 10.0, 30.0
         ));
+    }
+
+    #[test]
+    fn red_guard_residual_pack_honesty_wave67() {
+        assert!(honesty_red_guard_weapon_residual_ok());
+        assert!(honesty_red_guard_horde_residual_ok());
+        assert!(honesty_red_guard_body_residual_ok());
+        assert!(honesty_red_guard_residual_pack_ok());
+        assert_eq!(red_guard_ms_to_frames(1_000), 30);
+        assert_eq!(red_guard_ms_to_frames(1_900), 57);
+        assert_eq!(red_guard_ms_to_frames(1_400), 42);
+        assert_eq!(REDGUARD_BUILD_TIME_FRAMES, 300);
+        assert_eq!(REDGUARD_DAMAGE_TYPE, "SMALL_ARMS");
+        assert_eq!(BAYONET_DAMAGE_TYPE, "MELEE");
+        assert!(!INFANTRY_HORDE_EXACT_MATCH);
     }
 }

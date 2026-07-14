@@ -12,6 +12,17 @@
 //!   timed charge (`TNTStickyBomb` / TNTDetonationWeapon 500/10 + 150/50) with
 //!   ReloadTime **7500**ms residual cooldown and StartAbilityRange **5**.
 //!
+//! Wave 67 residual pack (retail ChinaInfantry.ini / Weapon.ini / Locomotor.ini):
+//! - Weapon residual: DamageType **INFANTRY_MISSILE**, DeathType **EXPLODED**,
+//!   ScatterRadiusVsInfantry **10**, Projectile **TankHunterMissile**,
+//!   FireFX **FX_BuggyMissileIgnition**, DetonationFX **WeaponFX_RocketBuggyMissileDetonation**,
+//!   Delay **1000**ms → **30**f, ClipSize **0**, AutoReloadsClip **Yes**.
+//! - TNT residual: DamageType **EXPLOSION**, FireSound **BombTruckDefaultBombDetonation**,
+//!   Reload **7500**ms → **225**f, Lifetime **10000**ms → **300**f.
+//! - Body residual: MaxHealth **100**, Vision **150**, Shroud **400**,
+//!   BuildCost **300**, BuildTime **5**s → **150**f, TransportSlotCount **1**,
+//!   Locomotor Speed **20**/Damaged **10**, Geometry CYLINDER r**10**/h**12**.
+//!
 //! Fail-closed honesty:
 //! - Not full SpecialAbilityUpdate flee-after / MaxSpecialObjects=8 list / attach bones
 //! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
@@ -25,6 +36,9 @@ use crate::game_logic::host_red_guard::{
     delay_frames_to_reload_secs, is_in_infantry_horde, INFANTRY_HORDE_ROF_MULT,
     INFANTRY_NATIONALISM_ROF_MULT,
 };
+
+/// Logic frames per second (host fixed step).
+pub const TANK_HUNTER_LOGIC_FPS: f32 = 30.0;
 
 /// Retail primary weapon.
 pub const TANK_HUNTER_MISSILE_WEAPON: &str = "ChinaInfantryTankHunterMissileLauncher";
@@ -43,11 +57,31 @@ pub const TANK_HUNTER_SPLASH_RADIUS: f32 = 5.0;
 pub const TANK_HUNTER_RANGE: f32 = 175.0;
 /// Retail MinimumAttackRange.
 pub const TANK_HUNTER_MIN_RANGE: f32 = 5.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const TANK_HUNTER_BASE_DELAY_MS: u32 = 1_000;
 /// Retail DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
 pub const TANK_HUNTER_BASE_DELAY_FRAMES: u32 = 30;
 /// Retail WeaponSpeed residual (missile flight residual; host hits still residual-instant).
 pub const TANK_HUNTER_PROJECTILE_SPEED: f32 = 600.0;
+/// Retail ScatterRadiusVsInfantry residual.
+pub const TANK_HUNTER_SCATTER_VS_INFANTRY: f32 = 10.0;
+/// Retail DamageType residual.
+pub const TANK_HUNTER_DAMAGE_TYPE: &str = "INFANTRY_MISSILE";
+/// Retail DeathType residual.
+pub const TANK_HUNTER_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ProjectileObject residual.
+pub const TANK_HUNTER_PROJECTILE: &str = "TankHunterMissile";
+/// Retail FireFX residual.
+pub const TANK_HUNTER_FIRE_FX: &str = "FX_BuggyMissileIgnition";
+/// Retail ProjectileDetonationFX residual.
+pub const TANK_HUNTER_DETONATION_FX: &str = "WeaponFX_RocketBuggyMissileDetonation";
+/// Retail ClipSize residual (0 == infinite).
+pub const TANK_HUNTER_CLIP_SIZE: u32 = 0;
+/// Retail AutoReloadsClip residual.
+pub const TANK_HUNTER_AUTO_RELOADS_CLIP: bool = true;
 
+/// TNT special: SpecialPower ReloadTime residual (msec).
+pub const TNT_RELOAD_MS: u32 = 7_500;
 /// TNT special: SpecialPower ReloadTime 7500ms → 225 frames @ 30 FPS.
 pub const TNT_RELOAD_FRAMES: u32 = 225;
 /// SpecialAbilityUpdate StartAbilityRange residual.
@@ -60,6 +94,14 @@ pub const TNT_PRIMARY_RADIUS: f32 = 10.0;
 pub const TNT_SECONDARY_DAMAGE: f32 = 150.0;
 /// TNTDetonationWeapon SecondaryDamageRadius residual.
 pub const TNT_SECONDARY_RADIUS: f32 = 50.0;
+/// TNTDetonationWeapon DamageType residual.
+pub const TNT_DAMAGE_TYPE: &str = "EXPLOSION";
+/// TNTDetonationWeapon DeathType residual.
+pub const TNT_DEATH_TYPE: &str = "EXPLODED";
+/// TNTDetonationWeapon FireSound residual.
+pub const TNT_FIRE_AUDIO: &str = "BombTruckDefaultBombDetonation";
+/// TNTStickyBomb LifetimeUpdate residual (msec).
+pub const TNT_LIFETIME_MS: u32 = 10_000;
 /// TNTStickyBomb LifetimeUpdate 10000ms → 300 frames (matches host_mines TimedDemoCharge).
 pub const TNT_LIFETIME_FRAMES: u32 = 300;
 
@@ -67,6 +109,43 @@ pub const TNT_LIFETIME_FRAMES: u32 = 300;
 pub const TANK_HUNTER_FIRE_AUDIO: &str = "TankHunterWeapon";
 /// Residual TNT initiate voice.
 pub const TNT_INITIATE_AUDIO: &str = "TankHunterVoiceTNT";
+
+// --- Body residual (ChinaInfantryTankHunter) ---
+
+/// Retail MaxHealth residual.
+pub const TANK_HUNTER_MAX_HEALTH: f32 = 100.0;
+/// Retail VisionRange residual.
+pub const TANK_HUNTER_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const TANK_HUNTER_SHROUD_CLEARING_RANGE: f32 = 400.0;
+/// Retail BuildCost residual.
+pub const TANK_HUNTER_BUILD_COST: u32 = 300;
+/// Retail BuildTime residual (seconds).
+pub const TANK_HUNTER_BUILD_TIME_SEC: f32 = 5.0;
+/// BuildTime 5s → 150 frames @ 30 FPS.
+pub const TANK_HUNTER_BUILD_TIME_FRAMES: u32 = 150;
+/// Retail TransportSlotCount residual.
+pub const TANK_HUNTER_TRANSPORT_SLOT_COUNT: u32 = 1;
+/// Retail MissileDefenderLocomotor Speed residual.
+pub const TANK_HUNTER_LOCOMOTOR_SPEED: f32 = 20.0;
+/// Retail MissileDefenderLocomotor SpeedDamaged residual.
+pub const TANK_HUNTER_LOCOMOTOR_SPEED_DAMAGED: f32 = 10.0;
+/// Retail Geometry CYLINDER MajorRadius residual.
+pub const TANK_HUNTER_GEOMETRY_RADIUS: f32 = 10.0;
+/// Retail GeometryHeight residual.
+pub const TANK_HUNTER_GEOMETRY_HEIGHT: f32 = 12.0;
+/// Retail ExperienceValue residual.
+pub const TANK_HUNTER_EXPERIENCE_VALUE: [u32; 4] = [20, 20, 40, 60];
+/// Retail ExperienceRequired residual.
+pub const TANK_HUNTER_EXPERIENCE_REQUIRED: [u32; 4] = [0, 100, 200, 400];
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn tank_hunter_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * TANK_HUNTER_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Whether template is a residual Tank Hunter infantry.
 ///
@@ -221,6 +300,88 @@ pub fn tank_hunter_is_in_horde(nearby: u32) -> bool {
     is_in_infantry_horde(nearby)
 }
 
+
+// --- Wave 67 residual honesty packs ---
+
+/// Wave 67 residual honesty: Tank Hunter RPG weapon residual peel.
+pub fn honesty_tank_hunter_weapon_residual_ok() -> bool {
+    TANK_HUNTER_MISSILE_WEAPON == "ChinaInfantryTankHunterMissileLauncher"
+        && (TANK_HUNTER_DAMAGE - 40.0).abs() < 0.01
+        && (TANK_HUNTER_SPLASH_RADIUS - 5.0).abs() < 0.01
+        && (TANK_HUNTER_RANGE - 175.0).abs() < 0.01
+        && (TANK_HUNTER_MIN_RANGE - 5.0).abs() < 0.01
+        && TANK_HUNTER_BASE_DELAY_MS == 1_000
+        && TANK_HUNTER_BASE_DELAY_FRAMES
+            == tank_hunter_ms_to_frames(TANK_HUNTER_BASE_DELAY_MS)
+        && TANK_HUNTER_BASE_DELAY_FRAMES == 30
+        && (TANK_HUNTER_PROJECTILE_SPEED - 600.0).abs() < 0.01
+        && (TANK_HUNTER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && TANK_HUNTER_DAMAGE_TYPE == "INFANTRY_MISSILE"
+        && TANK_HUNTER_DEATH_TYPE == "EXPLODED"
+        && TANK_HUNTER_PROJECTILE == "TankHunterMissile"
+        && TANK_HUNTER_FIRE_FX == "FX_BuggyMissileIgnition"
+        && TANK_HUNTER_DETONATION_FX == "WeaponFX_RocketBuggyMissileDetonation"
+        && TANK_HUNTER_CLIP_SIZE == 0
+        && TANK_HUNTER_AUTO_RELOADS_CLIP
+        && TANK_HUNTER_FIRE_AUDIO == "TankHunterWeapon"
+        && {
+            let w = tank_hunter_weapon(false, false);
+            (w.damage - 40.0).abs() < 0.01 && w.can_target_air && w.can_target_ground
+        }
+}
+
+/// Wave 67 residual honesty: TNT special residual peel.
+pub fn honesty_tank_hunter_tnt_residual_ok() -> bool {
+    TNT_DETONATION_WEAPON == "TNTDetonationWeapon"
+        && TNT_STICKY_BOMB == "TNTStickyBomb"
+        && SPECIAL_ABILITY_TANK_HUNTER_TNT == "SpecialAbilityTankHunterTNTAttack"
+        && TNT_RELOAD_MS == 7_500
+        && TNT_RELOAD_FRAMES == tank_hunter_ms_to_frames(TNT_RELOAD_MS)
+        && TNT_RELOAD_FRAMES == 225
+        && (TNT_START_ABILITY_RANGE - 5.0).abs() < 0.01
+        && (TNT_PRIMARY_DAMAGE - 500.0).abs() < 0.01
+        && (TNT_PRIMARY_RADIUS - 10.0).abs() < 0.01
+        && (TNT_SECONDARY_DAMAGE - 150.0).abs() < 0.01
+        && (TNT_SECONDARY_RADIUS - 50.0).abs() < 0.01
+        && TNT_DAMAGE_TYPE == "EXPLOSION"
+        && TNT_DEATH_TYPE == "EXPLODED"
+        && TNT_FIRE_AUDIO == "BombTruckDefaultBombDetonation"
+        && TNT_LIFETIME_MS == 10_000
+        && TNT_LIFETIME_FRAMES == tank_hunter_ms_to_frames(TNT_LIFETIME_MS)
+        && TNT_LIFETIME_FRAMES == 300
+        && tnt_ready(0, None)
+        && tnt_ready(225, Some(0))
+        && !tnt_ready(100, Some(0))
+}
+
+/// Wave 67 residual honesty: Tank Hunter body residual peel.
+pub fn honesty_tank_hunter_body_residual_ok() -> bool {
+    (TANK_HUNTER_MAX_HEALTH - 100.0).abs() < 0.01
+        && (TANK_HUNTER_VISION_RANGE - 150.0).abs() < 0.01
+        && (TANK_HUNTER_SHROUD_CLEARING_RANGE - 400.0).abs() < 0.01
+        && TANK_HUNTER_BUILD_COST == 300
+        && (TANK_HUNTER_BUILD_TIME_SEC - 5.0).abs() < 0.01
+        && TANK_HUNTER_BUILD_TIME_FRAMES
+            == (TANK_HUNTER_BUILD_TIME_SEC * TANK_HUNTER_LOGIC_FPS).round() as u32
+        && TANK_HUNTER_BUILD_TIME_FRAMES == 150
+        && TANK_HUNTER_TRANSPORT_SLOT_COUNT == 1
+        && (TANK_HUNTER_LOCOMOTOR_SPEED - 20.0).abs() < 0.01
+        && (TANK_HUNTER_LOCOMOTOR_SPEED_DAMAGED - 10.0).abs() < 0.01
+        && (TANK_HUNTER_GEOMETRY_RADIUS - 10.0).abs() < 0.01
+        && (TANK_HUNTER_GEOMETRY_HEIGHT - 12.0).abs() < 0.01
+        && TANK_HUNTER_EXPERIENCE_VALUE == [20, 20, 40, 60]
+        && TANK_HUNTER_EXPERIENCE_REQUIRED == [0, 100, 200, 400]
+        && tank_hunter_delay_frames(true, false) == 20
+        && tank_hunter_delay_frames(true, true) == 16
+}
+
+/// Combined Wave 67 Tank Hunter residual honesty pack.
+pub fn honesty_tank_hunter_residual_pack_ok() -> bool {
+    honesty_tank_hunter_weapon_residual_ok()
+        && honesty_tank_hunter_tnt_residual_ok()
+        && honesty_tank_hunter_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +460,19 @@ mod tests {
         assert!(tank_hunter_has_nationalism(&tags));
         assert!(tank_hunter_is_in_horde(4));
         assert!(!tank_hunter_is_in_horde(3));
+    }
+
+    #[test]
+    fn tank_hunter_residual_pack_honesty_wave67() {
+        assert!(honesty_tank_hunter_weapon_residual_ok());
+        assert!(honesty_tank_hunter_tnt_residual_ok());
+        assert!(honesty_tank_hunter_body_residual_ok());
+        assert!(honesty_tank_hunter_residual_pack_ok());
+        assert_eq!(tank_hunter_ms_to_frames(1_000), 30);
+        assert_eq!(tank_hunter_ms_to_frames(7_500), 225);
+        assert_eq!(TANK_HUNTER_BUILD_TIME_FRAMES, 150);
+        assert_eq!(TANK_HUNTER_PROJECTILE, "TankHunterMissile");
+        assert_eq!(TNT_FIRE_AUDIO, "BombTruckDefaultBombDetonation");
+        assert!(TANK_HUNTER_AUTO_RELOADS_CLIP);
     }
 }
