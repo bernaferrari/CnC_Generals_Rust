@@ -83,7 +83,9 @@ pub mod host_game_logic_residual_wave103;
 pub mod host_object_register_drawable_residual_wave104;
 pub mod host_ai_path_combat_residual_wave105;
 pub mod host_shell_campaign_save_residual_wave106;
+pub mod host_fx_ocl_particle_audio_residual_wave107;
 pub mod host_terrain_bridge_water_road_residual_wave108;
+pub mod host_sp_science_upgrade_player_team_residual_wave109;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -364,12 +366,27 @@ pub use host_shell_campaign_save_residual_wave106::{
     honesty_shell_campaign_save_residual_pack_wave106,
     honesty_window_layout_residual_deepen_pack_wave106,
 };
+pub use host_fx_ocl_particle_audio_residual_wave107::{
+    honesty_audio_residual_deepen_pack_wave107,
+    honesty_fx_ocl_particle_audio_residual_pack_wave107,
+    honesty_fxlist_entry_residual_deepen_pack_wave107,
+    honesty_ocl_create_residual_deepen_pack_wave107,
+    honesty_particle_system_residual_deepen_pack_wave107,
+};
 pub use host_terrain_bridge_water_road_residual_wave108::{
     honesty_bridge_residual_deepen_pack_wave108, honesty_cliff_residual_peels_pack_wave108,
     honesty_heightmap_residual_deepen_pack_wave108,
     honesty_road_residual_deepen_pack_wave108,
     honesty_terrain_bridge_water_road_residual_pack_wave108,
     honesty_water_residual_deepen_pack_wave108,
+};
+pub use host_sp_science_upgrade_player_team_residual_wave109::{
+    honesty_player_residual_deepen_pack_wave109,
+    honesty_science_store_residual_deepen_pack_wave109,
+    honesty_sp_science_upgrade_player_team_residual_pack_wave109,
+    honesty_special_power_template_store_residual_wave109,
+    honesty_team_residual_deepen_pack_wave109,
+    honesty_upgrade_store_residual_deepen_pack_wave109,
 };
 pub use host_armor_residual::honesty_armor_residual_expand_wave103;
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
