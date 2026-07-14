@@ -17,6 +17,11 @@ impl EntityId {
     /// First valid entity identifier.
     pub const FIRST: EntityId = EntityId(1);
 
+    /// Construct from a raw numeric id (shadow ID maps / diagnostics).
+    pub fn from_raw(raw: u32) -> Self {
+        EntityId(raw)
+    }
+
     /// Raw numeric accessor.
     pub fn get(self) -> u32 {
         self.0
