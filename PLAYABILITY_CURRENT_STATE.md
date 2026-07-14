@@ -127,21 +127,6 @@
 - Golden playable_claim remains **true**
 - Network residual deferred
 
-## Residual Host Playability — Wave 94: AI state / special ability / upgrade name table / CommandSet residual peels (2026-07-13)
-
-**Closed (host-testable residual peels; co-present with Wave 95 shell wiring):**
-1. **AI state residual table** — C++ `AIStateType` / `NUM_AI_STATES` **44** ordered names + host AIState bridge.
-2. **Special ability residual deepen** — SpecialAbility* samples (ReloadTime / StartAbilityRange / Unpack/Pack/Prep).
-3. **Upgrade residual full name table** — retail Upgrade.ini internal names residual.
-4. **CommandSet residual** — superweapon buildings + faction command centers slot residual.
-5. Combined: `honesty_ai_ability_upgrade_residual_pack_wave94`.
-
-**Wiring:** `host_ai_ability_upgrade_residual.rs` + shell_smoke/gate wave94 honesty flags.
-
-**Gates:** unit honesty PASS; shell gate requires ai_state94/special_ability94/upgrade_names94/command_set94; playable_claim false.
-
-**Not claimed:** full AIStateMachine exclusive enter/exit; full SpecialAbilityUpdate matrix; full UpgradeCenter purchase; full ControlBar CommandSet UI.
-
 ## Residual Host Playability — Wave 93: particle emit-rate / drawable opacity+shroud / shadow deepen / terrain texture / road residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal render/terrain residual):**
