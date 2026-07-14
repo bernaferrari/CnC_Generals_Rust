@@ -460,6 +460,11 @@ pub fn honesty_overlord_addons_residual_ok() -> bool {
             == Some(OverlordAddonKind::Bunker)
         && OVERLORD_SPEAKER_TOWER_BUTTON == "SSOLSpeaker"
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_overlord_addons_residual_pack_ok() -> bool {
+    honesty_overlord_addons_residual_ok()
+}
+
 
 /// Delay frames residual for continuous-fire level (building gattling base / ROF).
 pub fn overlord_gattling_delay_frames(level: u8) -> u32 {
@@ -684,4 +689,13 @@ mod tests {
             false
         ));
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn overlord_addons_residual_pack_honesty_wave71() {
+        assert!(honesty_overlord_addons_residual_pack_ok());
+        assert_eq!(OVERLORD_CONTAIN_SLOTS, 1);
+        assert_eq!(OVERLORD_GATTLING_BUILD_COST, 1200);
+        assert_eq!(HELIX_TRANSPORT_SLOTS, 5);
+    }
+
 }

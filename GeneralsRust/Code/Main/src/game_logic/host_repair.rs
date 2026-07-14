@@ -146,6 +146,11 @@ pub fn honesty_repair_residual_ok() -> bool {
         && (dozer_repair_hp_per_sec(1000.0) - 20.0).abs() < 0.01
         && (repair_dock_hp_per_sec(1000.0) - 200.0).abs() < 0.01
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_repair_residual_pack_ok() -> bool {
+    honesty_repair_residual_ok()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -212,4 +217,13 @@ mod tests {
         assert_eq!(DOZER_BORED_TIME_MS, 5000);
         assert_eq!(DOZER_BORED_RANGE, 150.0);
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn repair_residual_pack_honesty_wave71() {
+        assert!(honesty_repair_residual_pack_ok());
+        assert!((DOZER_REPAIR_HEALTH_PERCENT_PER_SEC - 0.02).abs() < 0.0001);
+        assert_eq!(REPAIR_DOCK_TIME_FOR_FULL_HEAL_FRAMES, 150);
+        assert_eq!(TECH_REPAIR_PAD_TEMPLATE, "TechRepairPad");
+    }
+
 }

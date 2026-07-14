@@ -366,6 +366,32 @@ pub fn punch_through_laser_end(
 pub fn honesty_patriot_laser_punch_through_constants_ok() -> bool {
     (PATRIOT_LASER_PUNCH_THROUGH_SCALAR - 1.3).abs() < 0.001
 }
+/// Combined residual honesty pack (Wave 71): Patriot ground/air/assist + laser punch-through.
+pub fn honesty_base_defense_residual_pack_ok() -> bool {
+    honesty_patriot_laser_punch_through_constants_ok()
+        && PATRIOT_PRIMARY_WEAPON == "PatriotMissileWeapon"
+        && PATRIOT_SECONDARY_WEAPON == "PatriotMissileWeaponAir"
+        && (PATRIOT_GROUND_DAMAGE - 30.0).abs() < 0.01
+        && (PATRIOT_GROUND_RANGE - 225.0).abs() < 0.01
+        && (PATRIOT_AIR_DAMAGE - 25.0).abs() < 0.01
+        && (PATRIOT_AIR_RANGE - 350.0).abs() < 0.01
+        && PATRIOT_DELAY_FRAMES == 8
+        && PATRIOT_CLIP_RELOAD_FRAMES == 60
+        && (PATRIOT_REQUEST_ASSIST_RANGE - 200.0).abs() < 0.01
+        && PATRIOT_ASSISTING_CLIP_SIZE == 4
+        && (PATRIOT_ASSIST_RANGE - 450.0).abs() < 0.01
+        && (PATRIOT_ASSIST_DAMAGE - 25.0).abs() < 0.01
+        && PATRIOT_ASSIST_DELAY_FRAMES == 8
+        && PATRIOT_ASSIST_CLIP_RELOAD_FRAMES == 30
+        && PATRIOT_LASER_NUM_BEAMS == 1
+        && (PATRIOT_LASER_INNER_BEAM_WIDTH - 4.0).abs() < 0.01
+        && (PATRIOT_LASER_SCROLL_RATE - (-0.25)).abs() < 0.001
+        && PATRIOT_LASER_SEGMENTS == 20
+        && (PATRIOT_LASER_ARC_HEIGHT - 30.0).abs() < 0.01
+        && (PATRIOT_LASER_TILING_SCALAR - 0.25).abs() < 0.01
+        && PATRIOT_ASSIST_LASER_LIFETIME_FRAMES == 18
+}
+
 
 /// C++ LaserUpdate::clientUpdate residual: refresh endpoints from live objects
 /// and advance W3DLaserDraw ScrollRate residual. Missing/dead `to` applies
@@ -2823,4 +2849,16 @@ mod tests {
         assert_eq!(attach[1].slot, 1);
         assert!(attach.iter().all(|a| a.alive));
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn base_defense_residual_pack_honesty_wave71() {
+        assert!(honesty_base_defense_residual_pack_ok());
+        assert_eq!(PATRIOT_DELAY_FRAMES, 8);
+        assert_eq!(PATRIOT_CLIP_RELOAD_FRAMES, 60);
+        assert!((PATRIOT_GROUND_DAMAGE - 30.0).abs() < 0.01);
+        assert!((PATRIOT_AIR_RANGE - 350.0).abs() < 0.01);
+        assert_eq!(PATRIOT_ASSISTING_CLIP_SIZE, 4);
+        assert!((PATRIOT_LASER_PUNCH_THROUGH_SCALAR - 1.3).abs() < 0.001);
+    }
+
 }

@@ -116,6 +116,11 @@ pub fn honesty_sentry_drone_residual_ok() -> bool {
         && SENTRY_DRONE_GUN_WEAPON == "SentryDroneGun"
         && UPGRADE_AMERICA_SENTRY_DRONE_GUN == "Upgrade_AmericaSentryDroneGun"
 }
+/// Combined residual honesty pack (Wave 71).
+pub fn honesty_sentry_drone_residual_pack_ok() -> bool {
+    honesty_sentry_drone_residual_ok()
+}
+
 
 /// Whether template is a residual Sentry Drone.
 ///
@@ -268,4 +273,13 @@ mod tests {
             Some(225.0)
         );
     }
+    /// Wave 71 residual pack honesty gate.
+    #[test]
+    fn sentry_drone_residual_pack_honesty_wave71() {
+        assert!(honesty_sentry_drone_residual_pack_ok());
+        assert_eq!(SENTRY_DETECTION_RATE_FRAMES, 27);
+        assert_eq!(SENTRY_GUN_DELAY_FRAMES, 6);
+        assert_eq!(SENTRY_STEALTH_DELAY_FRAMES, 60);
+    }
+
 }
