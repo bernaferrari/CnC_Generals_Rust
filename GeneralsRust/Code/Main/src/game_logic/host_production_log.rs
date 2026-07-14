@@ -51,11 +51,12 @@ pub fn record_complete(producer: ObjectId, template_name: impl Into<String>, spa
 }
 
 pub fn drain() -> Vec<HostProductionEvent> {
-    LOG.with(|log| {
-        let v = std::mem::take(&mut *log.borrow_mut());
+    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
+    // Keep last non-empty batch for PresentationFrame after shadow session.
+    if !v.is_empty() {
         LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
-        v
-    })
+    }
+    v
 }
 
 pub fn clear() {
@@ -68,7 +69,12 @@ pub fn snapshot() -> Vec<HostProductionEvent> {
     LOG.with(|log| log.borrow().clone())
 }
 
-/// Events from the most recent `drain()` (for PresentationFrame after shadow session).
+/// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
+pub fn take_last_drain() -> Vec<HostProductionEvent> {
+    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
+}
+
+/// Non-destructive peek (tests).
 pub fn last_drain_snapshot() -> Vec<HostProductionEvent> {
     LAST_DRAIN.with(|last| last.borrow().clone())
 }
