@@ -1257,6 +1257,7 @@ pub struct CnCGameEngine {
     runtime_host_headless: bool,
     runtime_host_base_ui_screen: Option<String>,
     runtime_host_ui_screen_override: Option<String>,
+    runtime_host_last_gameplay_cmd: String,
 
     // Model loading state
     models_loaded: bool,
@@ -1814,6 +1815,25 @@ impl CnCGameEngine {
             1.0
         };
 
+        let selected_count = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.len() as u32)
+            .unwrap_or(0);
+        let local_team = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.team);
+        let local_mobile_units = local_team
+            .map(|team| {
+                self.game_logic
+                    .get_objects()
+                    .values()
+                    .filter(|o| o.team == team && o.is_alive() && o.is_mobile())
+                    .count() as u32
+            })
+            .unwrap_or(0);
+
         RuntimeHostSnapshot {
             state: format!("{:?}", self.current_state),
             ui_screen,
@@ -1823,6 +1843,9 @@ impl CnCGameEngine {
             startup_phase: self.startup_loading_phase.clone(),
             map: map_name,
             frame: self.frame_counter,
+            selected_count,
+            local_mobile_units,
+            last_gameplay_cmd: self.runtime_host_last_gameplay_cmd.clone(),
         }
     }
 
@@ -2080,6 +2103,88 @@ impl CnCGameEngine {
                     "Runtime host replay command requested for slot '{slot}', replay startup path is not wired yet"
                 );
                 self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
+            }
+            "select_local_unit" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "select_fail_not_ingame".into();
+                } else {
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let pick = team.and_then(|team| {
+                        self.game_logic
+                            .get_objects()
+                            .iter()
+                            .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                            .map(|(id, _)| *id)
+                    });
+                    if let Some(id) = pick {
+                        self.selected_objects = vec![id];
+                        self.game_logic
+                            .select_objects(self.current_player_id, vec![id]);
+                        self.runtime_host_last_gameplay_cmd = format!("select_ok:{}", id.0);
+                    } else {
+                        self.runtime_host_last_gameplay_cmd = "select_fail_no_mobile".into();
+                    }
+                }
+            }
+            "move_selected" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "move_fail_not_ingame".into();
+                } else {
+                    let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let selected = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.selected_objects.len())
+                        .unwrap_or(0);
+                    if selected == 0 {
+                        self.runtime_host_last_gameplay_cmd = "move_fail_no_selection".into();
+                    } else {
+                        self.game_logic
+                            .command_move(self.current_player_id, glam::Vec3::new(x, y, z));
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("move_ok:n={selected}:x={x:.1}:y={y:.1}:z={z:.1}");
+                    }
+                }
+            }
+            "attack_nearest_enemy" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "attack_fail_not_ingame".into();
+                } else {
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let selected = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.selected_objects.len())
+                        .unwrap_or(0);
+                    if selected == 0 {
+                        self.runtime_host_last_gameplay_cmd = "attack_fail_no_selection".into();
+                    } else if let Some(team) = team {
+                        let enemy = self
+                            .game_logic
+                            .get_objects()
+                            .iter()
+                            .find(|(_, o)| {
+                                o.team != team && o.is_alive() && o.is_kind_of(KindOf::Attackable)
+                            })
+                            .map(|(id, _)| *id);
+                        if let Some(tid) = enemy {
+                            self.game_logic.command_attack(self.current_player_id, tid);
+                            self.runtime_host_last_gameplay_cmd = format!("attack_ok:{}", tid.0);
+                        } else {
+                            self.runtime_host_last_gameplay_cmd = "attack_fail_no_enemy".into();
+                        }
+                    } else {
+                        self.runtime_host_last_gameplay_cmd = "attack_fail_no_player".into();
+                    }
+                }
             }
             _ => {
                 debug!(
@@ -4119,6 +4224,7 @@ impl CnCGameEngine {
             runtime_host_headless,
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,
+            runtime_host_last_gameplay_cmd: String::new(),
             models_loaded: true, // Already loaded during init
             pending_shell_model_prewarm,
             menu_enter_frame: None,
@@ -8941,6 +9047,9 @@ struct RuntimeHostSnapshot {
     startup_phase: String,
     map: String,
     frame: u32,
+    selected_count: u32,
+    local_mobile_units: u32,
+    last_gameplay_cmd: String,
 }
 
 #[derive(Debug)]
@@ -9059,6 +9168,9 @@ impl RuntimeHostBridge {
             startup_phase: "Booting runtime".to_string(),
             map: "-".to_string(),
             frame: self.last_published_frame,
+            selected_count: 0,
+            local_mobile_units: 0,
+            last_gameplay_cmd: String::new(),
         };
         self.publish_status(&snapshot);
     }
@@ -9081,6 +9193,15 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("startup_phase={}\n", snapshot.startup_phase));
         payload.push_str(&format!("map={}\n", snapshot.map));
         payload.push_str(&format!("frame={}\n", snapshot.frame));
+        payload.push_str(&format!("selected_count={}\n", snapshot.selected_count));
+        payload.push_str(&format!(
+            "local_mobile_units={}\n",
+            snapshot.local_mobile_units
+        ));
+        payload.push_str(&format!(
+            "last_gameplay_cmd={}\n",
+            snapshot.last_gameplay_cmd
+        ));
         payload.push_str(&format!(
             "frame_path={}\n",
             self.frame_path.to_string_lossy()
