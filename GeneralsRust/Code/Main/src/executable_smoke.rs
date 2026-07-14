@@ -266,6 +266,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
         .arg(format!("-gpui_frame={}", frame_path.display()))
         .arg("-nologo")
         .arg("-nointro")
+        .env("GENERALS_RUNTIME_HOST_WND", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         // CRITICAL: do not pipe stderr without a drain thread — Roads.ini warn
@@ -351,9 +352,17 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                 result.map_seen = snap.map.clone();
             }
             match snap.state.as_str() {
-                "Menu" => result.reached_menu = true,
+                "Menu" => {
+                    result.reached_menu = true;
+                    if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
+                        result.skirmish_menu_ok = true;
+                    }
+                }
                 "InGame" | "Paused" => {
                     result.reached_menu = true;
+                    if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
+                        result.skirmish_menu_ok = true;
+                    }
                     result.reached_ingame = true;
                 }
                 _ => {}
@@ -368,11 +377,23 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                             && started.elapsed() > Duration::from_secs(8))
                         || started.elapsed() > Duration::from_secs(25)
                     {
-                        // skirmish_menu_ok only if host already reports Skirmish UI
-                        // (open_skirmish_menu WND push is unsafe in headless smoke).
-                        if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
-                            result.skirmish_menu_ok = true;
-                        }
+                        // Soft open Skirmish UI first (override only; WND off).
+                        let _ = write_control(&control_path, &["open_skirmish_menu"]);
+                        commanded_at = Some(Instant::now());
+                        phase = 10; // wait for Skirmish UI before start_game
+                    }
+                }
+
+                10 => {
+                    if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
+                        result.skirmish_menu_ok = true;
+                    }
+                    // Proceed once Skirmish is visible, or after a short grace poll.
+                    let ready = result.skirmish_menu_ok
+                        || commanded_at
+                            .map(|t| t.elapsed() > Duration::from_millis(800))
+                            .unwrap_or(true);
+                    if ready {
                         if use_new_game_path {
                             let q = format!(
                                 "queue_new_game|mode=skirmish|map={}",

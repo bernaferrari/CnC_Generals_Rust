@@ -1644,7 +1644,7 @@ mod tests {
     fn presentation_path_prefers_local_drawable_tick() {
         let cnc = include_str!("cnc_game_engine.rs");
         assert!(
-            cnc.contains("update_drawables_local")
+            (cnc.contains("update_drawables_local") || cnc.contains("update_presentation_shell"))
                 && cnc.contains("last_presentation_frame.is_some()"),
             "InGame with presentation must avoid OBJECT_REGISTRY drawable bind"
         );
@@ -1652,6 +1652,27 @@ mod tests {
         assert!(
             gc.contains("fn update_drawables_local"),
             "GameClient must expose local drawable tick"
+        );
+    }
+
+    #[test]
+    fn presentation_shell_update_is_wired() {
+        let client_src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        let engine_src = include_str!("cnc_game_engine.rs");
+        assert!(
+            client_src.contains("fn update_presentation_shell"),
+            "GameClient must expose presentation shell tick"
+        );
+        assert!(
+            engine_src.contains("update_presentation_shell"),
+            "engine must call presentation shell when frame is set"
+        );
+        assert!(
+            engine_src.contains("GENERALS_RUNTIME_HOST_WND"),
+            "runtime host must soft-gate WND push for headless smoke"
         );
     }
 
