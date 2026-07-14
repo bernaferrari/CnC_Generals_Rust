@@ -35005,6 +35005,68 @@ impl GameLogic {
         ui_state
     }
 
+    /// Active script broadcast texts residual (presentation freeze).
+    pub fn script_broadcast_texts(&self) -> Vec<String> {
+        self.script_broadcasts
+            .iter()
+            .map(|msg| msg.text.clone())
+            .collect()
+    }
+
+    /// Pending script messages this frame (presentation freeze; non-draining).
+    pub fn peek_new_script_messages(&self) -> &[String] {
+        &self.new_script_messages
+    }
+
+    pub fn cinematic_letterbox(&self) -> bool {
+        self.cinematic_letterbox
+    }
+
+    pub fn cinematic_text(&self) -> Option<&str> {
+        self.cinematic_text.as_ref().map(|(t, _)| t.as_str())
+    }
+
+    pub fn military_caption_text(&self) -> Option<&str> {
+        self.military_caption.as_ref().map(|(t, _)| t.as_str())
+    }
+
+    pub fn radar_script_enabled(&self) -> bool {
+        self.radar_enabled
+    }
+
+    pub fn radar_forced(&self) -> bool {
+        self.radar_forced
+    }
+
+    /// Push a script/UI message residual (broadcast + new-message feed).
+    pub fn push_script_ui_message<S: Into<String>>(&mut self, message: S) {
+        let msg = message.into();
+        if msg.is_empty() {
+            return;
+        }
+        self.script_broadcasts.push(ScriptBroadcast {
+            text: msg.clone(),
+            expires_at: self.sim_time_seconds + 10.0,
+        });
+        self.new_script_messages.push(msg);
+    }
+
+    pub fn set_cinematic_letterbox(&mut self, enabled: bool) {
+        self.cinematic_letterbox = enabled;
+    }
+
+    pub fn set_cinematic_text(&mut self, text: Option<String>) {
+        self.cinematic_text = text.map(|t| (t, self.sim_time_seconds + 10.0));
+    }
+
+    pub fn set_military_caption(&mut self, text: Option<String>) {
+        self.military_caption = text.map(|t| (t, self.sim_time_seconds + 10.0));
+    }
+
+    pub fn set_radar_forced(&mut self, forced: bool) {
+        self.radar_forced = forced;
+    }
+
     pub fn take_new_script_messages(&mut self) -> Vec<String> {
         std::mem::take(&mut self.new_script_messages)
     }
