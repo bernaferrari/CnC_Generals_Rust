@@ -62,7 +62,16 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 `EntityId` map, delta sync (health/transform/economy), and `WorldMutation` damage
 parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime: `GENERALS_GAMEWORLD_SHADOW=1` holds a session on `CnCGameEngine`.
 `Object::take_damage_from` records `host_damage_log` events drained each tick.
-Still not production authority. Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
+Still not production authority for the full sim.
+
+### Damage authority cutover (opt-in)
+
+`GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=1` (implies shadow session): end-of-tick
+reapplies `host_damage_log` as `WorldMutation`s on `GameWorldShadow` and
+**writebacks** HP/destroyed onto Main objects. GameWorld is last writer for HP;
+mid-frame host combat still runs for C++ armor/side-effect parity.
+
+ Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
 ### Presentation boundary residual (2026-07-14)
