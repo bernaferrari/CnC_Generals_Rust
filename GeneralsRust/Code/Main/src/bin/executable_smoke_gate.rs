@@ -29,8 +29,8 @@ fn main() {
     match r.status.as_str() {
         "success" | "success_partial_exit" | "success_forced_exit" if r.executable_host_ok => {
             println!(
-                "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} frames={} new_game={})",
-                r.reached_ingame, r.reached_menu, r.frames_observed, r.new_game_path
+                "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} gameplay_cmd={} frames={} new_game={})",
+                r.reached_ingame, r.reached_menu, r.gameplay_cmd_ok, r.frames_observed, r.new_game_path
             );
             std::process::exit(0);
         }
