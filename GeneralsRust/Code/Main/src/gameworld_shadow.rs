@@ -2,7 +2,7 @@
 //!
 //! This is **not** production authority yet. It rebuilds a borrow-first `GameWorld`
 //! snapshot from the host so we can:
-//! - Prove entity/player counts and frame can mirror without `Arc`/`OBJECT_REGISTRY`
+//! - Prove entity/player/economy counts and frame can mirror without `Arc`/`OBJECT_REGISTRY`
 //! - Run optional shadow ticks under `GENERALS_GAMEWORLD_SHADOW=1`
 //! - Grow slice-by-slice until Main stores retire
 //!
@@ -10,7 +10,7 @@
 
 use crate::game_logic::{GameLogic, Team};
 use gamelogic::world::entities::{TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId, WorldSnapshot};
+use gamelogic::world::{GameWorld, WorldSnapshot};
 
 /// Compact probe comparing host authority vs GameWorld shadow.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,24 +21,38 @@ pub struct GameWorldShadowProbe {
     pub shadow_entities: usize,
     pub host_players: usize,
     pub shadow_players: usize,
+    /// Sum of host player supplies.
+    pub host_supplies_sum: u64,
+    /// Sum of shadow player supplies.
+    pub shadow_supplies_sum: u64,
     /// True when object/player counts match and frames are equal (u32 cast).
     pub counts_match: bool,
+    /// True when supplies sums match (economy mirror).
+    pub economy_match: bool,
     pub detail: String,
 }
 
 impl GameWorldShadowProbe {
     pub fn format_report(&self) -> String {
         format!(
-            "gameworld_shadow host_f={} shadow_f={} objs={}/{} players={}/{} match={} {}",
+            "gameworld_shadow host_f={} shadow_f={} objs={}/{} players={}/{} supplies={}/{} match={} econ={} {}",
             self.host_frame,
             self.shadow_frame,
             self.host_objects,
             self.shadow_entities,
             self.host_players,
             self.shadow_players,
+            self.host_supplies_sum,
+            self.shadow_supplies_sum,
             self.counts_match,
+            self.economy_match,
             self.detail
         )
+    }
+
+    #[inline]
+    pub fn full_match(&self) -> bool {
+        self.counts_match && self.economy_match
     }
 }
 
@@ -57,7 +71,7 @@ pub fn mirror_host_into_gameworld(logic: &GameLogic, max_entities: usize) -> Gam
     // Players: stable order by id → dense GameWorld slots 0..n
     let mut player_ids: Vec<u32> = logic.get_players().keys().copied().collect();
     player_ids.sort_unstable();
-    let mut host_to_dense: std::collections::HashMap<u32, PlayerId> =
+    let mut host_to_dense: std::collections::HashMap<u32, gamelogic::world::PlayerId> =
         std::collections::HashMap::new();
     for pid in player_ids {
         let Some(p) = logic.get_player(pid) else {
@@ -71,7 +85,13 @@ pub fn mirror_host_into_gameworld(logic: &GameLogic, max_entities: usize) -> Gam
         };
         // Local player treated as human; others as AI for shadow metadata.
         let is_human = p.is_local;
-        if let Some(gw_id) = world.allocate_player_with_name(Some(p.name.clone()), team, is_human) {
+        if let Some(gw_id) = world.allocate_player_with_economy(
+            Some(p.name.clone()),
+            team,
+            is_human,
+            p.resources.supplies,
+            p.power_available,
+        ) {
             host_to_dense.insert(pid, gw_id);
         }
     }
@@ -113,12 +133,23 @@ pub fn mirror_host_into_gameworld(logic: &GameLogic, max_entities: usize) -> Gam
     let current = world.frame();
     if target > current {
         world.advance_frames(target - current);
+    } else if target < current {
+        world.set_frame(target);
     }
 
     world
 }
 
-/// Build shadow + compare counts with host.
+/// Incremental shadow API: replace contents of an existing `GameWorld` from host.
+///
+/// Today this is a full rebuild assigned into `world` (entity ID mapping is not yet
+/// stable across frames). Call sites can keep the owned `GameWorld` without
+/// reallocating the outer handle each tick.
+pub fn remirror_host_into_gameworld(world: &mut GameWorld, logic: &GameLogic, max_entities: usize) {
+    *world = mirror_host_into_gameworld(logic, max_entities);
+}
+
+/// Build shadow + compare counts/economy with host.
 pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorld, GameWorldShadowProbe) {
     const MAX_ENTITIES: usize = 4096;
     let world = mirror_host_into_gameworld(logic, MAX_ENTITIES);
@@ -129,6 +160,12 @@ pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorld, GameWorldShadow
     let shadow_players = snap.players.len();
     let host_frame = logic.get_frame();
     let shadow_frame = snap.frame;
+    let host_supplies_sum: u64 = logic
+        .get_players()
+        .values()
+        .map(|p| p.resources.supplies as u64)
+        .sum();
+    let shadow_supplies_sum: u64 = snap.players.iter().map(|p| p.supplies as u64).sum();
 
     let capped = host_objects > MAX_ENTITIES;
     let entity_ok = if capped {
@@ -138,8 +175,9 @@ pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorld, GameWorldShadow
     };
     let counts_match =
         entity_ok && shadow_players == host_players && shadow_frame == host_frame as u64;
+    let economy_match = host_supplies_sum == shadow_supplies_sum;
 
-    let detail = if counts_match {
+    let detail = if counts_match && economy_match {
         if capped {
             format!("ok (entities capped at {MAX_ENTITIES})")
         } else {
@@ -147,8 +185,13 @@ pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorld, GameWorldShadow
         }
     } else {
         format!(
-            "mismatch entity_ok={entity_ok} players {} vs {} frame {} vs {}",
-            host_players, shadow_players, host_frame, shadow_frame
+            "mismatch entity_ok={entity_ok} players {} vs {} frame {} vs {} supplies {} vs {}",
+            host_players,
+            shadow_players,
+            host_frame,
+            shadow_frame,
+            host_supplies_sum,
+            shadow_supplies_sum
         )
     };
 
@@ -159,7 +202,10 @@ pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorld, GameWorldShadow
         shadow_entities,
         host_players,
         shadow_players,
+        host_supplies_sum,
+        shadow_supplies_sum,
         counts_match,
+        economy_match,
         detail,
     };
     (world, probe)
@@ -171,12 +217,62 @@ pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadow
         return None;
     }
     let (_world, probe) = probe_host_vs_gameworld(logic);
-    if !probe.counts_match {
+    if !probe.full_match() {
         log::warn!("{}", probe.format_report());
     } else {
         log::trace!("{}", probe.format_report());
     }
     Some(probe)
+}
+
+/// Observe-path presentation from GameWorld (no Main GameLogic borrow).
+/// Not a full Main `PresentationFrame` — entity transforms/health for migration.
+#[derive(Debug, Clone)]
+pub struct GameWorldPresentationView {
+    pub frame: u64,
+    pub local_supplies: u32,
+    pub entities: Vec<GameWorldEntityView>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GameWorldEntityView {
+    pub id: u32,
+    pub template: String,
+    pub owner: Option<u8>,
+    pub position: [f32; 3],
+    pub orientation: f32,
+    pub health: f32,
+}
+
+/// Build presentation view from GameWorld snapshot (borrow-first observe path).
+pub fn presentation_view_from_gameworld(
+    world: &GameWorld,
+    local_player_index: u8,
+) -> GameWorldPresentationView {
+    let snap = world.snapshot();
+    let local_supplies = snap
+        .players
+        .iter()
+        .find(|p| p.id.get() == local_player_index)
+        .map(|p| p.supplies)
+        .unwrap_or(0);
+    let entities = snap
+        .entities
+        .into_iter()
+        .map(|e| GameWorldEntityView {
+            id: e.id.get(),
+            template: e.template,
+            owner: e.owner.map(|o| o.get()),
+            position: e.position,
+            orientation: e.orientation,
+            health: e.health,
+        })
+        .collect();
+    GameWorldPresentationView {
+        frame: snap.frame,
+        local_supplies,
+        entities,
+    }
 }
 
 #[cfg(test)]
@@ -185,7 +281,7 @@ mod tests {
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
     #[test]
-    fn shadow_counts_match_after_skirmish_config() {
+    fn shadow_counts_and_economy_match_after_skirmish_config() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("GameWorldShadowMap");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -206,6 +302,33 @@ mod tests {
             "{}",
             probe.format_report()
         );
+        assert!(
+            probe.economy_match,
+            "economy mirror: {}",
+            probe.format_report()
+        );
+        assert!(probe.full_match() || probe.host_objects > 4096);
+
+        // Incremental remirror + GameWorld presentation view.
+        let mut w = mirror_host_into_gameworld(&logic, 4096);
+        remirror_host_into_gameworld(&mut w, &logic, 4096);
+        let view = presentation_view_from_gameworld(&w, 0);
+        assert_eq!(view.frame, logic.get_frame() as u64);
+        assert_eq!(view.entities.len(), logic.get_objects().len().min(4096));
+        // Local supplies is the slot-0 player cash, not the sum.
+        let expected_local = logic
+            .get_players()
+            .values()
+            .find(|p| p.is_local)
+            .map(|p| p.resources.supplies)
+            .or_else(|| {
+                let mut ids: Vec<_> = logic.get_players().keys().copied().collect();
+                ids.sort_unstable();
+                ids.first()
+                    .and_then(|id| logic.get_player(*id).map(|p| p.resources.supplies))
+            })
+            .unwrap_or(0);
+        assert_eq!(view.local_supplies, expected_local);
     }
 
     #[test]
