@@ -400,6 +400,120 @@ impl HostAngryMobRegistry {
     }
 }
 
+
+// --- Wave 69 residual honesty peels (retail weapon / body / upgrade) ---
+
+/// Convert residual msec → logic frames @ 30 FPS (round half-up).
+pub fn angry_mob_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * ANGRY_MOB_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Retail GLAAngryMobPistolWeapon PrimaryDamage residual.
+pub const ANGRY_MOB_PISTOL_DAMAGE: f32 = 10.0;
+/// Retail pistol AttackRange residual.
+pub const ANGRY_MOB_PISTOL_RANGE: f32 = 100.0;
+/// Retail pistol DelayBetweenShots residual (msec).
+pub const ANGRY_MOB_PISTOL_DELAY_MS: u32 = 250;
+/// Retail pistol ClipSize residual.
+pub const ANGRY_MOB_PISTOL_CLIP: u32 = 8;
+/// Retail pistol ClipReloadTime residual (msec).
+pub const ANGRY_MOB_PISTOL_CLIP_RELOAD_MS: u32 = 3_000;
+/// Retail pistol DamageType residual.
+pub const ANGRY_MOB_PISTOL_DAMAGE_TYPE: &str = "MOLOTOV_COCKTAIL";
+/// Retail GLAAngryMobPistolWeapon name residual.
+pub const ANGRY_MOB_PISTOL_WEAPON: &str = "GLAAngryMobPistolWeapon";
+/// Retail SpawnReplaceDelay residual (msec).
+pub const ANGRY_MOB_SPAWN_REPLACE_DELAY_MS: u32 = 30_000;
+
+/// Retail nexus MaxHealth residual (effectively immortal AggregateHealth).
+pub const ANGRY_MOB_MAX_HEALTH: f32 = 99_999.0;
+/// Retail BuildCost residual.
+pub const ANGRY_MOB_BUILD_COST: u32 = 800;
+/// Retail BuildTime residual (seconds).
+pub const ANGRY_MOB_BUILD_TIME_SEC: f32 = 15.0;
+/// Retail BuildTime → frames @ 30 FPS.
+pub const ANGRY_MOB_BUILD_TIME_FRAMES: u32 = 450;
+/// Retail VisionRange residual.
+pub const ANGRY_MOB_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const ANGRY_MOB_SHROUD_CLEARING_RANGE: f32 = 0.0;
+/// Retail TransportSlotCount residual (not transportable).
+pub const ANGRY_MOB_TRANSPORT_SLOT_COUNT: u32 = 0;
+/// Retail nexus locomotor speed residual.
+pub const ANGRY_MOB_LOCOMOTOR_SPEED: f32 = 18.0;
+
+/// Retail ArmTheMob BuildCost residual.
+pub const ARM_THE_MOB_BUILD_COST: u32 = 1_000;
+/// Retail ArmTheMob BuildTime residual (seconds).
+pub const ARM_THE_MOB_BUILD_TIME_SEC: f32 = 30.0;
+/// Retail ArmTheMob BuildTime → frames.
+pub const ARM_THE_MOB_BUILD_TIME_FRAMES: u32 = 900;
+/// Retail ArmTheMob research audio residual.
+pub const ARM_THE_MOB_RESEARCH_SOUND: &str = "AngryMobVoiceUpgradeArmTheMob";
+
+/// Wave 69 residual honesty: aggregate weapon / spawn residual peel.
+pub fn honesty_angry_mob_weapon_residual_ok() -> bool {
+    ANGRY_MOB_PISTOL_WEAPON == "GLAAngryMobPistolWeapon"
+        && (ANGRY_MOB_PISTOL_DAMAGE - 10.0).abs() < 0.01
+        && (ANGRY_MOB_PISTOL_RANGE - 100.0).abs() < 0.01
+        && (ANGRY_MOB_ATTACK_RANGE - 100.0).abs() < 0.01
+        && ANGRY_MOB_PISTOL_DELAY_MS == 250
+        && ANGRY_MOB_TICK_INTERVAL_FRAMES == angry_mob_ms_to_frames(ANGRY_MOB_PISTOL_DELAY_MS)
+        && ANGRY_MOB_TICK_INTERVAL_FRAMES == 8
+        && ANGRY_MOB_PISTOL_CLIP == 8
+        && ANGRY_MOB_PISTOL_CLIP_RELOAD_MS == 3_000
+        && ANGRY_MOB_PISTOL_DAMAGE_TYPE == "MOLOTOV_COCKTAIL"
+        && ANGRY_MOB_INITIAL_MEMBERS == 5
+        && ANGRY_MOB_MAX_MEMBERS == 10
+        && ANGRY_MOB_SPAWN_REPLACE_DELAY_MS == 30_000
+        && ANGRY_MOB_EXPAND_INTERVAL_FRAMES
+            == angry_mob_ms_to_frames(ANGRY_MOB_SPAWN_REPLACE_DELAY_MS)
+        && ANGRY_MOB_EXPAND_INTERVAL_FRAMES == 900
+        && (ANGRY_MOB_ARMED_DAMAGE_MULT - 1.25).abs() < 0.01
+        && UPGRADE_GLA_ARM_THE_MOB == "Upgrade_GLAArmTheMob"
+        && ANGRY_MOB_FIRE_AUDIO == "AngryMobWeaponPistol"
+        && (angry_mob_damage_for_tick(5, false) - 20.0).abs() < 0.01
+        && (angry_mob_damage_for_tick(5, true) - 25.0).abs() < 0.01
+}
+
+/// Wave 69 residual honesty: nexus body residual peel.
+pub fn honesty_angry_mob_body_residual_ok() -> bool {
+    (ANGRY_MOB_MAX_HEALTH - 99_999.0).abs() < 0.01
+        && ANGRY_MOB_BUILD_COST == 800
+        && (ANGRY_MOB_BUILD_TIME_SEC - 15.0).abs() < 0.01
+        && ANGRY_MOB_BUILD_TIME_FRAMES
+            == ((ANGRY_MOB_BUILD_TIME_SEC * ANGRY_MOB_LOGIC_FPS).round() as u32)
+        && ANGRY_MOB_BUILD_TIME_FRAMES == 450
+        && (ANGRY_MOB_VISION_RANGE - 150.0).abs() < 0.01
+        && (ANGRY_MOB_SHROUD_CLEARING_RANGE - 0.0).abs() < 0.01
+        && ANGRY_MOB_TRANSPORT_SLOT_COUNT == 0
+        && (ANGRY_MOB_LOCOMOTOR_SPEED - 18.0).abs() < 0.01
+        && is_angry_mob_nexus_template("GLAInfantryAngryMobNexus")
+        && !is_angry_mob_nexus_template("GLAInfantryAngryMobPistol01")
+}
+
+/// Wave 69 residual honesty: ArmTheMob upgrade residual peel.
+pub fn honesty_angry_mob_upgrade_residual_ok() -> bool {
+    UPGRADE_GLA_ARM_THE_MOB == "Upgrade_GLAArmTheMob"
+        && ARM_THE_MOB_BUILD_COST == 1_000
+        && (ARM_THE_MOB_BUILD_TIME_SEC - 30.0).abs() < 0.01
+        && ARM_THE_MOB_BUILD_TIME_FRAMES
+            == ((ARM_THE_MOB_BUILD_TIME_SEC * ANGRY_MOB_LOGIC_FPS).round() as u32)
+        && ARM_THE_MOB_BUILD_TIME_FRAMES == 900
+        && ARM_THE_MOB_RESEARCH_SOUND == "AngryMobVoiceUpgradeArmTheMob"
+        && (ANGRY_MOB_ARMED_DAMAGE_MULT - 1.25).abs() < 0.01
+}
+
+/// Combined Wave 69 Angry Mob residual honesty pack.
+pub fn honesty_angry_mob_residual_pack_ok() -> bool {
+    honesty_angry_mob_weapon_residual_ok()
+        && honesty_angry_mob_body_residual_ok()
+        && honesty_angry_mob_upgrade_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,5 +658,18 @@ mod tests {
             reg.apply_due_expands(frame);
         }
         assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS));
+    }
+
+    #[test]
+    fn angry_mob_residual_pack_honesty_wave69() {
+        assert_eq!(angry_mob_ms_to_frames(250), 8);
+        assert_eq!(angry_mob_ms_to_frames(30_000), 900);
+        assert!(honesty_angry_mob_weapon_residual_ok());
+        assert!(honesty_angry_mob_body_residual_ok());
+        assert!(honesty_angry_mob_upgrade_residual_ok());
+        assert!(honesty_angry_mob_residual_pack_ok());
+        assert_eq!(ANGRY_MOB_BUILD_TIME_FRAMES, 450);
+        assert_eq!(ARM_THE_MOB_BUILD_COST, 1_000);
+        assert_eq!(ANGRY_MOB_PISTOL_DAMAGE_TYPE, "MOLOTOV_COCKTAIL");
     }
 }

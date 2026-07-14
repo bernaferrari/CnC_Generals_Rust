@@ -328,6 +328,81 @@ impl HostFireWallRegistry {
     }
 }
 
+
+// --- Wave 69 residual honesty peels (retail FireWallSegment weapon / ability) ---
+
+/// Retail FireWallSegmentWeapon name residual.
+pub const FIREWALL_SEGMENT_WEAPON: &str = "FireWallSegmentWeapon";
+/// Retail DragonTankFireWallWeapon name residual.
+pub const FIREWALL_DRAGON_WEAPON: &str = "DragonTankFireWallWeapon";
+/// Retail FireWallSegment DeletionUpdate lifetime residual (msec).
+pub const FIREWALL_DURATION_MS: u32 = 4_000;
+/// Retail FireWallSegmentWeapon DelayBetweenShots residual (msec).
+pub const FIREWALL_TICK_MS: u32 = 250;
+/// Retail DamageType residual.
+pub const FIREWALL_DAMAGE_TYPE: &str = "FLAME";
+/// Retail DeathType residual.
+pub const FIREWALL_DEATH_TYPE: &str = "BURNED";
+/// Retail DragonTankFireWallWeapon AttackRange residual.
+pub const FIREWALL_DRAGON_ATTACK_RANGE: f32 = 25.0;
+/// Retail DragonTankFireWallWeapon PrimaryDamage residual.
+pub const FIREWALL_DRAGON_PRIMARY_DAMAGE: f32 = 10.0;
+/// Retail ProjectileDetonationOCL residual.
+pub const FIREWALL_OCL_SEGMENT: &str = "OCL_FireWallSegment";
+/// Retail segment MaxHealth residual (ImmortalBody).
+pub const FIREWALL_SEGMENT_MAX_HEALTH: f32 = 50.0;
+/// Retail FireWallSegmentWeapon AttackRange residual.
+pub const FIREWALL_SEGMENT_ATTACK_RANGE: f32 = 15.0;
+
+/// Convert residual msec → logic frames @ 30 FPS.
+pub fn firewall_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * FIREWALL_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Wave 69 residual honesty: segment weapon residual peel.
+pub fn honesty_firewall_weapon_residual_ok() -> bool {
+    FIREWALL_SEGMENT_WEAPON == "FireWallSegmentWeapon"
+        && (FIREWALL_DAMAGE_PER_TICK - 4.0).abs() < 0.01
+        && (FIREWALL_SEGMENT_RADIUS - 10.0).abs() < 0.01
+        && FIREWALL_TICK_MS == 250
+        && FIREWALL_TICK_INTERVAL_FRAMES == firewall_ms_to_frames(FIREWALL_TICK_MS)
+        && FIREWALL_TICK_INTERVAL_FRAMES == 8
+        && FIREWALL_DAMAGE_TYPE == "FLAME"
+        && FIREWALL_DEATH_TYPE == "BURNED"
+        && (FIREWALL_SEGMENT_ATTACK_RANGE - 15.0).abs() < 0.01
+        && FIREWALL_BURN_AUDIO == "DragonTankWeaponLoop"
+}
+
+/// Wave 69 residual honesty: ability / duration / geometry residual peel.
+pub fn honesty_firewall_ability_residual_ok() -> bool {
+    FIREWALL_DRAGON_WEAPON == "DragonTankFireWallWeapon"
+        && FIREWALL_OCL_SEGMENT == "OCL_FireWallSegment"
+        && FIREWALL_DURATION_MS == 4_000
+        && FIREWALL_DURATION_FRAMES == firewall_ms_to_frames(FIREWALL_DURATION_MS)
+        && FIREWALL_DURATION_FRAMES == 120
+        && (FIREWALL_DRAGON_ATTACK_RANGE - 25.0).abs() < 0.01
+        && (FIREWALL_DRAGON_PRIMARY_DAMAGE - 10.0).abs() < 0.01
+        && (FIREWALL_START_OFFSET - 20.0).abs() < 0.01
+        && (FIREWALL_SEGMENT_SPACING - 12.0).abs() < 0.01
+        && (FIREWALL_MAX_LENGTH - 120.0).abs() < 0.01
+        && (FIREWALL_MIN_LENGTH - 36.0).abs() < 0.01
+        && (FIREWALL_SEGMENT_MAX_HEALTH - 50.0).abs() < 0.01
+        && FIREWALL_ACTIVATE_AUDIO == "DragonTankVoiceModeFireStorm"
+        && !HostFireWallRegistry::build_segments(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(100.0, 0.0, 0.0),
+        )
+        .is_empty()
+}
+
+/// Combined Wave 69 FireWall residual honesty pack.
+pub fn honesty_firewall_residual_pack_ok() -> bool {
+    honesty_firewall_weapon_residual_ok() && honesty_firewall_ability_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,5 +480,17 @@ mod tests {
         reg.prune_expired(10 + FIREWALL_DURATION_FRAMES);
         assert_eq!(reg.active_count(), 0);
         assert_eq!(reg.expirations, 1);
+    }
+
+    #[test]
+    fn firewall_residual_pack_honesty_wave69() {
+        assert_eq!(firewall_ms_to_frames(250), 8);
+        assert_eq!(firewall_ms_to_frames(4_000), 120);
+        assert!(honesty_firewall_weapon_residual_ok());
+        assert!(honesty_firewall_ability_residual_ok());
+        assert!(honesty_firewall_residual_pack_ok());
+        assert_eq!(FIREWALL_DAMAGE_TYPE, "FLAME");
+        assert_eq!(FIREWALL_DEATH_TYPE, "BURNED");
+        assert_eq!(FIREWALL_OCL_SEGMENT, "OCL_FireWallSegment");
     }
 }

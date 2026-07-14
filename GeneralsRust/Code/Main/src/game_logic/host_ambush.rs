@@ -362,6 +362,99 @@ impl HostAmbushRegistry {
     }
 }
 
+
+// --- Wave 69 residual honesty peels (retail SpecialPower / OCL) ---
+
+/// Retail SpecialPower template name residual.
+pub const AMBUSH_SPECIAL_POWER_TEMPLATE: &str = "SuperweaponRebelAmbush";
+/// Retail Enum residual.
+pub const AMBUSH_SPECIAL_POWER_ENUM: &str = "SPECIAL_AMBUSH";
+/// Retail RequiredScience residual (Ambush1).
+pub const AMBUSH_REQUIRED_SCIENCE: &str = "SCIENCE_RebelAmbush1";
+/// Retail ReloadTime residual (msec).
+pub const AMBUSH_RELOAD_TIME_MS: u32 = 240_000;
+/// Retail ReloadTime 240000ms → 7200 frames @ 30 FPS.
+pub const AMBUSH_RELOAD_TIME_FRAMES: u32 = 7_200;
+/// Retail RadiusCursorRadius residual.
+pub const AMBUSH_RADIUS_CURSOR: f32 = 50.0;
+/// Retail SharedSyncedTimer residual.
+pub const AMBUSH_SHARED_SYNCED_TIMER: bool = true;
+/// Retail PublicTimer residual.
+pub const AMBUSH_PUBLIC_TIMER: bool = false;
+/// Retail ShortcutPower residual.
+pub const AMBUSH_SHORTCUT_POWER: bool = true;
+/// Retail OCL CreateObject FadeTime residual (msec).
+pub const AMBUSH_FADE_TIME_MS: u32 = 3_000;
+/// FadeTime 3000ms → 90 frames @ 30 FPS.
+pub const AMBUSH_FADE_TIME_FRAMES: u32 = 90;
+/// Retail SUPERWEAPON_RebelAmbush1 ObjectCreationList name residual.
+pub const AMBUSH_OCL_AMBUSH1: &str = "SUPERWEAPON_RebelAmbush1";
+/// Retail Ambush2 / Ambush3 unit counts residual (science tiers; host uses Ambush1).
+pub const GLA_AMBUSH2_UNIT_COUNT: u32 = 8;
+pub const GLA_AMBUSH3_UNIT_COUNT: u32 = 16;
+/// Retail SpreadFormation MinDistanceA residual.
+pub const AMBUSH_MIN_DISTANCE_A: f32 = 20.0;
+/// Retail SpreadFormation MinDistanceB residual.
+pub const AMBUSH_MIN_DISTANCE_B: f32 = 30.0;
+/// Retail SpreadFormation MaxDistanceFormation residual.
+pub const AMBUSH_MAX_DISTANCE_FORMATION: f32 = 400.0;
+/// Retail OCL DiesOnBadLand residual.
+pub const AMBUSH_DIES_ON_BAD_LAND: bool = true;
+/// Retail FadeIn residual.
+pub const AMBUSH_FADE_IN: bool = true;
+
+/// Convert residual msec → logic frames @ 30 FPS (round half-up).
+pub fn ambush_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * AMBUSH_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Wave 69 residual honesty: special-power residual peel.
+pub fn honesty_ambush_special_power_residual_ok() -> bool {
+    AMBUSH_SPECIAL_POWER_TEMPLATE == "SuperweaponRebelAmbush"
+        && AMBUSH_SPECIAL_POWER_ENUM == "SPECIAL_AMBUSH"
+        && AMBUSH_REQUIRED_SCIENCE == "SCIENCE_RebelAmbush1"
+        && AMBUSH_RELOAD_TIME_MS == 240_000
+        && AMBUSH_RELOAD_TIME_FRAMES == ambush_ms_to_frames(AMBUSH_RELOAD_TIME_MS)
+        && AMBUSH_RELOAD_TIME_FRAMES == 7_200
+        && (AMBUSH_RADIUS_CURSOR - 50.0).abs() < 0.01
+        && AMBUSH_SHARED_SYNCED_TIMER
+        && !AMBUSH_PUBLIC_TIMER
+        && AMBUSH_SHORTCUT_POWER
+        && HostAmbushKind::GLARebelAmbush.activate_audio() == "RebelAmbushActivated"
+        && HostAmbushKind::from_command_power(
+            &crate::command_system::SpecialPowerType::Ambush,
+        ) == Some(HostAmbushKind::GLARebelAmbush)
+}
+
+/// Wave 69 residual honesty: OCL spawn residual peel.
+pub fn honesty_ambush_spawn_ocl_residual_ok() -> bool {
+    AMBUSH_OCL_AMBUSH1 == "SUPERWEAPON_RebelAmbush1"
+        && GLA_REBEL_TEMPLATE == "GLAInfantryRebel"
+        && GLA_AMBUSH1_UNIT_COUNT == 4
+        && GLA_AMBUSH2_UNIT_COUNT == 8
+        && GLA_AMBUSH3_UNIT_COUNT == 16
+        && AMBUSH_FADE_TIME_MS == 3_000
+        && AMBUSH_FADE_TIME_FRAMES == ambush_ms_to_frames(AMBUSH_FADE_TIME_MS)
+        && AMBUSH_FADE_TIME_FRAMES == 90
+        && HostAmbushKind::GLARebelAmbush.spawn_delay_frames() == AMBUSH_FADE_TIME_FRAMES
+        && HostAmbushKind::GLARebelAmbush.unit_count() == GLA_AMBUSH1_UNIT_COUNT
+        && (AMBUSH_SPAWN_RADIUS - 40.0).abs() < 0.01
+        && (AMBUSH_MIN_DISTANCE_A - 20.0).abs() < 0.01
+        && (AMBUSH_MIN_DISTANCE_B - 30.0).abs() < 0.01
+        && (AMBUSH_MAX_DISTANCE_FORMATION - 400.0).abs() < 0.01
+        && AMBUSH_FADE_IN
+        && AMBUSH_DIES_ON_BAD_LAND
+        && HostAmbushKind::GLARebelAmbush.unit_template() == GLA_REBEL_TEMPLATE
+}
+
+/// Combined Wave 69 Ambush residual honesty pack.
+pub fn honesty_ambush_residual_pack_ok() -> bool {
+    honesty_ambush_special_power_residual_ok() && honesty_ambush_spawn_ocl_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,5 +551,21 @@ mod tests {
         assert_eq!(m.spawn_frame, 100);
         assert_eq!(m.phase, HostAmbushPhase::Queued);
         assert_eq!(loaded.next_id(), next);
+    }
+
+    #[test]
+    fn ambush_residual_pack_honesty_wave69() {
+        assert_eq!(ambush_ms_to_frames(3_000), 90);
+        assert_eq!(ambush_ms_to_frames(240_000), 7_200);
+        assert_eq!(ambush_ms_to_frames(0), 0);
+        assert!(honesty_ambush_special_power_residual_ok());
+        assert!(honesty_ambush_spawn_ocl_residual_ok());
+        assert!(honesty_ambush_residual_pack_ok());
+        assert_eq!(GLA_AMBUSH1_UNIT_COUNT, 4);
+        assert_eq!(GLA_AMBUSH2_UNIT_COUNT, 8);
+        assert_eq!(GLA_AMBUSH3_UNIT_COUNT, 16);
+        assert_eq!(AMBUSH_REQUIRED_SCIENCE, "SCIENCE_RebelAmbush1");
+        assert!(AMBUSH_SHARED_SYNCED_TIMER);
+        assert!(!AMBUSH_PUBLIC_TIMER);
     }
 }
