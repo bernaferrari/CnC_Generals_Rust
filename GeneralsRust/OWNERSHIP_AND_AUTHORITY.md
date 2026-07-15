@@ -1016,7 +1016,7 @@ InGame `apply_pending_script_camera_requests` prefers frozen `PresentationFrame`
 camera fields (focus/zoom/pitch/rotate/look/slave/shakers/screen_shakes) then
 drains live `take_*` queues without double-apply. Live take path remains
 boot/menu residual. Fail-closed: ease curves not frozen on frame (duration-only);
-`camera_follow_target_position` still live.
+camera follow prefers presentation freeze (boot residual only).
 
 ### Presentation popup/music/fps residual (2026-07-14)
 
@@ -1114,4 +1114,35 @@ Fail-closed: remaining_ms frozen but not yet used for timed HUD expiry.
 `PresentationFrame.camera_follow_position` freezes host follow-object pose via
 `peek_camera_follow_target_position`. InGame camera apply prefers presentation;
 live `camera_follow_target_position` is boot residual only.
+
+### Presentation timers/cameo/superweapon residual (2026-07-14)
+
+`apply_to_ui_state` projects frozen `named_timers`, `named_timer_display_shown`,
+`cameo_flash`, `superweapon_display_enabled`, and `superweapon_hidden_objects`
+onto GameUIState. Fail-closed: not sole GameWorld authority; control-bar cameo
+flash art still may re-read host command sets.
+
+### AIPlayer update_with_frame C++ phase order (2026-07-14)
+
+`gamelogic` `AIPlayer::update_with_frame` now follows C++ `AIPlayer::update`
+order: doBaseBuilding → checkReadyTeams → checkQueuedTeams → doTeamBuilding →
+doUpgradesAndSkills → updateBridgeRepair. `process_attack_decisions` remains a
+host residual after that block (not in C++ AIPlayer::update).
+
+### checkReadyTeams / checkQueuedTeams C++ parity (2026-07-14)
+
+Compared `GeneralsMD/.../AI/AIPlayer.cpp` to `gamelogic` `AIPlayer`:
+
+- `update_with_frame` phase order matches C++ `AIPlayer::update`.
+- `check_ready_teams` now activates ready-queue teams on all-idle / executeActions
+  script / 60s timeout (was only promoting build→ready).
+- `check_queued_teams` ports build-time expiry (min-built→ready else disband),
+  all-built prepend to ready, and any-idle productionCondition action execute.
+- `is_minimum_built` counts in-progress factory (+1) like C++.
+- `are_builds_complete` is true only when no factory assigned (C++).
+- Reinforcement `join_team_reinforcement` residual ports `AIUpdateInterface::joinTeam`
+  catch-up move (full state-match residual remains).
+
+Fail-closed: Main host AI (`Main/src/ai.rs`) is still a separate simplified loop;
+not sole GameWorld authority.
 
