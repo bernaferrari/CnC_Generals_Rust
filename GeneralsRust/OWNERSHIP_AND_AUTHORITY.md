@@ -583,3 +583,9 @@ Selection hotkeys (Ctrl+A, Tab cycle, control groups, box select), pick, and
 right-click attack prefer `frame.local_team()` when a frame is installed. Live
 `GameLogic::get_player` team reads remain boot residual without presentation.
 
+### Presentation select-similar local_team residual (2026-07-14)
+
+`select_similar_units` prefers `PresentationFrame.local_team()` and
+`similar_unit_ids` when a frame is installed. Live `get_player` /
+`get_objects` remain boot residual without presentation.
+
