@@ -1146,3 +1146,17 @@ Compared `GeneralsMD/.../AI/AIPlayer.cpp` to `gamelogic` `AIPlayer`:
 Fail-closed: Main host AI (`Main/src/ai.rs`) is still a separate simplified loop;
 not sole GameWorld authority.
 
+### doBaseBuilding / doTeamBuilding delay parity (2026-07-14)
+
+Compared C++ `AIPlayer::doBaseBuilding` / `doTeamBuilding` to Rust:
+
+- `do_base_building`: structureTimer→ready; `buildDelay` throttles `process_base_building`
+  and defaults to `2 * LOGICFRAMES_PER_SECOND` (C++).
+- `do_team_building`: teamTimer→ready; on `teamDelay==0` always `queue_units()`, then
+  `process_team_building` if ready; sets `teamDelay = 5 * LOGICFRAMES_PER_SECOND` (C++).
+- `process_team_building` is now selectTeamToBuild + queueUnits (not a recurse into do_team).
+- `update_with_frame` always calls do_* in C++ order; timers live inside do_* (no double-decrement).
+
+Fail-closed: process_base_building body still simplified vs full C++ rebuild/dozer path;
+Main host AI still separate.
+

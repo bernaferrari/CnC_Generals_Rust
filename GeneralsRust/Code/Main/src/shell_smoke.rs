@@ -2319,6 +2319,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_do_base_team_delay_cpp() {
+        // C++ AIPlayer.cpp doBaseBuilding / doTeamBuilding delay rechecks.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("BUILD_DELAY_RECHECK_FRAMES: u32 = 2 * LOGICFRAMES_PER_SECOND")
+                && src.contains("TEAM_DELAY_RECHECK_FRAMES: u32 = 5 * LOGICFRAMES_PER_SECOND")
+                && src.contains("self.build_delay = BUILD_DELAY_RECHECK_FRAMES")
+                && src.contains("self.team_delay = TEAM_DELAY_RECHECK_FRAMES")
+                && src.contains("let _ = self.queue_units()")
+                && src.contains("C++ `AIPlayer::doBaseBuilding`")
+                && src.contains("C++ `AIPlayer::doTeamBuilding`"),
+            "do_base/do_team must port C++ 2s/5s delay + queueUnits cadence"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
