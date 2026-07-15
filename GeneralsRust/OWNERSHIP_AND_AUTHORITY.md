@@ -1326,3 +1326,17 @@ Compared C++ AIPlayer:
 - `repairStructure` / `updateBridgeRepair`: pristine skip, queue bound 2, 1 Hz
   timer, findDozer/queueDozer, aiRepair, complete+home move.
 
+### findSupplyCenter / nearest-team / onStructureProduced (2026-07-14)
+
+Compared C++ AIPlayer:
+
+- `findSupplyCenter`: owned cash-generator proximity skip, enemy 60/40 filter,
+  cash floor halving to 100.
+- `buildSpecificBuildingNearestTeam`: team estimate position → legalize →
+  priority build list.
+- `calcClosestConstructionZoneLocation`: seed location wiggle via
+  find_valid_build_location.
+- Solo `buildAIBaseDefense*` stubs (skirmish overrides).
+- `onStructureProduced`: build-list match, clear UC + upgrades, supply stamp,
+  rebuild-hole retarget residual.
+
