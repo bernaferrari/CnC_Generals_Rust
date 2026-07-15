@@ -91,7 +91,7 @@ When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPi
 | World pose (render) | shadow overlay / SetTransform | path integration mid-frame |
 | Production enqueue | host_production_log (probe) | enqueue_production + create_object spawn |
 | Victory / match-over | shadow probe + runtime-host status | `evaluate_victory_condition` on host |
-| AI decisions / path step / projectile integrate | — | **Main only** |
+| AI decisions / path step / projectile integrate | host `GameLogic::update_simulation` | GameWorld shadow last-writer |
 | OBJECT_REGISTRY pose/HP reads | disabled unless bridge env | only if `engine_object_id` + bridge on |
 
 ## OBJECT_REGISTRY residual
@@ -102,7 +102,14 @@ The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for leg
 
 ## Still Main mid-frame (not sole GameWorld)
 
-Host still executes AI decision, pathfinding step, and combat resolution mid-frame. AI `launch_attack` now prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression. Shadow session runs after host `update` + projectiles + pathfinding (same frame logs), then PresentationFrame overlay. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations (`writeback_transforms_to_host` after session SetTransform) and presentation overlay — not yet the sole simulation owner.
+Host `GameLogic::update_simulation` now owns path follow, projectile drain/step, combat fire, and AI (`update_ai` + `THE_AI` / skirmish AI manager). Engine no longer mid-frame double-steps path or a dual `CombatSystem`.
+
+Remaining engine residual after host update:
+- GameWorld shadow session (last-writer HP/cash/pose/targets/move; not production sole authority)
+- Presentation build + client/render orchestration
+- Input translation and audio device ownership
+
+`gamelogic::GameWorld` is still not the sole production authority. AI `launch_attack` prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression.
 
 ### Path following consolidation (2026-07-14)
 
@@ -133,6 +140,16 @@ double-stepping after `GameLogic::update`. Engine may still hold a
 mid-frame projectile CombatSystem. Presentation freezes `logic.combat_system()`.
 
 
+### Post-AI command flush (2026-07-14)
+
+`GameLogic::update_simulation` drains `command_queue` twice per frame:
+1. Phase 5 (pre-object) — player commands for this frame
+2. Phase 8b (post-AI) — commands queued by `update_ai` / `ai_manager`
+
+Engine no longer calls `process_commands` after host update. Shadow/presentation
+see same-frame AI orders without a second engine drain.
+
+
 ### GameWorld shadow (2026-07-14)
 
 `gameworld_shadow` maintains a `GameWorldShadow` session: stable host `ObjectId`→
@@ -150,7 +167,7 @@ Shadow session **defaults on** in the engine (`GENERALS_GAMEWORLD_SHADOW=0` to d
 
 **Production defaults (2026-07-14):** shadow session, damage authority, and economy authority are **on** when env unset. Opt out with `=0` / `false`. `host_attack_log` from `Object::set_target` → SetAttackTarget each tick.
 
-Still not sole GameWorld production authority for AI/path/full combat sim.
+Still not sole GameWorld production authority (host Main GameLogic remains match host; shadow is last-writer overlay).
 
 ### Damage authority cutover (opt-in)
 

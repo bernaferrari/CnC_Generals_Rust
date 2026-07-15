@@ -4632,6 +4632,11 @@ impl GameLogic {
             self.ai_manager = ai_mgr;
         }
 
+        // Phase 8b: Apply commands queued by AI this frame (C++ CommandList drain
+        // after TheAI->UPDATE). Ensures same-frame set_target/move logs reach
+        // shadow/presentation without a second engine-side process_commands.
+        self.process_commands();
+
         // -----------------------------------------------------------------------
         // Phase 9: Production / Build Assistant (C++ line 3748)
         // -----------------------------------------------------------------------
@@ -47983,6 +47988,35 @@ mod tests {
 
         assert!(game_logic.is_script_camera_time_frozen());
         assert!(game_logic.is_time_frozen_for_simulation());
+    }
+
+    #[test]
+    fn post_ai_commands_flushed_inside_game_logic() {
+        // Structural: AI-phase command flush lives in update_simulation after update_ai.
+        let src = include_str!("game_logic.rs");
+        let ai = src
+            .find("self.update_ai(&object_ids, dt);")
+            .expect("update_ai call");
+        let mgr = src
+            .find("ai_mgr.update(self, sim_time);")
+            .expect("ai_mgr update");
+        // Second process_commands after AI manager (phase 8b)
+        let flush = src[mgr..]
+            .find("self.process_commands();")
+            .map(|o| mgr + o)
+            .expect("post-AI flush");
+        assert!(
+            ai < mgr && mgr < flush,
+            "process_commands must follow AI update; ai={ai} mgr={mgr} flush={flush}"
+        );
+        // Early command processing (phase 5) still exists before object updates.
+        let early = src
+            .find("self.process_commands();")
+            .expect("early process_commands");
+        assert!(
+            early < ai,
+            "phase-5 process_commands must precede update_ai"
+        );
     }
 
     #[test]
