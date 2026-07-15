@@ -10,7 +10,7 @@ pub enum PlayerOutcome {
 }
 
 /// Aggregated result information for a single player.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlayerResult {
     pub player_id: u32,
     pub player_name: String,
@@ -27,7 +27,7 @@ pub struct PlayerResult {
 }
 
 /// Overall victory summary that mirrors the C++ score screen payload.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VictorySummary {
     pub mission_name: Option<String>,
     pub duration: Option<Duration>,
