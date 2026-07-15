@@ -2437,6 +2437,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_start_training_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::startTraining`")
+                && src.contains("queue_unit_with_production_id")
+                && src.contains("request_unique_unit_production_id")
+                && src.contains("C++ `AIPlayer::findFactory`")
+                && src.contains("get_build_list"),
+            "startTraining/findFactory must queueCreateUnit via build-list factories"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

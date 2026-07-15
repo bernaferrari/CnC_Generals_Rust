@@ -1227,3 +1227,15 @@ Compared C++ `AIPlayer::isPossibleToBuildTeam`:
 - Cost uses `(minUnits+maxUnits)/2` average × `teamResourcesToBuild`.
 - Returns `(possible, notEnoughMoney)` like C++ out-param.
 
+### startTraining queueCreateUnit (2026-07-14)
+
+Compared C++ `AIPlayer::startTraining` / `findFactory`:
+
+- `start_training_internal` calls `request_unique_unit_production_id` +
+  `queue_unit_with_production_id` (C++ queueCreateUnit), then sets `order.factory_id`.
+- Falls back to `ProductionUpdateInterface::start_production` if object queue path fails.
+- `find_factory_internal` walks the player **build list** first (C++), then all objects.
+- Shared `factory_candidate` skips under-construction / sold / wrong owner.
+
+Fail-closed: BuildAssistant::isPossibleToMakeUnit residual; Main host AI separate.
+
