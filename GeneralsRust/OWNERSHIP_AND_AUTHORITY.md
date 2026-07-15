@@ -126,6 +126,13 @@ double-stepping after `GameLogic::update`. Engine may still hold a
 
 
 
+### Projectile step consolidation (2026-07-14)
+
+`GameLogic::update_simulation` drains `PENDING_PROJECTILES` into the host
+`CombatSystem` and steps `update_projectiles`. Engine no longer owns a second
+mid-frame projectile CombatSystem. Presentation freezes `logic.combat_system()`.
+
+
 ### GameWorld shadow (2026-07-14)
 
 `gameworld_shadow` maintains a `GameWorldShadow` session: stable host `ObjectId`→

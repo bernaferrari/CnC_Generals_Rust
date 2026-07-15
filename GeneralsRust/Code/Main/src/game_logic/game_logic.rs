@@ -4568,6 +4568,20 @@ impl GameLogic {
         // Weapon fire and damage application as part of the object update pass.
         self.update_combat(&object_ids, dt);
 
+        // Projectiles: drain global fire queue into host CombatSystem and step.
+        // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
+        {
+            let objects = &self.objects;
+            // drain needs &HashMap - self.objects is that
+            crate::game_logic::combat::drain_pending_projectiles(&mut self.combat_system, objects);
+        }
+        let projectile_hits = self.combat_system.update_projectiles(dt, &mut self.objects);
+        if !projectile_hits.is_empty() {
+            // Presentation/audio residual: WeaponFire already queued on shot;
+            // hit SFX is fail-closed via presentation audio events when present.
+            let _ = projectile_hits;
+        }
+
         // -----------------------------------------------------------------------
         // Phase 7b: Building Body Damage State Checks (C++ BodyModule update)
         // -----------------------------------------------------------------------
@@ -47969,6 +47983,53 @@ mod tests {
 
         assert!(game_logic.is_script_camera_time_frozen());
         assert!(game_logic.is_time_frozen_for_simulation());
+    }
+
+    #[test]
+    fn projectiles_step_inside_game_logic_update() {
+        // Engine mid-frame dual CombatSystem removed; drain+step is in update_simulation.
+        let mut logic = GameLogic::new();
+        let shooter = ObjectId(1);
+        let target = ObjectId(2);
+        let mut s = Object::new_simple(
+            shooter,
+            crate::game_logic::ObjectType::Infantry,
+            "AmericaRanger".to_string(),
+        );
+        s.set_position(glam::Vec3::ZERO);
+        let mut t = Object::new_simple(
+            target,
+            crate::game_logic::ObjectType::Infantry,
+            "GLARebel".to_string(),
+        );
+        t.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+        let hp_before = t.health.current;
+        logic.objects.insert(shooter, s);
+        logic.objects.insert(target, t);
+
+        crate::game_logic::combat::queue_projectile(crate::game_logic::combat::PendingProjectile {
+            shooter_id: shooter,
+            shooter_pos: glam::Vec3::ZERO,
+            target_id: Some(target),
+            target_pos: Some(glam::Vec3::new(5.0, 0.0, 0.0)),
+            damage: 25.0,
+            speed: 1000.0,
+        });
+
+        // One fixed step runs drain + projectile update.
+        logic.update_simulation(LOGIC_FRAME_TIMESTEP);
+
+        let snapped = logic.combat_system().projectile_count();
+        let hp_after = logic
+            .objects
+            .get(&target)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        // Either still in-flight on host combat system or already applied damage.
+        assert!(
+            snapped > 0 || hp_after < hp_before,
+            "expected projectile retained or damage applied; count={snapped} hp {hp_before}->{hp_after}"
+        );
     }
 
     #[test]
