@@ -4243,7 +4243,7 @@ impl AIPlayer {
     ///
     /// findDozer → funds check → ground height → spawn + dozer build task →
     /// stamp BuildListInfo objectID/timestamp/underConstruction.
-    fn build_structure_with_dozer(
+    pub fn build_structure_with_dozer(
         &mut self,
         template_name: &str,
         location: Coord3D,
@@ -5983,6 +5983,15 @@ impl AIPlayer {
         angle: Real,
     ) -> Result<Option<ObjectID>, AiError> {
         self.build_structure_now_at(template_name, location, angle, None)
+    }
+
+    /// Public findDozer for skirmish processBaseBuilding resume path.
+    pub fn find_dozer_public(&mut self, location: &Coord3D) -> Result<Option<ObjectID>, AiError> {
+        self.find_dozer(location)
+    }
+
+    pub fn set_frame_last_building_built(&mut self, frame: u32) {
+        self.frame_last_building_built = frame;
     }
 
     /// Remove queued references to a team that is about to be destroyed.

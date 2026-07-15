@@ -2611,6 +2611,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiskirmish_process_base_building_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("build_structure_with_dozer")
+                && src.contains("ResumeConstruction")
+                && src.contains("processBaseBuilding"),
+            "skirmish processBaseBuilding dozer path required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
