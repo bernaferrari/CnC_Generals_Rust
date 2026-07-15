@@ -2596,6 +2596,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiskirmish_base_defense_new_map_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AISkirmishPlayer::buildAIBaseDefenseStructure`")
+                && src.contains("C++ `AISkirmishPlayer::newMap`")
+                && src.contains("add_to_priority_build_list")
+                && src.contains("build_structure_now_at_public"),
+            "skirmish defense/newMap C++ paths required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
