@@ -7034,6 +7034,16 @@ impl CnCGameEngine {
     }
 
     fn apply_pending_script_camera_requests(&mut self) {
+        // Prefer presentation-frozen camera residual when a frame is installed (InGame).
+        // Live take_* path is boot/menu residual only. Fail-closed: ease curves not frozen
+        // on PresentationFrame (duration-only zoom/pitch/rotate).
+        if let Some(pres) = self.last_presentation_frame.clone() {
+            self.apply_presentation_camera_residual(&pres);
+            // Drain live queues so peeked presentation fields are not re-applied next frame.
+            self.drain_live_camera_request_queues();
+            return;
+        }
+
         if let Some(focus) = self.game_logic.take_camera_focus_request() {
             self.center_camera_on(focus);
         }
@@ -7110,6 +7120,128 @@ impl CnCGameEngine {
 
         // Main applies these script requests inside GameLogic evaluation (with GameClient bridges
         // when enabled). Drain pending mirrors so they don't accumulate frame-to-frame.
+        let _ = self.game_logic.take_view_guardband_request();
+        let _ = self.game_logic.take_camera_bw_mode_request();
+        let _ = self.game_logic.take_camera_motion_blur_requests();
+    }
+
+    /// Apply camera residual frozen on `PresentationFrame` (no live take dual-read).
+    fn apply_presentation_camera_residual(
+        &mut self,
+        pres: &crate::presentation_frame::PresentationFrame,
+    ) {
+        if let Some(focus) = pres.camera_focus {
+            self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
+        }
+
+        // Follow target is not frozen on the frame yet — keep live residual.
+        if let Some(focus) = self.game_logic.camera_follow_target_position() {
+            self.center_camera_on(focus);
+        }
+
+        if pres.camera_zoom_reset {
+            self.camera_zoom = self.compute_default_camera_zoom_for_target(
+                self.camera_target,
+                self.game_logic.script_default_camera_max_height(),
+            );
+            self.camera_zoom_target = None;
+            self.camera_zoom_start = self.camera_zoom;
+            self.camera_zoom_duration = 0.0;
+            self.camera_zoom_elapsed = 0.0;
+            self.camera_zoom_ease_in = 0.0;
+            self.camera_zoom_ease_out = 0.0;
+            self.apply_script_camera_pitch_request(CameraPitchRequest {
+                pitch: self.game_logic.script_default_camera_pitch(),
+                duration_seconds: 0.0,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+            });
+        }
+
+        if let Some((zoom, duration_seconds)) = pres.camera_zoom {
+            if duration_seconds <= 0.0 {
+                self.camera_zoom = zoom;
+                self.camera_zoom_target = None;
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_duration = 0.0;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = 0.0;
+                self.camera_zoom_ease_out = 0.0;
+            } else {
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_target = Some(zoom);
+                self.camera_zoom_duration = duration_seconds;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = 0.0;
+                self.camera_zoom_ease_out = 0.0;
+            }
+        }
+
+        if let Some((pitch, duration_seconds)) = pres.camera_pitch {
+            self.apply_script_camera_pitch_request(CameraPitchRequest {
+                pitch,
+                duration_seconds,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+            });
+        }
+
+        if let Some((rotations, duration_seconds)) = pres.camera_rotate {
+            self.apply_script_camera_rotate_request(CameraRotateRequest {
+                rotations,
+                duration_seconds,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+            });
+        }
+
+        if let Some(look) = pres.camera_look_toward {
+            self.apply_camera_look_toward_request(CameraLookTowardWaypointRequest {
+                position: Vec3::new(look[0], look[1], look[2]),
+                duration_seconds: 0.0,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+                reverse_rotation: false,
+            });
+        }
+
+        if let Some((thing_template_name, bone_name)) = pres.camera_slave_enable.clone() {
+            self.camera_slave_mode = Some(CameraSlaveModeRequest {
+                thing_template_name,
+                bone_name,
+            });
+        }
+
+        if pres.camera_slave_disable {
+            self.camera_slave_mode = None;
+        }
+
+        for intensity in &pres.screen_shakes {
+            self.enqueue_script_screen_shake(*intensity);
+        }
+
+        for &(amplitude, duration_seconds, radius) in &pres.camera_shakers {
+            self.enqueue_script_camera_shaker(CameraAddShakerRequest {
+                position: self.camera_target,
+                amplitude,
+                duration_seconds,
+                radius,
+            });
+        }
+    }
+
+    /// Consume live camera request queues without applying (presentation already applied).
+    fn drain_live_camera_request_queues(&mut self) {
+        let _ = self.game_logic.take_camera_focus_request();
+        let _ = self.game_logic.take_camera_zoom_reset();
+        let _ = self.game_logic.take_camera_zoom_request();
+        let _ = self.game_logic.take_camera_pitch_request();
+        let _ = self.game_logic.take_camera_rotate_request();
+        let _ = self.game_logic.take_camera_look_toward_request();
+        let _ = self.game_logic.take_camera_slave_mode_enable_request();
+        let _ = self.game_logic.take_camera_slave_mode_disable_request();
+        let _ = self.game_logic.take_screen_shake_requests();
+        let _ = self.game_logic.take_camera_add_shaker_requests();
         let _ = self.game_logic.take_view_guardband_request();
         let _ = self.game_logic.take_camera_bw_mode_request();
         let _ = self.game_logic.take_camera_motion_blur_requests();
