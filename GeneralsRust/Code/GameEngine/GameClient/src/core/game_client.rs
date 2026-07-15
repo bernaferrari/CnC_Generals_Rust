@@ -3291,6 +3291,18 @@ impl GameClient {
         }
     }
 
+    /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
+    ///
+    /// C++ script camera letterbox residual without dual-owning Main RenderPipeline 3D draw.
+    pub fn apply_presentation_cinematic_letterbox(&mut self, enabled: bool) {
+        if let Some(ref display) = self.subsystem_manager.display {
+            let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
+            if display.is_letter_box_enabled() != enabled {
+                display.enable_letter_box(enabled);
+            }
+        }
+    }
+
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
     /// Mirrors the safe subset of C++ `GameClient::update` ordering that Main does not
