@@ -2202,6 +2202,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_camera_follow_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            gl.contains("fn peek_camera_follow_target_position")
+                && pf.contains("camera_follow_position")
+                && pf.contains("peek_camera_follow_target_position")
+                && eng.contains("pres.camera_follow_position")
+                && eng.contains("Prefer presentation-frozen follow position"),
+            "camera follow must prefer presentation freeze over live dual-read"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

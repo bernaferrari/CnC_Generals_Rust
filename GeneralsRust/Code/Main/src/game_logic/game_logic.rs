@@ -36165,6 +36165,17 @@ impl GameLogic {
         Some(obj.get_position())
     }
 
+    /// Peek camera-follow world position without clearing the follow target.
+    /// Used to freeze presentation residual each frame.
+    pub fn peek_camera_follow_target_position(&self) -> Option<Vec3> {
+        let target = self.camera_follow_target?;
+        let obj = self.objects.get(&target)?;
+        if !obj.is_alive() {
+            return None;
+        }
+        Some(obj.get_position())
+    }
+
     /// Execute a single command
     fn execute_command(&mut self, command: crate::command_system::GameCommand) {
         let command_type = command.command_type.clone();
