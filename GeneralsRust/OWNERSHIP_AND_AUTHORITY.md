@@ -872,3 +872,10 @@ cancel/hold/priority queue control authority.
 object_type, is_structure/unit/mobile, can_produce, and building_type from
 Entity ordinals/flags. Fail-closed: model_key/mesh_scale/fow still freeze-path.
 
+### GameWorld model_key/mesh_scale residual (2026-07-14)
+
+`Entity.model_key` / `mesh_scale` carry host template mesh resolve residual.
+Shadow sync uses `mesh_asset_resolve` helpers; overlay last-writes presentation
+mesh identity. Fail-closed: not full bone/animation draw-scale matrix; FOW still
+freeze-path.
+

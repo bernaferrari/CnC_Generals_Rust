@@ -220,6 +220,10 @@ pub struct Entity {
     pub secondary_weapon_damage: f32,
     /// Host Object::name residual (display/script name; empty if unset).
     pub display_name: String,
+    /// Host ThingTemplate model key residual (mesh resolve; empty if unset).
+    pub model_key: String,
+    /// Host ThingTemplate mesh scale residual (retail combat often 1.0).
+    pub mesh_scale: f32,
     /// Host Object::overlord_bunker_capacity residual:
     /// `u16::MAX` = None (not overlord-style).
     pub overlord_bunker_capacity: u16,
@@ -463,6 +467,8 @@ impl EntityStore {
             secondary_weapon_range: 0.0,
             secondary_weapon_damage: 0.0,
             display_name: String::new(),
+            model_key: String::new(),
+            mesh_scale: 1.0,
             overlord_bunker_capacity: u16::MAX,
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,

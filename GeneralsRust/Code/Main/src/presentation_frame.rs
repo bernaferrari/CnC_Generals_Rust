@@ -3307,6 +3307,23 @@ impl PresentationFrame {
                 obj.building_type = building_type;
                 dirty = true;
             }
+            // Mesh identity residual (model_key / scale) — no live template dual-read.
+            let model_key = if ent.model_key.is_empty() {
+                None
+            } else {
+                Some(ent.model_key.clone())
+            };
+            if obj.model_key != model_key {
+                obj.model_key = model_key;
+                dirty = true;
+            }
+            if ent.mesh_scale.is_finite()
+                && ent.mesh_scale > 0.0
+                && (obj.mesh_scale - ent.mesh_scale).abs() > 1e-5
+            {
+                obj.mesh_scale = ent.mesh_scale;
+                dirty = true;
+            }
             if obj.selected != ent.selected {
                 obj.selected = ent.selected;
                 dirty = true;
@@ -4879,6 +4896,8 @@ mod tests {
                 && src.contains("ent.production_queue_items")
                 && src.contains("obj.template_name = ent.template.name.clone()")
                 && src.contains("obj.disguise_as_team = disguise_team")
+                && src.contains("ent.model_key")
+                && src.contains("ent.mesh_scale")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
