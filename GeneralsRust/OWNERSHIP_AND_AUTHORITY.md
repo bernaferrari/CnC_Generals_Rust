@@ -886,3 +886,9 @@ sync samples host FOW bridge + terrain height; overlay last-writes presentation
 `fow_visibility` / `ground_height`. Fail-closed: not full shroud cell matrix
 authority.
 
+### Defeat/alliance presentation-only residual (2026-07-14)
+
+When `last_presentation_frame` is installed, defeat HUD and alliance radar team
+resolve from presentation roster only. Live `get_player` is boot residual when
+no frame is set. Fail-closed: roster miss yields id-only defeat log.
+

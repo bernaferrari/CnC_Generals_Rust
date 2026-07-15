@@ -6381,6 +6381,7 @@ impl CnCGameEngine {
                     pres.apply_to_control_bar(&mut self.control_bar);
                 }
             } else if let Some(player) = self.game_logic.get_player(self.current_player_id) {
+                // Boot residual only — presentation path above owns InGame HUD resources.
                 let money = player.resources.supplies as i32;
                 let power = player.power_available;
                 let max_power = player.power_produced.max(0);
@@ -6458,18 +6459,24 @@ impl CnCGameEngine {
                 self.game_logic
                     .queue_radar_message_for_team(player.team, message.clone());
                 self.game_logic.play_ui_sound("GUIMessageReceived");
-            } else if let Some(player) = self.game_logic.get_player(player_id) {
-                let message = localization::localize_with_args(
-                    "hud.message.player_defeated",
-                    "{player} has been defeated!",
-                    &[("player", player.name.as_str())],
-                );
-                info!("Player {} ({}) has been defeated", player.name, player_id);
-                self.game_hud.push_info_message(&message);
-                self.game_logic
-                    .queue_radar_message_for_team(player.team, message.clone());
-                self.game_logic.play_ui_sound("GUIMessageReceived");
+            } else if self.last_presentation_frame.is_none() {
+                // Boot residual only — no live dual-read when a presentation frame is installed.
+                if let Some(player) = self.game_logic.get_player(player_id) {
+                    let message = localization::localize_with_args(
+                        "hud.message.player_defeated",
+                        "{player} has been defeated!",
+                        &[("player", player.name.as_str())],
+                    );
+                    info!("Player {} ({}) has been defeated", player.name, player_id);
+                    self.game_hud.push_info_message(&message);
+                    self.game_logic
+                        .queue_radar_message_for_team(player.team, message.clone());
+                    self.game_logic.play_ui_sound("GUIMessageReceived");
+                } else {
+                    info!("Player {} has been defeated", player_id);
+                }
             } else {
+                // Presentation installed but roster miss — fail-closed id-only residual.
                 info!("Player {} has been defeated", player_id);
             }
             fow_rendering::reveal_entire_map_for_player(player_id);
@@ -6510,12 +6517,12 @@ impl CnCGameEngine {
 
             let message = localization::localize(key, fallback);
             self.game_hud.push_info_message(&message);
-            // Prefer presentation roster team when installed.
-            let team = self
-                .last_presentation_frame
-                .as_ref()
-                .and_then(|f| f.player_team(event.player_id))
-                .or_else(|| self.game_logic.get_player(event.player_id).map(|p| p.team));
+            // Prefer presentation roster team when installed; live only if no frame.
+            let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.player_team(event.player_id)
+            } else {
+                self.game_logic.get_player(event.player_id).map(|p| p.team)
+            };
             if let Some(team) = team {
                 self.game_logic
                     .queue_radar_message_for_team(team, message.clone());
@@ -8248,6 +8255,7 @@ impl CnCGameEngine {
                 let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame.local_team()
                 } else {
+                    // Boot residual only — presentation local_team owns InGame Ctrl+A.
                     let Some(player) = self.game_logic.get_player(self.current_player_id) else {
                         return;
                     };
@@ -8257,6 +8265,7 @@ impl CnCGameEngine {
                 let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame.alive_selectable_friendly_ids(team)
                 } else {
+                    // Boot residual only — presentation owns InGame select-all when frame set.
                     let mut live = Vec::new();
                     for (&id, obj) in self.game_logic.get_objects() {
                         if obj.team == team && obj.is_selectable() && obj.is_alive() {
@@ -8289,6 +8298,7 @@ impl CnCGameEngine {
                 let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame.local_team()
                 } else {
+                    // Boot residual only — presentation local_team owns InGame Tab cycle.
                     let Some(player) = self.game_logic.get_player(self.current_player_id) else {
                         return;
                     };
@@ -8424,6 +8434,7 @@ impl CnCGameEngine {
         let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
         } else {
+            // Boot residual only — presentation local_team owns InGame similar-select.
             let Some(player) = self.game_logic.get_player(self.current_player_id) else {
                 return;
             };
@@ -8507,6 +8518,7 @@ impl CnCGameEngine {
         let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
         } else {
+            // Boot residual only — presentation local_team owns InGame box-select.
             let Some(player) = self.game_logic.get_player(self.current_player_id) else {
                 return;
             };
