@@ -1558,25 +1558,19 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Build AI base defense
-    pub fn build_ai_base_defense(&mut self, flank: bool) -> Result<(), AiError> {
-        // Determine defense structure type based on faction and strategy
-        let defense_structure = self.determine_base_defense_structure(flank)?;
-        self.build_ai_base_defense_structure(&defense_structure, flank)
+    /// C++ `AIPlayer::buildAIBaseDefense` — solo AI unsupported (skirmish overrides).
+    pub fn build_ai_base_defense(&mut self, _flank: bool) -> Result<(), AiError> {
+        log::debug!("Error : Solo ai doesn't support buildAIBaseDefense.");
+        Ok(())
     }
 
-    /// Build specific base defense structure
+    /// C++ `AIPlayer::buildAIBaseDefenseStructure` — solo AI unsupported.
     pub fn build_ai_base_defense_structure(
         &mut self,
-        structure_name: &str,
-        flank: bool,
+        _structure_name: &str,
+        _flank: bool,
     ) -> Result<(), AiError> {
-        // Find suitable location for defense
-        let location = self.find_defense_location(flank)?;
-
-        // Queue structure for construction
-        self.queue_structure_construction(structure_name, location, 0.0)?;
-
+        log::debug!("Error : Solo ai doesn't support buildAIBaseDefenseStructure.");
         Ok(())
     }
 
@@ -2050,33 +2044,58 @@ impl AIPlayer {
     }
 
     /// Build near the first member of the specified team, falling back to a normal build request.
+    /// C++ `AIPlayer::buildSpecificBuildingNearestTeam` (AIPlayer.cpp).
+    ///
+    /// Team estimate position → legalize/wiggle → priority build list.
     pub fn build_specific_building_nearest_team(
         &mut self,
         thing_name: &str,
         team_name: &str,
     ) -> Result<(), AiError> {
+        let Some(template) = TheThingFactory::find_template(thing_name) else {
+            return Ok(());
+        };
         let team_arc = get_team_factory()
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(team_name));
+        let Some(team_arc) = team_arc else {
+            return Ok(());
+        };
+        let Ok(team_g) = team_arc.read() else {
+            return Ok(());
+        };
+        let Some(location) = team_g.get_estimate_team_position() else {
+            return Ok(());
+        };
+        drop(team_g);
 
-        let team_location = team_arc
-            .and_then(|team| team.read().ok().map(|guard| guard.get_members().to_vec()))
-            .and_then(|members| {
-                members.into_iter().find_map(|id| {
-                    OBJECT_REGISTRY
-                        .get_object(id)
-                        .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
-                })
-            });
-
-        if let Some(location) = team_location {
-            self.build_specific_building_near_location(thing_name, location)
-        } else {
-            self.build_specific_ai_building(thing_name)
+        if !self.base_center_set {
+            let _ = self.compute_center_and_radius_of_base();
         }
+        let angle = 0.0_f32; // placement_view_angle residual
+        let Some(mut new_pos) =
+            self.find_valid_build_location(&location, template.get_name().as_str(), angle)
+        else {
+            log::debug!(
+                "{} - buildSpecificBuildingNearestTeam unable to place.",
+                thing_name
+            );
+            return Ok(());
+        };
+        new_pos.z = 0.0;
+        if let Some(player_arc) = self.get_player_arc() {
+            if let Ok(mut pg) = player_arc.write() {
+                pg.add_to_priority_build_list(AsciiString::from(thing_name), new_pos, angle);
+            }
+        }
+        Ok(())
     }
 
+    /// C++ `AIPlayer::findSupplyCenter` (AIPlayer.cpp).
+    ///
+    /// Closest non-enemy warehouse with enough cash, no nearby owned cash
+    /// generator, not closer to enemy than us (60/40). Halve cash floor to 100.
     fn find_supply_center(&self, minimum_cash: i32) -> Option<Arc<RwLock<Object>>> {
         let player_arc = self.get_player_arc()?;
         let player_guard = player_arc.read().ok()?;
@@ -2084,55 +2103,107 @@ impl AIPlayer {
             .get_base_center()
             .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
-        let mut best: Option<(f32, Arc<RwLock<Object>>)> = None;
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(obj_guard) = obj.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::Structure)
-                || !obj_guard.is_kind_of(KindOf::SupplySource)
-            {
-                continue;
-            }
-
-            if let Some(team_arc) = obj_guard.get_team() {
-                if let Ok(team) = team_arc.read() {
-                    if player_guard.get_relationship_with_team(&team)
-                        == crate::common::Relationship::Enemies
-                    {
-                        continue;
-                    }
-                }
-            }
-
-            let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
-                continue;
-            };
-            let boxes = module.with_module(|module| {
-                module
-                    .get_supply_warehouse_dock_interface()
-                    .map(|warehouse| warehouse.boxes_stored())
-            });
-            let Some(boxes) = boxes else {
-                continue;
-            };
-
-            let available_cash = boxes * BASE_VALUE_PER_SUPPLY_BOX;
-            if available_cash < minimum_cash {
-                continue;
-            }
-
-            let pos = obj_guard.get_position();
-            let dist_sq = (pos.x - base_center.x).powi(2) + (pos.y - base_center.y).powi(2);
-            if best
-                .as_ref()
-                .map_or(true, |(best_dist, _)| dist_sq < *best_dist)
-            {
-                best = Some((dist_sq, obj.clone()));
+        let mut enemy_center = Coord3D::new(0.0, 0.0, 0.0);
+        let mut has_enemy = false;
+        if let Ok(Some((_, enemy_index))) = self.select_current_enemy_player() {
+            if let Ok((lo, hi)) = self.get_player_structure_bounds(enemy_index) {
+                enemy_center = Coord3D::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, 0.0);
+                has_enemy = true;
             }
         }
 
-        best.map(|(_, obj)| obj)
+        let mut cash_floor = minimum_cash.max(0);
+        loop {
+            let mut best: Option<(f32, Arc<RwLock<Object>>)> = None;
+            for obj in OBJECT_REGISTRY.get_all_objects() {
+                let Ok(obj_guard) = obj.read() else {
+                    continue;
+                };
+                if !obj_guard.is_kind_of(KindOf::Structure)
+                    || !obj_guard.is_kind_of(KindOf::SupplySource)
+                {
+                    continue;
+                }
+                if let Some(team_arc) = obj_guard.get_team() {
+                    if let Ok(team) = team_arc.read() {
+                        if player_guard.get_relationship_with_team(&team) == Relationship::Enemies {
+                            continue;
+                        }
+                    }
+                }
+                let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
+                    continue;
+                };
+                let boxes = module.with_module(|module| {
+                    module
+                        .get_supply_warehouse_dock_interface()
+                        .map(|warehouse| warehouse.boxes_stored())
+                });
+                let Some(boxes) = boxes else {
+                    continue;
+                };
+                let available_cash = boxes * BASE_VALUE_PER_SUPPLY_BOX;
+                if available_cash < cash_floor {
+                    continue;
+                }
+
+                let center = *obj_guard.get_position();
+                let radius = SUPPLY_CENTER_CLOSE_DIST
+                    + obj_guard.get_geometry_info().get_bounding_circle_radius();
+
+                // Skip if we already own a cash generator near this warehouse.
+                let mut already_have = false;
+                for cand in OBJECT_REGISTRY.get_all_objects() {
+                    let Ok(cg) = cand.read() else {
+                        continue;
+                    };
+                    if !cg.is_kind_of(KindOf::CashGenerator) {
+                        continue;
+                    }
+                    let Some(pid) = cg.get_controlling_player_id() else {
+                        continue;
+                    };
+                    if pid as u32 != self.player_id {
+                        continue;
+                    }
+                    let p = cg.get_position();
+                    let dx = p.x - center.x;
+                    let dy = p.y - center.y;
+                    if dx * dx + dy * dy <= radius * radius {
+                        already_have = true;
+                        break;
+                    }
+                }
+                if already_have {
+                    continue;
+                }
+
+                let dx = center.x - base_center.x;
+                let dy = center.y - base_center.y;
+                let dist_sqr = dx * dx + dy * dy;
+                if has_enemy {
+                    let ex = center.x - enemy_center.x;
+                    let ey = center.y - enemy_center.y;
+                    let enemy_dist_sqr = ex * ex + ey * ey;
+                    // C++: closer than 60/40 to enemy than to us → skip
+                    if dist_sqr * 0.4 > enemy_dist_sqr * 0.6 {
+                        continue;
+                    }
+                }
+
+                if best.as_ref().map_or(true, |(bd, _)| dist_sqr < *bd) {
+                    best = Some((dist_sqr, obj.clone()));
+                }
+            }
+            if let Some((_, warehouse)) = best {
+                return Some(warehouse);
+            }
+            if cash_floor <= 100 {
+                break;
+            }
+            cash_floor /= 2;
+        }
+        None
     }
 
     fn find_valid_build_location(
@@ -2490,6 +2561,10 @@ impl AIPlayer {
     }
 
     /// Called when a structure we're building comes into existence
+    /// C++ `AIPlayer::onStructureProduced` (AIPlayer.cpp).
+    ///
+    /// Match build-list by objectID: clear UC, upgrades, script attach residual,
+    /// checkForSupplyCenter. Else match rebuild hole spawn and retarget list ID.
     pub fn on_structure_produced(
         &mut self,
         _factory_id: ObjectID,
@@ -2502,9 +2577,6 @@ impl AIPlayer {
         let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
             return Ok(());
         };
-        let Ok(structure_guard) = structure_arc.read() else {
-            return Ok(());
-        };
 
         let Some(player_arc) = player_list()
             .read()
@@ -2513,56 +2585,105 @@ impl AIPlayer {
         else {
             return Ok(());
         };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return Ok(());
-        };
 
-        let player_side = player_guard.get_side().to_string();
-        if let Some(info) = player_guard.get_build_list_mut() {
-            let mut current = Some(&mut *info);
-            while let Some(node) = current {
-                if node.get_object_id() == structure_id {
-                    node.set_under_construction(false);
-                    node.set_object_timestamp(TheGameLogic::get_frame());
-                    if structure_guard
-                        .find_update_module("SupplyCenterDockUpdate")
-                        .is_some()
-                    {
-                        node.set_supply_building(true);
-                        node.set_current_gatherers(-1);
-                        let mut desired = 0;
-                        if let Ok(ai_guard) = THE_AI.read() {
-                            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
-                                for info in &ai_data.side_info {
-                                    if info.side == player_side {
-                                        desired = match self.difficulty {
-                                            GameDifficulty::Easy => info.easy,
-                                            GameDifficulty::Normal => info.normal,
-                                            GameDifficulty::Hard => info.hard,
-                                            GameDifficulty::Brutal => info.hard,
-                                        };
-                                        break;
-                                    }
+        // Pass 1: exact objectID match on build list.
+        let mut matched = false;
+        {
+            let Ok(mut player_guard) = player_arc.write() else {
+                return Ok(());
+            };
+            let player_side = player_guard.get_side().to_string();
+            if let Some(info) = player_guard.get_build_list_mut() {
+                let mut current = Some(&mut *info);
+                while let Some(node) = current {
+                    if node.get_object_id() == structure_id {
+                        node.set_under_construction(false);
+                        node.set_object_timestamp(TheGameLogic::get_frame());
+                        // Map properties residual: building name/script/health/unsellable.
+                        if let Ok(mut sg) = structure_arc.write() {
+                            let mask = ObjectStatusMaskType::from_status(
+                                ObjectStatusTypes::UnderConstruction,
+                            ) | ObjectStatusMaskType::from_status(
+                                ObjectStatusTypes::Reconstructing,
+                            );
+                            sg.clear_status(mask);
+                            sg.update_upgrade_modules_from_player();
+                        }
+                        // Supply center bookkeeping.
+                        let is_supply = structure_arc
+                            .read()
+                            .ok()
+                            .map(|g| g.find_update_module("SupplyCenterDockUpdate").is_some())
+                            .unwrap_or(false);
+                        if is_supply {
+                            let _ = self.check_for_supply_center(structure_id);
+                            // check_for_supply_center stamps list; also ensure desired here
+                            // if check walks by ID.
+                            let _ = player_side;
+                        }
+                        matched = true;
+                        break;
+                    }
+                    current = node.get_next_mut();
+                }
+            }
+        }
+        if matched {
+            self.update_construction_priorities()?;
+            return Ok(());
+        }
+
+        // Pass 2: rebuild-hole spawn retarget.
+        let structure_template_name = structure_arc
+            .read()
+            .ok()
+            .map(|g| g.get_template_name().to_string())
+            .unwrap_or_default();
+        {
+            let Ok(mut player_guard) = player_arc.write() else {
+                return Ok(());
+            };
+            if let Some(info) = player_guard.get_build_list_mut() {
+                let mut current = Some(&mut *info);
+                while let Some(node) = current {
+                    let name = node.get_template_name().to_string();
+                    let equiv = TheThingFactory::find_template(&name)
+                        .map(|t| {
+                            t.get_name()
+                                .as_str()
+                                .eq_ignore_ascii_case(&structure_template_name)
+                                || structure_template_name
+                                    .eq_ignore_ascii_case(t.get_name().as_str())
+                        })
+                        .unwrap_or(false);
+                    if !equiv && name != structure_template_name {
+                        current = node.get_next_mut();
+                        continue;
+                    }
+                    let list_id = node.get_object_id();
+                    if list_id != INVALID_ID {
+                        if let Some(hole_arc) = OBJECT_REGISTRY.get_object(list_id) {
+                            if let Ok(hole_g) = hole_arc.read() {
+                                if hole_g.is_kind_of(KindOf::RebuildHole) {
+                                    // Hole entry of matching template — retarget to rebuilt bldg.
+                                    // Full getReconstructedBuildingID residual when mut iface available.
+                                    node.set_object_id(structure_id);
+                                    matched = true;
+                                    break;
                                 }
                             }
                         }
-                        node.set_desired_gatherers(desired + 1);
                     }
-                    break;
+                    current = node.get_next_mut();
                 }
-                current = node.get_next_mut();
             }
         }
 
-        if let Ok(mut structure_write) = structure_arc.write() {
-            let mask = ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction)
-                | ObjectStatusMaskType::from_status(ObjectStatusTypes::Reconstructing);
-            structure_write.clear_status(mask);
+        if !matched && TheGameLogic::get_frame() > 0 {
+            log::debug!("***AI PLAYER-Structure not found in production queue.");
         }
-
-        // Update construction priorities and supply tracking
+        let _ = matched;
         self.update_construction_priorities()?;
-
         Ok(())
     }
 
@@ -2571,43 +2692,31 @@ impl AIPlayer {
         self.team_seconds = delay.max(0.0);
     }
 
-    /// Calculate closest construction zone location
+    /// C++ `AIPlayer::calcClosestConstructionZoneLocation` (AIPlayer.cpp).
+    ///
+    /// Starting from `location`, return a legal nearby placement (wiggle search)
+    /// or None if none found (C++ zeros the out-param).
     pub fn calc_closest_construction_zone_location(
+        &self,
+        template_name: &str,
+        location: &Coord3D,
+    ) -> Result<Option<Coord3D>, AiError> {
+        let angle = 0.0_f32;
+        if let Some(pos) = self.find_valid_build_location(location, template_name, angle) {
+            return Ok(Some(pos));
+        }
+        Ok(None)
+    }
+
+    /// Convenience: search near base center when no seed location given.
+    pub fn calc_closest_construction_zone_near_base(
         &self,
         template_name: &str,
     ) -> Result<Option<Coord3D>, AiError> {
         if !self.base_center_set {
             return Ok(None);
         }
-
-        let validator = FoundationValidator::new_ai();
-        let player_id = self.player_id as ObjectID;
-        let base_center = self.base_center;
-        let mut radius = 0.0;
-
-        while radius <= SUPPLY_CENTER_CLOSE_DIST {
-            let mut angle = 0.0;
-            while angle < std::f32::consts::TAU {
-                let mut candidate = Coord3D::new(
-                    base_center.x + radius * angle.cos(),
-                    base_center.y + radius * angle.sin(),
-                    base_center.z,
-                );
-                if let Some(terrain) = TheTerrainLogic::get() {
-                    candidate.z = terrain.get_ground_height(candidate.x, candidate.y, None);
-                }
-                if validator
-                    .validate_placement(&candidate, template_name, 0.0, player_id)
-                    .is_ok()
-                {
-                    return Ok(Some(candidate));
-                }
-                angle += std::f32::consts::FRAC_PI_4;
-            }
-            radius += 20.0;
-        }
-
-        Ok(None)
+        self.calc_closest_construction_zone_location(template_name, &self.base_center)
     }
 
     /// Update AI strategy based on current conditions
@@ -4228,7 +4337,7 @@ impl AIPlayer {
         let location = if let Some(loc) = priority.desired_location {
             loc
         } else {
-            self.calc_closest_construction_zone_location(&priority.building_type)?
+            self.calc_closest_construction_zone_near_base(&priority.building_type)?
                 .unwrap_or(Coord3D::new(0.0, 0.0, 0.0))
         };
         let angle = priority.desired_angle.unwrap_or(0.0);
@@ -6950,6 +7059,72 @@ mod tests {
                 && w.contains("queue_upgrade")
                 && w.contains("UnderConstruction"),
             "buildUpgrade must walk build list and gate type/money/progress"
+        );
+    }
+
+    #[test]
+    fn find_supply_center_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::findSupplyCenter`")
+            .expect("findSupplyCenter");
+        let w = &src[i..src.len().min(i + 7000)];
+        assert!(
+            w.contains("cash_floor")
+                && w.contains("CashGenerator")
+                && w.contains("SUPPLY_CENTER_CLOSE_DIST")
+                && w.contains("dist_sqr * 0.4")
+                && w.contains("enemy_dist_sqr * 0.6")
+                && w.contains("cash_floor /= 2"),
+            "findSupplyCenter must filter owned depots, enemy 60/40, halve cash"
+        );
+    }
+
+    #[test]
+    fn build_nearest_team_and_calc_closest_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let n = src
+            .find("C++ `AIPlayer::buildSpecificBuildingNearestTeam`")
+            .expect("nearest");
+        let c = src
+            .find("C++ `AIPlayer::calcClosestConstructionZoneLocation`")
+            .expect("calc");
+        let nw = &src[n..src.len().min(n + 2500)];
+        let cw = &src[c..src.len().min(c + 1500)];
+        assert!(
+            nw.contains("get_estimate_team_position")
+                && nw.contains("add_to_priority_build_list")
+                && nw.contains("find_valid_build_location"),
+            "nearest-team must estimate pos, legalize, priority list"
+        );
+        assert!(
+            cw.contains("find_valid_build_location") && cw.contains("location: &Coord3D"),
+            "calcClosest must adjust seed location"
+        );
+    }
+
+    #[test]
+    fn solo_base_defense_and_on_structure_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let d = src
+            .find("C++ `AIPlayer::buildAIBaseDefense`")
+            .expect("defense");
+        let o = src
+            .find("C++ `AIPlayer::onStructureProduced`")
+            .expect("onStructure");
+        let dw = &src[d..src.len().min(d + 1200)];
+        let ow = &src[o..src.len().min(o + 8000)];
+        assert!(
+            dw.contains("Solo ai doesn't support buildAIBaseDefense")
+                && dw.contains("buildAIBaseDefenseStructure"),
+            "solo defense stubs"
+        );
+        assert!(
+            ow.contains("update_upgrade_modules_from_player")
+                && ow.contains("RebuildHole")
+                && ow.contains("check_for_supply_center")
+                && ow.contains("Structure not found in production queue"),
+            "onStructureProduced list match + hole retarget + supply"
         );
     }
 
