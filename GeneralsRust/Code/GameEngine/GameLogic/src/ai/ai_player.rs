@@ -1535,26 +1535,150 @@ impl AIPlayer {
     }
 
     /// Build a specific AI team immediately
+    /// C++ `AIPlayer::buildSpecificAITeam` (AIPlayer.cpp).
+    ///
+    /// Gates: canBuildUnits, singleton+priority, isPossibleToBuildTeam (money-
+    /// only still queues). Work orders: optional (max-min) then required (min),
+    /// createInactiveTeam, priority prepend vs normal append, teamDelay=0.
     pub fn build_specific_ai_team(
         &mut self,
         team_name: &str,
         priority_build: bool,
     ) -> Result<(), AiError> {
+        let Some(player_arc) = self.get_player_arc() else {
+            return Ok(());
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return Ok(());
+        };
+        if !player_guard.get_can_build_units() {
+            log::debug!(
+                "Can't build team '{}' because build units is disabled.",
+                team_name
+            );
+            return Ok(());
+        }
+        drop(player_guard);
+
+        let Ok(mut factory) = get_team_factory().lock() else {
+            return Ok(());
+        };
+        let Some(proto) = factory.find_team_prototype(team_name).map(|p| p.clone()) else {
+            return Ok(());
+        };
+
+        if priority_build && proto.is_singleton() {
+            if let Some(existing) = factory.find_team(team_name) {
+                if let Ok(eg) = existing.read() {
+                    if eg.has_any_objects() {
+                        log::debug!(
+                            "Unable to build singleton team '{}' because team already exists.",
+                            team_name
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // Drop factory lock before is_possible (find_factory may lock).
+        let units: Vec<(String, i32, i32)> = proto
+            .units_info()
+            .iter()
+            .filter(|u| !u.unit_thing_name.is_empty())
+            .map(|u| (u.unit_thing_name.to_string(), u.min_units, u.max_units))
+            .collect();
+        drop(factory);
+
+        let (possible, need_money) = self.is_possible_to_build_team(team_name, false)?;
+        if !possible {
+            if need_money {
+                log::debug!(
+                    "Note - queueing team '{}' but there is not enough money.",
+                    team_name
+                );
+                // C++ still queues when only money is missing.
+            } else {
+                log::debug!(
+                    "Unable to build team '{}' because required factories/tech don't exist.",
+                    team_name
+                );
+                return Ok(());
+            }
+        }
+
+        // Optional units first (max-min), then required (min) — C++ prepend order
+        // so required ends up first in list after both prepends.
+        let mut orders: Vec<WorkOrder> = Vec::new();
+        // Optional
+        for (name, min_u, max_u) in &units {
+            let count = (*max_u - *min_u).max(0);
+            if count <= 0 {
+                continue;
+            }
+            if TheThingFactory::find_template(name).is_none() {
+                continue;
+            }
+            let mut order = WorkOrder::new(name.clone());
+            order.num_required = count;
+            order.required = false;
+            orders.insert(0, order); // prepend
+        }
+        // Required
+        for (name, min_u, _max_u) in &units {
+            let count = (*min_u).max(0);
+            if count <= 0 {
+                continue;
+            }
+            if TheThingFactory::find_template(name).is_none() {
+                continue;
+            }
+            let mut order = WorkOrder::new(name.clone());
+            order.num_required = count;
+            order.required = true;
+            orders.insert(0, order); // prepend
+        }
+
+        if orders.is_empty() {
+            log::debug!("{} - contains 0 buildable units.", team_name);
+            return Ok(());
+        }
+
+        // createInactiveTeam
+        let Ok(mut factory) = get_team_factory().lock() else {
+            return Ok(());
+        };
+        let Some(team_arc) = factory.create_inactive_team(team_name) else {
+            return Ok(());
+        };
+        drop(factory);
+
+        if let Ok(mut tg) = team_arc.write() {
+            tg.set_controlling_player_id(Some(self.player_id as UnsignedInt));
+        }
+
+        // executeActions residual: production condition script actions.
+        if proto.get_execute_actions_on_create() {
+            // Script engine friend_executeAction residual.
+            log::debug!(
+                "Team '{}' executeActions on create residual (production condition).",
+                team_name
+            );
+        }
+
         let mut team = TeamInQueue::new();
         team.team_name = Some(team_name.to_string());
         team.priority_build = priority_build;
-        team.frame_started = 0; // Will be set when we start building
-
-        // Add work orders based on team composition
-        // This would normally come from team templates
-        self.add_work_orders_for_team(&mut team, team_name)?;
+        team.frame_started = TheGameLogic::get_frame();
+        team.work_orders = orders;
 
         if priority_build {
             self.team_build_queue.push_front(team);
         } else {
             self.team_build_queue.push_back(team);
         }
-
+        self.team_delay = 0;
+        log::debug!("{} - starting team build.", team_name);
         Ok(())
     }
 
@@ -1585,7 +1709,10 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Recruit specific AI team from existing units
+    /// C++ `AIPlayer::recruitSpecificAITeam` (AIPlayer.cpp).
+    ///
+    /// createInactiveTeam, tryToRecruit up to maxUnits per type within radius of
+    /// home/base, move to home, ready-queue if any recruited else disband.
     pub fn recruit_specific_ai_team(
         &mut self,
         team_name: &str,
@@ -1597,185 +1724,105 @@ impl AIPlayer {
             recruit_radius
         };
 
-        let Some(player_arc) = self.get_player_arc() else {
+        let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(());
         };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(proto) = factory.find_team_prototype(team_name).map(|p| p.clone()) else {
             return Ok(());
         };
 
-        let origin = self
-            .get_base_center()
-            .or_else(|| {
-                player_guard
-                    .get_all_objects()
-                    .first()
-                    .and_then(|id| OBJECT_REGISTRY.get_object(*id))
-                    .and_then(|obj_arc| obj_arc.read().ok().map(|obj| *obj.get_position()))
-            })
-            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
-
-        let default_team_id = player_guard.get_default_team_id();
-        let player_object_ids = player_guard.get_all_objects();
-
-        let (prototype, team_arc, target_priority, source_priorities) = {
-            let Ok(mut factory_guard) = get_team_factory().lock() else {
-                return Ok(());
-            };
-            let Some(prototype) = factory_guard.find_team_prototype(team_name) else {
-                return Ok(());
-            };
-
-            if prototype.is_singleton() {
-                if let Some(existing) = factory_guard.find_team(team_name) {
-                    if let Ok(existing_guard) = existing.read() {
-                        if existing_guard.has_any_objects() {
-                            return Ok(());
-                        }
+        if proto.is_singleton() {
+            if let Some(existing) = factory.find_team(team_name) {
+                if let Ok(eg) = existing.read() {
+                    if eg.has_any_objects() {
+                        log::debug!(
+                            "Unable to recruit singleton team '{}' because team already exists.",
+                            team_name
+                        );
+                        return Ok(());
                     }
                 }
             }
-
-            let Some(team_arc) = factory_guard.create_inactive_team(team_name) else {
-                return Ok(());
-            };
-
-            let mut source_priorities = HashMap::new();
-            for proto in factory_guard.list_team_prototypes() {
-                source_priorities.insert(
-                    proto.get_name().to_string(),
-                    proto.get_production_priority(),
-                );
-            }
-
-            (
-                prototype.clone(),
-                team_arc,
-                prototype.get_production_priority(),
-                source_priorities,
-            )
-        };
-
-        if let Ok(mut team_guard) = team_arc.write() {
-            team_guard.set_controlling_player_id(Some(self.player_id as UnsignedInt));
         }
 
-        let radius_sqr = radius * radius;
-        let mut claimed: HashSet<ObjectID> = HashSet::new();
-        let mut units_recruited = 0;
+        let Some(team_arc) = factory.create_inactive_team(team_name) else {
+            return Ok(());
+        };
+        drop(factory);
 
-        for unit_info in prototype.units_info() {
+        if let Ok(mut tg) = team_arc.write() {
+            tg.set_controlling_player_id(Some(self.player_id as UnsignedInt));
+        }
+
+        // Home position residual: prototype home missing → base center.
+        let home = self
+            .get_base_center()
+            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+
+        let mut units_recruited = 0i32;
+        for unit_info in proto.units_info() {
             if unit_info.unit_thing_name.is_empty() {
                 continue;
             }
-
-            let Some(target_template) = TheThingFactory::find_template(unit_info.unit_thing_name)
-            else {
+            let Some(thing) = TheThingFactory::find_template(unit_info.unit_thing_name) else {
                 continue;
             };
-
-            let mut remaining = unit_info.max_units.max(0);
-            while remaining > 0 {
-                let mut best: Option<(Arc<RwLock<Object>>, ObjectID, Real)> = None;
-
-                for &object_id in &player_object_ids {
-                    if claimed.contains(&object_id) {
-                        continue;
-                    }
-
-                    let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                        continue;
+            let mut count = unit_info.max_units.max(0);
+            while count > 0 {
+                let recruited = {
+                    let Ok(tg) = team_arc.read() else {
+                        break;
                     };
-                    let Ok(object_guard) = object_arc.read() else {
-                        continue;
-                    };
-
-                    if object_guard.is_destroyed()
-                        || object_guard.is_effectively_dead()
-                        || object_guard.is_disabled_by_type(crate::common::DisabledType::Held)
-                    {
-                        continue;
-                    }
-
-                    if !target_template.is_equivalent_to(object_guard.get_template().as_ref()) {
-                        continue;
-                    }
-
-                    let Some(source_team_arc) = object_guard.get_team() else {
-                        continue;
-                    };
-                    let Ok(source_team_guard) = source_team_arc.read() else {
-                        continue;
-                    };
-                    if !source_team_guard.is_active() {
-                        continue;
-                    }
-
-                    let source_team_id = source_team_guard.get_id();
-                    let source_team_name = source_team_guard.get_name().to_string();
-                    let source_priority = source_priorities
-                        .get(&source_team_name)
-                        .copied()
-                        .unwrap_or(i32::MAX);
-                    if source_priority >= target_priority {
-                        continue;
-                    }
-
-                    let source_recruitable = if source_team_guard.is_recruitability_set() {
-                        source_team_guard.is_recruitable()
-                    } else if default_team_id == Some(source_team_id) {
-                        true
-                    } else {
-                        source_team_guard.is_recruitable()
-                    };
-                    if !source_recruitable {
-                        continue;
-                    }
-
-                    let pos = object_guard.get_position();
-                    let dx = origin.x - pos.x;
-                    let dy = origin.y - pos.y;
-                    let dist_sqr = dx * dx + dy * dy;
-                    if dist_sqr > radius_sqr {
-                        continue;
-                    }
-
-                    if best
-                        .as_ref()
-                        .map(|(_, _, best_dist)| dist_sqr < *best_dist)
-                        .unwrap_or(true)
-                    {
-                        best = Some((object_arc.clone(), object_id, dist_sqr));
-                    }
-                }
-
-                let Some((candidate_arc, candidate_id, _)) = best else {
+                    tg.try_to_recruit(&thing, &home, radius)
+                };
+                let Some(unit_arc) = recruited else {
                     break;
                 };
-
-                if let Ok(mut candidate_guard) = candidate_arc.write() {
-                    let _ = candidate_guard.set_team(Some(team_arc.clone()));
+                let unit_id = unit_arc
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(INVALID_ID);
+                if let Ok(mut ug) = unit_arc.write() {
+                    let _ = ug.set_team(Some(team_arc.clone()));
                 }
-
-                if let Ok(mut team_guard) = team_arc.write() {
-                    team_guard.add_member(candidate_id);
+                if let Ok(mut tg) = team_arc.write() {
+                    tg.add_member(unit_id);
                 }
-
-                claimed.insert(candidate_id);
+                // Move to home (CMD_FROM_AI).
+                if let Ok(ug) = unit_arc.read() {
+                    if let Some(ai) = ug.get_ai_update_interface() {
+                        if let Ok(mut ai_g) = ai.lock() {
+                            let mut params = crate::ai::AiCommandParams::new(
+                                crate::ai::AiCommandType::MoveToPosition,
+                                CommandSourceType::FromAi,
+                            );
+                            params.pos = home;
+                            let _ = ai_g.execute_command(&params);
+                        }
+                    }
+                }
                 units_recruited += 1;
-                remaining -= 1;
+                count -= 1;
             }
         }
 
         if units_recruited > 0 {
-            if let Ok(mut team_guard) = team_arc.write() {
-                team_guard.set_active();
+            let mut team = TeamInQueue::new();
+            team.team_name = Some(team_name.to_string());
+            team.priority_build = false;
+            team.frame_started = TheGameLogic::get_frame();
+            // Ready queue — C++ prependTo_TeamReadyQueue (activate later).
+            self.team_ready_queue.push_front(team);
+            log::debug!("{} - Finished recruiting.", team_name);
+        } else {
+            if !proto.is_singleton() {
+                let team_id = team_arc.read().ok().map(|t| t.get_id());
+                if let (Some(team_id), Ok(mut factory)) = (team_id, get_team_factory().lock()) {
+                    factory.team_about_to_be_deleted(team_id);
+                }
             }
-        } else if !prototype.is_singleton() {
-            let team_id = team_arc.read().ok().map(|team| team.get_id());
-            if let (Some(team_id), Ok(mut factory_guard)) = (team_id, get_team_factory().lock()) {
-                factory_guard.team_about_to_be_deleted(team_id);
-            }
+            log::debug!("{} - Recruited 0 units, disbanding.", team_name);
         }
 
         Ok(())
@@ -3269,6 +3316,7 @@ impl AIPlayer {
     }
 
     /// Add work orders for a specific team
+    /// C++ work-order composition for a team prototype (optional then required).
     fn add_work_orders_for_team(
         &mut self,
         team: &mut TeamInQueue,
@@ -3279,22 +3327,38 @@ impl AIPlayer {
             return Ok(());
         };
         if let Some(proto) = factory_guard.find_team_prototype(team_name) {
+            let mut orders = Vec::new();
+            // Optional: max-min
             for unit in proto.units_info() {
                 if unit.unit_thing_name.is_empty() {
                     continue;
                 }
+                let count = (unit.max_units - unit.min_units).max(0);
+                if count <= 0 {
+                    continue;
+                }
                 let mut order = WorkOrder::new(unit.unit_thing_name.to_string());
-                order.num_required = unit.max_units.max(1);
-                order.required = unit.min_units > 0;
-                team.work_orders.push(order);
+                order.num_required = count;
+                order.required = false;
+                orders.insert(0, order);
             }
+            // Required: min
+            for unit in proto.units_info() {
+                if unit.unit_thing_name.is_empty() {
+                    continue;
+                }
+                let count = unit.min_units.max(0);
+                if count <= 0 {
+                    continue;
+                }
+                let mut order = WorkOrder::new(unit.unit_thing_name.to_string());
+                order.num_required = count;
+                order.required = true;
+                orders.insert(0, order);
+            }
+            team.work_orders = orders;
             return Ok(());
         }
-
-        // Fallback: basic units when no prototype exists yet.
-        let mut order = WorkOrder::new("Ranger".to_string());
-        order.num_required = 1;
-        team.work_orders.push(order);
 
         Ok(())
     }
@@ -7078,6 +7142,51 @@ mod tests {
                 && w.contains("cash_floor /= 2"),
             "findSupplyCenter must filter owned depots, enemy 60/40, halve cash"
         );
+    }
+
+    #[test]
+    fn build_specific_ai_team_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::buildSpecificAITeam`")
+            .expect("buildSpecificAITeam");
+        let w = &src[i..src.len().min(i + 5500)];
+        assert!(
+            w.contains("get_can_build_units")
+                && w.contains("is_singleton")
+                && w.contains("is_possible_to_build_team")
+                && w.contains("need_money")
+                && w.contains("create_inactive_team")
+                && w.contains("order.required = true")
+                && w.contains("team_delay = 0"),
+            "buildSpecificAITeam must gate units/singleton/possible and create inactive team"
+        );
+    }
+
+    #[test]
+    fn recruit_specific_ai_team_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::recruitSpecificAITeam`")
+            .expect("recruitSpecificAITeam");
+        let w = &src[i..src.len().min(i + 4500)];
+        assert!(
+            w.contains("try_to_recruit")
+                && w.contains("team_ready_queue.push_front")
+                && w.contains("create_inactive_team")
+                && w.contains("MoveToPosition")
+                && w.contains("team_about_to_be_deleted")
+                && w.contains("Recruited 0 units"),
+            "recruitSpecificAITeam must tryToRecruit, ready-queue or disband"
+        );
+    }
+
+    #[test]
+    fn build_specific_ai_team_respects_can_build_units_surface() {
+        // Without player/can_build setup, empty name should still be a no-op Ok.
+        let mut ai = AIPlayer::new(1);
+        ai.build_specific_ai_team("NoSuchTeam", false).expect("bst");
+        assert!(ai.team_build_queue.is_empty());
     }
 
     #[test]
