@@ -981,3 +981,10 @@ evaluate time. `show_victory_screen` prefers that residual; live rebuild is boot
 residual only when no frame summary exists. Fail-closed: not live scoreboard
 re-aggregate after post-match object churn.
 
+### Presentation shell input device poll residual (2026-07-14)
+
+`GameClient::update_presentation_shell` calls `update_input` to advance client
+keyboard/mouse device state machines (C++ update residual). Main still owns OS
+`WindowEvent` → gameplay command translation and sole 3D draw. Fail-closed: not
+full `GameClient::update` (no audio device dual-own, no `draw_display`).
+

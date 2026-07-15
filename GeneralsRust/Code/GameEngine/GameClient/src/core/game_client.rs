@@ -3308,8 +3308,13 @@ impl GameClient {
             visual_delta * visual_speed as f32
         };
 
+        // C++ GameClient::update residual: keyboard/mouse subsystem device poll
+        // (lines 560-584). Main still owns OS WindowEvent → command translation;
+        // this only advances GameClient input device state machines.
+        self.update_input()?;
+
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
-        // Eva residual runs via update_post_draw_ui (no dual input/audio ownership).
+        // Eva residual runs via update_post_draw_ui (no dual OS input/audio ownership).
         self.update_drawables_local(visual_delta)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
