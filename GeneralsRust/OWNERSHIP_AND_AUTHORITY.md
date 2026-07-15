@@ -570,3 +570,9 @@ remains boot residual without presentation.
 `PresentationFrame.world_env` when a frame is installed. Live
 `GameLogic::world_bounds` remains boot residual without presentation.
 
+### GameWorld shadow orientation sync residual (2026-07-14)
+
+`sync_from_host_with` copies `Object::get_orientation()` into shadow `Transform`
+(no longer forces yaw 0). Pose writeback / `apply_host_positions_as_transforms`
+remain the last-writer path for mid-tick facing changes.
+
