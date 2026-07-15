@@ -4308,6 +4308,11 @@ impl AIPlayer {
             return Ok(false);
         };
 
+        // C++ isAGoodIdeaToBuildTeam: evaluateProductionCondition first.
+        if !proto.evaluate_production_condition() {
+            return Ok(false);
+        }
+
         let instances = factory_guard.find_team_instances(team_name).len() as i32;
         let max_instances = proto.get_max_instances();
         if proto.is_singleton() && instances > 0 {
@@ -5219,6 +5224,17 @@ mod tests {
         assert!(
             window.contains("is_possible_to_build_team(team_name, true)"),
             "is_a_good_idea must require idle factory (C++ busyOK=true means require idle)"
+        );
+    }
+
+    #[test]
+    fn is_a_good_idea_calls_evaluate_production_condition() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("fn is_a_good_idea_to_build_team").expect("good");
+        let window = &src[i..src.len().min(i + 2200)];
+        assert!(
+            window.contains("evaluate_production_condition()"),
+            "is_a_good_idea must call evaluateProductionCondition first (C++)"
         );
     }
 

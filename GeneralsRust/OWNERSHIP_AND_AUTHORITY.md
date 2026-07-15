@@ -1194,3 +1194,15 @@ Compared C++ `AIPlayer::selectTeamToReinforce` to Rust:
 Fail-closed: homeLocation origin residual when team has no members; production
 condition scripts still residual.
 
+### evaluateProductionCondition (2026-07-14)
+
+Ported C++ `TeamPrototype::evaluateProductionCondition` (Team.cpp) to Rust:
+
+- Empty / missing script → `always_false` cache, return false.
+- Difficulty gate via script easy/normal/hard flags vs controlling player difficulty.
+- Delay-eval frame honor + `ScriptEngine::evaluateConditions` with controlling player.
+- `isAGoodIdeaToBuildTeam` now calls this first (C++ order).
+
+Fail-closed: full OrCondition graph coverage depends on ScriptEngine evaluator depth;
+Main host AI still separate.
+
