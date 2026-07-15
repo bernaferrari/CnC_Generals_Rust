@@ -185,6 +185,25 @@ impl GameWorldShadow {
 
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
     /// Preserves EntityId for host objects that still exist.
+    fn host_building_type_ordinal(t: crate::game_logic::BuildingType) -> u8 {
+        use crate::game_logic::BuildingType as B;
+        match t {
+            B::CommandCenter => 0,
+            B::Barracks => 1,
+            B::WarFactory => 2,
+            B::Airfield => 3,
+            B::RepairPad => 4,
+            B::HealPad => 5,
+            B::SupplyCenter => 6,
+            B::PowerPlant => 7,
+            B::DefenseTurret => 8,
+            B::SupplyDropZone => 9,
+            B::Palace => 10,
+            B::Propaganda => 11,
+            B::Bunker => 12,
+        }
+    }
+
     fn host_veterancy_ordinal(level: crate::game_logic::VeterancyLevel) -> u8 {
         use crate::game_logic::VeterancyLevel as V;
         match level {
@@ -326,6 +345,30 @@ impl GameWorldShadow {
                     e.disabled_underpowered = obj.status.disabled_underpowered;
                     e.disabled_unmanned = obj.status.disabled_unmanned;
                     e.disabled_hacked = obj.status.disabled_hacked;
+                    e.is_building = obj.building_data.is_some();
+                    if let Some(bd) = obj.building_data.as_ref() {
+                        e.building_type_ordinal =
+                            Self::host_building_type_ordinal(bd.building_type);
+                        e.production_queue_len = bd.production_queue.len().min(255) as u8;
+                        if let Some(head) = bd.production_queue.first() {
+                            e.production_progress = head.progress;
+                            e.production_template = head.template_name.clone();
+                        } else {
+                            e.production_progress = 0.0;
+                            e.production_template.clear();
+                        }
+                        e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
+                        e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
+                        e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;
+                    } else {
+                        e.building_type_ordinal = 255;
+                        e.production_queue_len = 0;
+                        e.production_progress = 0.0;
+                        e.production_template.clear();
+                        e.rally_point = None;
+                        e.garrison_count = 0;
+                        e.max_garrison = 0;
+                    }
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -386,6 +429,29 @@ impl GameWorldShadow {
                 e.disabled_underpowered = obj.status.disabled_underpowered;
                 e.disabled_unmanned = obj.status.disabled_unmanned;
                 e.disabled_hacked = obj.status.disabled_hacked;
+                e.is_building = obj.building_data.is_some();
+                if let Some(bd) = obj.building_data.as_ref() {
+                    e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
+                    e.production_queue_len = bd.production_queue.len().min(255) as u8;
+                    if let Some(head) = bd.production_queue.first() {
+                        e.production_progress = head.progress;
+                        e.production_template = head.template_name.clone();
+                    } else {
+                        e.production_progress = 0.0;
+                        e.production_template.clear();
+                    }
+                    e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
+                    e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
+                    e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;
+                } else {
+                    e.building_type_ordinal = 255;
+                    e.production_queue_len = 0;
+                    e.production_progress = 0.0;
+                    e.production_template.clear();
+                    e.rally_point = None;
+                    e.garrison_count = 0;
+                    e.max_garrison = 0;
+                }
             }
         }
 
@@ -440,6 +506,14 @@ impl GameWorldShadow {
             e.disabled_underpowered = false;
             e.disabled_unmanned = false;
             e.disabled_hacked = false;
+            e.is_building = false;
+            e.building_type_ordinal = 255;
+            e.production_queue_len = 0;
+            e.production_progress = 0.0;
+            e.production_template.clear();
+            e.rally_point = None;
+            e.garrison_count = 0;
+            e.max_garrison = 0;
         }
     }
 
@@ -787,6 +861,24 @@ impl GameWorldShadow {
     /// Count shadow entities with host building object-type residual.
     /// Count shadow entities with host force_attack residual.
     /// Count shadow entities with Elite+ host veterancy residual.
+    /// Count shadow entities with non-empty host production queue residual.
+    pub fn producing_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.production_queue_len > 0 && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities with host building residual.
+    pub fn building_data_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.is_building && !e.destroyed)
+            .count()
+    }
+
     pub fn elite_entity_count(&self) -> usize {
         self.world
             .world()
@@ -1889,6 +1981,58 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_building_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityBuilding");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "BarracksRes", 500.0);
+        let id = logic
+            .create_object("BarracksRes", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
+            .expect("id");
+        {
+            use crate::game_logic::{BuildingData, BuildingType, ProductionItem, Resources};
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.object_type = crate::game_logic::ObjectType::Building;
+            let mut bd = BuildingData::new(BuildingType::Barracks);
+            bd.production_queue.push(ProductionItem {
+                template_name: "AmericaInfantryRanger".into(),
+                progress: 0.35,
+                total_time: 10.0,
+                cost: Resources {
+                    supplies: 225,
+                    power: 0,
+                },
+            });
+            bd.rally_point = Some(glam::Vec3::new(20.0, 0.0, 20.0));
+            bd.garrisoned_units = vec![crate::game_logic::ObjectId(99)];
+            bd.max_garrison = 5;
+            obj.building_data = Some(bd);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.building_data_entity_count(), 1);
+        assert_eq!(shadow.producing_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.is_building);
+        assert_eq!(e.building_type_ordinal, 1); // Barracks
+        assert_eq!(e.production_queue_len, 1);
+        assert!((e.production_progress - 0.35).abs() < 0.001);
+        assert_eq!(e.production_template, "AmericaInfantryRanger");
+        assert_eq!(e.garrison_count, 1);
+        assert_eq!(e.max_garrison, 5);
+        let rp = e.rally_point.expect("rally");
+        assert!((rp[0] - 20.0).abs() < 0.01);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("production_queue_len")
+                && src.contains("building_type_ordinal")
+                && src.contains("rally_point"),
+            "sync must copy building residual"
+        );
     }
 
     #[test]
