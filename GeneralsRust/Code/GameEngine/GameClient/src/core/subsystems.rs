@@ -1217,7 +1217,7 @@ impl InGameUISubsystem {
         self.command_log.push_back(entry);
     }
 
-    fn push_hud_message(&mut self, message: String) {
+    pub fn push_hud_message(&mut self, message: String) {
         const MAX_HUD_MESSAGES: usize = 32;
         if self.hud_messages.len() == MAX_HUD_MESSAGES {
             self.hud_messages.pop_front();
