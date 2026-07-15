@@ -104,6 +104,14 @@ The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for leg
 
 Host still executes AI decision, pathfinding step, and combat resolution mid-frame. AI `launch_attack` now prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression. Shadow session runs after host `update` + projectiles + pathfinding (same frame logs), then PresentationFrame overlay. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations (`writeback_transforms_to_host` after session SetTransform) and presentation overlay — not yet the sole simulation owner.
 
+### Path following consolidation (2026-07-14)
+
+`GameLogic::update_movement` is the sole path-follower for host objects.
+Engine mid-frame `pathfinding_system.move_unit_along_path` was removed to stop
+double-stepping after `GameLogic::update`. Engine may still hold a
+`PathfindingSystem` for map-grid rebuild helpers; it is not the per-frame mover.
+
+
 ## Gates (honest reading)
 
 | Gate | Proves |
