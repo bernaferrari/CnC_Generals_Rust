@@ -1922,6 +1922,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_camera_residual_prefers_frame() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("fn apply_presentation_camera_residual")
+                && eng.contains("fn drain_live_camera_request_queues")
+                && eng.contains("Prefer presentation-frozen camera residual")
+                && eng.contains("apply_presentation_camera_residual(&pres)"),
+            "InGame script camera must prefer presentation freeze over live take_* dual-read"
+        );
+        let i = eng
+            .find("fn apply_pending_script_camera_requests")
+            .expect("apply_pending_script_camera_requests");
+        let window = &eng[i..i.saturating_add(900).min(eng.len())];
+        assert!(
+            window.contains("last_presentation_frame.clone()")
+                && window.contains("drain_live_camera_request_queues"),
+            "presentation path must drain live queues after apply"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
