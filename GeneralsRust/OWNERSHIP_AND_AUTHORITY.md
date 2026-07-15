@@ -492,3 +492,10 @@ constructed factory, and at least one matching factory must be idle (empty
 `production_queue`). `find_factory_for_unit` prefers idle then busy. Not full
 C++ TeamPrototype production-condition scripts / maxInstances.
 
+### AIData RebuildDelaySeconds residual (2026-07-14)
+
+Host `AIBuildingInfo` tracks `destroyed_at_time` when a queued structure object
+vanishes. `process_building_queue` waits `RebuildDelaySeconds=30` before starting
+a rebuild (C++ BuildListInfo objectTimestamp + m_rebuildDelaySeconds). Successful
+start clears the stamp. Not full C++ rebuild-hole / dozer path.
+

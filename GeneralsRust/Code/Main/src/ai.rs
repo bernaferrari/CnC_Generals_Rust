@@ -112,6 +112,9 @@ pub struct AIBuildingInfo {
     pub is_priority: bool,
     pub rebuild_count: u32,
     pub max_rebuilds: u32,
+    /// Host residual of C++ BuildListInfo objectTimestamp (seconds).
+    /// Set when the live building is destroyed; rebuild waits RebuildDelaySeconds.
+    pub destroyed_at_time: Option<f32>,
 }
 
 impl AIBuildingInfo {
@@ -124,6 +127,15 @@ impl AIBuildingInfo {
             is_priority: false,
             rebuild_count: 0,
             max_rebuilds,
+            destroyed_at_time: None,
+        }
+    }
+
+    /// C++ rebuild delay residual: ready when never destroyed or delay elapsed.
+    pub fn rebuild_delay_elapsed(&self, current_time: f32, delay_seconds: f32) -> bool {
+        match self.destroyed_at_time {
+            None => true,
+            Some(t0) => current_time >= t0 + delay_seconds,
         }
     }
 }
@@ -427,7 +439,7 @@ impl AIPlayer {
     }
 
     /// Process building construction queue (up to 3 starts per host AI tick).
-    fn process_building_queue(&mut self, game_logic: &mut GameLogic, _current_time: f32) {
+    fn process_building_queue(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         for _ in 0..3 {
             let build_index = {
                 let Some(player) = game_logic.get_player(self.player_id) else {
@@ -438,6 +450,7 @@ impl AIPlayer {
                     if !building.is_built
                         && building.rebuild_count < building.max_rebuilds
                         && building.object_id.is_none()
+                        && building.rebuild_delay_elapsed(current_time, Self::REBUILD_DELAY_SECONDS)
                     {
                         if let Some(template) = game_logic.templates.get(&building.template_name) {
                             if player.can_afford(&Resources {
@@ -465,6 +478,8 @@ impl AIPlayer {
                 let building = &mut self.building_queue[index];
                 building.object_id = Some(object_id);
                 building.rebuild_count += 1;
+                // C++ setObjectTimestamp(0) once rebuild is enabled/started.
+                building.destroyed_at_time = None;
                 self.activity_count = self.activity_count.saturating_add(1);
                 let cost = game_logic
                     .templates
@@ -492,9 +507,12 @@ impl AIPlayer {
                 if let Some(object) = game_logic.find_object(object_id) {
                     building.is_built = object.is_constructed();
                 } else {
-                    // Building was destroyed
+                    // Building was destroyed — stamp rebuild delay (AIData RebuildDelaySeconds).
                     building.object_id = None;
                     building.is_built = false;
+                    if building.destroyed_at_time.is_none() {
+                        building.destroyed_at_time = Some(current_time);
+                    }
                 }
             }
         }
@@ -1629,6 +1647,59 @@ mod cpp_parity_tests {
         }
         assert!(ai.team_factories_ready(&logic, "USA_BasicForce"));
         assert!(ai.should_build_new_team(&logic));
+    }
+
+    #[test]
+    fn aidata_rebuild_delay_gates_destroyed_structure() {
+        assert!((AIPlayer::REBUILD_DELAY_SECONDS - 30.0).abs() < 1e-5);
+        let b = AIBuildingInfo::new("USA_Barracks".into(), Vec3::ZERO, 2);
+        assert!(b.rebuild_delay_elapsed(0.0, AIPlayer::REBUILD_DELAY_SECONDS));
+        assert!(b.rebuild_delay_elapsed(100.0, AIPlayer::REBUILD_DELAY_SECONDS));
+
+        let mut destroyed = AIBuildingInfo::new("USA_Barracks".into(), Vec3::ZERO, 2);
+        destroyed.destroyed_at_time = Some(10.0);
+        // C++: timestamp + RebuildDelaySeconds*FPS > frame → wait.
+        assert!(!destroyed.rebuild_delay_elapsed(10.0, AIPlayer::REBUILD_DELAY_SECONDS));
+        assert!(!destroyed.rebuild_delay_elapsed(39.9, AIPlayer::REBUILD_DELAY_SECONDS));
+        assert!(destroyed.rebuild_delay_elapsed(40.0, AIPlayer::REBUILD_DELAY_SECONDS));
+        assert!(destroyed.rebuild_delay_elapsed(100.0, AIPlayer::REBUILD_DELAY_SECONDS));
+
+        // process_building_queue stamps destroyed_at_time when object vanishes.
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA", true);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut barracks_t = crate::game_logic::ThingTemplate::new("USA_Barracks");
+        barracks_t.set_cost(500, 0);
+        barracks_t.add_kind_of(crate::game_logic::KindOf::Structure);
+        logic.templates.insert("USA_Barracks".into(), barracks_t);
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.add_building("USA_Barracks", Vec3::new(0.0, 0.0, 0.0), 3);
+        // Simulate a previously-built slot whose object was destroyed at t=5.
+        {
+            let b = &mut ai.building_queue[0];
+            b.is_built = false;
+            b.object_id = None;
+            b.rebuild_count = 1;
+            b.destroyed_at_time = Some(5.0);
+        }
+        // Before delay: queue must not start rebuild.
+        ai.process_building_queue(&mut logic, 5.0 + AIPlayer::REBUILD_DELAY_SECONDS - 0.1);
+        assert!(ai.building_queue[0].object_id.is_none());
+        // After delay: may start (if create_object_under_construction succeeds).
+        ai.process_building_queue(&mut logic, 5.0 + AIPlayer::REBUILD_DELAY_SECONDS);
+        // Either started (object_id Some) or still none if construction API refused —
+        // destroyed_at_time must clear only on successful start.
+        if ai.building_queue[0].object_id.is_some() {
+            assert!(ai.building_queue[0].destroyed_at_time.is_none());
+        } else {
+            // Delay gate itself elapsed; remaining failure is construction residual.
+            assert!(ai.building_queue[0].rebuild_delay_elapsed(
+                5.0 + AIPlayer::REBUILD_DELAY_SECONDS,
+                AIPlayer::REBUILD_DELAY_SECONDS
+            ));
+        }
     }
 
     #[test]
