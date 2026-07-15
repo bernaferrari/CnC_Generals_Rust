@@ -413,6 +413,21 @@ impl GameWorldShadow {
                     e.is_tunnel_network = obj.is_tunnel_network;
                     e.is_combat_chinook_transport = obj.is_combat_chinook_transport;
                     e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
+                    e.cheer_timer = obj.cheer_timer;
+                    e.overcharge_enabled = obj.overcharge_enabled;
+                    e.active_weapon_slot = obj.active_weapon_slot;
+                    e.guard_radius = obj.guard_radius;
+                    e.applied_upgrade_count =
+                        obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
+                    e.special_power_ready = obj.special_power_ready;
+                    e.special_power_cooldown = obj.special_power_cooldown;
+                    e.special_power_cooldown_remaining = obj.special_power_cooldown_remaining;
+                    e.is_detector = obj.is_detector;
+                    e.detection_range = obj.detection_range;
+                    e.detection_rate_frames = obj.detection_rate_frames;
+                    e.stealth_breaks_on_attack = obj.stealth_breaks_on_attack;
+                    e.stealth_breaks_on_move = obj.stealth_breaks_on_move;
+                    e.innate_stealth = obj.innate_stealth;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -540,6 +555,20 @@ impl GameWorldShadow {
                 e.is_tunnel_network = obj.is_tunnel_network;
                 e.is_combat_chinook_transport = obj.is_combat_chinook_transport;
                 e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
+                e.cheer_timer = obj.cheer_timer;
+                e.overcharge_enabled = obj.overcharge_enabled;
+                e.active_weapon_slot = obj.active_weapon_slot;
+                e.guard_radius = obj.guard_radius;
+                e.applied_upgrade_count = obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
+                e.special_power_ready = obj.special_power_ready;
+                e.special_power_cooldown = obj.special_power_cooldown;
+                e.special_power_cooldown_remaining = obj.special_power_cooldown_remaining;
+                e.is_detector = obj.is_detector;
+                e.detection_range = obj.detection_range;
+                e.detection_rate_frames = obj.detection_rate_frames;
+                e.stealth_breaks_on_attack = obj.stealth_breaks_on_attack;
+                e.stealth_breaks_on_move = obj.stealth_breaks_on_move;
+                e.innate_stealth = obj.innate_stealth;
             }
         }
 
@@ -628,6 +657,20 @@ impl GameWorldShadow {
             e.is_tunnel_network = false;
             e.is_combat_chinook_transport = false;
             e.contained_by_host = 0;
+            e.cheer_timer = 0.0;
+            e.overcharge_enabled = false;
+            e.active_weapon_slot = 0;
+            e.guard_radius = 0.0;
+            e.applied_upgrade_count = 0;
+            e.special_power_ready = false;
+            e.special_power_cooldown = 0.0;
+            e.special_power_cooldown_remaining = 0.0;
+            e.is_detector = false;
+            e.detection_range = 0.0;
+            e.detection_rate_frames = 0;
+            e.stealth_breaks_on_attack = false;
+            e.stealth_breaks_on_move = false;
+            e.innate_stealth = false;
         }
     }
 
@@ -978,6 +1021,24 @@ impl GameWorldShadow {
     /// Count shadow entities with non-empty host production queue residual.
     /// Count shadow entities with host weapon residual.
     /// Count shadow entities with host battle-bus transport residual.
+    /// Count shadow entities with host detector residual.
+    pub fn detector_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.is_detector && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities with special power ready residual.
+    pub fn special_power_ready_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.special_power_ready && !e.destroyed)
+            .count()
+    }
+
     pub fn battle_bus_entity_count(&self) -> usize {
         self.world
             .world()
@@ -2134,6 +2195,59 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_detector_sp_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityDetectorSp");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "DetectU", 100.0);
+        let id = logic
+            .create_object("DetectU", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.cheer_timer = 2.5;
+            obj.overcharge_enabled = true;
+            obj.active_weapon_slot = 2;
+            obj.guard_radius = 120.0;
+            obj.applied_upgrades.insert("UpgradeChemicalSuits".into());
+            obj.applied_upgrades.insert("UpgradeCompositeArmor".into());
+            obj.special_power_ready = true;
+            obj.special_power_cooldown = 60.0;
+            obj.special_power_cooldown_remaining = 12.0;
+            obj.is_detector = true;
+            obj.detection_range = 200.0;
+            obj.detection_rate_frames = 15;
+            obj.stealth_breaks_on_attack = true;
+            obj.stealth_breaks_on_move = true;
+            obj.innate_stealth = true;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.detector_entity_count(), 1);
+        assert_eq!(shadow.special_power_ready_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.cheer_timer - 2.5).abs() < 0.01);
+        assert!(e.overcharge_enabled);
+        assert_eq!(e.active_weapon_slot, 2);
+        assert!((e.guard_radius - 120.0).abs() < 0.01);
+        assert_eq!(e.applied_upgrade_count, 2);
+        assert!(e.special_power_ready);
+        assert!((e.special_power_cooldown - 60.0).abs() < 0.01);
+        assert!((e.special_power_cooldown_remaining - 12.0).abs() < 0.01);
+        assert!(e.is_detector);
+        assert!((e.detection_range - 200.0).abs() < 0.01);
+        assert_eq!(e.detection_rate_frames, 15);
+        assert!(e.stealth_breaks_on_attack && e.stealth_breaks_on_move && e.innate_stealth);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("is_detector")
+                && src.contains("special_power_ready")
+                && src.contains("applied_upgrade_count"),
+            "sync must copy detector/sp residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_transport_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityTransport");
