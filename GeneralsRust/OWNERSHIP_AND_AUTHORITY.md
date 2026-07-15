@@ -1088,3 +1088,10 @@ installed (not local-only). Live `get_player` remains boot residual.
 slots pack `apparent_text_color` (0x00RRGGBB). `apparent_color` stays None
 (multiplayer color index not frozen). Fail-closed: not sole GameWorld authority.
 
+### Presentation cinematic letterbox residual (2026-07-14)
+
+Main applies `PresentationFrame.cinematic_letterbox` to GameClient
+`GraphicsDisplay::enable_letter_box` before the presentation shell tick.
+Fail-closed: not full GameClient::update / draw_display dual-own; cinematic
+text/military caption remain UI-state projection only.
+
