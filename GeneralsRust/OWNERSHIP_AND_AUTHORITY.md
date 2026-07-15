@@ -866,3 +866,9 @@ entries (template/progress/total_time/cost). Overlay last-writes full
 `RenderableObject.production_queue` (not head-only). Fail-closed: not full
 cancel/hold/priority queue control authority.
 
+### Presentation identity residual overlay (2026-07-14)
+
+`overlay_gameworld_shadow` last-writes template_name, team, disguise_as_team,
+object_type, is_structure/unit/mobile, can_produce, and building_type from
+Entity ordinals/flags. Fail-closed: model_key/mesh_scale/fow still freeze-path.
+
