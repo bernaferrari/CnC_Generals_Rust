@@ -32411,6 +32411,12 @@ impl GameLogic {
             .unwrap_or(AIDifficulty::Medium)
     }
 
+    /// True when the skirmish/AI manager owns this player id.
+    #[inline]
+    pub fn ai_manager_contains_player(&self, player_id: u32) -> bool {
+        self.ai_manager.ai_players.contains_key(&player_id)
+    }
+
     /// Check if the game is currently in battle
     pub fn is_in_battle(&self) -> bool {
         // Check if any objects are currently in combat
