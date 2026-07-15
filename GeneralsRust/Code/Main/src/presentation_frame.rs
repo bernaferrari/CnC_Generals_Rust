@@ -235,6 +235,18 @@ pub struct RenderableObject {
     pub weapon_bonus_nationalism: bool,
     pub weapon_bonus_frenzy: bool,
     pub weapon_bonus_frenzy_level: u8,
+    /// Host Object::command_set_override residual (empty = template default).
+    pub command_set_override: String,
+    /// Host Object::is_detector residual.
+    pub is_detector: bool,
+    /// Host Object::active_weapon_slot residual.
+    pub active_weapon_slot: u8,
+    /// Host Object::overcharge_enabled residual.
+    pub overcharge_enabled: bool,
+    /// Host Object::show_health_bar residual.
+    pub show_health_bar: bool,
+    /// Host Object::guard_radius residual.
+    pub guard_radius: f32,
     /// Mine / demo-trap residual present.
     pub has_mine: bool,
     /// Host ThingTemplate KindOf set residual (sorted, capped).
@@ -1937,6 +1949,12 @@ impl PresentationFrame {
                 weapon_bonus_nationalism: obj.weapon_bonus_nationalism,
                 weapon_bonus_frenzy: obj.weapon_bonus_frenzy,
                 weapon_bonus_frenzy_level: obj.weapon_bonus_frenzy_level,
+                command_set_override: obj.command_set_override.clone().unwrap_or_default(),
+                is_detector: obj.is_detector,
+                active_weapon_slot: obj.active_weapon_slot,
+                overcharge_enabled: obj.overcharge_enabled,
+                show_health_bar: obj.show_health_bar,
+                guard_radius: obj.guard_radius,
                 has_mine: obj.mine_data.is_some(),
                 kind_of: {
                     use crate::game_logic::KindOf;
@@ -2524,6 +2542,22 @@ impl PresentationFrame {
     }
 
     /// Count presentation objects with host horde weapon-bonus residual.
+    /// Count presentation objects with host detector residual.
+    pub fn detector_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.is_detector && !o.destroyed)
+            .count()
+    }
+
+    /// Count presentation objects with non-empty command_set_override residual.
+    pub fn command_set_override_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| !o.command_set_override.is_empty() && !o.destroyed)
+            .count()
+    }
+
     pub fn horde_bonus_object_count(&self) -> usize {
         self.objects
             .iter()
@@ -4049,6 +4083,49 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn presentation_freezes_command_set_detector_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresCmdDet");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PresCD") {
+            let mut t = ThingTemplate::new("PresCD");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("PresCD".into(), t);
+        }
+        let id = logic
+            .create_object("PresCD", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.command_set_override = Some("Command_AmericaDozer".into());
+            obj.is_detector = true;
+            obj.active_weapon_slot = 1;
+            obj.overcharge_enabled = true;
+            obj.show_health_bar = false;
+            obj.guard_radius = 175.0;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.detector_object_count(), 1);
+        assert_eq!(frame.command_set_override_object_count(), 1);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert_eq!(ro.command_set_override, "Command_AmericaDozer");
+        assert!(ro.is_detector);
+        assert_eq!(ro.active_weapon_slot, 1);
+        assert!(ro.overcharge_enabled);
+        assert!(!ro.show_health_bar);
+        assert!((ro.guard_radius - 175.0).abs() < 0.01);
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("command_set_override: obj")
+                && src.contains("is_detector: obj.is_detector")
+                && src.contains("guard_radius: obj.guard_radius"),
+            "freeze must copy command-set/detector residual"
+        );
+    }
+
     fn presentation_freezes_turret_and_weapon_bonus_residual() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
