@@ -2134,6 +2134,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_cinematic_letterbox_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        assert!(
+            gc.contains("fn apply_presentation_cinematic_letterbox")
+                && gc.contains("enable_letter_box(enabled)")
+                && eng.contains("apply_presentation_cinematic_letterbox(pres.cinematic_letterbox)")
+                && eng.contains("Presentation cinematic letterbox residual"),
+            "presentation cinematic_letterbox must drive GameClient display letterbox"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

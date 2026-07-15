@@ -6462,6 +6462,11 @@ impl CnCGameEngine {
                         .unwrap_or_default();
                     self.game_client
                         .apply_presentation_shroud_to_drawables(shroud_entries);
+                    // Presentation cinematic letterbox residual → client display.
+                    if let Some(pres) = self.last_presentation_frame.as_ref() {
+                        self.game_client
+                            .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);
+                    }
                     if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
                     }
