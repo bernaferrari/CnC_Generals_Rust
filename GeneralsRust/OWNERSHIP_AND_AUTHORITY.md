@@ -892,3 +892,10 @@ When `last_presentation_frame` is installed, defeat HUD and alliance radar team
 resolve from presentation roster only. Live `get_player` is boot residual when
 no frame is set. Fail-closed: roster miss yields id-only defeat log.
 
+### GameWorld engine_bridged residual (2026-07-14)
+
+`Entity.engine_bridged` mirrors host `engine_object_id.is_some()`. Overlay
+last-writes `RenderableObject.engine_bridged` so the unit mesh pass can skip
+double-draw without live dual-read. Fail-closed: not full ObjectFactory bridge
+authority.
+

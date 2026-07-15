@@ -508,6 +508,7 @@ impl GameWorldShadow {
                             }
                         }
                     }
+                    e.engine_bridged = obj.engine_object_id.is_some();
                     e.overlord_bunker_capacity = obj
                         .overlord_bunker_capacity
                         .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -785,6 +786,7 @@ impl GameWorldShadow {
                         }
                     }
                 }
+                e.engine_bridged = obj.engine_object_id.is_some();
                 e.overlord_bunker_capacity = obj
                     .overlord_bunker_capacity
                     .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -972,6 +974,7 @@ impl GameWorldShadow {
             e.fow_visibility_falloff = 0.0;
             e.ground_height = 0.0;
             e.ground_height_from_terrain = false;
+            e.engine_bridged = false;
             e.overlord_bunker_capacity = u16::MAX;
             e.passengers_allowed_to_fire = false;
             e.armed_riders_upgrade_weapon_set = false;
@@ -2597,6 +2600,30 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_engine_bridged_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityEngineBridged");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "BrU", 100.0);
+        let id = logic
+            .create_object("BrU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            obj.engine_object_id = Some(42);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.engine_bridged, "engine_bridged residual");
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("e.engine_bridged = obj.engine_object_id.is_some()"),
+            "sync must copy engine_bridged residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_fow_ground_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityFowGround");
