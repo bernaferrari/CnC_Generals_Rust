@@ -3046,3 +3046,31 @@ mod presentation_minimap_bounds_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod presentation_local_team_tests {
+    #[test]
+    fn selection_hotkeys_prefer_presentation_local_team() {
+        let eng = include_str!("cnc_game_engine.rs");
+        for needle in [
+            "Ctrl+A: select all",
+            "Cycle selection through own selectable",
+            "fn find_object_at_position",
+            "fn handle_right_click",
+        ] {
+            let idx = eng
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing {needle}"));
+            let window = &eng[idx..idx + 900.min(eng.len() - idx)];
+            assert!(
+                window.contains("local_team") || window.contains("local_team()"),
+                "{needle} must prefer presentation local_team"
+            );
+        }
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("pub local_team: Team"),
+            "PresentationFrame must freeze local_team"
+        );
+    }
+}

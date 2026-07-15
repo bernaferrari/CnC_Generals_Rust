@@ -8149,8 +8149,14 @@ impl CnCGameEngine {
                     }
 
                     let mut selection = Vec::new();
-                    if let Some(player) = self.game_logic.get_player(self.current_player_id) {
-                        let team = player.team;
+                    let team_opt = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
+                    if let Some(team) = team_opt {
                         selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             frame.filter_alive_selectable_ids(&stored, team)
                         } else {
@@ -8213,10 +8219,15 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Ctrl+A: select all selectable objects for current player team.
-                let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                    return;
+                // Prefer presentation-frozen local_team when a frame is installed.
+                let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.local_team()
+                } else {
+                    let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                        return;
+                    };
+                    player.team
                 };
-                let team = player.team;
 
                 let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame.alive_selectable_friendly_ids(team)
@@ -8249,10 +8260,15 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::Tab) => {
                 // Cycle selection through own selectable objects.
-                let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                    return;
+                // Prefer presentation-frozen local_team when a frame is installed.
+                let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.local_team()
+                } else {
+                    let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                        return;
+                    };
+                    player.team
                 };
-                let team = player.team;
 
                 let all: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref()
                 {
@@ -8457,10 +8473,15 @@ impl CnCGameEngine {
             Vec::new()
         };
 
-        let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-            return;
+        // Prefer presentation-frozen local_team when a frame is installed.
+        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
         };
-        let player_team = player.team;
 
         // Prefer presentation XZ pose/selectable/structure residual when dual-tick snapshot exists.
         let boxed: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
@@ -8506,11 +8527,18 @@ impl CnCGameEngine {
         let target_object = self.find_object_at_position(mouse_pos, &self.game_logic, true);
 
         if let Some(target_id) = target_object {
-            if let Some(player) = self.game_logic.get_player(self.current_player_id) {
+            let team_opt = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                Some(frame.local_team())
+            } else {
+                self.game_logic
+                    .get_player(self.current_player_id)
+                    .map(|p| p.team)
+            };
+            if let Some(team) = team_opt {
                 let enemy_attackable = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.is_enemy_attackable(target_id, player.team)
+                    frame.is_enemy_attackable(target_id, team)
                 } else if let Some(target) = self.game_logic.find_object(target_id) {
-                    target.team != player.team && target.is_kind_of(KindOf::Attackable)
+                    target.team != team && target.is_kind_of(KindOf::Attackable)
                 } else {
                     false
                 };
@@ -8835,9 +8863,14 @@ impl CnCGameEngine {
     ) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 20.0;
 
-        let player_team = game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team);
+        // Prefer presentation-frozen local_team when a frame is installed.
+        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            Some(frame.local_team())
+        } else {
+            game_logic
+                .get_player(self.current_player_id)
+                .map(|p| p.team)
+        };
         let has_selected_units = !self.selected_objects.is_empty();
         let prioritize_enemy_targets = command_context && has_selected_units;
         let mut best: Option<(ObjectId, u8, f32)> = None; // (id, priority, distance)
