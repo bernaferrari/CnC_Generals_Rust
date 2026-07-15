@@ -679,3 +679,11 @@ disabled-type FSM authority.
 Fail-closed: not full ProductionUpdate / dual-queue / exit-door / garrison AI
 authority.
 
+### GameWorld entity weapon/move residual (2026-07-14)
+
+`Entity` carries primary-weapon residual (`has_weapon`, damage/range/ammo/flags),
+`has_secondary_weapon`, and movement residual (`move_max_speed`, `velocity`,
+`path_len`/`path_index`). `sync_from_host_with` copies them each tick.
+Fail-closed: not full WeaponSet slots / projectile spawn / loco pathfinder
+authority.
+
