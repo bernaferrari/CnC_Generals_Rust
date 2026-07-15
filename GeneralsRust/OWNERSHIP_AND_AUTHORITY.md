@@ -899,3 +899,10 @@ last-writes `RenderableObject.engine_bridged` so the unit mesh pass can skip
 double-draw without live dual-read. Fail-closed: not full ObjectFactory bridge
 authority.
 
+### Selection/attack presentation-only residual (2026-07-14)
+
+Control-group, Tab, similar, box-select, double-tap centroid, and attack-click
+team/identity resolve from `PresentationFrame` when installed. Live
+`get_player` / `find_object` / `get_objects` remain boot residual only.
+Fail-closed: not full WND widget selection parity.
+
