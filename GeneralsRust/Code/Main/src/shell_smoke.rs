@@ -1967,6 +1967,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_script_message_movie_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            eng.contains("Prefer presentation new_script_messages residual")
+                && eng.contains("apply_presentation_movie_residual")
+                && eng.contains("fn apply_presentation_movie_residual")
+                && eng.contains("Prefer presentation victory residual when installed")
+                && gl.contains("fn take_pending_movie")
+                && gl.contains("fn take_pending_radar_movie"),
+            "script messages/movies/victory status must prefer presentation freeze"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

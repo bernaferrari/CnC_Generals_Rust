@@ -36094,6 +36094,16 @@ impl GameLogic {
         self.pending_radar_movie.as_deref()
     }
 
+    /// Consume pending script movie (after presentation freeze/apply).
+    pub fn take_pending_movie(&mut self) -> Option<String> {
+        self.pending_movie.take()
+    }
+
+    /// Consume pending radar movie (after presentation freeze/apply).
+    pub fn take_pending_radar_movie(&mut self) -> Option<String> {
+        self.pending_radar_movie.take()
+    }
+
     pub fn peek_pending_music_stop(&self) -> bool {
         self.pending_music_stop
     }
