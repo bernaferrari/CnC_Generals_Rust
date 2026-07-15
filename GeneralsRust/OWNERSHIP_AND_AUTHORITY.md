@@ -1160,3 +1160,12 @@ Compared C++ `AIPlayer::doBaseBuilding` / `doTeamBuilding` to Rust:
 Fail-closed: process_base_building body still simplified vs full C++ rebuild/dozer path;
 Main host AI still separate.
 
+### processBaseBuilding rebuild/timer arm (2026-07-14)
+
+`AIPlayer::process_base_building` now walks the player build list like C++
+`processBaseBuilding`: clears destroyed/captured IDs, honors
+`rebuild_delay_seconds * LOGICFRAMES_PER_SECOND`, requires a dozer (queues one if
+missing), starts at most one structure per call, and arms `structure_timer` with
+AIData poor/wealthy structure mods (`timer / mod`). Full legal-place wiggle and
+dozer `aiResumeConstruction` remain residual.
+
