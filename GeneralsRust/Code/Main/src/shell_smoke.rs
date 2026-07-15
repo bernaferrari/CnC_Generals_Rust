@@ -2057,6 +2057,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_difficulty_game_mode_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("ai_difficulty: logic.get_difficulty()")
+                && pf.contains("game_mode: logic.game_mode()")
+                && eng.contains("p.ai_difficulty")
+                && eng.contains("p.game_mode")
+                && eng.contains("Prefer presentation residual for map/mode/faction")
+                && eng.contains("Prefer presentation world_env map residual"),
+            "save/restart/runtime-host must prefer presentation difficulty/mode/map"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
