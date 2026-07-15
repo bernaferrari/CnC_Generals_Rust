@@ -2735,7 +2735,7 @@ impl AIPlayer {
         _factory_id: ObjectID,
         structure_id: ObjectID,
     ) -> Result<(), AiError> {
-        self.frame_last_building_built = TheGameLogic::get_frame();
+        // C++: m_teamDelay = 0; m_buildDelay = 0; (no frameLastBuildingBuilt here)
         self.team_delay = 0;
         self.build_delay = 0;
 
@@ -2753,39 +2753,50 @@ impl AIPlayer {
 
         // Pass 1: exact objectID match on build list.
         let mut matched = false;
+        let mut script_name = String::new();
         {
             let Ok(mut player_guard) = player_arc.write() else {
                 return Ok(());
             };
-            let player_side = player_guard.get_side().to_string();
             if let Some(info) = player_guard.get_build_list_mut() {
                 let mut current = Some(&mut *info);
                 while let Some(node) = current {
                     if node.get_object_id() == structure_id {
+                        // C++ Dict: objectName/script/health/unsellable → map props.
+                        let mut props = crate::common::Dict::new();
+                        props.set_ascii_string(
+                            crate::common::well_known_keys::key_object_name(),
+                            node.get_building_name().as_str(),
+                        );
+                        props.set_ascii_string(
+                            crate::common::well_known_keys::key_object_script_attachment(),
+                            node.get_script().as_str(),
+                        );
+                        props.set_int(
+                            crate::common::well_known_keys::key_object_initial_health(),
+                            node.get_health(),
+                        );
+                        props.set_bool(
+                            crate::common::well_known_keys::key_object_unsellable(),
+                            node.get_unsellable(),
+                        );
+                        script_name = node.get_script().to_string();
                         node.set_under_construction(false);
-                        node.set_object_timestamp(TheGameLogic::get_frame());
-                        // Map properties residual: building name/script/health/unsellable.
+
                         if let Ok(mut sg) = structure_arc.write() {
+                            sg.update_obj_values_from_map_properties(&props);
                             let mask = ObjectStatusMaskType::from_status(
                                 ObjectStatusTypes::UnderConstruction,
                             ) | ObjectStatusMaskType::from_status(
                                 ObjectStatusTypes::Reconstructing,
                             );
                             sg.clear_status(mask);
+                            // UnderConstruction just cleared → refresh upgrades.
                             sg.update_upgrade_modules_from_player();
                         }
-                        // Supply center bookkeeping.
-                        let is_supply = structure_arc
-                            .read()
-                            .ok()
-                            .map(|g| g.find_update_module("SupplyCenterDockUpdate").is_some())
-                            .unwrap_or(false);
-                        if is_supply {
-                            let _ = self.check_for_supply_center(structure_id);
-                            // check_for_supply_center stamps list; also ensure desired here
-                            // if check walks by ID.
-                            let _ = player_side;
-                        }
+
+                        // C++ checkForSupplyCenter(info, bldg)
+                        let _ = self.check_for_supply_center(structure_id);
                         matched = true;
                         break;
                     }
@@ -2794,7 +2805,15 @@ impl AIPlayer {
             }
         }
         if matched {
-            self.update_construction_priorities()?;
+            // C++ TheScriptEngine->addObjectToCache + runObjectScript
+            if let Ok(mut eng) = get_script_engine().write() {
+                if let Some(e) = eng.as_mut() {
+                    e.add_object_to_cache(structure_id);
+                    if !script_name.is_empty() {
+                        e.run_object_script(&script_name, structure_id);
+                    }
+                }
+            }
             return Ok(());
         }
 
@@ -2847,8 +2866,6 @@ impl AIPlayer {
         if !matched && TheGameLogic::get_frame() > 0 {
             log::debug!("***AI PLAYER-Structure not found in production queue.");
         }
-        let _ = matched;
-        self.update_construction_priorities()?;
         Ok(())
     }
 
@@ -6599,6 +6616,10 @@ impl AIPlayer {
 
     /// Calculate center and radius of AI base
     /// Matches C++ AIPlayer computeCenterAndRadiusOfBase logic
+    /// C++ `AIPlayer::computeCenterAndRadiusOfBase` (AIPlayer.cpp).
+    ///
+    /// Average of build-list entry locations (not live structures). Radius is
+    /// max |dx|+geom*0.4 / |dy|+geom*0.4 Manhattan-as-axis-abs then hypot.
     pub fn compute_center_and_radius_of_base(&mut self) -> Result<(), AiError> {
         let Some(player_arc) = player_list()
             .read()
@@ -6610,40 +6631,64 @@ impl AIPlayer {
         let Ok(player_guard) = player_arc.read() else {
             return Ok(());
         };
-        let mut sum = Coord3D::new(0.0, 0.0, 0.0);
-        let mut count = 0.0;
-        let mut positions = Vec::new();
-        for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
+
+        // Pass 1: centroid of valid build-list locations.
+        let mut total_x = 0.0_f32;
+        let mut total_y = 0.0_f32;
+        let mut num_bldg = 0i32;
+        let mut entries: Vec<(Coord3D, f32)> = Vec::new(); // pos + geom radius
+        let mut cur = player_guard.get_build_list();
+        while let Some(info) = cur {
+            let name = info.get_template_name().to_string();
+            if name.is_empty() {
+                cur = info.get_next();
                 continue;
             }
-            let pos = obj_guard.get_position();
-            sum.x += pos.x;
-            sum.y += pos.y;
-            sum.z += pos.z;
-            count += 1.0;
-            positions.push(*pos);
+            let Some(template) = TheThingFactory::find_template(&name) else {
+                cur = info.get_next();
+                continue;
+            };
+            let pos = *info.get_location();
+            total_x += pos.x;
+            total_y += pos.y;
+            num_bldg += 1;
+            let geom_r = template
+                .get_template_geometry_info()
+                .get_bounding_circle_radius()
+                * 0.4;
+            entries.push((pos, geom_r));
+            cur = info.get_next();
         }
-        if count > 0.0 {
-            self.base_center = Coord3D::new(sum.x / count, sum.y / count, sum.z / count);
-            let mut radius = 0.0;
-            for pos in positions {
-                let dx = pos.x - self.base_center.x;
-                let dy = pos.y - self.base_center.y;
-                let dist = (dx * dx + dy * dy).sqrt();
-                if dist > radius {
-                    radius = dist;
-                }
+
+        self.base_center_set = num_bldg > 0;
+        if num_bldg > 0 {
+            self.base_center =
+                Coord3D::new(total_x / num_bldg as f32, total_y / num_bldg as f32, 0.0);
+        } else {
+            self.base_center = Coord3D::new(0.0, 0.0, 0.0);
+            self.base_radius = 0.0;
+            return Ok(());
+        }
+
+        // Pass 2: max radSqr with axis-abs + geom padding (C++).
+        let mut max_rad_sqr = 0.0_f32;
+        for (pos, bldg_radius) in entries {
+            let mut dx = pos.x - self.base_center.x;
+            let mut dy = pos.y - self.base_center.y;
+            if dx < 0.0 {
+                dx = -dx;
             }
-            self.base_radius = radius;
-            self.base_center_set = true;
+            if dy < 0.0 {
+                dy = -dy;
+            }
+            dx += bldg_radius;
+            dy += bldg_radius;
+            let rad_sqr = dx * dx + dy * dy;
+            if rad_sqr > max_rad_sqr {
+                max_rad_sqr = rad_sqr;
+            }
         }
+        self.base_radius = max_rad_sqr.sqrt();
         Ok(())
     }
 
@@ -7621,6 +7666,41 @@ mod tests {
         assert!(
             window.contains("build_structure_with_dozer"),
             "processBaseBuilding must call buildStructureWithDozer (C++ USE_DOZER)"
+        );
+    }
+
+    #[test]
+    fn compute_center_uses_build_list_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn compute_center_and_radius_of_base")
+            .expect("compute");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("get_build_list()")
+                && window.contains("get_bounding_circle_radius")
+                && window.contains("* 0.4")
+                && window.contains("max_rad_sqr")
+                && !window.contains("get_all_objects()"),
+            "computeCenterAndRadiusOfBase must average build-list locations + geom*0.4"
+        );
+    }
+
+    #[test]
+    fn on_structure_produced_applies_map_props_and_script() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn on_structure_produced")
+            .expect("onStructure");
+        let window = &src[i..src.len().min(i + 4500)];
+        assert!(
+            window.contains("update_obj_values_from_map_properties")
+                && window.contains("key_object_initial_health")
+                && window.contains("add_object_to_cache")
+                && window.contains("run_object_script")
+                && window.contains("check_for_supply_center")
+                && !window.contains("frame_last_building_built = TheGameLogic::get_frame()"),
+            "onStructureProduced must apply Dict map props + script + supply, no frame stamp"
         );
     }
 
