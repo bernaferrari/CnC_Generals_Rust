@@ -297,10 +297,11 @@ impl AIPlayer {
         self.current_strategy = AIStrategy::EarlyGame;
         self.build_phase = AIBuildPhase::BaseConstruction;
 
-        // Set initial timing based on difficulty
+        // Retail AIData StructureSeconds=0 / TeamSeconds=10, scaled by difficulty.
         let delay_modifier = self.difficulty.get_build_delay_modifier();
-        self.next_building_time = self.last_update_time + (10.0 * delay_modifier);
-        self.next_team_time = self.last_update_time + (20.0 * delay_modifier);
+        self.next_building_time =
+            self.last_update_time + (Self::STRUCTURE_SECONDS * delay_modifier);
+        self.next_team_time = self.last_update_time + (Self::TEAM_SECONDS * delay_modifier);
     }
 
     /// Update enemy assessment and target selection
@@ -387,21 +388,17 @@ impl AIPlayer {
         self.process_building_queue(game_logic, current_time);
         self.process_building_queue(game_logic, current_time);
 
-        // Early base: short intervals so Medium AI completes multiple host actions
-        // within a skirmish gate window; later phases slow down toward retail pacing.
+        // StructureSeconds residual: default 0 → next economic tick immediately when
+        // ready. Difficulty still stretches spacing slightly for Easy/Hard.
         let delay_modifier = self.difficulty.get_build_delay_modifier();
-        // Keep issuing early base builds across host AI intervals until several
-        // production-linked actions accumulate (playability multi-interval bar).
-        if self.activity_count < 3 && self.build_phase == AIBuildPhase::BaseConstruction {
-            self.next_building_time = current_time; // re-enter next AI tick
+        let interval = if Self::STRUCTURE_SECONDS <= 0.0 {
+            // C++ StructureSeconds=0: no forced wait; one structure decision per AI
+            // economic pass (still gated by queue/resources).
+            0.0
         } else {
-            let interval = if self.build_phase == AIBuildPhase::BaseConstruction {
-                0.25 * delay_modifier
-            } else {
-                8.0 * delay_modifier
-            };
-            self.next_building_time = current_time + interval;
-        }
+            Self::STRUCTURE_SECONDS * delay_modifier
+        };
+        self.next_building_time = current_time + interval;
     }
 
     /// Update military management (unit production, attack coordination)
@@ -421,21 +418,12 @@ impl AIPlayer {
         // Check for attack opportunities
         self.evaluate_attack_opportunities(game_logic, current_time);
 
+        // TeamSeconds residual (AIData default 10), difficulty-scaled.
+        // Attack evaluation runs on this cadence; ATTACK_RECHECK_SECONDS still
+        // spaces actual launch_attack (60s residual vs C++ scripted teams).
         let delay_modifier = self.difficulty.get_build_delay_modifier();
-        if self.activity_count < 3 {
-            // Keep military decisions firing across early host AI intervals.
-            self.next_team_time = current_time;
-        } else {
-            let interval = if matches!(
-                self.build_phase,
-                AIBuildPhase::BaseConstruction | AIBuildPhase::UnitProduction
-            ) {
-                0.5 * delay_modifier
-            } else {
-                15.0 * delay_modifier
-            };
-            self.next_team_time = current_time + interval;
-        }
+        let interval = Self::TEAM_SECONDS * delay_modifier;
+        self.next_team_time = current_time + interval;
     }
 
     /// Update strategic decisions and long-term planning
@@ -871,6 +859,14 @@ impl AIPlayer {
     /// spacing between strength-threshold attack decisions. Full checkReadyTeams
     /// (idle/anyIdle, production-condition scripts, setActive) remains unported.
     pub const ATTACK_RECHECK_SECONDS: f32 = 60.0;
+
+    /// Retail `AIData.ini` defaults (Default/AIData.ini).
+    /// StructureSeconds = 0 → try structure decisions every AI economic tick when ready.
+    pub const STRUCTURE_SECONDS: f32 = 0.0;
+    /// TeamSeconds = 10 → try team production every N seconds (difficulty-scaled).
+    pub const TEAM_SECONDS: f32 = 10.0;
+    /// RebuildDelayTimeSeconds = 30 (base rebuild delay residual; full C++ path unported).
+    pub const REBUILD_DELAY_SECONDS: f32 = 30.0;
 
     /// Evaluate opportunities to attack enemies (strength-threshold + C++-aligned spacing).
     fn evaluate_attack_opportunities(&mut self, game_logic: &mut GameLogic, current_time: f32) {
@@ -1331,6 +1327,19 @@ impl AIManager {
 #[cfg(test)]
 mod cpp_parity_tests {
     use super::*;
+
+    #[test]
+    fn aidata_timing_constants_match_retail_defaults() {
+        // Default/AIData.ini: StructureSeconds=0, TeamSeconds=10, RebuildDelay=30.
+        assert_eq!(AIPlayer::STRUCTURE_SECONDS, 0.0);
+        assert_eq!(AIPlayer::TEAM_SECONDS, 10.0);
+        assert_eq!(AIPlayer::REBUILD_DELAY_SECONDS, 30.0);
+        assert_eq!(AIPlayer::ATTACK_RECHECK_SECONDS, 60.0);
+        // Difficulty stretches TeamSeconds (Easy slower, Hard faster).
+        assert!((AIDifficulty::Easy.get_build_delay_modifier() - 2.0).abs() < 1e-5);
+        assert!((AIDifficulty::Medium.get_build_delay_modifier() - 1.0).abs() < 1e-5);
+        assert!((AIDifficulty::Hard.get_build_delay_modifier() - 0.7).abs() < 1e-5);
+    }
 
     #[test]
     fn ai_building_placement_is_deterministic() {
