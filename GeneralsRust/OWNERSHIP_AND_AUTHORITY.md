@@ -1058,3 +1058,10 @@ Fail-closed: not sole GameWorld authority.
 restart-mission, and runtime-host map status prefer presentation when
 installed. Live host reads remain boot residual only.
 
+### Presentation menu shell residual (2026-07-14)
+
+Menu shell-map tick prefers `PresentationFrame.fow_shell_bypass` when true;
+stale InGame frames fall through to live `isInShellGame`. Shell script FPS
+prefers presentation when shell frame installed. Fail-closed: not sole
+GameWorld authority; live path remains when no affirming shell frame.
+

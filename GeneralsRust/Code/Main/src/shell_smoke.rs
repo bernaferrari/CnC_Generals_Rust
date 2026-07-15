@@ -2078,6 +2078,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_menu_shell_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("Prefer presentation shell residual when it affirms shell-map mode")
+                && eng.contains("Some(pres) if pres.fow_shell_bypass => true")
+                && eng
+                    .contains("Prefer presentation script FPS residual when shell frame installed")
+                && eng.contains("filter(|p| p.fow_shell_bypass)"),
+            "menu shell tick must prefer presentation fow_shell_bypass when true"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
