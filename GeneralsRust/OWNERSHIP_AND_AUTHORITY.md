@@ -913,3 +913,10 @@ Engine passes `game_logic: None` into `RenderPipeline::execute` when
 is boot residual only. Fail-closed: mesh asset filesystem resolve still outside
 snapshot.
 
+### Presentation transport/display residual (2026-07-14)
+
+`RenderableObject` carries battle-bus/technical/combat-cycle/tunnel/chinook,
+max_transport, overlord bunker capacity, passengers_allowed_to_fire, and
+display_name. Overlay last-writes from Entity residual. Fail-closed: not full
+contain redirect / multi-door transport AI matrix.
+
