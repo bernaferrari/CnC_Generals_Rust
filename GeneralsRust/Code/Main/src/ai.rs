@@ -653,6 +653,13 @@ impl AIPlayer {
         player.resources.supplies >= required
     }
 
+    /// C++ `isPossibleToBuildTeam` residual (money + factory existence + any idle).
+    /// Production-condition scripts / maxInstances remain unported.
+    fn is_possible_to_build_team(&self, game_logic: &GameLogic, team_name: &str) -> bool {
+        self.can_afford_team_start(game_logic, team_name)
+            && self.team_factories_ready(game_logic, team_name)
+    }
+
     /// Pick candidate team name for the current strategy (same as select_team_to_build).
     fn candidate_team_name(&self) -> Option<String> {
         match self.current_strategy {
@@ -672,8 +679,8 @@ impl AIPlayer {
         let Some(team_name) = self.candidate_team_name() else {
             return false;
         };
-        // AIData TeamResourcesToStart residual (default 0.1 of estimated unit cost).
-        self.can_afford_team_start(game_logic, &team_name)
+        // Money (TeamResourcesToStart) + factory/idle residual.
+        self.is_possible_to_build_team(game_logic, &team_name)
     }
 
     /// Select which team to build based on strategy
@@ -681,8 +688,8 @@ impl AIPlayer {
         let Some(name) = self.candidate_team_name() else {
             return;
         };
-        // Fail-closed second check at queue time (cash can change mid-tick).
-        if !self.can_afford_team_start(game_logic, &name) {
+        // Fail-closed second check at queue time (cash/factories can change mid-tick).
+        if !self.is_possible_to_build_team(game_logic, &name) {
             return;
         }
         let team_queue = self.create_team_queue(&name, current_time);
@@ -827,40 +834,89 @@ impl AIPlayer {
         unit_template_name: &str,
         team: Team,
     ) -> Option<ObjectId> {
-        // Map units to their production buildings
-        let factory_name = match unit_template_name {
+        // Prefer idle factory (C++ findFactory(thing, busyOk=false) residual).
+        Self::find_factory_for_unit_ex(game_logic, unit_template_name, team, false)
+            .or_else(|| Self::find_factory_for_unit_ex(game_logic, unit_template_name, team, true))
+    }
+
+    /// Map host unit template → factory template residual.
+    fn factory_template_for_unit(unit_template_name: &str, team: Team) -> Option<&'static str> {
+        match unit_template_name {
             s if s.contains("Ranger") || s.contains("RedGuard") || s.contains("Soldier") => {
                 match team {
-                    Team::USA => "USA_Barracks",
-                    Team::China => "China_Barracks",
-                    Team::GLA => "GLA_Barracks",
-                    _ => return None,
+                    Team::USA => Some("USA_Barracks"),
+                    Team::China => Some("China_Barracks"),
+                    Team::GLA => Some("GLA_Barracks"),
+                    _ => None,
                 }
             }
             s if s.contains("Humvee") || s.contains("Technical") || s.contains("Tank") => {
                 match team {
-                    Team::USA => "USA_WarFactory",
-                    Team::China => "China_WarFactory",
-                    Team::GLA => "GLA_ArmsDealer",
-                    _ => return None,
+                    Team::USA => Some("USA_WarFactory"),
+                    Team::China => Some("China_WarFactory"),
+                    Team::GLA => Some("GLA_ArmsDealer"),
+                    _ => None,
                 }
             }
-            _ => return None,
-        };
+            _ => None,
+        }
+    }
 
-        // Find a constructed factory (match template_name used by create_object).
+    /// C++ factory idle residual: empty production_queue ⇒ idle.
+    fn factory_is_idle(object: &crate::game_logic::Object) -> bool {
+        object
+            .building_data
+            .as_ref()
+            .map(|b| b.production_queue.is_empty())
+            .unwrap_or(true)
+    }
+
+    /// Find constructed factory; `busy_ok=false` requires idle queue (C++ findFactory).
+    fn find_factory_for_unit_ex(
+        game_logic: &GameLogic,
+        unit_template_name: &str,
+        team: Team,
+        busy_ok: bool,
+    ) -> Option<ObjectId> {
+        let factory_name = Self::factory_template_for_unit(unit_template_name, team)?;
         for (object_id, object) in game_logic.get_objects() {
-            if object.team == team
-                && (object.template_name == factory_name
-                    || object.get_template().name == factory_name)
-                && object.is_constructed()
-                && object.is_alive()
-            {
+            if object.team != team || !object.is_constructed() || !object.is_alive() {
+                continue;
+            }
+            let name_ok =
+                object.template_name == factory_name || object.get_template().name == factory_name;
+            if !name_ok {
+                continue;
+            }
+            if busy_ok || Self::factory_is_idle(object) {
                 return Some(*object_id);
             }
         }
-
         None
+    }
+
+    /// C++ `isPossibleToBuildTeam` factory residual (requireIdleFactory=true):
+    /// every unit type has a factory, and at least one factory is idle.
+    fn team_factories_ready(&self, game_logic: &GameLogic, team_name: &str) -> bool {
+        let orders = self.create_work_orders_for_team(team_name);
+        if orders.is_empty() {
+            return false;
+        }
+        let mut any_idle = false;
+        for order in &orders {
+            // Must have some factory that can produce this unit (busy ok for existence).
+            if Self::find_factory_for_unit_ex(game_logic, &order.template_name, self.team, true)
+                .is_none()
+            {
+                return false;
+            }
+            if Self::find_factory_for_unit_ex(game_logic, &order.template_name, self.team, false)
+                .is_some()
+            {
+                any_idle = true;
+            }
+        }
+        any_idle
     }
 
     /// Minimum seconds between host AI **attack re-evaluations**.
@@ -1478,17 +1534,101 @@ mod cpp_parity_tests {
         player.resources.supplies = 114; // one under threshold
         logic.add_player(player);
         assert!(!ai.can_afford_team_start(&logic, "USA_BasicForce"));
-        assert!(!ai.should_build_new_team(&logic));
 
         logic.get_player_mut(1).unwrap().resources.supplies = 115;
         assert!(ai.can_afford_team_start(&logic, "USA_BasicForce"));
+        // Without factories, is_possible_to_build_team stays false (factory residual).
+        assert!(!ai.is_possible_to_build_team(&logic, "USA_BasicForce"));
+        assert!(!ai.should_build_new_team(&logic));
+    }
+
+    #[test]
+    fn aidata_team_factory_idle_gate() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut ranger = crate::game_logic::ThingTemplate::new("USA_Ranger");
+        ranger.set_cost(225, 0);
+        logic.templates.insert("USA_Ranger".into(), ranger);
+        let mut humvee = crate::game_logic::ThingTemplate::new("USA_Humvee");
+        humvee.set_cost(700, 0);
+        logic.templates.insert("USA_Humvee".into(), humvee);
+        let mut barracks_t = crate::game_logic::ThingTemplate::new("USA_Barracks");
+        barracks_t.set_cost(500, 0);
+        barracks_t.add_kind_of(crate::game_logic::KindOf::Structure);
+        logic.templates.insert("USA_Barracks".into(), barracks_t);
+        let mut wf_t = crate::game_logic::ThingTemplate::new("USA_WarFactory");
+        wf_t.set_cost(1000, 0);
+        wf_t.add_kind_of(crate::game_logic::KindOf::Structure);
+        logic.templates.insert("USA_WarFactory".into(), wf_t);
+
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA", true);
+        player.resources.supplies = 10_000;
+        logic.add_player(player);
+
+        let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        // No factories yet.
+        assert!(!ai.team_factories_ready(&logic, "USA_BasicForce"));
+        assert!(!ai.is_possible_to_build_team(&logic, "USA_BasicForce"));
+
+        // Spawn constructed barracks + war factory.
+        let barracks_id = logic
+            .create_object("USA_Barracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks");
+        let wf_id = logic
+            .create_object("USA_WarFactory", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("war factory");
+        // Ensure constructed + empty queues.
+        if let Some(o) = logic.get_object_mut(barracks_id) {
+            if let Some(b) = o.building_data.as_mut() {
+                b.production_queue.clear();
+            }
+        }
+        if let Some(o) = logic.get_object_mut(wf_id) {
+            if let Some(b) = o.building_data.as_mut() {
+                b.production_queue.clear();
+            }
+        }
+        assert!(ai.team_factories_ready(&logic, "USA_BasicForce"));
+        assert!(ai.is_possible_to_build_team(&logic, "USA_BasicForce"));
         assert!(ai.should_build_new_team(&logic));
 
-        // Broke player cannot queue even if activity_count would previously bypass.
-        logic.get_player_mut(1).unwrap().resources.supplies = 0;
-        let mut broke = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-        broke.activity_count = 5;
-        assert!(!broke.should_build_new_team(&logic));
+        // Busy both factories → not ready (requireIdleFactory residual).
+        if let Some(o) = logic.get_object_mut(barracks_id) {
+            if let Some(b) = o.building_data.as_mut() {
+                b.production_queue.push(crate::game_logic::ProductionItem {
+                    template_name: "USA_Ranger".into(),
+                    progress: 0.1,
+                    total_time: 10.0,
+                    cost: crate::game_logic::Resources {
+                        supplies: 225,
+                        power: 0,
+                    },
+                });
+            }
+        }
+        if let Some(o) = logic.get_object_mut(wf_id) {
+            if let Some(b) = o.building_data.as_mut() {
+                b.production_queue.push(crate::game_logic::ProductionItem {
+                    template_name: "USA_Humvee".into(),
+                    progress: 0.1,
+                    total_time: 10.0,
+                    cost: crate::game_logic::Resources {
+                        supplies: 700,
+                        power: 0,
+                    },
+                });
+            }
+        }
+        assert!(!ai.team_factories_ready(&logic, "USA_BasicForce"));
+        assert!(!ai.should_build_new_team(&logic));
+
+        // Idle one factory → ready again.
+        if let Some(o) = logic.get_object_mut(barracks_id) {
+            if let Some(b) = o.building_data.as_mut() {
+                b.production_queue.clear();
+            }
+        }
+        assert!(ai.team_factories_ready(&logic, "USA_BasicForce"));
+        assert!(ai.should_build_new_team(&logic));
     }
 
     #[test]

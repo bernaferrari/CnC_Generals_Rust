@@ -482,6 +482,13 @@ zero wait. Fail-closed: not full C++ wealth-mod on m_structureFrames path.
 Host `AIPlayer::should_build_new_team` / queue path now applies C++
 `isPossibleToBuildTeam` money residual: estimate work-order unit costs from
 templates, require `supplies >= ceil(cost * TeamResourcesToStart)` (default
-0.1). Removes the activity_count first-force cash bypass. Not full TeamPrototype
-min/max averaging, factory-idle, or production-condition scripts.
+0.1). Removes the activity_count first-force cash bypass. Not full TeamPrototype min/max averaging or production-condition scripts.
+
+### AI factory-idle team gate residual (2026-07-14)
+
+Host `is_possible_to_build_team` now mirrors C++ `isPossibleToBuildTeam` factory
+half with `requireIdleFactory=true`: every work-order unit type needs a live
+constructed factory, and at least one matching factory must be idle (empty
+`production_queue`). `find_factory_for_unit` prefers idle then busy. Not full
+C++ TeamPrototype production-condition scripts / maxInstances.
 
