@@ -642,3 +642,10 @@ module / bounty award pipeline / skirmish color table authority.
 `construction_percent` host residual. `sync_from_host_with` copies them each
 tick. Fail-closed: not full selection-manager / build-queue module authority.
 
+### GameWorld entity team/status residual (2026-07-14)
+
+`Entity` carries `team_ordinal`, `selection_radius`, `under_construction`,
+`moving`, and `attacking` host residual. `sync_from_host_with` copies them each
+tick. Fail-closed: not full AI state machine / kindof matrix / multi-select
+manager authority.
+

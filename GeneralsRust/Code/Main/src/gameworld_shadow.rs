@@ -185,6 +185,15 @@ impl GameWorldShadow {
 
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
     /// Preserves EntityId for host objects that still exist.
+    fn host_team_ordinal(team: Team) -> u8 {
+        match team {
+            Team::USA => 0,
+            Team::China => 1,
+            Team::GLA => 2,
+            Team::Neutral => 255,
+        }
+    }
+
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
         self.sync_from_host_with(logic, true);
     }
@@ -241,6 +250,11 @@ impl GameWorldShadow {
                     e.selected = obj.selected;
                     e.destroyed = obj.status.destroyed;
                     e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
+                    e.team_ordinal = Self::host_team_ordinal(obj.team);
+                    e.selection_radius = obj.selection_radius.max(5.0);
+                    e.under_construction = obj.status.under_construction;
+                    e.moving = obj.status.moving;
+                    e.attacking = obj.status.attacking;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -274,6 +288,11 @@ impl GameWorldShadow {
                 e.selected = obj.selected;
                 e.destroyed = obj.status.destroyed;
                 e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
+                e.team_ordinal = Self::host_team_ordinal(obj.team);
+                e.selection_radius = obj.selection_radius.max(5.0);
+                e.under_construction = obj.status.under_construction;
+                e.moving = obj.status.moving;
+                e.attacking = obj.status.attacking;
             }
         }
 
@@ -301,6 +320,11 @@ impl GameWorldShadow {
             e.selected = false;
             e.destroyed = false;
             e.construction_percent = 1.0;
+            e.team_ordinal = 255;
+            e.selection_radius = 5.0;
+            e.under_construction = false;
+            e.moving = false;
+            e.attacking = false;
         }
     }
 
@@ -645,6 +669,30 @@ impl GameWorldShadow {
     /// True when any shadow player has radar providers or a disabled flag residual.
     /// Count shadow players still marked alive (defeat residual).
     /// Count shadow entities marked selected (host UI residual).
+    pub fn moving_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.moving && !e.destroyed)
+            .count()
+    }
+
+    pub fn attacking_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.attacking && !e.destroyed)
+            .count()
+    }
+
+    pub fn entity_count_for_team_ordinal(&self, team_ordinal: u8) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.team_ordinal == team_ordinal && !e.destroyed)
+            .count()
+    }
+
     pub fn selected_entity_count(&self) -> usize {
         self.world
             .world()
@@ -1671,6 +1719,42 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_team_status_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityTeamStatus");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "TeamStatU", 100.0);
+        let id = logic
+            .create_object("TeamStatU", Team::China, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.selection_radius = 12.5;
+            obj.status.moving = true;
+            obj.status.attacking = true;
+            obj.status.under_construction = false;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.entity_count_for_team_ordinal(1), 1, "China ordinal");
+        assert_eq!(shadow.moving_entity_count(), 1);
+        assert_eq!(shadow.attacking_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.team_ordinal, 1);
+        assert!((e.selection_radius - 12.5).abs() < 0.01);
+        assert!(e.moving && e.attacking);
+        assert!(!e.under_construction);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("team_ordinal")
+                && src.contains("selection_radius")
+                && src.contains("status.moving"),
+            "sync must copy team/status residual"
+        );
     }
 
     #[test]
