@@ -1109,3 +1109,9 @@ Main applies `PresentationFrame.cinematic_text` to GameClient InGameUI HUD
 messages (C++ display_cinematic_text → message). Anti-spam on text change.
 Fail-closed: remaining_ms frozen but not yet used for timed HUD expiry.
 
+### Presentation camera follow residual (2026-07-14)
+
+`PresentationFrame.camera_follow_position` freezes host follow-object pose via
+`peek_camera_follow_target_position`. InGame camera apply prefers presentation;
+live `camera_follow_target_position` is boot residual only.
+
