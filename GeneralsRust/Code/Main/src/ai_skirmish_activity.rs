@@ -67,8 +67,8 @@ pub fn honesty_ai_skirmish_residual_pack_wave77() -> bool {
         && (AI_SKIRMISH_STRUCTURES_WEALTHY_MOD - 2.0).abs() < 0.01
         && (AI_SKIRMISH_TEAMS_POOR_MOD - 0.6).abs() < 0.01
         && (AI_SKIRMISH_TEAMS_WEALTHY_MOD - 2.0).abs() < 0.01
-        && AI_SKIRMISH_REBUILD_DELAY_SECONDS == 5
-        && (AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 50.0).abs() < 0.01
+        && AI_SKIRMISH_REBUILD_DELAY_SECONDS == 30
+        && (AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 150.0).abs() < 0.01
         && AI_SKIRMISH_STRUCTURE_TIMER_FRAMES == 0 // 0s * 30 FPS
         && AI_SKIRMISH_TEAM_TIMER_FRAMES == 300 // 10s * 30 FPS
         // C++ divides timer by rate: poor 0.6 slows, wealthy 2.0 speeds.
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(AI_SKIRMISH_RESOURCES_WEALTHY, 7000);
         assert!((AI_SKIRMISH_STRUCTURES_POOR_MOD - 0.6).abs() < 0.01);
         assert!((AI_SKIRMISH_TEAMS_POOR_MOD - 0.6).abs() < 0.01);
-        assert!((AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 50.0).abs() < 0.01);
-        assert_eq!(AI_SKIRMISH_REBUILD_DELAY_SECONDS, 5);
+        assert!((AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 150.0).abs() < 0.01);
+        assert_eq!(AI_SKIRMISH_REBUILD_DELAY_SECONDS, 30);
     }
 }

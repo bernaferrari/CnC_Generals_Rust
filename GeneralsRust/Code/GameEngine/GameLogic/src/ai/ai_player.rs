@@ -88,9 +88,9 @@ pub const TEAMS_POOR_MODIFIER: f32 = 0.6;
 /// Team build speed modifier when wealthy (retail AIData TeamsWealthyRate = 2.0).
 pub const TEAMS_WEALTHY_MODIFIER: f32 = 2.0;
 
-/// Delay before rebuilding destroyed structure in seconds (C++ m_rebuildDelaySeconds).
-/// Retail AIData RebuildDelayTimeSeconds = 30; keep 5 as pre-INI residual fallback.
-pub const REBUILD_DELAY_SECONDS: u32 = 5;
+/// Delay before rebuilding destroyed structure in seconds.
+/// Retail `Default/AIData.ini` RebuildDelayTimeSeconds = 30.
+pub const REBUILD_DELAY_SECONDS: u32 = 30;
 
 /// Team resource multiplier for affordability check (C++ m_teamResourcesToBuild)
 pub const TEAM_RESOURCES_TO_BUILD: f32 = 0.5;
@@ -98,8 +98,9 @@ pub const TEAM_RESOURCES_TO_BUILD: f32 = 0.5;
 /// Supply center safe radius in units (C++ m_supplyCenterSafeRadius)
 pub const SUPPLY_CENTER_SAFE_RADIUS: f32 = 100.0;
 
-/// Skirmish base defense extra distance (C++ m_skirmishBaseDefenseExtraDistance)
-pub const SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE: f32 = 50.0;
+/// Skirmish base defense extra distance.
+/// Retail `Default/AIData.ini` SkirmishBaseDefenseExtraDistance = 150.0.
+pub const SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE: f32 = 150.0;
 
 /// Close distance for supply center pathfinding (C++ SUPPLY_CENTER_CLOSE_DIST)
 /// 20 * PATHFIND_CELL_SIZE_F where PATHFIND_CELL_SIZE_F = 10.0
@@ -3999,6 +4000,20 @@ impl AIPlayer {
     /// player's side. Then, if the player has science purchase points, iterates
     /// through the selected skillset and purchases each science that is affordable.
     pub(crate) fn do_upgrades_and_skills(&mut self) -> Result<(), AiError> {
+        // C++ AIPlayer.cpp:2908-2910 — can't do updates on the first few frames.
+        if TheGameLogic::get_frame() < 2 {
+            return Ok(());
+        }
+
+        // C++ early-out: no science points → return before side-info walk.
+        let purchase_points_early = self
+            .get_player()
+            .and_then(|p| p.read().ok().map(|g| g.get_science_purchase_points()))
+            .unwrap_or(0);
+        if purchase_points_early <= 0 {
+            return Ok(());
+        }
+
         // Find the AiSideInfo for our player's side
         // C++ AIPlayer.cpp:2917-2926
         let player_side = {
@@ -5533,15 +5548,19 @@ impl AIPlayer {
     }
 
     /// C++ rebuild delay frames from AIData `m_rebuildDelaySeconds` (default path).
+    /// Retail AIData = 30; zero/unloaded AIData falls back to REBUILD_DELAY_SECONDS.
     fn rebuild_delay_frames(&self) -> u32 {
         let seconds = THE_AI
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.rebuild_delay_seconds.max(0) as u32)
+                ai.get_ai_data().read().ok().map(|data| {
+                    if data.rebuild_delay_seconds > 0 {
+                        data.rebuild_delay_seconds as u32
+                    } else {
+                        REBUILD_DELAY_SECONDS
+                    }
+                })
             })
             .unwrap_or(REBUILD_DELAY_SECONDS);
         seconds * LOGICFRAMES_PER_SECOND
@@ -6830,6 +6849,25 @@ mod tests {
         assert!((STRUCTURES_WEALTHY_MODIFIER - 2.0).abs() < 1e-5);
         assert!((TEAMS_POOR_MODIFIER - 0.6).abs() < 1e-5);
         assert!((TEAMS_WEALTHY_MODIFIER - 2.0).abs() < 1e-5);
+        assert_eq!(REBUILD_DELAY_SECONDS, 30);
+        assert!((SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 150.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn do_upgrades_and_skills_skips_first_two_frames_like_cpp() {
+        // C++: if (TheGameLogic->getFrame() < 2) return;
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub(crate) fn do_upgrades_and_skills")
+            .expect("do_upgrades");
+        let window = &src[i..src.len().min(i + 900)];
+        assert!(
+            window.contains("get_frame() < 2")
+                && window.contains("get_science_purchase_points")
+                && window.find("get_frame() < 2").unwrap()
+                    < window.find("get_side()").unwrap_or(usize::MAX),
+            "do_upgrades_and_skills must gate frame<2 and science points before side walk"
+        );
     }
 
     #[test]
