@@ -8,6 +8,7 @@
 
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use crate::input_system::{RtsCommandEvent, RtsInputSystem};
+use crate::presentation_frame::PresentationFrame;
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -34,6 +35,9 @@ pub struct InputProcessor {
 
     /// Control groups (0-9)
     control_groups: HashMap<u8, Vec<ObjectId>>,
+
+    /// Dual-tick presentation snapshot for world pick residual (optional).
+    presentation_frame: Option<PresentationFrame>,
 }
 
 impl InputProcessor {
@@ -51,7 +55,13 @@ impl InputProcessor {
             debug_mode: false,
             music_enabled: true,
             control_groups: HashMap::new(),
+            presentation_frame: None,
         }
+    }
+
+    /// Install dual-tick presentation snapshot for pick residual.
+    pub fn set_presentation_frame(&mut self, frame: Option<PresentationFrame>) {
+        self.presentation_frame = frame;
     }
 
     fn local_player_team(&self, game_logic: &GameLogic) -> Team {
@@ -615,6 +625,29 @@ impl InputProcessor {
     fn find_object_at_position(&self, world_pos: Vec3, game_logic: &GameLogic) -> Option<ObjectId> {
         const SELECTION_RADIUS: f32 = 5.0; // Units within this radius can be selected
 
+        // Prefer presentation poses when a dual-tick snapshot is installed.
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let mut closest_object = None;
+            let mut closest_distance = SELECTION_RADIUS;
+            for o in &frame.objects {
+                if o.destroyed {
+                    continue;
+                }
+                let distance = (Vec2::new(o.position.x, o.position.z)
+                    - Vec2::new(world_pos.x, world_pos.z))
+                .length();
+                let radius = o.selection_radius.max(SELECTION_RADIUS);
+                if distance < closest_distance.min(radius) {
+                    closest_distance = distance;
+                    closest_object = Some(o.id);
+                }
+            }
+            if closest_object.is_some() {
+                return closest_object;
+            }
+        }
+
+        // Boot residual: live GameLogic dual-read when presentation is absent/misses.
         let mut closest_object = None;
         let mut closest_distance = SELECTION_RADIUS;
 
@@ -727,5 +760,45 @@ impl InputProcessor {
             && point.x <= rect_max.x
             && point.y >= rect_min.y
             && point.y <= rect_max.y
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    use crate::input_system::RtsInputSystem;
+    use crate::presentation_frame::PresentationFrame;
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn input_processor_pick_prefers_presentation_pose() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("InputIntegPresPick");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("IipUnit") {
+            let mut tmpl = ThingTemplate::new("IipUnit");
+            tmpl.set_health(100.0);
+            tmpl.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("IipUnit".into(), tmpl);
+        }
+        let id = logic
+            .create_object("IipUnit", Team::USA, glam::Vec3::new(12.0, 0.0, 18.0))
+            .expect("id");
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.position = glam::Vec3::new(8888.0, 0.0, 8888.0);
+        }
+        let input = Arc::new(Mutex::new(RtsInputSystem::new()));
+        let mut proc = InputProcessor::new(input, 0, (1024.0, 768.0));
+        proc.set_presentation_frame(Some(frame));
+        let picked = proc.find_object_at_position(glam::Vec3::new(12.0, 0.0, 18.0), &logic);
+        assert_eq!(picked, Some(id));
+        let src = include_str!("input_integration.rs");
+        assert!(
+            src.contains("Prefer presentation poses when a dual-tick snapshot is installed"),
+            "input integration pick must prefer presentation residual"
+        );
     }
 }

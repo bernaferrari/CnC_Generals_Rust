@@ -1,5 +1,6 @@
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use crate::input_system::RtsInputSystem;
+use crate::presentation_frame::PresentationFrame;
 use anyhow::Result;
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;
@@ -22,6 +23,8 @@ pub struct SimpleInputProcessor {
     control_groups: Mutex<HashMap<u8, Vec<ObjectId>>>, // 0-9 control groups
     last_camera_position: Vec3,
     last_camera_zoom: f32,
+    /// Dual-tick presentation snapshot for world pick residual (optional).
+    presentation_frame: Option<PresentationFrame>,
 }
 
 /// Input events processed asynchronously
@@ -50,7 +53,17 @@ impl SimpleInputProcessor {
             control_groups: Mutex::new(HashMap::new()),
             last_camera_position: Vec3::ZERO,
             last_camera_zoom: 50.0,
+            presentation_frame: None,
         }
+    }
+
+    /// Install dual-tick presentation snapshot for pick residual.
+    pub fn set_presentation_frame(&mut self, frame: Option<PresentationFrame>) {
+        self.presentation_frame = frame;
+    }
+
+    pub fn presentation_frame(&self) -> Option<&PresentationFrame> {
+        self.presentation_frame.as_ref()
     }
 
     fn local_player_team(&self, game_logic: &GameLogic) -> Team {
@@ -495,10 +508,34 @@ impl SimpleInputProcessor {
     fn find_object_at_position(&self, world_pos: Vec3, game_logic: &GameLogic) -> Option<ObjectId> {
         const SELECTION_RADIUS: f32 = 5.0; // Units within this radius can be selected
 
+        // Prefer presentation poses when a dual-tick snapshot is installed.
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let mut closest_object = None;
+            let mut closest_distance = SELECTION_RADIUS;
+            for o in &frame.objects {
+                if o.destroyed {
+                    continue;
+                }
+                let distance = (Vec2::new(o.position.x, o.position.z)
+                    - Vec2::new(world_pos.x, world_pos.z))
+                .length();
+                // Prefer selection_radius residual when present.
+                let radius = o.selection_radius.max(SELECTION_RADIUS);
+                if distance < closest_distance.min(radius) {
+                    closest_distance = distance;
+                    closest_object = Some(o.id);
+                }
+            }
+            if closest_object.is_some() {
+                return closest_object;
+            }
+            // Fall through to live boot residual if snapshot has no nearby units.
+        }
+
         let mut closest_object = None;
         let mut closest_distance = SELECTION_RADIUS;
 
-        // Fast distance-based lookup optimized for real-time performance
+        // Boot residual: live GameLogic dual-read when presentation is absent/misses.
         for (object_id, object) in game_logic.get_objects().iter() {
             let obj_pos = object.get_position();
             let distance =
@@ -651,3 +688,45 @@ impl SimpleInputProcessor {
 **
 ** This ensures maximum performance while maintaining responsive gameplay.
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::presentation_frame::PresentationFrame;
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+    #[test]
+    fn find_object_at_position_prefers_presentation_pose() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SimpleInputPresPick");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SipUnit") {
+            let mut tmpl = ThingTemplate::new("SipUnit");
+            tmpl.set_health(100.0);
+            tmpl.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("SipUnit".into(), tmpl);
+        }
+        let id = logic
+            .create_object("SipUnit", Team::USA, glam::Vec3::new(10.0, 0.0, 20.0))
+            .expect("id");
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        // Poison live pose — presentation must win.
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.position = glam::Vec3::new(9999.0, 0.0, 9999.0);
+        }
+        let mut proc = SimpleInputProcessor::new(0, (1024.0, 768.0));
+        proc.set_presentation_frame(Some(frame));
+        let picked = proc.find_object_at_position(glam::Vec3::new(10.0, 0.0, 20.0), &logic);
+        assert_eq!(
+            picked,
+            Some(id),
+            "must pick presentation pose, not live dual-read"
+        );
+        let src = include_str!("input_system_simple.rs");
+        assert!(
+            src.contains("Prefer presentation poses when a dual-tick snapshot is installed"),
+            "find_object_at_position must prefer presentation residual"
+        );
+    }
+}
