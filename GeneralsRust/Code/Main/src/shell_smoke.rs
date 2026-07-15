@@ -1903,6 +1903,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_alliance_local_player_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let i = eng
+            .find("let alliance_events = self.game_logic.take_alliance_events();")
+            .expect("alliance_events drain");
+        let window = &eng[i..i.saturating_add(500).min(eng.len())];
+        assert!(
+            window.contains("last_presentation_frame")
+                && window.contains("local_player_id")
+                && window.contains("Prefer presentation local_player residual")
+                && window.contains("or_else(|| self.game_logic.local_player_id())"),
+            "alliance notifications must prefer presentation local_player_id"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

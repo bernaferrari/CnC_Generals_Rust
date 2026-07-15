@@ -1004,3 +1004,9 @@ Main applies frozen `PresentationFrame` unit FOW to GameClient drawables via
 Fail-closed: not sole GameWorld authority; RenderPipeline may still shade via
 presentation alpha independently.
 
+### Presentation alliance local_player residual (2026-07-14)
+
+Alliance notification path prefers `PresentationFrame.local_player_id` when a
+frame is installed; live `GameLogic::local_player_id` is boot residual only.
+Fail-closed: alliance event source remains host `take_alliance_events`.
+
