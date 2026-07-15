@@ -6360,8 +6360,9 @@ impl CnCGameEngine {
             // Immutable presentation snapshot for client/render (borrow-first policy).
             // Built after authority + host side systems + shadow writeback.
             let local_id = self.current_player_id;
-            let mut pres = crate::presentation_frame::PresentationFrame::build_from_logic(
-                &self.game_logic,
+            // Include victory residual in the snapshot (single evaluate; no dual-read later).
+            let mut pres = crate::presentation_frame::PresentationFrame::build_with_victory(
+                &mut self.game_logic,
                 local_id,
             );
             if let Some(ref shadow) = self.gameworld_shadow {
@@ -6591,7 +6592,19 @@ impl CnCGameEngine {
             .map(|f| f.fow_shell_bypass)
             .unwrap_or_else(|| self.game_logic.isInShellGame());
         if !self.match_over && self.current_state == GameState::InGame && !in_shell {
-            if let Some(condition) = self.game_logic.evaluate_victory_condition() {
+            // Prefer presentation victory residual when frame installed (no live re-evaluate).
+            if let Some(pres) = self.last_presentation_frame.as_ref() {
+                if pres.match_over {
+                    let winner = pres.events.iter().find_map(|ev| match ev {
+                        crate::presentation_frame::PresentationEvent::Victory { winner_player } => {
+                            *winner_player
+                        }
+                        _ => None,
+                    });
+                    self.show_victory_screen(winner);
+                }
+            } else if let Some(condition) = self.game_logic.evaluate_victory_condition() {
+                // Boot residual only — no presentation frame yet.
                 match condition {
                     VictoryCondition::Winner(id) => self.show_victory_screen(Some(id)),
                     VictoryCondition::Draw => self.show_victory_screen(None),
