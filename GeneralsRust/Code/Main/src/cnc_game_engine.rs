@@ -6667,6 +6667,14 @@ impl CnCGameEngine {
         // Full presentation snapshot for render collect (transforms/model/selection/health).
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.render_pipeline
+                .set_skybox_enabled(pres.world_env.skybox_enabled);
+            if let Some(textures) = pres.world_env.skybox_textures.clone() {
+                self.render_pipeline.set_skybox_hint(textures);
+            }
+        }
+
         // Production selection overlay: prefer PresentationFrame identity when available
         // (C++ W3DInGameUI selection circles / drag region after 3D scene setup).
         if !skip_world_scene && matches!(self.current_state, GameState::InGame | GameState::Paused)
@@ -7403,6 +7411,17 @@ impl CnCGameEngine {
     }
 
     fn apply_skybox_hint(render_pipeline: &mut RenderPipeline, game_logic: &GameLogic) {
+        // Prefer presentation env when already installed (map-load seeds a frame first).
+        if let Some(pres) = render_pipeline.presentation_frame() {
+            let enabled = pres.world_env.skybox_enabled;
+            let textures = pres.world_env.skybox_textures.clone();
+            render_pipeline.set_skybox_enabled(enabled);
+            if let Some(textures) = textures {
+                render_pipeline.set_skybox_hint(textures);
+            }
+            return;
+        }
+        // Boot residual without presentation snapshot.
         render_pipeline.set_skybox_enabled(game_logic.is_skybox_enabled());
         if let Some(meta) = game_logic.last_parsed_map_settings() {
             if let Some(textures) = meta.skybox_textures {
