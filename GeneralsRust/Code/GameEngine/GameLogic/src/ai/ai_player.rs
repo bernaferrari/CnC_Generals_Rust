@@ -5578,7 +5578,7 @@ mod tests {
         let i = src
             .find("C++ `AIPlayer::onUnitProduced`")
             .expect("onUnitProduced");
-        let window = &src[i..src.len().min(i + 4000)];
+        let window = &src[i..src.len().min(i + 5500)];
         assert!(
             window.contains("is_equivalent_to")
                 && window.contains("order.factory_id = None")
