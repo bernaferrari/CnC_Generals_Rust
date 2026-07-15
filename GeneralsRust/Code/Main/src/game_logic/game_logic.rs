@@ -36192,6 +36192,10 @@ impl GameLogic {
         self.victory_conditions.take_defeat_events()
     }
 
+    pub fn peek_alliance_events(&self) -> &[AllianceNotification] {
+        self.victory_conditions.peek_alliance_events()
+    }
+
     pub fn take_alliance_events(&mut self) -> Vec<AllianceNotification> {
         self.victory_conditions.take_alliance_events()
     }
