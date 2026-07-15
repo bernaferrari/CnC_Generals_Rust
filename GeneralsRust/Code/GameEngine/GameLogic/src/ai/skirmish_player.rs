@@ -2165,7 +2165,7 @@ impl AISkirmishPlayer {
         self.base.is_supply_source_safe(min_supplies)
     }
 
-    pub fn is_supply_source_attacked(&self) -> bool {
+    pub fn is_supply_source_attacked(&mut self) -> bool {
         self.base.is_supply_source_attacked()
     }
 

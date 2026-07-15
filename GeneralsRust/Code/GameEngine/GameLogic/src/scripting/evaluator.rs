@@ -1828,8 +1828,8 @@ impl ScriptEvaluator {
                 };
                 let player_id = player_guard.get_player_index() as u32;
 
-                let attacked = crate::ai::integration::with_ai_integration(|manager| {
-                    manager.with_ai_player(player_id, |ai| ai.is_supply_source_attacked())
+                let attacked = crate::ai::integration::with_ai_integration_mut(|manager| {
+                    manager.with_ai_player_mut(player_id, |ai| ai.is_supply_source_attacked())
                 })
                 .flatten()
                 .unwrap_or(false);

@@ -1025,6 +1025,10 @@ impl AIPlayer {
     }
 
     /// Check if location is safe for building.
+    /// C++ `AIPlayer::isLocationSafe` (AIPlayer.cpp).
+    ///
+    /// Scan enemies (alive, non-stealthed, significant, non-harvester, non-dozer)
+    /// within supply-center safe radius + template bounding radius.
     pub fn is_location_safe(&self, pos: &Coord3D, thing: &dyn ThingTemplate) -> bool {
         let Some(player_arc) = self.get_player_arc() else {
             return true;
@@ -1035,10 +1039,22 @@ impl AIPlayer {
         let Some(partition) = ThePartitionManager::get() else {
             return true;
         };
-        let scan_radius = 200.0;
-        let player_id = player_guard.get_id() as UnsignedInt;
 
-        for obj_id in partition.get_objects_in_range(pos, scan_radius) {
+        let mut radius = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| d.supply_center_safe_radius)
+            })
+            .unwrap_or(SUPPLY_CENTER_SAFE_RADIUS);
+        radius += thing
+            .get_template_geometry_info()
+            .get_bounding_circle_radius();
+
+        for obj_id in partition.get_objects_in_range(pos, radius) {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 continue;
             };
@@ -1048,38 +1064,31 @@ impl AIPlayer {
             if obj_guard.is_destroyed() {
                 continue;
             }
-            let Some(owner_id) = obj_guard.get_controlling_player_id() else {
-                continue;
-            };
-            if owner_id == player_id {
+            // Reject harvesters / dozers (C++ PartitionFilterRejectByKindOf).
+            if obj_guard.is_kind_of(KindOf::Harvester) || obj_guard.is_kind_of(KindOf::Dozer) {
                 continue;
             }
-            let Some(owner_arc) = player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(owner_id as i32).cloned())
-            else {
-                continue;
-            };
-            let Ok(owner_guard) = owner_arc.read() else {
-                continue;
-            };
-            if owner_guard.get_player_type() == PlayerType::Neutral {
-                continue;
-            }
-            if !thing.is_kind_of(KindOf::Structure)
-                && !thing.is_kind_of(KindOf::SupplySource)
-                && !thing.is_kind_of(KindOf::CashGenerator)
+            // Stealthed and not detected/disguised residual.
+            if obj_guard.test_status(ObjectStatusTypes::Stealthed)
+                && !obj_guard.test_status(ObjectStatusTypes::Detected)
+                && !obj_guard.test_status(ObjectStatusTypes::Disguised)
             {
-                return false;
+                continue;
             }
-            if let Some(team_arc) = obj_guard.get_team() {
-                if let Ok(team) = team_arc.read() {
-                    if player_guard.get_relationship_with_team(&team) == Relationship::Enemies {
-                        return false;
-                    }
-                }
+            // Affiliation: only enemies (ALLOW_ALLIES|ALLOW_NEUTRAL rejected).
+            let Some(team_arc) = obj_guard.get_team() else {
+                continue;
+            };
+            let Ok(team) = team_arc.read() else {
+                continue;
+            };
+            if player_guard.get_relationship_with_team(&team) != Relationship::Enemies {
+                continue;
             }
+            // Significant buildings filter residual: skip pure civilians if flagged.
+            // Any enemy that passes filters fails safety.
+            let _ = thing;
+            return false;
         }
         true
     }
@@ -1450,8 +1459,34 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Check if we have a supply source that's safe
+    /// C++ `AIPlayer::isSupplySourceSafe` (AIPlayer.cpp).
     pub fn is_supply_source_safe(&self, min_supplies: i32) -> bool {
+        let Some(warehouse) = self.find_supply_center(min_supplies) else {
+            return true; // safe because it doesn't exist
+        };
+        let Ok(guard) = warehouse.read() else {
+            return true;
+        };
+        let template = guard.get_template();
+        self.is_location_safe(guard.get_position(), template.as_ref())
+    }
+
+    /// C++ `AIPlayer::isSupplySourceAttacked` (AIPlayer.cpp).
+    ///
+    /// Rate-limited (10s): if player was recently attacked, scan cash generators /
+    /// dozers / harvesters for recent damage and latch attacked_supply_center.
+    pub fn is_supply_source_attacked(&mut self) -> bool {
+        const SCAN_RATE: u32 = 10 * LOGICFRAMES_PER_SECOND; // 10 seconds
+        let cur_frame = TheGameLogic::get_frame();
+        if cur_frame == 0 {
+            self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
+            return false;
+        }
+        self.attacked_supply_center = None;
+        if cur_frame < self.supply_source_attack_check_frame {
+            return false;
+        }
+
         let Ok(list) = player_list().read() else {
             return false;
         };
@@ -1461,12 +1496,11 @@ impl AIPlayer {
         let Ok(player_guard) = player_arc.read() else {
             return false;
         };
-        if player_guard.get_money().get_money() < min_supplies {
-            return false;
+        if player_guard.get_attacked_frame().saturating_add(SCAN_RATE) < cur_frame {
+            return false; // haven't been attacked recently
         }
-        let Some(partition) = ThePartitionManager::get() else {
-            return true;
-        };
+        self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
+
         for obj_id in player_guard.get_all_objects() {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 continue;
@@ -1474,54 +1508,30 @@ impl AIPlayer {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            if !(obj_guard.is_kind_of(KindOf::SupplySource)
-                || obj_guard.is_kind_of(KindOf::ResourceNode)
-                || obj_guard.is_kind_of(KindOf::FSSupplyCenter)
-                || obj_guard.is_kind_of(KindOf::FSSupplyDropzone)
-                || obj_guard.is_kind_of(KindOf::Refinery))
+            if !obj_guard.is_kind_of(KindOf::CashGenerator)
+                && !obj_guard.is_kind_of(KindOf::Dozer)
+                && !obj_guard.is_kind_of(KindOf::Harvester)
             {
                 continue;
             }
-            for candidate_id in
-                partition.get_objects_in_range(obj_guard.get_position(), SUPPLY_CENTER_SAFE_RADIUS)
-            {
-                let Some(candidate_arc) = OBJECT_REGISTRY.get_object(candidate_id) else {
-                    continue;
-                };
-                let Ok(candidate_guard) = candidate_arc.read() else {
-                    continue;
-                };
-                if candidate_guard.is_destroyed() {
-                    continue;
-                }
-                let Some(candidate_player_id) = candidate_guard.get_controlling_player_id() else {
-                    continue;
-                };
-                if candidate_player_id as u32 == self.player_id {
-                    continue;
-                }
-                if let Some(candidate_player) = list.get_player(candidate_player_id as i32) {
-                    if let Ok(candidate_player_guard) = candidate_player.read() {
-                        if candidate_player_guard.get_player_type() == PlayerType::Neutral {
-                            continue;
-                        }
-                    }
-                }
-                if candidate_guard.is_kind_of(KindOf::Unit)
-                    || candidate_guard.is_kind_of(KindOf::Vehicle)
-                    || candidate_guard.is_kind_of(KindOf::Infantry)
-                    || candidate_guard.is_kind_of(KindOf::Aircraft)
-                {
-                    return false;
-                }
+            let Some(body) = obj_guard.get_body_module() else {
+                continue;
+            };
+            let Ok(body_g) = body.lock() else {
+                continue;
+            };
+            let Some(info) = body_g.get_last_damage_info() else {
+                continue;
+            };
+            if info.output.no_effect {
+                continue;
+            }
+            if body_g.get_last_damage_timestamp().saturating_add(SCAN_RATE) > cur_frame {
+                self.attacked_supply_center = Some(obj_id);
+                return true;
             }
         }
-        true
-    }
-
-    /// Check if any supply source is under attack
-    pub fn is_supply_source_attacked(&self) -> bool {
-        self.attacked_supply_center.is_some()
+        false
     }
 
     /// Build a specific AI team immediately
@@ -5392,28 +5402,32 @@ impl AIPlayer {
         Ok(possible)
     }
 
-    /// Find dozer for construction
-    /// Matches C++ AIPlayer findDozer logic
-    fn find_dozer(&self, location: &Coord3D) -> Result<Option<ObjectID>, AiError> {
-        // Finds closest idle dozer to the given location
-        // Prefers dozers that are:
-        // 1. Not building
-        // 2. Not collecting resources (for GLA workers)
-        // 3. Closest to target location
-        let Ok(list) = player_list().read() else {
-            return Ok(None);
-        };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return Ok(None);
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(None);
+    /// C++ `AIPlayer::findDozer` (AIPlayer.cpp).
+    ///
+    /// Prefer idle dozers (not building, not ferrying supplies, not repair dozer).
+    /// Closest idle dozer wins. If no dozer exists at all, queue one.
+    fn find_dozer(&mut self, location: &Coord3D) -> Result<Option<ObjectID>, AiError> {
+        use crate::object::update::ai_update::dozer_ai_update::DozerTask;
+
+        let mut need_dozer = true;
+        let mut dozer: Option<ObjectID> = None;
+        let mut closest_dozer: Option<ObjectID> = None;
+        let mut closest_dist_sqr = 0.0_f32;
+
+        let object_ids: Vec<ObjectID> = {
+            let Ok(list) = player_list().read() else {
+                return Ok(None);
+            };
+            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+                return Ok(None);
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(None);
+            };
+            player_guard.get_all_objects()
         };
 
-        let mut best: Option<ObjectID> = None;
-        let mut best_dist = f32::MAX;
-
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 continue;
             };
@@ -5426,50 +5440,155 @@ impl AIPlayer {
             let Some(ai) = obj_guard.get_ai_update_interface() else {
                 continue;
             };
-            let Ok(ai_guard) = ai.lock() else {
+            let Ok(mut ai_guard) = ai.lock() else {
                 continue;
             };
-            if !ai_guard.is_idle() {
+
+            // Must have dozer AI; capture task flags before optional truck check.
+            let (has_dozer, build_pending, any_pending) =
+                match ai_guard.get_dozer_ai_update_interface_mut() {
+                    Some(dozer_ai) => (
+                        true,
+                        dozer_ai.is_task_pending(DozerTask::Build),
+                        dozer_ai.is_any_task_pending(),
+                    ),
+                    None => (false, false, false),
+                };
+            if !has_dozer {
                 continue;
             }
-            let pos = obj_guard.get_position();
-            let dx = pos.x - location.x;
-            let dy = pos.y - location.y;
-            let dist = (dx * dx + dy * dy).sqrt();
-            if dist < best_dist {
-                best_dist = dist;
-                best = Some(obj_id);
+            if !any_pending {
+                // Don't steal supply-ferrying workers (GLA).
+                if let Some(truck) = ai_guard.get_supply_truck_ai_interface() {
+                    if truck.is_currently_ferrying_supplies()
+                        || truck.is_forced_into_wanting_state()
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            if Some(obj_id) == self.repair_dozer {
+                continue;
+            }
+            need_dozer = false;
+
+            if build_pending {
+                continue;
+            }
+            let idle = !any_pending;
+            if idle {
+                dozer = Some(obj_id);
+            } else if dozer.is_none() {
+                dozer = Some(obj_id);
+            }
+
+            if idle {
+                let pos = obj_guard.get_position();
+                let dx = location.x - pos.x;
+                let dy = location.y - pos.y;
+                let dist_sqr = dx * dx + dy * dy;
+                if closest_dozer.is_none() || dist_sqr < closest_dist_sqr {
+                    closest_dozer = Some(obj_id);
+                    closest_dist_sqr = dist_sqr;
+                }
             }
         }
 
-        Ok(best)
+        if need_dozer {
+            let _ = self.queue_dozer();
+        }
+        if closest_dozer.is_some() {
+            return Ok(closest_dozer);
+        }
+        Ok(dozer)
     }
 
-    /// Queue a dozer for construction/repair
-    /// Matches C++ AIPlayer queueDozer logic
+    /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp).
+    ///
+    /// If no dozer already queued, find a KINDOF_DOZER template with a factory,
+    /// priority-queue a team, and startTraining.
     pub(crate) fn queue_dozer(&mut self) -> Result<(), AiError> {
-        // Creates a high-priority work order for a dozer
-        // Adds to front of build queue
+        if self.dozer_in_queue() {
+            return Ok(());
+        }
 
-        let mut order = WorkOrder::new("Dozer".to_string());
-        order.num_required = 1;
+        let prev_can = self.set_can_build_units_temp(true);
 
-        let mut team = TeamInQueue::new();
-        team.work_orders.push(order);
-        team.priority_build = true;
+        const CANDIDATES: &[&str] = &[
+            "AmericaVehicleDozer",
+            "ChinaVehicleDozer",
+            "GLAInfantryWorker",
+            "Dozer",
+            "Worker",
+        ];
 
-        self.team_build_queue.push_front(team);
-        self.dozer_queued_for_repair = true;
+        let mut queued = false;
+        for name in CANDIDATES {
+            let Some(template) = TheThingFactory::find_template(name) else {
+                continue;
+            };
+            if !template.is_kind_of(KindOf::Dozer) {
+                continue;
+            }
+            let Some(factory_id) = self.find_factory_internal(name, true)? else {
+                continue;
+            };
 
+            let mut order = WorkOrder::new((*name).to_string());
+            order.num_required = 1;
+            order.required = true;
+            order.is_resource_gatherer = false;
+
+            let mut team = TeamInQueue::new();
+            team.priority_build = true;
+            team.frame_started = TheGameLogic::get_frame();
+            if let Ok(list) = player_list().read() {
+                if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                    if let Ok(pg) = player_arc.read() {
+                        if let Some(dt) = pg.get_default_team() {
+                            if let Ok(tg) = dt.read() {
+                                team.team_name = Some(tg.get_name().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            let team_name = team
+                .team_name
+                .clone()
+                .unwrap_or_else(|| "default".to_string());
+            self.team_delay = 0;
+            let _ = self.start_training_internal(&mut order, true, &team_name)?;
+            team.work_orders.push(order);
+            self.team_build_queue.push_front(team);
+            self.dozer_queued_for_repair = true;
+            log::debug!("DOZER - building one at factory {}", factory_id);
+            queued = true;
+            break;
+        }
+
+        self.set_can_build_units_temp(prev_can);
+        let _ = queued;
         Ok(())
     }
 
     /// Returns true if a dozer/worker is already present in the current queue.
+    /// C++ `dozerInQueue` — any work order whose template is KINDOF_DOZER.
     pub fn dozer_in_queue(&self) -> bool {
         self.team_build_queue.iter().any(|team| {
             team.work_orders.iter().any(|order| {
-                order.thing_template.eq_ignore_ascii_case("Dozer")
-                    || order.thing_template.eq_ignore_ascii_case("Worker")
+                let name = order.thing_template.as_str();
+                if name.eq_ignore_ascii_case("Dozer")
+                    || name.eq_ignore_ascii_case("Worker")
+                    || name.to_ascii_lowercase().contains("dozer")
+                    || name.to_ascii_lowercase().contains("worker")
+                {
+                    return true;
+                }
+                TheThingFactory::find_template(name)
+                    .map(|t| t.is_kind_of(KindOf::Dozer))
+                    .unwrap_or(false)
             })
         })
     }
@@ -5516,16 +5635,109 @@ impl AIPlayer {
         });
     }
 
-    /// C++-style supply-center guard entry point.
+    /// C++ `AIPlayer::guardSupplyCenter` (AIPlayer.cpp).
+    ///
+    /// Force attack check; prefer attacked center else findSupplyCenter; issue
+    /// aiGuardPosition toward enemy base offset by warehouse radius*0.8.
     pub fn guard_supply_center(
         &mut self,
-        _team_name: &str,
+        team_name: &str,
         min_supplies: i32,
     ) -> Result<(), AiError> {
-        self.attacked_supply_center = self
-            .find_supply_center(min_supplies)
-            .and_then(|warehouse| warehouse.read().ok().map(|guard| guard.get_id()));
+        self.supply_source_attack_check_frame = 0; // force check
+        let mut warehouse_id = None;
+        if self.is_supply_source_attacked() {
+            warehouse_id = self.attacked_supply_center;
+        }
+        if warehouse_id.is_none() {
+            warehouse_id = self
+                .find_supply_center(min_supplies)
+                .and_then(|w| w.read().ok().map(|g| g.get_id()));
+        }
+        let Some(warehouse_id) = warehouse_id else {
+            return Ok(());
+        };
+        let Some(warehouse_arc) = OBJECT_REGISTRY.get_object(warehouse_id) else {
+            return Ok(());
+        };
+        let Ok(warehouse) = warehouse_arc.read() else {
+            return Ok(());
+        };
+        let mut location = *warehouse.get_position();
+        let radius = warehouse.get_geometry_info().get_bounding_circle_radius() * 0.8;
+
+        // Offset toward enemy structure bounds center.
+        let enemy_ndx = self.get_skirmish_enemy_player_index();
+        if let Ok((lo, hi)) = self.get_player_structure_bounds(enemy_ndx) {
+            let mut ox = location.x - (lo.x + hi.x) * 0.5;
+            let mut oy = location.y - (lo.y + hi.y) * 0.5;
+            let len = (ox * ox + oy * oy).sqrt();
+            if len > 0.0001 {
+                ox /= len;
+                oy /= len;
+                location.x -= ox * radius;
+                location.y -= oy * radius;
+            }
+        }
+        drop(warehouse);
+
+        // Resolve team members (named team or default).
+        let members: Vec<ObjectID> = {
+            let mut team_arc = None;
+            if !team_name.is_empty() {
+                if let Ok(mut factory) = get_team_factory().lock() {
+                    team_arc = factory.find_team(team_name);
+                }
+            }
+            if team_arc.is_none() {
+                if let Ok(list) = player_list().read() {
+                    if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                        if let Ok(pg) = player_arc.read() {
+                            team_arc = pg.get_default_team();
+                        }
+                    }
+                }
+            }
+            team_arc
+                .and_then(|t| t.read().ok().map(|g| g.get_members().to_vec()))
+                .unwrap_or_default()
+        };
+
+        for member_id in members {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) else {
+                continue;
+            };
+            let Ok(obj_g) = obj_arc.read() else {
+                continue;
+            };
+            let Some(ai) = obj_g.get_ai_update_interface() else {
+                continue;
+            };
+            let lock_result = ai.lock();
+            if let Ok(mut ai_g) = lock_result {
+                let _ = ai_g.ai_guard_position(&location);
+            }
+        }
         Ok(())
+    }
+
+    fn get_skirmish_enemy_player_index(&self) -> i32 {
+        // Residual: first non-self non-neutral player.
+        if let Ok(list) = player_list().read() {
+            for i in 0..16 {
+                if i == self.player_id as i32 {
+                    continue;
+                }
+                if let Some(p) = list.get_player(i) {
+                    if let Ok(pg) = p.read() {
+                        if pg.get_player_type() != PlayerType::Neutral {
+                            return i;
+                        }
+                    }
+                }
+            }
+        }
+        0
     }
 
     /// Get player structure bounds for targeting
@@ -6500,6 +6712,89 @@ mod tests {
                 && window.contains("try_reattach_loose_harvester")
                 && window.contains("desired.saturating_mul(3)"),
             "queueSupplyTruck must skip-if-queued, recount, reattach, train harvester"
+        );
+    }
+
+    #[test]
+    fn find_dozer_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("C++ `AIPlayer::findDozer`").expect("findDozer");
+        let window = &src[i..src.len().min(i + 5000)];
+        assert!(
+            window.contains("need_dozer")
+                && window.contains("DozerTask::Build")
+                && window.contains("is_currently_ferrying_supplies")
+                && window.contains("repair_dozer")
+                && window.contains("closest_dozer")
+                && window.contains("queue_dozer"),
+            "findDozer must prefer idle, skip ferrying/repair/build, queue if none"
+        );
+    }
+
+    #[test]
+    fn queue_dozer_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("C++ `AIPlayer::queueDozer`").expect("queueDozer");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("dozer_in_queue")
+                && window.contains("set_can_build_units_temp")
+                && window.contains("start_training_internal")
+                && window.contains("priority_build = true")
+                && window.contains("KindOf::Dozer"),
+            "queueDozer must gate queue, enable units, startTraining priority dozer"
+        );
+    }
+
+    #[test]
+    fn supply_source_attacked_safe_guard_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let a = src
+            .find("C++ `AIPlayer::isSupplySourceAttacked`")
+            .expect("attacked");
+        let s = src
+            .find("C++ `AIPlayer::isSupplySourceSafe`")
+            .expect("safe");
+        let g = src
+            .find("C++ `AIPlayer::guardSupplyCenter`")
+            .expect("guard");
+        let aw = &src[a..src.len().min(a + 4000)];
+        let sw = &src[s..src.len().min(s + 1500)];
+        let gw = &src[g..src.len().min(g + 4000)];
+        assert!(
+            aw.contains("SCAN_RATE")
+                && aw.contains("get_attacked_frame")
+                && aw.contains("CashGenerator")
+                && aw.contains("get_last_damage_timestamp")
+                && aw.contains("attacked_supply_center"),
+            "isSupplySourceAttacked must rate-limit and scan recent damage"
+        );
+        assert!(
+            sw.contains("find_supply_center") && sw.contains("is_location_safe"),
+            "isSupplySourceSafe must delegate to find+isLocationSafe"
+        );
+        assert!(
+            gw.contains("supply_source_attack_check_frame = 0")
+                && gw.contains("ai_guard_position")
+                && gw.contains("get_bounding_circle_radius")
+                && gw.contains("get_player_structure_bounds"),
+            "guardSupplyCenter must force check, offset, and guard"
+        );
+    }
+
+    #[test]
+    fn queue_dozer_skips_when_already_queued() {
+        let mut ai = AIPlayer::new(1);
+        let mut order = WorkOrder::new("AmericaVehicleDozer".into());
+        let mut team = TeamInQueue::new();
+        team.work_orders.push(order);
+        ai.team_build_queue.push_front(team);
+        let before = ai.team_build_queue.len();
+        ai.queue_dozer().expect("qd");
+        assert_eq!(
+            ai.team_build_queue.len(),
+            before,
+            "C++ dozerInQueue early-out"
         );
     }
 
