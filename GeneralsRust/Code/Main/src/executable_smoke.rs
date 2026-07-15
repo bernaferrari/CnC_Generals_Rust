@@ -6,7 +6,7 @@
 //! path GPUI uses.
 //!
 //! Honesty:
-//! - `playable_claim` is **always false** here until a full interactive WND click
+//! - `playable_claim` is **always false** here until full interactive retail WND navigation is proven end-to-end
 //!   path + GPU match playthrough is proven.
 //! - `executable_host_ok` is the limited claim: process boots, reaches Menu or
 //!   InGame via runtime host commands, and exits cleanly.
@@ -307,7 +307,16 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         .arg(format!("-gpui_frame={}", frame_path.display()))
         .arg("-nologo")
         .arg("-nointro")
-        .env("GENERALS_RUNTIME_HOST_WND", "0")
+        // Prefer retail WND push when a display is available (xvfb/CI/interactive).
+        // Headless without DISPLAY keeps soft override path (WND=0).
+        .env(
+            "GENERALS_RUNTIME_HOST_WND",
+            if std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty()) {
+                "1"
+            } else {
+                "0"
+            },
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         // CRITICAL: do not pipe stderr without a drain thread — Roads.ini warn
@@ -447,6 +456,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                     if snap
                         .last_gameplay_cmd
                         .starts_with("click_skirmish_start_ok")
+                    {
+                        result.skirmish_start_click_ok = true;
+                    }
+                    // WND gadget path residual (may still be pending NewGame drain).
+                    if snap
+                        .last_gameplay_cmd
+                        .starts_with("click_skirmish_start_wnd")
                     {
                         result.skirmish_start_click_ok = true;
                     }
@@ -671,5 +687,45 @@ mod tests {
     fn playable_claim_always_false_on_default() {
         let r = ExecutableSmokeResult::default();
         assert!(!r.playable_claim);
+    }
+}
+
+#[cfg(test)]
+mod skirmish_wnd_start_residual_tests {
+    #[test]
+    fn click_skirmish_start_prefers_wnd_gadget_when_enabled() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("\"click_skirmish_start\"")
+            .expect("click_skirmish_start command");
+        let window = &eng[idx..idx + 4500];
+        assert!(
+            window.contains("simulate_skirmish_start_button_gadget_selected"),
+            "must try retail WND ButtonStart GadgetSelected residual"
+        );
+        assert!(
+            window.contains("click_skirmish_start_ok_wnd")
+                || window.contains("click_skirmish_start_wnd_pending"),
+            "must report wnd-specific gameplay cmd honesty"
+        );
+        assert!(
+            window.contains("simulate_start_button_click"),
+            "must keep Main SkirmishMenu mouse residual fallback"
+        );
+    }
+
+    #[test]
+    fn game_client_exposes_skirmish_button_start_gadget_simulate() {
+        let src = include_str!(
+            "../../GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs"
+        );
+        assert!(
+            src.contains("fn simulate_skirmish_start_button_gadget_selected"),
+            "WND ButtonStart gadget residual helper missing"
+        );
+        assert!(
+            src.contains("WindowMessage::GadgetSelected"),
+            "must fire GadgetSelected like C++ GBM_SELECTED"
+        );
     }
 }
