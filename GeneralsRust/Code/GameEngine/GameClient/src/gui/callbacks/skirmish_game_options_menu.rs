@@ -1479,6 +1479,43 @@ pub fn skirmish_game_options_menu_shutdown(
     set_skirmish_is_shutting_down(true);
 }
 
+/// Residual: fire retail `ButtonStart` via `GadgetSelected` (C++ GBM_SELECTED path).
+/// Requires layout/init so `button_start_id` is bound. Returns true if the system
+/// handler claimed the message (start may still fail on map/CD checks).
+pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
+    set_skirmish_button_pushed(false);
+    let button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
+    if button_id == 0 {
+        return false;
+    }
+    // Prefer live button window; fall back to any skirmish layout root.
+    let win = with_window_manager(|manager| {
+        manager
+            .get_window_by_id(button_id)
+            .or_else(|| {
+                let root_id = name_to_id("SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenu");
+                manager.get_window_by_id(root_id)
+            })
+            .or_else(|| {
+                // Last resort: any window so the unused window arg is valid.
+                manager.get_window_list().first().cloned()
+            })
+    });
+    let Some(win) = win else {
+        return false;
+    };
+    let handled = {
+        let guard = win.borrow();
+        skirmish_game_options_menu_system(
+            &guard,
+            WindowMessage::GadgetSelected,
+            button_id as WindowMsgData,
+            0 as WindowMsgData,
+        )
+    };
+    matches!(handled, WindowMsgHandled::Handled) || skirmish_button_pushed()
+}
+
 pub fn skirmish_game_options_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
