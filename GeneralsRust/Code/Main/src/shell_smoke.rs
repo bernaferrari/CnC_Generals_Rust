@@ -3132,3 +3132,19 @@ mod presentation_player_roster_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod presentation_victory_shell_tests {
+    #[test]
+    fn victory_eval_prefers_presentation_shell_bypass() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("Prefer presentation shell bypass when a frame is installed")
+            .expect("victory shell prefer");
+        let window = &eng[idx..idx + 500];
+        assert!(
+            window.contains("fow_shell_bypass") && window.contains("isInShellGame"),
+            "victory eval must prefer presentation fow_shell_bypass with live residual"
+        );
+    }
+}

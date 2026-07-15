@@ -6539,10 +6539,13 @@ impl CnCGameEngine {
             });
         }
 
-        if !self.match_over
-            && self.current_state == GameState::InGame
-            && !self.game_logic.isInShellGame()
-        {
+        // Prefer presentation shell bypass when a frame is installed (no live dual-read).
+        let in_shell = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|f| f.fow_shell_bypass)
+            .unwrap_or_else(|| self.game_logic.isInShellGame());
+        if !self.match_over && self.current_state == GameState::InGame && !in_shell {
             if let Some(condition) = self.game_logic.evaluate_victory_condition() {
                 match condition {
                     VictoryCondition::Winner(id) => self.show_victory_screen(Some(id)),
