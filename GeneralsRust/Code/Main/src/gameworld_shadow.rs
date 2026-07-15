@@ -185,6 +185,16 @@ impl GameWorldShadow {
 
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
     /// Preserves EntityId for host objects that still exist.
+    fn host_veterancy_ordinal(level: crate::game_logic::VeterancyLevel) -> u8 {
+        use crate::game_logic::VeterancyLevel as V;
+        match level {
+            V::Rookie => 0,
+            V::Veteran => 1,
+            V::Elite => 2,
+            V::Heroic => 3,
+        }
+    }
+
     fn host_ai_state_ordinal(s: &crate::game_logic::AIState) -> u8 {
         use crate::game_logic::AIState as A;
         match s {
@@ -306,6 +316,16 @@ impl GameWorldShadow {
                     e.guard_target_host = obj.guard_target.map(|id| id.0).unwrap_or(0);
                     e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state);
                     e.occupant_count = obj.occupants.len().min(u16::MAX as usize) as u16;
+                    e.experience_points = obj.experience.current;
+                    e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
+                    e.stored_supplies = obj.stored_resources.supplies;
+                    e.stealthed = obj.status.stealthed;
+                    e.detected = obj.status.detected;
+                    e.using_ability = obj.status.using_ability;
+                    e.airborne_target = obj.status.airborne_target;
+                    e.disabled_underpowered = obj.status.disabled_underpowered;
+                    e.disabled_unmanned = obj.status.disabled_unmanned;
+                    e.disabled_hacked = obj.status.disabled_hacked;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -356,6 +376,16 @@ impl GameWorldShadow {
                 e.guard_target_host = obj.guard_target.map(|id| id.0).unwrap_or(0);
                 e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state);
                 e.occupant_count = obj.occupants.len().min(u16::MAX as usize) as u16;
+                e.experience_points = obj.experience.current;
+                e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
+                e.stored_supplies = obj.stored_resources.supplies;
+                e.stealthed = obj.status.stealthed;
+                e.detected = obj.status.detected;
+                e.using_ability = obj.status.using_ability;
+                e.airborne_target = obj.status.airborne_target;
+                e.disabled_underpowered = obj.status.disabled_underpowered;
+                e.disabled_unmanned = obj.status.disabled_unmanned;
+                e.disabled_hacked = obj.status.disabled_hacked;
             }
         }
 
@@ -400,6 +430,16 @@ impl GameWorldShadow {
             e.guard_target_host = 0;
             e.ai_state_ordinal = 0;
             e.occupant_count = 0;
+            e.experience_points = 0.0;
+            e.veterancy_ordinal = 0;
+            e.stored_supplies = 0;
+            e.stealthed = false;
+            e.detected = false;
+            e.using_ability = false;
+            e.airborne_target = false;
+            e.disabled_underpowered = false;
+            e.disabled_unmanned = false;
+            e.disabled_hacked = false;
         }
     }
 
@@ -746,6 +786,24 @@ impl GameWorldShadow {
     /// Count shadow entities marked selected (host UI residual).
     /// Count shadow entities with host building object-type residual.
     /// Count shadow entities with host force_attack residual.
+    /// Count shadow entities with Elite+ host veterancy residual.
+    pub fn elite_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.veterancy_ordinal >= 2 && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities with host stealthed residual.
+    pub fn stealthed_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.stealthed && !e.destroyed)
+            .count()
+    }
+
     pub fn force_attack_entity_count(&self) -> usize {
         self.world
             .world()
@@ -1831,6 +1889,49 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_xp_status_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityXpStatus");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "XpUnit", 100.0);
+        let id = logic
+            .create_object("XpUnit", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.experience.current = 420.0;
+            obj.experience.level = crate::game_logic::VeterancyLevel::Elite;
+            obj.stored_resources.supplies = 1500;
+            obj.status.stealthed = true;
+            obj.status.detected = true;
+            obj.status.using_ability = true;
+            obj.status.airborne_target = true;
+            obj.status.disabled_underpowered = true;
+            obj.status.disabled_unmanned = false;
+            obj.status.disabled_hacked = true;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.elite_entity_count(), 1);
+        assert_eq!(shadow.stealthed_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.experience_points - 420.0).abs() < 0.01);
+        assert_eq!(e.veterancy_ordinal, 2);
+        assert_eq!(e.stored_supplies, 1500);
+        assert!(e.stealthed && e.detected && e.using_ability);
+        assert!(e.airborne_target && e.disabled_underpowered && e.disabled_hacked);
+        assert!(!e.disabled_unmanned);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("experience_points")
+                && src.contains("veterancy_ordinal")
+                && src.contains("stealthed"),
+            "sync must copy xp/status residual"
+        );
     }
 
     #[test]

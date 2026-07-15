@@ -663,3 +663,11 @@ contain matrix / material palette authority.
 host residual. `sync_from_host_with` copies them each tick. Fail-closed: not full
 AI FSM / garrison graph / guard-mode parity.
 
+### GameWorld entity xp/status residual (2026-07-14)
+
+`Entity` carries `experience_points`, `veterancy_ordinal`, `stored_supplies`, and
+extended host status flags (`stealthed`, `detected`, `using_ability`,
+`airborne_target`, `disabled_*`). `sync_from_host_with` copies them each tick.
+Fail-closed: not full veterancy bonus matrix / stealth detector network /
+disabled-type FSM authority.
+
