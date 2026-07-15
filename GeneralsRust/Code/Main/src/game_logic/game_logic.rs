@@ -33558,8 +33558,10 @@ impl GameLogic {
         self.queue_audio_event(AudioEventRequest::new(translated));
     }
 
-    /// Process all queued audio events (called once per frame)
-    fn process_audio_events(&mut self) {
+    /// Process all queued audio events (called once per frame).
+    /// Also invoked after presentation `apply_events_to_audio` so same-frame
+    /// presentation residual is not delayed one tick.
+    pub(crate) fn process_audio_events(&mut self) {
         for event in self.queued_audio_events.drain(..) {
             if let Some(obj_id) = event.object_id {
                 if let Some(pos) = event.position {

@@ -1761,6 +1761,23 @@ mod tests {
     }
 
     #[test]
+    fn presentation_audio_processed_same_frame_after_apply() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("apply_events_to_audio")
+                && eng.contains("Same-frame residual: drain presentation-queued audio now")
+                && eng.contains("self.game_logic.process_audio_events()")
+                && eng.contains("drain immediately so Select/Command is not delayed one tick"),
+            "presentation audio must process same frame after apply and input SFX"
+        );
+        let gl = include_str!("game_logic/game_logic.rs");
+        assert!(
+            gl.contains("pub(crate) fn process_audio_events"),
+            "process_audio_events must be callable from engine residual path"
+        );
+    }
+
+    #[test]
     fn play_sound_effect_prefers_presentation_audio_queue() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
