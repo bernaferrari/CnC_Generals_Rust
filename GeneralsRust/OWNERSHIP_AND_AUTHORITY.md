@@ -616,3 +616,9 @@ upgrade names onto shadow `PlayerData` each tick (absolute residual alongside
 the CompleteUpgrade event channel). Fail-closed: not full science purchase /
 rank / effect matrix authority.
 
+### GameWorld power bar residual (2026-07-14)
+
+`PlayerData.power_produced` / `power_consumed` mirror host energy-bar sides.
+`sync_players` copies them each tick with supplies/power_available. Fail-closed:
+not full power plant graph / underpower disable matrix authority.
+
