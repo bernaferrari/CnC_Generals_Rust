@@ -80,7 +80,7 @@ pub struct EntitySummary {
 }
 
 /// Internal record stored for every allocated player.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlayerData {
     /// Display name.
     pub name: String,
@@ -106,6 +106,12 @@ pub struct PlayerData {
     pub radar_count: i32,
     /// Host Player::radar_disabled residual (script/power disable).
     pub radar_disabled: bool,
+    /// Host Player::is_alive residual (defeat / victory conditions).
+    pub is_alive: bool,
+    /// Host Player::cash_bounty_percent residual (GLA science bounty 0..1).
+    pub cash_bounty_percent: f32,
+    /// Host Player::color_rgb residual (team tint / UI).
+    pub color_rgb: (u8, u8, u8),
 }
 
 impl PlayerData {
@@ -269,6 +275,9 @@ impl World {
                 unlocked_sciences: Vec::new(),
                 radar_count: 0,
                 radar_disabled: false,
+                is_alive: true,
+                cash_bounty_percent: 0.0,
+                color_rgb: (200, 200, 200),
             });
         }
         Some(id)
