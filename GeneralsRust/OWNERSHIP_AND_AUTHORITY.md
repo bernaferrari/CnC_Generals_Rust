@@ -920,3 +920,9 @@ max_transport, overlord bunker capacity, passengers_allowed_to_fire, and
 display_name. Overlay last-writes from Entity residual. Fail-closed: not full
 contain redirect / multi-door transport AI matrix.
 
+### Load-screen presentation roster residual (2026-07-14)
+
+`load_screen_init_context` prefers `PresentationFrame` player roster when
+installed; live `get_player` is boot/menu residual only. Fail-closed: not full
+multi-slot LAN/skirmish load-screen parity from presentation alone.
+

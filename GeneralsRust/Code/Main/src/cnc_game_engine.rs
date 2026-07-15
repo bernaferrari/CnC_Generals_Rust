@@ -2557,6 +2557,37 @@ impl CnCGameEngine {
             }
         }
 
+        // Prefer presentation roster when installed (InGame residual); live only boot/menu.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            let local_id = frame.local_player_id;
+            if let Some(player) = frame.player_info(local_id).or_else(|| {
+                frame
+                    .players
+                    .iter()
+                    .find(|p| p.is_local)
+                    .or_else(|| frame.players.first())
+            }) {
+                let slot = game_client::gui::load_screen::LoadScreenSlotInitContext {
+                    player_id: player.id as i32,
+                    player_name: player.name.clone(),
+                    side_name: player.team.get_name().to_string(),
+                    team_number: player.id as i32,
+                    apparent_color: None,
+                    apparent_text_color: None,
+                    is_ai: false,
+                    has_map: true,
+                    visible: true,
+                };
+                let mut context = game_client::gui::load_screen::LoadScreenInitContext::default();
+                context.local_player_name = slot.player_name.clone();
+                context.local_side_name = slot.side_name.clone();
+                context.local_team_number = slot.team_number;
+                context.slots = vec![slot];
+                return context;
+            }
+        }
+
+        // Boot residual only — no presentation roster yet.
         let player = self
             .game_logic
             .local_player_id()
