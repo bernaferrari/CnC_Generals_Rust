@@ -3294,8 +3294,22 @@ impl GameClient {
         self.ensure_shell_visible()?;
         self.update_pre_draw_ui()?;
 
+        // C++ visual freeze + script visual-speed residual (same as full update),
+        // without Main-owned input/audio or Display DRAW dual-ownership.
+        let mut visual_delta = if self.should_freeze_visual_time() {
+            0.0
+        } else {
+            delta_time
+        };
+        let visual_speed = get_script_visual_speed_multiplier();
+        visual_delta = if visual_speed <= 0 {
+            0.0
+        } else {
+            visual_delta * visual_speed as f32
+        };
+
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
-        self.update_drawables_local(delta_time)?;
+        self.update_drawables_local(visual_delta)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
             self.finish_frame_timing(current_time);
@@ -3303,9 +3317,11 @@ impl GameClient {
         }
 
         self.update_particle_system_local_player()?;
-        self.update_effects(delta_time)?;
+        self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
         // Display DRAW stays on Main RenderPipeline; skip draw_display/draw icons.
+        // C++ DisplayStringManager still ticks after drawable/effects residual.
+        self.update_display_string_manager()?;
 
         self.update_post_draw_ui()?;
         self.process_beacon_notifications()?;
