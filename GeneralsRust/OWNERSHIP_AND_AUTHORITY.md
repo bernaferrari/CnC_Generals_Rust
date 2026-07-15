@@ -853,3 +853,9 @@ ORDER bit positions. Shadow sync copies bits; overlay reconstructs
 `RenderableObject.kind_of` without live template dual-read. Fail-closed: not
 full KindOf matrix beyond the frozen ORDER set.
 
+### GameWorld applied_upgrade_names residual (2026-07-14)
+
+`Entity.applied_upgrade_names` carries capped, sorted host upgrade tags.
+Shadow sync copies them; overlay last-writes `RenderableObject.applied_upgrades`.
+Fail-closed: not full player science/queued upgrade matrix.
+
