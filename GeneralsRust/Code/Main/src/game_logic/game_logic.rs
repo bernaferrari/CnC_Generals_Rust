@@ -34801,6 +34801,10 @@ impl GameLogic {
                         veterancy_overlay: None,
                         production_progress: None,
                         production_template: None,
+                        command_set_override: obj.command_set_override.clone().unwrap_or_default(),
+                        can_produce: obj.building_data.is_some()
+                            && !obj.status.under_construction
+                            && obj.construction_percent >= 1.0,
                     });
                 }
             }

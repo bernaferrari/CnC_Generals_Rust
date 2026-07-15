@@ -200,6 +200,8 @@ pub struct ConstructionPanel {
     current_tab: ConstructionTab,
     building_queue: Vec<BuildQueueItem>,
     selected_building: Option<String>,
+    /// Presentation command_set_override residual (empty = template default).
+    command_set_override: String,
     tab_buttons: Vec<TabButton>,
     construction_buttons: Vec<ConstructionButton>,
 }
@@ -254,15 +256,33 @@ impl ConstructionPanel {
             current_tab: ConstructionTab::Buildings,
             building_queue: Vec::new(),
             selected_building: None,
+            command_set_override: String::new(),
             tab_buttons: Vec::new(),
             construction_buttons: Vec::new(),
         }
     }
 
     pub fn show_for_building(&mut self, building_name: &str) {
+        self.show_for_building_with_command_set(building_name, None);
+    }
+
+    pub fn show_for_building_with_command_set(
+        &mut self,
+        building_name: &str,
+        command_set_override: Option<&str>,
+    ) {
         self.visible = true;
         self.selected_building = Some(building_name.to_string());
+        self.command_set_override = command_set_override
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("")
+            .to_string();
         self.setup_construction_options(building_name);
+    }
+
+    pub fn command_set_override(&self) -> &str {
+        &self.command_set_override
     }
 
     pub fn hide(&mut self) {
@@ -659,6 +679,18 @@ impl GameHUD {
             ControlBarSelectionPanelState::from_unit_infos(&self.selected_unit_infos);
         if selection_changed {
             self.update_command_buttons();
+            // Prefer presentation producer residual for construction panel.
+            if let Some(info) = self.selected_unit_infos.first() {
+                if info.can_produce {
+                    let override_cs = if info.command_set_override.is_empty() {
+                        None
+                    } else {
+                        Some(info.command_set_override.as_str())
+                    };
+                    self.construction_panel
+                        .show_for_building_with_command_set(&info.name, override_cs);
+                }
+            }
         }
     }
 
@@ -679,7 +711,17 @@ impl GameHUD {
 
     /// Select building
     pub fn select_building(&mut self, building_name: &str) {
-        self.construction_panel.show_for_building(building_name);
+        self.select_building_with_command_set(building_name, None);
+    }
+
+    /// Select building with optional presentation command_set_override residual.
+    pub fn select_building_with_command_set(
+        &mut self,
+        building_name: &str,
+        command_set_override: Option<&str>,
+    ) {
+        self.construction_panel
+            .show_for_building_with_command_set(building_name, command_set_override);
         let display_name = localized_entry(building_name);
         let suffix = localization::localize("hud.message.selected_suffix", "selected");
         self.add_message(&format!("{display_name} {suffix}"), MessageType::Info);

@@ -802,3 +802,10 @@ full FOW/team/shroud pick filter matrix.
 presentation poses when installed (live GameLogic only as boot fallback).
 Fail-closed: not full FOW/team pick filter matrix.
 
+### HUD UnitDisplayInfo command_set residual (2026-07-14)
+
+`UnitDisplayInfo` freezes `command_set_override` + `can_produce` from
+presentation. HUD `sync_selection_from_presentation` opens the construction
+panel with override residual for producer selections. Fail-closed: not full
+CommandSet INI tab population from override name.
+
