@@ -235,6 +235,10 @@ pub struct RenderableObject {
     pub weapon_bonus_nationalism: bool,
     pub weapon_bonus_frenzy: bool,
     pub weapon_bonus_frenzy_level: u8,
+    /// Host battle-plan weapon-bonus residual (Strategy Center).
+    pub weapon_bonus_battle_plan_bombardment: bool,
+    pub weapon_bonus_battle_plan_hold_the_line: bool,
+    pub weapon_bonus_battle_plan_search_and_destroy: bool,
     /// Host Object::command_set_override residual (empty = template default).
     pub command_set_override: String,
     /// Host Object::is_detector residual.
@@ -1949,6 +1953,10 @@ impl PresentationFrame {
                 weapon_bonus_nationalism: obj.weapon_bonus_nationalism,
                 weapon_bonus_frenzy: obj.weapon_bonus_frenzy,
                 weapon_bonus_frenzy_level: obj.weapon_bonus_frenzy_level,
+                weapon_bonus_battle_plan_bombardment: obj.weapon_bonus_battle_plan_bombardment,
+                weapon_bonus_battle_plan_hold_the_line: obj.weapon_bonus_battle_plan_hold_the_line,
+                weapon_bonus_battle_plan_search_and_destroy: obj
+                    .weapon_bonus_battle_plan_search_and_destroy,
                 command_set_override: obj.command_set_override.clone().unwrap_or_default(),
                 is_detector: obj.is_detector,
                 active_weapon_slot: obj.active_weapon_slot,
@@ -2572,6 +2580,19 @@ impl PresentationFrame {
         self.objects
             .iter()
             .filter(|o| !o.command_set_override.is_empty() && !o.destroyed)
+            .count()
+    }
+
+    /// Count presentation objects with any Strategy Center battle-plan bonus residual.
+    pub fn battle_plan_bonus_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && (o.weapon_bonus_battle_plan_bombardment
+                        || o.weapon_bonus_battle_plan_hold_the_line
+                        || o.weapon_bonus_battle_plan_search_and_destroy)
+            })
             .count()
     }
 
@@ -4101,6 +4122,41 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn presentation_freezes_battle_plan_weapon_bonus_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresBattlePlan");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PresBP") {
+            let mut t = ThingTemplate::new("PresBP");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("PresBP".into(), t);
+        }
+        let id = logic
+            .create_object("PresBP", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.weapon_bonus_battle_plan_bombardment = true;
+            obj.weapon_bonus_battle_plan_hold_the_line = true;
+            obj.weapon_bonus_battle_plan_search_and_destroy = true;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.battle_plan_bonus_object_count(), 1);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert!(ro.weapon_bonus_battle_plan_bombardment);
+        assert!(ro.weapon_bonus_battle_plan_hold_the_line);
+        assert!(ro.weapon_bonus_battle_plan_search_and_destroy);
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("weapon_bonus_battle_plan_bombardment: obj")
+                && src.contains("weapon_bonus_battle_plan_search_and_destroy"),
+            "freeze must copy battle-plan bonus residual"
+        );
+    }
+
     fn apply_to_control_bar_syncs_command_set_from_presentation() {
         // Source honesty: apply path must call presentation command-set sync.
         let src = include_str!("presentation_frame.rs");
