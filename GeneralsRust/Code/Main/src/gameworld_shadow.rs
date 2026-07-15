@@ -398,6 +398,23 @@ impl GameWorldShadow {
                     ];
                     e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                     e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
+                    e.path_waypoints = obj
+                        .movement
+                        .path
+                        .iter()
+                        .take(16)
+                        .map(|p| [p.x, p.y, p.z])
+                        .collect();
+                    e.secondary_weapon_range = obj
+                        .secondary_weapon
+                        .as_ref()
+                        .map(|w| w.range)
+                        .unwrap_or(0.0);
+                    e.secondary_weapon_damage = obj
+                        .secondary_weapon
+                        .as_ref()
+                        .map(|w| w.damage)
+                        .unwrap_or(0.0);
                     e.display_name = obj.name.clone();
                     e.overlord_bunker_capacity = obj
                         .overlord_bunker_capacity
@@ -584,6 +601,23 @@ impl GameWorldShadow {
                 ];
                 e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                 e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
+                e.path_waypoints = obj
+                    .movement
+                    .path
+                    .iter()
+                    .take(16)
+                    .map(|p| [p.x, p.y, p.z])
+                    .collect();
+                e.secondary_weapon_range = obj
+                    .secondary_weapon
+                    .as_ref()
+                    .map(|w| w.range)
+                    .unwrap_or(0.0);
+                e.secondary_weapon_damage = obj
+                    .secondary_weapon
+                    .as_ref()
+                    .map(|w| w.damage)
+                    .unwrap_or(0.0);
                 e.display_name = obj.name.clone();
                 e.overlord_bunker_capacity = obj
                     .overlord_bunker_capacity
@@ -732,6 +766,9 @@ impl GameWorldShadow {
             e.velocity = [0.0; 3];
             e.path_len = 0;
             e.path_index = 0;
+            e.path_waypoints.clear();
+            e.secondary_weapon_range = 0.0;
+            e.secondary_weapon_damage = 0.0;
             e.display_name.clear();
             e.overlord_bunker_capacity = u16::MAX;
             e.passengers_allowed_to_fire = false;
@@ -2355,6 +2392,54 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_path_waypoints_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityPathWp");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "PathWpU", 100.0);
+        let id = logic
+            .create_object("PathWpU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        {
+            use crate::game_logic::Weapon;
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.movement.path = vec![
+                glam::Vec3::new(1.0, 0.0, 1.0),
+                glam::Vec3::new(2.0, 0.0, 2.0),
+                glam::Vec3::new(3.0, 0.0, 3.0),
+            ];
+            obj.movement.current_path_index = 1;
+            obj.secondary_weapon = Some(Weapon {
+                damage: 8.0,
+                range: 90.0,
+                min_range: 0.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                ammo: None,
+                can_target_air: true,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+            });
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.path_len, 3);
+        assert_eq!(e.path_index, 1);
+        assert_eq!(e.path_waypoints.len(), 3);
+        assert!((e.path_waypoints[2][0] - 3.0).abs() < 0.01);
+        assert!(e.has_secondary_weapon || e.secondary_weapon_range > 0.0);
+        assert!((e.secondary_weapon_range - 90.0).abs() < 0.01);
+        assert!((e.secondary_weapon_damage - 8.0).abs() < 0.01);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("path_waypoints") && src.contains("secondary_weapon_range"),
+            "sync must copy path/secondary residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_combat_timing_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityCombatTiming");

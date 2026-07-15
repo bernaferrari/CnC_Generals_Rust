@@ -201,6 +201,12 @@ pub struct Entity {
     pub path_len: u16,
     /// Host Movement::current_path_index residual.
     pub path_index: u16,
+    /// Host Movement::path waypoints residual (capped for presentation line pack).
+    pub path_waypoints: Vec<[f32; 3]>,
+    /// Host secondary weapon range residual.
+    pub secondary_weapon_range: f32,
+    /// Host secondary weapon damage residual.
+    pub secondary_weapon_damage: f32,
     /// Host Object::name residual (display/script name; empty if unset).
     pub display_name: String,
     /// Host Object::overlord_bunker_capacity residual:
@@ -435,6 +441,9 @@ impl EntityStore {
             velocity: [0.0; 3],
             path_len: 0,
             path_index: 0,
+            path_waypoints: Vec::new(),
+            secondary_weapon_range: 0.0,
+            secondary_weapon_damage: 0.0,
             display_name: String::new(),
             overlord_bunker_capacity: u16::MAX,
             passengers_allowed_to_fire: false,
