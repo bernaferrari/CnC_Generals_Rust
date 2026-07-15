@@ -1076,3 +1076,9 @@ prep. Live `GameLogic::game_mode` remains boot residual only.
 Minimized/iconic keep-alive uses `presentation_or_live_game_mode` instead of
 live `GameLogic::game_mode`. Fail-closed: still not sole GameWorld authority.
 
+### Presentation load-screen roster residual (2026-07-14)
+
+Load-screen init expands slots from full `PresentationFrame.players` when
+installed (not local-only). Live `get_player` remains boot residual.
+Fail-closed: `is_ai` inferred as `!is_local` until AI flag is frozen on roster.
+

@@ -2110,6 +2110,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_load_screen_roster_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("Prefer full presentation roster when installed")
+                && eng.contains("frame.players.is_empty()")
+                && eng.contains("Fail-closed: is_ai not frozen on roster; skirmish non-local")
+                && eng.contains("visible: player.is_alive"),
+            "load-screen init must expand slots from full presentation player roster"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
