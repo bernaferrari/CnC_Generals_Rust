@@ -6683,7 +6683,12 @@ impl CnCGameEngine {
                 &mut self.render_pipeline,
                 &self.view_matrix,
                 &self.projection_matrix,
-                &self.game_logic,
+                // Presentation-owned selection identity; live GameLogic only if no frame.
+                if self.last_presentation_frame.is_some() {
+                    None
+                } else {
+                    Some(&self.game_logic)
+                },
                 None, // drag rect is optional; unit circles use presentation identity
                 self.current_player_id,
                 self.last_presentation_frame.as_ref(),
