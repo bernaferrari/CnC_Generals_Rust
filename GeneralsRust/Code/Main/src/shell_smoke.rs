@@ -1761,6 +1761,17 @@ mod tests {
     }
 
     #[test]
+    fn load_screen_init_prefers_presentation_roster() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains(
+                "Prefer presentation roster when installed (InGame residual); live only boot/menu"
+            ) && eng.contains("Boot residual only — no presentation roster yet")
+                && eng.contains("frame.player_info(local_id)"),
+            "load_screen_init_context must prefer presentation roster when frame installed"
+        );
+    }
+
     fn render_execute_passes_none_game_logic_when_presentation_installed() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
