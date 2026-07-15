@@ -1206,3 +1206,15 @@ Ported C++ `TeamPrototype::evaluateProductionCondition` (Team.cpp) to Rust:
 Fail-closed: full OrCondition graph coverage depends on ScriptEngine evaluator depth;
 Main host AI still separate.
 
+### queueUnits tryToRecruit (2026-07-14)
+
+Compared C++ `AIPlayer::queueUnits` to Rust:
+
+- For each waiting work order, loop `tryToRecruit` until full or none left.
+- Recruited units `setTeam` + `aiMoveToPosition(home)` when base/home known, else `aiIdle`.
+- Still waiting → `startTraining`; else `validateFactory`.
+- Recruit radius from AIData `max_recruit_distance`.
+
+Fail-closed: TeamPrototype homeLocation field residual (uses base center);
+Main host AI still separate.
+

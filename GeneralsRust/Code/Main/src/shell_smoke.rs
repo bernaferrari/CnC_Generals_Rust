@@ -2406,6 +2406,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_queue_units_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::queueUnits`")
+                && src.contains("try_to_recruit")
+                && src.contains("while order.is_waiting_to_build()")
+                && src.contains("ai_move_to_position")
+                && src.contains("ai_idle"),
+            "queueUnits must tryToRecruit then startTraining (C++)"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
