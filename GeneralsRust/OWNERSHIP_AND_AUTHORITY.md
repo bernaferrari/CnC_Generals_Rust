@@ -824,3 +824,11 @@ authority (host still builds the base freeze).
 timing, weapon-bonus/battle-plan/continuous-fire, transport kinds, hive/turret,
 disguise/camo/vision. Fail-closed: host still base-freezes presentation.
 
+### GameWorld path waypoints + overlay complete residual (2026-07-14)
+
+`Entity` carries capped `path_waypoints` and secondary weapon range/damage.
+`sync_from_host_with` copies them; `overlay_gameworld_shadow` last-writes path
+waypoints, production queue head, secondary weapon, and has_mine onto
+presentation. Fail-closed: not full multi-item production queue / garrison ID
+list authority.
+
