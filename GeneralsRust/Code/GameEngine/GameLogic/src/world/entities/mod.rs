@@ -234,6 +234,8 @@ pub struct Entity {
     pub contained_by_host: u32,
     /// Host building_data.garrisoned_units / occupants host ids residual (capped).
     pub garrisoned_host_ids: Vec<u32>,
+    /// Host ThingTemplate kind_of residual as bitset (presentation ORDER bits).
+    pub kind_of_bits: u32,
     /// Host Object::cheer_timer residual.
     pub cheer_timer: f32,
     /// Host Object::overcharge_enabled residual.
@@ -459,6 +461,7 @@ impl EntityStore {
             is_combat_chinook_transport: false,
             contained_by_host: 0,
             garrisoned_host_ids: Vec::new(),
+            kind_of_bits: 0,
             cheer_timer: 0.0,
             overcharge_enabled: false,
             active_weapon_slot: 0,
