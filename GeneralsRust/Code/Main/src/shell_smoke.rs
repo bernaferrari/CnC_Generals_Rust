@@ -2978,3 +2978,23 @@ mod presentation_shell_deepen_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod presentation_mouse_bounds_tests {
+    #[test]
+    fn mouse_world_position_prefers_presentation_bounds() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("fn update_mouse_world_position")
+            .expect("update_mouse_world_position");
+        let window = &eng[idx..idx + 900];
+        assert!(
+            window.contains("last_presentation_frame") && window.contains("world_bounds_vec3"),
+            "mouse map must prefer presentation world_env bounds"
+        );
+        assert!(
+            window.contains("game_logic.world_bounds()"),
+            "boot residual without frame may still use host bounds"
+        );
+    }
+}
