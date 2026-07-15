@@ -2413,11 +2413,11 @@ impl AIPlayer {
         let radius = weapon_radius.max(1.0);
         let (mut min_bounds, mut max_bounds) = self.get_player_structure_bounds(enemy_index)?;
 
-        // Degenerate bounds (no buildings) → full map extent.
+        // Degenerate bounds (no buildings) → full map extent (C++ getExtent, not pathfind).
         if min_bounds.x == 0.0 && min_bounds.y == 0.0 && max_bounds.x == 0.0 && max_bounds.y == 0.0
         {
             if let Some(terrain) = TheTerrainLogic::get() {
-                let extent = terrain.get_maximum_pathfind_extent();
+                let extent = terrain.get_extent();
                 min_bounds = extent.lo;
                 max_bounds = extent.hi;
             }
@@ -2469,7 +2469,7 @@ impl AIPlayer {
             _ => (-1, -1, x_count, y_count),
         };
 
-        let mut best_cash = -1.0_f32;
+        let mut best_cash: i32 = -1;
         let mut best_pos = Coord3D::new(min_bounds.x, min_bounds.y, 0.0);
         let mut x_index = x_start;
         for _ in 0..x_count {
@@ -2497,7 +2497,7 @@ impl AIPlayer {
 
         // Fine tune: C++ uses (x-5) for BOTH axes (legacy bug — keep for parity).
         let mut fine_best = best_pos;
-        let mut fine_cash = -1.0_f32;
+        let mut fine_cash: i32 = -1;
         let mut fine_count = 0_i32;
         let fine_steps = 11;
         for x in 0..fine_steps {
@@ -2514,7 +2514,8 @@ impl AIPlayer {
                     fine_cash = value;
                     fine_best = pos;
                     fine_count = 1;
-                } else if (value - fine_cash).abs() < f32::EPSILON {
+                } else if value == fine_cash {
+                    // C++ averages equal-score samples.
                     fine_best.x += pos.x;
                     fine_best.y += pos.y;
                     fine_count += 1;
@@ -2530,7 +2531,7 @@ impl AIPlayer {
         }
 
         // C++ success = (cash > -1)
-        if fine_cash > -1.0 {
+        if fine_cash > -1 {
             Ok(Some(fine_best))
         } else {
             Ok(None)
@@ -6593,17 +6594,17 @@ impl AIPlayer {
         player_index: i32,
         radius: Real,
         include_military_units: bool,
-    ) -> Result<f32, AiError> {
+    ) -> Result<i32, AiError> {
         let radius = radius.max(4.0 * PATHFIND_CELL_SIZE_F);
         let Some(player_arc) = player_list()
             .read()
             .ok()
             .and_then(|list| list.get_player(player_index).cloned())
         else {
-            return Ok(0.0);
+            return Ok(0);
         };
         let Ok(player_guard) = player_arc.read() else {
-            return Ok(0.0);
+            return Ok(0);
         };
 
         let mut cash = 0.0_f32;
@@ -6670,7 +6671,8 @@ impl AIPlayer {
                 cash += factor * value;
             }
         }
-        Ok(cash)
+        // C++ returns Int (truncates Real cash).
+        Ok(cash as i32)
     }
 }
 
@@ -7477,6 +7479,36 @@ mod tests {
     }
 
     #[test]
+    fn compute_superweapon_target_uses_get_extent_and_int_cash() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn compute_superweapon_target")
+            .expect("compute_superweapon_target");
+        let window = &src[i..src.len().min(i + 5500)];
+        assert!(
+            window.contains("get_extent()")
+                && !window.contains("get_maximum_pathfind_extent()")
+                && window.contains("let mut best_cash: i32 = -1")
+                && window.contains("let mut fine_cash: i32 = -1")
+                && window.contains("value == fine_cash"),
+            "computeSuperweaponTarget must use getExtent + Int cash + int ties"
+        );
+        let j = src
+            .find("/// C++ `AIPlayer::getPlayerSuperweaponValue`")
+            .expect("value");
+        let vw = &src[j..src.len().min(j + 6000)];
+        assert!(
+            vw.contains("-> Result<i32, AiError>") && vw.contains("Ok(cash as i32)"),
+            "getPlayerSuperweaponValue must return Int like C++"
+        );
+        let h = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/helpers.rs"));
+        assert!(
+            h.contains("pub fn get_extent(&self)") && h.contains("guard.get_extent()"),
+            "TheTerrainLogic must expose get_extent"
+        );
+    }
+
+    #[test]
     fn get_player_structure_bounds_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src
@@ -7501,7 +7533,7 @@ mod tests {
             .expect("computeSuperweaponTarget");
         let window = &src[i..src.len().min(i + 5500)];
         assert!(
-            window.contains("x_count, y_count")
+            window.contains("get_extent") && window.contains("x_count, y_count")
                 || (window.contains("x_count") && window.contains("y_count")),
             "grid counts"
         );
