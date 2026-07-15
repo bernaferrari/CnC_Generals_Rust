@@ -1082,3 +1082,9 @@ Load-screen init expands slots from full `PresentationFrame.players` when
 installed (not local-only). Live `get_player` remains boot residual.
 `is_ai` frozen from host AI manager membership on `PresentationPlayerInfo`.
 
+### Presentation player color residual (2026-07-14)
+
+`PresentationPlayerInfo.color_rgb` freezes host skirmish/UI color. Load-screen
+slots pack `apparent_text_color` (0x00RRGGBB). `apparent_color` stays None
+(multiplayer color index not frozen). Fail-closed: not sole GameWorld authority.
+
