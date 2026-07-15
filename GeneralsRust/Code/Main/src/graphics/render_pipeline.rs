@@ -1453,6 +1453,7 @@ impl RenderPipeline {
                     if object.engine_object_id.is_some() {
                         continue;
                     }
+                    // Boot residual only — presentation unit_render_inputs owns model/transform.
                     (
                         *id,
                         gameplay_to_render_transform(object.get_transform_matrix()),
@@ -4441,6 +4442,22 @@ impl ForwardPass {
 mod tests {
     use super::*;
     use crate::assets::models::BlendMode;
+
+    #[test]
+    fn unit_mesh_live_get_template_boot_residual_only() {
+        let src = include_str!("render_pipeline.rs");
+        assert!(
+            src.contains(
+                "Boot residual only — presentation unit_render_inputs owns model/transform"
+            ),
+            "live get_template path must be marked boot residual"
+        );
+        assert!(
+            src.contains("unit_render_inputs()")
+                && src.contains("debug_last_live_unit_identity_reads"),
+            "presentation path must own unit mesh identity when frame set"
+        );
+    }
 
     #[test]
     fn material_pass_classifies_transparent_blend_modes() {
