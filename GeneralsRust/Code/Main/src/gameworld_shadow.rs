@@ -289,6 +289,32 @@ impl GameWorldShadow {
         self.entity_to_host.insert(eid.get(), host.0);
     }
 
+    fn host_player_science_and_upgrades(
+        logic: &GameLogic,
+        host_pid: u32,
+    ) -> (Vec<String>, Vec<String>) {
+        use crate::game_logic::host_upgrades::HostUpgradePhase;
+        let mut sciences = logic
+            .get_player(host_pid)
+            .map(|p| {
+                let mut v: Vec<String> = p.unlocked_sciences.iter().cloned().collect();
+                v.sort();
+                v
+            })
+            .unwrap_or_default();
+        let mut upgrades: Vec<String> = logic
+            .host_upgrades()
+            .entries_snapshot()
+            .into_iter()
+            .filter(|e| e.player_id == host_pid && e.phase == HostUpgradePhase::Completed)
+            .map(|e| e.name)
+            .collect();
+        upgrades.sort();
+        upgrades.dedup();
+        let _ = &mut sciences;
+        (sciences, upgrades)
+    }
+
     fn sync_players(&mut self, logic: &GameLogic) {
         // Rebuild player slots when count/identity changes; economy always refreshed.
         let mut host_ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -345,6 +371,10 @@ impl GameWorldShadow {
                                 pd.power_available = p.power_available;
                                 pd.is_human = p.is_local;
                                 pd.name = p.name.clone();
+                                let (sci, ups) =
+                                    Self::host_player_science_and_upgrades(logic, *pid);
+                                pd.unlocked_sciences = sci;
+                                pd.completed_upgrades = ups;
                             }
                         }
                     } else if let Some(p) = logic.get_player(*pid) {
@@ -367,14 +397,30 @@ impl GameWorldShadow {
                 }
             }
         } else {
-            // Economy-only refresh.
+            // Economy + science/upgrade absolute refresh.
             for (hid, gw) in self.host_player_to_gw.clone() {
                 if let Some(p) = logic.get_player(hid) {
                     if let Some(pd) = self.world.player_mut(gw) {
                         pd.supplies = p.resources.supplies;
                         pd.power_available = p.power_available;
+                        let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
+                        pd.unlocked_sciences = sci;
+                        pd.completed_upgrades = ups;
                     }
                 }
+            }
+        }
+        // Always refresh science/upgrade residual for mapped players (covers rebuild paths).
+        for (hid, gw) in self.host_player_to_gw.clone() {
+            if let Some(pd) = self.world.player_mut(gw) {
+                let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
+                pd.unlocked_sciences = sci;
+                // Merge event-channel completes with absolute host registry snapshot.
+                let mut merged = pd.completed_upgrades.clone();
+                merged.extend(ups);
+                merged.sort();
+                merged.dedup();
+                pd.completed_upgrades = merged;
             }
         }
     }
@@ -564,6 +610,14 @@ impl GameWorldShadow {
     }
 
     /// Count completed upgrade names across mapped shadow players (probe residual).
+    pub fn unlocked_science_count(&self) -> usize {
+        self.world
+            .world()
+            .active_players()
+            .map(|(_, p)| p.unlocked_sciences.len())
+            .sum()
+    }
+
     pub fn completed_upgrade_count(&self) -> usize {
         self.world
             .world()
@@ -1526,6 +1580,30 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_players_copies_unlocked_sciences() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ScienceShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.unlocked_sciences.insert("SCIENCE_PaladinTank".into());
+            p.unlocked_sciences.insert("SCIENCE_Pathfinder".into());
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(
+            shadow.unlocked_science_count() >= 2,
+            "shadow must copy host unlocked sciences"
+        );
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("host_player_science_and_upgrades") && src.contains("unlocked_sciences"),
+            "sync_players must refresh unlocked_sciences residual"
+        );
     }
 
     #[test]
