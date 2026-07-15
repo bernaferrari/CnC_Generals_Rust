@@ -469,7 +469,7 @@ impl AISkirmishPlayer {
                 self.cur_front_base_defense += 1;
             }
 
-            let place_angle = 0.0_f32; // placement_view_angle residual
+            let place_angle = template.get_placement_view_angle();
             let validator = FoundationValidator::new_ai();
             if validator
                 .validate_placement(&build_pos, thing_name, place_angle, player_id)
