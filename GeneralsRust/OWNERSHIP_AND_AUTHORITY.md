@@ -423,3 +423,11 @@ matched the real CLI and left GPU-holding processes that failed the next boot.
 `executable_host_ok` can go true (Menu→InGame via runtime host). `playable_claim`
 stays false until full WND widget click / retail interactive path.
 
+### GameClient presentation shell deepen (2026-07-14)
+
+With a `PresentationFrame`, Main calls `GameClient::update_presentation_shell` which
+now advances frame tick, local drawable modules, particle local-player index, FX/
+weather residual, script display state, post-draw UI, beacon notifications, and
+message pump — still **without** `OBJECT_REGISTRY` shroud binds or Main-owned
+input/audio/3D draw. Full `GameClient::update()` remains disconnected.
+

@@ -235,8 +235,10 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
     // One automatic retry: Booting early-exit is commonly a stale GPU/lock race after
     // pkill -9 (no Drop cleanup). Second attempt after a fresh kill is usually green.
     let first = run_executable_smoke_once(timeout, use_new_game_path);
-    let retryable = matches!(first.status.as_str(), "process_exited" | "timeout" | "no_menu")
-        && !first.reached_menu
+    let retryable = matches!(
+        first.status.as_str(),
+        "process_exited" | "timeout" | "no_menu"
+    ) && !first.reached_menu
         && !first.reached_ingame;
     if !retryable {
         return first;
@@ -245,12 +247,18 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
     let second = run_executable_smoke_once(timeout, use_new_game_path);
     if second.executable_host_ok || second.reached_menu || second.reached_ingame {
         let mut out = second;
-        out.detail = format!("retry_after_boot_race; first={}; {}", first.detail, out.detail);
+        out.detail = format!(
+            "retry_after_boot_race; first={}; {}",
+            first.detail, out.detail
+        );
         return out;
     }
     // Prefer the more informative failure.
     let mut out = first;
-    out.detail = format!("retry_also_failed; second={}; {}", second.detail, out.detail);
+    out.detail = format!(
+        "retry_also_failed; second={}; {}",
+        second.detail, out.detail
+    );
     out
 }
 
