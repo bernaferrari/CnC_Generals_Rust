@@ -5860,33 +5860,43 @@ impl AIPlayer {
             .collect();
         drop(factory_guard);
 
-        let Ok(list) = player_list().read() else {
-            return Ok((false, false));
-        };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return Ok((false, false));
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok((false, false));
-        };
-
+        // Cost calc needs player, but find_factory_internal also locks the player
+        // RwLock (not reentrant) — snapshot money/cost player handle briefly, drop,
+        // then factory-scan, then re-check money.
         let mut any_idle = false;
         let mut cost: f32 = 0.0;
-        for (thing_name, min_units, max_units) in units {
-            let Some(template) = TheThingFactory::find_template(&thing_name) else {
-                continue;
+        {
+            let Ok(list) = player_list().read() else {
+                return Ok((false, false));
             };
+            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+                return Ok((false, false));
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok((false, false));
+            };
+            for (thing_name, min_units, max_units) in &units {
+                let Some(template) = TheThingFactory::find_template(thing_name) else {
+                    continue;
+                };
+                let thing_cost = template.calc_cost_to_build(Some(&*player_guard)) as f32;
+                // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f)
+                cost += thing_cost * ((*max_units as f32 + *min_units as f32) / 2.0);
+            }
+        }
+
+        for (thing_name, _min_units, _max_units) in &units {
+            if TheThingFactory::find_template(thing_name).is_none() {
+                continue;
+            }
             // C++: findFactory(thing, true) — any factory (busy OK). Missing → false.
-            if self.find_factory_internal(&thing_name, true)?.is_none() {
+            if self.find_factory_internal(thing_name, true)?.is_none() {
                 return Ok((false, false));
             }
             // C++: findFactory(thing, false) — idle.
-            if self.find_factory_internal(&thing_name, false)?.is_some() {
+            if self.find_factory_internal(thing_name, false)?.is_some() {
                 any_idle = true;
             }
-            let thing_cost = template.calc_cost_to_build(Some(&*player_guard)) as f32;
-            // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f)
-            cost += thing_cost * ((max_units as f32 + min_units as f32) / 2.0);
         }
 
         let resources_mod = THE_AI
@@ -5902,7 +5912,18 @@ impl AIPlayer {
             .unwrap_or(TEAM_RESOURCES_TO_BUILD);
         cost *= resources_mod;
 
-        let money = player_guard.get_money().get_money();
+        let money = {
+            let Ok(list) = player_list().read() else {
+                return Ok((false, false));
+            };
+            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+                return Ok((false, false));
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok((false, false));
+            };
+            player_guard.get_money().get_money()
+        };
         if (money as f32) < cost {
             return Ok((false, true)); // notEnoughMoney
         }
@@ -5918,39 +5939,34 @@ impl AIPlayer {
     /// Check if team is a good idea to build right now
     /// Matches C++ AIPlayer.cpp:1471 isAGoodIdeaToBuildTeam
     pub(crate) fn is_a_good_idea_to_build_team(&self, team_name: &str) -> Result<bool, AiError> {
-        // Evaluation criteria from C++ AIPlayer.cpp:1471-1518:
-        // 1. Production condition met via evaluateProductionCondition()
-        // 2. Not at max instances: countTeamInstances() < prototype->maxInstances
-        // 3. Not already building same team in build queue
-        // 4. Can afford and has factories via isPossibleToBuildTeam()
+        // C++ AIPlayer::isAGoodIdeaToBuildTeam:
+        // 1. evaluateProductionCondition()
+        // 2. countTeamInstances() >= maxInstances → reject
+        // 3. already building same prototype in TeamBuildQueue → reject
+        // 4. isPossibleToBuildTeam(proto, true, needMoney)
 
-        // Full implementation steps:
-        // 1. Get team prototype by name from TheAI->getTeamPrototypes()
-        // 2. Call evaluateProductionCondition() with current game state
-        // 3. Call countTeamInstances() to count active instances
-        // 4. Scan team_build_queue for duplicate team names
-        // 5. Call isPossibleToBuildTeam() to verify resources and factories
-        // 6. Return true only if all checks pass
-
-        let factory = get_team_factory();
-        let Ok(factory_guard) = factory.lock() else {
-            return Ok(false);
+        // Snapshot under the factory lock, then drop before is_possible_to_build_team
+        // (same Mutex — not reentrant).
+        let (condition_ok, instances, max_instances) = {
+            let factory = get_team_factory();
+            let Ok(factory_guard) = factory.lock() else {
+                return Ok(false);
+            };
+            let Some(proto) = factory_guard.find_team_prototype(team_name) else {
+                return Ok(false);
+            };
+            (
+                proto.evaluate_production_condition(),
+                factory_guard.find_team_instances(team_name).len() as i32,
+                proto.get_max_instances(),
+            )
         };
-        let Some(proto) = factory_guard.find_team_prototype(team_name) else {
-            return Ok(false);
-        };
 
-        // C++ isAGoodIdeaToBuildTeam: evaluateProductionCondition first.
-        if !proto.evaluate_production_condition() {
+        if !condition_ok {
             return Ok(false);
         }
-
-        let instances = factory_guard.find_team_instances(team_name).len() as i32;
-        let max_instances = proto.get_max_instances();
-        if proto.is_singleton() && instances > 0 {
-            return Ok(false);
-        }
-        if max_instances > 0 && instances >= max_instances {
+        // C++ bare: countTeamInstances() >= m_maxInstances
+        if instances >= max_instances {
             return Ok(false);
         }
 
@@ -7273,20 +7289,57 @@ mod tests {
     }
 
     #[test]
+    fn is_a_good_idea_drops_factory_lock_before_possible() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub(crate) fn is_a_good_idea_to_build_team")
+            .expect("good idea");
+        let window = &src[i..src.len().min(i + 2200)];
+        assert!(
+            window.contains("Snapshot under the factory lock")
+                && window.contains("instances >= max_instances")
+                && window.contains("is_possible_to_build_team(team_name, true)"),
+            "isAGoodIdeaToBuildTeam must drop factory Mutex before isPossibleToBuildTeam"
+        );
+        let call = window
+            .find("is_possible_to_build_team(team_name, true)")
+            .expect("call");
+        let before = &window[..call];
+        assert!(
+            before.matches('}').count() >= 2,
+            "factory lock scope must close before is_possible_to_build_team"
+        );
+
+        let j = src.find("fn is_possible_to_build_team(").expect("possible");
+        let pw = &src[j..src.len().min(j + 4500)];
+        assert!(
+            pw.contains("find_factory_internal also locks the player")
+                && pw.contains("then factory-scan")
+                && pw.find("find_factory_internal(thing_name, true)").unwrap()
+                    > pw.find("calc_cost_to_build").unwrap(),
+            "isPossibleToBuildTeam must not hold player RwLock across find_factory"
+        );
+    }
+
+    #[test]
     fn is_possible_to_build_team_avg_cost_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src
             .find("C++ `AIPlayer::isPossibleToBuildTeam`")
             .expect("isPossible doc");
-        let window = &src[i..src.len().min(i + 3500)];
+        let window = &src[i..src.len().min(i + 5500)];
         assert!(
             window.contains("any_idle")
-                && window.contains("find_factory_internal(&thing_name, true)")
-                && window.contains("find_factory_internal(&thing_name, false)")
-                && window.contains("max_units as f32 + min_units as f32")
+                && (window.contains("find_factory_internal(thing_name, true)")
+                    || window.contains("find_factory_internal(&thing_name, true)"))
+                && (window.contains("find_factory_internal(thing_name, false)")
+                    || window.contains("find_factory_internal(&thing_name, false)"))
+                && (window.contains("max_units as f32 + min_units as f32")
+                    || window.contains("*max_units as f32 + *min_units as f32"))
                 && window.contains("team_resources_to_build")
                 && window.contains("notEnoughMoney")
-                && window.contains("!require_idle_factory"),
+                && window.contains("!require_idle_factory")
+                && window.contains("find_factory_internal also locks the player"),
             "isPossibleToBuildTeam must match C++ anyIdle/avg cost/resources mod"
         );
     }
