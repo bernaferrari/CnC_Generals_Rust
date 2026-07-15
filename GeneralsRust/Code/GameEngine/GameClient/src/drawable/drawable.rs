@@ -1529,6 +1529,10 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Set drawable visibility
     fn set_visible(&mut self, visible: bool);
 
+    /// C++ Drawable::setFullyObscuredByShroud residual.
+    /// Default no-op for drawables without shroud state.
+    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+
     /// Check if drawable is selected
     fn is_selected(&self) -> bool;
 
@@ -3464,6 +3468,10 @@ impl Drawable for BasicDrawable {
 
     fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
+    }
+
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        BasicDrawable::set_fully_obscured_by_shroud(self, fully_obscured);
     }
 
     fn is_selected(&self) -> bool {
