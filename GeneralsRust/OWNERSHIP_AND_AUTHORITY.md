@@ -1239,3 +1239,13 @@ Compared C++ `AIPlayer::startTraining` / `findFactory`:
 
 Fail-closed: BuildAssistant::isPossibleToMakeUnit residual; Main host AI separate.
 
+### onUnitProduced teamDelay/setTeam (2026-07-14)
+
+Compared C++ `AIPlayer::onUnitProduced`:
+
+- Match work order by factoryID + incomplete + template equivalent.
+- Increment completed, clear factoryID, setTeam on unit, reinforcementID.
+- SupplyTruck force-wanting when order is resource gatherer (aiDock residual).
+- Dozer: repair-dozer handoff or `buildDelay=0` + `structureTimer=1`.
+- Always `teamDelay = 0` so queues re-evaluate immediately.
+
