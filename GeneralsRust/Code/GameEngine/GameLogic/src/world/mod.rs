@@ -92,6 +92,10 @@ pub struct PlayerData {
     pub supplies: u32,
     /// Power available residual (host power_available).
     pub power_available: i32,
+    /// Host Player::power_produced residual (energy bar supply side).
+    pub power_produced: i32,
+    /// Host Player::power_consumed residual (energy bar demand side).
+    pub power_consumed: i32,
     /// Completed upgrade names residual (host HostUpgradeRegistry complete channel).
     /// Fail-closed: not full PlayerUpgradeManager / science tree parity.
     pub completed_upgrades: Vec<String>,
@@ -255,6 +259,8 @@ impl World {
                 is_human,
                 supplies: 0,
                 power_available: 0,
+                power_produced: 0,
+                power_consumed: 0,
                 completed_upgrades: Vec::new(),
                 unlocked_sciences: Vec::new(),
             });
