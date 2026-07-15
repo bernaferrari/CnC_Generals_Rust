@@ -1033,3 +1033,9 @@ via GameClient display helpers, then `take_pending_movie*`. Runtime-host status
 prefers presentation `match_over`/`victory_label`. Fail-closed: not full BINK
 playback parity; boot path still plays movies when no frame.
 
+### Presentation play time residual (2026-07-14)
+
+`PresentationFrame.total_play_time_seconds` freezes host sim clock. UI
+`current_game_time` prefers presentation (apply_to_ui_state + engine overwrite).
+Live `get_total_play_time` is boot residual only.
+

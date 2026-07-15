@@ -1790,6 +1790,8 @@ pub struct PresentationPopupMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     pub frame: LogicFrame,
+    /// Host sim clock residual (seconds) for UI time readout.
+    pub total_play_time_seconds: f32,
     pub objects: Vec<RenderableObject>,
     pub local_player_id: u32,
     /// Local player team frozen at snapshot time (selection/hotkey residual).
@@ -2424,6 +2426,7 @@ impl PresentationFrame {
 
         Self {
             frame: LogicFrame(logic.get_frame()),
+            total_play_time_seconds: logic.get_total_play_time(),
             objects,
             local_player_id,
             local_team,
@@ -4368,6 +4371,7 @@ impl PresentationFrame {
         use crate::game_logic::victory::PlayerOutcome;
         use crate::ui::{color_for_player, BuildQueueEntry, MinimapDot};
 
+        ui.current_game_time = self.total_play_time_seconds;
         ui.credits = self.local_supplies as i32;
         // Prefer produced/consumed residual when present (energy bar parity).
         ui.power_generated = self.local_power_produced.max(self.local_power).max(0);
