@@ -2103,8 +2103,10 @@ mod tests {
         assert!(
             eng.contains("fn presentation_or_live_game_mode")
                 && eng.contains("Prefer presentation game_mode residual when installed")
-                && eng.matches("presentation_or_live_game_mode()").count() >= 5,
-            "load-screen/quick-save/restart must prefer presentation game_mode helper"
+                && eng.matches("presentation_or_live_game_mode()").count() >= 7
+                && eng.contains("should_keep_logic_running_while_iconic")
+                && eng.contains("engine.presentation_or_live_game_mode()"),
+            "load-screen/quick-save/restart/iconic must prefer presentation game_mode helper"
         );
     }
 

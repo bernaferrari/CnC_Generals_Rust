@@ -10821,7 +10821,8 @@ pub async fn run_cnc_game(
                                 drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                             } else if runtime_window_suspended {
                                 if should_keep_logic_running_while_iconic(
-                                    engine.game_logic.game_mode(),
+                                    // Prefer presentation game_mode residual when installed.
+                                    engine.presentation_or_live_game_mode(),
                                 ) {
                                     drive_frame(
                                         engine,
@@ -10856,7 +10857,10 @@ pub async fn run_cnc_game(
                         }
                         next_redraw_at = now + STARTUP_POLL_INTERVAL;
                     } else if runtime_window_suspended {
-                        if should_keep_logic_running_while_iconic(engine.game_logic.game_mode()) {
+                        if should_keep_logic_running_while_iconic(
+                            // Prefer presentation game_mode residual when installed.
+                            engine.presentation_or_live_game_mode(),
+                        ) {
                             drive_frame(engine, current_window, &mut runtime_host_bridge, false);
                         }
                         next_redraw_at = now + MINIMIZED_POLL_INTERVAL;
