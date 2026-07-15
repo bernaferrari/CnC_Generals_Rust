@@ -1854,7 +1854,8 @@ mod tests {
         );
     }
 
-    fn presentation_shell_eva_via_post_draw_ui_no_dual_input_audio() {
+    #[test]
+    fn presentation_shell_input_device_poll_without_os_audio_draw_dual_own() {
         let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
         let start = gc
             .find("pub fn update_presentation_shell")
@@ -1864,10 +1865,11 @@ mod tests {
             gc.contains("update_presentation_shell")
                 && gc.contains("Eva residual runs via update_post_draw_ui")
                 && gc.contains("update_drawables_local")
-                && !window.contains("self.update_input()?")
+                && window.contains("self.update_input()?")
+                && window.contains("Main still owns OS WindowEvent")
                 && !window.contains("self.update_audio()?")
                 && !window.contains("self.draw_display()?"),
-            "presentation shell must not dual-own input/audio/3D draw"
+            "presentation shell polls client input devices but must not dual-own audio/3D draw"
         );
         assert!(
             gc.contains("fn update_post_draw_ui") && gc.contains("crate::eva::update_eva_system()"),
