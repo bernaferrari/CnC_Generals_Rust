@@ -6070,8 +6070,9 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp).
     ///
-    /// If no dozer already queued, find a KINDOF_DOZER template with a factory,
-    /// priority-queue a team, and startTraining.
+    /// If no dozer already queued, walk ThingFactory for KINDOF_DOZER with a
+    /// factory (busyOK=true), priority-queue a team, and startTraining.
+    /// Does **not** set `dozer_queued_for_repair` (that flag is repair-path only).
     pub(crate) fn queue_dozer(&mut self) -> Result<(), AiError> {
         if self.dozer_in_queue() {
             return Ok(());
@@ -6079,27 +6080,50 @@ impl AIPlayer {
 
         let prev_can = self.set_can_build_units_temp(true);
 
-        const CANDIDATES: &[&str] = &[
-            "AmericaVehicleDozer",
-            "ChinaVehicleDozer",
-            "GLAInfantryWorker",
-            "Dozer",
-            "Worker",
-        ];
-
-        let mut queued = false;
-        for name in CANDIDATES {
-            let Some(template) = TheThingFactory::find_template(name) else {
-                continue;
-            };
-            if !template.is_kind_of(KindOf::Dozer) {
-                continue;
+        // C++: firstTemplate / friend_getNextTemplate for KINDOF_DOZER.
+        let mut dozer_names: Vec<String> = Vec::new();
+        if let Ok(factory_guard) = get_thing_factory() {
+            if let Some(factory) = factory_guard.as_ref() {
+                let mut current = factory.first_template().cloned();
+                while let Some(template) = current {
+                    let name = template.get_name().to_string();
+                    if !name.is_empty()
+                        && TheThingFactory::find_template(&name)
+                            .map(|t| t.is_kind_of(KindOf::Dozer))
+                            .unwrap_or(false)
+                        && !dozer_names.iter().any(|n| n == &name)
+                    {
+                        dozer_names.push(name);
+                    }
+                    current = template.get_next_template().clone();
+                }
             }
-            let Some(factory_id) = self.find_factory_internal(name, true)? else {
+        }
+        // Fallback residual when ThingFactory unloaded (tests / early boot).
+        if dozer_names.is_empty() {
+            for name in [
+                "AmericaVehicleDozer",
+                "ChinaVehicleDozer",
+                "GLAInfantryWorker",
+                "Dozer",
+                "Worker",
+            ] {
+                if TheThingFactory::find_template(name)
+                    .map(|t| t.is_kind_of(KindOf::Dozer))
+                    .unwrap_or(false)
+                {
+                    dozer_names.push(name.to_string());
+                }
+            }
+        }
+
+        for name in dozer_names {
+            // C++ findFactory(tTemplate, true) — busyOK allows queueing on busy factory.
+            let Some(factory_id) = self.find_factory_internal(&name, true)? else {
                 continue;
             };
 
-            let mut order = WorkOrder::new((*name).to_string());
+            let mut order = WorkOrder::new(name.clone());
             order.num_required = 1;
             order.required = true;
             order.is_resource_gatherer = false;
@@ -6126,14 +6150,12 @@ impl AIPlayer {
             let _ = self.start_training_internal(&mut order, true, &team_name)?;
             team.work_orders.push(order);
             self.team_build_queue.push_front(team);
-            self.dozer_queued_for_repair = true;
-            log::debug!("DOZER - building one at factory {}", factory_id);
-            queued = true;
+            // C++ queueDozer does not set m_dozerQueuedForRepair.
+            log::debug!("DOZER - building one {} at factory {}", name, factory_id);
             break;
         }
 
         self.set_can_build_units_temp(prev_can);
-        let _ = queued;
         Ok(())
     }
 
@@ -7677,13 +7699,16 @@ mod tests {
     fn queue_dozer_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src.find("C++ `AIPlayer::queueDozer`").expect("queueDozer");
-        let window = &src[i..src.len().min(i + 3500)];
+        let window = &src[i..src.len().min(i + 4500)];
         assert!(
             window.contains("dozer_in_queue")
                 && window.contains("set_can_build_units_temp")
                 && window.contains("start_training_internal")
                 && window.contains("priority_build = true")
-                && window.contains("KindOf::Dozer"),
+                && window.contains("KindOf::Dozer")
+                && window.contains("first_template")
+                && window.contains("get_next_template")
+                && !window.contains("dozer_queued_for_repair = true"),
             "queueDozer must gate queue, enable units, startTraining priority dozer"
         );
     }
@@ -7737,6 +7762,23 @@ mod tests {
                 && gw.contains("get_bounding_circle_radius")
                 && gw.contains("get_player_structure_bounds"),
             "guardSupplyCenter must force check, offset, and guard"
+        );
+    }
+
+    #[test]
+    fn queue_dozer_does_not_set_repair_flag_like_cpp() {
+        // C++ queueDozer never sets m_dozerQueuedForRepair (repair path only).
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("pub(crate) fn queue_dozer").expect("queue_dozer");
+        let end = src[i..].find("pub fn dozer_in_queue").unwrap_or(5000);
+        let window = &src[i..i + end];
+        assert!(
+            !window.contains("dozer_queued_for_repair = true"),
+            "queueDozer must not stamp dozer_queued_for_repair"
+        );
+        assert!(
+            window.contains("first_template") && window.contains("KindOf::Dozer"),
+            "queueDozer must walk ThingFactory dozer templates"
         );
     }
 
