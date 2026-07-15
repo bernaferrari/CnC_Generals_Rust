@@ -267,13 +267,19 @@ impl AISkirmishPlayer {
 
         if found_unbuilt {
             self.base.set_build_delay_frames(0);
-        } else if !found {
-            if let Err(err) = self.base.build_specific_ai_building(thing_name) {
-                log::debug!(
-                    "AISkirmishPlayer::build_specific_ai_building('{}') failed: {err}",
-                    thing_name
-                );
-            }
+            log::debug!("Queueing building '{}' for construction.", thing_name);
+        } else if found {
+            log::debug!(
+                "Warning - all instances of building '{}' are already built or queued for build, not queueing.",
+                thing_name
+            );
+        } else {
+            // C++ AISkirmishPlayer::buildSpecificAIBuilding — only marks existing
+            // build-list entries; does not invent new ones via solo AIPlayer.
+            log::debug!(
+                "Error - could not find building '{}' in the building template list.",
+                thing_name
+            );
         }
     }
 
