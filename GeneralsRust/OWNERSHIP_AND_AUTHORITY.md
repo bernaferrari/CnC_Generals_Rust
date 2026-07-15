@@ -809,3 +809,11 @@ presentation. HUD `sync_selection_from_presentation` opens the construction
 panel with override residual for producer selections. Fail-closed: not full
 CommandSet INI tab population from override name.
 
+### Presentation overlay_gameworld_shadow entity residual (2026-07-14)
+
+`PresentationFrame::overlay_gameworld_shadow` applies expanded Entity residual
+as last-writer for presentation: pose/HP/selection/construction/status,
+team_color, weapon range/damage, stealth/detector flags, force_attack,
+show_health_bar, and command_set_override. Fail-closed: not sole GameWorld
+authority (host still builds the base freeze).
+

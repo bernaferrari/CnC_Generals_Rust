@@ -3181,19 +3181,112 @@ impl PresentationFrame {
                 ent.transform.position.z,
             );
             let h = ent.health.max(0.0);
-            let destroyed = h <= 0.0;
-            if (obj.position - pos).length_squared() > 1e-6
-                || (obj.health_current - h).abs() > 1e-3
-                || obj.destroyed != destroyed
-            {
+            let destroyed = h <= 0.0 || ent.destroyed;
+            // Always apply shadow last-writer residual for presentation identity.
+            let mut dirty = false;
+            if (obj.position - pos).length_squared() > 1e-6 {
                 obj.position = pos;
+                dirty = true;
+            }
+            if (obj.orientation - ent.transform.orientation).abs() > 1e-5 {
                 obj.orientation = ent.transform.orientation;
-                obj.move_destination = ent.move_target.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
-                obj.attack_target = ent
-                    .attack_target
-                    .and_then(|tid| shadow.host_for_entity(tid));
+                dirty = true;
+            }
+            let move_dest = ent.move_target.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
+            if obj.move_destination != move_dest {
+                obj.move_destination = move_dest;
+                dirty = true;
+            }
+            let atk = ent
+                .attack_target
+                .and_then(|tid| shadow.host_for_entity(tid));
+            if obj.attack_target != atk {
+                obj.attack_target = atk;
+                dirty = true;
+            }
+            if (obj.health_current - h).abs() > 1e-3 {
                 obj.health_current = h;
+                dirty = true;
+            }
+            if (obj.health_max - ent.max_health).abs() > 1e-3 && ent.max_health > 0.0 {
+                obj.health_max = ent.max_health;
+                dirty = true;
+            }
+            if obj.destroyed != destroyed {
                 obj.destroyed = destroyed;
+                dirty = true;
+            }
+            if obj.selected != ent.selected {
+                obj.selected = ent.selected;
+                dirty = true;
+            }
+            if obj.under_construction != ent.under_construction {
+                obj.under_construction = ent.under_construction;
+                dirty = true;
+            }
+            if (obj.construction_percent - ent.construction_percent).abs() > 1e-4 {
+                obj.construction_percent = ent.construction_percent;
+                dirty = true;
+            }
+            if obj.moving != ent.moving {
+                obj.moving = ent.moving;
+                dirty = true;
+            }
+            if obj.attacking != ent.attacking {
+                obj.attacking = ent.attacking;
+                dirty = true;
+            }
+            if obj.team_color != ent.team_color {
+                obj.team_color = ent.team_color;
+                dirty = true;
+            }
+            if (obj.selection_radius - ent.selection_radius).abs() > 1e-3 {
+                obj.selection_radius = ent.selection_radius;
+                dirty = true;
+            }
+            if obj.stealthed != ent.stealthed {
+                obj.stealthed = ent.stealthed;
+                dirty = true;
+            }
+            if obj.detected != ent.detected {
+                obj.detected = ent.detected;
+                dirty = true;
+            }
+            if obj.force_attack != ent.force_attack {
+                obj.force_attack = ent.force_attack;
+                dirty = true;
+            }
+            if obj.has_weapon != ent.has_weapon {
+                obj.has_weapon = ent.has_weapon;
+                dirty = true;
+            }
+            if (obj.weapon_range - ent.weapon_range).abs() > 1e-3 {
+                obj.weapon_range = ent.weapon_range;
+                dirty = true;
+            }
+            if (obj.weapon_damage - ent.weapon_damage).abs() > 1e-3 {
+                obj.weapon_damage = ent.weapon_damage;
+                dirty = true;
+            }
+            if obj.command_set_override != ent.command_set_override {
+                obj.command_set_override = ent.command_set_override.clone();
+                dirty = true;
+            }
+            if obj.is_detector != ent.is_detector {
+                obj.is_detector = ent.is_detector;
+                dirty = true;
+            }
+            if obj.show_health_bar != ent.show_health_bar {
+                obj.show_health_bar = ent.show_health_bar;
+                dirty = true;
+            }
+            // Effectively stealthed residual from shadow flags.
+            let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
+            if obj.effectively_stealthed != eff {
+                obj.effectively_stealthed = eff;
+                dirty = true;
+            }
+            if dirty {
                 updated += 1;
             }
         }
@@ -4241,6 +4334,79 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn overlay_gameworld_shadow_copies_entity_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::gameworld_shadow::GameWorldShadow;
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("OverlayShadowRes");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("OvlU") {
+            let mut t = ThingTemplate::new("OvlU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("OvlU".into(), t);
+        }
+        let id = logic
+            .create_object("OvlU", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        {
+            use crate::game_logic::Weapon;
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.selected = true;
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+            obj.command_set_override = Some("Command_ShadowOvl".into());
+            obj.is_detector = true;
+            obj.weapon = Some(Weapon {
+                damage: 15.0,
+                range: 120.0,
+                min_range: 0.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                ammo: None,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+            });
+            obj.force_attack = true;
+            obj.show_health_bar = false;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Poison host after sync — overlay must use shadow residual.
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.position = glam::Vec3::new(999.0, 0.0, 999.0);
+            obj.selected = false;
+            obj.command_set_override = None;
+            obj.status.stealthed = false;
+        }
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        // Host freeze has poisoned values; overlay restores shadow.
+        let n = frame.overlay_gameworld_shadow(&shadow);
+        assert!(n >= 1, "overlay must update at least one object");
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert!(
+            (ro.position.x - 2.0).abs() < 0.1,
+            "shadow pose wins, got {:?}",
+            ro.position
+        );
+        assert!(ro.selected, "shadow selected residual");
+        assert!(ro.stealthed && !ro.detected && ro.effectively_stealthed);
+        assert_eq!(ro.command_set_override, "Command_ShadowOvl");
+        assert!(ro.is_detector && ro.force_attack);
+        assert!(!ro.show_health_bar);
+        assert!((ro.weapon_range - 120.0).abs() < 0.01);
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("obj.command_set_override = ent.command_set_override.clone()")
+                && src.contains("obj.selected = ent.selected")
+                && src.contains("shadow last-writer residual"),
+            "overlay must copy expanded entity residual"
+        );
+    }
+
     fn unit_display_info_carries_command_set_override_residual() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
