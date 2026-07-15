@@ -974,3 +974,10 @@ prefers `pres.match_over` / Victory event for end-of-match UI. Live
 `evaluate_victory_condition` is boot residual only when no frame is installed.
 Fail-closed: VictorySummary stats tables still host-built in show_victory_screen.
 
+### Presentation VictorySummary residual (2026-07-14)
+
+`PresentationFrame.victory_summary` freezes host `build_victory_summary` at
+evaluate time. `show_victory_screen` prefers that residual; live rebuild is boot
+residual only when no frame summary exists. Fail-closed: not live scoreboard
+re-aggregate after post-match object churn.
+
