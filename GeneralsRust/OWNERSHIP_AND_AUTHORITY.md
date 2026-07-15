@@ -456,3 +456,9 @@ per-frame freeze).
 Map-load and per-frame render apply skybox from the snapshot when present;
 live `GameLogic` skybox/metadata is boot residual only.
 
+### AI placement deterministic RNG (2026-07-14)
+
+`AIPlayer` building scatter uses `HostRandomState` (retail ADC RandomValue residual)
+seeded from `player_id`, replacing `rand::thread_rng`. Same slot/seed → same
+placement draws (determinism residual; not full C++ AIData.ini personality parity).
+
