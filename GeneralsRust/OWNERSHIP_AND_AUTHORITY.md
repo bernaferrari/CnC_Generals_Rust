@@ -552,3 +552,9 @@ still false (not full interactive retail navigation).
 after effects, still skipping `draw_display` (Main RenderPipeline sole present).
 Full `GameClient::update()` remains disconnected for input/audio dual-ownership.
 
+### Presentation mouse world-bounds residual (2026-07-14)
+
+`update_mouse_world_position` prefers `PresentationFrame.world_env` bounds for
+screen→world click mapping when a frame is installed. Live `GameLogic::world_bounds`
+remains boot residual without presentation.
+
