@@ -8,6 +8,7 @@ use crate::common::Snapshot;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory};
 use crate::object::production::construction::FoundationValidator;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::SpecialPowerTemplate;
 use crate::object::special_power_types::SpecialPowerType as ObjectSpecialPowerType;
 use crate::object::*;
@@ -1435,6 +1436,22 @@ impl AISkirmishPlayer {
         };
 
         if let Some(obj_id) = command_center_id {
+            // C++: m_player->onStructureUndone(obj);
+            //      TheAI->pathfinder()->removeObjectFromPathfindMap(obj);
+            //      TheGameLogic->destroyObject(obj);
+            // onStructureUndone residual deferred (Player hook not ported); clear
+            // pathfind obstacle before destroy so rebuild sites are walkable.
+            let positions: Vec<Coord3D> = OBJECT_REGISTRY
+                .get_object(obj_id)
+                .and_then(|arc| arc.read().ok().map(|g| vec![*g.get_position()]))
+                .unwrap_or_default();
+            if let Ok(ai_guard) = THE_AI.read() {
+                if let Some(pf_arc) = ai_guard.pathfinder() {
+                    if let Ok(mut pf) = pf_arc.write() {
+                        pf.remove_object_from_map(obj_id, &positions);
+                    }
+                }
+            }
             if let Ok(mut manager) = obj_manager.write() {
                 manager.destroy_object(obj_id);
             }
@@ -2694,6 +2711,26 @@ mod tests {
             .windows(4)
             .any(|window| window == &0x1234_5678u32.to_le_bytes()));
     }
+
+    #[test]
+    fn adjust_build_list_removes_pathfind_before_destroy_like_cpp() {
+        // C++ AISkirmishPlayer::adjustBuildList: pathfinder removeObjectFromPathfindMap
+        // then destroyObject on starting command center.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src.find("fn adjust_build_list").expect("adjust_build_list");
+        let window = &src[i..src.len().min(i + 4500)];
+        assert!(
+            window.contains("remove_object_from_map")
+                && window.contains("destroy_object")
+                && window.contains("rotate_skirmish_bases")
+                && window.contains("set_initially_built(true)"),
+            "adjustBuildList must pathfind-remove CC, destroy, rotate, mark initiallyBuilt"
+        );
+    }
+
     #[test]
     fn skirmish_base_defense_and_new_map_cpp_surface() {
         let src = include_str!(concat!(
