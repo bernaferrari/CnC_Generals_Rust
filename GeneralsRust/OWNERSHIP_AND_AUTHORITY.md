@@ -438,3 +438,15 @@ when a presentation frame is installed. Empty list is fail-closed (no live
 `last_parsed_map_settings` dual-read). Live metadata remains boot/loading-only
 when `execute(..., game_logic: Some(_))` without presentation.
 
+### Roads/minimap presentation fail-closed (2026-07-14)
+
+With `PresentationFrame` installed:
+- `sync_runtime_map_roads` uses snapshot road/bridge lists only (empty = no bake),
+  never `terrain_road_segments_snapshot` dual-read.
+- Minimap base height samples from presentation coarse grid only; live
+  `terrain_height_at` is boot/loading residual when no presentation env.
+
+Full GPU heightmap payload at map-start may still load via
+`load_heightmap_from_runtime_terrain` when no file hint exists (too large for
+per-frame freeze).
+

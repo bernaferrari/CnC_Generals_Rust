@@ -2646,69 +2646,68 @@ impl RenderPipeline {
     pub fn sync_runtime_map_roads(&mut self, game_logic: Option<&GameLogic>) -> Result<()> {
         #[cfg(feature = "game_client")]
         {
-            let (road_segments, bridge_segments) = if let Some(env) = self
-                .presentation_frame
-                .as_ref()
-                .map(|p| &p.world_env)
-                .filter(|e| !e.road_segments.is_empty() || !e.bridge_segments.is_empty())
-            {
-                let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
-                    env.road_segments
+            // When presentation is installed, roads/bridges are snapshot-owned even if
+            // empty (fail-closed: no live dual-read mid-frame). Live GameLogic residual
+            // only for boot/loading without a presentation frame.
+            let (road_segments, bridge_segments) =
+                if let Some(env) = self.presentation_frame.as_ref().map(|p| &p.world_env) {
+                    let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
+                        env.road_segments
+                            .iter()
+                            .map(|segment| {
+                                game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
+                                    // Presentation stores [x,y,z]; visual wants [x,z,y] like live path.
+                                    start: [segment.from[0], segment.from[2], segment.from[1]],
+                                    end: [segment.to[0], segment.to[2], segment.to[1]],
+                                    width: segment.width,
+                                    template_name: segment.template_name.clone(),
+                                    width_in_texture: segment.width_in_texture,
+                                    road_type_id: segment.road_type_id,
+                                    start_is_angled: segment.start_is_angled,
+                                    start_is_join: segment.start_is_join,
+                                    end_is_angled: segment.end_is_angled,
+                                    end_is_join: segment.end_is_join,
+                                    curve_radius: segment.curve_radius,
+                                }
+                            })
+                            .collect();
+                    let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = env
+                        .bridge_segments
                         .iter()
-                        .map(|segment| {
-                            game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
-                                // Presentation stores [x,y,z]; visual wants [x,z,y] like live path.
-                                start: [segment.from[0], segment.from[2], segment.from[1]],
-                                end: [segment.to[0], segment.to[2], segment.to[1]],
-                                width: segment.width,
-                                template_name: segment.template_name.clone(),
-                                width_in_texture: segment.width_in_texture,
-                                road_type_id: segment.road_type_id,
-                                start_is_angled: segment.start_is_angled,
-                                start_is_join: segment.start_is_join,
-                                end_is_angled: segment.end_is_angled,
-                                end_is_join: segment.end_is_join,
-                                curve_radius: segment.curve_radius,
-                            }
+                        .map(|b| (b.start, b.end, b.width, b.template_name.clone()))
+                        .collect();
+                    (roads, bridges)
+                } else if let Some(gl) = game_logic {
+                    let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
+                        gl.terrain_road_segments_snapshot()
+                            .into_iter()
+                            .map(|segment| {
+                                game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
+                                    start: [segment.from.x, segment.from.z, segment.from.y],
+                                    end: [segment.to.x, segment.to.z, segment.to.y],
+                                    width: segment.width,
+                                    template_name: segment.template_name,
+                                    width_in_texture: segment.width_in_texture,
+                                    road_type_id: segment.road_type_id,
+                                    start_is_angled: segment.start_is_angled,
+                                    start_is_join: segment.start_is_join,
+                                    end_is_angled: segment.end_is_angled,
+                                    end_is_join: segment.end_is_join,
+                                    curve_radius: segment.curve_radius,
+                                }
+                            })
+                            .collect();
+                    let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = gl
+                        .terrain_bridge_segments_snapshot()
+                        .into_iter()
+                        .map(|(start, end, width, template_name)| {
+                            (start.to_array(), end.to_array(), width, template_name)
                         })
                         .collect();
-                let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = env
-                    .bridge_segments
-                    .iter()
-                    .map(|b| (b.start, b.end, b.width, b.template_name.clone()))
-                    .collect();
-                (roads, bridges)
-            } else if let Some(gl) = game_logic {
-                let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> = gl
-                    .terrain_road_segments_snapshot()
-                    .into_iter()
-                    .map(
-                        |segment| game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
-                            start: [segment.from.x, segment.from.z, segment.from.y],
-                            end: [segment.to.x, segment.to.z, segment.to.y],
-                            width: segment.width,
-                            template_name: segment.template_name,
-                            width_in_texture: segment.width_in_texture,
-                            road_type_id: segment.road_type_id,
-                            start_is_angled: segment.start_is_angled,
-                            start_is_join: segment.start_is_join,
-                            end_is_angled: segment.end_is_angled,
-                            end_is_join: segment.end_is_join,
-                            curve_radius: segment.curve_radius,
-                        },
-                    )
-                    .collect();
-                let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = gl
-                    .terrain_bridge_segments_snapshot()
-                    .into_iter()
-                    .map(|(start, end, width, template_name)| {
-                        (start.to_array(), end.to_array(), width, template_name)
-                    })
-                    .collect();
-                (roads, bridges)
-            } else {
-                return Ok(());
-            };
+                    (roads, bridges)
+                } else {
+                    return Ok(());
+                };
             if road_segments.is_empty() && bridge_segments.is_empty() {
                 return Ok(());
             }
@@ -2925,10 +2924,16 @@ impl RenderPipeline {
                     0.0,
                     world_min.z + v * world_span_z,
                 );
-                let sample = if use_pres_heights {
-                    height_env.and_then(|e| e.sample_height(world.x, world.z))
+                let sample = if height_env.is_some() {
+                    // Presentation installed: use coarse grid only (None sample = empty
+                    // cell). Do not dual-read live terrain_height_at.
+                    if use_pres_heights {
+                        height_env.and_then(|e| e.sample_height(world.x, world.z))
+                    } else {
+                        None
+                    }
                 } else {
-                    // Live fallback only when presentation height residual is absent.
+                    // Boot/loading without presentation: live residual.
                     game_logic.and_then(|g| g.terrain_height_at(world))
                 };
                 if let Some(h) = sample {
@@ -4614,6 +4619,49 @@ mod tests {
         assert!(
             window.contains("fow_shell_bypass") && window.contains("isInShellGame"),
             "shell FOW must prefer presentation then live: {window}"
+        );
+    }
+
+    #[test]
+    fn roads_and_minimap_fail_closed_with_presentation() {
+        let src = include_str!("render_pipeline.rs");
+        let roads = src
+            .split("fn sync_runtime_map_roads")
+            .nth(1)
+            .and_then(|s| {
+                s.split(
+                    "
+    pub fn ",
+                )
+                .next()
+            })
+            .expect("roads body");
+        assert!(
+            roads.contains("presentation_frame.as_ref().map(|p| &p.world_env)"),
+            "roads must key off presentation frame presence"
+        );
+        assert!(
+            !roads.contains(".filter(|e| !e.road_segments.is_empty()"),
+            "empty presentation roads must not fall through to live dual-read filter"
+        );
+        let mm = src
+            .split("fn build_minimap_terrain_base_texture")
+            .nth(1)
+            .and_then(|s| {
+                s.split(
+                    "
+    fn ",
+                )
+                .next()
+            })
+            .expect("minimap body");
+        assert!(
+            mm.contains("if height_env.is_some()"),
+            "minimap must fail-closed on presentation height env without live sample"
+        );
+        assert!(
+            mm.contains("game_logic.and_then(|g| g.terrain_height_at(world))"),
+            "live height residual remains for boot path without presentation"
         );
     }
 
