@@ -214,7 +214,7 @@ impl GameWorldShadow {
         }
     }
 
-    fn host_ai_state_ordinal(s: &crate::game_logic::AIState) -> u8 {
+    pub(crate) fn host_ai_state_ordinal(s: &crate::game_logic::AIState) -> u8 {
         use crate::game_logic::AIState as A;
         match s {
             A::Idle => 0,
