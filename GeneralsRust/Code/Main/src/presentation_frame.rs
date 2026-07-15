@@ -4804,6 +4804,55 @@ impl PresentationFrame {
         n
     }
 
+    /// Ensure active presentation particle systems are mirrored into the GameClient
+    /// ParticleSystemManager (same-frame residual). Prefer existing client_system_id;
+    /// backfill when host spawn mirror was skipped/failed.
+    /// Fail-closed: not full W3D GPU particle parity.
+    pub fn apply_particle_systems_to_client(&self) -> usize {
+        let mut n = 0usize;
+        for p in self.particle_systems.iter().filter(|p| p.active) {
+            if p.client_system_id.is_some() {
+                continue;
+            }
+            if crate::game_logic::combat_particles::mirror_spawn_to_client_manager(
+                &p.template_name,
+                p.position,
+            )
+            .is_some()
+            {
+                n += 1;
+            }
+        }
+        // Spawn events without prior client id residual (same-frame observe path).
+        for ev in &self.events {
+            if let PresentationEvent::ParticleSystemSpawned {
+                template_name,
+                position,
+                ..
+            } = ev
+            {
+                // If already covered by particle_systems list with client id, skip.
+                let already = self.particle_systems.iter().any(|p| {
+                    p.template_name == *template_name
+                        && (p.position - *position).length_squared() < 1e-4
+                        && p.client_system_id.is_some()
+                });
+                if already {
+                    continue;
+                }
+                if crate::game_logic::combat_particles::mirror_spawn_to_client_manager(
+                    template_name,
+                    *position,
+                )
+                .is_some()
+                {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
     /// Snapshot-owned ControlBar / WND selection panel (health + name).
     pub fn control_bar_selection_panel(&self) -> crate::ui::ControlBarSelectionPanelState {
         let mut panel = crate::ui::ControlBarSelectionPanelState::from_unit_infos(

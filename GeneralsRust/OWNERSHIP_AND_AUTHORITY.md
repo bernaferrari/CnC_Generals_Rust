@@ -960,3 +960,10 @@ After `PresentationFrame::apply_events_to_audio`, engine calls
 `GameLogic::process_audio_events` so presentation-queued SFX drain same frame
 (not delayed to next host tick). Fail-closed: not Miles device spatial parity.
 
+### Presentation particle client mirror residual (2026-07-14)
+
+`PresentationFrame::apply_particle_systems_to_client` backfills GameClient
+ParticleSystemManager for active systems missing `client_system_id` and for
+`ParticleSystemSpawned` events. Engine invokes it same-frame after audio drain.
+Fail-closed: not full W3D GPU particle parity.
+
