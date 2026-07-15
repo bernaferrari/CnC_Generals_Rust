@@ -2945,7 +2945,7 @@ mod presentation_shell_deepen_tests {
         let idx = src
             .find("fn update_presentation_shell")
             .expect("presentation shell");
-        let window = &src[idx..idx + 2200];
+        let window = &src[idx..idx + 2800];
         assert!(
             window.contains("get_script_visual_speed_multiplier"),
             "shell must scale visual delta by script visual speed"
@@ -2957,6 +2957,14 @@ mod presentation_shell_deepen_tests {
         assert!(
             window.contains("update_display_string_manager"),
             "shell must tick DisplayStringManager residual"
+        );
+        assert!(
+            window.contains("update_display_only"),
+            "shell must run display UPDATE residual (not DRAW)"
+        );
+        assert!(
+            window.contains("draw_drawable_icon_ui"),
+            "shell must run drawable icon UI residual"
         );
         assert!(
             !window.contains("self.update_input")
