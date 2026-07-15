@@ -5315,6 +5315,8 @@ impl AIPlayer {
             return 0;
         };
         let mut cur = 0;
+        // Collect dock commands outside locks (C++ aiDock CMD_FROM_PLAYER).
+        let mut redock: Vec<ObjectID> = Vec::new();
         for obj_id in pg.get_all_objects() {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 continue;
@@ -5336,7 +5338,21 @@ impl AIPlayer {
             };
             if truck.get_preferred_dock_id() == Some(center_id) {
                 cur += 1;
-                // aiDock residual when not ferrying (CMD_FROM_PLAYER).
+                // C++: if (!isCurrentlyFerryingSupplies()) aiDock(center, CMD_FROM_PLAYER)
+                if !truck.is_currently_ferrying_supplies() {
+                    redock.push(obj_id);
+                }
+            }
+        }
+        drop(pg);
+        drop(list);
+        for truck_id in redock {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(truck_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    if let Some(ai) = obj.get_ai_update_interface() {
+                        ai.ai_dock(center_id, CommandSourceType::FromPlayer);
+                    }
+                }
             }
         }
         cur
@@ -5398,12 +5414,20 @@ impl AIPlayer {
                 continue;
             }
             if truck.is_currently_ferrying_supplies() || truck.is_forced_into_wanting_state() {
-                // Re-attach residual: bump current gatherers (aiDock CMD_FROM_PLAYER deferred).
+                // C++: bump current gatherers and aiDock(center, CMD_FROM_PLAYER).
                 drop(ai_g);
                 drop(obj);
+                // Issue dock before recount so preferred dock can stick.
+                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                    if let Ok(og) = obj_arc.read() {
+                        if let Some(ai) = og.get_ai_update_interface() {
+                            ai.ai_dock(center_id, CommandSourceType::FromPlayer);
+                        }
+                    }
+                }
                 self.set_build_list_current_gatherers(
                     center_id,
-                    self.recount_and_redock_harvesters(center_id) + 1,
+                    self.recount_and_redock_harvesters(center_id),
                 );
                 log::debug!("Re-attaching supply truck to supply center.");
                 return Ok(true);
@@ -7307,13 +7331,16 @@ mod tests {
         let i = src
             .find("C++ `AIPlayer::queueSupplyTruck`")
             .expect("queueSupplyTruck");
-        let window = &src[i..src.len().min(i + 8000)];
+        let window = &src[i..src.len().min(i + 12000)];
         assert!(
             window.contains("truck_in_queue")
                 && window.contains("is_resource_gatherer")
                 && window.contains("count_player_harvesters")
                 && window.contains("is_supply_building")
                 && window.contains("queue_one_harvester_at_factory")
+                && window.contains("recount_and_redock_harvesters")
+                && window.contains("ai_dock")
+                && window.contains("FromPlayer")
                 && window.contains("try_reattach_loose_harvester")
                 && window.contains("desired.saturating_mul(3)"),
             "queueSupplyTruck must skip-if-queued, recount, reattach, train harvester"
