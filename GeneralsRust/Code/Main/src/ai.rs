@@ -626,49 +626,71 @@ impl AIPlayer {
         }
     }
 
+    /// Estimate average unit-cost residual for a named host team composition.
+    /// C++ uses (min+max)/2 from TeamPrototype; host work-orders use fixed counts.
+    fn estimate_team_unit_cost(&self, game_logic: &GameLogic, team_name: &str) -> u32 {
+        let orders = self.create_work_orders_for_team(team_name);
+        let mut cost = 0u32;
+        for order in orders {
+            let unit_cost = game_logic
+                .templates
+                .get(&order.template_name)
+                .map(|t| t.build_cost.supplies)
+                .unwrap_or(0);
+            cost = cost.saturating_add(unit_cost.saturating_mul(order.num_required as u32));
+        }
+        cost
+    }
+
+    /// C++ `isPossibleToBuildTeam` money residual:
+    /// `cost *= m_teamResourcesToBuild` then require `money >= cost`.
+    fn can_afford_team_start(&self, game_logic: &GameLogic, team_name: &str) -> bool {
+        let Some(player) = game_logic.get_player(self.player_id) else {
+            return false;
+        };
+        let full = self.estimate_team_unit_cost(game_logic, team_name) as f32;
+        let required = (full * Self::TEAM_RESOURCES_TO_START).ceil() as u32;
+        player.resources.supplies >= required
+    }
+
+    /// Pick candidate team name for the current strategy (same as select_team_to_build).
+    fn candidate_team_name(&self) -> Option<String> {
+        match self.current_strategy {
+            AIStrategy::EarlyGame => self.select_early_game_team(),
+            AIStrategy::MidGame => self.select_mid_game_team(),
+            AIStrategy::LateGame => self.select_late_game_team(),
+            AIStrategy::Desperate => self.select_desperate_team(),
+        }
+    }
+
     /// Check if AI should build a new team
     fn should_build_new_team(&self, game_logic: &GameLogic) -> bool {
         // Don't build if queue is full
         if self.team_queue.len() >= 3 {
             return false;
         }
-        // Early skirmish: always try to queue a first force once economy started.
-        if self.team_queue.is_empty() && self.activity_count >= 1 {
-            return true;
-        }
-
-        // Check if we have resources for a basic team
-        if let Some(player) = game_logic.get_player(self.player_id) {
-            let min_resources = match self.difficulty {
-                AIDifficulty::Easy => 300,
-                AIDifficulty::Medium => 500,
-                AIDifficulty::Hard => 800,
-                AIDifficulty::Brutal => 1000,
-            };
-
-            player.resources.supplies >= min_resources
-        } else {
-            false
-        }
+        let Some(team_name) = self.candidate_team_name() else {
+            return false;
+        };
+        // AIData TeamResourcesToStart residual (default 0.1 of estimated unit cost).
+        self.can_afford_team_start(game_logic, &team_name)
     }
 
     /// Select which team to build based on strategy
-    fn select_team_to_build(&mut self, _game_logic: &mut GameLogic, current_time: f32) {
-        let team_name = match self.current_strategy {
-            AIStrategy::EarlyGame => self.select_early_game_team(),
-            AIStrategy::MidGame => self.select_mid_game_team(),
-            AIStrategy::LateGame => self.select_late_game_team(),
-            AIStrategy::Desperate => self.select_desperate_team(),
+    fn select_team_to_build(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        let Some(name) = self.candidate_team_name() else {
+            return;
         };
-
-        if let Some(name) = team_name {
-            let team_queue = self.create_team_queue(&name, current_time);
-            self.team_queue.push_back(team_queue);
-            // Queuing a production team is a distinct production-linked AI action.
-            self.activity_count = self.activity_count.saturating_add(1);
-
-            log::debug!("AI Player {} queued team: {}", self.player_id, name);
+        // Fail-closed second check at queue time (cash can change mid-tick).
+        if !self.can_afford_team_start(game_logic, &name) {
+            return;
         }
+        let team_queue = self.create_team_queue(&name, current_time);
+        self.team_queue.push_back(team_queue);
+        // Queuing a production team is a distinct production-linked AI action.
+        self.activity_count = self.activity_count.saturating_add(1);
+
+        log::debug!("AI Player {} queued team: {}", self.player_id, name);
     }
 
     /// Select early game team composition
@@ -1430,6 +1452,43 @@ mod cpp_parity_tests {
             ai.scaled_interval_seconds(&logic, AIPlayer::STRUCTURE_SECONDS, true),
             0.0
         );
+    }
+
+    #[test]
+    fn aidata_team_resources_to_start_gates_queue() {
+        // C++ isPossibleToBuildTeam: required = ceil(unit_cost_sum * TeamResourcesToStart).
+        assert!((AIPlayer::TEAM_RESOURCES_TO_START - 0.1).abs() < 1e-5);
+        let mut logic = crate::game_logic::GameLogic::new();
+        // Seed templates with known build costs.
+        let mut ranger = crate::game_logic::ThingTemplate::new("USA_Ranger");
+        ranger.set_cost(225, 0);
+        logic.templates.insert("USA_Ranger".into(), ranger);
+        let mut humvee = crate::game_logic::ThingTemplate::new("USA_Humvee");
+        humvee.set_cost(700, 0);
+        logic.templates.insert("USA_Humvee".into(), humvee);
+
+        let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        // USA_BasicForce = 2*Ranger + 1*Humvee = 2*225 + 700 = 1150; *0.1 = 115.
+        let full = ai.estimate_team_unit_cost(&logic, "USA_BasicForce");
+        assert_eq!(full, 1150);
+        let required = (full as f32 * AIPlayer::TEAM_RESOURCES_TO_START).ceil() as u32;
+        assert_eq!(required, 115);
+
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA", true);
+        player.resources.supplies = 114; // one under threshold
+        logic.add_player(player);
+        assert!(!ai.can_afford_team_start(&logic, "USA_BasicForce"));
+        assert!(!ai.should_build_new_team(&logic));
+
+        logic.get_player_mut(1).unwrap().resources.supplies = 115;
+        assert!(ai.can_afford_team_start(&logic, "USA_BasicForce"));
+        assert!(ai.should_build_new_team(&logic));
+
+        // Broke player cannot queue even if activity_count would previously bypass.
+        logic.get_player_mut(1).unwrap().resources.supplies = 0;
+        let mut broke = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        broke.activity_count = 5;
+        assert!(!broke.should_build_new_team(&logic));
     }
 
     #[test]

@@ -475,6 +475,13 @@ Early `activity_count < 3` zero-interval gate pacing removed for timing honesty.
 Host `AIPlayer` scales structure/team decision intervals by retail AIData
 `Wealthy=7000` / `Poor=2000` and `Structures*Rate` / `Teams*Rate` (speed
 multipliers → shorter waits when wealthy). StructureSeconds=0 still yields a
-zero wait. Fail-closed: not full C++ wealth-mod on m_structureFrames path or
-TeamResourcesToStart cost gate.
+zero wait. Fail-closed: not full C++ wealth-mod on m_structureFrames path.
+
+### AIData TeamResourcesToStart residual (2026-07-14)
+
+Host `AIPlayer::should_build_new_team` / queue path now applies C++
+`isPossibleToBuildTeam` money residual: estimate work-order unit costs from
+templates, require `supplies >= ceil(cost * TeamResourcesToStart)` (default
+0.1). Removes the activity_count first-force cash bypass. Not full TeamPrototype
+min/max averaging, factory-idle, or production-condition scripts.
 
