@@ -7307,8 +7307,11 @@ impl CnCGameEngine {
             self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
         }
 
-        // Follow target is not frozen on the frame yet — keep live residual.
-        if let Some(focus) = self.game_logic.camera_follow_target_position() {
+        // Prefer presentation-frozen follow position; live path is boot residual only.
+        if let Some(follow) = pres.camera_follow_position {
+            self.center_camera_on(Vec3::new(follow[0], follow[1], follow[2]));
+        } else if let Some(focus) = self.game_logic.camera_follow_target_position() {
+            // Boot residual only — presentation camera_follow_position owns InGame follow.
             self.center_camera_on(focus);
         }
 

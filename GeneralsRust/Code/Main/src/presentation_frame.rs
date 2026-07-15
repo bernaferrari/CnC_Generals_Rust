@@ -1883,6 +1883,8 @@ pub struct PresentationFrame {
     pub view_guardband: Option<(f32, f32)>,
     /// Pending camera focus residual.
     pub camera_focus: Option<[f32; 3]>,
+    /// Camera-follow object world position residual (live follow still resolves host id).
+    pub camera_follow_position: Option<[f32; 3]>,
     /// Pending BW mode residual (enabled, frames).
     pub camera_bw_mode: Option<(bool, i32)>,
     /// Pending camera shaker residual (amplitude, duration, radius).
@@ -2535,6 +2537,9 @@ impl PresentationFrame {
                 .peek_pending_view_guardband()
                 .map(|g| (g.x_bias, g.y_bias)),
             camera_focus: logic.peek_pending_camera_focus().map(|p| [p.x, p.y, p.z]),
+            camera_follow_position: logic
+                .peek_camera_follow_target_position()
+                .map(|p| [p.x, p.y, p.z]),
             camera_bw_mode: logic
                 .peek_pending_camera_bw_mode()
                 .map(|m| (m.enabled, m.frames)),
