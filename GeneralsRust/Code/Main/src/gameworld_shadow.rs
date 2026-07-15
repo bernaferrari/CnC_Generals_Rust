@@ -496,6 +496,13 @@ impl GameWorldShadow {
                     e.guard_radius = obj.guard_radius;
                     e.applied_upgrade_count =
                         obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
+                    {
+                        const MAX_UPGRADES: usize = 24;
+                        let mut names: Vec<String> = obj.applied_upgrades.iter().cloned().collect();
+                        names.sort();
+                        names.truncate(MAX_UPGRADES);
+                        e.applied_upgrade_names = names;
+                    }
                     e.special_power_ready = obj.special_power_ready;
                     e.special_power_cooldown = obj.special_power_cooldown;
                     e.special_power_cooldown_remaining = obj.special_power_cooldown_remaining;
@@ -714,6 +721,13 @@ impl GameWorldShadow {
                 e.active_weapon_slot = obj.active_weapon_slot;
                 e.guard_radius = obj.guard_radius;
                 e.applied_upgrade_count = obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
+                {
+                    const MAX_UPGRADES: usize = 24;
+                    let mut names: Vec<String> = obj.applied_upgrades.iter().cloned().collect();
+                    names.sort();
+                    names.truncate(MAX_UPGRADES);
+                    e.applied_upgrade_names = names;
+                }
                 e.special_power_ready = obj.special_power_ready;
                 e.special_power_cooldown = obj.special_power_cooldown;
                 e.special_power_cooldown_remaining = obj.special_power_cooldown_remaining;
@@ -864,6 +878,7 @@ impl GameWorldShadow {
             e.active_weapon_slot = 0;
             e.guard_radius = 0.0;
             e.applied_upgrade_count = 0;
+            e.applied_upgrade_names.clear();
             e.special_power_ready = false;
             e.special_power_cooldown = 0.0;
             e.special_power_cooldown_remaining = 0.0;
@@ -2470,6 +2485,35 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_applied_upgrade_names_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityUpgrades");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "UpU", 100.0);
+        let id = logic
+            .create_object("UpU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            obj.apply_upgrade_tag("UpgradeA");
+            obj.apply_upgrade_tag("UpgradeB");
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.applied_upgrade_count, 2);
+        assert_eq!(
+            e.applied_upgrade_names,
+            vec!["UpgradeA".to_string(), "UpgradeB".to_string()]
+        );
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("applied_upgrade_names") && src.contains("MAX_UPGRADES"),
+            "sync must copy upgrade name residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_kind_of_bits_residual() {
         use crate::game_logic::KindOf;
         let mut logic = GameLogic::new();

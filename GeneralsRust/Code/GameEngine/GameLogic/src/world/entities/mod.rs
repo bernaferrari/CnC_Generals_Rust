@@ -246,6 +246,8 @@ pub struct Entity {
     pub guard_radius: f32,
     /// Host Object::applied_upgrades.len residual.
     pub applied_upgrade_count: u16,
+    /// Host Object::applied_upgrades name residual (capped, sorted for determinism).
+    pub applied_upgrade_names: Vec<String>,
     /// Host Object::special_power_ready residual.
     pub special_power_ready: bool,
     /// Host Object::special_power_cooldown residual (full duration seconds).
@@ -467,6 +469,7 @@ impl EntityStore {
             active_weapon_slot: 0,
             guard_radius: 0.0,
             applied_upgrade_count: 0,
+            applied_upgrade_names: Vec::new(),
             special_power_ready: false,
             special_power_cooldown: 0.0,
             special_power_cooldown_remaining: 0.0,

@@ -3644,6 +3644,11 @@ impl PresentationFrame {
                     dirty = true;
                 }
             }
+            // Applied upgrade names residual.
+            if obj.applied_upgrades != ent.applied_upgrade_names {
+                obj.applied_upgrades = ent.applied_upgrade_names.clone();
+                dirty = true;
+            }
             // Effectively stealthed residual from shadow flags.
             let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
             if obj.effectively_stealthed != eff {
@@ -4775,6 +4780,7 @@ mod tests {
                 && src.contains("obj.garrisoned_units = garrisoned")
                 && src.contains("obj.contained_by = contained")
                 && src.contains("ent.kind_of_bits")
+                && src.contains("ent.applied_upgrade_names")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
