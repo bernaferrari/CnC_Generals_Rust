@@ -137,6 +137,26 @@ pub struct Entity {
     pub ai_state_ordinal: u8,
     /// Host Object::occupants.len residual (transport/garrison count).
     pub occupant_count: u16,
+    /// Host Object::experience.current residual.
+    pub experience_points: f32,
+    /// Host Object::experience.level residual: 0 Rookie, 1 Veteran, 2 Elite, 3 Heroic.
+    pub veterancy_ordinal: u8,
+    /// Host Object::stored_resources.supplies residual.
+    pub stored_supplies: u32,
+    /// Host Object::status.stealthed residual.
+    pub stealthed: bool,
+    /// Host Object::status.detected residual.
+    pub detected: bool,
+    /// Host Object::status.using_ability residual.
+    pub using_ability: bool,
+    /// Host Object::status.airborne_target residual.
+    pub airborne_target: bool,
+    /// Host Object::status.disabled_underpowered residual.
+    pub disabled_underpowered: bool,
+    /// Host Object::status.disabled_unmanned residual.
+    pub disabled_unmanned: bool,
+    /// Host Object::status.disabled_hacked residual.
+    pub disabled_hacked: bool,
 }
 
 impl Entity {
@@ -232,6 +252,16 @@ impl EntityStore {
             guard_target_host: 0,
             ai_state_ordinal: 0,
             occupant_count: 0,
+            experience_points: 0.0,
+            veterancy_ordinal: 0,
+            stored_supplies: 0,
+            stealthed: false,
+            detected: false,
+            using_ability: false,
+            airborne_target: false,
+            disabled_underpowered: false,
+            disabled_unmanned: false,
+            disabled_hacked: false,
         };
 
         self.alive.insert(id, entity);
