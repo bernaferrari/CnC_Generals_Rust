@@ -626,6 +626,44 @@ impl GameWorldShadow {
         n + self.apply_host_spawn_events(&spawn_like, logic)
     }
 
+    /// Host structure construction-complete residual: ensure completed buildings are
+    /// mapped in the shadow (usually already present via sync; counts for probe honesty).
+    /// Fail-closed: does not invent GameWorld construction modules.
+    pub fn apply_host_construction_events(
+        &mut self,
+        events: &[crate::game_logic::host_construction_log::HostConstructionEvent],
+        logic: &GameLogic,
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.host_to_entity.contains_key(&ev.id.0) {
+                n += 1;
+                continue;
+            }
+            // Completed structure missing from map — treat like a late spawn residual.
+            if let Some(obj) = logic.get_objects().get(&ev.id) {
+                if !obj.is_alive() {
+                    continue;
+                }
+                let team_ordinal = match obj.team {
+                    Team::USA => 0u8,
+                    Team::China => 1,
+                    Team::GLA => 2,
+                    _ => 3,
+                };
+                let p = obj.get_position();
+                let spawn = crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id: ev.id,
+                    template: ev.template_name.clone(),
+                    team_ordinal,
+                    position: [p.x, p.y, p.z],
+                };
+                n += self.apply_host_spawn_events(std::slice::from_ref(&spawn), logic);
+            }
+        }
+        n
+    }
+
     pub fn apply_host_spawn_events(
         &mut self,
         events: &[crate::game_logic::host_spawn_log::HostSpawnEvent],
@@ -1073,6 +1111,7 @@ pub fn shadow_session_after_host_tick(
     let attack_events = crate::game_logic::host_attack_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
+    let construction_events = crate::game_logic::host_construction_log::drain();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
     let write_health = !(auth && (!events.is_empty() || !heal_events.is_empty()));
@@ -1080,6 +1119,7 @@ pub fn shadow_session_after_host_tick(
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
+    let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
@@ -2404,5 +2444,30 @@ mod tests {
             .expect("channel");
         assert!(queued >= 1, "expected queued mutations");
         assert!(shadow.entity_for_host(id).is_some());
+    }
+
+    #[test]
+    fn host_construction_log_maps_completed_structure_in_shadow() {
+        crate::game_logic::host_construction_log::clear();
+        crate::game_logic::host_spawn_log::clear();
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("USA_Barracks");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("USA_Barracks".into(), t);
+        let id = logic
+            .create_object("USA_Barracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        // Simulate host recording construction complete without pre-sync map.
+        let mut shadow = GameWorldShadow::new(64);
+        // Do not sync first — apply construction should map via spawn residual.
+        crate::game_logic::host_construction_log::record(id, "USA_Barracks");
+        let events = crate::game_logic::host_construction_log::drain();
+        let n = shadow.apply_host_construction_events(&events, &logic);
+        assert!(n >= 1, "construction apply mapped {n}");
+        assert!(
+            shadow.entity_for_host(id).is_some(),
+            "completed structure must be mapped in shadow"
+        );
     }
 }
