@@ -450,3 +450,9 @@ Full GPU heightmap payload at map-start may still load via
 `load_heightmap_from_runtime_terrain` when no file hint exists (too large for
 per-frame freeze).
 
+### Skybox presentation residual (2026-07-14)
+
+`PresentationWorldEnv` freezes `skybox_enabled` + optional texture names.
+Map-load and per-frame render apply skybox from the snapshot when present;
+live `GameLogic` skybox/metadata is boot residual only.
+
