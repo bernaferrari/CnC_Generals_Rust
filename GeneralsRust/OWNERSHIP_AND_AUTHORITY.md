@@ -622,3 +622,10 @@ rank / effect matrix authority.
 `sync_players` copies them each tick with supplies/power_available. Fail-closed:
 not full power plant graph / underpower disable matrix authority.
 
+### GameWorld radar residual (2026-07-14)
+
+`PlayerData.radar_count` / `radar_disabled` mirror host radar providers and
+script/power disable. `sync_players` copies them each tick. `any_player_has_radar`
+matches C++ `hasRadar` (count > 0 && !disabled). Fail-closed: not full radar
+shroud/JarmenKell/spy satellite matrix authority.
+
