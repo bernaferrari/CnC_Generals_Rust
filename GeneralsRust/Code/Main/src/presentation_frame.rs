@@ -3280,6 +3280,243 @@ impl PresentationFrame {
                 obj.show_health_bar = ent.show_health_bar;
                 dirty = true;
             }
+            // Expanded Entity residual last-writer (presentation consumers).
+            if obj.power_provided != ent.power_provided {
+                obj.power_provided = ent.power_provided;
+                dirty = true;
+            }
+            if obj.power_consumed != ent.power_consumed {
+                obj.power_consumed = ent.power_consumed;
+                dirty = true;
+            }
+            if (obj.experience_points - ent.experience_points).abs() > 1e-3 {
+                obj.experience_points = ent.experience_points;
+                dirty = true;
+            }
+            if obj.stored_supplies != ent.stored_supplies {
+                obj.stored_supplies = ent.stored_supplies;
+                dirty = true;
+            }
+            let gp = ent
+                .guard_position
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            if obj.guard_position != gp {
+                obj.guard_position = gp;
+                dirty = true;
+            }
+            let rp = ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            if obj.rally_point != rp {
+                obj.rally_point = rp;
+                dirty = true;
+            }
+            if obj.max_garrison != ent.max_garrison as usize {
+                obj.max_garrison = ent.max_garrison as usize;
+                dirty = true;
+            }
+            if obj.has_secondary_weapon != ent.has_secondary_weapon {
+                obj.has_secondary_weapon = ent.has_secondary_weapon;
+                dirty = true;
+            }
+            if (obj.cheer_timer - ent.cheer_timer).abs() > 1e-4 {
+                obj.cheer_timer = ent.cheer_timer;
+                dirty = true;
+            }
+            if obj.overcharge_enabled != ent.overcharge_enabled {
+                obj.overcharge_enabled = ent.overcharge_enabled;
+                dirty = true;
+            }
+            if obj.active_weapon_slot != ent.active_weapon_slot {
+                obj.active_weapon_slot = ent.active_weapon_slot;
+                dirty = true;
+            }
+            if (obj.guard_radius - ent.guard_radius).abs() > 1e-3 {
+                obj.guard_radius = ent.guard_radius;
+                dirty = true;
+            }
+            if obj.special_power_ready != ent.special_power_ready {
+                obj.special_power_ready = ent.special_power_ready;
+                dirty = true;
+            }
+            if (obj.special_power_cooldown - ent.special_power_cooldown).abs() > 1e-3 {
+                obj.special_power_cooldown = ent.special_power_cooldown;
+                dirty = true;
+            }
+            if (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining).abs()
+                > 1e-3
+            {
+                obj.special_power_cooldown_remaining = ent.special_power_cooldown_remaining;
+                dirty = true;
+            }
+            if (obj.detection_range - ent.detection_range).abs() > 1e-3 {
+                obj.detection_range = ent.detection_range;
+                dirty = true;
+            }
+            if obj.detection_rate_frames != ent.detection_rate_frames {
+                obj.detection_rate_frames = ent.detection_rate_frames;
+                dirty = true;
+            }
+            if obj.stealth_breaks_on_attack != ent.stealth_breaks_on_attack {
+                obj.stealth_breaks_on_attack = ent.stealth_breaks_on_attack;
+                dirty = true;
+            }
+            if obj.stealth_breaks_on_move != ent.stealth_breaks_on_move {
+                obj.stealth_breaks_on_move = ent.stealth_breaks_on_move;
+                dirty = true;
+            }
+            if obj.innate_stealth != ent.innate_stealth {
+                obj.innate_stealth = ent.innate_stealth;
+                dirty = true;
+            }
+            if obj.weapon_bonus_enthusiastic != ent.weapon_bonus_enthusiastic {
+                obj.weapon_bonus_enthusiastic = ent.weapon_bonus_enthusiastic;
+                dirty = true;
+            }
+            if obj.weapon_bonus_subliminal != ent.weapon_bonus_subliminal {
+                obj.weapon_bonus_subliminal = ent.weapon_bonus_subliminal;
+                dirty = true;
+            }
+            if obj.weapon_bonus_horde != ent.weapon_bonus_horde {
+                obj.weapon_bonus_horde = ent.weapon_bonus_horde;
+                dirty = true;
+            }
+            if obj.weapon_bonus_nationalism != ent.weapon_bonus_nationalism {
+                obj.weapon_bonus_nationalism = ent.weapon_bonus_nationalism;
+                dirty = true;
+            }
+            if obj.weapon_bonus_frenzy != ent.weapon_bonus_frenzy {
+                obj.weapon_bonus_frenzy = ent.weapon_bonus_frenzy;
+                dirty = true;
+            }
+            if obj.weapon_bonus_frenzy_level != ent.weapon_bonus_frenzy_level {
+                obj.weapon_bonus_frenzy_level = ent.weapon_bonus_frenzy_level;
+                dirty = true;
+            }
+            if obj.weapon_bonus_frenzy_until_frame != ent.weapon_bonus_frenzy_until_frame {
+                obj.weapon_bonus_frenzy_until_frame = ent.weapon_bonus_frenzy_until_frame;
+                dirty = true;
+            }
+            if obj.weapon_bonus_battle_plan_bombardment != ent.weapon_bonus_battle_plan_bombardment
+            {
+                obj.weapon_bonus_battle_plan_bombardment = ent.weapon_bonus_battle_plan_bombardment;
+                dirty = true;
+            }
+            if obj.weapon_bonus_battle_plan_hold_the_line
+                != ent.weapon_bonus_battle_plan_hold_the_line
+            {
+                obj.weapon_bonus_battle_plan_hold_the_line =
+                    ent.weapon_bonus_battle_plan_hold_the_line;
+                dirty = true;
+            }
+            if obj.weapon_bonus_battle_plan_search_and_destroy
+                != ent.weapon_bonus_battle_plan_search_and_destroy
+            {
+                obj.weapon_bonus_battle_plan_search_and_destroy =
+                    ent.weapon_bonus_battle_plan_search_and_destroy;
+                dirty = true;
+            }
+            if (obj.battle_plan_sight_scalar_applied - ent.battle_plan_sight_scalar_applied).abs()
+                > 1e-4
+            {
+                obj.battle_plan_sight_scalar_applied = ent.battle_plan_sight_scalar_applied;
+                dirty = true;
+            }
+            if obj.continuous_fire_level != ent.continuous_fire_level {
+                obj.continuous_fire_level = ent.continuous_fire_level;
+                dirty = true;
+            }
+            if obj.continuous_fire_consecutive != ent.continuous_fire_consecutive {
+                obj.continuous_fire_consecutive = ent.continuous_fire_consecutive;
+                dirty = true;
+            }
+            if obj.continuous_fire_coast_until_frame != ent.continuous_fire_coast_until_frame {
+                obj.continuous_fire_coast_until_frame = ent.continuous_fire_coast_until_frame;
+                dirty = true;
+            }
+            if obj.faerie_fire_until_frame != ent.faerie_fire_until_frame {
+                obj.faerie_fire_until_frame = ent.faerie_fire_until_frame;
+                dirty = true;
+            }
+            if obj.is_humvee_transport != ent.is_humvee_transport {
+                obj.is_humvee_transport = ent.is_humvee_transport;
+                dirty = true;
+            }
+            if obj.is_listening_outpost_transport != ent.is_listening_outpost_transport {
+                obj.is_listening_outpost_transport = ent.is_listening_outpost_transport;
+                dirty = true;
+            }
+            if obj.is_troop_crawler_transport != ent.is_troop_crawler_transport {
+                obj.is_troop_crawler_transport = ent.is_troop_crawler_transport;
+                dirty = true;
+            }
+            if obj.is_helix_transport != ent.is_helix_transport {
+                obj.is_helix_transport = ent.is_helix_transport;
+                dirty = true;
+            }
+            if obj.has_overlord_gattling_addon != ent.has_overlord_gattling_addon {
+                obj.has_overlord_gattling_addon = ent.has_overlord_gattling_addon;
+                dirty = true;
+            }
+            if obj.has_overlord_propaganda_addon != ent.has_overlord_propaganda_addon {
+                obj.has_overlord_propaganda_addon = ent.has_overlord_propaganda_addon;
+                dirty = true;
+            }
+            if obj.demo_suicided_detonating != ent.demo_suicided_detonating {
+                obj.demo_suicided_detonating = ent.demo_suicided_detonating;
+                dirty = true;
+            }
+            if obj.hive_slave_count != ent.hive_slave_count {
+                obj.hive_slave_count = ent.hive_slave_count;
+                dirty = true;
+            }
+            if (obj.hive_slave_hp - ent.hive_slave_hp).abs() > 1e-3 {
+                obj.hive_slave_hp = ent.hive_slave_hp;
+                dirty = true;
+            }
+            if (obj.turret_angle_deg - ent.turret_angle_deg).abs() > 1e-3 {
+                obj.turret_angle_deg = ent.turret_angle_deg;
+                dirty = true;
+            }
+            if (obj.turret_pitch_deg - ent.turret_pitch_deg).abs() > 1e-3 {
+                obj.turret_pitch_deg = ent.turret_pitch_deg;
+                dirty = true;
+            }
+            if obj.turret_idle_scanning != ent.turret_idle_scanning {
+                obj.turret_idle_scanning = ent.turret_idle_scanning;
+                dirty = true;
+            }
+            if obj.turret_holding != ent.turret_holding {
+                obj.turret_holding = ent.turret_holding;
+                dirty = true;
+            }
+            if obj.ai_attitude != ent.ai_attitude {
+                obj.ai_attitude = ent.ai_attitude;
+                dirty = true;
+            }
+            if obj.last_damage_source_host != ent.last_damage_source_host {
+                obj.last_damage_source_host = ent.last_damage_source_host;
+                dirty = true;
+            }
+            let disguise = if ent.disguise_as_template.is_empty() {
+                None
+            } else {
+                Some(ent.disguise_as_template.clone())
+            };
+            if obj.disguise_as_template != disguise {
+                obj.disguise_as_template = disguise;
+                dirty = true;
+            }
+            if obj.vision_spied_mask != ent.vision_spied_mask {
+                obj.vision_spied_mask = ent.vision_spied_mask;
+                dirty = true;
+            }
+            if (obj.camo_friendly_opacity - ent.camo_friendly_opacity).abs() > 1e-4 {
+                obj.camo_friendly_opacity = ent.camo_friendly_opacity;
+                dirty = true;
+            }
+            if obj.camo_stealth_look != ent.camo_stealth_look {
+                obj.camo_stealth_look = ent.camo_stealth_look;
+                dirty = true;
+            }
             // Effectively stealthed residual from shadow flags.
             let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
             if obj.effectively_stealthed != eff {
@@ -4398,10 +4635,14 @@ mod tests {
         assert!(ro.is_detector && ro.force_attack);
         assert!(!ro.show_health_bar);
         assert!((ro.weapon_range - 120.0).abs() < 0.01);
+        // Deeper residual fields present in overlay path (source honesty).
         let src = include_str!("presentation_frame.rs");
         assert!(
             src.contains("obj.command_set_override = ent.command_set_override.clone()")
                 && src.contains("obj.selected = ent.selected")
+                && src.contains("obj.turret_angle_deg = ent.turret_angle_deg")
+                && src.contains("obj.hive_slave_count = ent.hive_slave_count")
+                && src.contains("obj.weapon_bonus_horde = ent.weapon_bonus_horde")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
