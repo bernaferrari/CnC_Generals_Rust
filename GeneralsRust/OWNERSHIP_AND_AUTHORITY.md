@@ -996,3 +996,11 @@ full `GameClient::update` (no audio device dual-own, no `draw_display`).
 full `GameClient::update` (`draw_display` stays Main RenderPipeline-only;
 startup movies remain Main-owned).
 
+### Presentation FOW drawable shroud residual (2026-07-14)
+
+Main applies frozen `PresentationFrame` unit FOW to GameClient drawables via
+`apply_presentation_shroud_to_drawables` before the presentation shell tick
+(C++ Fogged|Shrouded → fully obscured). No live OBJECT_REGISTRY shroud bind.
+Fail-closed: not sole GameWorld authority; RenderPipeline may still shade via
+presentation alpha independently.
+
