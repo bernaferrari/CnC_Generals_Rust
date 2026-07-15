@@ -1532,7 +1532,10 @@ impl AIPlayer {
     /// Rate-limited (10s): if player was recently attacked, scan cash generators /
     /// dozers / harvesters for recent damage and latch attacked_supply_center.
     pub fn is_supply_source_attacked(&mut self) -> bool {
-        const SCAN_RATE: u32 = 10 * LOGICFRAMES_PER_SECOND; // 10 seconds
+        // C++ AIPlayer.cpp: const Int SCAN_RATE = 10;
+        // Comment says "10 seconds" but the value is added to frame counters as-is
+        // (10 logic frames ≈ 0.33s). Match code, not the misleading comment.
+        const SCAN_RATE: u32 = 10;
         let cur_frame = TheGameLogic::get_frame();
         if cur_frame == 0 {
             self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
@@ -7682,6 +7685,22 @@ mod tests {
                 && window.contains("priority_build = true")
                 && window.contains("KindOf::Dozer"),
             "queueDozer must gate queue, enable units, startTraining priority dozer"
+        );
+    }
+
+    #[test]
+    fn is_supply_source_attacked_scan_rate_is_10_frames_like_cpp() {
+        // C++: const Int SCAN_RATE = 10; added to frame counters (not * LOGICFRAMES).
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn is_supply_source_attacked")
+            .expect("is_supply_source_attacked");
+        let window = &src[i..src.len().min(i + 1200)];
+        assert!(
+            window.contains("const SCAN_RATE: u32 = 10")
+                && !window[..window.find("const SCAN_RATE").unwrap_or(0) + 80]
+                    .contains("LOGICFRAMES_PER_SECOND"),
+            "SCAN_RATE must be 10 frames matching C++ AIPlayer.cpp, not 10 seconds"
         );
     }
 
