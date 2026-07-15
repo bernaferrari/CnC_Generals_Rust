@@ -12,8 +12,8 @@ use crate::ai::modules::{
     BuildOrderOptimizer, DifficultyHandler, StrategicDecision, StrategicDecisionMaker,
     ThreatAssessmentSystem,
 };
-use crate::ai::CommandSourceType;
 use crate::ai::{AiError, AiGroup, AttitudeType, ScienceType, AI, THE_AI};
+use crate::ai::{CommandSourceType, GuardMode};
 use crate::common::xfer::{Xfer, XferExt};
 use crate::common::Snapshot;
 use crate::common::{
@@ -6306,6 +6306,8 @@ impl AIPlayer {
                 .unwrap_or_default()
         };
 
+        // C++: AIGroup::groupGuardPosition(&location, GUARDMODE_NORMAL, CMD_FROM_SCRIPT)
+        // Issue per-member guard with script command source (not the no-op trait stub).
         for member_id in members {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) else {
                 continue;
@@ -6316,10 +6318,8 @@ impl AIPlayer {
             let Some(ai) = obj_g.get_ai_update_interface() else {
                 continue;
             };
-            let lock_result = ai.lock();
-            if let Ok(mut ai_g) = lock_result {
-                let _ = ai_g.ai_guard_position(&location);
-            }
+            // AIUpdateInterfaceExt::ai_guard_position(pos, mode, cmd_source)
+            ai.ai_guard_position(&location, GuardMode::Normal, CommandSourceType::FromScript);
         }
         Ok(())
     }
@@ -7567,6 +7567,23 @@ mod tests {
         assert!(
             w2.contains("get_placement_view_angle()"),
             "buildSpecificBuildingNearLocation must use placement view angle"
+        );
+    }
+
+    #[test]
+    fn guard_supply_center_uses_script_cmd_source_like_cpp() {
+        // C++ groupGuardPosition(..., GUARDMODE_NORMAL, CMD_FROM_SCRIPT)
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::guardSupplyCenter`")
+            .expect("guardSupplyCenter");
+        let window = &src[i..src.len().min(i + 4500)];
+        assert!(
+            window.contains("ai_guard_position")
+                && window.contains("GuardMode::Normal")
+                && window.contains("FromScript")
+                && window.contains("supply_source_attack_check_frame = 0"),
+            "guardSupplyCenter must issue GuardPosition NORMAL from script source"
         );
     }
 
