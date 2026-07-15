@@ -254,7 +254,8 @@ impl CombatParticleRegistry {
 
 /// Best-effort mirror into GameClient ParticleSystemManager so client registry
 /// also observes combat FX. No-op without `game_client` or when manager fails.
-fn mirror_spawn_to_client_manager(template_name: &str, position: Vec3) -> Option<u32> {
+/// Also used by presentation residual to backfill missing client ids same-frame.
+pub(crate) fn mirror_spawn_to_client_manager(template_name: &str, position: Vec3) -> Option<u32> {
     #[cfg(feature = "game_client")]
     {
         use game_client::effects::{

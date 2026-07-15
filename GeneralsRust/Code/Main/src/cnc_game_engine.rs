@@ -6376,6 +6376,11 @@ impl CnCGameEngine {
             }
             // Same-frame residual: drain presentation-queued audio now (not next host tick).
             self.game_logic.process_audio_events();
+            // Same-frame particle residual: backfill client ParticleSystemManager.
+            let fx_n = pres.apply_particle_systems_to_client();
+            if fx_n > 0 {
+                log::trace!("presentation particle client mirrors: {fx_n}");
+            }
             self.last_presentation_frame = Some(pres);
 
             #[cfg(feature = "game_client")]

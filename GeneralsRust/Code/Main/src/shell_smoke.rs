@@ -1761,6 +1761,29 @@ mod tests {
     }
 
     #[test]
+    fn presentation_particle_client_mirror_same_frame() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("apply_particle_systems_to_client")
+                && eng.contains(
+                    "Same-frame particle residual: backfill client ParticleSystemManager"
+                ),
+            "engine must apply presentation particles to client same frame"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn apply_particle_systems_to_client")
+                && pf.contains("mirror_spawn_to_client_manager")
+                && pf.contains("ParticleSystemSpawned"),
+            "presentation must backfill client particle mirrors"
+        );
+        let cp = include_str!("game_logic/combat_particles.rs");
+        assert!(
+            cp.contains("pub(crate) fn mirror_spawn_to_client_manager"),
+            "mirror helper must be callable from presentation residual"
+        );
+    }
+
     fn presentation_audio_processed_same_frame_after_apply() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
