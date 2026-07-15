@@ -841,29 +841,37 @@ impl AISkirmishPlayer {
                         }
                     }
                 }
+                // C++: destroyed → clear ID, stamp timestamp, scan for GLA hole
+                // whose RebuildHoleBehavior spawnerID == prior building ID.
+                let prior_id = obj_id;
                 info.set_object_id(crate::common::INVALID_ID);
                 info.set_object_timestamp(current_frame + 1);
 
-                if let Some(partition) = ThePartitionManager::get() {
-                    let candidates = partition.get_objects_in_range(info.get_location(), 50.0);
-                    for candidate_id in candidates {
-                        let Some(candidate_arc) = TheGameLogic::find_object_by_id(candidate_id)
-                        else {
-                            continue;
-                        };
-                        let Ok(candidate_guard) = candidate_arc.read() else {
-                            continue;
-                        };
-                        let name = candidate_guard
-                            .get_template()
-                            .get_name()
-                            .as_str()
-                            .to_ascii_lowercase();
-                        if name.contains("rebuildhole") {
-                            info.set_object_id(candidate_id);
-                            info.set_under_construction(true);
-                            break;
+                // Walk all objects for KINDOF_REBUILD_HOLE (C++ getFirstObject loop).
+                for candidate_arc in OBJECT_REGISTRY.get_all_objects() {
+                    let Ok(candidate_guard) = candidate_arc.read() else {
+                        continue;
+                    };
+                    if !candidate_guard.is_kind_of(KindOf::RebuildHole) {
+                        continue;
+                    }
+                    let candidate_id = candidate_guard.get_id();
+                    // Find RebuildHoleBehaviorInterface::getSpawnerID.
+                    let mut matched_hole = false;
+                    for behavior in candidate_guard.get_behavior_modules() {
+                        if let Ok(mut bg) = behavior.lock() {
+                            if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
+                                if rhbi.get_spawner_id() == prior_id {
+                                    matched_hole = true;
+                                }
+                                break;
+                            }
                         }
+                    }
+                    if matched_hole {
+                        info.set_object_id(candidate_id);
+                        log::debug!("AI Found hole to rebuild {}", cur_plan.get_name().as_str());
+                        break;
                     }
                 }
             }
@@ -2745,6 +2753,25 @@ mod tests {
                 && src.contains("build_structure_now_at_public")
                 && src.contains("compute_center_and_radius_of_base"),
             "skirmish base defense + newMap C++ paths required"
+        );
+    }
+
+    #[test]
+    fn process_base_building_matches_hole_by_spawner() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("fn process_base_building(&mut self)")
+            .expect("pbb");
+        let window = &src[i..src.len().min(i + 12000)];
+        assert!(
+            window.contains("KindOf::RebuildHole")
+                && window.contains("get_spawner_id()")
+                && window.contains("prior_id")
+                && window.contains("get_rebuild_hole_behavior_interface"),
+            "skirmish processBaseBuilding must match rebuild hole by spawnerID"
         );
     }
 
