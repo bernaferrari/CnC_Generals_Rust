@@ -1515,6 +1515,18 @@ impl TheTerrainLogic {
         crate::common::Region3D::new(lo, hi)
     }
 
+    /// C++ TerrainLogic::getExtent() — full map including border region.
+    pub fn get_extent(&self) -> crate::common::Region3D {
+        let terrain = crate::terrain::get_terrain_logic();
+        if let Ok(guard) = terrain.read() {
+            let extent = guard.get_extent();
+            if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
+                return extent;
+            }
+        }
+        self.get_extent_including_border()
+    }
+
     /// Get maximum pathfind extent (playable area excluding border).
     pub fn get_maximum_pathfind_extent(&self) -> crate::common::Region3D {
         let terrain = crate::terrain::get_terrain_logic();
