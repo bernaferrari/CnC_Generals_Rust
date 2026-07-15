@@ -8184,6 +8184,7 @@ impl CnCGameEngine {
                     let team_opt = if let Some(frame) = self.last_presentation_frame.as_ref() {
                         Some(frame.local_team())
                     } else {
+                        // Boot residual only — presentation local_team owns InGame control-group select.
                         self.game_logic
                             .get_player(self.current_player_id)
                             .map(|p| p.team)
@@ -8192,6 +8193,7 @@ impl CnCGameEngine {
                         selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             frame.filter_alive_selectable_ids(&stored, team)
                         } else {
+                            // Boot residual only — presentation filter_alive_selectable_ids owns InGame.
                             let mut live = Vec::new();
                             for id in stored {
                                 if let Some(obj) = self.game_logic.find_object(id) {
@@ -8220,6 +8222,7 @@ impl CnCGameEngine {
                         let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             frame.centroid_of_ids(&selection)
                         } else {
+                            // Boot residual only — presentation centroid_of_ids owns InGame double-tap.
                             let mut sum = Vec3::ZERO;
                             let mut n = 0u32;
                             for id in &selection {
@@ -8309,6 +8312,7 @@ impl CnCGameEngine {
                 {
                     frame.alive_selectable_friendly_ids(team)
                 } else {
+                    // Boot residual only — presentation owns InGame Tab cycle list when frame set.
                     let mut live: Vec<ObjectId> = self
                         .game_logic
                         .get_objects()
@@ -8454,6 +8458,7 @@ impl CnCGameEngine {
                 .unwrap_or_default();
             (ids, label)
         } else {
+            // Boot residual only — presentation similar_unit_ids owns InGame path.
             let Some(clicked_obj) = self.game_logic.find_object(clicked_object_id) else {
                 return;
             };
@@ -8529,6 +8534,7 @@ impl CnCGameEngine {
         let boxed: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z)
         } else {
+            // Boot residual only — presentation box_select_unit_ids owns InGame path.
             let mut live = Vec::new();
             for (&id, obj) in self.game_logic.get_objects() {
                 if obj.team != player_team || !obj.is_selectable() {
@@ -8572,6 +8578,7 @@ impl CnCGameEngine {
             let team_opt = if let Some(frame) = self.last_presentation_frame.as_ref() {
                 Some(frame.local_team())
             } else {
+                // Boot residual only — presentation local_team owns InGame attack-click.
                 self.game_logic
                     .get_player(self.current_player_id)
                     .map(|p| p.team)
@@ -8580,6 +8587,7 @@ impl CnCGameEngine {
                 let enemy_attackable = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame.is_enemy_attackable(target_id, team)
                 } else if let Some(target) = self.game_logic.find_object(target_id) {
+                    // Boot residual only — presentation is_enemy_attackable owns InGame path.
                     target.team != team && target.is_kind_of(KindOf::Attackable)
                 } else {
                     false
