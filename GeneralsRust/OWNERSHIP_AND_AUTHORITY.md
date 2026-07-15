@@ -513,3 +513,10 @@ classes at snapshot build. Heightmap/source-tile bake prefers that freeze when
 a presentation frame is installed (no live `terrain_texture_classes_snapshot`
 dual-read). Boot without presentation may still pass live logic.
 
+### Selection overlay presentation-only residual (2026-07-14)
+
+`enqueue_selection_render` / `collect_selected_units` take `Option<&GameLogic>`.
+InGame render passes `None` when `last_presentation_frame` is set so selection
+circles use snapshot identity only. Live GameLogic remains boot residual without
+a presentation frame.
+
