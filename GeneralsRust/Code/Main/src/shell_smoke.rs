@@ -1761,6 +1761,24 @@ mod tests {
     }
 
     #[test]
+    fn defeat_alliance_prefer_presentation_no_live_dual_read_when_frame_installed() {
+        let src = include_str!("cnc_game_engine.rs");
+        assert!(
+            src.contains(
+                "Boot residual only — no live dual-read when a presentation frame is installed"
+            ) && src.contains(
+                "Presentation installed but roster miss — fail-closed id-only residual"
+            ) && src.contains(
+                "Prefer presentation roster team when installed; live only if no frame"
+            ) && src.contains("else if self.last_presentation_frame.is_none()")
+                && src.contains("Boot residual only — presentation local_team owns InGame Ctrl+A")
+                && src.contains("Boot residual only — presentation local_team owns InGame Tab cycle")
+                && src.contains("Boot residual only — presentation local_team owns InGame similar-select")
+                && src.contains("Boot residual only — presentation local_team owns InGame box-select"),
+            "defeat/alliance/selection must not dual-read get_player when presentation frame is installed"
+        );
+    }
+
     fn legacy_render_stubs_prefer_presentation_identity() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
