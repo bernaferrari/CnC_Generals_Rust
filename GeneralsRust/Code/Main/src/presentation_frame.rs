@@ -1653,6 +1653,9 @@ pub struct PresentationFrame {
     pub frame: LogicFrame,
     pub objects: Vec<RenderableObject>,
     pub local_player_id: u32,
+    /// Local player team frozen at snapshot time (selection/hotkey residual).
+    /// Prefer this over live `GameLogic::get_player` dual-reads when a frame is installed.
+    pub local_team: Team,
     pub local_supplies: u32,
     pub local_power: i32,
     /// Host Player::power_produced residual (energy bar numerator side).
@@ -1969,6 +1972,7 @@ impl PresentationFrame {
         objects.sort_by_key(|o| o.id.0);
 
         let local = logic.get_player(local_player_id);
+        let local_team = local.map(|p| p.team).unwrap_or(Team::Neutral);
         let local_supplies = local.map(|p| p.resources.supplies).unwrap_or(0);
         let local_power = local.map(|p| p.power_available).unwrap_or(0);
         let local_power_produced = local.map(|p| p.power_produced).unwrap_or(0);
@@ -2173,6 +2177,7 @@ impl PresentationFrame {
             frame: LogicFrame(logic.get_frame()),
             objects,
             local_player_id,
+            local_team,
             local_supplies,
             local_power,
             local_power_produced,
@@ -2362,6 +2367,13 @@ impl PresentationFrame {
         self.fow_shell_bypass.hash(&mut h);
         self.fow_grid.content_fingerprint().hash(&mut h);
         self.local_player_id.hash(&mut h);
+        match self.local_team {
+            Team::USA => 0u8,
+            Team::China => 1u8,
+            Team::GLA => 2u8,
+            Team::Neutral => 3u8,
+        }
+        .hash(&mut h);
         self.laser_beams.len().hash(&mut h);
         for beam in &self.laser_beams {
             beam.beam_index.hash(&mut h);
@@ -2764,6 +2776,12 @@ impl PresentationFrame {
     }
 
     /// All alive selectable friendlies (Ctrl+A / Tab cycle residual).
+    /// Local player team frozen on this frame (selection/hotkey consumers).
+    #[inline]
+    pub fn local_team(&self) -> Team {
+        self.local_team
+    }
+
     pub fn alive_selectable_friendly_ids(
         &self,
         player_team: crate::game_logic::Team,
@@ -4234,6 +4252,19 @@ mod tests {
         assert_eq!(frame.first_constructed_producer_id(Team::USA), Some(p));
         assert_eq!(frame.first_enemy_attackable_id(Team::USA), Some(e));
         assert_eq!(frame.count_mobile_friendlies(Team::USA), 1);
+    }
+
+    #[test]
+    fn local_team_frozen_from_host_player() {
+        let mut logic = GameLogic::new();
+        let cfg = crate::skirmish_config::golden_skirmish_config("LocalTeamFreeze");
+        crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        let host_team = logic.get_player(pid).expect("p").team;
+        let frame = PresentationFrame::build_from_logic(&logic, pid);
+        assert_eq!(frame.local_player_id, pid);
+        assert_eq!(frame.local_team, host_team);
+        assert_eq!(frame.local_team(), host_team);
     }
 
     #[test]
