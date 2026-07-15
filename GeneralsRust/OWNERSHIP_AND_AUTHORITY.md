@@ -1169,3 +1169,15 @@ missing), starts at most one structure per call, and arms `structure_timer` with
 AIData poor/wealthy structure mods (`timer / mod`). Full legal-place wiggle and
 dozer `aiResumeConstruction` remain residual.
 
+### selectTeamToBuild hiPri/random (2026-07-14)
+
+Compared C++ `AIPlayer::selectTeamToBuild` to Rust:
+
+- Collect `isAGoodIdeaToBuildTeam` candidates and track hiPri.
+- Call `selectTeamToReinforce(hiPri)` before starting a new team.
+- Random-pick among hiPri set via `game_logic_random_value` (C++ GameLogicRandomValue).
+- `buildSpecificAITeam(..., false)` then arm `teamTimer` with AIData team poor/wealthy mods.
+- `isAGoodIdeaToBuildTeam` uses `isPossibleToBuildTeam(..., requireIdleFactory=true)`.
+
+Fail-closed: production-condition script eval still residual; Main host AI still separate.
+
