@@ -2823,7 +2823,7 @@ impl AIPlayer {
             return Ok(());
         }
 
-        // Pass 2: rebuild-hole spawn retarget.
+        // Pass 2: rebuild-hole spawn retarget (C++ getReconstructedBuildingID).
         let structure_template_name = structure_arc
             .read()
             .ok()
@@ -2838,15 +2838,11 @@ impl AIPlayer {
                 while let Some(node) = current {
                     let name = node.get_template_name().to_string();
                     let equiv = TheThingFactory::find_template(&name)
-                        .map(|t| {
-                            t.get_name()
-                                .as_str()
-                                .eq_ignore_ascii_case(&structure_template_name)
-                                || structure_template_name
-                                    .eq_ignore_ascii_case(t.get_name().as_str())
-                        })
-                        .unwrap_or(false);
-                    if !equiv && name != structure_template_name {
+                        .zip(TheThingFactory::find_template(&structure_template_name))
+                        .map(|(a, b)| a.is_equivalent_to(b.as_ref()))
+                        .unwrap_or(false)
+                        || name.eq_ignore_ascii_case(&structure_template_name);
+                    if !equiv {
                         current = node.get_next_mut();
                         continue;
                     }
@@ -2855,11 +2851,26 @@ impl AIPlayer {
                         if let Some(hole_arc) = OBJECT_REGISTRY.get_object(list_id) {
                             if let Ok(hole_g) = hole_arc.read() {
                                 if hole_g.is_kind_of(KindOf::RebuildHole) {
-                                    // Hole entry of matching template — retarget to rebuilt bldg.
-                                    // Full getReconstructedBuildingID residual when mut iface available.
-                                    node.set_object_id(structure_id);
-                                    matched = true;
-                                    break;
+                                    // Prefer reconstructed building ID match when available.
+                                    let mut is_this_spawn = true;
+                                    for behavior in hole_g.get_behavior_modules() {
+                                        if let Ok(mut bg) = behavior.lock() {
+                                            if let Some(rhbi) =
+                                                bg.get_rebuild_hole_behavior_interface()
+                                            {
+                                                let rebuilt = rhbi.get_reconstructed_building_id();
+                                                is_this_spawn = rebuilt == structure_id
+                                                    || rebuilt == INVALID_ID;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if is_this_spawn {
+                                        log::debug!("AI got rebuilt {}", name);
+                                        node.set_object_id(structure_id);
+                                        matched = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -5742,12 +5753,61 @@ impl AIPlayer {
                             }
                         }
                         // Captured or gone: clear and stamp for rebuild delay.
+                        let prior_id = obj_id;
                         info.set_object_id(INVALID_ID);
                         info.set_object_timestamp(current_frame.saturating_add(1));
+                        // C++ GLA hole scan by spawnerID.
+                        for hole_arc in OBJECT_REGISTRY.get_all_objects() {
+                            let Ok(hg) = hole_arc.read() else {
+                                continue;
+                            };
+                            if !hg.is_kind_of(KindOf::RebuildHole) {
+                                continue;
+                            }
+                            let mut matched = false;
+                            for behavior in hg.get_behavior_modules() {
+                                if let Ok(mut bg) = behavior.lock() {
+                                    if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
+                                        if rhbi.get_spawner_id() == prior_id {
+                                            matched = true;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            if matched {
+                                info.set_object_id(hg.get_id());
+                                break;
+                            }
+                        }
                     }
                     None => {
+                        let prior_id = obj_id;
                         info.set_object_id(INVALID_ID);
                         info.set_object_timestamp(current_frame.saturating_add(1));
+                        for hole_arc in OBJECT_REGISTRY.get_all_objects() {
+                            let Ok(hg) = hole_arc.read() else {
+                                continue;
+                            };
+                            if !hg.is_kind_of(KindOf::RebuildHole) {
+                                continue;
+                            }
+                            let mut matched = false;
+                            for behavior in hg.get_behavior_modules() {
+                                if let Ok(mut bg) = behavior.lock() {
+                                    if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
+                                        if rhbi.get_spawner_id() == prior_id {
+                                            matched = true;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            if matched {
+                                info.set_object_id(hg.get_id());
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -7727,10 +7787,12 @@ mod tests {
     fn process_base_building_calls_build_structure_with_dozer() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src.find("fn process_base_building").expect("pbb");
-        let window = &src[i..src.len().min(i + 5000)];
+        let window = &src[i..src.len().min(i + 12000)];
         assert!(
-            window.contains("build_structure_with_dozer"),
-            "processBaseBuilding must call buildStructureWithDozer (C++ USE_DOZER)"
+            window.contains("build_structure_with_dozer")
+                && window.contains("get_spawner_id()")
+                && window.contains("KindOf::RebuildHole"),
+            "processBaseBuilding must call buildStructureWithDozer and match holes by spawner"
         );
     }
 
