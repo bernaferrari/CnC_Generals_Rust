@@ -499,3 +499,10 @@ vanishes. `process_building_queue` waits `RebuildDelaySeconds=30` before startin
 a rebuild (C++ BuildListInfo objectTimestamp + m_rebuildDelaySeconds). Successful
 start clears the stamp. Not full C++ rebuild-hole / dozer path.
 
+### Presentation runtime heightmap freeze (2026-07-14)
+
+`PresentationWorldEnv.runtime_heightmap` freezes the full runtime `HeightMap`
+POD at snapshot build. Map-load terrain visual bake prefers that freeze and
+calls `load_heightmap_from_runtime_terrain(..., None)` so the path cannot
+dual-read live `GameLogic`. Boot without presentation may still pass live logic.
+
