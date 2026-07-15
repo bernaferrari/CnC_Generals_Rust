@@ -1792,6 +1792,10 @@ pub struct PresentationFrame {
     pub frame: LogicFrame,
     /// Host sim clock residual (seconds) for UI time readout.
     pub total_play_time_seconds: f32,
+    /// Host AI difficulty residual (save metadata).
+    pub ai_difficulty: crate::ai::AIDifficulty,
+    /// Host game mode residual (restart/save metadata).
+    pub game_mode: crate::game_logic::GameMode,
     pub objects: Vec<RenderableObject>,
     pub local_player_id: u32,
     /// Local player team frozen at snapshot time (selection/hotkey residual).
@@ -2431,6 +2435,8 @@ impl PresentationFrame {
         Self {
             frame: LogicFrame(logic.get_frame()),
             total_play_time_seconds: logic.get_total_play_time(),
+            ai_difficulty: logic.get_difficulty(),
+            game_mode: logic.game_mode(),
             objects,
             local_player_id,
             local_team,
