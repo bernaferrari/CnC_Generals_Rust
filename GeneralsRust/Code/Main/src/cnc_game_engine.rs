@@ -1794,12 +1794,17 @@ impl CnCGameEngine {
     }
 
     fn runtime_host_status_snapshot(&mut self) -> RuntimeHostSnapshot {
-        let (match_over, victory_label) =
-            if let Some(v) = self.game_logic.evaluate_victory_condition() {
-                (true, format!("{v:?}"))
-            } else {
-                (false, String::new())
-            };
+        // Prefer presentation victory residual when installed (no live re-evaluate dual-read).
+        let (match_over, victory_label) = if let Some(pres) = self.last_presentation_frame.as_ref()
+        {
+            let label = pres.victory_label.clone().unwrap_or_default();
+            (pres.match_over, label)
+        } else if let Some(v) = self.game_logic.evaluate_victory_condition() {
+            // Boot residual only.
+            (true, format!("{v:?}"))
+        } else {
+            (false, String::new())
+        };
 
         let map_name = self.game_logic.get_current_map_name().trim();
         let map_name = if map_name.is_empty() {
@@ -6484,7 +6489,7 @@ impl CnCGameEngine {
         }
 
         // Prefer presentation popup/music residual when installed; live take is boot residual.
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
+        if let Some(pres) = self.last_presentation_frame.clone() {
             for popup in &pres.pending_popup_messages {
                 if popup.pause {
                     self.game_paused = true;
@@ -6504,6 +6509,8 @@ impl CnCGameEngine {
             // Drain live queues so peeked presentation fields are not re-applied.
             let _ = self.game_logic.take_popup_message_requests();
             let _ = self.game_logic.take_music_stop_request();
+            // Presentation movie residual: play via GameClient script display, then drain.
+            self.apply_presentation_movie_residual(&pres);
         } else {
             for popup in self.game_logic.take_popup_message_requests() {
                 if popup.pause {
@@ -6521,6 +6528,27 @@ impl CnCGameEngine {
                 if let Some(sink) = self.background_music.take() {
                     sink.stop();
                 }
+            }
+            // Boot residual movies (no presentation frame).
+            #[cfg(feature = "game_client")]
+            {
+                if let Some(name) = self.game_logic.take_pending_movie() {
+                    let _ =
+                        game_client::core::script_action_handler::play_script_display_movie(&name);
+                }
+                if let Some(name) = self.game_logic.take_pending_radar_movie() {
+                    let started = game_client::helpers::TheInGameUI::play_movie(&name);
+                    if !started {
+                        let _ = game_client::core::script_action_handler::play_script_display_movie(
+                            &name,
+                        );
+                    }
+                }
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                let _ = self.game_logic.take_pending_movie();
+                let _ = self.game_logic.take_pending_radar_movie();
             }
         }
 
@@ -6749,7 +6777,17 @@ impl CnCGameEngine {
                     self.game_hud.push_radar_message(msg);
                 }
             }
-            let new_script_messages = self.game_logic.take_new_script_messages();
+            // Prefer presentation new_script_messages residual when installed.
+            let new_script_messages: Vec<String> =
+                if let Some(pres) = self.last_presentation_frame.as_ref() {
+                    let msgs = pres.new_script_messages.clone();
+                    // Drain live queue so peeked presentation fields are not re-applied.
+                    let _ = self.game_logic.take_new_script_messages();
+                    msgs
+                } else {
+                    // Boot residual only.
+                    self.game_logic.take_new_script_messages()
+                };
             for msg in &new_script_messages {
                 self.game_hud.push_script_message(msg);
             }
@@ -7155,6 +7193,34 @@ impl CnCGameEngine {
         let _ = self.game_logic.take_view_guardband_request();
         let _ = self.game_logic.take_camera_bw_mode_request();
         let _ = self.game_logic.take_camera_motion_blur_requests();
+    }
+
+    /// Play presentation-frozen script/radar movies (C++ script display residual).
+    /// Drains live pending movie queues after apply. Fail-closed: not full BINK parity.
+    fn apply_presentation_movie_residual(
+        &mut self,
+        pres: &crate::presentation_frame::PresentationFrame,
+    ) {
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(ref name) = pres.pending_movie {
+                let started =
+                    game_client::core::script_action_handler::play_script_display_movie(name);
+                if !started {
+                    log::trace!("presentation movie play deferred/failed: {name}");
+                }
+            }
+            if let Some(ref name) = pres.pending_radar_movie {
+                // Radar movies use InGameUI path when available.
+                let started = game_client::helpers::TheInGameUI::play_movie(name);
+                if !started {
+                    let _ =
+                        game_client::core::script_action_handler::play_script_display_movie(name);
+                }
+            }
+        }
+        let _ = self.game_logic.take_pending_movie();
+        let _ = self.game_logic.take_pending_radar_movie();
     }
 
     /// Apply camera residual frozen on `PresentationFrame` (no live take dual-read).
