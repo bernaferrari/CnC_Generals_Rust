@@ -3727,6 +3727,163 @@ impl AIPlayer {
         Ok(())
     }
 
+    /// C++ `AIPlayer::buildStructureWithDozer` (AIPlayer.cpp) — core path residual.
+    ///
+    /// findDozer → funds check → ground height → spawn + dozer build task →
+    /// stamp BuildListInfo objectID/timestamp/underConstruction.
+    fn build_structure_with_dozer(
+        &mut self,
+        template_name: &str,
+        location: Coord3D,
+        angle: Real,
+    ) -> Result<Option<ObjectID>, AiError> {
+        let Some(dozer_id) = self.find_dozer(&location)? else {
+            let _ = self.queue_dozer();
+            return Ok(None);
+        };
+
+        let Some(template) = TheThingFactory::find_template(template_name) else {
+            return Ok(None);
+        };
+
+        let Ok(list) = player_list().read() else {
+            return Ok(None);
+        };
+        let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            return Ok(None);
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return Ok(None);
+        };
+
+        let cost = template.calc_cost_to_build(Some(&*player_guard));
+        if player_guard.get_money().get_money() < cost {
+            return Ok(None);
+        }
+
+        let mut pos = location;
+        if let Some(terrain) = TheTerrainLogic::get() {
+            pos.z = terrain.get_ground_height(pos.x, pos.y, None);
+        }
+
+        let team = player_guard.get_default_team();
+        drop(player_guard);
+        drop(list);
+
+        let Some(team_arc) = team else {
+            return Ok(None);
+        };
+        let Ok(team_guard) = team_arc.read() else {
+            return Ok(None);
+        };
+        let Ok(factory) = TheThingFactory::get() else {
+            return Ok(None);
+        };
+        let Ok(new_object) = factory.new_object(template.clone(), &*team_guard) else {
+            return Ok(None);
+        };
+        drop(team_guard);
+
+        let mut build_max_health = 0.0;
+        if let Ok(guard) = new_object.read() {
+            if let Some(body) = guard.get_body_module() {
+                if let Ok(body_guard) = body.lock() {
+                    build_max_health = body_guard.get_max_health();
+                }
+            }
+        }
+
+        let bldg_id = {
+            let Ok(mut guard) = new_object.write() else {
+                return Ok(None);
+            };
+            let _ = guard.set_position(&pos);
+            let _ = guard.set_orientation(angle);
+            if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
+                if let Ok(dozer_g) = dozer_arc.read() {
+                    guard.set_producer(Some(&*dozer_g));
+                    guard.set_builder(Some(&*dozer_g));
+                }
+            }
+            guard.set_construction_percent(0.0);
+            if build_max_health > 0.0 {
+                let _ = guard.set_health(1.0);
+            }
+            guard.set_status(
+                ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction),
+                true,
+            );
+            guard.get_id()
+        };
+
+        let total_build_frames = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+            .and_then(|p| {
+                p.read()
+                    .ok()
+                    .map(|pg| template.calc_time_to_build(Some(&*pg)).max(1) as u32)
+            })
+            .unwrap_or(300);
+
+        if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
+            if let Ok(dozer_g) = dozer_arc.read() {
+                if let Some(ai) = dozer_g.get_ai_update_interface() {
+                    if let Ok(mut ai_g) = ai.try_lock() {
+                        if let Some(dozer_ai) = ai_g.get_dozer_ai_update_interface_mut() {
+                            dozer_ai.set_build_task(
+                                bldg_id,
+                                total_build_frames,
+                                build_max_health,
+                                false,
+                            );
+                        } else if let Some(worker_ai) = ai_g.get_worker_ai_update_interface_mut() {
+                            worker_ai.set_build_task(
+                                bldg_id,
+                                total_build_frames,
+                                build_max_health,
+                                false,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(mut pg) = player_arc.write() {
+                    if let Some(info) = pg.get_build_list_mut() {
+                        let mut cur = Some(&mut *info);
+                        while let Some(node) = cur {
+                            if node.get_template_name().as_str() == template_name
+                                && node.get_object_id() == INVALID_ID
+                            {
+                                node.set_object_id(bldg_id);
+                                node.set_object_timestamp(
+                                    TheGameLogic::get_frame().saturating_add(1),
+                                );
+                                node.set_under_construction(true);
+                                node.decrement_num_rebuilds();
+                                break;
+                            }
+                            cur = node.get_next_mut();
+                        }
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "AI dozer {} started building {} as {}",
+            dozer_id,
+            template_name,
+            bldg_id
+        );
+        Ok(Some(bldg_id))
+    }
+
     /// Build structure immediately
     fn build_structure_now(&mut self, priority: &ConstructionPriority) -> Result<(), AiError> {
         // Find suitable dozer and location
@@ -4337,20 +4494,19 @@ impl AIPlayer {
         drop(player_guard);
 
         if let Some((name, location, angle)) = to_build {
-            // USE_DOZER residual: require a dozer before arming timer (C++ returns NULL if none).
-            let has_dozer = self.find_dozer(&location)?.is_some();
-            if !has_dozer {
-                let _ = self.queue_dozer();
-                // C++ returns without arming timer when no dozer.
-                return Ok(());
+            // C++ USE_DOZER: buildStructureWithDozer; NULL → no timer arm.
+            match self.build_structure_with_dozer(&name, location, angle)? {
+                Some(_bldg_id) => {
+                    self.arm_structure_timer_after_build()?;
+                    self.frame_last_building_built = current_frame;
+                    // C++: only one building per delay loop.
+                    return Ok(());
+                }
+                None => {
+                    // No dozer / funds / placement — retry later.
+                    return Ok(());
+                }
             }
-
-            // Queue construction at list location (full legal-place wiggle residual).
-            self.queue_structure_construction(&name, location, angle)?;
-            self.arm_structure_timer_after_build()?;
-            self.frame_last_building_built = current_frame;
-            // C++: only one building per delay loop.
-            return Ok(());
         }
 
         // Fallback residual: if build list empty but priorities exist, try first priority.
@@ -5433,7 +5589,7 @@ mod tests {
     fn process_base_building_source_has_cpp_rebuild_and_timer_arm() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src.find("fn process_base_building").expect("pbb");
-        let window = &src[i..src.len().min(i + 4500)];
+        let window = &src[i..src.len().min(i + 6500)];
         assert!(
             window.contains("rebuild_delay_frames")
                 && window.contains("set_object_timestamp")
@@ -5604,6 +5760,35 @@ mod tests {
         assert_eq!(
             ai.team_delay, 0,
             "C++ always zeroes teamDelay at end of onUnitProduced"
+        );
+    }
+
+    #[test]
+    fn build_structure_with_dozer_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::buildStructureWithDozer`")
+            .expect("dozer build");
+        let window = &src[i..src.len().min(i + 6500)];
+        assert!(
+            window.contains("find_dozer")
+                && window.contains("calc_cost_to_build")
+                && window.contains("set_builder")
+                && window.contains("set_build_task")
+                && window.contains("set_under_construction(true)")
+                && window.contains("decrement_num_rebuilds"),
+            "buildStructureWithDozer must findDozer, funds, builder task, stamp build list"
+        );
+    }
+
+    #[test]
+    fn process_base_building_calls_build_structure_with_dozer() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("fn process_base_building").expect("pbb");
+        let window = &src[i..src.len().min(i + 5000)];
+        assert!(
+            window.contains("build_structure_with_dozer"),
+            "processBaseBuilding must call buildStructureWithDozer (C++ USE_DOZER)"
         );
     }
 
