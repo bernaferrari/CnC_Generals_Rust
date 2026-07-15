@@ -1775,6 +1775,8 @@ pub struct PresentationPlayerInfo {
     pub is_local: bool,
     /// True when host AI manager owns this player (skirmish AI residual).
     pub is_ai: bool,
+    /// Skirmish/UI color residual (RGB).
+    pub color_rgb: (u8, u8, u8),
 }
 
 /// Frozen script popup residual (C++ ScriptPopupMessageRequest parity).
@@ -2232,6 +2234,7 @@ impl PresentationFrame {
                 is_alive: p.is_alive,
                 is_local: p.is_local,
                 is_ai: logic.ai_manager_contains_player(id),
+                color_rgb: p.color_rgb,
             })
             .collect();
         players.sort_by_key(|p| p.id);
@@ -2669,6 +2672,9 @@ impl PresentationFrame {
             p.is_alive.hash(&mut h);
             p.is_local.hash(&mut h);
             p.is_ai.hash(&mut h);
+            p.color_rgb.0.hash(&mut h);
+            p.color_rgb.1.hash(&mut h);
+            p.color_rgb.2.hash(&mut h);
         }
         self.laser_beams.len().hash(&mut h);
         for beam in &self.laser_beams {

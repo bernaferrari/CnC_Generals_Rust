@@ -2589,19 +2589,24 @@ impl CnCGameEngine {
                 context.slots = frame
                     .players
                     .iter()
-                    .map(
-                        |player| game_client::gui::load_screen::LoadScreenSlotInitContext {
+                    .map(|player| {
+                        // apparent_color is multiplayer color *index* (progress bar art).
+                        // Fail-closed: index not frozen on presentation — leave None.
+                        // apparent_text_color is packed 0x00RRGGBB from frozen color_rgb.
+                        let (r, g, b) = player.color_rgb;
+                        let text_color = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                        game_client::gui::load_screen::LoadScreenSlotInitContext {
                             player_id: player.id as i32,
                             player_name: player.name.clone(),
                             side_name: player.team.get_name().to_string(),
                             team_number: player.id as i32,
                             apparent_color: None,
-                            apparent_text_color: None,
+                            apparent_text_color: Some(text_color),
                             is_ai: player.is_ai,
                             has_map: true,
                             visible: player.is_alive,
-                        },
-                    )
+                        }
+                    })
                     .collect();
                 return context;
             }

@@ -2122,11 +2122,15 @@ mod tests {
         ));
         assert!(
             pf.contains("is_ai: logic.ai_manager_contains_player(id)")
+                && pf.contains("color_rgb: p.color_rgb")
                 && eng.contains("Prefer full presentation roster when installed")
                 && eng.contains("frame.players.is_empty()")
                 && eng.contains("is_ai: player.is_ai")
+                && eng.contains("player.color_rgb")
+                && eng.contains("apparent_text_color: Some(text_color)")
+                && eng.contains("apparent_color is multiplayer color *index*")
                 && eng.contains("visible: player.is_alive"),
-            "load-screen init must expand slots from full presentation player roster with is_ai"
+            "load-screen init must expand slots from full presentation roster with is_ai/color"
         );
     }
 
