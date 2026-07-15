@@ -1025,3 +1025,11 @@ presentation popup + `pending_music_stop` + `script_fps_limit`, then drains live
 `take_*` queues. Live takes remain boot residual. Fail-closed: movie playback
 path not fully presentation-owned yet.
 
+### Presentation script message/movie residual (2026-07-14)
+
+HUD script messages prefer `PresentationFrame.new_script_messages` then drain
+live `take_new_script_messages`. Script/radar movies apply from presentation
+via GameClient display helpers, then `take_pending_movie*`. Runtime-host status
+prefers presentation `match_over`/`victory_label`. Fail-closed: not full BINK
+playback parity; boot path still plays movies when no frame.
+
