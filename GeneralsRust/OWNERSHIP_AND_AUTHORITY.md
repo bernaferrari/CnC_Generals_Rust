@@ -527,3 +527,14 @@ scaling and ticks `DisplayStringManager`. Still skips Main-owned input/audio and
 `draw_display` (RenderPipeline remains sole 3D draw). Full `GameClient::update()`
 remains disconnected.
 
+### CI clippy residual (2026-07-14)
+
+`math_utilities` grid cull loops no longer use Clippy-denied explicit counter
+patterns (`address += 1` over `for _ in range`). Keeps O(1) cell walk semantics.
+
+### GameWorld construction-complete residual (2026-07-14)
+
+`host_construction_log` is drained in the shadow session and applied via
+`apply_host_construction_events` so completed structures are mapped (spawn-like
+residual). Fail-closed: not full GameWorld construction-module authority.
+

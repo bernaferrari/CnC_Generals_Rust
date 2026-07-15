@@ -522,11 +522,11 @@ impl CullSystem for GridCullSystem {
             let mut cells_to_check = Vec::new();
             for k in vol.min[2]..vol.max[2] {
                 for j in vol.min[1]..vol.max[1] {
-                    let mut address = self.map_indices_to_address(vol.min[0], j, k);
-                    for _ in vol.min[0]..vol.max[0] {
+                    let base_address = self.map_indices_to_address(vol.min[0], j, k);
+                    for offset in 0..(vol.max[0] - vol.min[0]) {
+                        let address = base_address + offset as u32;
                         self.stats.nodes_trivially_accepted += 1;
                         cells_to_check.push(self.cells[address as usize].clone());
-                        address += 1;
                     }
                 }
             }
@@ -549,11 +549,11 @@ impl CullSystem for GridCullSystem {
             let mut cells_to_check = Vec::new();
             for k in vol.min[2]..vol.max[2] {
                 for j in vol.min[1]..vol.max[1] {
-                    let mut address = self.map_indices_to_address(vol.min[0], j, k);
-                    for _ in vol.min[0]..vol.max[0] {
+                    let base_address = self.map_indices_to_address(vol.min[0], j, k);
+                    for offset in 0..(vol.max[0] - vol.min[0]) {
+                        let address = base_address + offset as u32;
                         self.stats.nodes_trivially_accepted += 1;
                         cells_to_check.push(self.cells[address as usize].clone());
-                        address += 1;
                     }
                 }
             }
@@ -576,11 +576,11 @@ impl CullSystem for GridCullSystem {
             let mut cells_to_check = Vec::new();
             for k in vol.min[2]..vol.max[2] {
                 for j in vol.min[1]..vol.max[1] {
-                    let mut address = self.map_indices_to_address(vol.min[0], j, k);
-                    for _ in vol.min[0]..vol.max[0] {
+                    let base_address = self.map_indices_to_address(vol.min[0], j, k);
+                    for offset in 0..(vol.max[0] - vol.min[0]) {
+                        let address = base_address + offset as u32;
                         self.stats.nodes_trivially_accepted += 1;
                         cells_to_check.push(self.cells[address as usize].clone());
-                        address += 1;
                     }
                 }
             }
