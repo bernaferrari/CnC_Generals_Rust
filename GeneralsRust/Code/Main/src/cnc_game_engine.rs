@@ -2572,32 +2572,41 @@ impl CnCGameEngine {
             }
         }
 
-        // Prefer presentation roster when installed (InGame residual); live only boot/menu.
+        // Prefer full presentation roster when installed (InGame residual);
+        // live get_player only boot/menu when no frame.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
-            let local_id = frame.local_player_id;
-            if let Some(player) = frame.player_info(local_id).or_else(|| {
-                frame
+            if !frame.players.is_empty() {
+                let local = frame
+                    .player_info(frame.local_player_id)
+                    .or_else(|| frame.players.iter().find(|p| p.is_local))
+                    .or_else(|| frame.players.first());
+                let mut context = game_client::gui::load_screen::LoadScreenInitContext::default();
+                if let Some(local) = local {
+                    context.local_player_name = local.name.clone();
+                    context.local_side_name = local.team.get_name().to_string();
+                    context.local_team_number = local.id as i32;
+                }
+                context.slots = frame
                     .players
                     .iter()
-                    .find(|p| p.is_local)
-                    .or_else(|| frame.players.first())
-            }) {
-                let slot = game_client::gui::load_screen::LoadScreenSlotInitContext {
-                    player_id: player.id as i32,
-                    player_name: player.name.clone(),
-                    side_name: player.team.get_name().to_string(),
-                    team_number: player.id as i32,
-                    apparent_color: None,
-                    apparent_text_color: None,
-                    is_ai: false,
-                    has_map: true,
-                    visible: true,
-                };
-                let mut context = game_client::gui::load_screen::LoadScreenInitContext::default();
-                context.local_player_name = slot.player_name.clone();
-                context.local_side_name = slot.side_name.clone();
-                context.local_team_number = slot.team_number;
-                context.slots = vec![slot];
+                    .map(
+                        |player| game_client::gui::load_screen::LoadScreenSlotInitContext {
+                            player_id: player.id as i32,
+                            player_name: player.name.clone(),
+                            side_name: player.team.get_name().to_string(),
+                            team_number: player.id as i32,
+                            apparent_color: None,
+                            apparent_text_color: None,
+                            // Fail-closed: is_ai not frozen on roster; skirmish non-local ≈ AI.
+                            is_ai: matches!(
+                                self.presentation_or_live_game_mode(),
+                                GameMode::Skirmish
+                            ) && !player.is_local,
+                            has_map: true,
+                            visible: player.is_alive,
+                        },
+                    )
+                    .collect();
                 return context;
             }
         }
