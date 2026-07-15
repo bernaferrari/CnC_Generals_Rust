@@ -1988,6 +1988,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_play_time_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("total_play_time_seconds: logic.get_total_play_time()")
+                && pf.contains("ui.current_game_time = self.total_play_time_seconds")
+                && eng.contains("Prefer presentation sim clock residual")
+                && eng.contains("p.total_play_time_seconds"),
+            "UI game time must prefer presentation total_play_time_seconds"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

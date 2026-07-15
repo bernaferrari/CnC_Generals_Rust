@@ -6791,7 +6791,12 @@ impl CnCGameEngine {
             for msg in &new_script_messages {
                 self.game_hud.push_script_message(msg);
             }
-            ui_state.current_game_time = self.game_logic.get_total_play_time();
+            // Prefer presentation sim clock residual when installed.
+            ui_state.current_game_time = self
+                .last_presentation_frame
+                .as_ref()
+                .map(|p| p.total_play_time_seconds)
+                .unwrap_or_else(|| self.game_logic.get_total_play_time());
             ui_state.fps = self.fps;
             ui_state.frame_time_ms = if self.fps > 0.0 {
                 1000.0 / self.fps
