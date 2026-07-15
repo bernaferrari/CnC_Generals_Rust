@@ -747,6 +747,31 @@ impl UnitControlSystem {
 
     /// Select all units of the same type as the clicked unit
     fn select_similar_units(&mut self, object_id: ObjectId, game_logic: &GameLogic) {
+        // Prefer presentation identity (template/team/selectable) when a snapshot is
+        // installed — avoids live GameLogic dual-read for double-click select-similar.
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let Some(clicked) = frame.objects.iter().find(|o| o.id == object_id) else {
+                return;
+            };
+            let template_name = clicked.template_name.clone();
+            self.selected_objects.clear();
+            for o in &frame.objects {
+                if o.team == self.local_player_team
+                    && Self::presentation_is_selectable(o)
+                    && o.template_name == template_name
+                {
+                    self.selected_objects.push(o.id);
+                }
+            }
+            println!(
+                "Selected {} units of type {} (presentation)",
+                self.selected_objects.len(),
+                template_name
+            );
+            return;
+        }
+
+        // Boot residual only when no presentation frame is installed.
         if let Some(clicked_object) = game_logic.get_object(object_id) {
             let template_name = &clicked_object.template_name;
 
@@ -1139,6 +1164,52 @@ mod tests {
     }
 
     #[test]
+    fn select_similar_prefers_presentation_identity() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SelSimilarPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["SimA", "SimB"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.set_health(100.0);
+                t.add_kind_of(KindOf::Selectable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let a1 = logic
+            .create_object("SimA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a1");
+        let a2 = logic
+            .create_object("SimA", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("a2");
+        let b1 = logic
+            .create_object("SimB", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("b1");
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        // Live renames one SimA to poison live dual-read if used.
+        if let Some(obj) = logic.get_objects_mut().get_mut(&a2) {
+            obj.template_name = "Poisoned".into();
+        }
+        let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
+        ctl.set_presentation_frame(Some(frame));
+        ctl.select_similar_units(a1, &logic);
+        assert!(ctl.selected_objects.contains(&a1));
+        assert!(
+            ctl.selected_objects.contains(&a2),
+            "presentation still sees a2 as SimA"
+        );
+        assert!(!ctl.selected_objects.contains(&b1));
+        assert_eq!(ctl.selected_objects.len(), 2);
+        let src = include_str!("unit_control.rs");
+        assert!(
+            src.contains("presentation_is_selectable(o)")
+                && src.contains("Prefer presentation identity"),
+            "select_similar must prefer presentation residual"
+        );
+    }
+
     fn pick_prefers_presentation_identity_not_live_move() {
         let (mut logic, id) = logic_with_selectable_unit();
         let frame = PresentationFrame::build_from_logic(&logic, 0);
