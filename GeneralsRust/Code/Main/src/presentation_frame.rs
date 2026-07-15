@@ -4786,9 +4786,9 @@ impl PresentationFrame {
                 PresentationEvent::HealApplied { target, .. } => Some(("UnitHeal", Some(*target))),
                 PresentationEvent::EconomyChanged { .. } => Some(("MoneyTick", None)),
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),
+                PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
                 PresentationEvent::RadarMessage { .. }
                 | PresentationEvent::OwnerChanged { .. }
-                | PresentationEvent::MoveOrdered { .. }
                 | PresentationEvent::ParticleSystemSpawned { .. } => None,
             };
             let Some((kind, obj)) = mapped else {

@@ -947,3 +947,10 @@ overlay last-write from Entity residual. Presentation shell documents Eva via
 `update_post_draw_ui` without dual input/audio ownership. Fail-closed: not full
 path replan / contain capacity matrix.
 
+### Presentation audio SFX residual (2026-07-14)
+
+`play_sound_effect` queues host `AudioEventRequest` when a presentation frame is
+installed (UnitSelect/UnitCommand/…). Synthetic rodio tones remain boot residual
+only. `MoveOrdered` maps to `UnitMove` in `apply_events_to_audio`. Fail-closed:
+not Miles spatial device parity.
+
