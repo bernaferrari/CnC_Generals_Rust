@@ -147,12 +147,25 @@ impl AISkirmishPlayer {
     }
 
     /// Main update function - simulates the behavior of a skirmish player
+    /// C++ `AISkirmishPlayer::update` → `AIPlayer::update` with virtual overrides.
+    ///
+    /// Phase order: doBaseBuilding → checkReadyTeams → checkQueuedTeams →
+    /// doTeamBuilding → doUpgradesAndSkills → updateBridgeRepair.
     pub fn update(&mut self) {
-        if let Err(err) = self.base.update_without_base_building() {
-            log::debug!("AISkirmishPlayer::update_without_base_building failed: {err}");
-        }
         self.do_base_building();
+        if let Err(err) = self.base.check_ready_teams() {
+            log::debug!("check_ready_teams: {err}");
+        }
+        if let Err(err) = self.base.check_queued_teams() {
+            log::debug!("check_queued_teams: {err}");
+        }
         self.do_team_building();
+        if let Err(err) = self.base.do_upgrades_and_skills() {
+            log::debug!("do_upgrades_and_skills: {err}");
+        }
+        if let Err(err) = self.base.update_bridge_repair() {
+            log::debug!("update_bridge_repair: {err}");
+        }
     }
 
     /// Called when new map is loaded
@@ -1108,6 +1121,7 @@ impl AISkirmishPlayer {
         }
     }
 
+    /// C++ `AISkirmishPlayer::doBaseBuilding`.
     fn do_base_building(&mut self) {
         let Some(player_arc) = self.base.get_player() else {
             return;
@@ -1118,18 +1132,48 @@ impl AISkirmishPlayer {
         if !player_guard.get_can_build_base() {
             return;
         }
+        drop(player_guard);
 
-        self.clamp_build_timers();
-
-        if self.base.can_build_structure_now() {
-            self.process_base_building();
+        // structureTimer → readyToBuildStructure
+        if !self.base.can_build_structure_now() || self.base.get_structure_timer() > 0 {
+            // ready is false when timer running; mirror C++ path via base fields.
+        }
+        // Use base timers through helpers.
+        let mut structure_timer = self.base.get_structure_timer();
+        let ready = self.base.can_build_structure_now() || structure_timer == 0;
+        // More faithful: always tick structure timer when not ready.
+        if !self.base.is_ready_to_build_structure() {
+            if structure_timer > 0 {
+                structure_timer -= 1;
+                self.base.set_structure_timer_frames(structure_timer);
+            }
+            if structure_timer == 0 {
+                self.base.set_ready_to_build_structure(true);
+                self.base.set_build_delay_frames(0);
+            }
+            let max_t = 3 * LOGICFRAMES_PER_SECOND;
+            if self.base.get_structure_timer() > max_t {
+                self.base.set_structure_timer_frames(max_t);
+            }
         }
 
-        if self.base.get_build_delay() == 0 {
-            self.base.set_build_delay_frames(2 * LOGICFRAMES_PER_SECOND);
+        let mut build_delay = self.base.get_build_delay();
+        if build_delay > 0 {
+            build_delay -= 1;
+            self.base.set_build_delay_frames(build_delay);
         }
+        if self.base.get_build_delay() < 1 {
+            if self.base.is_ready_to_build_structure() {
+                self.process_base_building();
+            }
+            if self.base.get_build_delay() < 1 {
+                self.base.set_build_delay_frames(2 * LOGICFRAMES_PER_SECOND);
+            }
+        }
+        let _ = ready;
     }
 
+    /// C++ `AISkirmishPlayer::doTeamBuilding`.
     fn do_team_building(&mut self) {
         let Some(player_arc) = self.base.get_player() else {
             return;
@@ -1140,12 +1184,32 @@ impl AISkirmishPlayer {
         if !player_guard.get_can_build_units() {
             return;
         }
+        drop(player_guard);
 
-        self.clamp_build_timers();
+        if !self.base.is_ready_to_build_team() {
+            let mut team_timer = self.base.get_team_timer();
+            if team_timer > 0 {
+                team_timer -= 1;
+                self.base.set_team_timer_frames(team_timer);
+            }
+            if team_timer == 0 {
+                self.base.set_ready_to_build_team(true);
+                self.base.set_team_delay_frames(0);
+            }
+            let max_t = 3 * LOGICFRAMES_PER_SECOND;
+            if self.base.get_team_timer() > max_t {
+                self.base.set_team_timer_frames(max_t);
+            }
+        }
 
-        if self.base.get_team_delay() == 0 {
+        let mut team_delay = self.base.get_team_delay();
+        if team_delay > 0 {
+            team_delay -= 1;
+            self.base.set_team_delay_frames(team_delay);
+        }
+        if self.base.get_team_delay() < 1 {
             self.base.queue_units();
-            if self.base.can_build_team_now() {
+            if self.base.is_ready_to_build_team() {
                 self.process_team_building();
             }
             self.base.set_team_delay_frames(2 * LOGICFRAMES_PER_SECOND);
@@ -1962,15 +2026,19 @@ impl AISkirmishPlayer {
     /// Check if any ready teams have finished moving to the rally point.
     /// Matches C++ AISkirmishPlayer::checkReadyTeams (delegates to AIPlayer)
     pub fn check_ready_teams(&mut self) {
-        // Base check_ready_teams is private but is called in update_without_base_building.
-        // The skirmish update path calls update_without_base_building which handles this.
+        // C++ checkReadyTeams → AIPlayer.
+        if let Err(err) = self.base.check_ready_teams() {
+            log::debug!("AISkirmishPlayer::check_ready_teams failed: {err}");
+        }
     }
 
     /// Check if any queued teams have finished building or timed out.
     /// Matches C++ AISkirmishPlayer::checkQueuedTeams (delegates to AIPlayer)
     pub fn check_queued_teams(&mut self) {
-        // Base check_queued_teams is private but is called in update_without_base_building.
-        // The skirmish update path calls update_without_base_building which handles this.
+        // C++ checkQueuedTeams → AIPlayer.
+        if let Err(err) = self.base.check_queued_teams() {
+            log::debug!("AISkirmishPlayer::check_queued_teams failed: {err}");
+        }
     }
 
     /// Queue up a dozer for construction.
@@ -2640,6 +2708,37 @@ mod tests {
                 && src.contains("is_a_good_idea_to_build_team(proto.get_name()")
                 && src.contains("processTeamBuilding"),
             "skirmish team selection must delegate to AIPlayer C++ path"
+        );
+    }
+
+    #[test]
+    fn skirmish_update_phase_order_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src.find("C++ `AISkirmishPlayer::update`").expect("update");
+        let w = &src[i..src.len().min(i + 2500)];
+        assert!(
+            w.contains("do_base_building()")
+                && w.contains("check_ready_teams")
+                && w.contains("check_queued_teams")
+                && w.contains("do_team_building()")
+                && w.contains("do_upgrades_and_skills")
+                && w.contains("update_bridge_repair")
+                && !w.contains("update_without_base_building"),
+            "skirmish update must match C++ virtual phase order"
+        );
+        let db = src
+            .find("C++ `AISkirmishPlayer::doBaseBuilding`")
+            .expect("doBase");
+        let dw = &src[db..src.len().min(db + 2500)];
+        assert!(
+            dw.contains("is_ready_to_build_structure")
+                && dw.contains("set_structure_timer_frames")
+                && dw.contains("3 * LOGICFRAMES_PER_SECOND")
+                && dw.contains("process_base_building"),
+            "doBaseBuilding must tick structureTimer and throttle buildDelay"
         );
     }
 }

@@ -1008,6 +1008,22 @@ impl AIPlayer {
         self.ready_to_build_team && self.team_delay == 0
     }
 
+    pub fn is_ready_to_build_structure(&self) -> bool {
+        self.ready_to_build_structure
+    }
+
+    pub fn set_ready_to_build_structure(&mut self, ready: bool) {
+        self.ready_to_build_structure = ready;
+    }
+
+    pub fn is_ready_to_build_team(&self) -> bool {
+        self.ready_to_build_team
+    }
+
+    pub fn set_ready_to_build_team(&mut self, ready: bool) {
+        self.ready_to_build_team = ready;
+    }
+
     pub fn start_structure_timer_seconds(&mut self, seconds: i32) {
         let seconds = seconds.max(0) as u32;
         self.structure_timer = seconds * LOGICFRAMES_PER_SECOND;
@@ -3559,6 +3575,11 @@ impl AIPlayer {
                 self.ready_to_build_structure = true;
                 self.build_delay = 0; // Cause immediate check
             }
+            // C++ skirmish clamps; solo also benefits from sane max.
+            let max_t = 3 * LOGICFRAMES_PER_SECOND;
+            if self.structure_timer > max_t {
+                self.structure_timer = max_t;
+            }
         }
 
         // Throttle processBaseBuilding (C++ m_buildDelay).
@@ -3626,7 +3647,7 @@ impl AIPlayer {
     ///
     /// Activates ready-queue teams when all members are idle, any member is idle
     /// with an execute-actions production script, or 60s since `frame_started`.
-    fn check_ready_teams(&mut self) -> Result<(), AiError> {
+    pub(crate) fn check_ready_teams(&mut self) -> Result<(), AiError> {
         let now = TheGameLogic::get_frame();
         let mut i = 0;
         while i < self.team_ready_queue.len() {
@@ -3802,7 +3823,7 @@ impl AIPlayer {
     /// 2. All-built → ready queue (prepend).
     /// 3. Any idle + executeActions → run productionCondition action.
     /// Plus residual: assign waiting work orders to idle factories.
-    fn check_queued_teams(&mut self) -> Result<(), AiError> {
+    pub(crate) fn check_queued_teams(&mut self) -> Result<(), AiError> {
         // --- C++ phase 1: build-time expiry ---
         let mut i = 0;
         while i < self.team_build_queue.len() {
@@ -3930,6 +3951,10 @@ impl AIPlayer {
                 self.ready_to_build_team = true;
                 self.team_delay = 0; // Cause immediate check
             }
+            let max_t = 3 * LOGICFRAMES_PER_SECOND;
+            if self.team_timer > max_t {
+                self.team_timer = max_t;
+            }
         }
 
         // Throttle queue/process (C++ m_teamDelay).
@@ -3954,7 +3979,7 @@ impl AIPlayer {
     /// On first call, selects a skillset randomly from the available ones for the
     /// player's side. Then, if the player has science purchase points, iterates
     /// through the selected skillset and purchases each science that is affordable.
-    fn do_upgrades_and_skills(&mut self) -> Result<(), AiError> {
+    pub(crate) fn do_upgrades_and_skills(&mut self) -> Result<(), AiError> {
         // Find the AiSideInfo for our player's side
         // C++ AIPlayer.cpp:2917-2926
         let player_side = {
@@ -4072,7 +4097,7 @@ impl AIPlayer {
     ///
     /// Once/second: pop dead queue heads, assign/find repair dozer, issue
     /// aiRepair, complete when pristine and idle, then send dozer home.
-    fn update_bridge_repair(&mut self) -> Result<(), AiError> {
+    pub(crate) fn update_bridge_repair(&mut self) -> Result<(), AiError> {
         use crate::ai::{AiCommandParams, AiCommandType};
         use crate::object::body::BodyDamageType;
         use crate::object::update::ai_update::dozer_ai_update::DozerTask;

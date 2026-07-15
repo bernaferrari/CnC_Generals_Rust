@@ -1378,3 +1378,13 @@ delegate to AIPlayer. Rust now matches:
 - isAGoodIdea uses production condition + max + queue + idle factory
 - processTeamBuilding: select then queueUnits (counter-unit residual analysis only)
 
+### AISkirmishPlayer update phase order (2026-07-14)
+
+C++ `AISkirmishPlayer::update` calls `AIPlayer::update` with virtual overrides:
+
+doBaseBuilding → checkReadyTeams → checkQueuedTeams → doTeamBuilding →
+doUpgradesAndSkills → updateBridgeRepair.
+
+Skirmish doBase/doTeam tick structure/team timers, clamp to 3s max, and throttle
+process* via 2s delays (matching AISkirmishPlayer.cpp).
+
