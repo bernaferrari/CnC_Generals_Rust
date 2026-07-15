@@ -3216,6 +3216,97 @@ impl PresentationFrame {
                 obj.destroyed = destroyed;
                 dirty = true;
             }
+            // Identity residual (template/team/type) from shadow — no live dual-read.
+            if obj.template_name != ent.template.name {
+                obj.template_name = ent.template.name.clone();
+                dirty = true;
+            }
+            let team = match ent.team_ordinal {
+                0 => crate::game_logic::Team::USA,
+                1 => crate::game_logic::Team::China,
+                2 => crate::game_logic::Team::GLA,
+                _ => crate::game_logic::Team::Neutral,
+            };
+            if obj.team != team {
+                obj.team = team;
+                dirty = true;
+            }
+            let disguise_team = match ent.disguise_as_team_ordinal {
+                0 => Some(crate::game_logic::Team::USA),
+                1 => Some(crate::game_logic::Team::China),
+                2 => Some(crate::game_logic::Team::GLA),
+                3 => Some(crate::game_logic::Team::Neutral),
+                _ => None,
+            };
+            if obj.disguise_as_team != disguise_team {
+                obj.disguise_as_team = disguise_team;
+                dirty = true;
+            }
+            let object_type = match ent.object_type_ordinal {
+                0 => PresentationObjectType::Infantry,
+                1 => PresentationObjectType::Vehicle,
+                2 => PresentationObjectType::Aircraft,
+                3 => PresentationObjectType::Building,
+                4 => PresentationObjectType::Supply,
+                5 => PresentationObjectType::Projectile,
+                _ => PresentationObjectType::Neutral,
+            };
+            if obj.object_type != object_type {
+                obj.object_type = object_type;
+                dirty = true;
+            }
+            let is_structure =
+                matches!(object_type, PresentationObjectType::Building) || ent.is_building;
+            if obj.is_structure != is_structure {
+                obj.is_structure = is_structure;
+                dirty = true;
+            }
+            let is_unit = matches!(
+                object_type,
+                PresentationObjectType::Infantry
+                    | PresentationObjectType::Vehicle
+                    | PresentationObjectType::Aircraft
+            );
+            if obj.is_unit != is_unit {
+                obj.is_unit = is_unit;
+                dirty = true;
+            }
+            let is_mobile = is_unit;
+            if obj.is_mobile != is_mobile {
+                obj.is_mobile = is_mobile;
+                dirty = true;
+            }
+            // Prefer is_building + not under construction for can_produce residual.
+            let can_produce = ent.is_building && !ent.under_construction;
+            if obj.can_produce != can_produce {
+                obj.can_produce = can_produce;
+                dirty = true;
+            }
+            let building_type = if ent.is_building {
+                use PresentationBuildingType as P;
+                match ent.building_type_ordinal {
+                    0 => Some(P::CommandCenter),
+                    1 => Some(P::Barracks),
+                    2 => Some(P::WarFactory),
+                    3 => Some(P::Airfield),
+                    4 => Some(P::RepairPad),
+                    5 => Some(P::HealPad),
+                    6 => Some(P::SupplyCenter),
+                    7 => Some(P::PowerPlant),
+                    8 => Some(P::DefenseTurret),
+                    9 => Some(P::SupplyDropZone),
+                    10 => Some(P::Palace),
+                    11 => Some(P::Propaganda),
+                    12 => Some(P::Bunker),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if obj.building_type != building_type {
+                obj.building_type = building_type;
+                dirty = true;
+            }
             if obj.selected != ent.selected {
                 obj.selected = ent.selected;
                 dirty = true;
@@ -4786,6 +4877,8 @@ mod tests {
                 && src.contains("ent.kind_of_bits")
                 && src.contains("ent.applied_upgrade_names")
                 && src.contains("ent.production_queue_items")
+                && src.contains("obj.template_name = ent.template.name.clone()")
+                && src.contains("obj.disguise_as_team = disguise_team")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
