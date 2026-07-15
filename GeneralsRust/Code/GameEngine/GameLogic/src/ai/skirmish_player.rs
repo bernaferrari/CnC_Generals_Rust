@@ -1034,17 +1034,17 @@ impl AISkirmishPlayer {
 
     /// Process team building with skirmish-specific logic
     /// Matches C++ AISkirmishPlayer::processTeamBuilding
+    /// C++ `AISkirmishPlayer::processTeamBuilding`.
     fn process_team_building(&mut self) {
+        // Enemy analysis residual kept warm for counter-unit helpers, but C++ order
+        // is selectTeamToBuild then queueUnits only.
         if let Some(enemy) = self.get_ai_enemy() {
             self.analyze_enemy_composition(&enemy);
-            self.build_counter_units();
         }
 
         if self.select_team_to_build() {
             self.base.queue_units();
         }
-
-        self.adjust_team_timer_for_wealth();
     }
 
     /// Adjust team timer based on current wealth.
@@ -1153,102 +1153,37 @@ impl AISkirmishPlayer {
     }
 
     /// Select team to build with skirmish considerations
+    /// C++ `AISkirmishPlayer::selectTeamToBuild` → AIPlayer::selectTeamToBuild.
     fn select_team_to_build(&mut self) -> bool {
-        let Ok(factory) = get_team_factory().lock() else {
-            return false;
-        };
+        self.base.select_team_to_build().unwrap_or(false)
+    }
 
-        let mut candidates: Vec<Arc<TeamPrototype>> = Vec::new();
-        let mut hi_priority = i32::MIN;
-        for proto in factory.list_team_prototypes() {
-            if !self.is_a_good_idea_to_build_team(&proto) {
-                continue;
-            }
-            let priority = proto.get_production_priority();
-            if priority > hi_priority {
-                hi_priority = priority;
-                candidates.clear();
-                candidates.push(proto);
-            } else if priority == hi_priority {
-                candidates.push(proto);
-            }
-        }
+    /// C++ `AISkirmishPlayer::selectTeamToReinforce` → AIPlayer.
+    fn select_team_to_reinforce(&mut self, min_priority: i32) -> bool {
+        self.base
+            .select_team_to_reinforce(min_priority)
+            .unwrap_or(false)
+    }
 
-        if hi_priority == i32::MIN {
-            return false;
-        }
-
-        let enemy_total =
-            self.enemy_infantry_count + self.enemy_vehicle_count + self.enemy_air_count;
-        let selected_proto = if candidates.len() == 1 || enemy_total == 0 {
-            let idx = if candidates.len() == 1 {
-                0
-            } else {
-                GameLogicRandomValue(0, candidates.len() as i32 - 1) as usize
-            };
-            candidates[idx].clone()
-        } else {
-            let mut best_score = i32::MIN;
-            let mut best_candidates: Vec<Arc<TeamPrototype>> = Vec::new();
-            for proto in &candidates {
-                let score = self.score_team_for_enemy(proto);
-                if score > best_score {
-                    best_score = score;
-                    best_candidates.clear();
-                    best_candidates.push(proto.clone());
-                } else if score == best_score {
-                    best_candidates.push(proto.clone());
+    /// C++ `AISkirmishPlayer::startTraining` → findFactory + queueCreateUnit.
+    fn start_training(&mut self, order: &mut WorkOrder, busy_ok: bool, team_name: &str) -> bool {
+        self.base
+            .start_training_for_order(order, busy_ok)
+            .map(|ok| {
+                if ok {
+                    log::debug!("Queuing {} for {}", order.thing_template, team_name);
                 }
-            }
-            let idx = if best_candidates.len() == 1 {
-                0
-            } else {
-                GameLogicRandomValue(0, best_candidates.len() as i32 - 1) as usize
-            };
-            best_candidates[idx].clone()
-        };
-
-        self.build_specific_ai_team(selected_proto.as_ref(), true);
-        true
+                ok
+            })
+            .unwrap_or(false)
     }
 
-    /// Select team to reinforce
-    fn select_team_to_reinforce(&mut self, _min_priority: i32) -> bool {
-        self.base.select_team_to_build_ai()
-    }
-
-    /// Start training with factory management
-    fn start_training(&mut self, order: &mut WorkOrder, busy_ok: bool, _team_name: &str) -> bool {
-        self.base.start_training_for_order(order, busy_ok)
-    }
-
-    /// Check if it's a good idea to build a team
+    /// C++ `AISkirmishPlayer::isAGoodIdeaToBuildTeam` (same gates as AIPlayer).
     fn is_a_good_idea_to_build_team(&self, proto: &TeamPrototype) -> bool {
-        if !proto.is_ai_recruitable() {
-            return false;
-        }
-
-        let max_instances = proto.get_max_instances();
-        if max_instances > 0 {
-            if let Ok(factory_guard) = crate::team::get_team_factory().lock() {
-                let name = proto.get_name().as_str();
-                let existing = factory_guard.find_team_instances(name).len() as i32;
-                if existing >= max_instances {
-                    return false;
-                }
-            }
-        }
-
-        if !self.base.can_build_team_now() {
-            return false;
-        }
-
-        let proto_name = proto.get_name().as_str();
-        if self.base.is_team_in_queue(proto_name) {
-            return false;
-        }
-
-        true
+        // Production condition, max instances, not in queue, idle factory + money.
+        self.base
+            .is_a_good_idea_to_build_team(proto.get_name().as_str())
+            .unwrap_or(false)
     }
 
     fn score_team_for_enemy(&self, proto: &TeamPrototype) -> i32 {
@@ -2689,6 +2624,22 @@ mod tests {
                 && w.contains("start_structure_timer_seconds")
                 && w.contains("adjust_build_timer_for_wealth"),
             "processBaseBuilding must dozer-build, resume, power-force, arm timer"
+        );
+    }
+
+    #[test]
+    fn skirmish_select_team_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("AISkirmishPlayer::selectTeamToBuild")
+                && src.contains("select_team_to_build()")
+                && src.contains("select_team_to_reinforce(min_priority)")
+                && src.contains("is_a_good_idea_to_build_team(proto.get_name()")
+                && src.contains("processTeamBuilding"),
+            "skirmish team selection must delegate to AIPlayer C++ path"
         );
     }
 }
