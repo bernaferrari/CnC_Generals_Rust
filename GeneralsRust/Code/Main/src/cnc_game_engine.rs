@@ -6471,6 +6471,9 @@ impl CnCGameEngine {
                             pres.military_caption.as_deref(),
                             pres.military_caption_remaining_ms,
                         );
+                        // Cinematic text residual → InGameUI HUD message.
+                        self.game_client
+                            .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
                     }
                     if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
