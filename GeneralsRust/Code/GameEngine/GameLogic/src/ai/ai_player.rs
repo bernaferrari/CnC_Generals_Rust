@@ -1194,13 +1194,12 @@ impl AIPlayer {
         self.skillset_selector = skillset;
     }
 
-    /// C++ `AIPlayer::processTeamBuilding`: selectTeamToBuild then queueUnits.
+    /// C++ `AIPlayer::processTeamBuilding`: if selectTeamToBuild then queueUnits.
+    /// (selectTeamToBuild itself may reinforce a higher-priority team first.)
     pub fn process_team_building(&mut self) -> Result<(), AiError> {
         if self.select_team_to_build()? {
             let _ = self.queue_units();
         }
-        // Reinforcement residual (C++ selectTeamToReinforce is separate entry points).
-        let _ = self.select_team_to_reinforce(5)?;
         Ok(())
     }
 
@@ -3713,64 +3712,124 @@ impl AIPlayer {
         self.find_factory_internal(thing_template, false)
     }
 
-    /// Select team to build based on priorities and production conditions
-    /// Matches C++ AIPlayer.cpp selectTeamToBuild logic
+    /// C++ `AIPlayer::selectTeamToBuild` (AIPlayer.cpp).
+    ///
+    /// 1. Collect isAGoodIdea candidates + hiPri
+    /// 2. selectTeamToReinforce(hiPri) first
+    /// 3. Random pick among hiPri set via GameLogicRandomValue
+    /// 4. buildSpecificAITeam(low priority) + arm teamTimer with wealth mods
     fn select_team_to_build(&mut self) -> Result<bool, AiError> {
-        // This method scans all available team prototypes and selects the best one to build
-        // Based on:
-        // 1. Production conditions (evaluateProductionCondition)
-        // 2. Build limits (maxInstances)
-        // 3. Resource availability
-        // 4. Factory availability
-        // 5. Current team instances
-        // 6. Strategic priorities
-
-        // Full implementation (from C++ AIPlayer.cpp):
-        // 1. Get all team prototypes for this player's side via TheAI->getTeamPrototypes()
-        // 2. For each team prototype:
-        //    a. Check production condition via evaluateProductionCondition()
-        //    b. Count instances via countTeamInstances(), check against maxInstances
-        //    c. Check if already building this team type
-        //    d. Call isPossibleToBuildTeam() to check factories and resources
-        //    e. Calculate priority based on strategic value
-        // 3. Select highest priority team that meets all criteria
-        // 4. Create TeamInQueue and add to build queue
-        // 5. For each unit in team, create WorkOrder and queue for production
+        const INVALID_PRI: i32 = -99999;
 
         let factory = get_team_factory();
         let Ok(factory_guard) = factory.lock() else {
             return Ok(false);
         };
 
-        let mut best_team: Option<String> = None;
-        let mut best_priority = i32::MIN;
-
+        let mut candidates: Vec<(String, i32)> = Vec::new();
+        let mut hi_pri = INVALID_PRI;
         for proto in factory_guard.list_team_prototypes() {
             if !proto.is_ai_recruitable() {
                 continue;
             }
             let name = proto.get_name().as_str().to_string();
-            if !self.is_a_good_idea_to_build_team(&name)? {
-                continue;
-            }
-            let priority = proto.get_production_priority();
-            if priority > best_priority {
-                best_priority = priority;
-                best_team = Some(name);
+            // Drop factory lock before nested good-idea checks that re-lock.
+            // Collect names first.
+            candidates.push((name, proto.get_production_priority()));
+        }
+        drop(factory_guard);
+
+        let mut good: Vec<(String, i32)> = Vec::new();
+        for (name, pri) in candidates {
+            if self.is_a_good_idea_to_build_team(&name)? {
+                if pri > hi_pri {
+                    hi_pri = pri;
+                }
+                good.push((name, pri));
             }
         }
 
-        let Some(team_name) = best_team else {
+        // C++: try reinforce at hiPri before picking a new team.
+        if self.select_team_to_reinforce(hi_pri)? {
+            return Ok(true);
+        }
+
+        if hi_pri == INVALID_PRI {
             return Ok(false);
+        }
+
+        let hi: Vec<String> = good
+            .into_iter()
+            .filter(|(_, p)| *p == hi_pri)
+            .map(|(n, _)| n)
+            .collect();
+        if hi.is_empty() {
+            return Ok(false);
+        }
+
+        // C++ GameLogicRandomValue(0, count-1)
+        let which = if hi.len() == 1 {
+            0
+        } else {
+            game_logic_random_value(0, (hi.len() as u32) - 1) as usize
         };
+        let team_name = &hi[which.min(hi.len() - 1)];
 
-        let mut team = TeamInQueue::new();
-        team.team_name = Some(team_name.clone());
-        team.frame_started = TheGameLogic::get_frame();
-        self.add_work_orders_for_team(&mut team, &team_name)?;
-        self.team_build_queue.push_back(team);
-
+        // C++ buildSpecificAITeam(teamProto, false) — auto pick is low priority.
+        self.build_specific_ai_team(team_name, false)?;
+        // Stamp start frame on the team we just queued.
+        if let Some(front) = self.team_build_queue.back_mut() {
+            if front.team_name.as_deref() == Some(team_name.as_str()) {
+                front.frame_started = TheGameLogic::get_frame();
+            }
+        }
+        self.arm_team_timer_after_build()?;
         Ok(true)
+    }
+
+    /// After auto team select: C++ sets ready=false and teamTimer with wealth mods.
+    fn arm_team_timer_after_build(&mut self) -> Result<(), AiError> {
+        self.ready_to_build_team = false;
+        let mut timer = (self.team_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
+        if timer == 0 {
+            timer = 1;
+        }
+
+        let money = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))
+            .unwrap_or(0);
+
+        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|data| {
+                    (
+                        data.resources_poor,
+                        data.resources_wealthy,
+                        data.team_poor_mod,
+                        data.team_wealthy_mod,
+                    )
+                })
+            })
+            .unwrap_or((
+                RESOURCES_POOR,
+                RESOURCES_WEALTHY,
+                TEAMS_POOR_MODIFIER,
+                TEAMS_WEALTHY_MODIFIER,
+            ));
+
+        // C++: timer = timer / mod when mod applies (mod 0 → skip).
+        if money < poor && poor_mod > 0.0 {
+            timer = ((timer as f32) / poor_mod).max(1.0) as u32;
+        } else if money > wealthy && wealthy_mod > 0.0 {
+            timer = ((timer as f32) / wealthy_mod).max(1.0) as u32;
+        }
+        self.team_timer = timer;
+        Ok(())
     }
 
     /// Select team to reinforce
@@ -3985,8 +4044,8 @@ impl AIPlayer {
                     (
                         data.resources_poor,
                         data.resources_wealthy,
-                        data.structures_poor_mod.max(0.01),
-                        data.structures_wealthy_mod.max(0.01),
+                        data.structures_poor_mod,
+                        data.structures_wealthy_mod,
                     )
                 })
             })
@@ -3997,10 +4056,10 @@ impl AIPlayer {
                 STRUCTURES_WEALTHY_MODIFIER,
             ));
 
-        // C++: timer = timer / mod  (mod>1 → faster when poor/wealthy rates apply)
-        if money < poor {
+        // C++: timer = timer / mod when mod applies (mod 0 → skip).
+        if money < poor && poor_mod > 0.0 {
             timer = ((timer as f32) / poor_mod).max(1.0) as u32;
-        } else if money > wealthy {
+        } else if money > wealthy && wealthy_mod > 0.0 {
             timer = ((timer as f32) / wealthy_mod).max(1.0) as u32;
         }
 
@@ -4149,7 +4208,7 @@ impl AIPlayer {
             return Ok(false);
         }
 
-        let (possible, _) = self.is_possible_to_build_team(team_name, false)?;
+        let (possible, _) = self.is_possible_to_build_team(team_name, true)?;
         Ok(possible)
     }
 
@@ -5002,6 +5061,46 @@ mod tests {
                 && window.contains("find_dozer")
                 && window.contains("only one building per delay loop"),
             "process_base_building must port C++ rebuild delay + one-build + timer arm"
+        );
+    }
+
+    #[test]
+    fn select_team_to_build_random_hi_pri_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        // Anchor on the Result signature so we do not match select_team_to_build_ai.
+        let i = src
+            .find("fn select_team_to_build(&mut self) -> Result<bool, AiError>")
+            .expect("select_team_to_build");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("INVALID_PRI")
+                && window.contains("select_team_to_reinforce(hi_pri)")
+                && window.contains("game_logic_random_value")
+                && window.contains("build_specific_ai_team(team_name, false)")
+                && window.contains("arm_team_timer_after_build"),
+            "select_team_to_build must match C++ hiPri/reinforce/random/arm timer"
+        );
+    }
+
+    #[test]
+    fn arm_team_timer_after_build_sets_ready_false() {
+        let mut ai = AIPlayer::new(1);
+        ai.team_seconds = 10.0; // 300 frames
+        ai.ready_to_build_team = true;
+        ai.arm_team_timer_after_build().expect("arm");
+        assert!(!ai.ready_to_build_team);
+        assert_eq!(ai.team_timer, 300);
+    }
+
+    #[test]
+    fn is_a_good_idea_requires_idle_factory_like_cpp() {
+        // C++ isAGoodIdeaToBuildTeam calls isPossibleToBuildTeam(proto, true, ...)
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("fn is_a_good_idea_to_build_team").expect("good");
+        let window = &src[i..src.len().min(i + 2000)];
+        assert!(
+            window.contains("is_possible_to_build_team(team_name, true)"),
+            "is_a_good_idea must require idle factory (C++ busyOK=true means require idle)"
         );
     }
 

@@ -2354,6 +2354,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_select_team_to_build_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::selectTeamToBuild`")
+                && src.contains("select_team_to_reinforce(hi_pri)")
+                && src.contains("game_logic_random_value")
+                && src.contains("build_specific_ai_team(team_name, false)")
+                && src.contains("arm_team_timer_after_build")
+                && src.contains("is_possible_to_build_team(team_name, true)"),
+            "selectTeamToBuild must hiPri-filter, reinforce first, random pick, arm teamTimer"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
