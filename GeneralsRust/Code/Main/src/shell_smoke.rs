@@ -2580,6 +2580,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_build_recruit_team_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::buildSpecificAITeam`")
+                && src.contains("C++ `AIPlayer::recruitSpecificAITeam`")
+                && src.contains("create_inactive_team")
+                && src.contains("team_ready_queue.push_front")
+                && src.contains("get_can_build_units"),
+            "buildSpecificAITeam/recruitSpecificAITeam C++ paths required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
