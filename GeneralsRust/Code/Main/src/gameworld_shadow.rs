@@ -398,6 +398,21 @@ impl GameWorldShadow {
                     ];
                     e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                     e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
+                    e.display_name = obj.name.clone();
+                    e.overlord_bunker_capacity = obj
+                        .overlord_bunker_capacity
+                        .map(|n| n.min(u16::MAX as usize - 1) as u16)
+                        .unwrap_or(u16::MAX);
+                    e.passengers_allowed_to_fire = obj.passengers_allowed_to_fire;
+                    e.armed_riders_upgrade_weapon_set = obj.armed_riders_upgrade_weapon_set;
+                    e.weapon_set_player_upgrade = obj.weapon_set_player_upgrade;
+                    e.is_battle_bus_transport = obj.is_battle_bus_transport;
+                    e.is_technical_transport = obj.is_technical_transport;
+                    e.is_combat_cycle_transport = obj.is_combat_cycle_transport;
+                    e.combat_cycle_rider = obj.combat_cycle_rider;
+                    e.is_tunnel_network = obj.is_tunnel_network;
+                    e.is_combat_chinook_transport = obj.is_combat_chinook_transport;
+                    e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -510,6 +525,21 @@ impl GameWorldShadow {
                 ];
                 e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                 e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
+                e.display_name = obj.name.clone();
+                e.overlord_bunker_capacity = obj
+                    .overlord_bunker_capacity
+                    .map(|n| n.min(u16::MAX as usize - 1) as u16)
+                    .unwrap_or(u16::MAX);
+                e.passengers_allowed_to_fire = obj.passengers_allowed_to_fire;
+                e.armed_riders_upgrade_weapon_set = obj.armed_riders_upgrade_weapon_set;
+                e.weapon_set_player_upgrade = obj.weapon_set_player_upgrade;
+                e.is_battle_bus_transport = obj.is_battle_bus_transport;
+                e.is_technical_transport = obj.is_technical_transport;
+                e.is_combat_cycle_transport = obj.is_combat_cycle_transport;
+                e.combat_cycle_rider = obj.combat_cycle_rider;
+                e.is_tunnel_network = obj.is_tunnel_network;
+                e.is_combat_chinook_transport = obj.is_combat_chinook_transport;
+                e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
             }
         }
 
@@ -586,6 +616,18 @@ impl GameWorldShadow {
             e.velocity = [0.0; 3];
             e.path_len = 0;
             e.path_index = 0;
+            e.display_name.clear();
+            e.overlord_bunker_capacity = u16::MAX;
+            e.passengers_allowed_to_fire = false;
+            e.armed_riders_upgrade_weapon_set = false;
+            e.weapon_set_player_upgrade = false;
+            e.is_battle_bus_transport = false;
+            e.is_technical_transport = false;
+            e.is_combat_cycle_transport = false;
+            e.combat_cycle_rider = 0;
+            e.is_tunnel_network = false;
+            e.is_combat_chinook_transport = false;
+            e.contained_by_host = 0;
         }
     }
 
@@ -935,6 +977,24 @@ impl GameWorldShadow {
     /// Count shadow entities with Elite+ host veterancy residual.
     /// Count shadow entities with non-empty host production queue residual.
     /// Count shadow entities with host weapon residual.
+    /// Count shadow entities with host battle-bus transport residual.
+    pub fn battle_bus_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.is_battle_bus_transport && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities currently contained (host contained_by residual).
+    pub fn contained_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.contained_by_host != 0 && !e.destroyed)
+            .count()
+    }
+
     pub fn armed_entity_count(&self) -> usize {
         self.world
             .world()
@@ -2071,6 +2131,62 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_transport_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityTransport");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "OverlordX", 800.0);
+        ensure_template(&mut logic, "RiderX", 100.0);
+        let bus = logic
+            .create_object("OverlordX", Team::China, glam::Vec3::new(9.0, 0.0, 9.0))
+            .expect("bus");
+        let rider = logic
+            .create_object("RiderX", Team::China, glam::Vec3::new(10.0, 0.0, 9.0))
+            .expect("rider");
+        {
+            let obj = logic.get_objects_mut().get_mut(&bus).expect("obj");
+            obj.name = "OL-1".into();
+            obj.overlord_bunker_capacity = Some(5);
+            obj.passengers_allowed_to_fire = true;
+            obj.armed_riders_upgrade_weapon_set = true;
+            obj.weapon_set_player_upgrade = true;
+            obj.is_battle_bus_transport = true;
+            obj.is_technical_transport = false;
+            obj.is_combat_cycle_transport = false;
+            obj.combat_cycle_rider = 0;
+            obj.is_tunnel_network = false;
+            obj.is_combat_chinook_transport = true;
+        }
+        {
+            let obj = logic.get_objects_mut().get_mut(&rider).expect("rider");
+            obj.contained_by = Some(bus);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.battle_bus_entity_count(), 1);
+        assert_eq!(shadow.contained_entity_count(), 1);
+        let eid = shadow.entity_for_host(bus).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.display_name, "OL-1");
+        assert_eq!(e.overlord_bunker_capacity, 5);
+        assert!(e.passengers_allowed_to_fire);
+        assert!(e.armed_riders_upgrade_weapon_set);
+        assert!(e.weapon_set_player_upgrade);
+        assert!(e.is_battle_bus_transport);
+        assert!(e.is_combat_chinook_transport);
+        let rid = shadow.entity_for_host(rider).expect("rmap");
+        let r = shadow.world().entity(rid).expect("r");
+        assert_eq!(r.contained_by_host, bus.0);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("overlord_bunker_capacity")
+                && src.contains("contained_by_host")
+                && src.contains("is_battle_bus_transport"),
+            "sync must copy transport residual"
+        );
     }
 
     #[test]
