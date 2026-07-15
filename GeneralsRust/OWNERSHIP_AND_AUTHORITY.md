@@ -1304,3 +1304,13 @@ Compared C++ `AIPlayer::findDozer`, `queueDozer`, `isSupplySourceAttacked`,
 Fail-closed: full partition filter set residual; template linked-list residual
 (candidate names); AiGroup groupGuardPosition uses per-member ai_guard_position.
 
+### computeSuperweaponTarget (2026-07-14)
+
+Compared C++ `AIPlayer::computeSuperweaponTarget` / `getPlayerSuperweaponValue`:
+
+- Degenerate bounds → map extent; shrink X by radius; ceil grid capped at 10.
+- Random scan direction with xStart/yStart = count (not count-1) on reverse axes.
+- Fine-tune preserves C++ `(x-5)` on both axes (legacy bug).
+- Sneak attack: military/defenses negative; flying aircraft skip only when
+  includeMilitaryUnits; CC/superweapon ×5 or /10.
+
