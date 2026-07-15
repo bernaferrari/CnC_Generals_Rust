@@ -629,3 +629,10 @@ script/power disable. `sync_players` copies them each tick. `any_player_has_rada
 matches C++ `hasRadar` (count > 0 && !disabled). Fail-closed: not full radar
 shroud/JarmenKell/spy satellite matrix authority.
 
+### GameWorld alive/bounty/color residual (2026-07-14)
+
+`PlayerData.is_alive`, `cash_bounty_percent`, and `color_rgb` mirror host player
+defeat/bounty/tint residual. `sync_players` copies them via
+`copy_host_player_residual` each tick. Fail-closed: not full victory-conditions
+module / bounty award pipeline / skirmish color table authority.
+
