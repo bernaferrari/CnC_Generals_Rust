@@ -1046,3 +1046,9 @@ Engine defeat broadcast prefers presentation then drains live take.
 `build_save_info` prefers presentation map_name, play_time, and local_team.
 Fail-closed: difficulty still live host; not sole GameWorld authority.
 
+### Presentation alliance events residual (2026-07-14)
+
+`build_with_victory` freezes `alliance_events` via `peek_alliance_events`.
+Engine alliance broadcast prefers presentation then drains live take.
+Fail-closed: not sole GameWorld authority.
+

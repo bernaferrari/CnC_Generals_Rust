@@ -2033,6 +2033,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_alliance_events_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            pf.contains("pub alliance_events:")
+                && pf.contains("logic.peek_alliance_events()")
+                && gl.contains("fn peek_alliance_events")
+                && eng.contains("Prefer presentation alliance residual")
+                && eng.contains("pres.alliance_events.clone()"),
+            "alliance notifications must prefer presentation freeze over live take"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

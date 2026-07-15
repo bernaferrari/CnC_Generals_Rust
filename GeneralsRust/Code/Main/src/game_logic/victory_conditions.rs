@@ -91,14 +91,14 @@ fn counts_as_unit(obj: &Object) -> bool {
         || obj.is_kind_of(KindOf::Aircraft)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AllianceState {
     Active,
     AlliedVictory,
     AlliedDefeat,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AllianceNotification {
     pub player_id: u32,
     pub state: AllianceState,
@@ -239,6 +239,10 @@ impl VictoryConditions {
 
     pub fn take_defeat_events(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.defeat_events)
+    }
+
+    pub fn peek_alliance_events(&self) -> &[AllianceNotification] {
+        &self.alliance_events
     }
 
     pub fn take_alliance_events(&mut self) -> Vec<AllianceNotification> {
