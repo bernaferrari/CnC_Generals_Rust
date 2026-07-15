@@ -475,6 +475,12 @@ impl GameWorldShadow {
                         .map(|w| w.damage)
                         .unwrap_or(0.0);
                     e.display_name = obj.name.clone();
+                    e.model_key = crate::assets::mesh_asset_resolve::model_key_from_template(
+                        obj.get_template(),
+                    );
+                    e.mesh_scale = crate::assets::mesh_asset_resolve::mesh_scale_from_template(
+                        obj.get_template(),
+                    );
                     e.overlord_bunker_capacity = obj
                         .overlord_bunker_capacity
                         .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -721,6 +727,10 @@ impl GameWorldShadow {
                     .map(|w| w.damage)
                     .unwrap_or(0.0);
                 e.display_name = obj.name.clone();
+                e.model_key =
+                    crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
+                e.mesh_scale =
+                    crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
                 e.overlord_bunker_capacity = obj
                     .overlord_bunker_capacity
                     .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -901,6 +911,8 @@ impl GameWorldShadow {
             e.secondary_weapon_range = 0.0;
             e.secondary_weapon_damage = 0.0;
             e.display_name.clear();
+            e.model_key.clear();
+            e.mesh_scale = 1.0;
             e.overlord_bunker_capacity = u16::MAX;
             e.passengers_allowed_to_fire = false;
             e.armed_riders_upgrade_weapon_set = false;
@@ -2526,6 +2538,50 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_model_key_mesh_scale_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityMeshKey");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "MeshU", 100.0);
+        {
+            let t = logic.templates.get_mut("MeshU").expect("t");
+            t.model_name = Some("AVTank".into());
+        }
+        let id = logic
+            .create_object("MeshU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        // Prove host object carries template model residual before shadow sync.
+        {
+            let obj = logic.find_object(id).expect("host obj");
+            let key =
+                crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
+            assert_eq!(
+                key.to_ascii_lowercase(),
+                "avtank",
+                "host template model key"
+            );
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(
+            e.model_key.to_ascii_lowercase(),
+            "avtank",
+            "model_key residual got {:?}",
+            e.model_key
+        );
+        assert!(
+            e.mesh_scale.is_finite() && e.mesh_scale > 0.0,
+            "mesh_scale residual"
+        );
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("model_key_from_template") && src.contains("mesh_scale_from_template"),
+            "sync must copy mesh residual via resolve helpers"
+        );
+    }
+
     fn sync_from_host_copies_entity_production_queue_items_residual() {
         use crate::game_logic::{BuildingData, BuildingType, ProductionItem, Resources};
         let mut logic = GameLogic::new();
