@@ -817,3 +817,10 @@ team_color, weapon range/damage, stealth/detector flags, force_attack,
 show_health_bar, and command_set_override. Fail-closed: not sole GameWorld
 authority (host still builds the base freeze).
 
+### Presentation overlay residual deepen (2026-07-14)
+
+`overlay_gameworld_shadow` last-writes remaining Entity residual onto
+`RenderableObject`: power, XP, supplies, guard/rally, SP cooldown, detector
+timing, weapon-bonus/battle-plan/continuous-fire, transport kinds, hive/turret,
+disguise/camo/vision. Fail-closed: host still base-freezes presentation.
+
