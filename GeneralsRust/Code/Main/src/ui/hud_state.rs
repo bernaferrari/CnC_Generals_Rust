@@ -360,6 +360,10 @@ pub struct UnitDisplayInfo {
     pub production_progress: Option<f32>,
     /// First production queue template name (structures).
     pub production_template: Option<String>,
+    /// Host/presentation command_set_override residual (empty = template default).
+    pub command_set_override: String,
+    /// Structure can enqueue production residual.
+    pub can_produce: bool,
 }
 
 /// ControlBar / WND selection panel display (portrait + health strip).
