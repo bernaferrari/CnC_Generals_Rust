@@ -92,6 +92,9 @@ pub struct PlayerData {
     pub supplies: u32,
     /// Power available residual (host power_available).
     pub power_available: i32,
+    /// Completed upgrade names residual (host HostUpgradeRegistry complete channel).
+    /// Fail-closed: not full PlayerUpgradeManager / science tree parity.
+    pub completed_upgrades: Vec<String>,
 }
 
 impl PlayerData {
@@ -249,6 +252,7 @@ impl World {
                 is_human,
                 supplies: 0,
                 power_available: 0,
+                completed_upgrades: Vec::new(),
             });
         }
         Some(id)
@@ -389,6 +393,8 @@ pub enum WorldMutation {
         player: PlayerId,
         power_available: i32,
     },
+    /// Record a completed host upgrade on a player (shadow last-writer residual).
+    CompleteUpgrade { player: PlayerId, name: String },
     /// Spawn a new entity (shadow/host spawn channel).
     Spawn {
         template: String,
@@ -539,6 +545,17 @@ impl GameWorld {
                         applied += 1;
                     }
                 }
+                WorldMutation::CompleteUpgrade { player, name } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        if !p.completed_upgrades.iter().any(|u| u == &name) {
+                            p.completed_upgrades.push(name);
+                            // Keep deterministic order for probes/snapshots.
+                            p.completed_upgrades.sort();
+                        }
+                        applied += 1;
+                    }
+                }
+
                 WorldMutation::Spawn {
                     template,
                     owner,
