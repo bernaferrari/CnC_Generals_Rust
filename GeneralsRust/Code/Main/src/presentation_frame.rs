@@ -2543,6 +2543,23 @@ impl PresentationFrame {
 
     /// Count presentation objects with host horde weapon-bonus residual.
     /// Count presentation objects with host detector residual.
+    /// CommandSet name residual for the primary selected object.
+    /// Prefers `command_set_override`; empty when unset (template default left to boot path).
+    pub fn selected_command_set_name(&self) -> Option<&str> {
+        let primary = self.selected.first().copied().or_else(|| {
+            self.objects
+                .iter()
+                .find(|o| o.selected && !o.destroyed)
+                .map(|o| o.id)
+        })?;
+        let o = self.objects.iter().find(|o| o.id == primary)?;
+        if o.command_set_override.is_empty() {
+            None
+        } else {
+            Some(o.command_set_override.as_str())
+        }
+    }
+
     pub fn detector_object_count(&self) -> usize {
         self.objects
             .iter()
@@ -3911,6 +3928,7 @@ impl PresentationFrame {
             panel.special_power_ready,
             panel.special_power_cooldown_remaining,
         );
+        control_bar.sync_command_set_from_presentation(self.selected_command_set_name());
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
         let ready_sp: Vec<String> = self
             .selected_unit_display_infos()
@@ -4083,6 +4101,50 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn apply_to_control_bar_syncs_command_set_from_presentation() {
+        // Source honesty: apply path must call presentation command-set sync.
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("sync_command_set_from_presentation(self.selected_command_set_name())"),
+            "apply_to_control_bar must feed ControlBar command-set residual"
+        );
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("fn sync_command_set_from_presentation"),
+            "ControlBar must expose presentation command-set residual"
+        );
+        assert!(
+            cb.contains("Prefer this over live `OBJECT_REGISTRY`"),
+            "must document OBJECT_REGISTRY dual-read avoidance"
+        );
+        // Runtime residual: selected override name is visible on the frame.
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CbCmdSetPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CbCS") {
+            let mut t = ThingTemplate::new("CbCS");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("CbCS".into(), t);
+        }
+        let id = logic
+            .create_object("CbCS", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.selected = true;
+            obj.command_set_override = Some("CommandSetAmericaDozer".into());
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(
+            frame.selected_command_set_name(),
+            Some("CommandSetAmericaDozer")
+        );
+    }
+
     fn presentation_freezes_command_set_detector_residual() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};

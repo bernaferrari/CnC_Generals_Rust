@@ -2404,6 +2404,81 @@ impl ControlBar {
         self.mark_ui_dirty();
     }
 
+    /// Populate command buttons from a presentation-frozen CommandSet name.
+    ///
+    /// Prefer this over live `OBJECT_REGISTRY` / `get_command_set_string` dual-reads
+    /// when a PresentationFrame is installed. Fail-closed: not full multi-select
+    /// intersection / ScriptOnly / prerequisite filter matrix.
+    pub fn sync_command_set_from_presentation(&mut self, command_set_name: Option<&str>) {
+        let Some(name) = command_set_name.map(str::trim).filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return;
+        };
+        let Some(common_bar) = get_ini_control_bar() else {
+            return;
+        };
+        let command_set = control_bar
+            .find_command_set_by_name(name)
+            .or_else(|| control_bar.find_command_set_by_name(&name.to_ascii_uppercase()));
+        let Some(command_set) = command_set else {
+            return;
+        };
+        let Ok(mut context) = self.context.write() else {
+            return;
+        };
+        // Replace object-command buttons with presentation residual set.
+        // Keep non-Command inventory/exit buttons already injected by other syncs.
+        let keep: Vec<CommandButton> = context
+            .available_commands
+            .iter()
+            .filter(|b| {
+                let n = b.command_name.to_ascii_lowercase();
+                n.contains("evacuate")
+                    || n.contains("structureexit")
+                    || n.contains("cancelconstruction")
+                    || n.contains("stop")
+            })
+            .cloned()
+            .collect();
+        context.available_commands.clear();
+        context.current_state = ControlBarState::Command;
+        for button_opt in &command_set.buttons {
+            let Some(button) = button_opt.as_ref() else {
+                continue;
+            };
+            if (button.get_options_bits() & CommandOption::ScriptOnly as u32) != 0 {
+                continue;
+            }
+            if button.get_command_type() == CommandType::Evacuate {
+                continue;
+            }
+            if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name())
+            {
+                context
+                    .available_commands
+                    .push(Self::command_from_definition(common_button));
+            } else {
+                context
+                    .available_commands
+                    .push(Self::command_from_logic_button(button));
+            }
+        }
+        for b in keep {
+            if !context
+                .available_commands
+                .iter()
+                .any(|x| x.command_name.eq_ignore_ascii_case(&b.command_name))
+            {
+                context.available_commands.push(b);
+            }
+        }
+        context.ui_dirty = true;
+        drop(context);
+        self.mark_ui_dirty();
+    }
+
     pub fn sync_structure_context_from_presentation(
         &mut self,
         max_garrison: usize,
