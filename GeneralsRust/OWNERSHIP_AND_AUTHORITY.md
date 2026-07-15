@@ -649,3 +649,10 @@ tick. Fail-closed: not full selection-manager / build-queue module authority.
 tick. Fail-closed: not full AI state machine / kindof matrix / multi-select
 manager authority.
 
+### GameWorld entity color/power/type residual (2026-07-14)
+
+`Entity` carries `team_color`, `power_provided`, `power_consumed`,
+`object_type_ordinal`, and `max_transport` host residual. `sync_from_host_with`
+copies them each tick. Fail-closed: not full power-plant graph / transport
+contain matrix / material palette authority.
+

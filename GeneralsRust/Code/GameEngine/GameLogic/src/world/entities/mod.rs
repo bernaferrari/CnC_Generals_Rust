@@ -112,6 +112,17 @@ pub struct Entity {
     pub moving: bool,
     /// Host Object::status.attacking residual.
     pub attacking: bool,
+    /// Host Object::team_color residual (RGBA 0..1).
+    pub team_color: [f32; 4],
+    /// Host Object::power_provided residual.
+    pub power_provided: i32,
+    /// Host Object::power_consumed residual.
+    pub power_consumed: i32,
+    /// Host Object::object_type residual ordinal:
+    /// 0 Infantry, 1 Vehicle, 2 Aircraft, 3 Building, 4 Supply, 5 Projectile, 6 Neutral.
+    pub object_type_ordinal: u8,
+    /// Host Object::max_transport residual (0 = heuristic default).
+    pub max_transport: usize,
 }
 
 impl Entity {
@@ -195,6 +206,11 @@ impl EntityStore {
             under_construction: false,
             moving: false,
             attacking: false,
+            team_color: [1.0, 1.0, 1.0, 1.0],
+            power_provided: 0,
+            power_consumed: 0,
+            object_type_ordinal: 6,
+            max_transport: 0,
         };
 
         self.alive.insert(id, entity);
