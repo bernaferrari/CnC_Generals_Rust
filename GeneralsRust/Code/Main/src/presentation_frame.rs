@@ -1851,8 +1851,12 @@ pub struct PresentationFrame {
     pub cinematic_letterbox: bool,
     /// Cinematic overlay text residual.
     pub cinematic_text: Option<String>,
+    /// Remaining lifetime for cinematic text (ms residual).
+    pub cinematic_text_remaining_ms: Option<i32>,
     /// Military caption residual.
     pub military_caption: Option<String>,
+    /// Remaining lifetime for military caption (ms residual).
+    pub military_caption_remaining_ms: Option<i32>,
     /// Effective radar available residual (forced || enabled && has_radar).
     pub radar_ui_enabled: bool,
     /// Script radar forced residual.
@@ -2495,7 +2499,9 @@ impl PresentationFrame {
                 .collect(),
             cinematic_letterbox: logic.cinematic_letterbox(),
             cinematic_text: logic.cinematic_text().map(|s| s.to_string()),
+            cinematic_text_remaining_ms: logic.cinematic_text_remaining_ms(),
             military_caption: logic.military_caption_text().map(|s| s.to_string()),
+            military_caption_remaining_ms: logic.military_caption_remaining_ms(),
             radar_ui_enabled: {
                 let local_has_radar = logic
                     .get_player(local_player_id)
