@@ -289,6 +289,23 @@ impl GameWorldShadow {
         self.entity_to_host.insert(eid.get(), host.0);
     }
 
+    fn copy_host_player_residual(
+        pd: &mut gamelogic::world::PlayerData,
+        p: &crate::game_logic::Player,
+    ) {
+        pd.supplies = p.resources.supplies;
+        pd.power_available = p.power_available;
+        pd.power_produced = p.power_produced;
+        pd.power_consumed = p.power_consumed;
+        pd.radar_count = p.radar_count;
+        pd.radar_disabled = p.radar_disabled;
+        pd.is_alive = p.is_alive;
+        pd.cash_bounty_percent = p.cash_bounty_percent.clamp(0.0, 1.0);
+        pd.color_rgb = p.color_rgb;
+        pd.is_human = p.is_local;
+        pd.name = p.name.clone();
+    }
+
     fn host_player_science_and_upgrades(
         logic: &GameLogic,
         host_pid: u32,
@@ -367,14 +384,7 @@ impl GameWorldShadow {
                         self.host_player_to_gw.insert(*pid, gw);
                         if let Some(p) = logic.get_player(*pid) {
                             if let Some(pd) = self.world.player_mut(gw) {
-                                pd.supplies = p.resources.supplies;
-                                pd.power_available = p.power_available;
-                                pd.power_produced = p.power_produced;
-                                pd.power_consumed = p.power_consumed;
-                                pd.radar_count = p.radar_count;
-                                pd.radar_disabled = p.radar_disabled;
-                                pd.is_human = p.is_local;
-                                pd.name = p.name.clone();
+                                Self::copy_host_player_residual(pd, p);
                                 let (sci, ups) =
                                     Self::host_player_science_and_upgrades(logic, *pid);
                                 pd.unlocked_sciences = sci;
@@ -405,12 +415,7 @@ impl GameWorldShadow {
             for (hid, gw) in self.host_player_to_gw.clone() {
                 if let Some(p) = logic.get_player(hid) {
                     if let Some(pd) = self.world.player_mut(gw) {
-                        pd.supplies = p.resources.supplies;
-                        pd.power_available = p.power_available;
-                        pd.power_produced = p.power_produced;
-                        pd.power_consumed = p.power_consumed;
-                        pd.radar_count = p.radar_count;
-                        pd.radar_disabled = p.radar_disabled;
+                        Self::copy_host_player_residual(pd, p);
                         let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
                         pd.unlocked_sciences = sci;
                         pd.completed_upgrades = ups;
@@ -422,10 +427,7 @@ impl GameWorldShadow {
         for (hid, gw) in self.host_player_to_gw.clone() {
             if let Some(p) = logic.get_player(hid) {
                 if let Some(pd) = self.world.player_mut(gw) {
-                    pd.power_produced = p.power_produced;
-                    pd.power_consumed = p.power_consumed;
-                    pd.radar_count = p.radar_count;
-                    pd.radar_disabled = p.radar_disabled;
+                    Self::copy_host_player_residual(pd, p);
                     let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
                     pd.unlocked_sciences = sci;
                     // Merge event-channel completes with absolute host registry snapshot.
@@ -626,6 +628,24 @@ impl GameWorldShadow {
     /// Count completed upgrade names across mapped shadow players (probe residual).
     /// True when any shadow player has non-zero produced or consumed power residual.
     /// True when any shadow player has radar providers or a disabled flag residual.
+    /// Count shadow players still marked alive (defeat residual).
+    pub fn alive_player_count(&self) -> usize {
+        self.world
+            .world()
+            .active_players()
+            .filter(|(_, p)| p.is_alive)
+            .count()
+    }
+
+    /// Max cash bounty percent residual across shadow players.
+    pub fn max_cash_bounty_percent(&self) -> f32 {
+        self.world
+            .world()
+            .active_players()
+            .map(|(_, p)| p.cash_bounty_percent)
+            .fold(0.0_f32, f32::max)
+    }
+
     pub fn radar_residual_present(&self) -> bool {
         self.world
             .world()
@@ -1618,6 +1638,44 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_players_copies_alive_and_cash_bounty() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AliveBountyShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        let n_players = logic.get_players().len();
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.cash_bounty_percent = 0.2;
+            p.color_rgb = (12, 34, 56);
+            p.is_alive = true;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.alive_player_count(), n_players);
+        assert!((shadow.max_cash_bounty_percent() - 0.2).abs() < 0.001);
+        let tinted = shadow
+            .world
+            .world()
+            .active_players()
+            .any(|(_, p)| p.color_rgb == (12, 34, 56));
+        assert!(tinted, "color_rgb residual must copy");
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.is_alive = false;
+        }
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.alive_player_count(), n_players.saturating_sub(1));
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("is_alive")
+                && src.contains("cash_bounty_percent")
+                && src.contains("color_rgb"),
+            "sync must refresh alive/bounty/color residual"
+        );
     }
 
     #[test]
