@@ -1369,3 +1369,12 @@ Compared C++ USE_DOZER path:
 - Selected build uses `buildStructureWithDozer` (not priority-mark only).
 - On success: arm structureSeconds timer with wealth mods.
 
+### AISkirmishPlayer selectTeamToBuild delegation (2026-07-14)
+
+C++ skirmish `selectTeamToBuild`/`selectTeamToReinforce`/`isAGoodIdeaToBuildTeam`
+delegate to AIPlayer. Rust now matches:
+
+- no skirmish-only enemy scoring override of team pick
+- isAGoodIdea uses production condition + max + queue + idle factory
+- processTeamBuilding: select then queueUnits (counter-unit residual analysis only)
+
