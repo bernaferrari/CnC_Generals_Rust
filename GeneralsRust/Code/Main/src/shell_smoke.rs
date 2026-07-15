@@ -2094,6 +2094,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_game_mode_helper_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("fn presentation_or_live_game_mode")
+                && eng.contains("Prefer presentation game_mode residual when installed")
+                && eng.matches("presentation_or_live_game_mode()").count() >= 5,
+            "load-screen/quick-save/restart must prefer presentation game_mode helper"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

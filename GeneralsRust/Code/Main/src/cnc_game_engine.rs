@@ -2550,7 +2550,8 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     fn load_screen_init_context(&self) -> game_client::gui::load_screen::LoadScreenInitContext {
-        let game_info_context = match self.game_logic.game_mode() {
+        // Prefer presentation game_mode residual when installed.
+        let game_info_context = match self.presentation_or_live_game_mode() {
             GameMode::Lan | GameMode::Multiplayer => Some({
                 let setup = game_client::gui::get_lan_setup();
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(
@@ -2645,7 +2646,10 @@ impl CnCGameEngine {
 
             let kind = self
                 .active_load_screen
-                .or_else(|| self.select_cpp_load_screen(self.game_logic.game_mode(), false))
+                .or_else(|| {
+                    // Prefer presentation game_mode residual when installed.
+                    self.select_cpp_load_screen(self.presentation_or_live_game_mode(), false)
+                })
                 .unwrap_or(game_client::gui::load_screen::LoadScreenKind::ShellGame);
             self.active_load_screen = Some(kind);
 
@@ -7401,11 +7405,7 @@ impl CnCGameEngine {
             .map(|p| p.world_env.map_name.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| self.game_logic.get_current_map_name().to_string());
-        let mode = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.game_mode)
-            .unwrap_or_else(|| self.game_logic.game_mode());
+        let mode = self.presentation_or_live_game_mode();
         let faction = self
             .last_presentation_frame
             .as_ref()
@@ -7423,6 +7423,14 @@ impl CnCGameEngine {
             mode, faction, map
         );
         self.start_game_from_ui(mode, faction, map, None);
+    }
+
+    /// Prefer presentation-frozen game mode when a frame is installed.
+    fn presentation_or_live_game_mode(&self) -> GameMode {
+        self.last_presentation_frame
+            .as_ref()
+            .map(|p| p.game_mode)
+            .unwrap_or_else(|| self.game_logic.game_mode())
     }
 
     fn map_ai_difficulty_to_save(difficulty: crate::ai::AIDifficulty) -> GameDifficulty {
@@ -7487,7 +7495,8 @@ impl CnCGameEngine {
     }
 
     fn quick_save_from_hotkey(&mut self, source: &str) {
-        let mode = self.game_logic.game_mode();
+        // Prefer presentation game_mode residual when installed.
+        let mode = self.presentation_or_live_game_mode();
         if !matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish) {
             info!(
                 "{} ignored: quick save is only available in single-player or skirmish (mode={:?})",
@@ -7520,7 +7529,8 @@ impl CnCGameEngine {
             GameState::InGame => Some(Screen::GameHUD),
             _ => None,
         };
-        let mode = self.game_logic.game_mode();
+        // Prefer presentation game_mode residual when installed.
+        let mode = self.presentation_or_live_game_mode();
         if !matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish) {
             info!(
                 "{} ignored: quick load is only available in single-player or skirmish (mode={:?})",
@@ -7577,7 +7587,8 @@ impl CnCGameEngine {
         }
 
         #[cfg(feature = "game_client")]
-        self.prepare_cpp_load_screen_for_mode(self.game_logic.game_mode(), true);
+        // Prefer presentation game_mode residual when installed.
+        self.prepare_cpp_load_screen_for_mode(self.presentation_or_live_game_mode(), true);
         self.transition_to_state(GameState::Loading);
         match self.save_file_manager.load_game(slot, &mut self.game_logic) {
             Ok(save_info) => {
