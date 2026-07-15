@@ -222,6 +222,19 @@ pub struct RenderableObject {
     pub secondary_weapon_range: f32,
     /// Secondary weapon damage residual (0 when none).
     pub secondary_weapon_damage: f32,
+    /// Host turret yaw residual (degrees).
+    pub turret_angle_deg: f32,
+    /// Host turret pitch residual (degrees).
+    pub turret_pitch_deg: f32,
+    /// Host turret idle-scan residual.
+    pub turret_idle_scanning: bool,
+    /// Host weapon-bonus residual flags (presentation UI/FX).
+    pub weapon_bonus_enthusiastic: bool,
+    pub weapon_bonus_subliminal: bool,
+    pub weapon_bonus_horde: bool,
+    pub weapon_bonus_nationalism: bool,
+    pub weapon_bonus_frenzy: bool,
+    pub weapon_bonus_frenzy_level: u8,
     /// Mine / demo-trap residual present.
     pub has_mine: bool,
     /// Host ThingTemplate KindOf set residual (sorted, capped).
@@ -1915,6 +1928,15 @@ impl PresentationFrame {
                     .as_ref()
                     .map(|w| w.damage)
                     .unwrap_or(0.0),
+                turret_angle_deg: obj.turret_angle_deg,
+                turret_pitch_deg: obj.turret_pitch_deg,
+                turret_idle_scanning: obj.turret_idle_scanning,
+                weapon_bonus_enthusiastic: obj.weapon_bonus_enthusiastic,
+                weapon_bonus_subliminal: obj.weapon_bonus_subliminal,
+                weapon_bonus_horde: obj.weapon_bonus_horde,
+                weapon_bonus_nationalism: obj.weapon_bonus_nationalism,
+                weapon_bonus_frenzy: obj.weapon_bonus_frenzy,
+                weapon_bonus_frenzy_level: obj.weapon_bonus_frenzy_level,
                 has_mine: obj.mine_data.is_some(),
                 kind_of: {
                     use crate::game_logic::KindOf;
@@ -2493,6 +2515,22 @@ impl PresentationFrame {
     }
 
     /// Net power from non-destroyed objects (presentation economy residual).
+    /// Count presentation objects with host turret idle-scan residual.
+    pub fn turret_idle_scan_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.turret_idle_scanning && !o.destroyed)
+            .count()
+    }
+
+    /// Count presentation objects with host horde weapon-bonus residual.
+    pub fn horde_bonus_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.weapon_bonus_horde && !o.destroyed)
+            .count()
+    }
+
     pub fn net_power_from_objects(&self) -> i32 {
         self.objects
             .iter()
@@ -4009,6 +4047,52 @@ impl PresentationFrame {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn presentation_freezes_turret_and_weapon_bonus_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresTurretBonus");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PresTB") {
+            let mut t = ThingTemplate::new("PresTB");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("PresTB".into(), t);
+        }
+        let id = logic
+            .create_object("PresTB", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.turret_angle_deg = 33.0;
+            obj.turret_pitch_deg = 12.0;
+            obj.turret_idle_scanning = true;
+            obj.weapon_bonus_enthusiastic = true;
+            obj.weapon_bonus_horde = true;
+            obj.weapon_bonus_frenzy = true;
+            obj.weapon_bonus_frenzy_level = 2;
+            obj.weapon_bonus_nationalism = true;
+            obj.weapon_bonus_subliminal = true;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.turret_idle_scan_count(), 1);
+        assert_eq!(frame.horde_bonus_object_count(), 1);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert!((ro.turret_angle_deg - 33.0).abs() < 0.01);
+        assert!((ro.turret_pitch_deg - 12.0).abs() < 0.01);
+        assert!(ro.turret_idle_scanning);
+        assert!(ro.weapon_bonus_enthusiastic && ro.weapon_bonus_horde);
+        assert_eq!(ro.weapon_bonus_frenzy_level, 2);
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("turret_angle_deg: obj.turret_angle_deg")
+                && src.contains("weapon_bonus_horde: obj.weapon_bonus_horde"),
+            "freeze must copy turret/bonus residual"
+        );
+    }
+
     use super::*;
     use crate::game_logic::{GameMode, KindOf, Player, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};

@@ -710,3 +710,11 @@ command-set override, disguise, vision-spied mask, and camo residual.
 `sync_from_host_with` copies them each tick. Fail-closed: not full
 WeaponBonusCondition / TurretAI / disguise drawable / mine module authority.
 
+### Presentation turret/weapon-bonus residual (2026-07-14)
+
+`RenderableObject` freezes `turret_angle_deg`/`turret_pitch_deg`/
+`turret_idle_scanning` and weapon-bonus flags from host Object each frame.
+Presentation consumers can read turret/bonus residual without live Object
+dual-reads. Fail-closed: not full TurretAI drawable bones / WeaponBonusCondition
+matrix authority.
+
