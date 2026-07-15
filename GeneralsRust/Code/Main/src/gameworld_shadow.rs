@@ -185,6 +185,32 @@ impl GameWorldShadow {
 
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
     /// Preserves EntityId for host objects that still exist.
+    fn host_ai_state_ordinal(s: &crate::game_logic::AIState) -> u8 {
+        use crate::game_logic::AIState as A;
+        match s {
+            A::Idle => 0,
+            A::Moving => 1,
+            A::Attacking => 2,
+            A::AttackMoving => 3,
+            A::AttackingGround => 4,
+            A::Gathering => 5,
+            A::ReturningResources => 6,
+            A::Constructing => 7,
+            A::Repairing => 8,
+            A::GuardingArea => 9,
+            A::GuardingObject => 10,
+            A::Patrolling => 11,
+            A::Docked => 12,
+            A::Garrisoned => 13,
+            A::SpecialAbility => 14,
+            A::SeekingRepair => 15,
+            A::SeekingHealing => 16,
+            A::Entering => 17,
+            A::Docking => 18,
+            A::Capturing => 19,
+        }
+    }
+
     fn host_object_type_ordinal(t: crate::game_logic::ObjectType) -> u8 {
         use crate::game_logic::ObjectType as T;
         match t {
@@ -273,6 +299,13 @@ impl GameWorldShadow {
                     e.power_consumed = obj.power_consumed;
                     e.object_type_ordinal = Self::host_object_type_ordinal(obj.object_type);
                     e.max_transport = obj.max_transport;
+                    e.force_attack = obj.force_attack;
+                    e.show_health_bar = obj.show_health_bar;
+                    e.target_location = obj.target_location.map(|p| [p.x, p.y, p.z]);
+                    e.guard_position = obj.guard_position.map(|p| [p.x, p.y, p.z]);
+                    e.guard_target_host = obj.guard_target.map(|id| id.0).unwrap_or(0);
+                    e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state);
+                    e.occupant_count = obj.occupants.len().min(u16::MAX as usize) as u16;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -316,6 +349,13 @@ impl GameWorldShadow {
                 e.power_consumed = obj.power_consumed;
                 e.object_type_ordinal = Self::host_object_type_ordinal(obj.object_type);
                 e.max_transport = obj.max_transport;
+                e.force_attack = obj.force_attack;
+                e.show_health_bar = obj.show_health_bar;
+                e.target_location = obj.target_location.map(|p| [p.x, p.y, p.z]);
+                e.guard_position = obj.guard_position.map(|p| [p.x, p.y, p.z]);
+                e.guard_target_host = obj.guard_target.map(|id| id.0).unwrap_or(0);
+                e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state);
+                e.occupant_count = obj.occupants.len().min(u16::MAX as usize) as u16;
             }
         }
 
@@ -353,6 +393,13 @@ impl GameWorldShadow {
             e.power_consumed = 0;
             e.object_type_ordinal = 6;
             e.max_transport = 0;
+            e.force_attack = false;
+            e.show_health_bar = true;
+            e.target_location = None;
+            e.guard_position = None;
+            e.guard_target_host = 0;
+            e.ai_state_ordinal = 0;
+            e.occupant_count = 0;
         }
     }
 
@@ -698,6 +745,24 @@ impl GameWorldShadow {
     /// Count shadow players still marked alive (defeat residual).
     /// Count shadow entities marked selected (host UI residual).
     /// Count shadow entities with host building object-type residual.
+    /// Count shadow entities with host force_attack residual.
+    pub fn force_attack_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.force_attack && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities with non-idle host AI state residual.
+    pub fn non_idle_ai_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.ai_state_ordinal != 0 && !e.destroyed)
+            .count()
+    }
+
     pub fn building_entity_count(&self) -> usize {
         self.world
             .world()
@@ -1766,6 +1831,50 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_combat_intent_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityCombatIntent");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "CbtIntentU", 100.0);
+        let id = logic
+            .create_object("CbtIntentU", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("id");
+        let guard = logic
+            .create_object("CbtIntentU", Team::USA, glam::Vec3::new(8.0, 0.0, 4.0))
+            .expect("guard");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.force_attack = true;
+            obj.show_health_bar = false;
+            obj.target_location = Some(glam::Vec3::new(10.0, 0.0, 10.0));
+            obj.guard_position = Some(glam::Vec3::new(1.0, 0.0, 1.0));
+            obj.guard_target = Some(guard);
+            obj.ai_state = crate::game_logic::AIState::GuardingObject;
+            obj.occupants = vec![guard];
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.force_attack_entity_count(), 1);
+        assert!(shadow.non_idle_ai_entity_count() >= 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.force_attack);
+        assert!(!e.show_health_bar);
+        assert_eq!(e.guard_target_host, guard.0);
+        assert_eq!(e.ai_state_ordinal, 10); // GuardingObject
+        assert_eq!(e.occupant_count, 1);
+        let tl = e.target_location.expect("tl");
+        assert!((tl[0] - 10.0).abs() < 0.01);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("force_attack")
+                && src.contains("guard_target_host")
+                && src.contains("ai_state_ordinal"),
+            "sync must copy combat-intent residual"
+        );
     }
 
     #[test]

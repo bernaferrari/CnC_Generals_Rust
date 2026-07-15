@@ -656,3 +656,10 @@ manager authority.
 copies them each tick. Fail-closed: not full power-plant graph / transport
 contain matrix / material palette authority.
 
+### GameWorld entity combat-intent residual (2026-07-14)
+
+`Entity` carries `force_attack`, `show_health_bar`, `target_location`,
+`guard_position`, `guard_target_host`, `ai_state_ordinal`, and `occupant_count`
+host residual. `sync_from_host_with` copies them each tick. Fail-closed: not full
+AI FSM / garrison graph / guard-mode parity.
+
