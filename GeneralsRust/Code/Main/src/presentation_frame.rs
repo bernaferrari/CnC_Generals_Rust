@@ -4483,6 +4483,12 @@ impl PresentationFrame {
         }
         ui.radar_enabled = self.radar_ui_enabled;
         ui.radar_forced = self.radar_forced;
+        // Script named-timer / cameo / superweapon residual from snapshot.
+        ui.named_timers = self.named_timers.clone();
+        ui.named_timer_display_shown = self.named_timer_display_shown;
+        ui.cameo_flash = self.cameo_flash.clone();
+        ui.superweapon_display_enabled = self.superweapon_display_enabled;
+        ui.superweapon_hidden_objects = self.superweapon_hidden_objects.clone();
         ui.objectives = self.objectives.clone();
         ui.pending_movie = self.pending_movie.clone();
         ui.pending_radar_movie = self.pending_radar_movie.clone();
