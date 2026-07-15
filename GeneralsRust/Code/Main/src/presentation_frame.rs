@@ -3509,6 +3509,8 @@ impl PresentationFrame {
             veterancy_overlay: ro.veterancy.chevron_overlay().map(str::to_string),
             production_progress,
             production_template,
+            command_set_override: ro.command_set_override.clone(),
+            can_produce: ro.can_produce,
         }
     }
 
@@ -4239,6 +4241,45 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn unit_display_info_carries_command_set_override_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HudCmdSetInfo");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("HudBarracks") {
+            let mut t = ThingTemplate::new("HudBarracks");
+            t.set_health(500.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("HudBarracks".into(), t);
+        }
+        let id = logic
+            .create_object("HudBarracks", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        {
+            use crate::game_logic::{BuildingData, BuildingType};
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.selected = true;
+            obj.object_type = crate::game_logic::ObjectType::Building;
+            obj.building_data = Some(BuildingData::new(BuildingType::Barracks));
+            obj.construction_percent = 1.0;
+            obj.status.under_construction = false;
+            obj.command_set_override = Some("CommandSetAmericaBarracks".into());
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let infos = frame.selected_unit_display_infos();
+        let info = infos.iter().find(|i| i.object_id == id).expect("info");
+        assert!(info.can_produce);
+        assert_eq!(info.command_set_override, "CommandSetAmericaBarracks");
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("command_set_override: ro.command_set_override.clone()")
+                && src.contains("can_produce: ro.can_produce"),
+            "UnitDisplayInfo must freeze command_set/can_produce residual"
+        );
+    }
+
     fn presentation_freezes_detector_stealth_timing_residual() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
