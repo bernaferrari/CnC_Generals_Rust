@@ -1327,6 +1327,10 @@ pub struct PresentationWorldEnv {
     pub world_min: [f32; 3],
     pub world_max: [f32; 3],
     pub heightmap_hint: Option<String>,
+    /// Script/map skybox enable residual.
+    pub skybox_enabled: bool,
+    /// Optional skybox texture names (front, back, left, right, top).
+    pub skybox_textures: Option<[String; 5]>,
     pub sun_direction: Option<[f32; 3]>,
     pub sun_color: Option<[f32; 3]>,
     pub ambient_color: Option<[f32; 3]>,
@@ -1437,6 +1441,8 @@ impl PresentationWorldEnv {
             world_min: [wmin.x, wmin.y, wmin.z],
             world_max: [wmax.x, wmax.y, wmax.z],
             heightmap_hint,
+            skybox_enabled: logic.is_skybox_enabled(),
+            skybox_textures: meta.as_ref().and_then(|m| m.skybox_textures.clone()),
             sun_direction: meta.as_ref().and_then(|m| m.sun_direction),
             sun_color: meta.as_ref().and_then(|m| m.sun_color.or(m.sky_color)),
             ambient_color: meta
@@ -3611,6 +3617,17 @@ impl PresentationFrame {
 
     /// Apply selection health/name to GameClient ControlBar without OBJECT_REGISTRY.
     ///
+    /// Apply frozen skybox residual to the render pipeline without live GameLogic.
+    pub fn apply_skybox_to_pipeline(
+        &self,
+        pipeline: &mut crate::graphics::render_pipeline::RenderPipeline,
+    ) {
+        pipeline.set_skybox_enabled(self.world_env.skybox_enabled);
+        if let Some(textures) = self.world_env.skybox_textures.clone() {
+            pipeline.set_skybox_hint(textures);
+        }
+    }
+
     /// Headless-safe: uses only presentation fields. Does not claim full WND shell.
     #[cfg(feature = "game_client")]
     pub fn apply_to_control_bar(
@@ -5908,6 +5925,14 @@ mod tests {
         assert!(ids.contains(&alive_id));
         assert!(ids.contains(&bridged_id));
         assert!(!ids.contains(&dead_id));
+    }
+
+    #[test]
+    fn presentation_feeds_skybox() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.set_script_skybox_enabled_for_test(true);
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(frame.world_env.skybox_enabled);
     }
 
     #[test]
