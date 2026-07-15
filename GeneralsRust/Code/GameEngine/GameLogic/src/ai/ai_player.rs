@@ -4856,25 +4856,31 @@ impl AIPlayer {
     pub(crate) fn select_team_to_build(&mut self) -> Result<bool, AiError> {
         const INVALID_PRI: i32 = -99999;
 
-        let factory = get_team_factory();
-        let Ok(factory_guard) = factory.lock() else {
-            return Ok(false);
+        // C++ iterates m_player->getPlayerTeams(), not the global TeamFactory.
+        let candidates: Vec<(String, i32)> = {
+            let Ok(list) = player_list().read() else {
+                return Ok(false);
+            };
+            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+                return Ok(false);
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(false);
+            };
+            player_guard
+                .get_player_team_prototypes()
+                .iter()
+                .map(|proto| {
+                    (
+                        proto.get_name().as_str().to_string(),
+                        proto.get_production_priority(),
+                    )
+                })
+                .collect()
         };
 
-        let mut candidates: Vec<(String, i32)> = Vec::new();
-        let mut hi_pri = INVALID_PRI;
-        for proto in factory_guard.list_team_prototypes() {
-            if !proto.is_ai_recruitable() {
-                continue;
-            }
-            let name = proto.get_name().as_str().to_string();
-            // Drop factory lock before nested good-idea checks that re-lock.
-            // Collect names first.
-            candidates.push((name, proto.get_production_priority()));
-        }
-        drop(factory_guard);
-
         let mut good: Vec<(String, i32)> = Vec::new();
+        let mut hi_pri = INVALID_PRI;
         for (name, pri) in candidates {
             if self.is_a_good_idea_to_build_team(&name)? {
                 if pri > hi_pri {
@@ -4911,13 +4917,8 @@ impl AIPlayer {
         let team_name = &hi[which.min(hi.len() - 1)];
 
         // C++ buildSpecificAITeam(teamProto, false) — auto pick is low priority.
+        // Low-priority path appends (push_back); frame_started already stamped inside.
         self.build_specific_ai_team(team_name, false)?;
-        // Stamp start frame on the team we just queued.
-        if let Some(front) = self.team_build_queue.back_mut() {
-            if front.team_name.as_deref() == Some(team_name.as_str()) {
-                front.frame_started = TheGameLogic::get_frame();
-            }
-        }
         self.arm_team_timer_after_build()?;
         Ok(true)
     }
@@ -4956,14 +4957,23 @@ impl AIPlayer {
     /// single required work order (prepend), try recruit then startTraining,
     /// and shortcut teamDelay=0.
     pub(crate) fn select_team_to_reinforce(&mut self, min_priority: i32) -> Result<bool, AiError> {
-        let factory = get_team_factory();
-        let Ok(factory_guard) = factory.lock() else {
-            return Ok(false);
+        // C++ iterates m_player->getPlayerTeams() only.
+        let protos: Vec<_> = {
+            let Ok(list) = player_list().read() else {
+                return Ok(false);
+            };
+            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+                return Ok(false);
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(false);
+            };
+            player_guard
+                .get_player_team_prototypes()
+                .iter()
+                .cloned()
+                .collect()
         };
-
-        // Snapshot prototypes so we can drop the lock before nested factory lookups.
-        let protos: Vec<_> = factory_guard.list_team_prototypes();
-        drop(factory_guard);
 
         let mut best: Option<(String, Arc<RwLock<crate::team::Team>>, String, i32)> = None;
         // C++ curPriority starts at minPriority; only priorities *above* min win.
@@ -7205,6 +7215,31 @@ mod tests {
                 && window.contains("build_structure_with_dozer")
                 && window.contains("only one building per delay loop"),
             "process_base_building must port C++ rebuild delay + dozer build + timer arm"
+        );
+    }
+
+    #[test]
+    fn select_team_uses_player_team_list_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        for (label, needle) in [
+            ("build", "pub(crate) fn select_team_to_build"),
+            ("reinforce", "pub(crate) fn select_team_to_reinforce"),
+        ] {
+            let i = src.find(needle).unwrap_or_else(|| panic!("{label}"));
+            let window = &src[i..src.len().min(i + 2800)];
+            assert!(
+                window.contains("get_player_team_prototypes"),
+                "{label} must iterate player team list like C++ getPlayerTeams"
+            );
+            assert!(
+                !window.contains("list_team_prototypes()"),
+                "{label} must not walk global TeamFactory list"
+            );
+        }
+        let player = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/player.rs"));
+        assert!(
+            player.contains("pub fn get_player_team_prototypes"),
+            "Player must expose getPlayerTeams equivalent"
         );
     }
 
