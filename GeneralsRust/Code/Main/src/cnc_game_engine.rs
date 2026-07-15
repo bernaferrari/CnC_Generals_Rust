@@ -6648,7 +6648,12 @@ impl CnCGameEngine {
             ui_state.minimap_texture_id = self.render_pipeline.get_minimap_texture_id();
             ui_state.minimap_coordinates = self.render_pipeline.get_minimap_coordinates().cloned();
             self.update_minimap_viewport(&mut ui_state);
-            let world_bounds = self.game_logic.world_bounds();
+            // Prefer presentation world_env for radar/minimap when a frame is installed.
+            let world_bounds = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.world_env.world_bounds_vec3()
+            } else {
+                self.game_logic.world_bounds()
+            };
             self.game_hud
                 .update_radar_pings(&ui_state.radar_pings, world_bounds.0, world_bounds.1);
             for msg in &ui_state.radar_messages {
@@ -6801,7 +6806,13 @@ impl CnCGameEngine {
     }
 
     fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
-        let (world_min, world_max) = self.game_logic.world_bounds();
+        // Prefer presentation world_env when installed (camera-relative minimap viewport).
+        // Boot residual without a frame still uses host GameLogic bounds.
+        let (world_min, world_max) = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.world_env.world_bounds_vec3()
+        } else {
+            self.game_logic.world_bounds()
+        };
         let world_extent_x = (world_max.x - world_min.x).max(1.0);
         let world_extent_z = (world_max.z - world_min.z).max(1.0);
 

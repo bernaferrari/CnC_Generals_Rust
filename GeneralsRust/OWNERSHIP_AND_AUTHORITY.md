@@ -564,3 +564,9 @@ remains boot residual without presentation.
 and scroll clamping when a frame is installed. Live `GameLogic::world_bounds`
 remains boot residual without presentation.
 
+### Presentation minimap/radar bounds residual (2026-07-14)
+
+`update_minimap_viewport` and radar-ping projection prefer
+`PresentationFrame.world_env` when a frame is installed. Live
+`GameLogic::world_bounds` remains boot residual without presentation.
+
