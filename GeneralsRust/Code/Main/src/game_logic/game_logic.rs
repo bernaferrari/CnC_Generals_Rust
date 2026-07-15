@@ -47972,6 +47972,45 @@ mod tests {
     }
 
     #[test]
+    fn path_follow_owned_by_update_movement_single_step() {
+        // Engine mid-frame PathfindingSystem::move_unit_along_path was removed.
+        // Path following is sole ownership of GameLogic::update_movement.
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9001);
+        let mut obj = Object::new_simple(
+            id,
+            crate::game_logic::ObjectType::Infantry,
+            "AmericaRanger".to_string(),
+        );
+        let start = glam::Vec3::new(0.0, 0.0, 0.0);
+        obj.set_position(start);
+        obj.movement.path = vec![
+            glam::Vec3::new(100.0, 0.0, 0.0),
+            glam::Vec3::new(200.0, 0.0, 0.0),
+        ];
+        obj.movement.current_path_index = 0;
+        obj.movement.max_speed = 30.0; // world units / second
+                                       // Reach max speed in one frame so distance ≈ max_speed * dt.
+        obj.movement.acceleration = 10_000.0;
+        logic.objects.insert(id, obj);
+
+        logic.update_movement(&[id], LOGIC_FRAME_TIMESTEP);
+
+        let after = logic.objects.get(&id).expect("obj").get_position();
+        let dist = (after - start).length();
+        // One logic frame at 30 u/s ≈ 1.0 unit (LOGIC_FRAME_TIMESTEP = 1/30).
+        assert!(
+            dist > 0.5 && dist < 2.5,
+            "expected single-frame path step, got dist={dist} pos={after:?}"
+        );
+        assert_eq!(
+            logic.objects.get(&id).unwrap().movement.current_path_index,
+            0,
+            "should not skip waypoints in one frame"
+        );
+    }
+
+    #[test]
     fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
         let mut baseline = GameLogic::new();
         ensure_test_tank_template(&mut baseline);

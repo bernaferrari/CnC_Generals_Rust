@@ -6244,8 +6244,9 @@ impl CnCGameEngine {
             }
             // C++ parity: when script time-freeze is active, gameplay simulation should not
             // advance outside script evaluation.
-            // Host side systems (projectiles + path) run *before* shadow session + PresentationFrame
-            // so damage/move logs and end-of-frame identity include this frame's side systems.
+            // Host side systems (projectiles) run *before* shadow session + PresentationFrame
+            // so damage logs and end-of-frame identity include this frame's side systems.
+            // Path following already ran inside GameLogic::update_movement.
             if !self.game_logic.is_time_frozen_for_simulation() {
                 {
                     let objects = self.game_logic.get_objects();
@@ -6263,15 +6264,9 @@ impl CnCGameEngine {
                     self.play_sound_effect(SoundType::Hit);
                 }
 
-                // Only step units with an active path (not every object id).
-                let object_ids = self.game_logic.object_ids_with_active_path();
-                for object_id in object_ids {
-                    let _path_completed = self.pathfinding_system.move_unit_along_path(
-                        object_id,
-                        self.game_logic.get_objects_mut(),
-                        dt,
-                    );
-                }
+                // Path following is owned by GameLogic::update_movement (host update).
+                // Do not double-step paths here — that raced the logic frame and
+                // kept PathfindingSystem mid-frame authority outside GameLogic.
             }
 
             // Drain queued player/AI commands before shadow so set_target/move logs
@@ -8819,21 +8814,11 @@ impl CnCGameEngine {
         best.map(|(id, _, _)| id)
     }
 
-    fn update_unit_pathfinding(&mut self, dt: f32, game_logic: &mut GameLogic) {
-        let object_ids = game_logic.object_ids_with_active_path();
-
-        for object_id in object_ids {
-            // Move units along their paths
-            let path_completed = self.pathfinding_system.move_unit_along_path(
-                object_id,
-                game_logic.get_objects_mut(),
-                dt,
-            );
-
-            if path_completed {
-                // Unit reached destination - could trigger completion events here
-            }
-        }
+    /// Path following is authoritative in `GameLogic::update_movement`.
+    /// Retained as a no-op compatibility hook for older call sites.
+    #[allow(dead_code)]
+    fn update_unit_pathfinding(&mut self, _dt: f32, _game_logic: &mut GameLogic) {
+        // Intentionally empty: dual mid-frame path step removed.
     }
 
     /// Legacy render stub -- NOT called from the active render path.
