@@ -2513,6 +2513,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_find_dozer_queue_supply_safe_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::findDozer`")
+                && src.contains("C++ `AIPlayer::queueDozer`")
+                && src.contains("C++ `AIPlayer::isSupplySourceAttacked`")
+                && src.contains("C++ `AIPlayer::isSupplySourceSafe`")
+                && src.contains("C++ `AIPlayer::guardSupplyCenter`")
+                && src.contains("is_currently_ferrying_supplies")
+                && src.contains("start_training_internal"),
+            "findDozer/queueDozer/supply safety C++ paths required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

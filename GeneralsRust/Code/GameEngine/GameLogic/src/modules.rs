@@ -2888,6 +2888,19 @@ pub trait DozerAIUpdateInterface: Send + Sync {
     /// Cancel an active or pending dozer task.
     fn cancel_task(&mut self, _task: crate::object::update::ai_update::dozer_ai_update::DozerTask) {
     }
+
+    /// C++ DozerAIInterface::isTaskPending
+    fn is_task_pending(
+        &self,
+        _task: crate::object::update::ai_update::dozer_ai_update::DozerTask,
+    ) -> bool {
+        false
+    }
+
+    /// C++ DozerAIInterface::isAnyTaskPending
+    fn is_any_task_pending(&self) -> bool {
+        false
+    }
 }
 
 /// Physics behavior interface (matching C++ PhysicsBehavior)
