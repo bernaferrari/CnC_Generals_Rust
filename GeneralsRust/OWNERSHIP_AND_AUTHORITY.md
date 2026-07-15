@@ -724,3 +724,11 @@ matrix authority.
 when a `PresentationFrame` is installed (live GameLogic only as boot fallback).
 Fail-closed: not full multiplayer observer / shrouded-template filter matrix.
 
+### Presentation command-set/detector residual (2026-07-14)
+
+`RenderableObject` freezes `command_set_override`, `is_detector`,
+`active_weapon_slot`, `overcharge_enabled`, `show_health_bar`, and `guard_radius`
+from host Object. ControlBar/UI can resolve override command sets and detector
+state without live Object dual-reads. Fail-closed: not full CommandSet INI graph /
+detector FOW pulse authority.
+
