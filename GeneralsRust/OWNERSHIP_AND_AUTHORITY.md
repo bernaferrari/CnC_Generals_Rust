@@ -1181,3 +1181,16 @@ Compared C++ `AIPlayer::selectTeamToBuild` to Rust:
 
 Fail-closed: production-condition script eval still residual; Main host AI still separate.
 
+### selectTeamToReinforce auto unit (2026-07-14)
+
+Compared C++ `AIPlayer::selectTeamToReinforce` to Rust:
+
+- Only `automaticallyReinforce` prototypes with priority **above** minPriority.
+- Skip prototypes already in the build queue.
+- Pick live team instance missing units (count < maxUnits) with an **idle** factory.
+- Prepend single required work order; try `tryToRecruit` then `startTraining`.
+- `teamDelay = 0` shortcut after queueing (C++).
+
+Fail-closed: homeLocation origin residual when team has no members; production
+condition scripts still residual.
+

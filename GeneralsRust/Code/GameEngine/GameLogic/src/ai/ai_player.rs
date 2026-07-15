@@ -3832,52 +3832,170 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Select team to reinforce
+    /// C++ `AIPlayer::selectTeamToReinforce` (AIPlayer.cpp).
+    ///
+    /// Among auto-reinforce prototypes with priority > minPriority, find a live
+    /// team instance missing units below maxUnits with an idle factory. Queue a
+    /// single required work order (prepend), try recruit then startTraining,
+    /// and shortcut teamDelay=0.
     fn select_team_to_reinforce(&mut self, min_priority: i32) -> Result<bool, AiError> {
         let factory = get_team_factory();
         let Ok(factory_guard) = factory.lock() else {
             return Ok(false);
         };
 
-        let mut best_team: Option<(String, ObjectID)> = None;
-        let mut best_priority = i32::MIN;
+        // Snapshot prototypes so we can drop the lock before nested factory lookups.
+        let protos: Vec<_> = factory_guard.list_team_prototypes();
+        drop(factory_guard);
 
-        for proto in factory_guard.list_team_prototypes() {
-            if proto.get_production_priority() < min_priority {
-                continue;
-            }
-            let name = proto.get_name().as_str().to_string();
-            let instances = factory_guard.find_team_instances(&name);
-            if instances.is_empty() {
-                continue;
-            }
-            if !self.is_a_good_idea_to_build_team(&name)? {
+        let mut best: Option<(String, Arc<RwLock<crate::team::Team>>, String, i32)> = None;
+        // C++ curPriority starts at minPriority; only priorities *above* min win.
+        let mut cur_priority = min_priority;
+
+        for proto in &protos {
+            if !proto.automatically_reinforce() {
                 continue;
             }
             let priority = proto.get_production_priority();
-            if priority > best_priority {
-                let team_id = instances
-                    .iter()
-                    .filter_map(|team| team.read().ok().map(|guard| guard.get_id() as ObjectID))
-                    .next()
-                    .unwrap_or(0);
-                best_priority = priority;
-                best_team = Some((name, team_id));
+            if priority <= cur_priority {
+                continue;
+            }
+            let name = proto.get_name().as_str().to_string();
+
+            // Skip if already building this prototype.
+            let busy = self.team_build_queue.iter().any(|q| {
+                q.team_name
+                    .as_deref()
+                    .map(|n| n == name.as_str())
+                    .unwrap_or(false)
+            });
+            if busy {
+                continue;
+            }
+
+            let Ok(factory_guard) = get_team_factory().lock() else {
+                continue;
+            };
+            let instances = factory_guard.find_team_instances(&name);
+            drop(factory_guard);
+
+            for team_arc in instances {
+                let Ok(team_g) = team_arc.read() else {
+                    continue;
+                };
+                if !team_g.has_any_units() {
+                    continue;
+                }
+
+                for unit_info in proto.units_info() {
+                    if unit_info.max_units < 1 {
+                        continue;
+                    }
+                    if unit_info.unit_thing_name.is_empty() {
+                        continue;
+                    }
+                    let Some(thing) = TheThingFactory::find_template(unit_info.unit_thing_name)
+                    else {
+                        continue;
+                    };
+                    let mut counts = [0i32; 1];
+                    team_g.count_objects_by_thing_template(
+                        std::slice::from_ref(&thing),
+                        false,
+                        false,
+                        &mut counts,
+                    );
+                    if counts[0] >= unit_info.max_units {
+                        continue;
+                    }
+                    // Idle factory required (findFactory(thing, false)).
+                    if self
+                        .find_factory_internal(unit_info.unit_thing_name, false)?
+                        .is_none()
+                    {
+                        continue;
+                    }
+                    // Better candidate.
+                    best = Some((
+                        name.clone(),
+                        team_arc.clone(),
+                        unit_info.unit_thing_name.to_string(),
+                        priority,
+                    ));
+                    cur_priority = priority;
+                }
             }
         }
 
-        let Some((team_name, team_id)) = best_team else {
+        let Some((team_name, team_arc, thing_name, _)) = best else {
             return Ok(false);
         };
 
-        let mut team = TeamInQueue::new();
-        team.team_name = Some(team_name.clone());
-        team.reinforcement = true;
-        team.reinforcement_id = Some(team_id);
-        team.frame_started = TheGameLogic::get_frame();
-        self.add_work_orders_for_team(&mut team, &team_name)?;
-        self.team_build_queue.push_back(team);
+        let Some(thing) = TheThingFactory::find_template(&thing_name) else {
+            return Ok(false);
+        };
 
+        // Origin: home location, else first member position.
+        let (origin, _team_id) = {
+            let Ok(team_g) = team_arc.read() else {
+                return Ok(false);
+            };
+            let tid = team_g.get_id() as ObjectID;
+            // C++ prefers first member position; homeLocation residual if no members.
+            let origin = team_g
+                .get_members()
+                .first()
+                .and_then(|&mid| OBJECT_REGISTRY.get_object(mid))
+                .and_then(|o| o.read().ok().map(|g| *g.get_position()))
+                .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
+            (origin, tid)
+        };
+
+        let max_recruit = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))
+            .unwrap_or(99999.0);
+
+        let mut order = WorkOrder::new(thing_name.clone());
+        order.num_required = 1;
+        order.required = true;
+        order.factory_id = None;
+
+        let mut recruited_id = None;
+        if let Ok(team_g) = team_arc.read() {
+            if let Some(unit_arc) = team_g.try_to_recruit(&thing, &origin, max_recruit) {
+                // Transfer to this team + idle (C++ setTeam + aiIdle).
+                if let Ok(mut unit_g) = unit_arc.write() {
+                    let _ = unit_g.set_team(Some(team_arc.clone()));
+                    if let Some(ai) = unit_g.get_ai_update_interface() {
+                        ai.ai_idle(CommandSourceType::FromAi);
+                    }
+                    recruited_id = Some(unit_g.get_id());
+                }
+                order.num_completed = 1;
+            }
+        }
+
+        if recruited_id.is_none() {
+            // startTraining residual: assign factory if idle.
+            let _ = self.start_training_internal(&mut order, false, &team_name)?;
+        }
+
+        let mut team_q = TeamInQueue::new();
+        team_q.team_name = Some(team_name);
+        team_q.priority_build = false;
+        team_q.reinforcement = true;
+        // C++ m_reinforcementID is the recruited unit, else INVALID until trained.
+        team_q.reinforcement_id = recruited_id;
+        team_q.frame_started = TheGameLogic::get_frame();
+        team_q.work_orders.push(order);
+        // C++ prependTo_TeamBuildQueue
+        self.team_build_queue.push_front(team_q);
+        // C++ m_teamDelay = 0 shortcut
+        self.team_delay = 0;
+
+        log::debug!("AI auto-reinforcing one {} onto team instance", thing_name);
         Ok(true)
     }
 
@@ -5102,6 +5220,34 @@ mod tests {
             window.contains("is_possible_to_build_team(team_name, true)"),
             "is_a_good_idea must require idle factory (C++ busyOK=true means require idle)"
         );
+    }
+
+    #[test]
+    fn select_team_to_reinforce_auto_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn select_team_to_reinforce(&mut self, min_priority: i32)")
+            .expect("reinforce");
+        let window = &src[i..src.len().min(i + 7000)];
+        assert!(
+            window.contains("automatically_reinforce")
+                && window.contains("priority <= cur_priority")
+                && window.contains("max_units")
+                && window.contains("try_to_recruit")
+                && window.contains("push_front(team_q)")
+                && window.contains("self.team_delay = 0")
+                && window.contains("find_factory_internal")
+                && window.contains("order.num_required = 1"),
+            "select_team_to_reinforce must match C++ auto-reinforce single-unit path"
+        );
+    }
+
+    #[test]
+    fn select_team_to_reinforce_no_auto_returns_false() {
+        let mut ai = AIPlayer::new(1);
+        // No prototypes with automatically_reinforce → false, no panic.
+        assert!(!ai.select_team_to_reinforce(0).expect("reinforce"));
+        assert!(ai.team_build_queue.is_empty());
     }
 
     #[test]
