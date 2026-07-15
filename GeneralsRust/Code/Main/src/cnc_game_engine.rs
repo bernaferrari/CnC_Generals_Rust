@@ -7380,10 +7380,12 @@ impl CnCGameEngine {
         };
 
         if !hint_loaded {
+            // Presentation frame is seeded above with runtime_heightmap freeze.
+            // Pass None so terrain visual bake cannot dual-read live GameLogic.
             match render_pipeline.load_heightmap_from_runtime_terrain(
                 &graphics_system.device_arc(),
                 &graphics_system.queue_arc(),
-                Some(game_logic),
+                None,
             ) {
                 Ok(true) => {}
                 Ok(false) => {
