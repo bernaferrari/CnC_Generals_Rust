@@ -2998,3 +2998,23 @@ mod presentation_mouse_bounds_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod presentation_camera_bounds_tests {
+    #[test]
+    fn clamp_to_world_bounds_prefers_presentation() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("fn clamp_to_world_bounds")
+            .expect("clamp_to_world_bounds");
+        let window = &eng[idx..idx + 700];
+        assert!(
+            window.contains("last_presentation_frame") && window.contains("world_bounds_vec3"),
+            "camera clamp must prefer presentation world_env bounds"
+        );
+        assert!(
+            window.contains("game_logic.world_bounds()"),
+            "boot residual without frame may still use host bounds"
+        );
+    }
+}
