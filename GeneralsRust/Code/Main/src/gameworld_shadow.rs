@@ -536,8 +536,6 @@ impl GameWorldShadow {
         updated
     }
 
-    /// Apply drained host economy events as SetSupplies/SetPower mutations.
-
     /// Write shadow entity pose (position + orientation) onto host objects.
     /// Last-writer residual after SetTransform / apply_host_positions channel.
     pub fn writeback_transforms_to_host(&self, logic: &mut GameLogic) -> usize {
@@ -565,6 +563,43 @@ impl GameWorldShadow {
         n
     }
 
+    /// Count completed upgrade names across mapped shadow players (probe residual).
+    pub fn completed_upgrade_count(&self) -> usize {
+        self.world
+            .world()
+            .active_players()
+            .map(|(_, p)| p.completed_upgrades.len())
+            .sum()
+    }
+
+    /// Host upgrade-complete residual: record completed research names on shadow players.
+    /// Fail-closed: not full PlayerUpgradeManager effect matrix / science tree.
+    pub fn apply_host_upgrade_events(
+        &mut self,
+        events: &[crate::game_logic::host_upgrades::HostUpgradeResearch],
+    ) -> usize {
+        use crate::game_logic::host_upgrades::HostUpgradePhase;
+        let mut queued = 0usize;
+        for ev in events {
+            if ev.phase != HostUpgradePhase::Completed {
+                continue;
+            }
+            let Some(&gw) = self.host_player_to_gw.get(&ev.player_id) else {
+                continue;
+            };
+            self.world.queue_mutation(WorldMutation::CompleteUpgrade {
+                player: gw,
+                name: ev.name.clone(),
+            });
+            queued += 1;
+        }
+        if queued > 0 {
+            let _ = self.apply_pending();
+        }
+        queued
+    }
+
+    /// Apply drained host economy events as SetSupplies/SetPower mutations.
     pub fn apply_host_economy_events(
         &mut self,
         events: &[crate::game_logic::host_economy_log::HostEconomyEvent],
@@ -588,7 +623,6 @@ impl GameWorldShadow {
         (queued, applied)
     }
 
-    /// Apply production Complete events: ensure spawned unit is mapped (Spawn channel).
     pub fn apply_host_production_events(
         &mut self,
         events: &[crate::game_logic::host_production_log::HostProductionEvent],
@@ -1114,6 +1148,7 @@ pub fn shadow_session_after_host_tick(
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
     let construction_events = crate::game_logic::host_construction_log::drain();
+    let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
     let write_health = !(auth && (!events.is_empty() || !heal_events.is_empty()));
@@ -1122,6 +1157,7 @@ pub fn shadow_session_after_host_tick(
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
+    let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
@@ -1490,6 +1526,43 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn host_upgrade_complete_applies_to_shadow_player() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("UpgradeShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        // Record a completed upgrade on the host registry.
+        let frame = logic.get_frame();
+        logic.host_upgrades_mut().record_complete(
+            "Upgrade_AmericaRangerFlashBangGrenade",
+            pid,
+            frame,
+            1,
+        );
+        let events = logic.host_upgrades().completed_this_frame_snapshot();
+        assert!(!events.is_empty(), "host must expose completed_this_frame");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let n = shadow.apply_host_upgrade_events(&events);
+        assert!(n >= 1, "upgrade events applied {n}");
+        assert!(
+            shadow.completed_upgrade_count() >= 1,
+            "shadow player must retain completed upgrade"
+        );
+        // Source honesty: session must drain upgrade snapshot.
+        let src = include_str!("gameworld_shadow.rs");
+        let idx = src
+            .find("fn shadow_session_after_host_tick")
+            .expect("session");
+        let window = &src[idx..idx + 2500];
+        assert!(
+            window.contains("completed_this_frame_snapshot")
+                && window.contains("apply_host_upgrade_events"),
+            "session must apply host upgrade completes"
+        );
     }
 
     #[test]
