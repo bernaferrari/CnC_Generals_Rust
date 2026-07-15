@@ -3319,8 +3319,12 @@ impl GameClient {
         self.update_particle_system_local_player()?;
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
-        // Display DRAW stays on Main RenderPipeline; skip draw_display/draw icons.
-        // C++ DisplayStringManager still ticks after drawable/effects residual.
+        // C++ line 726: display UPDATE (not DRAW). Main RenderPipeline remains sole
+        // 3D present path; skip draw_display to avoid dual surface present.
+        self.update_display_only()?;
+        // C++ W3DView::drawablePostDraw icon UI residual (health/status icons).
+        self.draw_drawable_icon_ui();
+        // C++ DisplayStringManager after drawable/effects residual.
         self.update_display_string_manager()?;
 
         self.update_post_draw_ui()?;
