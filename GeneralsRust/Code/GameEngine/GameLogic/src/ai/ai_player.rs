@@ -40,6 +40,7 @@ use crate::supply_system::BASE_VALUE_PER_SUPPLY_BOX;
 use crate::team::get_team_factory;
 use crate::upgrade::center::with_upgrade_center;
 use crate::upgrade::template::UpgradeType;
+use game_engine::common::thing::thing_factory::get_thing_factory;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
@@ -5452,34 +5453,60 @@ impl AIPlayer {
     }
 
     /// Find a harvester template with an idle factory and queue one (C++ priority team).
+    ///
+    /// C++ walks `TheThingFactory->firstTemplate()` / `friend_getNextTemplate()` for
+    /// `KINDOF_HARVESTER`. Fall back to known faction names if the factory is empty.
     fn queue_one_harvester_at_factory(
         &mut self,
         center_id: ObjectID,
         cur_gatherers: i32,
     ) -> Result<bool, AiError> {
-        // Prefer known supply truck / worker names; also scan KindOf::Harvester via
-        // find_factory on common names if template iteration unavailable.
-        const CANDIDATES: &[&str] = &[
-            "AmericaVehicleChinook",
-            "AmericaVehicleSupplyTruck", // residual name variants
-            "ChinaVehicleSupplyTruck",
-            "GLAVehicleSupplyTruck",
-            "GLAInfantryWorker",
-            "SupplyTruck",
-        ];
-
-        for name in CANDIDATES {
-            let Some(template) = TheThingFactory::find_template(name) else {
-                continue;
-            };
-            if !template.is_kind_of(KindOf::Harvester) {
-                continue;
+        // Collect harvester template names: full factory walk first (C++ order).
+        let mut harvester_names: Vec<String> = Vec::new();
+        if let Ok(factory_guard) = get_thing_factory() {
+            if let Some(factory) = factory_guard.as_ref() {
+                let mut current = factory.first_template().cloned();
+                while let Some(template) = current {
+                    // Common ThingTemplate uses u64 masks; resolve via TheThingFactory
+                    // adapter for KindOf::Harvester (C++ isKindOf(KINDOF_HARVESTER)).
+                    let name = template.get_name().to_string();
+                    if !name.is_empty()
+                        && TheThingFactory::find_template(&name)
+                            .map(|t| t.is_kind_of(KindOf::Harvester))
+                            .unwrap_or(false)
+                        && !harvester_names.iter().any(|n| n == &name)
+                    {
+                        harvester_names.push(name);
+                    }
+                    current = template.get_next_template().clone();
+                }
             }
-            let Some(factory_id) = self.find_factory_internal(name, false)? else {
+        }
+        // Fallback residual when ThingFactory unloaded (tests / early boot).
+        if harvester_names.is_empty() {
+            for name in [
+                "AmericaVehicleChinook",
+                "AmericaVehicleSupplyTruck",
+                "ChinaVehicleSupplyTruck",
+                "GLAVehicleSupplyTruck",
+                "GLAInfantryWorker",
+                "SupplyTruck",
+            ] {
+                if TheThingFactory::find_template(name)
+                    .map(|t| t.is_kind_of(KindOf::Harvester))
+                    .unwrap_or(false)
+                {
+                    harvester_names.push(name.to_string());
+                }
+            }
+        }
+
+        for name in harvester_names {
+            let Some(factory_id) = self.find_factory_internal(&name, false)? else {
                 continue;
             };
 
-            let mut order = WorkOrder::new((*name).to_string());
+            let mut order = WorkOrder::new(name.clone());
             order.num_required = 1;
             order.required = true;
             order.is_resource_gatherer = true;
@@ -5512,7 +5539,8 @@ impl AIPlayer {
                 team.work_orders.push(order);
                 self.team_build_queue.push_front(team);
                 log::debug!(
-                    "Supply truck - automatic first gatherer at factory {}",
+                    "Supply truck - automatic first gatherer ({}) at factory {}",
+                    name,
                     factory_id
                 );
                 return Ok(true);
@@ -5522,7 +5550,11 @@ impl AIPlayer {
             let _ = self.start_training_internal(&mut order, true, &team_name)?;
             team.work_orders.push(order);
             self.team_build_queue.push_front(team);
-            log::debug!("Supply truck - building one at factory {}", factory_id);
+            log::debug!(
+                "Supply truck - building one {} at factory {}",
+                name,
+                factory_id
+            );
             return Ok(true);
         }
         Ok(false)
@@ -7340,6 +7372,8 @@ mod tests {
                 && window.contains("queue_one_harvester_at_factory")
                 && window.contains("recount_and_redock_harvesters")
                 && window.contains("ai_dock")
+                && src.contains("first_template")
+                && src.contains("KindOf::Harvester")
                 && window.contains("FromPlayer")
                 && window.contains("try_reattach_loose_harvester")
                 && window.contains("desired.saturating_mul(3)"),
@@ -7661,6 +7695,24 @@ mod tests {
             ai.team_build_queue.len(),
             before,
             "C++ dozerInQueue early-out"
+        );
+    }
+
+    #[test]
+    fn queue_one_harvester_walks_thing_factory_like_cpp() {
+        // C++ queueSupplyTruck: tTemplate = firstTemplate(); while (tTemplate) { isKindOf(HARVESTER); tTemplate = friend_getNextTemplate(); }
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn queue_one_harvester_at_factory")
+            .expect("queue_one_harvester");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("first_template")
+                && window.contains("get_next_template")
+                && window.contains("KindOf::Harvester")
+                && window.contains("is_resource_gatherer = true")
+                && window.contains("cur_gatherers == -1"),
+            "queue_one_harvester must walk ThingFactory harvester templates like C++"
         );
     }
 
