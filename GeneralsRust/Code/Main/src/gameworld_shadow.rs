@@ -481,6 +481,33 @@ impl GameWorldShadow {
                     e.mesh_scale = crate::assets::mesh_asset_resolve::mesh_scale_from_template(
                         obj.get_template(),
                     );
+                    {
+                        use crate::fow_rendering::FOWRenderingBridge;
+                        let vis = if logic.isInShellGame() {
+                            crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
+                        } else {
+                            FOWRenderingBridge::get_object_visibility(
+                                logic.local_player_id().unwrap_or(0),
+                                obj.id,
+                            )
+                        };
+                        e.fow_visibility_alpha = vis.visibility_alpha;
+                        e.fow_is_explored = vis.is_explored;
+                        e.fow_visibility_falloff = vis.visibility_falloff;
+                    }
+                    {
+                        let pos = obj.get_position();
+                        match logic.terrain_height_at(pos) {
+                            Some(h) if h.is_finite() => {
+                                e.ground_height = h;
+                                e.ground_height_from_terrain = true;
+                            }
+                            _ => {
+                                e.ground_height = 0.0;
+                                e.ground_height_from_terrain = false;
+                            }
+                        }
+                    }
                     e.overlord_bunker_capacity = obj
                         .overlord_bunker_capacity
                         .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -731,6 +758,33 @@ impl GameWorldShadow {
                     crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
                 e.mesh_scale =
                     crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
+                {
+                    use crate::fow_rendering::FOWRenderingBridge;
+                    let vis = if logic.isInShellGame() {
+                        crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
+                    } else {
+                        FOWRenderingBridge::get_object_visibility(
+                            logic.local_player_id().unwrap_or(0),
+                            obj.id,
+                        )
+                    };
+                    e.fow_visibility_alpha = vis.visibility_alpha;
+                    e.fow_is_explored = vis.is_explored;
+                    e.fow_visibility_falloff = vis.visibility_falloff;
+                }
+                {
+                    let pos = obj.get_position();
+                    match logic.terrain_height_at(pos) {
+                        Some(h) if h.is_finite() => {
+                            e.ground_height = h;
+                            e.ground_height_from_terrain = true;
+                        }
+                        _ => {
+                            e.ground_height = 0.0;
+                            e.ground_height_from_terrain = false;
+                        }
+                    }
+                }
                 e.overlord_bunker_capacity = obj
                     .overlord_bunker_capacity
                     .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -913,6 +967,11 @@ impl GameWorldShadow {
             e.display_name.clear();
             e.model_key.clear();
             e.mesh_scale = 1.0;
+            e.fow_visibility_alpha = 1.0;
+            e.fow_is_explored = 1.0;
+            e.fow_visibility_falloff = 0.0;
+            e.ground_height = 0.0;
+            e.ground_height_from_terrain = false;
             e.overlord_bunker_capacity = u16::MAX;
             e.passengers_allowed_to_fire = false;
             e.armed_riders_upgrade_weapon_set = false;
@@ -2538,6 +2597,30 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_fow_ground_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityFowGround");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "FowU", 100.0);
+        let id = logic
+            .create_object("FowU", Team::USA, glam::Vec3::new(10.0, 0.0, 20.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.fow_visibility_alpha - 1.0).abs() < 1e-5);
+        assert!((e.fow_is_explored - 1.0).abs() < 1e-5);
+        assert!(e.ground_height.is_finite());
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("fow_visibility_alpha")
+                && src.contains("ground_height_from_terrain")
+                && src.contains("FOWRenderingBridge::get_object_visibility"),
+            "sync must copy FOW/ground residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_model_key_mesh_scale_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityMeshKey");
