@@ -274,10 +274,16 @@ impl TeamInQueue {
         true
     }
 
-    /// Returns true if team includes a dozer unit
+    /// C++ `TeamInQueue::includesADozer` — any work order KINDOF_DOZER.
     pub fn includes_a_dozer(&self) -> bool {
         self.work_orders.iter().any(|order| {
-            order.thing_template.contains("dozer") || order.thing_template.contains("worker")
+            TheThingFactory::find_template(&order.thing_template)
+                .map(|t| t.is_kind_of(KindOf::Dozer))
+                .unwrap_or_else(|| {
+                    // Fallback when factory unloaded (tests): name heuristic.
+                    let n = order.thing_template.to_ascii_lowercase();
+                    n.contains("dozer") || n.contains("worker")
+                })
         })
     }
 
@@ -6390,19 +6396,52 @@ impl AIPlayer {
         self.frame_last_building_built = frame;
     }
 
-    /// Remove queued references to a team that is about to be destroyed.
-    pub fn ai_pre_team_destroy(&mut self, team_name: &str) {
+    /// C++ `AIPlayer::aiPreTeamDestroy(const Team *deletedTeam)`.
+    ///
+    /// Drop TeamInQueue entries whose `m_team` is the deleted instance (pointer
+    /// identity). Name match is fallback for legacy/xfer entries without handle.
+    pub fn ai_pre_team_destroy(&mut self, deleted: &Arc<RwLock<crate::team::Team>>) {
+        let deleted_name = deleted.read().ok().map(|g| g.get_name().to_string());
+        let keep = |q: &TeamInQueue| -> bool {
+            if let Some(ref qt) = q.team {
+                // C++: team->m_team == deletedTeam
+                return !Arc::ptr_eq(qt, deleted);
+            }
+            // Fallback: name compare when m_team missing.
+            if let (Some(ref dn), Some(ref qn)) = (deleted_name.as_ref(), q.team_name.as_ref()) {
+                return qn != dn;
+            }
+            true
+        };
+        self.team_build_queue.retain(keep);
+        self.team_ready_queue.retain(keep);
+    }
+
+    /// Name-based wrapper for call sites that only have a team name.
+    pub fn ai_pre_team_destroy_by_name(&mut self, team_name: &str) {
         self.team_build_queue.retain(|team| {
             team.team_name
                 .as_deref()
                 .map(|name| name != team_name)
                 .unwrap_or(true)
+                && team
+                    .team
+                    .as_ref()
+                    .and_then(|a| a.read().ok())
+                    .map(|g| g.get_name().as_str() != team_name)
+                    .unwrap_or(true)
         });
         self.team_ready_queue.retain(|team| {
             team.team_name
                 .as_deref()
                 .map(|name| name != team_name)
                 .unwrap_or(true)
+                && team
+                    .team
+                    .as_ref()
+                    .and_then(|a| a.read().ok())
+                    .map(|g| g.get_name().as_str() != team_name)
+                    .unwrap_or(true)
         });
     }
 
@@ -7156,6 +7195,32 @@ mod tests {
         assert!(!team.are_builds_complete());
         team.work_orders[0].factory_id = None;
         assert!(team.are_builds_complete());
+    }
+
+    #[test]
+    fn ai_pre_team_destroy_matches_m_team_pointer() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn ai_pre_team_destroy(&mut self, deleted:")
+            .expect("aiPreTeamDestroy");
+        let window = &src[i..src.len().min(i + 1800)];
+        assert!(
+            window.contains("Arc::ptr_eq")
+                && window.contains("team_build_queue.retain")
+                && window.contains("team_ready_queue.retain"),
+            "aiPreTeamDestroy must drop queue entries by m_team pointer identity"
+        );
+    }
+
+    #[test]
+    fn includes_a_dozer_uses_kindof_dozer() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("pub fn includes_a_dozer").expect("includesADozer");
+        let window = &src[i..src.len().min(i + 900)];
+        assert!(
+            window.contains("KindOf::Dozer") && window.contains("find_template"),
+            "includesADozer must check KINDOF_DOZER on template"
+        );
     }
 
     #[test]
