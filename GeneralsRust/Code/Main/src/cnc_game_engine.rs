@@ -7393,7 +7393,8 @@ impl CnCGameEngine {
             }
         }
 
-        if let Err(err) = render_pipeline.sync_runtime_map_roads(Some(game_logic)) {
+        // Presentation already seeded above; pass None so road bake cannot dual-read.
+        if let Err(err) = render_pipeline.sync_runtime_map_roads(None) {
             warn!(
                 "Failed to sync runtime map roads for '{}': {}",
                 map_name, err
