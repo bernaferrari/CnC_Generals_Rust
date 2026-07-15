@@ -198,6 +198,21 @@ pub struct RenderableObject {
     pub weapon_range: f32,
     /// Primary weapon damage residual (0 when unarmed).
     pub weapon_damage: f32,
+    /// Primary weapon min range residual.
+    pub weapon_min_range: f32,
+    /// Primary weapon reload time residual (seconds-ish).
+    pub weapon_reload_time: f32,
+    /// Primary weapon ammo residual (`u32::MAX` = unlimited).
+    pub weapon_ammo: u32,
+    /// Primary weapon air/ground targeting residual.
+    pub weapon_can_target_air: bool,
+    pub weapon_can_target_ground: bool,
+    /// Primary weapon projectile speed residual.
+    pub weapon_projectile_speed: f32,
+    /// Host armed_riders_upgrade_weapon_set residual.
+    pub armed_riders_upgrade_weapon_set: bool,
+    /// Host weapon_set_player_upgrade residual.
+    pub weapon_set_player_upgrade: bool,
     /// CamoNetting StealthLook ordinal residual (0..5).
     pub camo_stealth_look: u8,
     /// Bomb-truck disguise template residual.
@@ -1971,6 +1986,30 @@ impl PresentationFrame {
                 has_weapon: obj.weapon.is_some(),
                 weapon_range: obj.weapon.as_ref().map(|w| w.range).unwrap_or(0.0),
                 weapon_damage: obj.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0),
+                weapon_min_range: obj.weapon.as_ref().map(|w| w.min_range).unwrap_or(0.0),
+                weapon_reload_time: obj.weapon.as_ref().map(|w| w.reload_time).unwrap_or(0.0),
+                weapon_ammo: obj
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.ammo.unwrap_or(u32::MAX))
+                    .unwrap_or(u32::MAX),
+                weapon_can_target_air: obj
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.can_target_air)
+                    .unwrap_or(false),
+                weapon_can_target_ground: obj
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.can_target_ground)
+                    .unwrap_or(true),
+                weapon_projectile_speed: obj
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.projectile_speed)
+                    .unwrap_or(0.0),
+                armed_riders_upgrade_weapon_set: obj.armed_riders_upgrade_weapon_set,
+                weapon_set_player_upgrade: obj.weapon_set_player_upgrade,
                 camo_stealth_look: obj.camo_stealth_look,
                 disguise_as_template: obj.disguise_as_template.clone(),
                 disguise_as_team: obj.disguise_as_team,
@@ -3419,6 +3458,38 @@ impl PresentationFrame {
             }
             if (obj.weapon_damage - ent.weapon_damage).abs() > 1e-3 {
                 obj.weapon_damage = ent.weapon_damage;
+                dirty = true;
+            }
+            if (obj.weapon_min_range - ent.weapon_min_range).abs() > 1e-3 {
+                obj.weapon_min_range = ent.weapon_min_range;
+                dirty = true;
+            }
+            if (obj.weapon_reload_time - ent.weapon_reload_time).abs() > 1e-3 {
+                obj.weapon_reload_time = ent.weapon_reload_time;
+                dirty = true;
+            }
+            if obj.weapon_ammo != ent.weapon_ammo {
+                obj.weapon_ammo = ent.weapon_ammo;
+                dirty = true;
+            }
+            if obj.weapon_can_target_air != ent.weapon_can_target_air {
+                obj.weapon_can_target_air = ent.weapon_can_target_air;
+                dirty = true;
+            }
+            if obj.weapon_can_target_ground != ent.weapon_can_target_ground {
+                obj.weapon_can_target_ground = ent.weapon_can_target_ground;
+                dirty = true;
+            }
+            if (obj.weapon_projectile_speed - ent.weapon_projectile_speed).abs() > 1e-3 {
+                obj.weapon_projectile_speed = ent.weapon_projectile_speed;
+                dirty = true;
+            }
+            if obj.armed_riders_upgrade_weapon_set != ent.armed_riders_upgrade_weapon_set {
+                obj.armed_riders_upgrade_weapon_set = ent.armed_riders_upgrade_weapon_set;
+                dirty = true;
+            }
+            if obj.weapon_set_player_upgrade != ent.weapon_set_player_upgrade {
+                obj.weapon_set_player_upgrade = ent.weapon_set_player_upgrade;
                 dirty = true;
             }
             if obj.command_set_override != ent.command_set_override {
@@ -4994,6 +5065,8 @@ mod tests {
                 && src.contains("ent.engine_bridged")
                 && src.contains("is_battle_bus_transport")
                 && src.contains("ent.display_name")
+                && src.contains("ent.weapon_min_range")
+                && src.contains("ent.weapon_ammo")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
