@@ -23,6 +23,7 @@ static PLAYER_NIGHT_COLOR: OnceCell<NameKeyType> = OnceCell::new();
 static PLAYER_START_MONEY: OnceCell<NameKeyType> = OnceCell::new();
 
 static OBJECT_NAME: OnceCell<NameKeyType> = OnceCell::new();
+static OBJECT_SCRIPT_ATTACHMENT: OnceCell<NameKeyType> = OnceCell::new();
 static OBJECT_MAX_HPS: OnceCell<NameKeyType> = OnceCell::new();
 static OBJECT_INITIAL_HEALTH: OnceCell<NameKeyType> = OnceCell::new();
 static OBJECT_VETERANCY: OnceCell<NameKeyType> = OnceCell::new();
@@ -157,6 +158,10 @@ pub fn key_player_start_money() -> NameKeyType {
 
 pub fn key_object_name() -> NameKeyType {
     key_for("objectName", &OBJECT_NAME)
+}
+
+pub fn key_object_script_attachment() -> NameKeyType {
+    key_for("objectScriptAttachment", &OBJECT_SCRIPT_ATTACHMENT)
 }
 
 pub fn key_object_max_hps() -> NameKeyType {
