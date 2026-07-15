@@ -102,6 +102,16 @@ pub struct Entity {
     pub destroyed: bool,
     /// Host Object::construction_percent residual (0..1).
     pub construction_percent: f32,
+    /// Host Object::team residual as ordinal: 0 USA, 1 China, 2 GLA, 255 Neutral.
+    pub team_ordinal: u8,
+    /// Host Object::selection_radius residual.
+    pub selection_radius: f32,
+    /// Host Object::status.under_construction residual.
+    pub under_construction: bool,
+    /// Host Object::status.moving residual.
+    pub moving: bool,
+    /// Host Object::status.attacking residual.
+    pub attacking: bool,
 }
 
 impl Entity {
@@ -180,6 +190,11 @@ impl EntityStore {
             selected: false,
             destroyed: false,
             construction_percent: 1.0,
+            team_ordinal: 255,
+            selection_radius: 5.0,
+            under_construction: false,
+            moving: false,
+            attacking: false,
         };
 
         self.alive.insert(id, entity);
