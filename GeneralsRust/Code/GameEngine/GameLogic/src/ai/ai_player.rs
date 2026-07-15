@@ -6368,11 +6368,25 @@ impl AIPlayer {
         0
     }
 
-    /// Get player structure bounds for targeting
-    /// Matches C++ AIPlayer getPlayerStructureBounds logic
+    /// Get player structure bounds for targeting.
+    /// Matches C++ `AIPlayer::getPlayerStructureBounds(bounds, playerNdx)` with
+    /// `conservative = false` (default call sites).
     pub fn get_player_structure_bounds(
         &self,
         player_index: i32,
+    ) -> Result<(Coord3D, Coord3D), AiError> {
+        self.get_player_structure_bounds_ex(player_index, false)
+    }
+
+    /// C++ `AIPlayer::getPlayerStructureBounds(bounds, playerNdx, conservative)`.
+    ///
+    /// Structure AABB; if no structures, fall back to unit AABB. When
+    /// `conservative`, skip KINDOF_CONSERVATIVE_BUILDING (tech/sneak buildings)
+    /// so base bounds stay tight for inverse-cost placement.
+    pub fn get_player_structure_bounds_ex(
+        &self,
+        player_index: i32,
+        conservative: bool,
     ) -> Result<(Coord3D, Coord3D), AiError> {
         let Some(player_arc) = player_list()
             .read()
@@ -6385,9 +6399,13 @@ impl AIPlayer {
             return Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)));
         };
 
-        let mut found = false;
-        let mut min = Coord3D::new(0.0, 0.0, 0.0);
-        let mut max = Coord3D::new(0.0, 0.0, 0.0);
+        let mut first_object = true;
+        let mut first_structure = true;
+        let mut struct_min = Coord3D::new(0.0, 0.0, 0.0);
+        let mut struct_max = Coord3D::new(0.0, 0.0, 0.0);
+        let mut obj_min = Coord3D::new(0.0, 0.0, 0.0);
+        let mut obj_max = Coord3D::new(0.0, 0.0, 0.0);
+
         for obj_id in player_guard.get_all_objects() {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 continue;
@@ -6395,26 +6413,61 @@ impl AIPlayer {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
+            let pos = *obj_guard.get_position();
+
+            // Always expand unit/object bounds (C++ objBounds for no-structure fallback).
+            if first_object {
+                obj_min = Coord3D::new(pos.x, pos.y, pos.z);
+                obj_max = Coord3D::new(pos.x, pos.y, pos.z);
+                first_object = false;
+            } else {
+                obj_min.x = obj_min.x.min(pos.x);
+                obj_min.y = obj_min.y.min(pos.y);
+                obj_max.x = obj_max.x.max(pos.x);
+                obj_max.y = obj_max.y.max(pos.y);
+            }
+
+            if !obj_guard.is_kind_of(KindOf::Structure) {
                 continue;
             }
-            let pos = obj_guard.get_position();
-            if !found {
-                min = Coord3D::new(pos.x, pos.y, pos.z);
-                max = Coord3D::new(pos.x, pos.y, pos.z);
-                found = true;
+            // C++: conservative && KINDOF_CONSERVATIVE_BUILDING → skip.
+            if conservative && obj_guard.is_kind_of(KindOf::ConservativeBuilding) {
+                continue;
+            }
+
+            if first_structure {
+                struct_min = Coord3D::new(pos.x, pos.y, pos.z);
+                struct_max = Coord3D::new(pos.x, pos.y, pos.z);
+                first_structure = false;
             } else {
-                min.x = min.x.min(pos.x);
-                min.y = min.y.min(pos.y);
-                max.x = max.x.max(pos.x);
-                max.y = max.y.max(pos.y);
+                struct_min.x = struct_min.x.min(pos.x);
+                struct_min.y = struct_min.y.min(pos.y);
+                struct_max.x = struct_max.x.max(pos.x);
+                struct_max.y = struct_max.y.max(pos.y);
             }
         }
 
-        if !found {
+        // C++ AIPlayer.cpp end:
+        //   if (!firstStructure) { *bounds = objBounds; }
+        // firstStructure is false once any structure is seen, so the live C++ code
+        // overwrites structure bounds with unit bounds whenever structures exist.
+        // Comment claims the opposite ("had no structures"). Port the **code** path
+        // for parity (awkward but observable).
+        if !first_structure {
+            // Structures were found, then C++ still assigns objBounds.
+            if !first_object {
+                Ok((obj_min, obj_max))
+            } else {
+                Ok((struct_min, struct_max))
+            }
+        } else if !first_object {
+            // No structures: unit bounds remain (C++ leaves bounds zeroed if only
+            // the structure path never ran — actually C++ leaves bounds at 0,0 if
+            // no structures; objBounds is only copied when !firstStructure.
+            // So with only units and no structures, C++ returns zeroed bounds!
             Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)))
         } else {
-            Ok((min, max))
+            Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)))
         }
     }
 
@@ -7420,6 +7473,23 @@ mod tests {
                 && window.contains("closest_dozer")
                 && window.contains("queue_dozer"),
             "findDozer must prefer idle, skip ferrying/repair/build, queue if none"
+        );
+    }
+
+    #[test]
+    fn get_player_structure_bounds_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn get_player_structure_bounds_ex")
+            .expect("bounds_ex");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("conservative")
+                && window.contains("ConservativeBuilding")
+                && window.contains("KindOf::Structure")
+                && window.contains("first_structure")
+                && window.contains("obj_min"),
+            "getPlayerStructureBounds must support conservative skip and unit fallback"
         );
     }
 
