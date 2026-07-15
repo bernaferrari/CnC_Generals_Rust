@@ -690,16 +690,21 @@ impl AISkirmishPlayer {
         }
 
         let current_frame = TheGameLogic::get_frame();
+        // C++: TheAI->getAiData()->m_rebuildDelaySeconds * LOGICFRAMES_PER_SECOND
+        // Retail AIData = 30; fall back when AIData unloaded / zero.
         let rebuild_delay_frames = THE_AI
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.rebuild_delay_seconds)
+                ai.get_ai_data().read().ok().map(|data| {
+                    if data.rebuild_delay_seconds > 0 {
+                        data.rebuild_delay_seconds as u32
+                    } else {
+                        crate::ai::ai_player::REBUILD_DELAY_SECONDS
+                    }
+                })
             })
-            .unwrap_or(0) as u32
+            .unwrap_or(crate::ai::ai_player::REBUILD_DELAY_SECONDS)
             * LOGICFRAMES_PER_SECOND;
 
         let Some(player_arc) = self.base.get_player() else {
