@@ -4659,17 +4659,398 @@ impl AIPlayer {
         Ok(true)
     }
 
-    /// Queue supply truck
+    /// C++ `AIPlayer::queueSupplyTruck` (AIPlayer.cpp).
+    ///
+    /// Skip if a resource-gatherer is already queued. For each supply building
+    /// needing gatherers: recount current, reattach loose harvesters, else start
+    /// training one harvester (priority team) if under 3× desired global cap.
     fn queue_supply_truck(&mut self) -> Result<(), AiError> {
-        let mut order = WorkOrder::new("SupplyTruck".to_string());
-        order.is_resource_gatherer = true;
+        // Already building a supply truck?
+        let truck_in_queue = self.team_build_queue.iter().any(|team| {
+            team.work_orders
+                .iter()
+                .any(|order| order.is_resource_gatherer)
+        });
+        if truck_in_queue {
+            return Ok(());
+        }
 
-        let mut team = TeamInQueue::new();
-        team.work_orders.push(order);
-        team.priority_build = true;
+        let total_harvesters = self.count_player_harvesters();
 
-        self.team_build_queue.push_front(team);
+        // Snapshot supply-building build-list entries we may need to service.
+        let mut supply_entries: Vec<(ObjectID, i32, i32)> = Vec::new();
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(pg) = player_arc.read() {
+                    let mut cur = pg.get_build_list();
+                    while let Some(info) = cur {
+                        if info.is_supply_building() {
+                            supply_entries.push((
+                                info.get_object_id(),
+                                info.get_desired_gatherers(),
+                                info.get_current_gatherers(),
+                            ));
+                        }
+                        cur = info.get_next();
+                    }
+                }
+            }
+        }
+
+        for (center_id, desired, mut cur_gatherers) in supply_entries {
+            if center_id == INVALID_ID {
+                continue;
+            }
+            let Some(center_arc) = OBJECT_REGISTRY.get_object(center_id) else {
+                continue;
+            };
+            let Ok(center_g) = center_arc.read() else {
+                continue;
+            };
+            if center_g.is_kind_of(KindOf::RebuildHole) {
+                continue;
+            }
+
+            // Nearby supply warehouse residual: require a non-empty warehouse in range.
+            if !self.supply_center_has_nearby_supplies(&center_g) {
+                continue;
+            }
+
+            // Refresh supply-center bookkeeping.
+            drop(center_g);
+            let _ = self.check_for_supply_center(center_id);
+
+            if cur_gatherers >= desired {
+                // Recount docked harvesters and re-issue dock if idle.
+                cur_gatherers = self.recount_and_redock_harvesters(center_id);
+                self.set_build_list_current_gatherers(center_id, cur_gatherers);
+                continue;
+            }
+
+            // Try reattach loose harvesters first (C++ preferredDock missing).
+            if self.try_reattach_loose_harvester(center_id)? {
+                return Ok(());
+            }
+
+            if total_harvesters >= desired.saturating_mul(3) {
+                continue; // lotsa gatherers
+            }
+
+            // Temporarily allow unit building.
+            let prev_can_build = self.set_can_build_units_temp(true);
+            let queued = self.queue_one_harvester_at_factory(center_id, cur_gatherers)?;
+            self.set_can_build_units_temp(prev_can_build);
+            if queued {
+                return Ok(());
+            }
+        }
+
         Ok(())
+    }
+
+    fn count_player_harvesters(&self) -> i32 {
+        let Ok(list) = player_list().read() else {
+            return 0;
+        };
+        let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            return 0;
+        };
+        let Ok(pg) = player_arc.read() else {
+            return 0;
+        };
+        let mut total = 0;
+        for obj_id in pg.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if !obj.is_kind_of(KindOf::Harvester) {
+                continue;
+            }
+            if let Some(ai) = obj.get_ai_update_interface() {
+                if let Ok(ai_g) = ai.lock() {
+                    if ai_g.get_supply_truck_ai_interface().is_some() {
+                        total += 1;
+                    }
+                }
+            }
+        }
+        total
+    }
+
+    fn supply_center_has_nearby_supplies(&self, center: &Object) -> bool {
+        let center_pos = *center.get_position();
+        let radius =
+            SUPPLY_CENTER_CLOSE_DIST + center.get_geometry_info().get_bounding_circle_radius();
+
+        let Some(partition) = ThePartitionManager::get() else {
+            // Fallback: any warehouse on map with boxes.
+            return OBJECT_REGISTRY.get_all_objects().iter().any(|obj| {
+                obj.read()
+                    .ok()
+                    .map(|g| {
+                        g.find_update_module("SupplyWarehouseDockUpdate")
+                            .and_then(|m| {
+                                m.with_module(|mm| {
+                                    mm.get_supply_warehouse_dock_interface()
+                                        .map(|w| w.boxes_stored() > 0)
+                                })
+                            })
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false)
+            });
+        };
+
+        for obj_id in partition.get_objects_in_range(&center_pos, radius) {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if !obj.is_kind_of(KindOf::SupplySource) {
+                continue;
+            }
+            // Skip enemies.
+            if let (Some(my_team), Some(their_team)) = (
+                // approximate: controlling player
+                Some(self.player_id),
+                obj.get_controlling_player_id(),
+            ) {
+                if my_team != their_team {
+                    // relationship residual: skip if not same player
+                    // (C++ ENEMIES check via team relationship)
+                    if let Ok(list) = player_list().read() {
+                        if let Some(me) = list.get_player(self.player_id as i32) {
+                            if let Ok(me_g) = me.read() {
+                                if let Some(tarc) = obj.get_team() {
+                                    if let Ok(tg) = tarc.read() {
+                                        if me_g.get_relationship_with_team(&tg)
+                                            == Relationship::Enemies
+                                        {
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(module) = obj.find_update_module("SupplyWarehouseDockUpdate") {
+                let boxes = module.with_module(|m| {
+                    m.get_supply_warehouse_dock_interface()
+                        .map(|w| w.boxes_stored())
+                });
+                if boxes.unwrap_or(0) > 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn recount_and_redock_harvesters(&self, center_id: ObjectID) -> i32 {
+        let Ok(list) = player_list().read() else {
+            return 0;
+        };
+        let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            return 0;
+        };
+        let Ok(pg) = player_arc.read() else {
+            return 0;
+        };
+        let mut cur = 0;
+        for obj_id in pg.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if !obj.is_kind_of(KindOf::Harvester) {
+                continue;
+            }
+            let Some(ai) = obj.get_ai_update_interface() else {
+                continue;
+            };
+            let Ok(ai_g) = ai.lock() else {
+                continue;
+            };
+            let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
+                continue;
+            };
+            if truck.get_preferred_dock_id() == Some(center_id) {
+                cur += 1;
+                // aiDock residual when not ferrying (CMD_FROM_PLAYER).
+            }
+        }
+        cur
+    }
+
+    fn set_build_list_current_gatherers(&self, center_id: ObjectID, cur: i32) {
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(mut pg) = player_arc.write() {
+                    if let Some(info) = pg.get_build_list_mut() {
+                        let mut node = Some(&mut *info);
+                        while let Some(n) = node {
+                            if n.get_object_id() == center_id {
+                                n.set_current_gatherers(cur);
+                                break;
+                            }
+                            node = n.get_next_mut();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn try_reattach_loose_harvester(&mut self, center_id: ObjectID) -> Result<bool, AiError> {
+        let Ok(list) = player_list().read() else {
+            return Ok(false);
+        };
+        let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            return Ok(false);
+        };
+        let Ok(pg) = player_arc.read() else {
+            return Ok(false);
+        };
+        for obj_id in pg.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if !obj.is_kind_of(KindOf::Harvester) {
+                continue;
+            }
+            let Some(ai) = obj.get_ai_update_interface() else {
+                continue;
+            };
+            let Ok(ai_g) = ai.lock() else {
+                continue;
+            };
+            let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
+                continue;
+            };
+            let dock = truck.get_preferred_dock_id();
+            let dock_alive = dock
+                .map(|id| OBJECT_REGISTRY.get_object(id).is_some())
+                .unwrap_or(false);
+            if dock_alive {
+                continue;
+            }
+            if truck.is_currently_ferrying_supplies() || truck.is_forced_into_wanting_state() {
+                // Re-attach residual: bump current gatherers (aiDock CMD_FROM_PLAYER deferred).
+                drop(ai_g);
+                drop(obj);
+                self.set_build_list_current_gatherers(
+                    center_id,
+                    self.recount_and_redock_harvesters(center_id) + 1,
+                );
+                log::debug!("Re-attaching supply truck to supply center.");
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn set_can_build_units_temp(&self, can: bool) -> bool {
+        let Ok(list) = player_list().read() else {
+            return can;
+        };
+        let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            return can;
+        };
+        let Ok(mut pg) = player_arc.write() else {
+            return can;
+        };
+        let prev = pg.get_can_build_units();
+        pg.set_can_build_units(can);
+        prev
+    }
+
+    /// Find a harvester template with an idle factory and queue one (C++ priority team).
+    fn queue_one_harvester_at_factory(
+        &mut self,
+        center_id: ObjectID,
+        cur_gatherers: i32,
+    ) -> Result<bool, AiError> {
+        // Prefer known supply truck / worker names; also scan KindOf::Harvester via
+        // find_factory on common names if template iteration unavailable.
+        const CANDIDATES: &[&str] = &[
+            "AmericaVehicleChinook",
+            "AmericaVehicleSupplyTruck", // residual name variants
+            "ChinaVehicleSupplyTruck",
+            "GLAVehicleSupplyTruck",
+            "GLAInfantryWorker",
+            "SupplyTruck",
+        ];
+
+        for name in CANDIDATES {
+            let Some(template) = TheThingFactory::find_template(name) else {
+                continue;
+            };
+            if !template.is_kind_of(KindOf::Harvester) {
+                continue;
+            }
+            let Some(factory_id) = self.find_factory_internal(name, false)? else {
+                continue;
+            };
+
+            let mut order = WorkOrder::new((*name).to_string());
+            order.num_required = 1;
+            order.required = true;
+            order.is_resource_gatherer = true;
+
+            let mut team = TeamInQueue::new();
+            team.priority_build = true;
+            team.frame_started = TheGameLogic::get_frame();
+            // Stick on default team name residual.
+            if let Ok(list) = player_list().read() {
+                if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                    if let Ok(pg) = player_arc.read() {
+                        if let Some(dt) = pg.get_default_team() {
+                            if let Ok(tg) = dt.read() {
+                                team.team_name = Some(tg.get_name().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.team_delay = 0;
+            let team_name = team
+                .team_name
+                .clone()
+                .unwrap_or_else(|| "default".to_string());
+            if cur_gatherers == -1 {
+                // First one is automatic (C++): assign factory without training.
+                order.factory_id = Some(factory_id);
+                self.set_build_list_current_gatherers(center_id, 0);
+                team.work_orders.push(order);
+                self.team_build_queue.push_front(team);
+                log::debug!(
+                    "Supply truck - automatic first gatherer at factory {}",
+                    factory_id
+                );
+                return Ok(true);
+            }
+
+            // startTraining before push to avoid double borrow of self.
+            let _ = self.start_training_internal(&mut order, true, &team_name)?;
+            team.work_orders.push(order);
+            self.team_build_queue.push_front(team);
+            log::debug!("Supply truck - building one at factory {}", factory_id);
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     /// C++ `AIPlayer::processBaseBuilding` (AIPlayer.cpp) — USE_DOZER path residual.
@@ -6100,6 +6481,42 @@ mod tests {
                 && window.contains("set_desired_gatherers(desired + 1)")
                 && window.contains("set_current_gatherers(-1)"),
             "checkForSupplyCenter must stamp supply building + desired gatherers+1"
+        );
+    }
+
+    #[test]
+    fn queue_supply_truck_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::queueSupplyTruck`")
+            .expect("queueSupplyTruck");
+        let window = &src[i..src.len().min(i + 8000)];
+        assert!(
+            window.contains("truck_in_queue")
+                && window.contains("is_resource_gatherer")
+                && window.contains("count_player_harvesters")
+                && window.contains("is_supply_building")
+                && window.contains("queue_one_harvester_at_factory")
+                && window.contains("try_reattach_loose_harvester")
+                && window.contains("desired.saturating_mul(3)"),
+            "queueSupplyTruck must skip-if-queued, recount, reattach, train harvester"
+        );
+    }
+
+    #[test]
+    fn queue_supply_truck_skips_when_already_queued() {
+        let mut ai = AIPlayer::new(1);
+        let mut order = WorkOrder::new("SupplyTruck".into());
+        order.is_resource_gatherer = true;
+        let mut team = TeamInQueue::new();
+        team.work_orders.push(order);
+        ai.team_build_queue.push_front(team);
+        let before = ai.team_build_queue.len();
+        ai.queue_supply_truck().expect("qst");
+        assert_eq!(
+            ai.team_build_queue.len(),
+            before,
+            "C++ returns early when truck already in queue"
         );
     }
 

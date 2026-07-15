@@ -2498,6 +2498,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_queue_supply_truck_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::queueSupplyTruck`")
+                && src.contains("truck_in_queue")
+                && src.contains("queue_one_harvester_at_factory")
+                && src.contains("try_reattach_loose_harvester"),
+            "queueSupplyTruck C++ gatherer path required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

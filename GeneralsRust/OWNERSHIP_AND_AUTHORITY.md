@@ -1274,3 +1274,16 @@ Compared C++ `AIPlayer::buildStructureNow`, `newMap`, `checkForSupplyCenter`:
 Fail-closed: map-property Dict (name/script/health/unsellable) residual; rally
 offset residual (C++ gotOffset bug).
 
+### queueSupplyTruck (2026-07-14)
+
+Compared C++ `AIPlayer::queueSupplyTruck`:
+
+- Early-out if a resource-gatherer work order is already queued.
+- Walk supply-building build-list entries; skip rebuild holes / empty warehouses.
+- Recount gatherers on center; reattach loose harvesters when preferred dock dead.
+- Cap at 3× desired harvesters; else priority-queue one harvester via startTraining
+  (first automatic freebie assigns factory without training).
+
+Fail-closed: full template linked-list scan residual (candidate name list);
+aiDock CMD_FROM_PLAYER residual.
+
