@@ -5911,6 +5911,43 @@ mod tests {
     }
 
     #[test]
+    fn presentation_shell_includes_fx_and_message_pump() {
+        // Structural: GameClient presentation path must tick FX + message pump without
+        // calling full update() (OBJECT_REGISTRY shroud bind).
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        let shell = gc
+            .split("fn update_presentation_shell")
+            .nth(1)
+            .and_then(|s| s.split("pub fn update_drawables").next())
+            .expect("update_presentation_shell body");
+        assert!(
+            shell.contains("update_effects"),
+            "presentation shell must tick effects residual"
+        );
+        assert!(
+            shell.contains("pump_message_stream"),
+            "presentation shell must pump client messages"
+        );
+        assert!(
+            shell.contains("update_drawables_local"),
+            "presentation shell must use local drawables (no registry shroud)"
+        );
+        assert!(
+            !shell.contains("update_drawables(visual_delta)")
+                && !shell.contains("self.update_drawables("),
+            "presentation shell must not call registry-bound update_drawables"
+        );
+        assert!(
+            !shell.contains("self.update_input("),
+            "Main owns input; presentation shell must not double-tick input"
+        );
+        assert!(
+            !shell.contains("self.update_audio("),
+            "Main owns audio; presentation shell must not double-tick audio"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
