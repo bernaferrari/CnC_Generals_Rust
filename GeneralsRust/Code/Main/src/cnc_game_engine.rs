@@ -7947,7 +7947,13 @@ impl CnCGameEngine {
     }
 
     fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
-        let (world_min, world_max) = self.game_logic.world_bounds();
+        // Prefer presentation world_env when installed (camera follow / scroll clamp).
+        // Boot residual without a frame still uses host GameLogic bounds.
+        let (world_min, world_max) = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.world_env.world_bounds_vec3()
+        } else {
+            self.game_logic.world_bounds()
+        };
         position.x = position.x.clamp(world_min.x, world_max.x);
         position.z = position.z.clamp(world_min.z, world_max.z);
         position
