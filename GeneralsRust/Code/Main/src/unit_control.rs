@@ -958,6 +958,27 @@ impl UnitControlSystem {
             return None;
         }
 
+        // Prefer presentation poses when a snapshot is installed.
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let mut center = Vec3::ZERO;
+            let mut count = 0;
+            for &object_id in &self.selected_objects {
+                if let Some(o) = frame
+                    .objects
+                    .iter()
+                    .find(|o| o.id == object_id && !o.destroyed)
+                {
+                    center += o.position;
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                return Some(center / count as f32);
+            }
+            // Selected ids may be stale vs snapshot; fall through to live boot residual.
+        }
+
+        // Boot residual only when presentation poses are unavailable.
         let mut center = Vec3::ZERO;
         let mut count = 0;
 
@@ -1164,6 +1185,41 @@ mod tests {
     }
 
     #[test]
+    fn selection_center_prefers_presentation_pose() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SelCenterPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SelC") {
+            let mut t = ThingTemplate::new("SelC");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("SelC".into(), t);
+        }
+        let id = logic
+            .create_object("SelC", Team::USA, glam::Vec3::new(10.0, 0.0, 20.0))
+            .expect("id");
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        // Poison live pose — presentation must still win.
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.position = glam::Vec3::new(9999.0, 0.0, 9999.0);
+        }
+        let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
+        ctl.selected_objects = vec![id];
+        ctl.set_presentation_frame(Some(frame));
+        let center = ctl.get_selection_center(&logic).expect("center");
+        assert!(
+            (center.x - 10.0).abs() < 0.1 && (center.z - 20.0).abs() < 0.1,
+            "expected presentation pose, got {center:?}"
+        );
+        let src = include_str!("unit_control.rs");
+        assert!(
+            src.contains("Prefer presentation poses when a snapshot is installed"),
+            "selection center must prefer presentation residual"
+        );
+    }
+
     fn select_similar_prefers_presentation_identity() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};

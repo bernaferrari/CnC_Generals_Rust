@@ -239,6 +239,21 @@ pub struct RenderableObject {
     pub weapon_bonus_battle_plan_bombardment: bool,
     pub weapon_bonus_battle_plan_hold_the_line: bool,
     pub weapon_bonus_battle_plan_search_and_destroy: bool,
+    /// Host continuous-fire residual (gattling spin-up).
+    pub continuous_fire_level: u8,
+    /// Host faerie_fire_until_frame residual.
+    pub faerie_fire_until_frame: u32,
+    /// Host hive slave residual (Stinger Site etc.).
+    pub hive_slave_count: u8,
+    pub hive_slave_hp: f32,
+    /// Host AI attitude residual.
+    pub ai_attitude: i8,
+    /// Host camo friendly opacity residual.
+    pub camo_friendly_opacity: f32,
+    /// Host vision_spied_mask residual.
+    pub vision_spied_mask: u32,
+    /// Host cheer_timer residual.
+    pub cheer_timer: f32,
     /// Host Object::command_set_override residual (empty = template default).
     pub command_set_override: String,
     /// Host Object::is_detector residual.
@@ -1957,6 +1972,14 @@ impl PresentationFrame {
                 weapon_bonus_battle_plan_hold_the_line: obj.weapon_bonus_battle_plan_hold_the_line,
                 weapon_bonus_battle_plan_search_and_destroy: obj
                     .weapon_bonus_battle_plan_search_and_destroy,
+                continuous_fire_level: obj.continuous_fire_level,
+                faerie_fire_until_frame: obj.faerie_fire_until_frame,
+                hive_slave_count: obj.hive_slave_count,
+                hive_slave_hp: obj.hive_slave_hp,
+                ai_attitude: obj.ai_attitude,
+                camo_friendly_opacity: obj.camo_friendly_opacity,
+                vision_spied_mask: obj.vision_spied_mask,
+                cheer_timer: obj.cheer_timer,
                 command_set_override: obj.command_set_override.clone().unwrap_or_default(),
                 is_detector: obj.is_detector,
                 active_weapon_slot: obj.active_weapon_slot,
@@ -2584,6 +2607,22 @@ impl PresentationFrame {
     }
 
     /// Count presentation objects with any Strategy Center battle-plan bonus residual.
+    /// Count presentation objects with host hive-slave residual.
+    pub fn hive_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.hive_slave_count > 0 && !o.destroyed)
+            .count()
+    }
+
+    /// Count presentation objects with continuous-fire residual > 0.
+    pub fn continuous_fire_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.continuous_fire_level > 0 && !o.destroyed)
+            .count()
+    }
+
     pub fn battle_plan_bonus_object_count(&self) -> usize {
         self.objects
             .iter()
@@ -4122,6 +4161,53 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn presentation_freezes_hive_continuous_camo_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresHiveCamo");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PresHC") {
+            let mut t = ThingTemplate::new("PresHC");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("PresHC".into(), t);
+        }
+        let id = logic
+            .create_object("PresHC", Team::GLA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.continuous_fire_level = 2;
+            obj.faerie_fire_until_frame = 77;
+            obj.hive_slave_count = 3;
+            obj.hive_slave_hp = 25.0;
+            obj.ai_attitude = 1;
+            obj.camo_friendly_opacity = 0.55;
+            obj.vision_spied_mask = 0b110;
+            obj.cheer_timer = 1.25;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.hive_object_count(), 1);
+        assert_eq!(frame.continuous_fire_object_count(), 1);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert_eq!(ro.continuous_fire_level, 2);
+        assert_eq!(ro.faerie_fire_until_frame, 77);
+        assert_eq!(ro.hive_slave_count, 3);
+        assert!((ro.hive_slave_hp - 25.0).abs() < 0.01);
+        assert_eq!(ro.ai_attitude, 1);
+        assert!((ro.camo_friendly_opacity - 0.55).abs() < 0.01);
+        assert_eq!(ro.vision_spied_mask, 0b110);
+        assert!((ro.cheer_timer - 1.25).abs() < 0.01);
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("hive_slave_count: obj.hive_slave_count")
+                && src.contains("continuous_fire_level: obj.continuous_fire_level")
+                && src.contains("camo_friendly_opacity: obj.camo_friendly_opacity"),
+            "freeze must copy hive/continuous/camo residual"
+        );
+    }
+
     fn presentation_freezes_battle_plan_weapon_bonus_residual() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
