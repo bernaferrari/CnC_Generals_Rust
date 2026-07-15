@@ -2226,6 +2226,99 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_timers_cameo_superweapon_residual() {
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("ui.named_timers = self.named_timers.clone()")
+                && pf.contains("ui.named_timer_display_shown = self.named_timer_display_shown")
+                && pf.contains("ui.cameo_flash = self.cameo_flash.clone()")
+                && pf.contains("ui.superweapon_display_enabled = self.superweapon_display_enabled")
+                && pf.contains(
+                    "ui.superweapon_hidden_objects = self.superweapon_hidden_objects.clone()"
+                )
+                && pf.contains("Script named-timer / cameo / superweapon residual"),
+            "apply_to_ui_state must project named_timers/cameo/superweapon from presentation"
+        );
+    }
+
+    #[test]
+    fn aiplayer_update_with_frame_cpp_phase_order() {
+        // C++ AIPlayer::update (AIPlayer.cpp): doBaseBuilding → checkReadyTeams →
+        // checkQueuedTeams → doTeamBuilding → doUpgradesAndSkills → updateBridgeRepair.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        let i = src
+            .find("pub fn update_with_frame")
+            .expect("update_with_frame");
+        let window = &src[i..i.saturating_add(2200).min(src.len())];
+        let base = window
+            .find("self.do_base_building()?")
+            .expect("do_base_building");
+        let ready = window
+            .find("self.check_ready_teams()?")
+            .expect("check_ready");
+        let queued = window
+            .find("self.check_queued_teams()?")
+            .expect("check_queued");
+        let team = window.find("self.do_team_building()?").expect("do_team");
+        let upg = window
+            .find("self.do_upgrades_and_skills()?")
+            .expect("upgrades");
+        let bridge = window.find("self.update_bridge_repair()?").expect("bridge");
+        assert!(
+            base < ready && ready < queued && queued < team && team < upg && upg < bridge,
+            "update_with_frame must match C++ AIPlayer::update phase order (got base={base} ready={ready} queued={queued} team={team} upg={upg} bridge={bridge})"
+        );
+        // Attack residual must not interrupt the C++ phase block.
+        if let Some(atk) = window.find("self.process_attack_decisions") {
+            assert!(
+                atk > bridge,
+                "process_attack_decisions is host residual and must run after C++ phase block"
+            );
+        }
+    }
+
+    #[test]
+    fn aiplayer_check_ready_queued_cpp_parity_surface() {
+        // C++ AIPlayer.cpp checkReadyTeams / checkQueuedTeams surface in Rust.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("AIPlayer::checkReadyTeams")
+                && src.contains("60 * LOGICFRAMES_PER_SECOND")
+                && src.contains("set_active()")
+                && src.contains("AIPlayer::checkQueuedTeams")
+                && src.contains("is_build_time_expired")
+                && src.contains("push_front(team)")
+                && src.contains("is_minimum_built")
+                && src.contains("are_builds_complete")
+                && src.contains("clear_team_flags")
+                && src.contains("join_team_reinforcement"),
+            "check_ready/queued must port C++ activation, expiry, prepend, joinTeam residual"
+        );
+        // Must NOT only move build→ready inside check_ready_teams (old wrong port).
+        let i = src.find("fn check_ready_teams").expect("check_ready_teams");
+        let end = (i + 3500).min(src.len());
+        let window = &src[i..end];
+        assert!(
+            !window.contains("team_build_queue.remove")
+                || window.contains("team_ready_queue.remove"),
+            "check_ready_teams must drain ready queue (C++), not only promote build queue"
+        );
+        assert!(
+            window.contains("team_ready_queue.remove") || window.contains("team_ready_queue"),
+            "check_ready_teams must iterate ready queue"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
