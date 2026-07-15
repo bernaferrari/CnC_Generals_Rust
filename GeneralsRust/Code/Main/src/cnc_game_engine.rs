@@ -2587,7 +2587,7 @@ impl CnCGameEngine {
             }
         }
 
-        // Boot residual only — no presentation roster yet.
+        // Boot residual only — no presentation roster yet (live get_player).
         let player = self
             .game_logic
             .local_player_id()
@@ -9196,6 +9196,22 @@ impl CnCGameEngine {
     }
 
     fn play_sound_effect(&mut self, sound_type: SoundType) {
+        // Prefer presentation/host audio event residual when a frame is installed
+        // (InGame path). Avoid dual synthetic rodio tones competing with event queue.
+        if self.last_presentation_frame.is_some() {
+            let kind = match sound_type {
+                SoundType::Select => "UnitSelect",
+                SoundType::Command => "UnitCommand",
+                SoundType::Hit => "WeaponHit",
+                SoundType::Explosion => "Explosion",
+                SoundType::Build => "BuildingComplete",
+            };
+            self.game_logic
+                .queue_audio_event(crate::game_logic::AudioEventRequest::new(kind));
+            return;
+        }
+
+        // Boot residual only — synthetic tones when no presentation frame.
         let handle = match &self.audio_handle {
             Some(handle) => handle,
             None => {
