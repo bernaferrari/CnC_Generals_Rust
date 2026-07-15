@@ -462,3 +462,11 @@ live `GameLogic` skybox/metadata is boot residual only.
 seeded from `player_id`, replacing `rand::thread_rng`. Same slot/seed → same
 placement draws (determinism residual; not full C++ AIData.ini personality parity).
 
+### AIData structure/team timing residual (2026-07-14)
+
+Host `AIPlayer` structure/team decision spacing uses retail Default `AIData.ini`
+constants: `StructureSeconds=0`, `TeamSeconds=10`, `RebuildDelayTimeSeconds=30`
+(documented residual). Difficulty still scales intervals. Attack launch remains
+spaced by `ATTACK_RECHECK_SECONDS=60` (not full C++ scripted team production).
+Early `activity_count < 3` zero-interval gate pacing removed for timing honesty.
+
