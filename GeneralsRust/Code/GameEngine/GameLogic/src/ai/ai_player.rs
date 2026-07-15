@@ -4296,26 +4296,17 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Check if team can be considered for building
-    /// Matches C++ AIPlayer.cpp:1428 isPossibleToBuildTeam
+    /// C++ `AIPlayer::isPossibleToBuildTeam` (AIPlayer.cpp).
+    ///
+    /// Returns `(possible, not_enough_money)`.
+    /// For each unit type: must have *some* factory (`findFactory(..., true)`);
+    /// track whether any unit type has an **idle** factory. Cost uses
+    /// `(min+max)/2` average count, then `* teamResourcesToBuild`.
     fn is_possible_to_build_team(
         &self,
         team_name: &str,
         require_idle_factory: bool,
     ) -> Result<(bool, bool), AiError> {
-        // Returns (is_possible, not_enough_money)
-
-        // From C++ AIPlayer.cpp:1428-1469:
-        // 1. Get team prototype by name
-        // 2. For each unit in team's composition:
-        //    - Find factory that can build it via findFactory()
-        //    - If require_idle_factory and no idle factory, return (false, false)
-        //    - Sum up unit costs from ThingTemplate->calcCostToBuild()
-        // 3. Apply team resource multiplier from AIData (m_teamResourcesToBuild = 0.5)
-        //    Required resources = total_cost * multiplier
-        // 4. Check if player has enough money
-        // 5. Return (has_factories, !has_enough_money)
-
         let factory = get_team_factory();
         let Ok(factory_guard) = factory.lock() else {
             return Ok((false, false));
@@ -4323,6 +4314,14 @@ impl AIPlayer {
         let Some(proto) = factory_guard.find_team_prototype(team_name) else {
             return Ok((false, false));
         };
+        // Clone unit list so we can drop the factory lock before find_factory.
+        let units: Vec<(String, i32, i32)> = proto
+            .units_info()
+            .iter()
+            .filter(|u| !u.unit_thing_name.is_empty())
+            .map(|u| (u.unit_thing_name.to_string(), u.min_units, u.max_units))
+            .collect();
+        drop(factory_guard);
 
         let Ok(list) = player_list().read() else {
             return Ok((false, false));
@@ -4334,31 +4333,49 @@ impl AIPlayer {
             return Ok((false, false));
         };
 
-        let mut total_cost: i32 = 0;
-        let mut has_factories = true;
-        for unit in proto.units_info() {
-            if unit.unit_thing_name.is_empty() {
-                continue;
-            }
-            let Some(template) = TheThingFactory::find_template(unit.unit_thing_name) else {
-                has_factories = false;
+        let mut any_idle = false;
+        let mut cost: f32 = 0.0;
+        for (thing_name, min_units, max_units) in units {
+            let Some(template) = TheThingFactory::find_template(&thing_name) else {
                 continue;
             };
-            let count = unit.max_units.max(unit.min_units).max(1);
-            let cost = template.calc_cost_to_build(Some(&*player_guard));
-            total_cost += cost.saturating_mul(count);
-
-            let factory_id =
-                self.find_factory_internal(unit.unit_thing_name, !require_idle_factory)?;
-            if factory_id.is_none() {
-                has_factories = false;
+            // C++: findFactory(thing, true) — any factory (busy OK). Missing → false.
+            if self.find_factory_internal(&thing_name, true)?.is_none() {
+                return Ok((false, false));
             }
+            // C++: findFactory(thing, false) — idle.
+            if self.find_factory_internal(&thing_name, false)?.is_some() {
+                any_idle = true;
+            }
+            let thing_cost = template.calc_cost_to_build(Some(&*player_guard)) as f32;
+            // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f)
+            cost += thing_cost * ((max_units as f32 + min_units as f32) / 2.0);
         }
 
-        let required = ((total_cost as f32) * TEAM_RESOURCES_TO_BUILD).round() as i32;
-        let not_enough_money = player_guard.get_money().get_money() < required;
+        let resources_mod = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| d.team_resources_to_build)
+            })
+            .filter(|m| *m > 0.0)
+            .unwrap_or(TEAM_RESOURCES_TO_BUILD);
+        cost *= resources_mod;
 
-        Ok((has_factories && !not_enough_money, not_enough_money))
+        let money = player_guard.get_money().get_money();
+        if (money as f32) < cost {
+            return Ok((false, true)); // notEnoughMoney
+        }
+        if any_idle {
+            return Ok((true, false));
+        }
+        if !require_idle_factory {
+            return Ok((true, false));
+        }
+        Ok((false, false))
     }
 
     /// Check if team is a good idea to build right now
@@ -5341,6 +5358,25 @@ mod tests {
         let mut ai = AIPlayer::new(1);
         // queueSupplyTruck may prepend a gatherer team (C++ also calls it).
         assert!(ai.queue_units());
+    }
+
+    #[test]
+    fn is_possible_to_build_team_avg_cost_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::isPossibleToBuildTeam`")
+            .expect("isPossible doc");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("any_idle")
+                && window.contains("find_factory_internal(&thing_name, true)")
+                && window.contains("find_factory_internal(&thing_name, false)")
+                && window.contains("max_units as f32 + min_units as f32")
+                && window.contains("team_resources_to_build")
+                && window.contains("notEnoughMoney")
+                && window.contains("!require_idle_factory"),
+            "isPossibleToBuildTeam must match C++ anyIdle/avg cost/resources mod"
+        );
     }
 
     #[test]
