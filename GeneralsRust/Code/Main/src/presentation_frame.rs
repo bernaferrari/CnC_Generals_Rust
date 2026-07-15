@@ -206,6 +206,22 @@ pub struct RenderableObject {
     pub disguise_as_team: Option<Team>,
     /// Stealth detector range residual (0 = none).
     pub detection_range: f32,
+    /// Host detection_rate_frames residual (0 = continuous).
+    pub detection_rate_frames: u32,
+    /// Host stealth_breaks_on_attack residual.
+    pub stealth_breaks_on_attack: bool,
+    /// Host stealth_breaks_on_move residual.
+    pub stealth_breaks_on_move: bool,
+    /// Host innate_stealth residual.
+    pub innate_stealth: bool,
+    /// Host weapon_bonus_frenzy_until_frame residual.
+    pub weapon_bonus_frenzy_until_frame: u32,
+    /// Host continuous_fire_consecutive residual.
+    pub continuous_fire_consecutive: u16,
+    /// Host continuous_fire_coast_until_frame residual.
+    pub continuous_fire_coast_until_frame: u32,
+    /// Host battle_plan_sight_scalar_applied residual (1.0 = none).
+    pub battle_plan_sight_scalar_applied: f32,
     /// Special power ready residual (superweapon / hero ability).
     pub special_power_ready: bool,
     /// Special power full cooldown seconds residual.
@@ -1949,6 +1965,15 @@ impl PresentationFrame {
                 disguise_as_template: obj.disguise_as_template.clone(),
                 disguise_as_team: obj.disguise_as_team,
                 detection_range: obj.detection_range.max(0.0),
+                detection_rate_frames: obj.detection_rate_frames,
+                stealth_breaks_on_attack: obj.stealth_breaks_on_attack,
+                stealth_breaks_on_move: obj.stealth_breaks_on_move,
+                innate_stealth: obj.innate_stealth,
+                weapon_bonus_frenzy_until_frame: obj.weapon_bonus_frenzy_until_frame,
+                continuous_fire_consecutive: obj.continuous_fire_consecutive.min(u16::MAX as u32)
+                    as u16,
+                continuous_fire_coast_until_frame: obj.continuous_fire_coast_until_frame,
+                battle_plan_sight_scalar_applied: obj.battle_plan_sight_scalar_applied,
                 special_power_ready: obj.special_power_ready,
                 special_power_cooldown: obj.special_power_cooldown.max(0.0),
                 special_power_cooldown_remaining: obj.special_power_cooldown_remaining.max(0.0),
@@ -2630,6 +2655,22 @@ impl PresentationFrame {
     /// Count presentation objects with any Strategy Center battle-plan bonus residual.
     /// Count presentation objects with host hive-slave residual.
     /// Count presentation objects with host humvee transport residual.
+    /// Count presentation objects with host innate_stealth residual.
+    pub fn innate_stealth_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.innate_stealth && !o.destroyed)
+            .count()
+    }
+
+    /// Count presentation objects with non-zero detection_rate_frames residual.
+    pub fn timed_detector_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.detection_rate_frames > 0 && !o.destroyed)
+            .count()
+    }
+
     pub fn humvee_transport_object_count(&self) -> usize {
         self.objects
             .iter()
@@ -4198,6 +4239,54 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn presentation_freezes_detector_stealth_timing_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresDetStealth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PresDS") {
+            let mut t = ThingTemplate::new("PresDS");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("PresDS".into(), t);
+        }
+        let id = logic
+            .create_object("PresDS", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.is_detector = true;
+            obj.detection_range = 250.0;
+            obj.detection_rate_frames = 15;
+            obj.stealth_breaks_on_attack = true;
+            obj.stealth_breaks_on_move = true;
+            obj.innate_stealth = true;
+            obj.weapon_bonus_frenzy_until_frame = 120;
+            obj.continuous_fire_consecutive = 9;
+            obj.continuous_fire_coast_until_frame = 40;
+            obj.battle_plan_sight_scalar_applied = 1.25;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.innate_stealth_object_count(), 1);
+        assert_eq!(frame.timed_detector_object_count(), 1);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert!((ro.detection_range - 250.0).abs() < 0.01);
+        assert_eq!(ro.detection_rate_frames, 15);
+        assert!(ro.stealth_breaks_on_attack && ro.stealth_breaks_on_move && ro.innate_stealth);
+        assert_eq!(ro.weapon_bonus_frenzy_until_frame, 120);
+        assert_eq!(ro.continuous_fire_consecutive, 9);
+        assert_eq!(ro.continuous_fire_coast_until_frame, 40);
+        assert!((ro.battle_plan_sight_scalar_applied - 1.25).abs() < 0.01);
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("detection_rate_frames: obj.detection_rate_frames")
+                && src.contains("innate_stealth: obj.innate_stealth")
+                && src.contains("battle_plan_sight_scalar_applied: obj"),
+            "freeze must copy detector/stealth timing residual"
+        );
+    }
+
     fn presentation_freezes_transport_kind_damage_residual() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
