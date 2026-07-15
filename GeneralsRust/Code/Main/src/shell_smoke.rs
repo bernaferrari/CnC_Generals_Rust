@@ -1761,6 +1761,24 @@ mod tests {
     }
 
     #[test]
+    fn presentation_victory_prefers_snapshot_match_over() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("build_with_victory")
+                && eng.contains("Prefer presentation victory residual when frame installed")
+                && eng.contains("Boot residual only — no presentation frame yet")
+                && eng.contains("pres.match_over"),
+            "InGame victory must prefer presentation match_over residual"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn build_with_victory")
+                && pf.contains("evaluate_victory_condition")
+                && pf.contains("PresentationEvent::Victory"),
+            "snapshot must freeze victory residual once"
+        );
+    }
+
     fn presentation_particle_client_mirror_same_frame() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

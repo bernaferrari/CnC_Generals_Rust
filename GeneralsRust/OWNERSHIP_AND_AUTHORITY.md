@@ -967,3 +967,10 @@ ParticleSystemManager for active systems missing `client_system_id` and for
 `ParticleSystemSpawned` events. Engine invokes it same-frame after audio drain.
 Fail-closed: not full W3D GPU particle parity.
 
+### Presentation victory residual (2026-07-14)
+
+Engine builds `PresentationFrame` via `build_with_victory` (single evaluate) and
+prefers `pres.match_over` / Victory event for end-of-match UI. Live
+`evaluate_victory_condition` is boot residual only when no frame is installed.
+Fail-closed: VictorySummary stats tables still host-built in show_victory_screen.
+
