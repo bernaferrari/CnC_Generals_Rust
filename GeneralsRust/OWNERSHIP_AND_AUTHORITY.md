@@ -1065,3 +1065,9 @@ stale InGame frames fall through to live `isInShellGame`. Shell script FPS
 prefers presentation when shell frame installed. Fail-closed: not sole
 GameWorld authority; live path remains when no affirming shell frame.
 
+### Presentation game_mode helper residual (2026-07-14)
+
+`presentation_or_live_game_mode` centralizes freeze preference for load-screen
+init, loading overlay, quick-save/load gates, restart, and save load-screen
+prep. Live `GameLogic::game_mode` remains boot residual only.
+
