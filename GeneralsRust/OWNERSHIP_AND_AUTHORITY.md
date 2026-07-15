@@ -732,3 +732,11 @@ from host Object. ControlBar/UI can resolve override command sets and detector
 state without live Object dual-reads. Fail-closed: not full CommandSet INI graph /
 detector FOW pulse authority.
 
+### ControlBar command-set presentation residual (2026-07-14)
+
+`PresentationFrame::apply_to_control_bar` feeds
+`ControlBar::sync_command_set_from_presentation` using the selected object's
+`command_set_override` residual. Prefer this over live OBJECT_REGISTRY
+`get_command_set_string` dual-reads when a frame is installed. Fail-closed: not
+full multi-select intersection / prerequisite / ScriptOnly filter matrix.
+
