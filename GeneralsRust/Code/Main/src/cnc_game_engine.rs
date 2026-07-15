@@ -6552,8 +6552,16 @@ impl CnCGameEngine {
             }
         }
 
-        // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow
-        let defeated_players = self.game_logic.take_defeat_events();
+        // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow.
+        // Prefer presentation freeze when installed; drain live take after.
+        let defeated_players: Vec<u32> = if let Some(pres) = self.last_presentation_frame.as_ref() {
+            let ids = pres.defeated_player_ids.clone();
+            let _ = self.game_logic.take_defeat_events();
+            ids
+        } else {
+            // Boot residual only.
+            self.game_logic.take_defeat_events()
+        };
         for player_id in defeated_players {
             // Prefer presentation roster when installed (no live get_player dual-read).
             let roster = self
@@ -7381,13 +7389,30 @@ impl CnCGameEngine {
         description: &str,
         save_type: SaveFileType,
     ) -> SaveGameInfo {
-        let map_name = self.game_logic.get_current_map_name().to_string();
+        // Prefer presentation residual for map/play_time/local team when installed.
+        let map_name = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.map_name.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| self.game_logic.get_current_map_name().to_string());
         let difficulty = Self::map_ai_difficulty_to_save(self.game_logic.get_difficulty());
-        let play_time = std::time::Duration::from_secs_f32(self.game_logic.get_total_play_time());
+        let play_time = std::time::Duration::from_secs_f32(
+            self.last_presentation_frame
+                .as_ref()
+                .map(|p| p.total_play_time_seconds)
+                .unwrap_or_else(|| self.game_logic.get_total_play_time()),
+        );
         let team_name = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|player| player.team.get_name().to_string())
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.local_team.get_name().to_string())
+            .or_else(|| {
+                // Boot residual only — presentation local_team owns InGame save metadata.
+                self.game_logic
+                    .get_player(self.current_player_id)
+                    .map(|player| player.team.get_name().to_string())
+            })
             .unwrap_or_else(|| "Neutral".to_string());
 
         SaveGameInfo {

@@ -233,6 +233,10 @@ impl VictoryConditions {
         }
     }
 
+    pub fn peek_defeat_events(&self) -> &[u32] {
+        &self.defeat_events
+    }
+
     pub fn take_defeat_events(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.defeat_events)
     }
