@@ -9,7 +9,7 @@
 //! Policy: borrow host for sync phases only; never store long-lived host references.
 
 use crate::game_logic::{GameLogic, ObjectId, Team};
-use gamelogic::world::entities::{EntityId, TemplateRef, Transform};
+use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
@@ -394,6 +394,20 @@ impl GameWorldShadow {
                         e.building_type_ordinal =
                             Self::host_building_type_ordinal(bd.building_type);
                         e.production_queue_len = bd.production_queue.len().min(255) as u8;
+                        {
+                            const MAX_QUEUE: usize = 16;
+                            e.production_queue_items = bd
+                                .production_queue
+                                .iter()
+                                .take(MAX_QUEUE)
+                                .map(|p| EntityProductionItem {
+                                    template_name: p.template_name.clone(),
+                                    progress: p.progress,
+                                    total_time: p.total_time,
+                                    cost_supplies: p.cost.supplies,
+                                })
+                                .collect();
+                        }
                         if let Some(head) = bd.production_queue.first() {
                             e.production_progress = head.progress;
                             e.production_template = head.template_name.clone();
@@ -409,6 +423,7 @@ impl GameWorldShadow {
                         e.production_queue_len = 0;
                         e.production_progress = 0.0;
                         e.production_template.clear();
+                        e.production_queue_items.clear();
                         e.rally_point = None;
                         e.garrison_count = 0;
                         e.max_garrison = 0;
@@ -620,6 +635,20 @@ impl GameWorldShadow {
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
                     e.production_queue_len = bd.production_queue.len().min(255) as u8;
+                    {
+                        const MAX_QUEUE: usize = 16;
+                        e.production_queue_items = bd
+                            .production_queue
+                            .iter()
+                            .take(MAX_QUEUE)
+                            .map(|p| EntityProductionItem {
+                                template_name: p.template_name.clone(),
+                                progress: p.progress,
+                                total_time: p.total_time,
+                                cost_supplies: p.cost.supplies,
+                            })
+                            .collect();
+                    }
                     if let Some(head) = bd.production_queue.first() {
                         e.production_progress = head.progress;
                         e.production_template = head.template_name.clone();
@@ -635,6 +664,7 @@ impl GameWorldShadow {
                     e.production_queue_len = 0;
                     e.production_progress = 0.0;
                     e.production_template.clear();
+                    e.production_queue_items.clear();
                     e.rally_point = None;
                     e.garrison_count = 0;
                     e.max_garrison = 0;
@@ -839,6 +869,7 @@ impl GameWorldShadow {
             e.production_queue_len = 0;
             e.production_progress = 0.0;
             e.production_template.clear();
+            e.production_queue_items.clear();
             e.rally_point = None;
             e.garrison_count = 0;
             e.max_garrison = 0;
@@ -2485,6 +2516,62 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_production_queue_items_residual() {
+        use crate::game_logic::{BuildingData, BuildingType, ProductionItem, Resources};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityProdQueue");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "Fact", 500.0);
+        ensure_template(&mut logic, "UnitA", 100.0);
+        ensure_template(&mut logic, "UnitB", 100.0);
+        let id = logic
+            .create_object("Fact", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            let mut bd = BuildingData::new(BuildingType::WarFactory);
+            bd.production_queue = vec![
+                ProductionItem {
+                    template_name: "UnitA".into(),
+                    progress: 0.25,
+                    total_time: 10.0,
+                    cost: Resources {
+                        supplies: 300,
+                        power: 0,
+                    },
+                },
+                ProductionItem {
+                    template_name: "UnitB".into(),
+                    progress: 0.0,
+                    total_time: 12.0,
+                    cost: Resources {
+                        supplies: 400,
+                        power: 0,
+                    },
+                },
+            ];
+            obj.building_data = Some(bd);
+            obj.object_type = crate::game_logic::ObjectType::Building;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.production_queue_len, 2);
+        assert_eq!(e.production_queue_items.len(), 2);
+        assert_eq!(e.production_queue_items[0].template_name, "UnitA");
+        assert!((e.production_queue_items[0].progress - 0.25).abs() < 1e-5);
+        assert_eq!(e.production_queue_items[0].cost_supplies, 300);
+        assert_eq!(e.production_queue_items[1].template_name, "UnitB");
+        assert_eq!(e.production_queue_items[1].total_time, 12.0);
+        assert_eq!(e.production_template, "UnitA");
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("production_queue_items") && src.contains("EntityProductionItem"),
+            "sync must copy full production queue residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_applied_upgrade_names_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityUpgrades");
