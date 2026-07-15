@@ -1,6 +1,6 @@
+use crate::game_logic::host_rng_residual::HostRandomState;
 use crate::game_logic::*;
 use glam::Vec3;
-use rand::Rng;
 use std::collections::{HashMap, VecDeque};
 
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
@@ -143,6 +143,8 @@ pub struct AIPlayer {
     // Economic Management
     pub base_center: Vec3,
     pub base_radius: f32,
+    /// Deterministic placement scatter (retail ADC RandomValue residual).
+    placement_rng: HostRandomState,
     pub building_queue: Vec<AIBuildingInfo>,
     pub next_building_time: f32,
     pub next_team_time: f32,
@@ -198,6 +200,8 @@ impl AIPlayer {
             enemy_player_id: None,
             base_center: Vec3::ZERO,
             base_radius: 100.0,
+            // Seed from player id (stable per slot); base_center updates don't reseed.
+            placement_rng: HostRandomState::seeded(player_id.wrapping_add(0xA17A_0001)),
             building_queue: Vec::new(),
             next_building_time: 0.0,
             next_team_time: 0.0,
@@ -539,9 +543,9 @@ impl AIPlayer {
             // Limit to 3 supply centers
             let position = self.base_center
                 + Vec3::new(
-                    rand::thread_rng().gen_range(-80.0..80.0),
+                    self.placement_rng.next_real(-80.0, 80.0),
                     0.0,
-                    rand::thread_rng().gen_range(-80.0..80.0),
+                    self.placement_rng.next_real(-80.0, 80.0),
                 );
 
             self.add_building(supply_center_name, position, 2);
@@ -569,9 +573,9 @@ impl AIPlayer {
         if existing_count < 2 {
             let position = self.base_center
                 + Vec3::new(
-                    rand::thread_rng().gen_range(-60.0..60.0),
+                    self.placement_rng.next_real(-60.0, 60.0),
                     0.0,
-                    rand::thread_rng().gen_range(-60.0..60.0),
+                    self.placement_rng.next_real(-60.0, 60.0),
                 );
 
             self.add_building(power_plant_name, position, 1);
@@ -1326,6 +1330,40 @@ impl AIManager {
 
 #[cfg(test)]
 mod cpp_parity_tests {
+    use super::*;
+
+    #[test]
+    fn ai_building_placement_is_deterministic() {
+        let mut a = AIPlayer::new(3, Team::GLA, AIDifficulty::Medium);
+        let mut b = AIPlayer::new(3, Team::GLA, AIDifficulty::Medium);
+        a.base_center = Vec3::new(100.0, 0.0, 200.0);
+        b.base_center = Vec3::new(100.0, 0.0, 200.0);
+        // Drain same number of placement draws.
+        let pa = (
+            a.placement_rng.next_real(-80.0, 80.0),
+            a.placement_rng.next_real(-80.0, 80.0),
+        );
+        let pb = (
+            b.placement_rng.next_real(-80.0, 80.0),
+            b.placement_rng.next_real(-80.0, 80.0),
+        );
+        assert_eq!(pa, pb, "same player_id seed must match placement draws");
+        let mut c = AIPlayer::new(99, Team::GLA, AIDifficulty::Medium);
+        let pc = (
+            c.placement_rng.next_real(-80.0, 80.0),
+            c.placement_rng.next_real(-80.0, 80.0),
+            c.placement_rng.next_real(-80.0, 80.0),
+            c.placement_rng.next_real(-80.0, 80.0),
+        );
+        let pa4 = (
+            a.placement_rng.next_real(-80.0, 80.0),
+            a.placement_rng.next_real(-80.0, 80.0),
+            a.placement_rng.next_real(-80.0, 80.0),
+            a.placement_rng.next_real(-80.0, 80.0),
+        );
+        assert_ne!(pa4, pc, "different player_id seeds must diverge");
+    }
+
     use super::{AIDifficulty, AIManager, AIPlayer};
     use crate::game_logic::{ObjectId, Team};
 
