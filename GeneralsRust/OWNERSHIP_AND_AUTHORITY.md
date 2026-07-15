@@ -859,3 +859,10 @@ full KindOf matrix beyond the frozen ORDER set.
 Shadow sync copies them; overlay last-writes `RenderableObject.applied_upgrades`.
 Fail-closed: not full player science/queued upgrade matrix.
 
+### GameWorld production_queue_items residual (2026-07-14)
+
+`Entity.production_queue_items` carries capped multi-item host production queue
+entries (template/progress/total_time/cost). Overlay last-writes full
+`RenderableObject.production_queue` (not head-only). Fail-closed: not full
+cancel/hold/priority queue control authority.
+
