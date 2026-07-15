@@ -1774,7 +1774,13 @@ mod tests {
                 && src.contains("Boot residual only — presentation local_team owns InGame Ctrl+A")
                 && src.contains("Boot residual only — presentation local_team owns InGame Tab cycle")
                 && src.contains("Boot residual only — presentation local_team owns InGame similar-select")
-                && src.contains("Boot residual only — presentation local_team owns InGame box-select"),
+                && src.contains("Boot residual only — presentation local_team owns InGame box-select")
+                && src.contains("Boot residual only — presentation local_team owns InGame attack-click")
+                && src.contains("Boot residual only — presentation local_team owns InGame control-group select")
+                && src.contains("Boot residual only — presentation filter_alive_selectable_ids owns InGame")
+                && src.contains("Boot residual only — presentation centroid_of_ids owns InGame double-tap")
+                && src.contains("Boot residual only — presentation box_select_unit_ids owns InGame path")
+                && src.contains("Boot residual only — presentation similar_unit_ids owns InGame path"),
             "defeat/alliance/selection must not dual-read get_player when presentation frame is installed"
         );
     }
