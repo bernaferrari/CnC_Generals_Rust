@@ -1010,3 +1010,11 @@ Alliance notification path prefers `PresentationFrame.local_player_id` when a
 frame is installed; live `GameLogic::local_player_id` is boot residual only.
 Fail-closed: alliance event source remains host `take_alliance_events`.
 
+### Presentation camera residual (2026-07-14)
+
+InGame `apply_pending_script_camera_requests` prefers frozen `PresentationFrame`
+camera fields (focus/zoom/pitch/rotate/look/slave/shakers/screen_shakes) then
+drains live `take_*` queues without double-apply. Live take path remains
+boot/menu residual. Fail-closed: ease curves not frozen on frame (duration-only);
+`camera_follow_target_position` still live.
+
