@@ -1071,3 +1071,8 @@ GameWorld authority; live path remains when no affirming shell frame.
 init, loading overlay, quick-save/load gates, restart, and save load-screen
 prep. Live `GameLogic::game_mode` remains boot residual only.
 
+### Presentation iconic game_mode residual (2026-07-14)
+
+Minimized/iconic keep-alive uses `presentation_or_live_game_mode` instead of
+live `GameLogic::game_mode`. Fail-closed: still not sole GameWorld authority.
+
