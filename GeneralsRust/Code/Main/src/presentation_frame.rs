@@ -1824,6 +1824,8 @@ pub struct PresentationFrame {
     pub victory_label: Option<String>,
     /// Players defeated this evaluate residual (C++ defeat notification queue).
     pub defeated_player_ids: Vec<u32>,
+    /// Alliance state-change residual from victory evaluate.
+    pub alliance_events: Vec<crate::game_logic::AllianceNotification>,
     /// Host VictorySummary residual (mission/duration/player results).
     /// Fail-closed: stats tables frozen at evaluate; not live re-aggregate.
     /// Skipped in serde (Duration/player payload is host snapshot residual only).
@@ -2449,6 +2451,7 @@ impl PresentationFrame {
             match_over: false,
             victory_label: None,
             defeated_player_ids: Vec::new(),
+            alliance_events: Vec::new(),
             victory_summary: None,
             beacons: {
                 #[cfg(feature = "game_client")]
@@ -2610,6 +2613,7 @@ impl PresentationFrame {
         }
         // Freeze defeat notification residual produced by evaluate (engine drains take).
         frame.defeated_player_ids = logic.peek_defeat_events().to_vec();
+        frame.alliance_events = logic.peek_alliance_events().to_vec();
         frame
     }
 

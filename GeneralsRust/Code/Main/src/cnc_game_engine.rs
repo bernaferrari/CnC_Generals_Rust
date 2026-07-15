@@ -6604,7 +6604,16 @@ impl CnCGameEngine {
             script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
         }
 
-        let alliance_events = self.game_logic.take_alliance_events();
+        // Prefer presentation alliance residual when installed; drain live take after.
+        let alliance_events: Vec<crate::game_logic::AllianceNotification> =
+            if let Some(pres) = self.last_presentation_frame.as_ref() {
+                let ev = pres.alliance_events.clone();
+                let _ = self.game_logic.take_alliance_events();
+                ev
+            } else {
+                // Boot residual only.
+                self.game_logic.take_alliance_events()
+            };
         // Prefer presentation local_player residual when installed; live only boot/menu.
         let local_player_id = self
             .last_presentation_frame
