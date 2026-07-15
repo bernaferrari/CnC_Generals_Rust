@@ -2068,6 +2068,8 @@ pub trait AIUpdateInterfaceExt {
         ignore_object_id: Option<ObjectID>,
         cmd_source: CommandSourceType,
     );
+    /// C++ AIUpdateInterface::aiDock(Object*, CommandSourceType).
+    fn ai_dock(&self, dock_id: ObjectID, cmd_source: CommandSourceType);
     fn ai_follow_path(
         &self,
         path: &[Coord3D],
@@ -2485,6 +2487,16 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             );
             params.coords = path.to_vec();
             params.obj = ignore_object_id;
+            let _ = guard.execute_command(&params);
+        }
+    }
+
+    fn ai_dock(&self, dock_id: ObjectID, cmd_source: CommandSourceType) {
+        // C++ aiDock — AIPlayer onUnitProduced uses CMD_FROM_PLAYER for supply trucks.
+        if let Ok(mut guard) = self.try_lock() {
+            let mut params =
+                crate::ai::AiCommandParams::new(crate::ai::AiCommandType::Dock, cmd_source);
+            params.obj = Some(dock_id);
             let _ = guard.execute_command(&params);
         }
     }

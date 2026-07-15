@@ -1348,13 +1348,45 @@ impl AIPlayer {
 
     /// C++ queueUnits home: prototype homeLocation if set, else getBaseCenter.
     fn queue_units_home_for_team(&self, team_name: &str) -> (Coord3D, bool) {
-        // Home-location residual on TeamPrototype (not yet on GameLogic prototype).
-        // Fall back to base center like C++ when !hasHomeLocation.
-        if let Some(center) = self.get_base_center() {
-            return (center, true);
+        if let Ok(factory) = get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype(team_name) {
+                if proto.has_home_location() {
+                    return (proto.home_location(), true);
+                }
+            }
         }
-        let _ = team_name;
+        // C++ falls back to base center when !hasHomeLocation.
+        if let Some(center) = self.get_base_center() {
+            return (center, false);
+        }
         (Coord3D::new(0.0, 0.0, 0.0), false)
+    }
+
+    /// C++ onUnitProduced supply assignment: first build-list supply building with
+    /// desiredGatherers > currentGatherers; bump current and return object id.
+    fn take_supply_gatherer_slot(&mut self) -> Option<ObjectID> {
+        let player_arc = self.get_player()?;
+        let Ok(mut pg) = player_arc.write() else {
+            return None;
+        };
+        let Some(info_head) = pg.get_build_list_mut() else {
+            return None;
+        };
+        let mut node = Some(&mut *info_head);
+        while let Some(info) = node {
+            if info.is_supply_building()
+                && info.get_desired_gatherers() > 0
+                && info.get_desired_gatherers() > info.get_current_gatherers()
+            {
+                let oid = info.get_object_id();
+                if oid != INVALID_ID && OBJECT_REGISTRY.get_object(oid).is_some() {
+                    info.set_current_gatherers(info.get_current_gatherers() + 1);
+                    return Some(oid);
+                }
+            }
+            node = info.get_next_mut();
+        }
+        None
     }
 
     /// C++ `AIPlayer::checkForSupplyCenter` (AIPlayer.cpp).
@@ -2591,16 +2623,51 @@ impl AIPlayer {
                         }
                     }
                 }
+
+                // C++: if team has homeLocation → aiFollowExitProductionPath(goal, home).
+                let (home, has_home) = self.queue_units_home_for_team(team_name);
+                // has_home from prototype only when prototype flag set; base-center
+                // fallback still moves units toward base (queueUnits recruit path).
+                let use_home_path = if let Ok(factory) = get_team_factory().lock() {
+                    factory
+                        .find_team_prototype(team_name)
+                        .map(|p| p.has_home_location())
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                if use_home_path {
+                    if let Ok(unit_g) = unit_arc.read() {
+                        if let Some(ai) = unit_g.get_ai_update_interface() {
+                            let start = ai
+                                .get_path_destination()
+                                .unwrap_or_else(|| *unit_g.get_position());
+                            let path = [start, home];
+                            ai.ai_follow_exit_production_path(
+                                &path,
+                                None,
+                                CommandSourceType::FromAi,
+                            );
+                        }
+                    }
+                }
+                let _ = has_home;
             }
 
-            // Supply truck force-wanting residual (C++ SupplyTruckAIInterface).
+            // Supply truck force-wanting + dock (C++ SupplyTruckAIInterface).
             if let Ok(unit_g) = unit_arc.read() {
                 if let Some(ai) = unit_g.get_ai_update_interface() {
                     if let Ok(mut ai_g) = ai.lock() {
                         if let Some(truck) = ai_g.get_supply_truck_ai_interface_mut() {
                             supply_truck = is_resource_gatherer_order;
                             truck.set_force_wanting_state(supply_truck);
-                            // Full aiDock to supply building residual (CMD_FROM_PLAYER).
+                        }
+                    }
+                    if supply_truck {
+                        // C++: assign to first supply build-list entry needing gatherers,
+                        // then aiDock(obj, CMD_FROM_PLAYER).
+                        if let Some(dock_id) = self.take_supply_gatherer_slot() {
+                            ai.ai_dock(dock_id, CommandSourceType::FromPlayer);
                         }
                     }
                 }
@@ -7124,7 +7191,7 @@ mod tests {
         let i = src
             .find("C++ `AIPlayer::onUnitProduced`")
             .expect("onUnitProduced");
-        let window = &src[i..src.len().min(i + 5500)];
+        let window = &src[i..src.len().min(i + 7500)];
         assert!(
             window.contains("is_equivalent_to")
                 && window.contains("order.factory_id = None")
@@ -7132,8 +7199,12 @@ mod tests {
                 && window.contains("reinforcement_id = Some(unit_id)")
                 && window.contains("self.team_delay = 0")
                 && window.contains("structure_timer = 1")
-                && window.contains("set_force_wanting_state"),
-            "onUnitProduced must match factory+template, setTeam, delays, supply/dozer"
+                && window.contains("set_force_wanting_state")
+                && window.contains("ai_follow_exit_production_path")
+                && window.contains("take_supply_gatherer_slot")
+                && window.contains("ai_dock")
+                && window.contains("FromPlayer"),
+            "onUnitProduced must match factory+template, setTeam, home exit path, supply dock/dozer"
         );
     }
 

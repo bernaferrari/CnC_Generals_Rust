@@ -2272,6 +2272,10 @@ pub struct TeamPrototype {
     start_reinforce_waypoint: AsciiString,
     team_starts_full: Bool,
     transports_exit: Bool,
+
+    // C++ TeamTemplateInfo::m_homeLocation / m_hasHomeLocation
+    home_location: Coord3D,
+    has_home_location: Bool,
 }
 
 impl TeamPrototype {
@@ -2316,7 +2320,29 @@ impl TeamPrototype {
             start_reinforce_waypoint: String::new().into(),
             team_starts_full: false,
             transports_exit: false,
+            home_location: Coord3D::new(0.0, 0.0, 0.0),
+            has_home_location: false,
         }
+    }
+
+    /// C++ TeamTemplateInfo::m_hasHomeLocation
+    pub fn has_home_location(&self) -> bool {
+        self.has_home_location
+    }
+
+    /// C++ TeamTemplateInfo::m_homeLocation
+    pub fn home_location(&self) -> Coord3D {
+        self.home_location
+    }
+
+    pub fn set_home_location(&mut self, loc: Coord3D) {
+        self.home_location = loc;
+        self.has_home_location = true;
+    }
+
+    pub fn clear_home_location(&mut self) {
+        self.has_home_location = false;
+        self.home_location = Coord3D::new(0.0, 0.0, 0.0);
     }
 
     /// Get prototype ID
