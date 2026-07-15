@@ -54,22 +54,26 @@ pub const AI_SKIRMISH_TEAM_TIMER_FRAMES: u32 =
 /// extra distance used by Medium skirmish AI residual path.
 /// Fail-closed: not full AI.ini side build list / live dozer pathfinding.
 pub fn honesty_ai_skirmish_residual_pack_wave77() -> bool {
+    // Retail Default/AIData.ini:
+    // StructureSeconds=0, TeamSeconds=10, Wealthy=7000, Poor=2000,
+    // Structures/TeamsPoorRate=0.6, Structures/TeamsWealthyRate=2.0
     AI_SKIRMISH_LOGIC_FPS == 30
-        && (AI_SKIRMISH_STRUCTURE_SECONDS - 10.0).abs() < 0.01
-        && (AI_SKIRMISH_TEAM_SECONDS - 2.0).abs() < 0.01
+        && (AI_SKIRMISH_STRUCTURE_SECONDS - 0.0).abs() < 0.01
+        && (AI_SKIRMISH_TEAM_SECONDS - 10.0).abs() < 0.01
         && AI_SKIRMISH_RESOURCES_POOR == 2000
-        && AI_SKIRMISH_RESOURCES_WEALTHY == 5000
+        && AI_SKIRMISH_RESOURCES_WEALTHY == 7000
         && AI_SKIRMISH_RESOURCES_WEALTHY > AI_SKIRMISH_RESOURCES_POOR
-        && (AI_SKIRMISH_STRUCTURES_POOR_MOD - 2.0).abs() < 0.01
+        && (AI_SKIRMISH_STRUCTURES_POOR_MOD - 0.6).abs() < 0.01
         && (AI_SKIRMISH_STRUCTURES_WEALTHY_MOD - 2.0).abs() < 0.01
-        && (AI_SKIRMISH_TEAMS_POOR_MOD - 2.0).abs() < 0.01
+        && (AI_SKIRMISH_TEAMS_POOR_MOD - 0.6).abs() < 0.01
         && (AI_SKIRMISH_TEAMS_WEALTHY_MOD - 2.0).abs() < 0.01
         && AI_SKIRMISH_REBUILD_DELAY_SECONDS == 5
         && (AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 50.0).abs() < 0.01
-        && AI_SKIRMISH_STRUCTURE_TIMER_FRAMES == 300 // 10s * 30 FPS
-        && AI_SKIRMISH_TEAM_TIMER_FRAMES == 60 // 2s * 30 FPS
-        // Wealthy/poor modifiers accelerate timers (divide by mod → faster builds).
-        && AI_SKIRMISH_STRUCTURES_POOR_MOD > 1.0
+        && AI_SKIRMISH_STRUCTURE_TIMER_FRAMES == 0 // 0s * 30 FPS
+        && AI_SKIRMISH_TEAM_TIMER_FRAMES == 300 // 10s * 30 FPS
+        // C++ divides timer by rate: poor 0.6 slows, wealthy 2.0 speeds.
+        && AI_SKIRMISH_STRUCTURES_POOR_MOD > 0.0
+        && AI_SKIRMISH_STRUCTURES_POOR_MOD < 1.0
         && AI_SKIRMISH_STRUCTURES_WEALTHY_MOD > 1.0
 }
 
@@ -407,21 +411,30 @@ mod tests {
         ensure_human_templates(&mut logic);
         let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
         logic.ensure_ai_faction_templates(Team::GLA);
+        logic.ensure_skirmish_ai_starting_cash(20_000);
         for _ in 0..30 {
             logic.update();
         }
         let after_first = logic.host_ai_activity_count();
         let structs_first = count_ai_structures(&logic);
-        assert!(after_first >= 1, "first AI build interval must fire");
-        // Continue host updates across more AI intervals (next_building_time reopens).
+        // Host residual base layout is multi-structure; can_afford must not gate on
+        // template power draw or GLA stalls after the first Command Center.
+        assert!(
+            after_first >= 2 || structs_first >= 2,
+            "first AI window must start multiple structures: act={after_first} structs={structs_first}"
+        );
         for _ in 0..90 {
             logic.update();
         }
         let after_more = logic.host_ai_activity_count();
         let structs_more = count_ai_structures(&logic);
+        let units_more = count_ai_units_or_queue(&logic);
+        // After layout is filled, further growth is units/production or rebuilds.
         assert!(
-            after_more >= 2 || structs_more > structs_first,
-            "multi-interval AI must deepen: act {after_first}->{after_more} structs {structs_first}->{structs_more}"
+            after_more >= after_first
+                && (structs_more >= structs_first)
+                && (after_more > after_first || structs_more > 1 || units_more >= 1),
+            "AI must remain productive: act {after_first}->{after_more} structs {structs_first}->{structs_more} units={units_more}"
         );
     }
 
@@ -546,12 +559,14 @@ mod tests {
     fn ai_skirmish_residual_pack_wave77_honesty() {
         assert!(honesty_ai_skirmish_residual_pack_wave77());
         assert_eq!(AI_SKIRMISH_LOGIC_FPS, 30);
-        assert!((AI_SKIRMISH_STRUCTURE_SECONDS - 10.0).abs() < 0.01);
-        assert!((AI_SKIRMISH_TEAM_SECONDS - 2.0).abs() < 0.01);
-        assert_eq!(AI_SKIRMISH_STRUCTURE_TIMER_FRAMES, 300);
-        assert_eq!(AI_SKIRMISH_TEAM_TIMER_FRAMES, 60);
+        assert!((AI_SKIRMISH_STRUCTURE_SECONDS - 0.0).abs() < 0.01);
+        assert!((AI_SKIRMISH_TEAM_SECONDS - 10.0).abs() < 0.01);
+        assert_eq!(AI_SKIRMISH_STRUCTURE_TIMER_FRAMES, 0);
+        assert_eq!(AI_SKIRMISH_TEAM_TIMER_FRAMES, 300);
         assert_eq!(AI_SKIRMISH_RESOURCES_POOR, 2000);
-        assert_eq!(AI_SKIRMISH_RESOURCES_WEALTHY, 5000);
+        assert_eq!(AI_SKIRMISH_RESOURCES_WEALTHY, 7000);
+        assert!((AI_SKIRMISH_STRUCTURES_POOR_MOD - 0.6).abs() < 0.01);
+        assert!((AI_SKIRMISH_TEAMS_POOR_MOD - 0.6).abs() < 0.01);
         assert!((AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 50.0).abs() < 0.01);
         assert_eq!(AI_SKIRMISH_REBUILD_DELAY_SECONDS, 5);
     }

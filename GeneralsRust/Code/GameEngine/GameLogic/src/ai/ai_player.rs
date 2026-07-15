@@ -61,31 +61,35 @@ pub const BUILD_DELAY_RECHECK_FRAMES: u32 = 2 * LOGICFRAMES_PER_SECOND;
 /// C++ `AIPlayer::doTeamBuilding` recheck: `m_teamDelay = 5*LOGICFRAMES_PER_SECOND`.
 pub const TEAM_DELAY_RECHECK_FRAMES: u32 = 5 * LOGICFRAMES_PER_SECOND;
 
-/// Default delay between team production in seconds (C++ m_teamSeconds)
-pub const DEFAULT_TEAM_SECONDS: f32 = 2.0;
+/// Default delay between team production in seconds.
+/// Retail `Default/AIData.ini` TeamSeconds = 10 (C++ AIPlayer ctor uses AIData).
+pub const DEFAULT_TEAM_SECONDS: f32 = 10.0;
 
-/// Default delay between structure production in seconds (C++ m_structureSeconds)
-pub const DEFAULT_STRUCTURE_SECONDS: f32 = 10.0;
+/// Default delay between structure production in seconds.
+/// Retail `Default/AIData.ini` StructureSeconds = 0 (try every ready tick).
+pub const DEFAULT_STRUCTURE_SECONDS: f32 = 0.0;
 
-/// Resource threshold for "poor" AI (C++ m_resourcesPoor)
+/// Resource threshold for "poor" AI (retail AIData Poor = 2000).
 pub const RESOURCES_POOR: i32 = 2000;
 
-/// Resource threshold for "wealthy" AI (C++ m_resourcesWealthy)
-pub const RESOURCES_WEALTHY: i32 = 5000;
+/// Resource threshold for "wealthy" AI (retail AIData Wealthy = 7000).
+pub const RESOURCES_WEALTHY: i32 = 7000;
 
-/// Build speed multiplier when poor (C++ m_structuresPoorMod)
-pub const STRUCTURES_POOR_MODIFIER: f32 = 2.0;
+/// Build speed modifier when poor (retail AIData StructuresPoorRate = 0.6).
+/// C++ divides the timer by this rate: 0.6 → slower when poor.
+pub const STRUCTURES_POOR_MODIFIER: f32 = 0.6;
 
-/// Build speed multiplier when wealthy (C++ m_structuresWealthyMod)
+/// Build speed modifier when wealthy (retail AIData StructuresWealthyRate = 2.0).
 pub const STRUCTURES_WEALTHY_MODIFIER: f32 = 2.0;
 
-/// Team build speed multiplier when poor (C++ m_teamsPoorMod)
-pub const TEAMS_POOR_MODIFIER: f32 = 2.0;
+/// Team build speed modifier when poor (retail AIData TeamsPoorRate = 0.6).
+pub const TEAMS_POOR_MODIFIER: f32 = 0.6;
 
-/// Team build speed multiplier when wealthy (C++ m_teamsWealthyMod)
+/// Team build speed modifier when wealthy (retail AIData TeamsWealthyRate = 2.0).
 pub const TEAMS_WEALTHY_MODIFIER: f32 = 2.0;
 
-/// Delay before rebuilding destroyed structure in seconds (C++ m_rebuildDelaySeconds)
+/// Delay before rebuilding destroyed structure in seconds (C++ m_rebuildDelaySeconds).
+/// Retail AIData RebuildDelayTimeSeconds = 30; keep 5 as pre-INI residual fallback.
 pub const REBUILD_DELAY_SECONDS: u32 = 5;
 
 /// Team resource multiplier for affordability check (C++ m_teamResourcesToBuild)
@@ -687,6 +691,9 @@ impl AIPlayer {
 
     /// Create new AI player
     pub fn new(player_id: u32) -> Self {
+        // C++ AIPlayer ctor: m_teamSeconds = TheAI->getAiData()->m_teamSeconds;
+        // Structure interval is read live from AIData each arm (0.0 is valid = every tick).
+        // Prefer live AIData; fall back to retail Default/AIData.ini constants when unloaded.
         let (team_seconds, structure_seconds) = if let Ok(ai) = THE_AI.read() {
             if let Ok(data) = ai.get_ai_data().read() {
                 let team = if data.team_seconds > 0.0 {
@@ -694,12 +701,8 @@ impl AIPlayer {
                 } else {
                     DEFAULT_TEAM_SECONDS
                 };
-                let structure = if data.structure_seconds > 0.0 {
-                    data.structure_seconds
-                } else {
-                    DEFAULT_STRUCTURE_SECONDS
-                };
-                (team, structure)
+                // StructureSeconds = 0.0 is intentional retail (do not treat as missing).
+                (team, data.structure_seconds)
             } else {
                 (DEFAULT_TEAM_SECONDS, DEFAULT_STRUCTURE_SECONDS)
             }
@@ -3088,10 +3091,26 @@ impl AIPlayer {
                 .unwrap_or(0)
         };
 
-        // C++ AIPlayer uses AIData constants for thresholds
-        // m_resourcesWealthy = 5000, m_resourcesPoor = 2000 (from AI.cpp)
-        let wealthy_threshold = RESOURCES_WEALTHY;
-        let poor_threshold = RESOURCES_POOR;
+        // C++ AIPlayer uses TheAI->getAiData() thresholds (retail Wealthy=7000, Poor=2000).
+        let (poor_threshold, wealthy_threshold) = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|data| {
+                    let poor = if data.resources_poor > 0 {
+                        data.resources_poor
+                    } else {
+                        RESOURCES_POOR
+                    };
+                    let wealthy = if data.resources_wealthy > 0 {
+                        data.resources_wealthy
+                    } else {
+                        RESOURCES_WEALTHY
+                    };
+                    (poor, wealthy)
+                })
+            })
+            .unwrap_or((RESOURCES_POOR, RESOURCES_WEALTHY));
 
         // Update strategic decision maker's resource management
         self.strategic_decision_maker.resources.update(
@@ -4830,31 +4849,13 @@ impl AIPlayer {
             .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))
             .unwrap_or(0);
 
-        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
-            .read()
-            .ok()
-            .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
-                    (
-                        data.resources_poor,
-                        data.resources_wealthy,
-                        data.team_poor_mod,
-                        data.team_wealthy_mod,
-                    )
-                })
-            })
-            .unwrap_or((
-                RESOURCES_POOR,
-                RESOURCES_WEALTHY,
-                TEAMS_POOR_MODIFIER,
-                TEAMS_WEALTHY_MODIFIER,
-            ));
+        let (poor, wealthy, poor_mod, wealthy_mod) = Self::team_wealth_params();
 
         // C++: timer = timer / mod when mod applies (mod 0 → skip).
         if money < poor && poor_mod > 0.0 {
-            timer = ((timer as f32) / poor_mod).max(1.0) as u32;
+            timer = (timer as f32 / poor_mod) as u32;
         } else if money > wealthy && wealthy_mod > 0.0 {
-            timer = ((timer as f32) / wealthy_mod).max(1.0) as u32;
+            timer = (timer as f32 / wealthy_mod) as u32;
         }
         self.team_timer = timer;
         Ok(())
@@ -5547,13 +5548,11 @@ impl AIPlayer {
     }
 
     /// After starting a structure: C++ sets ready=false and structureTimer with wealth mods.
+    /// Retail StructureSeconds=0 → timer 0 (immediately eligible next doBaseBuilding).
     fn arm_structure_timer_after_build(&mut self) -> Result<(), AiError> {
         self.ready_to_build_structure = false;
+        // C++: m_structureTimer = m_structureSeconds * LOGICFRAMES_PER_SECOND (0 is valid).
         let mut timer = (self.structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
-        if timer == 0 {
-            // C++ still multiplies structureSeconds; 0 means immediate re-ready next expiry path.
-            timer = 1;
-        }
 
         let money = player_list()
             .read()
@@ -5562,16 +5561,48 @@ impl AIPlayer {
             .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))
             .unwrap_or(0);
 
-        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
+        let (poor, wealthy, poor_mod, wealthy_mod) = Self::structure_wealth_params();
+
+        // C++: timer = timer / mod when mod applies (mod 0 → skip).
+        // Integer divide of 0 stays 0 (immediate re-ready).
+        if money < poor && poor_mod > 0.0 {
+            timer = (timer as f32 / poor_mod) as u32;
+        } else if money > wealthy && wealthy_mod > 0.0 {
+            timer = (timer as f32 / wealthy_mod) as u32;
+        }
+
+        self.structure_timer = timer;
+        Ok(())
+    }
+
+    /// Retail AIData structure wealth params; zero AIData fields → Default/AIData.ini fallbacks.
+    fn structure_wealth_params() -> (i32, i32, f32, f32) {
+        THE_AI
             .read()
             .ok()
             .and_then(|ai| {
                 ai.get_ai_data().read().ok().map(|data| {
                     (
-                        data.resources_poor,
-                        data.resources_wealthy,
-                        data.structures_poor_mod,
-                        data.structures_wealthy_mod,
+                        if data.resources_poor > 0 {
+                            data.resources_poor
+                        } else {
+                            RESOURCES_POOR
+                        },
+                        if data.resources_wealthy > 0 {
+                            data.resources_wealthy
+                        } else {
+                            RESOURCES_WEALTHY
+                        },
+                        if data.structures_poor_mod > 0.0 {
+                            data.structures_poor_mod
+                        } else {
+                            STRUCTURES_POOR_MODIFIER
+                        },
+                        if data.structures_wealthy_mod > 0.0 {
+                            data.structures_wealthy_mod
+                        } else {
+                            STRUCTURES_WEALTHY_MODIFIER
+                        },
                     )
                 })
             })
@@ -5580,17 +5611,46 @@ impl AIPlayer {
                 RESOURCES_WEALTHY,
                 STRUCTURES_POOR_MODIFIER,
                 STRUCTURES_WEALTHY_MODIFIER,
-            ));
+            ))
+    }
 
-        // C++: timer = timer / mod when mod applies (mod 0 → skip).
-        if money < poor && poor_mod > 0.0 {
-            timer = ((timer as f32) / poor_mod).max(1.0) as u32;
-        } else if money > wealthy && wealthy_mod > 0.0 {
-            timer = ((timer as f32) / wealthy_mod).max(1.0) as u32;
-        }
-
-        self.structure_timer = timer;
-        Ok(())
+    /// Retail AIData team wealth params; zero AIData fields → Default/AIData.ini fallbacks.
+    fn team_wealth_params() -> (i32, i32, f32, f32) {
+        THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|data| {
+                    (
+                        if data.resources_poor > 0 {
+                            data.resources_poor
+                        } else {
+                            RESOURCES_POOR
+                        },
+                        if data.resources_wealthy > 0 {
+                            data.resources_wealthy
+                        } else {
+                            RESOURCES_WEALTHY
+                        },
+                        if data.team_poor_mod > 0.0 {
+                            data.team_poor_mod
+                        } else {
+                            TEAMS_POOR_MODIFIER
+                        },
+                        if data.team_wealthy_mod > 0.0 {
+                            data.team_wealthy_mod
+                        } else {
+                            TEAMS_WEALTHY_MODIFIER
+                        },
+                    )
+                })
+            })
+            .unwrap_or((
+                RESOURCES_POOR,
+                RESOURCES_WEALTHY,
+                TEAMS_POOR_MODIFIER,
+                TEAMS_WEALTHY_MODIFIER,
+            ))
     }
 
     /// Analyze current building needs
@@ -6760,6 +6820,30 @@ mod tests {
     }
 
     #[test]
+    fn retail_aidata_fallback_constants_match_default_ini() {
+        // windows_game/.../Default/AIData.ini
+        assert!((DEFAULT_STRUCTURE_SECONDS - 0.0).abs() < f32::EPSILON);
+        assert!((DEFAULT_TEAM_SECONDS - 10.0).abs() < f32::EPSILON);
+        assert_eq!(RESOURCES_POOR, 2000);
+        assert_eq!(RESOURCES_WEALTHY, 7000);
+        assert!((STRUCTURES_POOR_MODIFIER - 0.6).abs() < 1e-5);
+        assert!((STRUCTURES_WEALTHY_MODIFIER - 2.0).abs() < 1e-5);
+        assert!((TEAMS_POOR_MODIFIER - 0.6).abs() < 1e-5);
+        assert!((TEAMS_WEALTHY_MODIFIER - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn arm_structure_timer_zero_seconds_stays_zero_like_cpp() {
+        let mut ai = AIPlayer::new(1);
+        ai.structure_seconds = 0.0;
+        ai.ready_to_build_structure = true;
+        ai.arm_structure_timer_after_build().expect("arm");
+        assert!(!ai.ready_to_build_structure);
+        // C++: m_structureSeconds*LOGICFRAMES with 0 → timer 0 (immediate next ready path).
+        assert_eq!(ai.structure_timer, 0);
+    }
+
+    #[test]
     fn do_base_building_sets_2s_build_delay_like_cpp() {
         let mut ai = AIPlayer::new(1);
         ai.ready_to_build_structure = true;
@@ -6831,9 +6915,13 @@ mod tests {
         ai.ready_to_build_structure = true;
         ai.arm_structure_timer_after_build().expect("arm");
         assert!(!ai.ready_to_build_structure);
-        // Without player money context, defaults to base timer (or 1 min).
-        assert!(ai.structure_timer >= 1);
-        assert_eq!(ai.structure_timer, 300);
+        // No player money → 0 < Poor(2000) → divide by StructuresPoorRate 0.6.
+        // C++ Real (f32) truncation: (300f32 / 0.6) as u32 == 499.
+        assert_eq!(
+            ai.structure_timer,
+            (300f32 / STRUCTURES_POOR_MODIFIER) as u32
+        );
+        assert_eq!(ai.structure_timer, 499);
     }
 
     #[test]
@@ -6887,7 +6975,9 @@ mod tests {
         ai.ready_to_build_team = true;
         ai.arm_team_timer_after_build().expect("arm");
         assert!(!ai.ready_to_build_team);
-        assert_eq!(ai.team_timer, 300);
+        // money=0 → poor TeamsPoorRate 0.6 (f32 truncation like C++ Real).
+        assert_eq!(ai.team_timer, (300f32 / TEAMS_POOR_MODIFIER) as u32);
+        assert_eq!(ai.team_timer, 499);
     }
 
     #[test]

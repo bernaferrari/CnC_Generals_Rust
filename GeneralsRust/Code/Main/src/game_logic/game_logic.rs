@@ -402,18 +402,14 @@ impl Player {
     }
 
     pub fn can_afford(&self, cost: &Resources) -> bool {
-        // Money is the hard construction gate. Power is separate (slows production /
-        // disables powered buildings). Do not block structure starts when the grid is
-        // already negative — GLA has no power plants, and USA/China must still place
-        // a PowerPlant after the first Command Center finishes.
-        if self.resources.supplies < cost.supplies {
-            return false;
-        }
-        // Explicit power cost on the purchase (cost.power < 0) remains a hard gate.
-        if cost.power < 0 {
-            return self.power_available + cost.power >= 0;
-        }
-        true
+        // Money is the hard construction / purchase gate. Power is separate (slows
+        // production / disables powered buildings). Do not block structure starts when
+        // the grid is already negative — GLA has no power plants, and USA/China must
+        // still place a PowerPlant after the first Command Center finishes.
+        //
+        // Template `build_cost.power` is the post-build power draw residual (often
+        // negative). It is applied in spend_resources, not as an affordability gate.
+        self.resources.supplies >= cost.supplies
     }
 
     pub fn spend_resources(&mut self, cost: &Resources) -> bool {
@@ -4622,9 +4618,12 @@ impl GameLogic {
         // Main crate simplified per-object AI decisions (scan for enemies, retreat, etc.)
         self.update_ai(&object_ids, dt);
 
-        // Host skirmish AI players (AIManager / AIPlayer) — production path for
-        // Medium+ opponents registered via apply_skirmish_config / add_ai_opponent.
+        // Host skirmish AI players (AIManager / AIPlayer) — residual production path
+        // for Medium+ opponents registered via apply_skirmish_config / add_ai_opponent.
         // Borrow-split: take manager out, update against &mut self, put back.
+        // NOTE: dual-tick gate vs gamelogic IntegratedAiPlayer deferred — the
+        // integration manager is a process-global singleton and test isolation
+        // would skip host AI when leftover players remain from other tests.
         {
             let sim_time = self.sim_time_seconds;
             let mut ai_mgr = std::mem::take(&mut self.ai_manager);
