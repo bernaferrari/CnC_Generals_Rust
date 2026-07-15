@@ -388,16 +388,8 @@ impl AIPlayer {
         self.process_building_queue(game_logic, current_time);
         self.process_building_queue(game_logic, current_time);
 
-        // StructureSeconds residual: default 0 → next economic tick immediately when
-        // ready. Difficulty still stretches spacing slightly for Easy/Hard.
-        let delay_modifier = self.difficulty.get_build_delay_modifier();
-        let interval = if Self::STRUCTURE_SECONDS <= 0.0 {
-            // C++ StructureSeconds=0: no forced wait; one structure decision per AI
-            // economic pass (still gated by queue/resources).
-            0.0
-        } else {
-            Self::STRUCTURE_SECONDS * delay_modifier
-        };
+        // StructureSeconds residual + wealth/poor rate (AIData Structures*Rate).
+        let interval = self.scaled_interval_seconds(game_logic, Self::STRUCTURE_SECONDS, true);
         self.next_building_time = current_time + interval;
     }
 
@@ -418,11 +410,10 @@ impl AIPlayer {
         // Check for attack opportunities
         self.evaluate_attack_opportunities(game_logic, current_time);
 
-        // TeamSeconds residual (AIData default 10), difficulty-scaled.
+        // TeamSeconds residual + wealth/poor rate (AIData Teams*Rate).
         // Attack evaluation runs on this cadence; ATTACK_RECHECK_SECONDS still
         // spaces actual launch_attack (60s residual vs C++ scripted teams).
-        let delay_modifier = self.difficulty.get_build_delay_modifier();
-        let interval = Self::TEAM_SECONDS * delay_modifier;
+        let interval = self.scaled_interval_seconds(game_logic, Self::TEAM_SECONDS, false);
         self.next_team_time = current_time + interval;
     }
 
@@ -867,8 +858,64 @@ impl AIPlayer {
     pub const TEAM_SECONDS: f32 = 10.0;
     /// RebuildDelayTimeSeconds = 30 (base rebuild delay residual; full C++ path unported).
     pub const REBUILD_DELAY_SECONDS: f32 = 30.0;
+    /// Wealthy resource threshold (AIData `Wealthy`).
+    pub const WEALTHY_RESOURCES: u32 = 7000;
+    /// Poor resource threshold (AIData `Poor`).
+    pub const POOR_RESOURCES: u32 = 2000;
+    /// StructuresWealthyRate — interval divisor when wealthy (2=twice as fast).
+    pub const STRUCTURES_WEALTHY_RATE: f32 = 2.0;
+    /// StructuresPoorRate.
+    pub const STRUCTURES_POOR_RATE: f32 = 0.6;
+    /// TeamsWealthyRate.
+    pub const TEAMS_WEALTHY_RATE: f32 = 2.0;
+    /// TeamsPoorRate.
+    pub const TEAMS_POOR_RATE: f32 = 0.6;
+    /// TeamResourcesToStart fraction residual (documented; full team cost gate unported).
+    pub const TEAM_RESOURCES_TO_START: f32 = 0.1;
 
     /// Evaluate opportunities to attack enemies (strength-threshold + C++-aligned spacing).
+
+    /// AIData wealth/poor rate residual: returns speed multiplier (>= rate means faster).
+    fn resource_speed_rate(&self, game_logic: &GameLogic, for_structures: bool) -> f32 {
+        let supplies = game_logic
+            .get_player(self.player_id)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        if supplies >= Self::WEALTHY_RESOURCES {
+            if for_structures {
+                Self::STRUCTURES_WEALTHY_RATE
+            } else {
+                Self::TEAMS_WEALTHY_RATE
+            }
+        } else if supplies <= Self::POOR_RESOURCES {
+            if for_structures {
+                Self::STRUCTURES_POOR_RATE
+            } else {
+                Self::TEAMS_POOR_RATE
+            }
+        } else {
+            1.0
+        }
+    }
+
+    /// Base interval seconds scaled by difficulty and wealth/poor rates.
+    fn scaled_interval_seconds(
+        &self,
+        game_logic: &GameLogic,
+        base_seconds: f32,
+        for_structures: bool,
+    ) -> f32 {
+        if base_seconds <= 0.0 {
+            return 0.0;
+        }
+        let delay = self.difficulty.get_build_delay_modifier().max(0.01);
+        let rate = self
+            .resource_speed_rate(game_logic, for_structures)
+            .max(0.01);
+        // C++ rate multiplies speed → shorter wait when rate > 1.
+        (base_seconds * delay) / rate
+    }
+
     fn evaluate_attack_opportunities(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         if self.attack_in_progress
             || current_time - self.last_attack_time < Self::ATTACK_RECHECK_SECONDS
@@ -1335,10 +1382,54 @@ mod cpp_parity_tests {
         assert_eq!(AIPlayer::TEAM_SECONDS, 10.0);
         assert_eq!(AIPlayer::REBUILD_DELAY_SECONDS, 30.0);
         assert_eq!(AIPlayer::ATTACK_RECHECK_SECONDS, 60.0);
+        assert_eq!(AIPlayer::WEALTHY_RESOURCES, 7000);
+        assert_eq!(AIPlayer::POOR_RESOURCES, 2000);
+        assert!((AIPlayer::STRUCTURES_WEALTHY_RATE - 2.0).abs() < 1e-5);
+        assert!((AIPlayer::STRUCTURES_POOR_RATE - 0.6).abs() < 1e-5);
+        assert!((AIPlayer::TEAMS_WEALTHY_RATE - 2.0).abs() < 1e-5);
+        assert!((AIPlayer::TEAMS_POOR_RATE - 0.6).abs() < 1e-5);
+        assert!((AIPlayer::TEAM_RESOURCES_TO_START - 0.1).abs() < 1e-5);
         // Difficulty stretches TeamSeconds (Easy slower, Hard faster).
         assert!((AIDifficulty::Easy.get_build_delay_modifier() - 2.0).abs() < 1e-5);
         assert!((AIDifficulty::Medium.get_build_delay_modifier() - 1.0).abs() < 1e-5);
         assert!((AIDifficulty::Hard.get_build_delay_modifier() - 0.7).abs() < 1e-5);
+    }
+
+    #[test]
+    fn aidata_wealth_rate_scales_team_interval() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let ai = AIPlayer::new(1, Team::GLA, AIDifficulty::Medium);
+        let mut player = crate::game_logic::Player::new(1, Team::GLA, "GLA", true);
+        player.resources.supplies = 1000; // poor
+        logic.add_player(player);
+
+        let poor = ai.scaled_interval_seconds(&logic, AIPlayer::TEAM_SECONDS, false);
+        logic.get_player_mut(1).unwrap().resources.supplies = 4000; // normal
+        let mid = ai.scaled_interval_seconds(&logic, AIPlayer::TEAM_SECONDS, false);
+        logic.get_player_mut(1).unwrap().resources.supplies = 8000; // wealthy
+        let rich = ai.scaled_interval_seconds(&logic, AIPlayer::TEAM_SECONDS, false);
+        // Poor → longer wait; wealthy → shorter wait.
+        assert!(
+            poor > mid && mid > rich,
+            "poor={poor} mid={mid} rich={rich}"
+        );
+        assert!(
+            (mid - 10.0).abs() < 1e-3,
+            "medium normal team interval ~10s got {mid}"
+        );
+        assert!(
+            (rich - 5.0).abs() < 1e-3,
+            "wealthy team interval ~5s got {rich}"
+        );
+        assert!(
+            (poor - (10.0 / 0.6)).abs() < 1e-2,
+            "poor team interval ~16.67s got {poor}"
+        );
+        // StructureSeconds=0 stays 0 regardless of wealth.
+        assert_eq!(
+            ai.scaled_interval_seconds(&logic, AIPlayer::STRUCTURE_SECONDS, true),
+            0.0
+        );
     }
 
     #[test]

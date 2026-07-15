@@ -470,3 +470,11 @@ constants: `StructureSeconds=0`, `TeamSeconds=10`, `RebuildDelayTimeSeconds=30`
 spaced by `ATTACK_RECHECK_SECONDS=60` (not full C++ scripted team production).
 Early `activity_count < 3` zero-interval gate pacing removed for timing honesty.
 
+### AIData wealth/poor rate residual (2026-07-14)
+
+Host `AIPlayer` scales structure/team decision intervals by retail AIData
+`Wealthy=7000` / `Poor=2000` and `Structures*Rate` / `Teams*Rate` (speed
+multipliers → shorter waits when wealthy). StructureSeconds=0 still yields a
+zero wait. Fail-closed: not full C++ wealth-mod on m_structureFrames path or
+TeamResourcesToStart cost gate.
+
