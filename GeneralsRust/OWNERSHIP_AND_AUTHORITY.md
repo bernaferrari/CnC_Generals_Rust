@@ -933,3 +933,10 @@ projectile_speed plus armed_riders and player weapon-set upgrade flags. Freeze
 and overlay last-write from Entity residual. Fail-closed: not full multi-slot
 weapon set / clip reload state machine.
 
+### Presentation movement/target residual (2026-07-14)
+
+`RenderableObject` carries target_location, guard_target, using_ability,
+airborne_target, move_max_speed, velocity, and ai_state_ordinal. Freeze +
+overlay last-write from Entity residual. Fail-closed: not full pathfinding
+replan authority.
+
