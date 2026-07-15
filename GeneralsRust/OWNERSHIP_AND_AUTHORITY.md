@@ -839,3 +839,10 @@ Dead `render_game_objects` / `render_selection_indicators` stubs prefer
 dual-reads when a snapshot is installed. Production path remains
 RenderPipeline + selection_renderer. Fail-closed: stubs still not active draw.
 
+### GameWorld garrison/contain overlay residual (2026-07-14)
+
+`Entity` carries `garrisoned_host_ids`. Shadow sync copies building garrison /
+occupants and `contained_by`. `overlay_gameworld_shadow` last-writes
+`contained_by`, `garrisoned_units`, `disabled`, and `veterancy` onto presentation.
+Fail-closed: not full multi-door garrison AI / contain redirect matrix.
+

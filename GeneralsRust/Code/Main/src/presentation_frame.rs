@@ -3560,6 +3560,44 @@ impl PresentationFrame {
                 obj.has_mine = ent.has_mine_data;
                 dirty = true;
             }
+            // Contain / garrison residual.
+            let contained = if ent.contained_by_host == 0 {
+                None
+            } else {
+                Some(crate::game_logic::ObjectId(ent.contained_by_host))
+            };
+            if obj.contained_by != contained {
+                obj.contained_by = contained;
+                dirty = true;
+            }
+            let garrisoned: Vec<crate::game_logic::ObjectId> = ent
+                .garrisoned_host_ids
+                .iter()
+                .copied()
+                .map(crate::game_logic::ObjectId)
+                .collect();
+            if obj.garrisoned_units != garrisoned {
+                obj.garrisoned_units = garrisoned;
+                dirty = true;
+            }
+            // Disabled residual (any host disable flag).
+            let disabled =
+                ent.disabled_underpowered || ent.disabled_unmanned || ent.disabled_hacked;
+            if obj.disabled != disabled {
+                obj.disabled = disabled;
+                dirty = true;
+            }
+            // Veterancy ordinal residual.
+            let vet = match ent.veterancy_ordinal {
+                1 => PresentationVeterancy::Veteran,
+                2 => PresentationVeterancy::Elite,
+                3 => PresentationVeterancy::Heroic,
+                _ => PresentationVeterancy::Rookie,
+            };
+            if obj.veterancy != vet {
+                obj.veterancy = vet;
+                dirty = true;
+            }
             // Effectively stealthed residual from shadow flags.
             let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
             if obj.effectively_stealthed != eff {
@@ -4688,6 +4726,8 @@ mod tests {
                 && src.contains("obj.weapon_bonus_horde = ent.weapon_bonus_horde")
                 && src.contains("obj.path_waypoints = path_wp")
                 && src.contains("obj.has_mine = ent.has_mine_data")
+                && src.contains("obj.garrisoned_units = garrisoned")
+                && src.contains("obj.contained_by = contained")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
