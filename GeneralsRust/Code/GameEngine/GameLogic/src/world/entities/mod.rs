@@ -9,6 +9,15 @@ use crate::world::PlayerId;
 use nalgebra::Point3;
 use std::collections::HashMap;
 
+/// Shadow residual of one host BuildingData::production_queue entry.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntityProductionItem {
+    pub template_name: String,
+    pub progress: f32,
+    pub total_time: f32,
+    pub cost_supplies: u32,
+}
+
 /// Identifier assigned to entities/things in the world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EntityId(u32);
@@ -167,6 +176,8 @@ pub struct Entity {
     pub production_progress: f32,
     /// Head of production queue template name residual (empty if none).
     pub production_template: String,
+    /// Full production queue residual (capped).
+    pub production_queue_items: Vec<EntityProductionItem>,
     /// Host BuildingData::rally_point residual.
     pub rally_point: Option<[f32; 3]>,
     /// Host BuildingData::garrisoned_units.len residual.
@@ -430,6 +441,7 @@ impl EntityStore {
             production_queue_len: 0,
             production_progress: 0.0,
             production_template: String::new(),
+            production_queue_items: Vec::new(),
             rally_point: None,
             garrison_count: 0,
             max_garrison: 0,

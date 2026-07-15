@@ -3528,19 +3528,23 @@ impl PresentationFrame {
                 dirty = true;
             }
             // Production queue head residual.
-            if ent.production_queue_len > 0 && !ent.production_template.is_empty() {
-                let head = PresentationProductionItem {
-                    template_name: ent.production_template.clone(),
-                    progress: ent.production_progress,
-                    total_time: 0.0,
-                    cost_supplies: 0,
-                };
-                let q = vec![head];
+            // Full production queue residual (not head-only).
+            if !ent.production_queue_items.is_empty() {
+                let q: Vec<PresentationProductionItem> = ent
+                    .production_queue_items
+                    .iter()
+                    .map(|p| PresentationProductionItem {
+                        template_name: p.template_name.clone(),
+                        progress: p.progress,
+                        total_time: p.total_time,
+                        cost_supplies: p.cost_supplies,
+                    })
+                    .collect();
                 if obj.production_queue != q {
                     obj.production_queue = q;
                     dirty = true;
                 }
-            } else if !obj.production_queue.is_empty() && ent.production_queue_len == 0 {
+            } else if !obj.production_queue.is_empty() {
                 obj.production_queue.clear();
                 dirty = true;
             }
@@ -4781,6 +4785,7 @@ mod tests {
                 && src.contains("obj.contained_by = contained")
                 && src.contains("ent.kind_of_bits")
                 && src.contains("ent.applied_upgrade_names")
+                && src.contains("ent.production_queue_items")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
