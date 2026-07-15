@@ -188,6 +188,16 @@ pub struct GameUIState {
     pub named_timers: Vec<(String, String, bool)>,
     /// Cameo flash residual (button, count).
     pub cameo_flash: Vec<(String, i32)>,
+    /// Pending screen-shake intensities residual.
+    pub screen_shakes: Vec<i32>,
+    /// Script skybox enable residual.
+    pub script_skybox_enabled: bool,
+    /// Superweapon display enable residual.
+    pub superweapon_display_enabled: bool,
+    /// Named-timer display shown residual.
+    pub named_timer_display_shown: bool,
+    /// Hidden superweapon object ids residual.
+    pub superweapon_hidden_objects: Vec<u32>,
     pub radar_enabled: bool,
     pub radar_forced: bool,
     pub objectives: Vec<ObjectiveDisplay>,
@@ -256,6 +266,11 @@ impl Default for GameUIState {
             camera_slave_disable: false,
             named_timers: Vec::new(),
             cameo_flash: Vec::new(),
+            screen_shakes: Vec::new(),
+            script_skybox_enabled: false,
+            superweapon_display_enabled: true,
+            named_timer_display_shown: false,
+            superweapon_hidden_objects: Vec::new(),
             radar_enabled: true,
             radar_forced: false,
             objectives: Vec::new(),
