@@ -95,6 +95,9 @@ pub struct PlayerData {
     /// Completed upgrade names residual (host HostUpgradeRegistry complete channel).
     /// Fail-closed: not full PlayerUpgradeManager / science tree parity.
     pub completed_upgrades: Vec<String>,
+    /// Unlocked science names residual (host Player::unlocked_sciences).
+    /// Fail-closed: not full science store / rank / purchase matrix.
+    pub unlocked_sciences: Vec<String>,
 }
 
 impl PlayerData {
@@ -253,6 +256,7 @@ impl World {
                 supplies: 0,
                 power_available: 0,
                 completed_upgrades: Vec::new(),
+                unlocked_sciences: Vec::new(),
             });
         }
         Some(id)

@@ -603,3 +603,16 @@ matching roster entry.
 `host_upgrades().completed_this_frame_snapshot()` each tick. Fail-closed: not
 full PlayerUpgradeManager / science tree / unit effect matrix authority.
 
+### Presentation victory shell-bypass residual (2026-07-14)
+
+Victory condition evaluation prefers `PresentationFrame.fow_shell_bypass` when a
+frame is installed. Live `GameLogic::isInShellGame` remains residual without
+presentation.
+
+### GameWorld science/upgrade absolute sync residual (2026-07-14)
+
+`sync_players` copies host `unlocked_sciences` and host-registry completed
+upgrade names onto shadow `PlayerData` each tick (absolute residual alongside
+the CompleteUpgrade event channel). Fail-closed: not full science purchase /
+rank / effect matrix authority.
+
