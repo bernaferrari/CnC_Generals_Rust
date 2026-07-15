@@ -8967,9 +8967,20 @@ impl CnCGameEngine {
     /// which queues MeshClass instances into the WW3D Renderer and issues real draw calls.
     #[allow(dead_code)] // Legacy stub: superseded by RenderPipeline, retained for reference
     fn render_game_objects<'a>(&'a self, _render_pass: &mut wgpu::RenderPass<'a>) {
-        // Collect objects to render to avoid borrowing conflicts
+        // Prefer presentation identity when installed (no live get_objects dual-read).
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            log::trace!(
+                "Legacy stub: presentation has {} objects (RenderPipeline is sole draw path)",
+                frame.objects.len()
+            );
+            return;
+        }
+        // Boot residual only — not active render path.
         let objects: Vec<_> = self.game_logic.get_objects().values().cloned().collect();
-        log::trace!("Rendering {} objects in scene", objects.len());
+        log::trace!(
+            "Rendering {} objects in scene (boot residual stub)",
+            objects.len()
+        );
         for obj in &objects {
             if obj.is_alive() {
                 self.render_object(obj, _render_pass);
@@ -9019,13 +9030,23 @@ impl CnCGameEngine {
         }
     }
 
+    #[allow(dead_code)] // Legacy stub: selection_renderer + PresentationFrame own production path
     fn render_selection_indicators(&self, _render_pass: &mut wgpu::RenderPass) {
-        // Render selection circles around selected objects
+        // Prefer presentation selected residual when installed (no live find_object dual-read).
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            let n = frame
+                .objects
+                .iter()
+                .filter(|o| o.selected && !o.destroyed)
+                .count();
+            log::trace!(
+                "Legacy stub: presentation selected count={n} (selection_renderer is sole path)"
+            );
+            return;
+        }
+        // Boot residual only.
         for &object_id in &self.selected_objects {
-            if let Some(_obj) = self.game_logic.find_object(object_id) {
-                // Render selection circle (simplified)
-                // In a full implementation, this would render a proper selection indicator
-            }
+            let _ = object_id;
         }
     }
 
