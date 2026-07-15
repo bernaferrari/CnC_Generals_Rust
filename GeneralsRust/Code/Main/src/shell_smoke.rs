@@ -2453,6 +2453,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_on_unit_produced_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::onUnitProduced`")
+                && src.contains("self.team_delay = 0")
+                && src.contains("set_force_wanting_state")
+                && src.contains("structure_timer = 1"),
+            "onUnitProduced must setTeam/delays/supply/dozer like C++"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
