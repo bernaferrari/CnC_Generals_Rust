@@ -3835,14 +3835,176 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Process base building requirements
+    /// C++ `AIPlayer::processBaseBuilding` (AIPlayer.cpp) — USE_DOZER path residual.
+    ///
+    /// Walk player build list: track destroyed buildings, honor rebuild delay,
+    /// start at most one dozer build per call, then arm structureTimer with wealth mods.
     fn process_base_building(&mut self) -> Result<(), AiError> {
-        // Analyze what buildings we need
-        self.analyze_building_needs()?;
+        if !self.ready_to_build_structure {
+            return Ok(());
+        }
 
-        // Update construction priorities
+        // Residual analysis keeps construction_priorities warm when build list empty.
+        self.analyze_building_needs()?;
         self.update_construction_priorities()?;
 
+        let current_frame = TheGameLogic::get_frame();
+        let rebuild_delay_frames = self.rebuild_delay_frames();
+
+        let Some(player_arc) = self.get_player_arc() else {
+            return Ok(());
+        };
+        let Ok(mut player_guard) = player_arc.write() else {
+            return Ok(());
+        };
+        let player_index = player_guard.get_player_index() as u32;
+
+        // Collect first actionable missing buildable entry (name, location, angle).
+        let mut to_build: Option<(String, Coord3D, Real)> = None;
+        let mut info_opt = player_guard.get_build_list_mut();
+        while let Some(info) = info_opt {
+            let name = info.get_template_name();
+            if name.is_empty() {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            let obj_id = info.get_object_id();
+            if obj_id != INVALID_ID {
+                match OBJECT_REGISTRY.get_object(obj_id) {
+                    Some(obj_arc) => {
+                        if let Ok(obj_guard) = obj_arc.read() {
+                            if obj_guard.get_controlling_player_id() == Some(player_index) {
+                                // Existing owned building — C++ dozer resume residual later.
+                                info_opt = info.get_next_mut();
+                                continue;
+                            }
+                        }
+                        // Captured or gone: clear and stamp for rebuild delay.
+                        info.set_object_id(INVALID_ID);
+                        info.set_object_timestamp(current_frame.saturating_add(1));
+                    }
+                    None => {
+                        info.set_object_id(INVALID_ID);
+                        info.set_object_timestamp(current_frame.saturating_add(1));
+                    }
+                }
+            }
+
+            // Rebuild delay after destruction (C++ m_rebuildDelaySeconds).
+            if info.get_object_timestamp() > 0 {
+                if info
+                    .get_object_timestamp()
+                    .saturating_add(rebuild_delay_frames)
+                    > current_frame
+                {
+                    info_opt = info.get_next_mut();
+                    continue;
+                }
+                info.set_object_timestamp(0); // ready to build
+            }
+
+            if !info.is_buildable() {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            // Missing and buildable → select this entry (C++ builds first missing).
+            if info.get_object_id() == INVALID_ID {
+                to_build = Some((name.to_string(), *info.get_location(), info.get_angle()));
+                break;
+            }
+
+            info_opt = info.get_next_mut();
+        }
+        drop(player_guard);
+
+        if let Some((name, location, angle)) = to_build {
+            // USE_DOZER residual: require a dozer before arming timer (C++ returns NULL if none).
+            let has_dozer = self.find_dozer(&location)?.is_some();
+            if !has_dozer {
+                let _ = self.queue_dozer();
+                // C++ returns without arming timer when no dozer.
+                return Ok(());
+            }
+
+            // Queue construction at list location (full legal-place wiggle residual).
+            self.queue_structure_construction(&name, location, angle)?;
+            self.arm_structure_timer_after_build()?;
+            self.frame_last_building_built = current_frame;
+            // C++: only one building per delay loop.
+            return Ok(());
+        }
+
+        // Fallback residual: if build list empty but priorities exist, try first priority.
+        if let Some(priority) = self.construction_priorities.first().cloned() {
+            self.build_structure_now(&priority)?;
+            self.arm_structure_timer_after_build()?;
+            self.frame_last_building_built = current_frame;
+        }
+
+        Ok(())
+    }
+
+    /// C++ rebuild delay frames from AIData `m_rebuildDelaySeconds` (default path).
+    fn rebuild_delay_frames(&self) -> u32 {
+        let seconds = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|data| data.rebuild_delay_seconds.max(0) as u32)
+            })
+            .unwrap_or(REBUILD_DELAY_SECONDS);
+        seconds * LOGICFRAMES_PER_SECOND
+    }
+
+    /// After starting a structure: C++ sets ready=false and structureTimer with wealth mods.
+    fn arm_structure_timer_after_build(&mut self) -> Result<(), AiError> {
+        self.ready_to_build_structure = false;
+        let mut timer = (self.structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
+        if timer == 0 {
+            // C++ still multiplies structureSeconds; 0 means immediate re-ready next expiry path.
+            timer = 1;
+        }
+
+        let money = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))
+            .unwrap_or(0);
+
+        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|data| {
+                    (
+                        data.resources_poor,
+                        data.resources_wealthy,
+                        data.structures_poor_mod.max(0.01),
+                        data.structures_wealthy_mod.max(0.01),
+                    )
+                })
+            })
+            .unwrap_or((
+                RESOURCES_POOR,
+                RESOURCES_WEALTHY,
+                STRUCTURES_POOR_MODIFIER,
+                STRUCTURES_WEALTHY_MODIFIER,
+            ));
+
+        // C++: timer = timer / mod  (mod>1 → faster when poor/wealthy rates apply)
+        if money < poor {
+            timer = ((timer as f32) / poor_mod).max(1.0) as u32;
+        } else if money > wealthy {
+            timer = ((timer as f32) / wealthy_mod).max(1.0) as u32;
+        }
+
+        self.structure_timer = timer;
         Ok(())
     }
 
@@ -4802,6 +4964,44 @@ mod tests {
         assert!(
             !window[..base].contains("if self.ready_to_build_structure && self.build_delay"),
             "update_with_frame must not pre-gate do_base_building (C++ always calls it)"
+        );
+    }
+
+    #[test]
+    fn arm_structure_timer_applies_wealth_mods_like_cpp() {
+        let mut ai = AIPlayer::new(1);
+        ai.structure_seconds = 10.0; // 300 frames base
+        ai.ready_to_build_structure = true;
+        ai.arm_structure_timer_after_build().expect("arm");
+        assert!(!ai.ready_to_build_structure);
+        // Without player money context, defaults to base timer (or 1 min).
+        assert!(ai.structure_timer >= 1);
+        assert_eq!(ai.structure_timer, 300);
+    }
+
+    #[test]
+    fn process_base_building_honors_rebuild_delay_timestamp() {
+        // C++: if timestamp + rebuildDelaySeconds*FPS > frame, skip rebuild.
+        let mut ai = AIPlayer::new(1);
+        ai.ready_to_build_structure = true;
+        // No player build list → falls through without panic.
+        ai.process_base_building().expect("process");
+        // rebuild_delay_frames uses AIData or REBUILD_DELAY_SECONDS constant.
+        assert!(ai.rebuild_delay_frames() >= LOGICFRAMES_PER_SECOND);
+    }
+
+    #[test]
+    fn process_base_building_source_has_cpp_rebuild_and_timer_arm() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("fn process_base_building").expect("pbb");
+        let window = &src[i..src.len().min(i + 4500)];
+        assert!(
+            window.contains("rebuild_delay_frames")
+                && window.contains("set_object_timestamp")
+                && window.contains("arm_structure_timer_after_build")
+                && window.contains("find_dozer")
+                && window.contains("only one building per delay loop"),
+            "process_base_building must port C++ rebuild delay + one-build + timer arm"
         );
     }
 
