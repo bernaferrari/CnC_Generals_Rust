@@ -6305,9 +6305,8 @@ impl CnCGameEngine {
             } else {
                 self.game_logic.update_with_dt(dt);
             }
-            if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
-                self.apply_script_fps_limit_request(fps);
-            }
+            // Script FPS applied from presentation residual after snapshot build (below).
+            // Live take remains for boot path when no frame is produced this tick.
 
             // Single-authority policy: Main GameLogic is the match host by default.
             // Dual-tick of the ported gamelogic crate is opt-in (GENERALS_ALLOW_DUAL_TICK)
@@ -6383,6 +6382,16 @@ impl CnCGameEngine {
                 log::trace!("presentation particle client mirrors: {fx_n}");
             }
             self.last_presentation_frame = Some(pres);
+
+            // Prefer presentation script FPS residual; drain live queue after apply.
+            if let Some(fps) = self
+                .last_presentation_frame
+                .as_ref()
+                .and_then(|p| p.script_fps_limit)
+            {
+                self.apply_script_fps_limit_request(fps);
+            }
+            let _ = self.game_logic.take_script_fps_limit_request();
 
             #[cfg(feature = "game_client")]
             {
@@ -6474,21 +6483,44 @@ impl CnCGameEngine {
             self.apply_pending_script_camera_requests();
         }
 
-        for popup in self.game_logic.take_popup_message_requests() {
-            if popup.pause {
-                self.game_paused = true;
-                self.game_logic.set_paused(true);
+        // Prefer presentation popup/music residual when installed; live take is boot residual.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            for popup in &pres.pending_popup_messages {
+                if popup.pause {
+                    self.game_paused = true;
+                    self.game_logic.set_paused(true);
+                }
+                if popup.pause_music {
+                    if let Some(sink) = self.background_music.take() {
+                        sink.stop();
+                    }
+                }
             }
-            if popup.pause_music {
+            if pres.pending_music_stop {
                 if let Some(sink) = self.background_music.take() {
                     sink.stop();
                 }
             }
-        }
+            // Drain live queues so peeked presentation fields are not re-applied.
+            let _ = self.game_logic.take_popup_message_requests();
+            let _ = self.game_logic.take_music_stop_request();
+        } else {
+            for popup in self.game_logic.take_popup_message_requests() {
+                if popup.pause {
+                    self.game_paused = true;
+                    self.game_logic.set_paused(true);
+                }
+                if popup.pause_music {
+                    if let Some(sink) = self.background_music.take() {
+                        sink.stop();
+                    }
+                }
+            }
 
-        if self.game_logic.take_music_stop_request() {
-            if let Some(sink) = self.background_music.take() {
-                sink.stop();
+            if self.game_logic.take_music_stop_request() {
+                if let Some(sink) = self.background_music.take() {
+                    sink.stop();
+                }
             }
         }
 
