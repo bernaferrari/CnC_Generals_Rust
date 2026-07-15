@@ -1775,6 +1775,17 @@ pub struct PresentationPlayerInfo {
     pub is_local: bool,
 }
 
+/// Frozen script popup residual (C++ ScriptPopupMessageRequest parity).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationPopupMessage {
+    pub message: String,
+    pub x_percent: i32,
+    pub y_percent: i32,
+    pub width: i32,
+    pub pause: bool,
+    pub pause_music: bool,
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -1841,7 +1852,7 @@ pub struct PresentationFrame {
     /// Pending music-stop request residual.
     pub pending_music_stop: bool,
     /// Pending popup message texts residual (fail-closed layout).
-    pub pending_popup_messages: Vec<String>,
+    pub pending_popup_messages: Vec<PresentationPopupMessage>,
     /// Script time-freeze residual.
     pub script_time_frozen: bool,
     /// Script camera time-freeze residual.
@@ -2479,7 +2490,14 @@ impl PresentationFrame {
             pending_popup_messages: logic
                 .peek_pending_popup_messages()
                 .iter()
-                .map(|p| p.message.clone())
+                .map(|p| PresentationPopupMessage {
+                    message: p.message.clone(),
+                    x_percent: p.x_percent,
+                    y_percent: p.y_percent,
+                    width: p.width,
+                    pause: p.pause,
+                    pause_music: p.pause_music,
+                })
                 .take(16)
                 .collect(),
             script_time_frozen: logic.is_script_time_frozen(),
@@ -4429,7 +4447,11 @@ impl PresentationFrame {
         ui.pending_movie = self.pending_movie.clone();
         ui.pending_radar_movie = self.pending_radar_movie.clone();
         ui.pending_music_stop = self.pending_music_stop;
-        ui.pending_popup_messages = self.pending_popup_messages.clone();
+        ui.pending_popup_messages = self
+            .pending_popup_messages
+            .iter()
+            .map(|p| p.message.clone())
+            .collect();
         ui.script_time_frozen = self.script_time_frozen;
         ui.script_camera_time_frozen = self.script_camera_time_frozen;
         ui.time_frozen_for_simulation = self.time_frozen_for_simulation;
@@ -6780,7 +6802,7 @@ mod tests {
         assert!(frame
             .pending_popup_messages
             .iter()
-            .any(|m| m.contains("hold the line")));
+            .any(|m| m.message.contains("hold the line")));
 
         let mut ui = crate::ui::GameUIState::default();
         frame.apply_to_ui_state(&mut ui);

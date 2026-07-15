@@ -1018,3 +1018,10 @@ drains live `take_*` queues without double-apply. Live take path remains
 boot/menu residual. Fail-closed: ease curves not frozen on frame (duration-only);
 `camera_follow_target_position` still live.
 
+### Presentation popup/music/fps residual (2026-07-14)
+
+`PresentationPopupMessage` freezes pause/pause_music flags. InGame prefers
+presentation popup + `pending_music_stop` + `script_fps_limit`, then drains live
+`take_*` queues. Live takes remain boot residual. Fail-closed: movie playback
+path not fully presentation-owned yet.
+
