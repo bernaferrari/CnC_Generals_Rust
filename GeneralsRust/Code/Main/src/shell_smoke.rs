@@ -1946,6 +1946,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_popup_music_fps_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("struct PresentationPopupMessage")
+                && pf.contains("pause_music: p.pause_music")
+                && eng.contains("Prefer presentation popup/music residual")
+                && eng.contains("Prefer presentation script FPS residual")
+                && eng.contains("pres.pending_music_stop")
+                && eng.contains("p.script_fps_limit"),
+            "popup/music/fps must prefer presentation freeze over live take dual-read"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
