@@ -538,3 +538,11 @@ patterns (`address += 1` over `for _ in range`). Keeps O(1) cell walk semantics.
 `apply_host_construction_events` so completed structures are mapped (spawn-like
 residual). Fail-closed: not full GameWorld construction-module authority.
 
+### Skirmish WND ButtonStart residual (2026-07-14)
+
+`click_skirmish_start` prefers retail `SkirmishGameOptionsMenu.wnd:ButtonStart`
+via `GadgetSelected` when `GENERALS_RUNTIME_HOST_WND` allows shell push, then
+drains NewGame immediately. Falls back to Main SkirmishMenu mouse residual.
+Executable smoke enables WND when `DISPLAY` is set (xvfb). `playable_claim`
+still false (not full interactive retail navigation).
+

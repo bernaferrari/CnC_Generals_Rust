@@ -1969,8 +1969,10 @@ impl CnCGameEngine {
                 }
             }
             "click_skirmish_start" => {
-                // Real UI path: left-click Start on SkirmishMenu (not direct start_game).
-                // Same handle_mouse_click → UIEvent::StartGame path as interactive input.
+                // Prefer retail WND ButtonStart (GadgetSelected) when shell push is
+                // enabled; fall back to Main SkirmishMenu mouse residual.
+                // Not direct start_game — both paths still go through start_game_from_ui
+                // (WND via NewGame drain on next Menu tick).
                 self.set_runtime_host_ui_screen_override(Some("Skirmish"));
                 if self.ui_manager.current_screen() != Some(Screen::Skirmish) {
                     self.ui_manager.transition_to_screen(Screen::Skirmish);
@@ -1985,26 +1987,83 @@ impl CnCGameEngine {
                     .ui_manager
                     .skirmish_menu_mut()
                     .configure_slot_medium_ai(1);
-                match self
-                    .ui_manager
-                    .skirmish_menu_mut()
-                    .simulate_start_button_click()
+
+                let mut wnd_start_ok = false;
+                #[cfg(feature = "game_client")]
                 {
-                    Some(crate::ui::UIEvent::StartGame {
-                        mode,
-                        faction,
-                        map,
-                        skirmish,
-                    }) => {
-                        self.start_game_from_ui(mode, faction, map, skirmish);
-                        self.runtime_host_last_gameplay_cmd = "click_skirmish_start_ok".into();
+                    let push_wnd = std::env::var("GENERALS_RUNTIME_HOST_WND")
+                        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+                        .unwrap_or(true);
+                    if push_wnd {
+                        self.enter_shell_screen_from_runtime_host(
+                            Some("Skirmish"),
+                            "Menus/SkirmishGameOptionsMenu.wnd",
+                        );
+                        // Bind control IDs + selected map into WND state when possible.
+                        if let Some(map) = args.get("map") {
+                            let mut setup = game_client::gui::get_skirmish_setup();
+                            setup.set_selected_map(map.clone());
+                            setup.game_info_mut().game_info_mut().set_map(map.clone());
+                        }
+                        wnd_start_ok = game_client::gui::callbacks::simulate_skirmish_start_button_gadget_selected();
+                        if wnd_start_ok {
+                            // WND path posts NewGame; drain immediately so headless host
+                            // does not wait for next Menu tick.
+                            if let Some((mode, faction, map, skirmish)) =
+                                self.take_pending_new_game_start_request()
+                            {
+                                self.start_game_from_ui(mode, faction, map, skirmish);
+                                self.runtime_host_last_gameplay_cmd =
+                                    "click_skirmish_start_ok_wnd".into();
+                            } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested(
+                            ) {
+                                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+                                if let Some((mode, faction, map, skirmish)) =
+                                    self.build_start_request_from_pending_globals(None)
+                                {
+                                    self.start_game_from_ui(mode, faction, map, skirmish);
+                                    self.runtime_host_last_gameplay_cmd =
+                                        "click_skirmish_start_ok_wnd".into();
+                                } else {
+                                    self.runtime_host_last_gameplay_cmd =
+                                        "click_skirmish_start_wnd_pending".into();
+                                }
+                            } else {
+                                self.runtime_host_last_gameplay_cmd =
+                                    "click_skirmish_start_wnd_pending".into();
+                            }
+                        }
                     }
-                    Some(other) => {
-                        self.ui_manager.queue_event(other);
-                        self.runtime_host_last_gameplay_cmd = "click_skirmish_start_event".into();
-                    }
-                    None => {
-                        self.runtime_host_last_gameplay_cmd = "click_skirmish_start_miss".into();
+                }
+
+                if !wnd_start_ok
+                    && !self
+                        .runtime_host_last_gameplay_cmd
+                        .starts_with("click_skirmish_start_ok")
+                {
+                    match self
+                        .ui_manager
+                        .skirmish_menu_mut()
+                        .simulate_start_button_click()
+                    {
+                        Some(crate::ui::UIEvent::StartGame {
+                            mode,
+                            faction,
+                            map,
+                            skirmish,
+                        }) => {
+                            self.start_game_from_ui(mode, faction, map, skirmish);
+                            self.runtime_host_last_gameplay_cmd = "click_skirmish_start_ok".into();
+                        }
+                        Some(other) => {
+                            self.ui_manager.queue_event(other);
+                            self.runtime_host_last_gameplay_cmd =
+                                "click_skirmish_start_event".into();
+                        }
+                        None => {
+                            self.runtime_host_last_gameplay_cmd =
+                                "click_skirmish_start_miss".into();
+                        }
                     }
                 }
             }
