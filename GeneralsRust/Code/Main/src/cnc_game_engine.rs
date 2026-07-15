@@ -6537,7 +6537,12 @@ impl CnCGameEngine {
         }
 
         let alliance_events = self.game_logic.take_alliance_events();
-        let local_player_id = self.game_logic.local_player_id();
+        // Prefer presentation local_player residual when installed; live only boot/menu.
+        let local_player_id = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|f| f.local_player_id)
+            .or_else(|| self.game_logic.local_player_id());
         let mut observer_notified = false;
         for event in alliance_events {
             let is_local = local_player_id == Some(event.player_id);
