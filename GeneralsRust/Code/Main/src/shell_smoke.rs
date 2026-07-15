@@ -2153,6 +2153,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_military_caption_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            pf.contains("military_caption_remaining_ms")
+                && gl.contains("fn military_caption_remaining_ms")
+                && gc.contains("fn apply_presentation_military_caption")
+                && eng.contains("apply_presentation_military_caption")
+                && eng.contains("pres.military_caption_remaining_ms"),
+            "presentation military caption must freeze remaining_ms and apply to InGameUI"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

@@ -35080,6 +35080,22 @@ impl GameLogic {
         self.military_caption.as_ref().map(|(t, _)| t.as_str())
     }
 
+    /// Remaining military caption lifetime in milliseconds (0 if expired/absent).
+    pub fn military_caption_remaining_ms(&self) -> Option<i32> {
+        self.military_caption.as_ref().map(|(_, expiry)| {
+            let rem = (*expiry - self.sim_time_seconds).max(0.0);
+            (rem * 1000.0).round() as i32
+        })
+    }
+
+    /// Remaining cinematic text lifetime in milliseconds.
+    pub fn cinematic_text_remaining_ms(&self) -> Option<i32> {
+        self.cinematic_text.as_ref().map(|(_, expiry)| {
+            let rem = (*expiry - self.sim_time_seconds).max(0.0);
+            (rem * 1000.0).round() as i32
+        })
+    }
+
     pub fn radar_script_enabled(&self) -> bool {
         self.radar_enabled
     }

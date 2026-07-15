@@ -1225,7 +1225,7 @@ impl InGameUISubsystem {
         self.hud_messages.push_back(message);
     }
 
-    fn push_military_subtitle(&mut self, label: &str, duration_ms: i32) {
+    pub fn push_military_subtitle(&mut self, label: &str, duration_ms: i32) {
         const MAX_MILITARY_SUBTITLES: usize = 8;
         if self.military_subtitles.len() == MAX_MILITARY_SUBTITLES {
             self.military_subtitles.pop_front();

@@ -6466,6 +6466,11 @@ impl CnCGameEngine {
                     if let Some(pres) = self.last_presentation_frame.as_ref() {
                         self.game_client
                             .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);
+                        // Military caption residual → InGameUI (duration from freeze).
+                        self.game_client.apply_presentation_military_caption(
+                            pres.military_caption.as_deref(),
+                            pres.military_caption_remaining_ms,
+                        );
                     }
                     if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");

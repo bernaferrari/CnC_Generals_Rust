@@ -1095,3 +1095,10 @@ Main applies `PresentationFrame.cinematic_letterbox` to GameClient
 Fail-closed: not full GameClient::update / draw_display dual-own; cinematic
 text/military caption remain UI-state projection only.
 
+### Presentation military caption residual (2026-07-14)
+
+`PresentationFrame` freezes `military_caption_remaining_ms` from host expiry.
+Main applies caption text+duration to GameClient InGameUI via
+`apply_presentation_military_caption`. Fail-closed: cinematic_text still
+UI-state only; not sole GameWorld authority.
+
