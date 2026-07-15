@@ -232,6 +232,8 @@ pub struct Entity {
     pub ground_height: f32,
     /// True when ground_height came from terrain sample (not default-0).
     pub ground_height_from_terrain: bool,
+    /// Host Object::engine_object_id.is_some residual (bridged factory id).
+    pub engine_bridged: bool,
     /// Host Object::overlord_bunker_capacity residual:
     /// `u16::MAX` = None (not overlord-style).
     pub overlord_bunker_capacity: u16,
@@ -482,6 +484,7 @@ impl EntityStore {
             fow_visibility_falloff: 0.0,
             ground_height: 0.0,
             ground_height_from_terrain: false,
+            engine_bridged: false,
             overlord_bunker_capacity: u16::MAX,
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
