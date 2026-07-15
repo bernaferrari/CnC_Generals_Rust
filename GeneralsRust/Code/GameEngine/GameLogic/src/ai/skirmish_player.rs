@@ -1013,10 +1013,26 @@ impl AISkirmishPlayer {
             .and_then(|ai| {
                 ai.get_ai_data().read().ok().map(|data| {
                     (
-                        data.resources_poor,
-                        data.resources_wealthy,
-                        data.structures_poor_mod,
-                        data.structures_wealthy_mod,
+                        if data.resources_poor > 0 {
+                            data.resources_poor
+                        } else {
+                            crate::ai::ai_player::RESOURCES_POOR
+                        },
+                        if data.resources_wealthy > 0 {
+                            data.resources_wealthy
+                        } else {
+                            crate::ai::ai_player::RESOURCES_WEALTHY
+                        },
+                        if data.structures_poor_mod > 0.0 {
+                            data.structures_poor_mod
+                        } else {
+                            crate::ai::ai_player::STRUCTURES_POOR_MODIFIER
+                        },
+                        if data.structures_wealthy_mod > 0.0 {
+                            data.structures_wealthy_mod
+                        } else {
+                            crate::ai::ai_player::STRUCTURES_WEALTHY_MODIFIER
+                        },
                     )
                 })
             })
@@ -1079,10 +1095,26 @@ impl AISkirmishPlayer {
             .and_then(|ai| {
                 ai.get_ai_data().read().ok().map(|data| {
                     (
-                        data.resources_poor,
-                        data.resources_wealthy,
-                        data.team_poor_mod,
-                        data.team_wealthy_mod,
+                        if data.resources_poor > 0 {
+                            data.resources_poor
+                        } else {
+                            crate::ai::ai_player::RESOURCES_POOR
+                        },
+                        if data.resources_wealthy > 0 {
+                            data.resources_wealthy
+                        } else {
+                            crate::ai::ai_player::RESOURCES_WEALTHY
+                        },
+                        if data.team_poor_mod > 0.0 {
+                            data.team_poor_mod
+                        } else {
+                            crate::ai::ai_player::TEAMS_POOR_MODIFIER
+                        },
+                        if data.team_wealthy_mod > 0.0 {
+                            data.team_wealthy_mod
+                        } else {
+                            crate::ai::ai_player::TEAMS_WEALTHY_MODIFIER
+                        },
                     )
                 })
             })
