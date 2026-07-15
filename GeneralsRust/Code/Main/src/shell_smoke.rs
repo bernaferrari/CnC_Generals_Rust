@@ -1761,6 +1761,35 @@ mod tests {
     }
 
     #[test]
+    fn render_execute_passes_none_game_logic_when_presentation_installed() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("set_presentation_frame(self.last_presentation_frame.clone())")
+                && eng.contains("if self.last_presentation_frame.is_some()")
+                && eng.contains("None")
+                && eng.contains("Some(&self.game_logic)"),
+            "engine must pass game_logic: None into RenderPipeline::execute when frame installed"
+        );
+        // Structural: execute call site prefers None when presentation is Some.
+        let idx = eng
+            .find("self.render_pipeline.execute(")
+            .expect("execute call");
+        let window = &eng[idx..idx + 450];
+        assert!(
+            window.contains("if self.last_presentation_frame.is_some()")
+                && window.contains("None")
+                && window.contains("Some(&self.game_logic)"),
+            "execute window must gate live GameLogic on missing presentation frame: {window}"
+        );
+        let rp = include_str!("graphics/render_pipeline.rs");
+        assert!(
+            rp.contains(
+                "Boot residual only — presentation unit_render_inputs owns model/transform"
+            ),
+            "pipeline live get_template must be boot residual only"
+        );
+    }
+
     fn defeat_alliance_prefer_presentation_no_live_dual_read_when_frame_installed() {
         let src = include_str!("cnc_game_engine.rs");
         assert!(

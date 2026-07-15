@@ -906,3 +906,10 @@ team/identity resolve from `PresentationFrame` when installed. Live
 `get_player` / `find_object` / `get_objects` remain boot residual only.
 Fail-closed: not full WND widget selection parity.
 
+### Render execute None honesty residual (2026-07-14)
+
+Engine passes `game_logic: None` into `RenderPipeline::execute` when
+`last_presentation_frame` is installed. Live `get_template` / transform collect
+is boot residual only. Fail-closed: mesh asset filesystem resolve still outside
+snapshot.
+
