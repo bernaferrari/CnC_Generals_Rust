@@ -760,3 +760,10 @@ count/hp, AI attitude, camo opacity, vision-spied mask, and cheer timer.
 Fail-closed: not full Gattling spin FSM / HiveStructureBody / stealth camo FX
 authority.
 
+### Presentation transport-kind/damage residual (2026-07-14)
+
+`RenderableObject` freezes transport-kind markers (humvee/listening outpost/
+troop crawler/helix), overlord addons, demo-suicide detonating, turret holding,
+and last damage source host id. Fail-closed: not full TransportContain /
+OverlordContain / BodyModule damage-source FSM authority.
+
