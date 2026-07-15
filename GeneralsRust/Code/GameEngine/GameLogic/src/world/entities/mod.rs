@@ -226,6 +226,34 @@ pub struct Entity {
     pub is_combat_chinook_transport: bool,
     /// Host Object::contained_by residual as host object id (0 = free).
     pub contained_by_host: u32,
+    /// Host Object::cheer_timer residual.
+    pub cheer_timer: f32,
+    /// Host Object::overcharge_enabled residual.
+    pub overcharge_enabled: bool,
+    /// Host Object::active_weapon_slot residual.
+    pub active_weapon_slot: u8,
+    /// Host Object::guard_radius residual.
+    pub guard_radius: f32,
+    /// Host Object::applied_upgrades.len residual.
+    pub applied_upgrade_count: u16,
+    /// Host Object::special_power_ready residual.
+    pub special_power_ready: bool,
+    /// Host Object::special_power_cooldown residual (full duration seconds).
+    pub special_power_cooldown: f32,
+    /// Host Object::special_power_cooldown_remaining residual.
+    pub special_power_cooldown_remaining: f32,
+    /// Host Object::is_detector residual.
+    pub is_detector: bool,
+    /// Host Object::detection_range residual.
+    pub detection_range: f32,
+    /// Host Object::detection_rate_frames residual.
+    pub detection_rate_frames: u32,
+    /// Host Object::stealth_breaks_on_attack residual.
+    pub stealth_breaks_on_attack: bool,
+    /// Host Object::stealth_breaks_on_move residual.
+    pub stealth_breaks_on_move: bool,
+    /// Host Object::innate_stealth residual.
+    pub innate_stealth: bool,
 }
 
 impl Entity {
@@ -365,6 +393,20 @@ impl EntityStore {
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by_host: 0,
+            cheer_timer: 0.0,
+            overcharge_enabled: false,
+            active_weapon_slot: 0,
+            guard_radius: 0.0,
+            applied_upgrade_count: 0,
+            special_power_ready: false,
+            special_power_cooldown: 0.0,
+            special_power_cooldown_remaining: 0.0,
+            is_detector: false,
+            detection_range: 0.0,
+            detection_rate_frames: 0,
+            stealth_breaks_on_attack: false,
+            stealth_breaks_on_move: false,
+            innate_stealth: false,
         };
 
         self.alive.insert(id, entity);

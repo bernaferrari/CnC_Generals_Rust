@@ -695,3 +695,10 @@ tunnel / combat chinook), `combat_cycle_rider`, and `contained_by_host`.
 `sync_from_host_with` copies them each tick. Fail-closed: not full
 OpenContain/RiderChangeContain/TunnelContain matrix authority.
 
+### GameWorld entity detector/sp residual (2026-07-14)
+
+`Entity` carries cheer/overcharge/weapon-slot, `guard_radius`,
+`applied_upgrade_count`, special-power ready/cooldown residual, and detector /
+innate-stealth flags. `sync_from_host_with` copies them each tick. Fail-closed:
+not full SpecialPowerTemplate / StealthDetectorUpdate / upgrade-module authority.
+
