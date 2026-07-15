@@ -3309,6 +3309,7 @@ impl GameClient {
         };
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
+        // Eva residual runs via update_post_draw_ui (no dual input/audio ownership).
         self.update_drawables_local(visual_delta)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
