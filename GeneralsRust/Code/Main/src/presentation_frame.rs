@@ -1321,6 +1321,74 @@ pub struct PresentationBridgeSegment {
 /// Lets lighting / shell / map-name / bounds / heightmap-hint / roads consumers avoid
 /// re-locking live `GameLogic` mid-frame when a presentation snapshot is set.
 /// Fail-closed: not a full SAGE heightmap mesh or dirty-rect road stream.
+/// Frozen runtime heightmap for terrain-visual bake without live GameLogic.
+/// Mirrors `game_client::terrain::height_map::HeightMap` POD fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresentationRuntimeHeightmap {
+    pub width: u32,
+    pub height: u32,
+    pub heights: Vec<f32>,
+    pub max_height: f32,
+    pub scale: f32,
+    pub min_height: f32,
+    pub height_range: f32,
+    pub border_size: i32,
+    pub tile_ndxes: Vec<i16>,
+    pub blend_tile_ndxes: Vec<i16>,
+    pub draw_origin_x: i32,
+    pub draw_origin_y: i32,
+    pub draw_width: i32,
+    pub draw_height: i32,
+}
+
+impl PresentationRuntimeHeightmap {
+    #[cfg(feature = "game_client")]
+    pub fn from_height_map(hm: &game_client::terrain::height_map::HeightMap) -> Self {
+        Self {
+            width: hm.width,
+            height: hm.height,
+            heights: hm.heights.clone(),
+            max_height: hm.max_height,
+            scale: hm.scale,
+            min_height: hm.min_height,
+            height_range: hm.height_range,
+            border_size: hm.border_size,
+            tile_ndxes: hm.tile_ndxes.clone(),
+            blend_tile_ndxes: hm.blend_tile_ndxes.clone(),
+            draw_origin_x: hm.draw_origin_x,
+            draw_origin_y: hm.draw_origin_y,
+            draw_width: hm.draw_width,
+            draw_height: hm.draw_height,
+        }
+    }
+
+    #[cfg(feature = "game_client")]
+    pub fn to_height_map(&self) -> game_client::terrain::height_map::HeightMap {
+        game_client::terrain::height_map::HeightMap {
+            width: self.width,
+            height: self.height,
+            heights: self.heights.clone(),
+            max_height: self.max_height,
+            scale: self.scale,
+            min_height: self.min_height,
+            height_range: self.height_range,
+            border_size: self.border_size,
+            tile_ndxes: self.tile_ndxes.clone(),
+            blend_tile_ndxes: self.blend_tile_ndxes.clone(),
+            draw_origin_x: self.draw_origin_x,
+            draw_origin_y: self.draw_origin_y,
+            draw_width: self.draw_width,
+            draw_height: self.draw_height,
+        }
+    }
+
+    pub fn is_usable(&self) -> bool {
+        self.width > 0
+            && self.height > 0
+            && self.heights.len() == (self.width as usize).saturating_mul(self.height as usize)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationWorldEnv {
     pub map_name: String,
@@ -1354,6 +1422,8 @@ pub struct PresentationWorldEnv {
     pub road_segments: Vec<PresentationRoadSegment>,
     /// Bridge segments frozen for terrain-road bake.
     pub bridge_segments: Vec<PresentationBridgeSegment>,
+    /// Full runtime heightmap freeze for terrain-visual bake (no live GameLogic).
+    pub runtime_heightmap: Option<PresentationRuntimeHeightmap>,
 }
 
 impl PresentationWorldEnv {
@@ -1436,6 +1506,13 @@ impl PresentationWorldEnv {
             })
             .unwrap_or_default();
 
+        #[cfg(feature = "game_client")]
+        let runtime_heightmap = logic
+            .terrain_heightmap_snapshot()
+            .map(|hm| PresentationRuntimeHeightmap::from_height_map(&hm));
+        #[cfg(not(feature = "game_client"))]
+        let runtime_heightmap = None;
+
         Self {
             map_name: logic.get_current_map_name().trim().to_string(),
             world_min: [wmin.x, wmin.y, wmin.z],
@@ -1462,6 +1539,7 @@ impl PresentationWorldEnv {
             height_samples_from_terrain,
             road_segments,
             bridge_segments,
+            runtime_heightmap,
         }
     }
 
@@ -6992,5 +7070,56 @@ mod tests {
             frame.particle_systems.len() as u32
         );
         assert!(frame.dual_tick.honesty_apply_ok());
+    }
+}
+
+#[cfg(test)]
+mod runtime_heightmap_residual_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_heightmap_roundtrip_preserves_samples() {
+        let hm = PresentationRuntimeHeightmap {
+            width: 2,
+            height: 2,
+            heights: vec![0.0, 0.25, 0.5, 1.0],
+            max_height: 100.0,
+            scale: 10.0,
+            min_height: 0.0,
+            height_range: 100.0,
+            border_size: 0,
+            tile_ndxes: vec![],
+            blend_tile_ndxes: vec![],
+            draw_origin_x: 0,
+            draw_origin_y: 0,
+            draw_width: 2,
+            draw_height: 2,
+        };
+        assert!(hm.is_usable());
+        assert!(!PresentationRuntimeHeightmap::default().is_usable());
+        #[cfg(feature = "game_client")]
+        {
+            let back = PresentationRuntimeHeightmap::from_height_map(&hm.to_height_map());
+            assert_eq!(back.heights, hm.heights);
+            assert_eq!(back.width, 2);
+        }
+    }
+
+    #[test]
+    fn map_load_heightmap_bake_passes_none_game_logic() {
+        let eng = include_str!("cnc_game_engine.rs");
+        // After presentation freeze, runtime terrain bake must not pass Some(game_logic).
+        let idx = eng
+            .find("load_heightmap_from_runtime_terrain")
+            .expect("call site");
+        let window = &eng[idx..idx + 280];
+        assert!(
+            window.contains("None"),
+            "expected None game_logic at map-load height bake, got: {window}"
+        );
+        assert!(
+            !window.contains("Some(game_logic)"),
+            "map-load height bake must not dual-read live GameLogic"
+        );
     }
 }

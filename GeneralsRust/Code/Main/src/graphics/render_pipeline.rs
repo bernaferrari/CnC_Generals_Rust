@@ -2541,11 +2541,28 @@ impl RenderPipeline {
     ) -> Result<bool> {
         #[cfg(feature = "game_client")]
         {
-            let Some(gl) = game_logic else {
-                return Ok(false);
-            };
-            let Some(heightmap) = gl.terrain_heightmap_snapshot() else {
-                return Ok(false);
+            // Prefer presentation-frozen heightmap (no live GameLogic dual-read).
+            // When a presentation frame is installed, never re-query live terrain
+            // (empty freeze is fail-closed). Boot residual may pass Some(game_logic)
+            // only when no frame is set.
+            let heightmap = if let Some(pres) = self.presentation_frame.as_ref() {
+                let Some(frozen) = pres
+                    .world_env
+                    .runtime_heightmap
+                    .as_ref()
+                    .filter(|h| h.is_usable())
+                else {
+                    return Ok(false);
+                };
+                frozen.to_height_map()
+            } else {
+                let Some(gl) = game_logic else {
+                    return Ok(false);
+                };
+                let Some(hm) = gl.terrain_heightmap_snapshot() else {
+                    return Ok(false);
+                };
+                hm
             };
             let heightmap_resolution = (heightmap.width, heightmap.height);
 
@@ -2561,13 +2578,17 @@ impl RenderPipeline {
                         .as_ref()
                         .map(std::path::PathBuf::from)
                 })
-                .or_else(|| gl.heightmap_hint().map(|p| p.to_path_buf()));
+                .or_else(|| game_logic.and_then(|gl| gl.heightmap_hint().map(|p| p.to_path_buf())));
             let source_hint_ref = source_hint_owned.as_deref();
             let world_bounds = self
                 .presentation_frame
                 .as_ref()
                 .map(|p| p.world_env.world_bounds_vec3())
-                .unwrap_or_else(|| gl.world_bounds());
+                .or_else(|| game_logic.map(|gl| gl.world_bounds()))
+                .unwrap_or((
+                    glam::Vec3::new(-500.0, 0.0, -500.0),
+                    glam::Vec3::new(500.0, 0.0, 500.0),
+                ));
             let world_size = (
                 (world_bounds.1.x - world_bounds.0.x).abs().max(1.0),
                 (world_bounds.1.z - world_bounds.0.z).abs().max(1.0),
@@ -2583,10 +2604,13 @@ impl RenderPipeline {
                         .map_err(|e| {
                             anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e)
                         })?;
+                    // Texture classes still boot-residual from live logic when provided.
+                    // Presentation path (None) skips — height mesh alone is enough for bake.
                     let source_tile_classes: Vec<
                         game_client::terrain::terrain_visual::TerrainSourceTileClass,
-                    > = gl
-                        .terrain_texture_classes_snapshot()
+                    > = game_logic
+                        .map(|gl| gl.terrain_texture_classes_snapshot())
+                        .unwrap_or_default()
                         .into_iter()
                         .map(
                             |class| game_client::terrain::terrain_visual::TerrainSourceTileClass {
