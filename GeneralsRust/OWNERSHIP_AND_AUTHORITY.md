@@ -740,3 +740,10 @@ detector FOW pulse authority.
 `get_command_set_string` dual-reads when a frame is installed. Fail-closed: not
 full multi-select intersection / prerequisite / ScriptOnly filter matrix.
 
+### Presentation battle-plan weapon-bonus residual (2026-07-14)
+
+`RenderableObject` freezes Strategy Center battle-plan weapon-bonus flags
+(bombardment / hold-the-line / search-and-destroy). UI/FX can read plan buffs
+without live Object dual-reads. Fail-closed: not full BattlePlanUpdate /
+sight-scalar / plan-switch FSM authority.
+
