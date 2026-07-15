@@ -1340,3 +1340,14 @@ Compared C++ AIPlayer:
 - `onStructureProduced`: build-list match, clear UC + upgrades, supply stamp,
   rebuild-hole retarget residual.
 
+### buildSpecificAITeam / recruitSpecificAITeam (2026-07-14)
+
+Compared C++ AIPlayer:
+
+- `buildSpecificAITeam`: canBuildUnits, singleton+priority, isPossibleToBuildTeam
+  (money-only still queues), optional then required work orders, createInactiveTeam,
+  priority prepend, teamDelay=0.
+- `recruitSpecificAITeam`: createInactiveTeam, tryToRecruit to max, MoveTo home,
+  ready-queue if any else disband non-singleton.
+- Work-order helper matches optional/required split.
+
