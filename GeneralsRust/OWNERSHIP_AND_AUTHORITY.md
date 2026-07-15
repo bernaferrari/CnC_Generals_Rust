@@ -954,3 +954,9 @@ installed (UnitSelect/UnitCommand/…). Synthetic rodio tones remain boot residu
 only. `MoveOrdered` maps to `UnitMove` in `apply_events_to_audio`. Fail-closed:
 not Miles spatial device parity.
 
+### Same-frame presentation audio process residual (2026-07-14)
+
+After `PresentationFrame::apply_events_to_audio`, engine calls
+`GameLogic::process_audio_events` so presentation-queued SFX drain same frame
+(not delayed to next host tick). Fail-closed: not Miles device spatial parity.
+

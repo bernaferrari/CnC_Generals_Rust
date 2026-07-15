@@ -6374,6 +6374,8 @@ impl CnCGameEngine {
             if audio_n > 0 {
                 log::trace!("presentation audio events queued: {audio_n}");
             }
+            // Same-frame residual: drain presentation-queued audio now (not next host tick).
+            self.game_logic.process_audio_events();
             self.last_presentation_frame = Some(pres);
 
             #[cfg(feature = "game_client")]
@@ -9208,6 +9210,9 @@ impl CnCGameEngine {
             };
             self.game_logic
                 .queue_audio_event(crate::game_logic::AudioEventRequest::new(kind));
+            // Input residual may land mid-frame after host process_audio_events —
+            // drain immediately so Select/Command is not delayed one tick.
+            self.game_logic.process_audio_events();
             return;
         }
 
