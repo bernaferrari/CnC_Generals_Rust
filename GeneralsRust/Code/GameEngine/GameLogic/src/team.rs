@@ -2217,6 +2217,13 @@ impl game_engine::common::thing::thing_factory::Team for Team {
 }
 
 /// Team prototype (matching C++ TeamPrototype functionality)
+/// Runtime state for C++ `TeamPrototype::evaluateProductionCondition`.
+#[derive(Debug, Default)]
+struct ProductionConditionRuntime {
+    always_false: bool,
+    script: Option<Script>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TeamPrototype {
     // Identity
@@ -2247,6 +2254,8 @@ pub struct TeamPrototype {
     production_priority_success_increase: Int,
     production_priority_failure_decrease: Int,
     production_condition: AsciiString,
+    /// C++ m_productionConditionAlwaysFalse + m_productionConditionScript (shared runtime).
+    production_condition_runtime: Arc<Mutex<ProductionConditionRuntime>>,
     execute_actions_on_create: Bool,
     team_generic_scripts: [AsciiString; MAX_GENERIC_SCRIPTS],
     generic_script_runtime: Arc<Mutex<Vec<Option<Script>>>>,
@@ -2294,6 +2303,9 @@ impl TeamPrototype {
             production_priority_success_increase: 0,
             production_priority_failure_decrease: 0,
             production_condition: String::new().into(),
+            production_condition_runtime: Arc::new(Mutex::new(
+                ProductionConditionRuntime::default(),
+            )),
             execute_actions_on_create: false,
             team_generic_scripts: std::array::from_fn(|_| String::new().into()),
             generic_script_runtime: Arc::new(Mutex::new(vec![None; MAX_GENERIC_SCRIPTS])),
@@ -2516,6 +2528,111 @@ impl TeamPrototype {
 
     pub fn set_production_condition(&mut self, production_condition: AsciiString) {
         self.production_condition = production_condition;
+        // Changing the named condition invalidates any cached always-false / script copy.
+        if let Ok(mut rt) = self.production_condition_runtime.lock() {
+            rt.always_false = false;
+            rt.script = None;
+        }
+    }
+
+    /// C++ `TeamPrototype::evaluateProductionCondition` (Team.cpp).
+    ///
+    /// Loads/caches the productionCondition script, gates on player difficulty flags,
+    /// honors delay-eval frame, and evaluates conditions for the controlling player.
+    pub fn evaluate_production_condition(&self) -> Bool {
+        let Ok(mut rt) = self.production_condition_runtime.lock() else {
+            return false;
+        };
+        if rt.always_false {
+            return false;
+        }
+
+        // Already have a local script copy — periodic / immediate eval.
+        if rt.script.is_some() {
+            let current_frame = crate::helpers::TheGameLogic::get_frame();
+            if let Some(script) = rt.script.as_mut() {
+                if current_frame < script.frame_to_evaluate_at {
+                    return false;
+                }
+                let delay_seconds = script.delay_evaluation_seconds;
+                if delay_seconds > 0 {
+                    script.frame_to_evaluate_at = current_frame.saturating_add(
+                        (delay_seconds as u32).saturating_mul(LOGICFRAMES_PER_SECOND as u32),
+                    );
+                }
+            }
+            let player_name = self.controlling_player_name();
+            let script_engine = get_script_engine();
+            let Ok(mut eng) = script_engine.write() else {
+                return false;
+            };
+            let Some(engine) = eng.as_mut() else {
+                return false;
+            };
+            if let Some(script) = rt.script.as_mut() {
+                return engine.evaluate_conditions(script, None, player_name.as_deref());
+            }
+            return false;
+        }
+
+        // No script yet — resolve from name.
+        let cond_name = self.production_condition.to_string();
+        if cond_name.is_empty() {
+            rt.always_false = true;
+            return false;
+        }
+
+        let script_engine = get_script_engine();
+        let Ok(mut eng) = script_engine.write() else {
+            return false;
+        };
+        let Some(engine) = eng.as_mut() else {
+            return false;
+        };
+        let Some(mut script) = engine.find_script_clone_by_name(&cond_name) else {
+            rt.always_false = true;
+            return false;
+        };
+
+        // Difficulty gate (C++ isEasy/isNormal/isHard on script).
+        let difficulty = self.controlling_player_difficulty();
+        let ok_for_diff = match difficulty {
+            crate::player::GameDifficulty::Easy => script.easy,
+            crate::player::GameDifficulty::Normal => script.normal,
+            crate::player::GameDifficulty::Hard | crate::player::GameDifficulty::Brutal => {
+                script.hard
+            }
+        };
+        if !ok_for_diff {
+            rt.always_false = true;
+            return false;
+        }
+
+        let player_name = self.controlling_player_name();
+        let result = engine.evaluate_conditions(&mut script, None, player_name.as_deref());
+        rt.script = Some(script);
+        result
+    }
+
+    fn controlling_player_name(&self) -> Option<String> {
+        let owner = self.owner_name.to_string();
+        if owner.is_empty() {
+            return None;
+        }
+        Some(owner)
+    }
+
+    fn controlling_player_difficulty(&self) -> crate::player::GameDifficulty {
+        let owner = self.owner_name.to_string();
+        if owner.is_empty() {
+            return crate::player::GameDifficulty::Normal;
+        }
+        player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.find_player_by_name(&owner))
+            .and_then(|p| p.read().ok().map(|g| g.get_player_difficulty()))
+            .unwrap_or(crate::player::GameDifficulty::Normal)
     }
 
     pub fn get_execute_actions_on_create(&self) -> Bool {
@@ -3676,6 +3793,21 @@ mod tests {
             .expect("default prototype should be created");
         assert!(default_prototype.get_production_condition().is_empty());
         assert!(!default_prototype.get_execute_actions_on_create());
+    }
+
+    #[test]
+    fn evaluate_production_condition_empty_is_false() {
+        let proto = TeamPrototype::new("NoCondTeam".into());
+        // C++: empty productionCondition → always false thereafter.
+        assert!(!proto.evaluate_production_condition());
+        assert!(!proto.evaluate_production_condition());
+    }
+
+    #[test]
+    fn evaluate_production_condition_missing_script_is_false() {
+        let mut proto = TeamPrototype::new("MissingScriptTeam".into());
+        proto.set_production_condition("DoesNotExist_ScriptXYZ".into());
+        assert!(!proto.evaluate_production_condition());
     }
 
     #[test]
