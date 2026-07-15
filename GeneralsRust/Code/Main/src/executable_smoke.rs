@@ -130,19 +130,26 @@ fn write_control(path: &Path, lines: &[&str]) -> std::io::Result<()> {
 
 fn kill_stale_runtime_host_generals(exe: &Path) {
     // Fail-soft: prior smoke / cargo runs can leave a hanging `generals` holding
-    // GPU/display and cause Booting→exit before Menu.
+    // GPU/display and cause Booting→exit before Menu (or Tokio shutdown races).
     #[cfg(unix)]
     {
         let exe_s = exe.to_string_lossy().to_string();
-        // Prefer exact binary path matches (runtime-host first, then any generals).
-        for pat in [format!("{exe_s}.*runtime-host"), format!("{exe_s}")] {
+        // CLI flag is `-runtime_host=headless` (underscore). Also match basename
+        // when the absolute path differs between debug/release invocations.
+        let patterns = [
+            format!("{exe_s}.*runtime_host"),
+            format!("{exe_s}"),
+            "generals.*runtime_host=headless".to_string(),
+        ];
+        for pat in patterns {
             let _ = std::process::Command::new("pkill")
                 .args(["-9", "-f", &pat])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .status();
         }
-        std::thread::sleep(Duration::from_millis(800));
+        // Allow GPU/window teardown before the next spawn.
+        std::thread::sleep(Duration::from_millis(1200));
     }
     let _ = exe;
 }
@@ -225,6 +232,29 @@ fn kill_child(child: &mut Child) {
 /// `use_new_game_path`: when true, drive Start via `queue_new_game` (Menu drain).
 /// When false, use direct `start_game` runtime host command.
 pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> ExecutableSmokeResult {
+    // One automatic retry: Booting early-exit is commonly a stale GPU/lock race after
+    // pkill -9 (no Drop cleanup). Second attempt after a fresh kill is usually green.
+    let first = run_executable_smoke_once(timeout, use_new_game_path);
+    let retryable = matches!(first.status.as_str(), "process_exited" | "timeout" | "no_menu")
+        && !first.reached_menu
+        && !first.reached_ingame;
+    if !retryable {
+        return first;
+    }
+    std::thread::sleep(Duration::from_millis(1500));
+    let second = run_executable_smoke_once(timeout, use_new_game_path);
+    if second.executable_host_ok || second.reached_menu || second.reached_ingame {
+        let mut out = second;
+        out.detail = format!("retry_after_boot_race; first={}; {}", first.detail, out.detail);
+        return out;
+    }
+    // Prefer the more informative failure.
+    let mut out = first;
+    out.detail = format!("retry_also_failed; second={}; {}", second.detail, out.detail);
+    out
+}
+
+fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> ExecutableSmokeResult {
     let mut result = ExecutableSmokeResult {
         playable_claim: false,
         new_game_path: use_new_game_path,
@@ -238,7 +268,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
         return result;
     };
 
-    // Best-effort: prior flaky runs can leave a hanging runtime-host `generals` holding
+    // Best-effort: prior flaky runs can leave a hanging runtime_host `generals` holding
     // the GPU/display; that makes the next Booting exit before Menu.
     kill_stale_runtime_host_generals(&exe);
 
@@ -589,6 +619,29 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn kill_stale_matches_runtime_host_underscore() {
+        let src = include_str!("executable_smoke.rs");
+        let kill_fn = src
+            .split("fn kill_stale_runtime_host_generals")
+            .nth(1)
+            .and_then(|s| s.split("fn resolve_runtime_exe").next())
+            .expect("kill_stale fn body");
+        assert!(
+            kill_fn.contains("runtime_host"),
+            "stale kill must match -runtime_host CLI (underscore)"
+        );
+        assert!(
+            !kill_fn.contains("runtime-host"),
+            "stale kill must not use hyphenated runtime-host pkill pattern"
+        );
+        assert!(
+            kill_fn.contains("generals.*runtime_host") || kill_fn.contains("runtime_host"),
+            "expected runtime_host pkill pattern"
+        );
+    }
+
     use super::*;
 
     #[test]
