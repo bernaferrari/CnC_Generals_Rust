@@ -102,6 +102,10 @@ pub struct PlayerData {
     /// Unlocked science names residual (host Player::unlocked_sciences).
     /// Fail-closed: not full science store / rank / purchase matrix.
     pub unlocked_sciences: Vec<String>,
+    /// Host Player::radar_count residual (CommandCenter / RadarVan providers).
+    pub radar_count: i32,
+    /// Host Player::radar_disabled residual (script/power disable).
+    pub radar_disabled: bool,
 }
 
 impl PlayerData {
@@ -263,6 +267,8 @@ impl World {
                 power_consumed: 0,
                 completed_upgrades: Vec::new(),
                 unlocked_sciences: Vec::new(),
+                radar_count: 0,
+                radar_disabled: false,
             });
         }
         Some(id)

@@ -371,6 +371,8 @@ impl GameWorldShadow {
                                 pd.power_available = p.power_available;
                                 pd.power_produced = p.power_produced;
                                 pd.power_consumed = p.power_consumed;
+                                pd.radar_count = p.radar_count;
+                                pd.radar_disabled = p.radar_disabled;
                                 pd.is_human = p.is_local;
                                 pd.name = p.name.clone();
                                 let (sci, ups) =
@@ -407,6 +409,8 @@ impl GameWorldShadow {
                         pd.power_available = p.power_available;
                         pd.power_produced = p.power_produced;
                         pd.power_consumed = p.power_consumed;
+                        pd.radar_count = p.radar_count;
+                        pd.radar_disabled = p.radar_disabled;
                         let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
                         pd.unlocked_sciences = sci;
                         pd.completed_upgrades = ups;
@@ -420,6 +424,8 @@ impl GameWorldShadow {
                 if let Some(pd) = self.world.player_mut(gw) {
                     pd.power_produced = p.power_produced;
                     pd.power_consumed = p.power_consumed;
+                    pd.radar_count = p.radar_count;
+                    pd.radar_disabled = p.radar_disabled;
                     let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
                     pd.unlocked_sciences = sci;
                     // Merge event-channel completes with absolute host registry snapshot.
@@ -619,6 +625,22 @@ impl GameWorldShadow {
 
     /// Count completed upgrade names across mapped shadow players (probe residual).
     /// True when any shadow player has non-zero produced or consumed power residual.
+    /// True when any shadow player has radar providers or a disabled flag residual.
+    pub fn radar_residual_present(&self) -> bool {
+        self.world
+            .world()
+            .active_players()
+            .any(|(_, p)| p.radar_count != 0 || p.radar_disabled)
+    }
+
+    /// C++ Player::hasRadar residual on any shadow player.
+    pub fn any_player_has_radar(&self) -> bool {
+        self.world
+            .world()
+            .active_players()
+            .any(|(_, p)| p.radar_count > 0 && !p.radar_disabled)
+    }
+
     pub fn power_bar_residual_present(&self) -> bool {
         self.world
             .world()
@@ -1596,6 +1618,47 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_players_copies_radar_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("RadarShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.radar_count = 2;
+            p.radar_disabled = false;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(
+            shadow.radar_residual_present(),
+            "shadow must copy host radar_count"
+        );
+        assert!(
+            shadow.any_player_has_radar(),
+            "hasRadar residual: count>0 && !disabled"
+        );
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.radar_disabled = true;
+        }
+        shadow.sync_from_host(&logic);
+        assert!(
+            shadow.radar_residual_present(),
+            "disabled flag must still be residual-present"
+        );
+        assert!(
+            !shadow.any_player_has_radar(),
+            "disabled radar must fail hasRadar residual"
+        );
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("radar_count") && src.contains("radar_disabled"),
+            "sync_players must refresh radar residual"
+        );
     }
 
     #[test]
