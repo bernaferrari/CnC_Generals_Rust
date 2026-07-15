@@ -55,6 +55,12 @@ pub const MAX_STRUCTURES_TO_REPAIR: usize = 2;
 /// Frames per second for timing calculations (C++ LOGICFRAMES_PER_SECOND)
 pub const LOGICFRAMES_PER_SECOND: u32 = 30;
 
+/// C++ `AIPlayer::doBaseBuilding` recheck: `m_buildDelay = 2*LOGICFRAMES_PER_SECOND`.
+pub const BUILD_DELAY_RECHECK_FRAMES: u32 = 2 * LOGICFRAMES_PER_SECOND;
+
+/// C++ `AIPlayer::doTeamBuilding` recheck: `m_teamDelay = 5*LOGICFRAMES_PER_SECOND`.
+pub const TEAM_DELAY_RECHECK_FRAMES: u32 = 5 * LOGICFRAMES_PER_SECOND;
+
 /// Default delay between team production in seconds (C++ m_teamSeconds)
 pub const DEFAULT_TEAM_SECONDS: f32 = 2.0;
 
@@ -783,47 +789,16 @@ impl AIPlayer {
     /// Timer/analysis prep runs first (Rust residual); attack decisions after the
     /// C++ phase block (host residual — not part of C++ AIPlayer::update).
     pub fn update_with_frame(&mut self, frame: u32) -> Result<(), AiError> {
-        if self.team_timer > 0 {
-            self.team_timer -= 1;
-        } else {
-            self.ready_to_build_team = true;
-            self.team_delay = 0;
-        }
-
-        if self.structure_timer > 0 {
-            self.structure_timer -= 1;
-        } else {
-            self.ready_to_build_structure = true;
-            self.build_delay = 0;
-        }
-
-        if self.build_delay > 0 {
-            self.build_delay -= 1;
-        }
-
-        if self.team_delay > 0 {
-            self.team_delay -= 1;
-        }
-
+        // Analysis residual (not in C++ AIPlayer::update) — keep before build phases.
         self.analyze_economic_situation()?;
         self.analyze_military_situation()?;
         self.analyze_threats()?;
 
-        // --- C++ AIPlayer::update phase order ---
-        if self.ready_to_build_structure && self.build_delay == 0 {
-            self.do_base_building()?;
-            self.process_base_building()?;
-        }
-
+        // --- C++ AIPlayer::update phase order (timers live inside do_* ) ---
+        self.do_base_building()?;
         self.check_ready_teams()?;
         self.check_queued_teams()?;
-
-        if self.ready_to_build_team && self.team_delay == 0 {
-            self.select_team_to_build()?;
-            self.do_team_building()?;
-            self.queue_supply_truck()?;
-        }
-
+        self.do_team_building()?;
         self.do_upgrades_and_skills()?;
         self.update_bridge_repair()?;
         // --- end C++ phase order ---
@@ -1110,35 +1085,14 @@ impl AIPlayer {
     }
 
     /// Update loop variant for skirmish AI that supplies its own base-building logic.
+    ///
+    /// C++ order without `doBaseBuilding` (skirmish overrides base building).
     pub fn update_without_base_building(&mut self) -> Result<(), AiError> {
-        if self.team_timer > 0 {
-            self.team_timer -= 1;
-        } else {
-            self.ready_to_build_team = true;
-            self.team_delay = 0;
-        }
-
-        if self.structure_timer > 0 {
-            self.structure_timer -= 1;
-        } else {
-            self.ready_to_build_structure = true;
-            self.build_delay = 0;
-        }
-
-        if self.build_delay > 0 {
-            self.build_delay -= 1;
-        }
-
-        if self.team_delay > 0 {
-            self.team_delay -= 1;
-        }
-
         self.check_ready_teams()?;
         self.check_queued_teams()?;
         self.do_team_building()?;
         self.do_upgrades_and_skills()?;
         self.update_bridge_repair()?;
-
         Ok(())
     }
 
@@ -1240,9 +1194,14 @@ impl AIPlayer {
         self.skillset_selector = skillset;
     }
 
-    /// Legacy C++-style wrapper for team-building logic.
+    /// C++ `AIPlayer::processTeamBuilding`: selectTeamToBuild then queueUnits.
     pub fn process_team_building(&mut self) -> Result<(), AiError> {
-        self.do_team_building()
+        if self.select_team_to_build()? {
+            let _ = self.queue_units();
+        }
+        // Reinforcement residual (C++ selectTeamToReinforce is separate entry points).
+        let _ = self.select_team_to_reinforce(5)?;
+        Ok(())
     }
 
     /// Check if we have a supply source that's safe
@@ -2920,7 +2879,7 @@ impl AIPlayer {
 
 impl AiPlayerTrait for AIPlayer {
     fn update(&mut self) -> Result<(), AiError> {
-        // Main AI player update
+        // C++ AIPlayer::update order (strategy residual first).
         self.update_strategy()?;
         self.do_base_building()?;
         self.check_ready_teams()?;
@@ -3006,40 +2965,44 @@ impl AiPlayerTrait for AIPlayer {
 
 // Additional implementation methods for base AI functionality
 impl AIPlayer {
-    /// Process base building logic
+    /// C++ `AIPlayer::doBaseBuilding` (AIPlayer.cpp).
+    ///
+    /// structureTimer → readyToBuildStructure; buildDelay throttles processBaseBuilding
+    /// to every `BUILD_DELAY_RECHECK_FRAMES` (2s), shortcut when structure completes.
     fn do_base_building(&mut self) -> Result<(), AiError> {
-        if !self.ready_to_build_structure {
-            // Decrement structure timer with difficulty modifier
-            if self.structure_timer > 0 {
-                self.structure_timer -= 1;
-            }
-
-            if self.structure_timer == 0 {
-                self.ready_to_build_structure = true;
-            }
+        let can_build_base = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+            .and_then(|p| p.read().ok().map(|g| g.get_can_build_base()))
+            .unwrap_or(true);
+        if !can_build_base {
             return Ok(());
         }
 
-        // Get build speed modifier based on resources and difficulty
-        let resource_modifier = self
-            .strategic_decision_maker
-            .resources
-            .get_build_speed_modifier();
-        let _difficulty_modifier = self.difficulty_handler.modifiers.structure_speed_modifier;
+        // See if we are ready to start trying a structure.
+        if !self.ready_to_build_structure {
+            if self.structure_timer > 0 {
+                self.structure_timer -= 1;
+            }
+            if self.structure_timer == 0 {
+                self.ready_to_build_structure = true;
+                self.build_delay = 0; // Cause immediate check
+            }
+        }
 
-        // Select structure to build based on priorities
-        if let Some(priority) = self.construction_priorities.first().cloned() {
-            self.build_structure_now(&priority)?;
-
-            // Reset structure timer with modifiers
-            // Base from C++ AIData: m_structureSeconds
-            let base_seconds = self.structure_seconds;
-            let modified_frames = self
-                .difficulty_handler
-                .modifiers
-                .get_structure_timer_frames(base_seconds);
-            self.structure_timer = (modified_frames as f32 / resource_modifier) as u32;
-            self.ready_to_build_structure = false;
+        // Throttle processBaseBuilding (C++ m_buildDelay).
+        if self.build_delay > 0 {
+            self.build_delay -= 1;
+        }
+        if self.build_delay == 0 {
+            if self.ready_to_build_structure {
+                self.process_base_building()?;
+            }
+            // processBaseBuilding may reset m_buildDelay (C++); only default if still 0.
+            if self.build_delay == 0 {
+                self.build_delay = BUILD_DELAY_RECHECK_FRAMES;
+            }
         }
 
         Ok(())
@@ -3373,67 +3336,43 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Process team building logic
-    /// Matches C++ AIPlayer.cpp doTeamBuilding
-    /// Handles team production timing, resource checks, and reinforcement
+    /// C++ `AIPlayer::doTeamBuilding` (AIPlayer.cpp).
+    ///
+    /// teamTimer → readyToBuildTeam; teamDelay throttles queueUnits + processTeamBuilding
+    /// to every `TEAM_DELAY_RECHECK_FRAMES` (5s), shortcut when unit/building completes.
     fn do_team_building(&mut self) -> Result<(), AiError> {
-        if !self.ready_to_build_team {
-            // Decrement team timer with difficulty modifier
-            if self.team_timer > 0 {
-                self.team_timer -= 1;
-            }
-
-            if self.team_timer == 0 {
-                self.ready_to_build_team = true;
-            }
+        let can_build_units = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+            .and_then(|p| p.read().ok().map(|g| g.get_can_build_units()))
+            .unwrap_or(true);
+        if !can_build_units {
             return Ok(());
         }
 
-        // Get build speed modifier based on resources and difficulty
-        let resource_modifier = self
-            .strategic_decision_maker
-            .resources
-            .get_build_speed_modifier();
-        let _difficulty_modifier = self.difficulty_handler.modifiers.team_speed_modifier;
-
-        // C++ checks if we can afford teams based on current resources
-        let current_money = self
-            .economic_state
-            .current_resources
-            .get("money")
-            .copied()
-            .unwrap_or(0);
-        let can_afford_team = current_money > 500; // Minimum threshold for team building
-
-        // Select team to build based on strategic priorities
-        if can_afford_team && self.select_team_to_build()? {
-            // Team selected and queued
-
-            // Reset team timer with modifiers
-            // Base from C++ AIData: m_teamSeconds (seconds)
-            // Apply difficulty modifier: Easy=slower, Hard=faster
-            let base_seconds = self.team_seconds;
-            let modified_frames = self
-                .difficulty_handler
-                .modifiers
-                .get_team_timer_frames(base_seconds);
-
-            // Apply resource modifier: Poor=slower, Wealthy=faster
-            self.team_timer = (modified_frames as f32 / resource_modifier) as u32;
-            self.ready_to_build_team = false;
+        // See if we are ready to start trying a team.
+        if !self.ready_to_build_team {
+            if self.team_timer > 0 {
+                self.team_timer -= 1;
+            }
+            if self.team_timer == 0 {
+                self.ready_to_build_team = true;
+                self.team_delay = 0; // Cause immediate check
+            }
         }
 
-        // Check for reinforcements needed (minimum priority 5)
-        // C++ checks existing teams and determines if they need reinforcement
-        if self.select_team_to_reinforce(5)? {
-            // Reinforcement team queued
-            let base_seconds = self.team_seconds;
-            let modified_frames = self
-                .difficulty_handler
-                .modifiers
-                .get_team_timer_frames(base_seconds);
-            self.team_timer = (modified_frames as f32 / resource_modifier) as u32;
-            self.ready_to_build_team = false;
+        // Throttle queue/process (C++ m_teamDelay).
+        if self.team_delay > 0 {
+            self.team_delay -= 1;
+        }
+        if self.team_delay == 0 {
+            // C++ always queueUnits on this cadence, then processTeamBuilding if ready.
+            let _ = self.queue_units();
+            if self.ready_to_build_team {
+                self.process_team_building()?;
+            }
+            self.team_delay = TEAM_DELAY_RECHECK_FRAMES;
         }
 
         Ok(())
@@ -4788,6 +4727,81 @@ mod tests {
                 .front()
                 .and_then(|t| t.team_name.as_deref()),
             Some("BuiltTeam")
+        );
+    }
+
+    #[test]
+    fn build_and_team_delay_recheck_constants_match_cpp() {
+        // C++ AIPlayer.cpp: m_buildDelay = 2*LOGICFRAMES_PER_SECOND;
+        //                   m_teamDelay = 5*LOGICFRAMES_PER_SECOND;
+        assert_eq!(BUILD_DELAY_RECHECK_FRAMES, 2 * LOGICFRAMES_PER_SECOND);
+        assert_eq!(TEAM_DELAY_RECHECK_FRAMES, 5 * LOGICFRAMES_PER_SECOND);
+        assert_eq!(BUILD_DELAY_RECHECK_FRAMES, 60);
+        assert_eq!(TEAM_DELAY_RECHECK_FRAMES, 150);
+    }
+
+    #[test]
+    fn do_base_building_sets_2s_build_delay_like_cpp() {
+        let mut ai = AIPlayer::new(1);
+        ai.ready_to_build_structure = true;
+        ai.build_delay = 0;
+        ai.do_base_building().expect("do_base");
+        assert_eq!(
+            ai.build_delay, BUILD_DELAY_RECHECK_FRAMES,
+            "after process attempt, C++ sets buildDelay to 2 seconds"
+        );
+    }
+
+    #[test]
+    fn do_team_building_sets_5s_team_delay_and_queues_like_cpp() {
+        let mut ai = AIPlayer::new(1);
+        ai.ready_to_build_team = true;
+        ai.team_delay = 0;
+        ai.do_team_building().expect("do_team");
+        assert_eq!(
+            ai.team_delay, TEAM_DELAY_RECHECK_FRAMES,
+            "after queue/process attempt, C++ sets teamDelay to 5 seconds"
+        );
+    }
+
+    #[test]
+    fn do_base_building_decrements_structure_timer_until_ready() {
+        let mut ai = AIPlayer::new(1);
+        ai.ready_to_build_structure = false;
+        ai.structure_timer = 2;
+        ai.build_delay = 99;
+        ai.do_base_building().expect("t1");
+        assert!(!ai.ready_to_build_structure);
+        assert_eq!(ai.structure_timer, 1);
+        assert_eq!(
+            ai.build_delay, 98,
+            "while waiting, only structureTimer path; buildDelay still decrements"
+        );
+        // Expiry frame: C++ sets buildDelay=0 then same-frame continues into
+        // buildDelay recheck and sets buildDelay = 2*LOGICFRAMES_PER_SECOND.
+        ai.do_base_building().expect("t2");
+        assert!(ai.ready_to_build_structure);
+        assert_eq!(
+            ai.build_delay, BUILD_DELAY_RECHECK_FRAMES,
+            "same-frame recheck after timer expiry sets 2s delay (C++)"
+        );
+    }
+
+    #[test]
+    fn update_with_frame_source_order_matches_cpp_do_methods() {
+        // Source-order honesty: do_base → check_ready → check_queued → do_team
+        // (delays are inside do_*, not pre-gated in update_with_frame).
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("pub fn update_with_frame").expect("uwf");
+        let window = &src[i..src.len().min(i + 1600)];
+        let base = window.find("self.do_base_building()?").expect("base");
+        let ready = window.find("self.check_ready_teams()?").expect("ready");
+        let queued = window.find("self.check_queued_teams()?").expect("queued");
+        let team = window.find("self.do_team_building()?").expect("team");
+        assert!(base < ready && ready < queued && queued < team);
+        assert!(
+            !window[..base].contains("if self.ready_to_build_structure && self.build_delay"),
+            "update_with_frame must not pre-gate do_base_building (C++ always calls it)"
         );
     }
 
