@@ -1080,5 +1080,5 @@ live `GameLogic::game_mode`. Fail-closed: still not sole GameWorld authority.
 
 Load-screen init expands slots from full `PresentationFrame.players` when
 installed (not local-only). Live `get_player` remains boot residual.
-Fail-closed: `is_ai` inferred as `!is_local` until AI flag is frozen on roster.
+`is_ai` frozen from host AI manager membership on `PresentationPlayerInfo`.
 

@@ -2116,12 +2116,17 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/src/cnc_game_engine.rs"
         ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
         assert!(
-            eng.contains("Prefer full presentation roster when installed")
+            pf.contains("is_ai: logic.ai_manager_contains_player(id)")
+                && eng.contains("Prefer full presentation roster when installed")
                 && eng.contains("frame.players.is_empty()")
-                && eng.contains("Fail-closed: is_ai not frozen on roster; skirmish non-local")
+                && eng.contains("is_ai: player.is_ai")
                 && eng.contains("visible: player.is_alive"),
-            "load-screen init must expand slots from full presentation player roster"
+            "load-screen init must expand slots from full presentation player roster with is_ai"
         );
     }
 
