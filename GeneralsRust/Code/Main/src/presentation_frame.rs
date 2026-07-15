@@ -1321,6 +1321,15 @@ pub struct PresentationBridgeSegment {
 /// Lets lighting / shell / map-name / bounds / heightmap-hint / roads consumers avoid
 /// re-locking live `GameLogic` mid-frame when a presentation snapshot is set.
 /// Fail-closed: not a full SAGE heightmap mesh or dirty-rect road stream.
+/// Frozen terrain source-tile class for visual bake without live GameLogic.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresentationTerrainTextureClass {
+    pub first_tile: i32,
+    pub num_tiles: i32,
+    pub width: i32,
+    pub name: String,
+}
+
 /// Frozen runtime heightmap for terrain-visual bake without live GameLogic.
 /// Mirrors `game_client::terrain::height_map::HeightMap` POD fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1424,6 +1433,8 @@ pub struct PresentationWorldEnv {
     pub bridge_segments: Vec<PresentationBridgeSegment>,
     /// Full runtime heightmap freeze for terrain-visual bake (no live GameLogic).
     pub runtime_heightmap: Option<PresentationRuntimeHeightmap>,
+    /// Terrain texture classes freeze for source-tile bake without live GameLogic.
+    pub terrain_texture_classes: Vec<PresentationTerrainTextureClass>,
 }
 
 impl PresentationWorldEnv {
@@ -1512,6 +1523,16 @@ impl PresentationWorldEnv {
             .map(|hm| PresentationRuntimeHeightmap::from_height_map(&hm));
         #[cfg(not(feature = "game_client"))]
         let runtime_heightmap = None;
+        let terrain_texture_classes: Vec<PresentationTerrainTextureClass> = logic
+            .terrain_texture_classes_snapshot()
+            .into_iter()
+            .map(|c| PresentationTerrainTextureClass {
+                first_tile: c.first_tile,
+                num_tiles: c.num_tiles,
+                width: c.width,
+                name: c.name,
+            })
+            .collect();
 
         Self {
             map_name: logic.get_current_map_name().trim().to_string(),
@@ -1540,6 +1561,7 @@ impl PresentationWorldEnv {
             road_segments,
             bridge_segments,
             runtime_heightmap,
+            terrain_texture_classes,
         }
     }
 
@@ -7120,6 +7142,47 @@ mod runtime_heightmap_residual_tests {
         assert!(
             !window.contains("Some(game_logic)"),
             "map-load height bake must not dual-read live GameLogic"
+        );
+    }
+
+    #[test]
+    fn terrain_texture_classes_freeze_fields_roundtrip() {
+        let c = PresentationTerrainTextureClass {
+            first_tile: 1,
+            num_tiles: 4,
+            width: 64,
+            name: "Dirt".into(),
+        };
+        assert_eq!(c.first_tile, 1);
+        assert_eq!(c.name, "Dirt");
+        let env = PresentationWorldEnv {
+            terrain_texture_classes: vec![c.clone()],
+            ..Default::default()
+        };
+        assert_eq!(env.terrain_texture_classes.len(), 1);
+        assert_eq!(env.terrain_texture_classes[0], c);
+    }
+
+    #[test]
+    fn heightmap_bake_consumes_presentation_texture_classes() {
+        let rp = include_str!("graphics/render_pipeline.rs");
+        // Method-call chain may be line-broken (world_env.\n.terrain_texture_classes).
+        assert!(
+            rp.contains("terrain_texture_classes"),
+            "render pipeline must read presentation terrain_texture_classes"
+        );
+        let idx = rp
+            .find("source_tile_classes")
+            .expect("source_tile_classes site");
+        let window = &rp[idx..idx + 1600];
+        assert!(
+            window.contains("presentation_frame") && window.contains("terrain_texture_classes"),
+            "source_tile_classes must come from presentation freeze: {window}"
+        );
+        // Live snapshot only on boot residual branch (else game_logic).
+        assert!(
+            window.contains("} else {") && window.contains("terrain_texture_classes_snapshot"),
+            "boot residual may keep live snapshot only in else branch: {window}"
         );
     }
 }

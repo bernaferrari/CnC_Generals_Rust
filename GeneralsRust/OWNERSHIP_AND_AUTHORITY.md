@@ -506,3 +506,10 @@ POD at snapshot build. Map-load terrain visual bake prefers that freeze and
 calls `load_heightmap_from_runtime_terrain(..., None)` so the path cannot
 dual-read live `GameLogic`. Boot without presentation may still pass live logic.
 
+### Presentation terrain texture-class freeze (2026-07-14)
+
+`PresentationWorldEnv.terrain_texture_classes` freezes blend-tile texture
+classes at snapshot build. Heightmap/source-tile bake prefers that freeze when
+a presentation frame is installed (no live `terrain_texture_classes_snapshot`
+dual-read). Boot without presentation may still pass live logic.
+

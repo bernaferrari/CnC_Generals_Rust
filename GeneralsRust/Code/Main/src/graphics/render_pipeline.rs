@@ -2604,23 +2604,38 @@ impl RenderPipeline {
                         .map_err(|e| {
                             anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e)
                         })?;
-                    // Texture classes still boot-residual from live logic when provided.
-                    // Presentation path (None) skips — height mesh alone is enough for bake.
+                    // Prefer presentation-frozen texture classes; boot residual may
+                    // still read live logic only when no presentation frame is set.
                     let source_tile_classes: Vec<
                         game_client::terrain::terrain_visual::TerrainSourceTileClass,
-                    > = game_logic
-                        .map(|gl| gl.terrain_texture_classes_snapshot())
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(
-                            |class| game_client::terrain::terrain_visual::TerrainSourceTileClass {
-                                first_tile: class.first_tile,
-                                num_tiles: class.num_tiles,
-                                width: class.width,
-                                name: class.name,
-                            },
-                        )
-                        .collect();
+                    > = if let Some(pres) = self.presentation_frame.as_ref() {
+                        pres.world_env
+                            .terrain_texture_classes
+                            .iter()
+                            .map(|class| {
+                                game_client::terrain::terrain_visual::TerrainSourceTileClass {
+                                    first_tile: class.first_tile,
+                                    num_tiles: class.num_tiles,
+                                    width: class.width,
+                                    name: class.name.clone(),
+                                }
+                            })
+                            .collect()
+                    } else {
+                        game_logic
+                            .map(|gl| gl.terrain_texture_classes_snapshot())
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|class| {
+                                game_client::terrain::terrain_visual::TerrainSourceTileClass {
+                                    first_tile: class.first_tile,
+                                    num_tiles: class.num_tiles,
+                                    width: class.width,
+                                    name: class.name,
+                                }
+                            })
+                            .collect()
+                    };
                     if !source_tile_classes.is_empty() {
                         match visual.load_source_tiles_from_texture_classes(&source_tile_classes) {
                             Ok(loaded) => debug!(
