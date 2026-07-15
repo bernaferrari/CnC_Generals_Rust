@@ -1104,6 +1104,8 @@ pub struct GameClient {
     last_visual_time_frame: u32,
     next_drawable_id: DrawableId,
     local_player_id: i32,
+    /// Last presentation military caption applied (avoid per-frame re-push).
+    last_applied_military_caption: Option<String>,
 
     // Drawable management
     drawable_map: std::collections::HashMap<DrawableId, Box<dyn Drawable>>,
@@ -1281,6 +1283,7 @@ impl GameClient {
             last_visual_time_frame: u32::MAX,
             next_drawable_id: DrawableId(1),
             local_player_id: 0,
+            last_applied_military_caption: None,
             drawable_map: std::collections::HashMap::with_capacity(super::DRAWABLE_HASH_SIZE),
             drawable_object_map: std::collections::HashMap::new(),
             drawable_toc: Vec::new(),
@@ -3301,6 +3304,33 @@ impl GameClient {
                 display.enable_letter_box(enabled);
             }
         }
+    }
+
+    /// Apply presentation military caption residual to InGameUI subsystem.
+    ///
+    /// C++ military subtitle residual; duration from presentation freeze.
+    pub fn apply_presentation_military_caption(
+        &mut self,
+        caption: Option<&str>,
+        remaining_ms: Option<i32>,
+    ) {
+        let text = caption.filter(|t| !t.is_empty());
+        // Only push when caption text changes (presentation freezes each frame).
+        if self.last_applied_military_caption.as_deref() == text {
+            return;
+        }
+        self.last_applied_military_caption = text.map(|t| t.to_string());
+        let Some(text) = text else {
+            return;
+        };
+        let Some(ref ui) = self.subsystem_manager.in_game_ui else {
+            return;
+        };
+        let Ok(mut ui) = ui.lock() else {
+            return;
+        };
+        let ms = remaining_ms.unwrap_or(10_000).max(0);
+        ui.push_military_subtitle(text, ms);
     }
 
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
