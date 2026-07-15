@@ -369,6 +369,8 @@ impl GameWorldShadow {
                             if let Some(pd) = self.world.player_mut(gw) {
                                 pd.supplies = p.resources.supplies;
                                 pd.power_available = p.power_available;
+                                pd.power_produced = p.power_produced;
+                                pd.power_consumed = p.power_consumed;
                                 pd.is_human = p.is_local;
                                 pd.name = p.name.clone();
                                 let (sci, ups) =
@@ -403,6 +405,8 @@ impl GameWorldShadow {
                     if let Some(pd) = self.world.player_mut(gw) {
                         pd.supplies = p.resources.supplies;
                         pd.power_available = p.power_available;
+                        pd.power_produced = p.power_produced;
+                        pd.power_consumed = p.power_consumed;
                         let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
                         pd.unlocked_sciences = sci;
                         pd.completed_upgrades = ups;
@@ -410,17 +414,21 @@ impl GameWorldShadow {
                 }
             }
         }
-        // Always refresh science/upgrade residual for mapped players (covers rebuild paths).
+        // Always refresh science/upgrade/power-bar residual for mapped players.
         for (hid, gw) in self.host_player_to_gw.clone() {
-            if let Some(pd) = self.world.player_mut(gw) {
-                let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
-                pd.unlocked_sciences = sci;
-                // Merge event-channel completes with absolute host registry snapshot.
-                let mut merged = pd.completed_upgrades.clone();
-                merged.extend(ups);
-                merged.sort();
-                merged.dedup();
-                pd.completed_upgrades = merged;
+            if let Some(p) = logic.get_player(hid) {
+                if let Some(pd) = self.world.player_mut(gw) {
+                    pd.power_produced = p.power_produced;
+                    pd.power_consumed = p.power_consumed;
+                    let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
+                    pd.unlocked_sciences = sci;
+                    // Merge event-channel completes with absolute host registry snapshot.
+                    let mut merged = pd.completed_upgrades.clone();
+                    merged.extend(ups);
+                    merged.sort();
+                    merged.dedup();
+                    pd.completed_upgrades = merged;
+                }
             }
         }
     }
@@ -610,6 +618,14 @@ impl GameWorldShadow {
     }
 
     /// Count completed upgrade names across mapped shadow players (probe residual).
+    /// True when any shadow player has non-zero produced or consumed power residual.
+    pub fn power_bar_residual_present(&self) -> bool {
+        self.world
+            .world()
+            .active_players()
+            .any(|(_, p)| p.power_produced != 0 || p.power_consumed != 0)
+    }
+
     pub fn unlocked_science_count(&self) -> usize {
         self.world
             .world()
@@ -1580,6 +1596,39 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_players_copies_power_produced_consumed() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PowerBarShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.power_produced = 120;
+            p.power_consumed = 45;
+            p.power_available = 75;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(
+            shadow.power_bar_residual_present(),
+            "shadow must copy host power_produced/consumed"
+        );
+        let pd = shadow
+            .world
+            .world()
+            .active_players()
+            .map(|(_, p)| p)
+            .find(|p| p.power_produced == 120 && p.power_consumed == 45)
+            .expect("mapped power bar player");
+        assert_eq!(pd.power_available, 75);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("power_produced") && src.contains("power_consumed"),
+            "sync_players must refresh power bar residual"
+        );
     }
 
     #[test]
