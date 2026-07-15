@@ -832,3 +832,10 @@ waypoints, production queue head, secondary weapon, and has_mine onto
 presentation. Fail-closed: not full multi-item production queue / garrison ID
 list authority.
 
+### Legacy render stub presentation residual (2026-07-14)
+
+Dead `render_game_objects` / `render_selection_indicators` stubs prefer
+`last_presentation_frame` identity and avoid live `get_objects`/`find_object`
+dual-reads when a snapshot is installed. Production path remains
+RenderPipeline + selection_renderer. Fail-closed: stubs still not active draw.
+

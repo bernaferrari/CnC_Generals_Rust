@@ -1761,6 +1761,25 @@ mod tests {
     }
 
     #[test]
+    fn legacy_render_stubs_prefer_presentation_identity() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains(
+                "Prefer presentation identity when installed (no live get_objects dual-read)"
+            ),
+            "render_game_objects stub must prefer presentation"
+        );
+        assert!(
+            eng.contains("Prefer presentation selected residual when installed (no live find_object dual-read)"),
+            "render_selection_indicators stub must prefer presentation"
+        );
+        assert!(
+            eng.contains("selection_renderer is sole path"),
+            "must document selection_renderer as production path"
+        );
+    }
+
+    #[test]
     fn host_smoke_applies_skirmish_and_advances_frames() {
         let r = run_shell_smoke(8);
         assert!(r.host_constructed, "host only after apply: {}", r.detail);
