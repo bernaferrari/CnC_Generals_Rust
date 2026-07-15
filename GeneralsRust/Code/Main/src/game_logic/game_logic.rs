@@ -35718,6 +35718,54 @@ impl GameLogic {
             .or_else(|| self.team_base_position(team))
     }
 
+    pub fn peek_pending_screen_shakes(
+        &self,
+    ) -> &[crate::game_logic::mission_scripts::ScreenShakeRequest] {
+        &self.pending_screen_shakes
+    }
+
+    pub fn peek_script_skybox_enabled(&self) -> bool {
+        self.script_skybox_enabled
+    }
+
+    pub fn peek_script_superweapon_display_enabled(&self) -> bool {
+        self.script_superweapon_display_enabled
+    }
+
+    pub fn peek_script_named_timer_display_shown(&self) -> bool {
+        self.script_named_timer_display_shown
+    }
+
+    pub fn peek_script_superweapon_hidden_objects(
+        &self,
+    ) -> &std::collections::HashSet<crate::game_logic::ObjectId> {
+        &self.script_superweapon_hidden_objects
+    }
+
+    pub fn queue_pending_screen_shake(&mut self, intensity: i32) {
+        self.pending_screen_shakes
+            .push(crate::game_logic::mission_scripts::ScreenShakeRequest { intensity });
+    }
+
+    pub fn set_script_skybox_enabled_for_test(&mut self, enabled: bool) {
+        self.script_skybox_enabled = enabled;
+    }
+
+    pub fn set_script_superweapon_display_enabled_for_test(&mut self, enabled: bool) {
+        self.script_superweapon_display_enabled = enabled;
+    }
+
+    pub fn set_script_named_timer_display_shown_for_test(&mut self, shown: bool) {
+        self.script_named_timer_display_shown = shown;
+    }
+
+    pub fn hide_script_superweapon_object_for_test(
+        &mut self,
+        object_id: crate::game_logic::ObjectId,
+    ) {
+        self.script_superweapon_hidden_objects.insert(object_id);
+    }
+
     pub fn peek_pending_camera_zoom(
         &self,
     ) -> Option<&crate::game_logic::mission_scripts::CameraZoomRequest> {

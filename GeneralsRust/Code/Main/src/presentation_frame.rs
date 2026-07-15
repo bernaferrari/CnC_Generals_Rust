@@ -1632,6 +1632,16 @@ pub struct PresentationFrame {
     pub named_timers: Vec<(String, String, bool)>,
     /// Cameo flash residual (button, count).
     pub cameo_flash: Vec<(String, i32)>,
+    /// Pending screen-shake intensities residual.
+    pub screen_shakes: Vec<i32>,
+    /// Script skybox enable residual.
+    pub script_skybox_enabled: bool,
+    /// Superweapon display enable residual.
+    pub superweapon_display_enabled: bool,
+    /// Named-timer display shown residual.
+    pub named_timer_display_shown: bool,
+    /// Hidden superweapon object ids residual.
+    pub superweapon_hidden_objects: Vec<u32>,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
@@ -2175,6 +2185,25 @@ impl PresentationFrame {
                 flashes.sort_by(|a, b| a.0.cmp(&b.0));
                 flashes.truncate(16);
                 flashes
+            },
+            screen_shakes: logic
+                .peek_pending_screen_shakes()
+                .iter()
+                .map(|s| s.intensity)
+                .take(8)
+                .collect(),
+            script_skybox_enabled: logic.peek_script_skybox_enabled(),
+            superweapon_display_enabled: logic.peek_script_superweapon_display_enabled(),
+            named_timer_display_shown: logic.peek_script_named_timer_display_shown(),
+            superweapon_hidden_objects: {
+                let mut ids: Vec<u32> = logic
+                    .peek_script_superweapon_hidden_objects()
+                    .iter()
+                    .map(|id| id.0)
+                    .collect();
+                ids.sort_unstable();
+                ids.truncate(32);
+                ids
             },
             fow_shell_bypass,
             fow_grid,
@@ -3182,6 +3211,11 @@ impl PresentationFrame {
         ui.camera_slave_disable = self.camera_slave_disable;
         ui.named_timers = self.named_timers.clone();
         ui.cameo_flash = self.cameo_flash.clone();
+        ui.screen_shakes = self.screen_shakes.clone();
+        ui.script_skybox_enabled = self.script_skybox_enabled;
+        ui.superweapon_display_enabled = self.superweapon_display_enabled;
+        ui.named_timer_display_shown = self.named_timer_display_shown;
+        ui.superweapon_hidden_objects = self.superweapon_hidden_objects.clone();
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
@@ -4827,6 +4861,33 @@ mod tests {
             "expected ProductionComplete: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn presentation_feeds_shake_skybox_superweapon() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.queue_pending_screen_shake(2);
+        logic.queue_pending_screen_shake(5);
+        logic.set_script_skybox_enabled_for_test(true);
+        logic.set_script_superweapon_display_enabled_for_test(false);
+        logic.set_script_named_timer_display_shown_for_test(true);
+        logic.hide_script_superweapon_object_for_test(crate::game_logic::ObjectId(42));
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(frame.screen_shakes.contains(&2));
+        assert!(frame.screen_shakes.contains(&5));
+        assert!(frame.script_skybox_enabled);
+        assert!(!frame.superweapon_display_enabled);
+        assert!(frame.named_timer_display_shown);
+        assert!(frame.superweapon_hidden_objects.contains(&42));
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert!(ui.screen_shakes.contains(&5));
+        assert!(ui.script_skybox_enabled);
+        assert!(!ui.superweapon_display_enabled);
+        assert!(ui.named_timer_display_shown);
+        assert!(ui.superweapon_hidden_objects.contains(&42));
     }
 
     #[test]
