@@ -596,3 +596,10 @@ snapshot time. Defeat notifications and alliance radar prefer the roster when
 a frame is installed. Live `GameLogic::get_player` remains residual without a
 matching roster entry.
 
+### GameWorld upgrade-complete residual (2026-07-14)
+
+`WorldMutation::CompleteUpgrade` records completed host upgrade names on
+`PlayerData.completed_upgrades`. Shadow session applies
+`host_upgrades().completed_this_frame_snapshot()` each tick. Fail-closed: not
+full PlayerUpgradeManager / science tree / unit effect matrix authority.
+
