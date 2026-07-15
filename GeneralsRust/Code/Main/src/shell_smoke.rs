@@ -3018,3 +3018,31 @@ mod presentation_camera_bounds_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod presentation_minimap_bounds_tests {
+    #[test]
+    fn minimap_viewport_prefers_presentation_bounds() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("fn update_minimap_viewport")
+            .expect("update_minimap_viewport");
+        let window = &eng[idx..idx + 700];
+        assert!(
+            window.contains("last_presentation_frame") && window.contains("world_bounds_vec3"),
+            "minimap viewport must prefer presentation world_env bounds"
+        );
+        assert!(
+            window.contains("game_logic.world_bounds()"),
+            "boot residual without frame may still use host bounds"
+        );
+        // Radar pings also prefer presentation bounds near the UI overlay path.
+        let radar_idx = eng.find("update_radar_pings").expect("update_radar_pings");
+        let radar_window = &eng[radar_idx.saturating_sub(350)..radar_idx + 80];
+        assert!(
+            radar_window.contains("last_presentation_frame")
+                && radar_window.contains("world_bounds_vec3"),
+            "radar pings must prefer presentation world_env bounds"
+        );
+    }
+}
