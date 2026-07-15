@@ -224,13 +224,15 @@ impl WorkOrder {
 /// Team in the build/ready queue
 #[derive(Debug)]
 pub struct TeamInQueue {
-    pub work_orders: Vec<WorkOrder>,  // List of work orders for this team
-    pub priority_build: bool,         // True if specifically requested
-    pub team_name: Option<String>,    // Team that units go into
-    pub frame_started: u32,           // Frame we started building
-    pub sent_to_start_location: bool, // Has team been sent to start location
-    pub stop_queueing: bool,          // True to stop building new units
-    pub reinforcement: bool,          // True if reinforcing existing team
+    pub work_orders: Vec<WorkOrder>, // List of work orders for this team
+    pub priority_build: bool,        // True if specifically requested
+    pub team_name: Option<String>,   // Team that units go into
+    /// C++ `TeamInQueue::m_team` — concrete team instance (not just name).
+    pub team: Option<Arc<RwLock<crate::team::Team>>>,
+    pub frame_started: u32,                 // Frame we started building
+    pub sent_to_start_location: bool,       // Has team been sent to start location
+    pub stop_queueing: bool,                // True to stop building new units
+    pub reinforcement: bool,                // True if reinforcing existing team
     pub reinforcement_id: Option<ObjectID>, // Object being reinforced
 }
 
@@ -240,6 +242,7 @@ impl TeamInQueue {
             work_orders: Vec::new(),
             priority_build: false,
             team_name: None,
+            team: None,
             frame_started: 0,
             sent_to_start_location: false,
             stop_queueing: false,
@@ -312,22 +315,26 @@ impl TeamInQueue {
     /// Disbands the team: transfers units to the default team, deletes non-singleton teams.
     ///
     /// Matches C++ AIPlayer.cpp:3554 TeamInQueue::disband.
-    /// PARITY_NOTE: Rust TeamInQueue stores team_name (String) rather than a Team* pointer.
-    /// We look up the team by name via TheTeamFactory to perform the transfer.
+    /// Prefers `m_team` handle; name lookup is fallback for legacy/xfer entries.
     pub fn disband(&mut self) -> Result<(), AiError> {
-        let Some(team_name) = &self.team_name else {
-            self.work_orders.clear();
-            return Ok(());
-        };
-
+        let team_name = self.team_name.clone().unwrap_or_default();
         log::debug!("{} - team disbanded, build time expired.", team_name);
 
-        let Ok(mut factory) = get_team_factory().lock() else {
-            self.work_orders.clear();
-            return Ok(());
-        };
-
-        let Some(team_arc) = factory.find_team(team_name) else {
+        // Prefer concrete m_team handle (C++); name lookup is fallback only.
+        let team_arc = if let Some(arc) = self.team.clone() {
+            arc
+        } else if !team_name.is_empty() {
+            let Ok(mut factory) = get_team_factory().lock() else {
+                self.work_orders.clear();
+                return Ok(());
+            };
+            let Some(arc) = factory.find_team(&team_name) else {
+                self.work_orders.clear();
+                return Ok(());
+            };
+            drop(factory);
+            arc
+        } else {
             self.work_orders.clear();
             return Ok(());
         };
@@ -1724,6 +1731,7 @@ impl AIPlayer {
 
         let mut team = TeamInQueue::new();
         team.team_name = Some(team_name.to_string());
+        team.team = Some(team_arc);
         team.priority_build = priority_build;
         team.frame_started = TheGameLogic::get_frame();
         team.work_orders = orders;
@@ -1866,6 +1874,7 @@ impl AIPlayer {
         if units_recruited > 0 {
             let mut team = TeamInQueue::new();
             team.team_name = Some(team_name.to_string());
+            team.team = Some(team_arc);
             team.priority_build = false;
             team.frame_started = TheGameLogic::get_frame();
             // Ready queue — C++ prependTo_TeamReadyQueue (activate later).
@@ -3765,7 +3774,27 @@ impl AIPlayer {
                             }
                         }
                     }
+                } else if let Some(team_arc) = team_q.team.as_ref() {
+                    // C++ team->m_team->isIdle() + member anyIdle walk.
+                    if let Ok(tg) = team_arc.read() {
+                        all_idle = tg.is_idle();
+                        any_idle = false;
+                        for mid in tg.get_members() {
+                            if let Some(oarc) = OBJECT_REGISTRY.get_object(*mid) {
+                                if let Ok(og) = oarc.read() {
+                                    if let Some(ai) = og.get_ai_update_interface() {
+                                        if let Ok(ai_g) = ai.lock() {
+                                            if ai_g.is_idle() {
+                                                any_idle = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else if let Some(team_name) = team_q.team_name.as_deref() {
+                    // Fallback when m_team missing (legacy queue entries).
                     all_idle = Self::team_all_members_idle(team_name);
                     any_idle = Self::team_any_member_idle(team_name);
                 }
@@ -3816,16 +3845,27 @@ impl AIPlayer {
 
             if team_q.reinforcement {
                 if let Some(obj_id) = team_q.reinforcement_id {
-                    self.join_team_reinforcement(obj_id, team_q.team_name.as_deref());
+                    self.join_team_reinforcement(
+                        obj_id,
+                        team_q.team.clone(),
+                        team_q.team_name.as_deref(),
+                    );
                 }
-            } else if let Some(team_name) = team_q.team_name.as_deref() {
-                if let Ok(factory) = get_team_factory().lock() {
-                    if let Some(team_arc) =
-                        factory.find_team_instances(team_name).into_iter().next()
-                    {
-                        drop(factory);
-                        if let Ok(mut tg) = team_arc.write() {
-                            tg.set_active();
+            } else {
+                // C++ m_team->setActive() on the concrete team handle.
+                if let Some(team_arc) = team_q.team.as_ref() {
+                    if let Ok(mut tg) = team_arc.write() {
+                        tg.set_active();
+                    }
+                } else if let Some(team_name) = team_q.team_name.as_deref() {
+                    if let Ok(factory) = get_team_factory().lock() {
+                        if let Some(team_arc) =
+                            factory.find_team_instances(team_name).into_iter().next()
+                        {
+                            drop(factory);
+                            if let Ok(mut tg) = team_arc.write() {
+                                tg.set_active();
+                            }
                         }
                     }
                 }
@@ -3844,7 +3884,12 @@ impl AIPlayer {
     }
 
     /// C++ `AIUpdateInterface::joinTeam` residual for reinforcement activation.
-    fn join_team_reinforcement(&self, obj_id: ObjectID, team_name: Option<&str>) {
+    fn join_team_reinforcement(
+        &self,
+        obj_id: ObjectID,
+        team: Option<Arc<RwLock<crate::team::Team>>>,
+        team_name: Option<&str>,
+    ) {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return;
         };
@@ -3862,13 +3907,15 @@ impl AIPlayer {
         }
         ai.choose_locomotor_set(LocomotorSetType::Normal);
 
-        // Find another non-held teammate to catch up to.
-        let members: Vec<ObjectID> = team_name
-            .and_then(|name| {
-                get_team_factory()
-                    .lock()
-                    .ok()
-                    .and_then(|f| f.find_team_instances(name).into_iter().next())
+        // Find another non-held teammate to catch up to (prefer m_team handle).
+        let members: Vec<ObjectID> = team
+            .or_else(|| {
+                team_name.and_then(|name| {
+                    get_team_factory()
+                        .lock()
+                        .ok()
+                        .and_then(|f| f.find_team_instances(name).into_iter().next())
+                })
             })
             .and_then(|team_arc| team_arc.read().ok().map(|t| t.get_members().to_vec()))
             .unwrap_or_default();
@@ -3957,11 +4004,44 @@ impl AIPlayer {
             }
 
             // anyIdle + executeActions → friend_executeAction(productionCondition)
-            let team_name = self.team_build_queue[i].team_name.clone();
-            if let Some(ref name) = team_name {
-                let any_idle = Self::team_any_member_idle(name);
+            // C++ walks team->m_team members; prefer concrete handle.
+            let any_idle = {
+                let tq = &self.team_build_queue[i];
+                if let Some(team_arc) = tq.team.as_ref() {
+                    if let Ok(tg) = team_arc.read() {
+                        let mut idle = false;
+                        for mid in tg.get_members() {
+                            let Some(oarc) = OBJECT_REGISTRY.get_object(*mid) else {
+                                continue;
+                            };
+                            let Ok(og) = oarc.read() else {
+                                continue;
+                            };
+                            let Some(ai) = og.get_ai_update_interface() else {
+                                continue;
+                            };
+                            let Ok(aig) = ai.lock() else {
+                                continue;
+                            };
+                            if aig.is_idle() {
+                                idle = true;
+                                break;
+                            }
+                        }
+                        idle
+                    } else {
+                        false
+                    }
+                } else if let Some(ref name) = tq.team_name {
+                    Self::team_any_member_idle(name)
+                } else {
+                    false
+                }
+            };
 
-                if any_idle {
+            if any_idle {
+                let team_name = self.team_build_queue[i].team_name.clone();
+                if let Some(ref name) = team_name {
                     if let Ok(factory) = get_team_factory().lock() {
                         if let Some(proto) = factory.find_team_prototype(name) {
                             if proto.get_execute_actions_on_create() {
@@ -5111,6 +5191,7 @@ impl AIPlayer {
 
         let mut team_q = TeamInQueue::new();
         team_q.team_name = Some(team_name);
+        team_q.team = Some(team_arc);
         team_q.priority_build = false;
         team_q.reinforcement = true;
         // C++ m_reinforcementID is the recruited unit, else INVALID until trained.
@@ -5529,7 +5610,7 @@ impl AIPlayer {
             let mut team = TeamInQueue::new();
             team.priority_build = true;
             team.frame_started = TheGameLogic::get_frame();
-            // Stick on default team name residual.
+            // C++ sticks supply truck on default team (m_team + name).
             if let Ok(list) = player_list().read() {
                 if let Some(player_arc) = list.get_player(self.player_id as i32) {
                     if let Ok(pg) = player_arc.read() {
@@ -5537,6 +5618,7 @@ impl AIPlayer {
                             if let Ok(tg) = dt.read() {
                                 team.team_name = Some(tg.get_name().to_string());
                             }
+                            team.team = Some(dt);
                         }
                     }
                 }
@@ -6165,6 +6247,7 @@ impl AIPlayer {
                             if let Ok(tg) = dt.read() {
                                 team.team_name = Some(tg.get_name().to_string());
                             }
+                            team.team = Some(dt);
                         }
                     }
                 }
@@ -7012,6 +7095,37 @@ mod tests {
         assert!(!team.are_builds_complete());
         team.work_orders[0].factory_id = None;
         assert!(team.are_builds_complete());
+    }
+
+    #[test]
+    fn team_in_queue_stores_team_handle_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        assert!(
+            src.contains("pub team: Option<Arc<RwLock<crate::team::Team>>>"),
+            "TeamInQueue must hold m_team handle"
+        );
+        let i = src.find("pub fn build_specific_ai_team").expect("bst");
+        let w = &src[i..src.len().min(i + 9000)];
+        assert!(
+            w.contains("team.team = Some(team_arc)"),
+            "buildSpecificAITeam must stamp TeamInQueue.m_team"
+        );
+        let j = src.find("pub(crate) fn check_ready_teams").expect("ready");
+        let rw = &src[j..src.len().min(j + 7500)];
+        assert!(
+            rw.contains("tg.is_idle()") && rw.contains("tg.set_active()"),
+            "checkReadyTeams must use m_team isIdle/setActive"
+        );
+        let k = src
+            .find("pub(crate) fn check_queued_teams")
+            .expect("queued");
+        let qw = &src[k..src.len().min(k + 6500)];
+        assert!(
+            qw.contains("tq.team.as_ref()")
+                && qw.contains("tg.get_members()")
+                && qw.contains("aig.is_idle()"),
+            "checkQueuedTeams anyIdle must walk m_team members"
+        );
     }
 
     #[test]
