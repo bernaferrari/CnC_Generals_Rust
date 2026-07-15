@@ -3275,9 +3275,12 @@ impl GameClient {
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
     /// Mirrors the safe subset of C++ `GameClient::update` ordering that Main does not
-    /// already own (input/audio/draw stay on Main). Includes frame tick, local drawable
-    /// modules, FX/weather residual, post-draw UI, beacon notifications, and message pump.
-    /// Shroud still comes from PresentationFrame at render time — not live registry.
+    /// already own as dual presenters. Includes frame tick, client input device poll,
+    /// client audio subsystem drain, local drawable modules, FX/weather residual,
+    /// post-draw UI, beacon notifications, and message pump.
+    /// Main still owns OS WindowEvent→commands, GameLogic audio event requests, and
+    /// sole RenderPipeline 3D draw (`draw_display` stays off). Shroud still comes from
+    /// PresentationFrame at render time — not live OBJECT_REGISTRY.
     pub fn update_presentation_shell(&mut self, delta_time: f32) -> GameClientResult<()> {
         if !self.initialized {
             return Err(GameClientError::InvalidOperation(
@@ -3312,9 +3315,13 @@ impl GameClient {
         // (lines 560-584). Main still owns OS WindowEvent → command translation;
         // this only advances GameClient input device state machines.
         self.update_input()?;
+        // C++ lines 560-584 audio residual: drain GameClient audio/music/speech
+        // subsystem queues. Distinct from Main GameLogic::process_audio_events
+        // (presentation SFX → host AudioEventRequest path).
+        self.update_audio()?;
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
-        // Eva residual runs via update_post_draw_ui (no dual OS input/audio ownership).
+        // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
         self.update_drawables_local(visual_delta)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
