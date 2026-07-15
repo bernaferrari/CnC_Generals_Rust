@@ -767,3 +767,10 @@ troop crawler/helix), overlord addons, demo-suicide detonating, turret holding,
 and last damage source host id. Fail-closed: not full TransportContain /
 OverlordContain / BodyModule damage-source FSM authority.
 
+### Presentation detector/stealth timing residual (2026-07-14)
+
+`RenderableObject` freezes `detection_rate_frames`, stealth-break flags,
+`innate_stealth`, frenzy-until frame, continuous-fire consecutive/coast, and
+battle-plan sight scalar applied. Fail-closed: not full StealthDetectorUpdate /
+StealthUpdate delay FSM / Frenzy countdown authority.
+
