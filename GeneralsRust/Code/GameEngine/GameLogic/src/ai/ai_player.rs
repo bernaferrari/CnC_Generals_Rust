@@ -4413,7 +4413,7 @@ impl AIPlayer {
     ///
     /// Instant-construct (no dozer): BuildAssistant/new_object, clear UC status,
     /// stamp BuildListInfo, checkForSupplyCenter. Returns built object id.
-    fn build_structure_now_at(
+    pub fn build_structure_now_at(
         &mut self,
         template_name: &str,
         location: Coord3D,
@@ -5968,6 +5968,23 @@ impl AIPlayer {
         self.team_ready_queue.clear();
     }
 
+    pub fn set_base_center_set(&mut self, set: bool) {
+        self.base_center_set = set;
+        if !set {
+            self.base_radius = 0.0;
+        }
+    }
+
+    /// Public wrapper for skirmish newMap initiallyBuilt inst-build.
+    pub fn build_structure_now_at_public(
+        &mut self,
+        template_name: &str,
+        location: Coord3D,
+        angle: Real,
+    ) -> Result<Option<ObjectID>, AiError> {
+        self.build_structure_now_at(template_name, location, angle, None)
+    }
+
     /// Remove queued references to a team that is about to be destroyed.
     pub fn ai_pre_team_destroy(&mut self, team_name: &str) {
         self.team_build_queue.retain(|team| {
@@ -6091,7 +6108,7 @@ impl AIPlayer {
 
     /// Get player structure bounds for targeting
     /// Matches C++ AIPlayer getPlayerStructureBounds logic
-    fn get_player_structure_bounds(
+    pub fn get_player_structure_bounds(
         &self,
         player_index: i32,
     ) -> Result<(Coord3D, Coord3D), AiError> {
@@ -6141,7 +6158,7 @@ impl AIPlayer {
 
     /// Calculate center and radius of AI base
     /// Matches C++ AIPlayer computeCenterAndRadiusOfBase logic
-    fn compute_center_and_radius_of_base(&mut self) -> Result<(), AiError> {
+    pub fn compute_center_and_radius_of_base(&mut self) -> Result<(), AiError> {
         let Some(player_arc) = player_list()
             .read()
             .ok()

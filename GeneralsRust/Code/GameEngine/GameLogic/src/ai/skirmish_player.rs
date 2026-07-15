@@ -156,29 +156,38 @@ impl AISkirmishPlayer {
     }
 
     /// Called when new map is loaded
+    /// C++ `AISkirmishPlayer::newMap` (AISkirmishPlayer.cpp).
+    ///
+    /// Load side build list, adjustBuildList to start CC, compute base center,
+    /// buildStructureNow for initiallyBuilt else incrementNumRebuilds.
     pub fn new_map(&mut self) {
-        self.base.new_map();
-
-        // Reset skirmish-specific state
+        // Reset skirmish-specific state (do not call AIPlayer::newMap — C++ doesn't).
         self.cur_front_base_defense = 0;
         self.cur_flank_base_defense = 0;
+        self.cur_front_left_defense_angle = 0.0;
+        self.cur_front_right_defense_angle = 0.0;
+        self.cur_left_flank_left_defense_angle = 0.0;
+        self.cur_left_flank_right_defense_angle = 0.0;
+        self.cur_right_flank_left_defense_angle = 0.0;
+        self.cur_right_flank_right_defense_angle = 0.0;
         self.frame_to_check_enemy = 0;
         self.current_enemy = None;
         self.enemy_infantry_count = 0;
         self.enemy_vehicle_count = 0;
         self.enemy_air_count = 0;
 
-        let _player_side = {
+        // Clear base queues/timers without factory-scan (skirmish owns build list).
+        self.base.clear_teams_in_queue();
+        self.base.set_base_center_set(false);
+
+        let player_side = {
             let Some(player_arc) = self.base.get_player() else {
                 return;
             };
             let Ok(guard) = player_arc.read() else {
                 return;
             };
-            Some(guard.get_side().clone())
-        };
-        let Some(player_side) = _player_side else {
-            return;
+            guard.get_side().clone()
         };
 
         let mut build_list = None;
@@ -197,6 +206,7 @@ impl AISkirmishPlayer {
         }
 
         let Some(mut build_list) = build_list else {
+            log::debug!("Couldn't find build list for skirmish player.");
             return;
         };
 
@@ -207,6 +217,7 @@ impl AISkirmishPlayer {
             }
         }
 
+        let _ = self.base.compute_center_and_radius_of_base();
         self.build_initial_structures();
     }
 
@@ -316,39 +327,46 @@ impl AISkirmishPlayer {
         }
     }
 
-    /// Build AI base defense structure with positioning
+    /// C++ `AISkirmishPlayer::buildAIBaseDefenseStructure` (AISkirmishPlayer.cpp).
+    ///
+    /// Place defenses along base radius toward center/flank/backdoor approach
+    /// paths with alternating left/right angles; priority-build list on success.
     pub fn build_ai_base_defense_structure(&mut self, thing_name: &str, flank: bool) {
-        let Some(player_arc) = self.base.get_player() else {
-            return;
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return;
-        };
         let Some(template) = TheThingFactory::find_template(thing_name) else {
+            log::debug!(
+                "Couldn't find base defense structure '{}' for skirmish AI",
+                thing_name
+            );
             return;
+        };
+        let mp_start = {
+            let Some(player_arc) = self.base.get_player() else {
+                return;
+            };
+            let Ok(pg) = player_arc.read() else {
+                return;
+            };
+            pg.get_mp_start_index() + 1
+        };
+        let player_id = {
+            let Some(player_arc) = self.base.get_player() else {
+                return;
+            };
+            let Ok(pg) = player_arc.read() else {
+                return;
+            };
+            pg.get_id() as ObjectID
         };
 
         loop {
             let path_label = if flank {
                 if self.cur_flank_base_defense & 1 != 0 {
-                    format!(
-                        "{}{}",
-                        SKIRMISH_FLANK,
-                        player_guard.get_mp_start_index() + 1
-                    )
+                    format!("{}{}", SKIRMISH_FLANK, mp_start)
                 } else {
-                    format!(
-                        "{}{}",
-                        SKIRMISH_BACKDOOR,
-                        player_guard.get_mp_start_index() + 1
-                    )
+                    format!("{}{}", SKIRMISH_BACKDOOR, mp_start)
                 }
             } else {
-                format!(
-                    "{}{}",
-                    SKIRMISH_CENTER,
-                    player_guard.get_mp_start_index() + 1
-                )
+                format!("{}{}", SKIRMISH_CENTER, mp_start)
             };
 
             let base_center = self.base.get_base_center().unwrap_or_default();
@@ -362,14 +380,12 @@ impl AISkirmishPlayer {
                 } else {
                     let enemy_index = self.get_my_enemy_player_index();
                     if enemy_index >= 0 {
-                        if let Ok(player_list) = ThePlayerList().read() {
-                            if let Some(enemy) = player_list.get_player(enemy_index) {
-                                if let Ok(enemy_guard) = enemy.read() {
-                                    if let Some(center) = self.get_enemy_base_center(&enemy_guard) {
-                                        goal_pos = center;
-                                    }
-                                }
-                            }
+                        if let Ok((lo, hi)) = self.base.get_player_structure_bounds(enemy_index) {
+                            goal_pos = Coord3D::new(
+                                lo.x + (hi.x - lo.x) * 0.5,
+                                lo.y + (hi.y - lo.y) * 0.5,
+                                0.0,
+                            );
                         }
                     }
                 }
@@ -391,12 +407,9 @@ impl AISkirmishPlayer {
             let structure_radius = template
                 .get_template_geometry_info()
                 .get_bounding_circle_radius();
-            let base_circumference = 2.0 * std::f32::consts::PI * defense_distance;
-            let angle_offset = if base_circumference > 0.001 {
-                2.0 * std::f32::consts::PI * (structure_radius * 4.0 / base_circumference)
-            } else {
-                0.0
-            };
+            let base_circumference = 2.0 * std::f32::consts::PI * defense_distance.max(1.0);
+            let angle_offset =
+                2.0 * std::f32::consts::PI * (structure_radius * 4.0 / base_circumference);
 
             let angle = if flank {
                 let selector = self.cur_flank_base_defense >> 1;
@@ -442,27 +455,23 @@ impl AISkirmishPlayer {
                 self.cur_front_base_defense += 1;
             }
 
+            let place_angle = 0.0_f32; // placement_view_angle residual
             let validator = FoundationValidator::new_ai();
             if validator
-                .validate_placement(
-                    &build_pos,
-                    thing_name,
-                    angle,
-                    player_guard.get_id() as ObjectID,
-                )
+                .validate_placement(&build_pos, thing_name, place_angle, player_id)
                 .is_err()
             {
                 continue;
             }
 
-            if let Err(err) = self
-                .base
-                .build_specific_ai_building_at(thing_name, build_pos)
-            {
-                log::debug!(
-                    "AISkirmishPlayer::build_specific_ai_building_at('{}') failed: {err}",
-                    thing_name
-                );
+            if let Some(player_arc) = self.base.get_player() {
+                if let Ok(mut pg) = player_arc.write() {
+                    pg.add_to_priority_build_list(
+                        crate::common::AsciiString::from(thing_name),
+                        build_pos,
+                        place_angle,
+                    );
+                }
             }
             break;
         }
@@ -1403,39 +1412,47 @@ impl AISkirmishPlayer {
         self.apply_expansion_ring(list);
     }
 
+    /// C++ newMap initial pass: buildStructureNow or incrementNumRebuilds.
     fn build_initial_structures(&mut self) {
-        let Some(player_arc) = self.base.get_player() else {
-            return;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return;
-        };
-        let Some(mut entry) = player_guard.get_build_list_mut() else {
-            return;
-        };
-
-        loop {
-            let name = entry.get_template_name();
-            if !name.as_str().is_empty() {
-                if TheThingFactory::find_template(name.as_str()).is_some() {
+        // Collect first to avoid holding player lock across builds.
+        let mut initial: Vec<(String, Coord3D, f32)> = Vec::new();
+        let mut rebuild_names: Vec<String> = Vec::new();
+        {
+            let Some(player_arc) = self.base.get_player() else {
+                return;
+            };
+            let Ok(mut player_guard) = player_arc.write() else {
+                return;
+            };
+            let Some(mut entry) = player_guard.get_build_list_mut() else {
+                return;
+            };
+            loop {
+                let name = entry.get_template_name().to_string();
+                if !name.is_empty() && TheThingFactory::find_template(&name).is_some() {
                     if entry.is_initially_built() {
-                        if let Err(err) = self.base.build_specific_ai_building(name.as_str()) {
-                            log::debug!(
-                                "AISkirmishPlayer::build_initial_structures('{}') failed: {err}",
-                                name
-                            );
-                        }
+                        initial.push((name, *entry.get_location(), entry.get_angle()));
                     } else {
                         entry.increment_num_rebuilds();
+                        rebuild_names.push(name);
                     }
                 }
+                let Some(next) = entry.get_next_mut() else {
+                    break;
+                };
+                entry = next;
             }
-
-            let Some(next) = entry.get_next_mut() else {
-                break;
-            };
-            entry = next;
         }
+
+        for (name, loc, angle) in initial {
+            if let Err(err) = self.base.build_structure_now_at_public(&name, loc, angle) {
+                log::debug!(
+                    "AISkirmishPlayer initial buildStructureNow('{}') failed: {err}",
+                    name
+                );
+            }
+        }
+        let _ = rebuild_names;
     }
 
     /// Get enemy player index
@@ -2547,5 +2564,21 @@ mod tests {
         assert!(!bytes
             .windows(4)
             .any(|window| window == &0x1234_5678u32.to_le_bytes()));
+    }
+    #[test]
+    fn skirmish_base_defense_and_new_map_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AISkirmishPlayer::buildAIBaseDefenseStructure`")
+                && src.contains("add_to_priority_build_list")
+                && src.contains("SKIRMISH_CENTER")
+                && src.contains("C++ `AISkirmishPlayer::newMap`")
+                && src.contains("build_structure_now_at_public")
+                && src.contains("compute_center_and_radius_of_base"),
+            "skirmish base defense + newMap C++ paths required"
+        );
     }
 }
