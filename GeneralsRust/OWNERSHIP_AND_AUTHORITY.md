@@ -718,3 +718,9 @@ Presentation consumers can read turret/bonus residual without live Object
 dual-reads. Fail-closed: not full TurretAI drawable bones / WeaponBonusCondition
 matrix authority.
 
+### Unit-control select-similar presentation identity residual (2026-07-14)
+
+`select_similar_units` prefers presentation template/team/selectable identity
+when a `PresentationFrame` is installed (live GameLogic only as boot fallback).
+Fail-closed: not full multiplayer observer / shrouded-template filter matrix.
+
