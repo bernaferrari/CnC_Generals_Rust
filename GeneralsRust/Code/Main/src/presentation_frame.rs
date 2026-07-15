@@ -3517,6 +3517,49 @@ impl PresentationFrame {
                 obj.camo_stealth_look = ent.camo_stealth_look;
                 dirty = true;
             }
+            // Path waypoints residual (presentation move lines).
+            let path_wp: Vec<glam::Vec3> = ent
+                .path_waypoints
+                .iter()
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
+                .collect();
+            if obj.path_waypoints != path_wp {
+                obj.path_waypoints = path_wp;
+                dirty = true;
+            }
+            // Production queue head residual.
+            if ent.production_queue_len > 0 && !ent.production_template.is_empty() {
+                let head = PresentationProductionItem {
+                    template_name: ent.production_template.clone(),
+                    progress: ent.production_progress,
+                    total_time: 0.0,
+                    cost_supplies: 0,
+                };
+                let q = vec![head];
+                if obj.production_queue != q {
+                    obj.production_queue = q;
+                    dirty = true;
+                }
+            } else if !obj.production_queue.is_empty() && ent.production_queue_len == 0 {
+                obj.production_queue.clear();
+                dirty = true;
+            }
+            if obj.has_secondary_weapon != ent.has_secondary_weapon {
+                obj.has_secondary_weapon = ent.has_secondary_weapon;
+                dirty = true;
+            }
+            if (obj.secondary_weapon_range - ent.secondary_weapon_range).abs() > 1e-3 {
+                obj.secondary_weapon_range = ent.secondary_weapon_range;
+                dirty = true;
+            }
+            if (obj.secondary_weapon_damage - ent.secondary_weapon_damage).abs() > 1e-3 {
+                obj.secondary_weapon_damage = ent.secondary_weapon_damage;
+                dirty = true;
+            }
+            if obj.has_mine != ent.has_mine_data {
+                obj.has_mine = ent.has_mine_data;
+                dirty = true;
+            }
             // Effectively stealthed residual from shadow flags.
             let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
             if obj.effectively_stealthed != eff {
@@ -4643,6 +4686,8 @@ mod tests {
                 && src.contains("obj.turret_angle_deg = ent.turret_angle_deg")
                 && src.contains("obj.hive_slave_count = ent.hive_slave_count")
                 && src.contains("obj.weapon_bonus_horde = ent.weapon_bonus_horde")
+                && src.contains("obj.path_waypoints = path_wp")
+                && src.contains("obj.has_mine = ent.has_mine_data")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
