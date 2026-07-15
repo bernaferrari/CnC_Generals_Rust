@@ -3274,19 +3274,45 @@ impl GameClient {
 
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
-    /// C++ `GameClient::update` also runs input/audio/full drawable shroud iteration.
-    /// Main already owns those; this residual covers shell visibility + UI + local
-    /// drawable modules for the presentation-only path.
+    /// Mirrors the safe subset of C++ `GameClient::update` ordering that Main does not
+    /// already own (input/audio/draw stay on Main). Includes frame tick, local drawable
+    /// modules, FX/weather residual, post-draw UI, beacon notifications, and message pump.
+    /// Shroud still comes from PresentationFrame at render time — not live registry.
     pub fn update_presentation_shell(&mut self, delta_time: f32) -> GameClientResult<()> {
         if !self.initialized {
             return Err(GameClientError::InvalidOperation(
                 "GameClient not initialized".to_string(),
             ));
         }
+
+        let current_time = Instant::now();
+        self.last_update_time = current_time;
+        self.frame = self.frame.wrapping_add(1);
+
+        self.create_frame_tick_message()?;
+        // Startup movies remain Main/runtime-host owned; skip movie branch here.
         self.ensure_shell_visible()?;
         self.update_pre_draw_ui()?;
+
+        // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         self.update_drawables_local(delta_time)?;
+        if self.should_skip_visual_updates_for_no_draw() {
+            self.rendered_object_count = 0;
+            self.finish_frame_timing(current_time);
+            return Ok(());
+        }
+
+        self.update_particle_system_local_player()?;
+        self.update_effects(delta_time)?;
+        apply_pending_script_display_state();
+        // Display DRAW stays on Main RenderPipeline; skip draw_display/draw icons.
+
         self.update_post_draw_ui()?;
+        self.process_beacon_notifications()?;
+        self.pump_message_stream()?;
+
+        self.rendered_object_count = 0;
+        self.finish_frame_timing(current_time);
         Ok(())
     }
 

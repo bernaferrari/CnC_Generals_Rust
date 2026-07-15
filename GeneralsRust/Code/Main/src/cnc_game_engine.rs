@@ -6293,9 +6293,9 @@ impl CnCGameEngine {
                 } else {
                     game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
                 };
-                // Presentation path: shell UI + local drawable modules without
-                // OBJECT_REGISTRY shroud bind (dual-world residual). Full
-                // GameClient::update remains disconnected (Main owns input/audio/draw).
+                // Presentation path: deepened shell tick (frame/FX/UI/message pump)
+                // without OBJECT_REGISTRY shroud bind. Full GameClient::update remains
+                // disconnected (Main owns input/audio/3D draw via RenderPipeline).
                 if self.last_presentation_frame.is_some() {
                     if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
