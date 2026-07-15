@@ -1286,18 +1286,20 @@ impl AIPlayer {
                 .clone()
                 .unwrap_or_else(|| "default".to_string());
 
-            // Resolve live team instance for recruit/setTeam (C++ team->m_team).
-            let team_arc = get_team_factory().lock().ok().and_then(|mut factory| {
-                // Prefer existing instance; create inactive if needed (C++ already has team*).
-                factory
-                    .find_team_instances(&team_name)
-                    .into_iter()
-                    .next()
-                    .or_else(|| factory.find_team(&team_name))
-            });
+            // C++ team->m_team: prefer concrete handle; name lookup is fallback only.
+            if team_q.team.is_none() {
+                team_q.team = get_team_factory().lock().ok().and_then(|mut factory| {
+                    factory
+                        .find_team_instances(&team_name)
+                        .into_iter()
+                        .next()
+                        .or_else(|| factory.find_team(&team_name))
+                });
+            }
+            let team_arc = team_q.team.clone();
 
-            // Home for recruit search: C++ prototype homeLocation else base center.
-            let (home, has_home) = self.queue_units_home_for_team(&team_name);
+            // Home for recruit search: C++ m_team prototype homeLocation else base center.
+            let (home, has_home) = self.queue_units_home_for_team(team_arc.as_ref(), &team_name);
 
             for order in &mut team_q.work_orders {
                 // C++: while waiting, tryToRecruit repeatedly.
@@ -1341,7 +1343,12 @@ impl AIPlayer {
 
                 if order.is_waiting_to_build() {
                     // start the creation of a new unit
-                    let _ = self.start_training_internal(order, busy_ok, team_name.as_str());
+                    // C++ startTraining(..., team->m_team->getName())
+                    let train_name = team_arc
+                        .as_ref()
+                        .and_then(|a| a.read().ok().map(|g| g.get_name().to_string()))
+                        .unwrap_or_else(|| team_name.clone());
+                    let _ = self.start_training_internal(order, busy_ok, train_name.as_str());
                 } else {
                     // under construction / complete — verify factory still exists
                     let _ = order.validate_factory(self.player_id);
@@ -1354,12 +1361,29 @@ impl AIPlayer {
         true
     }
 
-    /// C++ queueUnits home: prototype homeLocation if set, else getBaseCenter.
-    fn queue_units_home_for_team(&self, team_name: &str) -> (Coord3D, bool) {
+    /// C++ queueUnits home: m_team prototype homeLocation if set, else getBaseCenter.
+    fn queue_units_home_for_team(
+        &self,
+        team: Option<&Arc<RwLock<crate::team::Team>>>,
+        team_name: &str,
+    ) -> (Coord3D, bool) {
+        // Resolve prototype name from concrete m_team when present (C++ getPrototype()).
+        let proto_name = team
+            .and_then(|a| a.read().ok().map(|g| g.get_name().to_string()))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| team_name.to_string());
         if let Ok(factory) = get_team_factory().lock() {
-            if let Some(proto) = factory.find_team_prototype(team_name) {
+            if let Some(proto) = factory.find_team_prototype(&proto_name) {
                 if proto.has_home_location() {
                     return (proto.home_location(), true);
+                }
+            }
+            // Fallback: original team_name if m_team name differs.
+            if proto_name != team_name {
+                if let Some(proto) = factory.find_team_prototype(team_name) {
+                    if proto.has_home_location() {
+                        return (proto.home_location(), true);
+                    }
                 }
             }
         }
@@ -2582,6 +2606,7 @@ impl AIPlayer {
         let mut found = false;
         let mut supply_truck = false;
         let mut matched_team_name: Option<String> = None;
+        let mut matched_team: Option<Arc<RwLock<crate::team::Team>>> = None;
         let mut is_resource_gatherer_order = false;
 
         for team_q in &mut self.team_build_queue {
@@ -2612,6 +2637,7 @@ impl AIPlayer {
                 order.factory_id = None;
                 is_resource_gatherer_order = order.is_resource_gatherer;
                 matched_team_name = team_q.team_name.clone();
+                matched_team = team_q.team.clone();
 
                 if team_q.reinforcement {
                     team_q.reinforcement_id = Some(unit_id);
@@ -2624,49 +2650,39 @@ impl AIPlayer {
 
         // put new unit into the team under construction
         if found {
-            if let Some(ref team_name) = matched_team_name {
-                if let Ok(mut factory) = get_team_factory().lock() {
-                    if let Some(team_arc) = factory
-                        .find_team_instances(team_name)
+            let team_name = matched_team_name
+                .clone()
+                .unwrap_or_else(|| "default".to_string());
+            // Prefer TeamInQueue.m_team (C++); name lookup is fallback.
+            let team_arc = matched_team.or_else(|| {
+                get_team_factory().lock().ok().and_then(|mut factory| {
+                    factory
+                        .find_team_instances(&team_name)
                         .into_iter()
                         .next()
-                        .or_else(|| factory.find_team(team_name))
-                    {
-                        drop(factory);
-                        if let Ok(mut ug) = unit_arc.write() {
-                            let _ = ug.set_team(Some(team_arc));
-                        }
-                    }
+                        .or_else(|| factory.find_team(&team_name))
+                })
+            });
+            if let Some(ref team_arc) = team_arc {
+                if let Ok(mut ug) = unit_arc.write() {
+                    let _ = ug.set_team(Some(team_arc.clone()));
                 }
+            }
 
-                // C++: if team has homeLocation → aiFollowExitProductionPath(goal, home).
-                let (home, has_home) = self.queue_units_home_for_team(team_name);
-                // has_home from prototype only when prototype flag set; base-center
-                // fallback still moves units toward base (queueUnits recruit path).
-                let use_home_path = if let Ok(factory) = get_team_factory().lock() {
-                    factory
-                        .find_team_prototype(team_name)
-                        .map(|p| p.has_home_location())
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
-                if use_home_path {
-                    if let Ok(unit_g) = unit_arc.read() {
-                        if let Some(ai) = unit_g.get_ai_update_interface() {
-                            let start = ai
-                                .get_path_destination()
-                                .unwrap_or_else(|| *unit_g.get_position());
-                            let path = [start, home];
-                            ai.ai_follow_exit_production_path(
-                                &path,
-                                None,
-                                CommandSourceType::FromAi,
-                            );
-                        }
+            // C++: if team has homeLocation → aiFollowExitProductionPath(goal, home).
+            let (home, has_home) =
+                self.queue_units_home_for_team(team_arc.as_ref(), team_name.as_str());
+            // has_home is true only for prototype homeLocation (not base-center fallback).
+            if has_home {
+                if let Ok(unit_g) = unit_arc.read() {
+                    if let Some(ai) = unit_g.get_ai_update_interface() {
+                        let start = ai
+                            .get_path_destination()
+                            .unwrap_or_else(|| *unit_g.get_position());
+                        let path = [start, home];
+                        ai.ai_follow_exit_production_path(&path, None, CommandSourceType::FromAi);
                     }
                 }
-                let _ = has_home;
             }
 
             // Supply truck force-wanting + dock (C++ SupplyTruckAIInterface).
@@ -7407,6 +7423,22 @@ mod tests {
         assert!(
             window.contains("evaluate_production_condition()"),
             "is_a_good_idea must call evaluateProductionCondition first (C++)"
+        );
+    }
+
+    #[test]
+    fn queue_units_prefers_m_team_handle() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn queue_units(&mut self)")
+            .expect("queue_units");
+        let window = &src[i..src.len().min(i + 4500)];
+        assert!(
+            window.contains("team_q.team.is_none()")
+                && window.contains("team_q.team.clone()")
+                && window.contains("queue_units_home_for_team(team_arc.as_ref()")
+                && window.contains("start_training_internal(order, busy_ok, train_name.as_str())"),
+            "queueUnits must recruit/train via TeamInQueue.m_team"
         );
     }
 
