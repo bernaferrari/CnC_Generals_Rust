@@ -1972,6 +1972,11 @@ impl Player {
         self.default_team.as_ref().map(Arc::clone)
     }
 
+    /// C++ Player::getPlayerTeams() — team prototypes owned by this player.
+    pub fn get_player_team_prototypes(&self) -> &[Arc<TeamPrototype>] {
+        &self.player_team_prototypes
+    }
+
     /// Get the default team ID for this player
     pub fn get_default_team_id(&self) -> Option<TeamID> {
         self.default_team
