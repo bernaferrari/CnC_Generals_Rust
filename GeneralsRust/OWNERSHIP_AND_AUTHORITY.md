@@ -1260,3 +1260,17 @@ Compared C++ `AIPlayer::buildStructureWithDozer`:
 
 Fail-closed: legal-place wiggle / NO_ENEMY overlap residual; Main host AI separate.
 
+### buildStructureNow / newMap / checkForSupplyCenter (2026-07-14)
+
+Compared C++ `AIPlayer::buildStructureNow`, `newMap`, `checkForSupplyCenter`:
+
+- `build_structure_now_at`: inst-spawn, clear UC/Reconstructing, 100% construction,
+  upgrade modules, stamp build list, `check_for_supply_center`.
+- `new_map`: add placed factories to build list, `compute_center_and_radius_of_base`,
+  inst-build `isInitiallyBuilt` entries else `incrementNumRebuilds`.
+- `check_for_supply_center`: SupplyCenterDockUpdate → supply building + desired
+  gatherers from AISideInfo + 1 freebie, currentGatherers=-1.
+
+Fail-closed: map-property Dict (name/script/health/unsellable) residual; rally
+offset residual (C++ gotOffset bug).
+

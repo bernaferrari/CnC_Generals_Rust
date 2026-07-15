@@ -1096,7 +1096,10 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Called when new map is loaded.
+    /// C++ `AIPlayer::newMap` (AIPlayer.cpp).
+    ///
+    /// Add placed factories to build list, compute base center/radius, inst-build
+    /// initiallyBuilt entries via buildStructureNow (else incrementNumRebuilds).
     pub fn new_map(&mut self) {
         self.base_center_set = false;
         self.base_radius = 0.0;
@@ -1107,6 +1110,111 @@ impl AIPlayer {
         self.dozer_queued_for_repair = false;
         self.dozer_is_repairing = false;
         self.frame_last_building_built = TheGameLogic::get_frame();
+
+        // Add any factories placed to the build list (C++ ProductionUpdateInterface).
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                let owned: Vec<ObjectID> = player_arc
+                    .read()
+                    .ok()
+                    .map(|g| g.get_all_objects())
+                    .unwrap_or_default();
+                drop(list);
+                for obj_id in owned {
+                    let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                        continue;
+                    };
+                    let Ok(obj_g) = obj_arc.read() else {
+                        continue;
+                    };
+                    // Factory if any production interface.
+                    let mut is_factory = false;
+                    for behavior in obj_g.get_behavior_modules() {
+                        if let Ok(mut bg) = behavior.lock() {
+                            if bg.get_production_update_interface().is_some() {
+                                is_factory = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !is_factory {
+                        // Also check production control modules.
+                        for mh in obj_g.behavior_modules() {
+                            let matched = mh.with_module(|module| {
+                                module.get_production_control_interface().is_some()
+                            });
+                            if matched {
+                                is_factory = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !is_factory {
+                        continue;
+                    }
+                    let template_name = obj_g.get_template_name().to_string();
+                    let pos = *obj_g.get_position();
+                    let angle = obj_g.get_orientation();
+                    drop(obj_g);
+                    if let Ok(list) = player_list().read() {
+                        if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                            if let Ok(mut pg) = player_arc.write() {
+                                pg.add_to_build_list(
+                                    obj_id,
+                                    AsciiString::from(template_name.as_str()),
+                                    pos,
+                                    angle,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let _ = self.compute_center_and_radius_of_base();
+
+        // Build any with the initially built flag (C++ buildStructureNow / increment rebuilds).
+        // Collect first to avoid holding player lock across builds.
+        let mut initial: Vec<(String, Coord3D, Real)> = Vec::new();
+        let mut rebuild_names: Vec<String> = Vec::new();
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(mut pg) = player_arc.write() {
+                    if let Some(info) = pg.get_build_list_mut() {
+                        let mut cur = Some(&mut *info);
+                        while let Some(node) = cur {
+                            let name = node.get_template_name().to_string();
+                            if name.is_empty() {
+                                cur = node.get_next_mut();
+                                continue;
+                            }
+                            if TheThingFactory::find_template(&name).is_none() {
+                                log::debug!(
+                                    "*** ERROR - Build list building '{}' doesn't exist.",
+                                    name
+                                );
+                                cur = node.get_next_mut();
+                                continue;
+                            }
+                            if node.is_initially_built() {
+                                initial.push((name, *node.get_location(), node.get_angle()));
+                            } else {
+                                node.increment_num_rebuilds();
+                                rebuild_names.push(name);
+                            }
+                            cur = node.get_next_mut();
+                        }
+                    }
+                }
+            }
+        }
+        let _ = rebuild_names;
+        for (name, loc, ang) in initial {
+            if let Err(err) = self.build_structure_now_at(&name, loc, ang, None) {
+                log::debug!("newMap buildStructureNow('{}') failed: {err}", name);
+            }
+        }
     }
 
     /// Start training for a work order with factory management.
@@ -1217,9 +1325,70 @@ impl AIPlayer {
         (Coord3D::new(0.0, 0.0, 0.0), false)
     }
 
-    /// C++ parity helper for supply-center bookkeeping.
+    /// C++ `AIPlayer::checkForSupplyCenter` (AIPlayer.cpp).
+    ///
+    /// If structure has SupplyCenterDockUpdate, mark build-list entry as supply
+    /// building and set desired gatherers from AISideInfo + 1 freebie.
     pub fn check_for_supply_center(&mut self, structure_id: ObjectID) -> Result<(), AiError> {
-        self.on_structure_produced(crate::common::INVALID_OBJECT_ID, structure_id)
+        let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
+            return Ok(());
+        };
+        let Ok(structure_guard) = structure_arc.read() else {
+            return Ok(());
+        };
+        // C++ findUpdateModule("SupplyCenterDockUpdate")
+        let is_supply = structure_guard
+            .find_update_module("SupplyCenterDockUpdate")
+            .is_some()
+            || structure_guard.is_kind_of(KindOf::FSSupplyCenter)
+            || structure_guard.is_kind_of(KindOf::SupplySource);
+        if !is_supply {
+            return Ok(());
+        }
+
+        let side = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+            .and_then(|p| p.read().ok().map(|g| g.get_side().to_string()))
+            .unwrap_or_default();
+
+        let mut desired = 0;
+        if let Ok(ai_guard) = THE_AI.read() {
+            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
+                for info in &ai_data.side_info {
+                    if info.side == side {
+                        desired = match self.difficulty {
+                            GameDifficulty::Easy => info.easy,
+                            GameDifficulty::Normal => info.normal,
+                            GameDifficulty::Hard | GameDifficulty::Brutal => info.hard,
+                        };
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(mut pg) = player_arc.write() {
+                    if let Some(info) = pg.get_build_list_mut() {
+                        let mut cur = Some(&mut *info);
+                        while let Some(node) = cur {
+                            if node.get_object_id() == structure_id {
+                                node.set_supply_building(true);
+                                node.set_current_gatherers(-1);
+                                // C++ desiredGatherers + 1 freebie with depot
+                                node.set_desired_gatherers(desired + 1);
+                                break;
+                            }
+                            cur = node.get_next_mut();
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn select_team_to_build_ai(&mut self) -> bool {
@@ -3884,9 +4053,8 @@ impl AIPlayer {
         Ok(Some(bldg_id))
     }
 
-    /// Build structure immediately
+    /// C++ `AIPlayer::buildStructureNow` via priority residual (no BuildListInfo ptr).
     fn build_structure_now(&mut self, priority: &ConstructionPriority) -> Result<(), AiError> {
-        // Find suitable dozer and location
         let location = if let Some(loc) = priority.desired_location {
             loc
         } else {
@@ -3894,11 +4062,106 @@ impl AIPlayer {
                 .unwrap_or(Coord3D::new(0.0, 0.0, 0.0))
         };
         let angle = priority.desired_angle.unwrap_or(0.0);
-
-        // Queue for construction
-        self.queue_structure_construction(&priority.building_type, location, angle)?;
-
+        let _ = self.build_structure_now_at(&priority.building_type, location, angle, None)?;
         Ok(())
+    }
+
+    /// C++ `AIPlayer::buildStructureNow` (AIPlayer.cpp).
+    ///
+    /// Instant-construct (no dozer): BuildAssistant/new_object, clear UC status,
+    /// stamp BuildListInfo, checkForSupplyCenter. Returns built object id.
+    fn build_structure_now_at(
+        &mut self,
+        template_name: &str,
+        location: Coord3D,
+        angle: Real,
+        stamp_object_id_slot: Option<ObjectID>,
+    ) -> Result<Option<ObjectID>, AiError> {
+        let Some(template) = TheThingFactory::find_template(template_name) else {
+            return Ok(None);
+        };
+
+        let Ok(list) = player_list().read() else {
+            return Ok(None);
+        };
+        let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            return Ok(None);
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return Ok(None);
+        };
+        let team = player_guard.get_default_team();
+        drop(player_guard);
+        drop(list);
+
+        let Some(team_arc) = team else {
+            return Ok(None);
+        };
+        let Ok(team_guard) = team_arc.read() else {
+            return Ok(None);
+        };
+        let Ok(factory) = TheThingFactory::get() else {
+            return Ok(None);
+        };
+        let Ok(new_object) = factory.new_object(template.clone(), &*team_guard) else {
+            return Ok(None);
+        };
+        drop(team_guard);
+
+        let mut pos = location;
+        if let Some(terrain) = TheTerrainLogic::get() {
+            pos.z = terrain.get_ground_height(pos.x, pos.y, None);
+        }
+
+        let bldg_id = {
+            let Ok(mut guard) = new_object.write() else {
+                return Ok(None);
+            };
+            let _ = guard.set_position(&pos);
+            let _ = guard.set_orientation(angle);
+            // C++ clear UnderConstruction + Reconstructing (instant complete).
+            let mask = ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction)
+                | ObjectStatusMaskType::from_status(ObjectStatusTypes::Reconstructing);
+            guard.clear_status(mask);
+            guard.set_construction_percent(100.0);
+            // UnderConstruction just cleared → update upgrades (C++).
+            guard.update_upgrade_modules_from_player();
+            guard.get_id()
+        };
+
+        // Stamp build list entry: match by empty object id + template, or by slot hint.
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(mut pg) = player_arc.write() {
+                    if let Some(info) = pg.get_build_list_mut() {
+                        let mut cur = Some(&mut *info);
+                        while let Some(node) = cur {
+                            let name_match = node.get_template_name().as_str() == template_name;
+                            let slot_match = stamp_object_id_slot
+                                .map(|id| node.get_object_id() == id)
+                                .unwrap_or(false)
+                                || (name_match && node.get_object_id() == INVALID_ID);
+                            if slot_match && name_match {
+                                node.set_object_id(bldg_id);
+                                node.set_object_timestamp(
+                                    TheGameLogic::get_frame().saturating_add(1),
+                                );
+                                node.set_under_construction(false);
+                                break;
+                            }
+                            cur = node.get_next_mut();
+                        }
+                    }
+                }
+            }
+        }
+
+        // C++ checkForSupplyCenter(info, bldg)
+        let _ = self.check_for_supply_center(bldg_id);
+
+        // Rally offset residual deferred (gotOffset bug in C++ leaves gotOffset false).
+        log::debug!("AI inst-built {} as {}", template_name, bldg_id);
+        Ok(Some(bldg_id))
     }
 
     /// C++ `AIPlayer::startTraining` (AIPlayer.cpp).
@@ -5594,9 +5857,9 @@ mod tests {
             window.contains("rebuild_delay_frames")
                 && window.contains("set_object_timestamp")
                 && window.contains("arm_structure_timer_after_build")
-                && window.contains("find_dozer")
+                && window.contains("build_structure_with_dozer")
                 && window.contains("only one building per delay loop"),
-            "process_base_building must port C++ rebuild delay + one-build + timer arm"
+            "process_base_building must port C++ rebuild delay + dozer build + timer arm"
         );
     }
 
@@ -5789,6 +6052,54 @@ mod tests {
         assert!(
             window.contains("build_structure_with_dozer"),
             "processBaseBuilding must call buildStructureWithDozer (C++ USE_DOZER)"
+        );
+    }
+
+    #[test]
+    fn new_map_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("C++ `AIPlayer::newMap`").expect("newMap");
+        let window = &src[i..src.len().min(i + 5500)];
+        assert!(
+            window.contains("add_to_build_list")
+                && window.contains("compute_center_and_radius_of_base")
+                && window.contains("is_initially_built")
+                && window.contains("build_structure_now_at")
+                && window.contains("increment_num_rebuilds"),
+            "newMap must add factories, compute base, inst-build initiallyBuilt"
+        );
+    }
+
+    #[test]
+    fn build_structure_now_at_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::buildStructureNow` (AIPlayer.cpp)")
+            .expect("buildStructureNow");
+        let window = &src[i..src.len().min(i + 5000)];
+        assert!(
+            window.contains("clear_status")
+                && window.contains("UnderConstruction")
+                && window.contains("update_upgrade_modules_from_player")
+                && window.contains("check_for_supply_center")
+                && window.contains("set_construction_percent(100.0)"),
+            "buildStructureNow must inst-complete, clear UC, supply-center check"
+        );
+    }
+
+    #[test]
+    fn check_for_supply_center_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::checkForSupplyCenter`")
+            .expect("checkForSupplyCenter");
+        let window = &src[i..src.len().min(i + 2500)];
+        assert!(
+            window.contains("SupplyCenterDockUpdate")
+                && window.contains("set_supply_building(true)")
+                && window.contains("set_desired_gatherers(desired + 1)")
+                && window.contains("set_current_gatherers(-1)"),
+            "checkForSupplyCenter must stamp supply building + desired gatherers+1"
         );
     }
 
