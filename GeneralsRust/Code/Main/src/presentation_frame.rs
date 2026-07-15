@@ -1809,6 +1809,11 @@ pub struct PresentationFrame {
     pub events: Vec<PresentationEvent>,
     pub match_over: bool,
     pub victory_label: Option<String>,
+    /// Host VictorySummary residual (mission/duration/player results).
+    /// Fail-closed: stats tables frozen at evaluate; not live re-aggregate.
+    /// Skipped in serde (Duration/player payload is host snapshot residual only).
+    #[serde(skip)]
+    pub victory_summary: Option<crate::game_logic::VictorySummary>,
     /// Beacon world positions residual (snapshot_beacons / host place).
     pub beacons: Vec<Vec3>,
     /// Beacons placed this frame (HUD bloom residual).
@@ -2427,6 +2432,7 @@ impl PresentationFrame {
             events,
             match_over: false,
             victory_label: None,
+            victory_summary: None,
             beacons: {
                 #[cfg(feature = "game_client")]
                 {
@@ -2575,6 +2581,8 @@ impl PresentationFrame {
             frame.events.push(PresentationEvent::Victory {
                 winner_player: winner,
             });
+            // Freeze summary residual once (show_victory_screen prefers this).
+            frame.victory_summary = Some(logic.build_victory_summary(winner));
         }
         frame
     }
@@ -4585,6 +4593,19 @@ impl PresentationFrame {
     }
 
     /// Resource triple for GameHud::update_resources (credits, power, max_power).
+    /// Winner player id from frozen Victory event residual.
+    pub fn victory_winner_id(&self) -> Option<u32> {
+        self.events.iter().find_map(|ev| match ev {
+            PresentationEvent::Victory { winner_player } => *winner_player,
+            _ => None,
+        })
+    }
+
+    /// Frozen VictorySummary residual when match_over.
+    pub fn victory_summary_residual(&self) -> Option<&crate::game_logic::VictorySummary> {
+        self.victory_summary.as_ref()
+    }
+
     /// Drive VictoryScreen visibility/type from snapshot residual (no live GameLogic).
     ///
     /// Fail-closed: does not rebuild full VictorySummary statistics tables.

@@ -1761,6 +1761,24 @@ mod tests {
     }
 
     #[test]
+    fn presentation_victory_summary_residual() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("Prefer presentation-frozen summary when available")
+                && eng.contains("Boot residual only — no presentation summary yet")
+                && eng.contains("f.victory_summary.clone()"),
+            "show_victory_screen must prefer presentation VictorySummary residual"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("pub victory_summary:")
+                && pf.contains("build_victory_summary(winner)")
+                && pf.contains("fn victory_summary_residual"),
+            "snapshot must freeze VictorySummary at evaluate"
+        );
+    }
+
+    #[test]
     fn presentation_victory_prefers_snapshot_match_over() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

@@ -8073,7 +8073,15 @@ impl CnCGameEngine {
     }
 
     fn show_victory_screen(&mut self, winner: Option<u32>) {
-        let summary = self.game_logic.build_victory_summary(winner);
+        // Prefer presentation-frozen summary when available (no live re-aggregate).
+        let summary = self
+            .last_presentation_frame
+            .as_ref()
+            .and_then(|f| f.victory_summary.clone())
+            .unwrap_or_else(|| {
+                // Boot residual only — no presentation summary yet.
+                self.game_logic.build_victory_summary(winner)
+            });
         let queued_summary = summary.clone();
         self.victory_summary = Some(summary.clone());
         if let Err(err) = crate::game_results_queue::queue_victory_summary(queued_summary) {
