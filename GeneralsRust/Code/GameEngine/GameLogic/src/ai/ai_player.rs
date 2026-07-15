@@ -1227,9 +1227,12 @@ impl AIPlayer {
     }
 
     /// Start training for a work order with factory management.
-    pub fn start_training_for_order(&mut self, order: &mut WorkOrder, busy_ok: bool) -> bool {
+    pub(crate) fn start_training_for_order(
+        &mut self,
+        order: &mut WorkOrder,
+        busy_ok: bool,
+    ) -> Result<bool, AiError> {
         self.start_training_internal(order, busy_ok, "default")
-            .unwrap_or(false)
     }
 
     /// C++ `AIPlayer::queueUnits` (AIPlayer.cpp).
@@ -1534,9 +1537,6 @@ impl AIPlayer {
         false
     }
 
-    /// Build a specific AI team immediately
-    /// C++ `AIPlayer::buildSpecificAITeam` (AIPlayer.cpp).
-    ///
     /// Gates: canBuildUnits, singleton+priority, isPossibleToBuildTeam (money-
     /// only still queues). Work orders: optional (max-min) then required (min),
     /// createInactiveTeam, priority prepend vs normal append, teamDelay=0.
@@ -4721,7 +4721,7 @@ impl AIPlayer {
     /// 2. selectTeamToReinforce(hiPri) first
     /// 3. Random pick among hiPri set via GameLogicRandomValue
     /// 4. buildSpecificAITeam(low priority) + arm teamTimer with wealth mods
-    fn select_team_to_build(&mut self) -> Result<bool, AiError> {
+    pub(crate) fn select_team_to_build(&mut self) -> Result<bool, AiError> {
         const INVALID_PRI: i32 = -99999;
 
         let factory = get_team_factory();
@@ -4841,7 +4841,7 @@ impl AIPlayer {
     /// team instance missing units below maxUnits with an idle factory. Queue a
     /// single required work order (prepend), try recruit then startTraining,
     /// and shortcut teamDelay=0.
-    fn select_team_to_reinforce(&mut self, min_priority: i32) -> Result<bool, AiError> {
+    pub(crate) fn select_team_to_reinforce(&mut self, min_priority: i32) -> Result<bool, AiError> {
         let factory = get_team_factory();
         let Ok(factory_guard) = factory.lock() else {
             return Ok(false);
@@ -5685,7 +5685,7 @@ impl AIPlayer {
 
     /// Check if team is a good idea to build right now
     /// Matches C++ AIPlayer.cpp:1471 isAGoodIdeaToBuildTeam
-    fn is_a_good_idea_to_build_team(&self, team_name: &str) -> Result<bool, AiError> {
+    pub(crate) fn is_a_good_idea_to_build_team(&self, team_name: &str) -> Result<bool, AiError> {
         // Evaluation criteria from C++ AIPlayer.cpp:1471-1518:
         // 1. Production condition met via evaluateProductionCondition()
         // 2. Not at max instances: countTeamInstances() < prototype->maxInstances

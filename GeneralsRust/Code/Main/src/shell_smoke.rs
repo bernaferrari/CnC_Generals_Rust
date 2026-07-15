@@ -2625,6 +2625,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiskirmish_select_team_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("selectTeamToBuild")
+                && src.contains("is_a_good_idea_to_build_team(proto.get_name()")
+                && src.contains("select_team_to_reinforce(min_priority)"),
+            "skirmish selectTeam C++ delegation required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
