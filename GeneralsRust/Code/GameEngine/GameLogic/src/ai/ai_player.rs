@@ -3649,46 +3649,74 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Start training a unit at available factory
-    /// Matches C++ AIPlayer.cpp:1360 startTraining
+    /// C++ `AIPlayer::startTraining` (AIPlayer.cpp).
+    ///
+    /// findFactory → ProductionUpdateInterface::queueCreateUnit(requestUniqueUnitID)
+    /// → set order.factoryID. Returns true only if queued.
     fn start_training_internal(
         &mut self,
         order: &mut WorkOrder,
         busy_ok: bool,
-        _team_name: &str,
+        team_name: &str,
     ) -> Result<bool, AiError> {
-        // From C++ AIPlayer.cpp lines 1360-1381:
-        // 1. Find factory that can build this unit
-        // 2. Check if factory has production capability
-        // 3. Queue unit for production
-        // 4. Assign factory ID to work order
-        // 5. Return true if successful
+        let Some(factory_id) = self.find_factory_internal(&order.thing_template, busy_ok)? else {
+            return Ok(false);
+        };
 
-        // Find suitable factory (allows busy if requested)
-        if let Some(factory_id) = self.find_factory_internal(&order.thing_template, busy_ok)? {
-            order.factory_id = Some(factory_id);
+        let Some(factory_arc) = OBJECT_REGISTRY.get_object(factory_id) else {
+            return Ok(false);
+        };
+        let Some(template) = TheThingFactory::find_template(&order.thing_template) else {
+            return Ok(false);
+        };
 
-            // Full implementation requires:
-            // 1. Get factory object via TheGameLogic::findObjectByID
-            // 2. Get ProductionUpdateInterface from factory module
-            // 3. Call queueCreateUnit with thing template and unique ID
-            // 4. Track production in work order
-            // 5. Log debug message if AI debugging enabled
+        // Prefer Object production queue path (queueCreateUnit + unique id).
+        let queued = {
+            let Ok(mut factory_g) = factory_arc.write() else {
+                return Ok(false);
+            };
+            let production_id = factory_g.request_unique_unit_production_id().unwrap_or(0);
+            if production_id != 0 {
+                factory_g.queue_unit_with_production_id(&template, production_id)
+            } else {
+                factory_g.queue_unit(&template)
+            }
+        };
 
-            // For now, just assign factory - actual production queuing
-            // will be handled when production system is integrated
-
-            log::debug!(
-                "AI player {} assigned factory {} for unit {}",
-                self.player_id,
-                factory_id,
-                order.thing_template
-            );
-
-            return Ok(true);
+        if !queued {
+            // Fallback: ProductionUpdateInterface::start_production on behaviors.
+            let Ok(factory_g) = factory_arc.read() else {
+                return Ok(false);
+            };
+            let mut started = false;
+            for behavior in factory_g.get_behavior_modules() {
+                let Ok(mut bg) = behavior.lock() else {
+                    continue;
+                };
+                let Some(prod) = bg.get_production_update_interface() else {
+                    continue;
+                };
+                if prod
+                    .start_production(order.thing_template.clone(), self.player_id)
+                    .is_ok()
+                {
+                    started = true;
+                    break;
+                }
+            }
+            if !started {
+                return Ok(false);
+            }
         }
 
-        Ok(false)
+        order.factory_id = Some(factory_id);
+        log::debug!(
+            "Queuing {} for {} at factory {}",
+            order.thing_template,
+            team_name,
+            factory_id
+        );
+        Ok(true)
     }
 
     #[allow(dead_code)] // C++ parity: default wrapper for start_training_internal
@@ -3698,9 +3726,89 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Find factory that can build the specified unit
-    /// Matches C++ AIPlayer.cpp:1388 findFactory logic
-    /// If busyOK is false, only returns idle factories
+    /// Shared factory eligibility check used by build-list and object-scan paths.
+    fn factory_candidate(
+        &self,
+        obj_id: ObjectID,
+        thing_template: &str,
+        busy_ok: bool,
+        busy_factory: &mut Option<ObjectID>,
+    ) -> Result<Option<ObjectID>, AiError> {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return Ok(None);
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return Ok(None);
+        };
+        if obj_guard.get_controlling_player_id() != Some(self.player_id) {
+            return Ok(None);
+        }
+        if obj_guard.is_destroyed()
+            || obj_guard.is_under_construction()
+            || obj_guard.test_status(ObjectStatusTypes::Sold)
+        {
+            return Ok(None);
+        }
+
+        let mut checked = false;
+        for module_handle in obj_guard.behavior_modules() {
+            let mut can_produce = false;
+            let mut is_busy = false;
+            let matched = module_handle.with_module(|module| {
+                let Some(prod) = module.get_production_control_interface() else {
+                    return false;
+                };
+                if prod.can_produce(thing_template) {
+                    can_produce = true;
+                    is_busy = prod.is_producing() || prod.queue_size() > 0;
+                }
+                true
+            });
+            if matched {
+                checked = true;
+                if !can_produce {
+                    return Ok(None);
+                }
+                if !is_busy {
+                    return Ok(Some(obj_id));
+                }
+                if busy_ok && busy_factory.is_none() {
+                    *busy_factory = Some(obj_id);
+                }
+                return Ok(None);
+            }
+        }
+
+        if !checked {
+            for behavior in obj_guard.get_behavior_modules() {
+                let Ok(mut behavior_guard) = behavior.lock() else {
+                    continue;
+                };
+                let Some(prod) = behavior_guard.get_production_update_interface() else {
+                    continue;
+                };
+                if !prod.can_produce(thing_template) {
+                    continue;
+                }
+                let is_busy = prod.is_producing() || prod.get_queue_size() > 0;
+                if !is_busy {
+                    return Ok(Some(obj_id));
+                }
+                if busy_ok && busy_factory.is_none() {
+                    *busy_factory = Some(obj_id);
+                }
+                break;
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// C++ `AIPlayer::findFactory` (AIPlayer.cpp).
+    ///
+    /// Prefers the player **build list** (C++ iteration order). Falls back to all
+    /// player objects if the build list has no match. `busy_ok` allows returning a
+    /// busy factory when no idle one exists (script priority teams).
     fn find_factory_internal(
         &self,
         thing_template: &str,
@@ -3717,69 +3825,28 @@ impl AIPlayer {
             return Ok(None);
         };
 
+        // --- C++ path: iterate build list first ---
+        if let Some(head) = player_guard.get_build_list() {
+            let mut current = Some(head);
+            while let Some(info) = current {
+                let obj_id = info.get_object_id();
+                if obj_id != INVALID_ID {
+                    if let Some(found) =
+                        self.factory_candidate(obj_id, thing_template, busy_ok, &mut busy_factory)?
+                    {
+                        return Ok(Some(found));
+                    }
+                }
+                current = info.get_next();
+            }
+        }
+
+        // Fallback residual: scan all player objects (covers factories not on list).
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_destroyed()
-                || obj_guard.is_under_construction()
-                || obj_guard.test_status(ObjectStatusTypes::Sold)
+            if let Some(found) =
+                self.factory_candidate(obj_id, thing_template, busy_ok, &mut busy_factory)?
             {
-                continue;
-            }
-
-            let mut checked = false;
-            for module_handle in obj_guard.behavior_modules() {
-                let mut can_produce = false;
-                let mut is_busy = false;
-                let matched = module_handle.with_module(|module| {
-                    let Some(prod) = module.get_production_control_interface() else {
-                        return false;
-                    };
-                    if prod.can_produce(thing_template) {
-                        can_produce = true;
-                        is_busy = prod.is_producing() || prod.queue_size() > 0;
-                    }
-                    true
-                });
-                if matched {
-                    checked = true;
-                    if !can_produce {
-                        continue;
-                    }
-                    if !is_busy {
-                        return Ok(Some(obj_id));
-                    }
-                    if busy_ok && busy_factory.is_none() {
-                        busy_factory = Some(obj_id);
-                    }
-                    break;
-                }
-            }
-
-            if !checked {
-                for behavior in obj_guard.get_behavior_modules() {
-                    let Ok(mut behavior_guard) = behavior.lock() else {
-                        continue;
-                    };
-                    let Some(prod) = behavior_guard.get_production_update_interface() else {
-                        continue;
-                    };
-                    if !prod.can_produce(thing_template) {
-                        continue;
-                    }
-                    let is_busy = prod.is_producing() || prod.get_queue_size() > 0;
-                    if !is_busy {
-                        return Ok(Some(obj_id));
-                    }
-                    if busy_ok && busy_factory.is_none() {
-                        busy_factory = Some(obj_id);
-                    }
-                    break;
-                }
+                return Ok(Some(found));
             }
         }
 
@@ -5376,6 +5443,37 @@ mod tests {
                 && window.contains("notEnoughMoney")
                 && window.contains("!require_idle_factory"),
             "isPossibleToBuildTeam must match C++ anyIdle/avg cost/resources mod"
+        );
+    }
+
+    #[test]
+    fn start_training_queues_create_unit_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::startTraining`")
+            .expect("startTraining doc");
+        let window = &src[i..src.len().min(i + 2500)];
+        assert!(
+            window.contains("request_unique_unit_production_id")
+                && window.contains("queue_unit_with_production_id")
+                && window.contains("order.factory_id = Some(factory_id)")
+                && window.contains("start_production"),
+            "startTraining must queueCreateUnit then set factoryID"
+        );
+    }
+
+    #[test]
+    fn find_factory_prefers_build_list_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::findFactory`")
+            .expect("findFactory doc");
+        let window = &src[i..src.len().min(i + 2500)];
+        assert!(
+            window.contains("get_build_list")
+                && window.contains("factory_candidate")
+                && window.contains("build list first"),
+            "findFactory must iterate player build list first (C++)"
         );
     }
 
