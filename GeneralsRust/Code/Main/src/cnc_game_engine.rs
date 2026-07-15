@@ -2597,11 +2597,7 @@ impl CnCGameEngine {
                             team_number: player.id as i32,
                             apparent_color: None,
                             apparent_text_color: None,
-                            // Fail-closed: is_ai not frozen on roster; skirmish non-local ≈ AI.
-                            is_ai: matches!(
-                                self.presentation_or_live_game_mode(),
-                                GameMode::Skirmish
-                            ) && !player.is_local,
+                            is_ai: player.is_ai,
                             has_map: true,
                             visible: player.is_alive,
                         },
