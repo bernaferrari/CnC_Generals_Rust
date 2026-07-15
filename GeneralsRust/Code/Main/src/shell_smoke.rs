@@ -1878,6 +1878,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_fow_shroud_drawable_residual_no_object_registry() {
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let fow = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/fow_rendering.rs"));
+        let apply_idx = eng
+            .find("apply_presentation_shroud_to_drawables")
+            .expect("engine must call presentation shroud apply");
+        let apply_window = &eng[apply_idx..apply_idx.saturating_add(800).min(eng.len())];
+        assert!(
+            gc.contains("apply_presentation_shroud_to_drawables")
+                && gc.contains("no OBJECT_REGISTRY")
+                && fow.contains("fully_obscures_drawable")
+                && eng.contains("fow_visibility.fully_obscures_drawable")
+                && !apply_window.contains("OBJECT_REGISTRY"),
+            "presentation FOW must drive drawable shroud without OBJECT_REGISTRY dual-read"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

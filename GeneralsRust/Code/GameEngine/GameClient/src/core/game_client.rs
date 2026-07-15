@@ -3272,6 +3272,25 @@ impl GameClient {
         Ok(())
     }
 
+    /// Apply presentation-owned FOW shroud to bound drawables (no OBJECT_REGISTRY).
+    ///
+    /// C++ GameClient::update shroud residual (Fogged|Shrouded → fully obscured)
+    /// driven by frozen `PresentationFrame` unit FOW instead of live object locks.
+    pub fn apply_presentation_shroud_to_drawables<I>(&mut self, entries: I)
+    where
+        I: IntoIterator<Item = (u32, bool)>,
+    {
+        for (object_id, fully_obscured) in entries {
+            let Some(drawable_id) = self.drawable_object_map.get(&object_id).copied() else {
+                continue;
+            };
+            let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                continue;
+            };
+            drawable.set_fully_obscured_by_shroud(fully_obscured);
+        }
+    }
+
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
     /// Mirrors the safe subset of C++ `GameClient::update` ordering that Main does not

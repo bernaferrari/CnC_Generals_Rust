@@ -6393,8 +6393,21 @@ impl CnCGameEngine {
                 };
                 // Presentation path: deepened shell tick (frame/FX/UI/message pump)
                 // without OBJECT_REGISTRY shroud bind. Full GameClient::update remains
-                // disconnected (Main owns input/audio/3D draw via RenderPipeline).
+                // disconnected (Main owns OS input→commands and sole RenderPipeline 3D draw).
                 if self.last_presentation_frame.is_some() {
+                    // C++ per-drawable shroud residual from frozen presentation FOW.
+                    let shroud_entries: Vec<(u32, bool)> = self
+                        .last_presentation_frame
+                        .as_ref()
+                        .map(|pres| {
+                            pres.objects
+                                .iter()
+                                .map(|o| (o.id.0, o.fow_visibility.fully_obscures_drawable()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    self.game_client
+                        .apply_presentation_shroud_to_drawables(shroud_entries);
                     if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
                     }

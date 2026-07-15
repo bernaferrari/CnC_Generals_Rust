@@ -268,6 +268,13 @@ impl ObjectVisibility {
         self.visibility_alpha > 0.0 || self.is_explored > 0.0
     }
 
+    /// C++ GameClient drawable shroud residual: Fogged|Shrouded|InvalidButPreviousValid
+    /// → `setFullyObscuredByShroud(true)`. Only currently-visible cells keep models lit.
+    #[inline]
+    pub fn fully_obscures_drawable(&self) -> bool {
+        self.visibility_alpha < 1.0
+    }
+
     /// True when never explored (skip mesh entirely for local player).
     #[inline]
     pub fn never_explored(&self) -> bool {
