@@ -789,3 +789,16 @@ and prefers it over ThingTemplate CommandSet lookup. Presentation consumers can
 feed selected `RenderableObject::command_set_override` without live template
 dual-reads. Fail-closed: not full CommandSet INI cameo/prerequisite matrix.
 
+### Simple input presentation pick residual (2026-07-14)
+
+`SimpleInputProcessor` caches an optional `PresentationFrame` and
+`find_object_at_position` prefers presentation poses/selection radii when a
+snapshot is installed (live GameLogic only as boot fallback). Fail-closed: not
+full FOW/team/shroud pick filter matrix.
+
+### Input integration presentation pick residual (2026-07-14)
+
+`InputProcessor` caches an optional `PresentationFrame` and world pick prefers
+presentation poses when installed (live GameLogic only as boot fallback).
+Fail-closed: not full FOW/team pick filter matrix.
+
