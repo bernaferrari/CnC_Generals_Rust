@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 pub mod audio;
 pub mod campaign_menu;
+pub mod construction_panel;
 pub mod credits_screen;
 pub mod events;
 pub mod faction_selection;
