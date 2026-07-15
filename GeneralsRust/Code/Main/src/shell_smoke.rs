@@ -2338,6 +2338,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_process_base_building_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::processBaseBuilding`")
+                && src.contains("arm_structure_timer_after_build")
+                && src.contains("rebuild_delay_frames")
+                && src.contains("structures_poor_mod")
+                && src.contains("structures_wealthy_mod"),
+            "process_base_building must arm structureTimer with C++ wealth mods"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
