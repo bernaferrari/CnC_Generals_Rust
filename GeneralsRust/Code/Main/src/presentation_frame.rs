@@ -145,6 +145,20 @@ pub struct RenderableObject {
     pub orientation: f32,
     /// Current movement order destination (host Movement::target_position).
     pub move_destination: Option<Vec3>,
+    /// Host Object::target_location residual (script/order point).
+    pub target_location: Option<Vec3>,
+    /// Host guard_target residual.
+    pub guard_target: Option<ObjectId>,
+    /// Host ObjectStatus::using_ability residual.
+    pub using_ability: bool,
+    /// Host ObjectStatus::airborne_target residual.
+    pub airborne_target: bool,
+    /// Host movement max speed residual.
+    pub move_max_speed: f32,
+    /// Host velocity residual.
+    pub velocity: Vec3,
+    /// Host AI state ordinal residual.
+    pub ai_state_ordinal: u8,
     /// Attack target object id when set.
     pub attack_target: Option<ObjectId>,
     /// Path waypoints residual (capped) for line pack / debug draw.
@@ -1935,6 +1949,15 @@ impl PresentationFrame {
                 position: pos,
                 orientation: obj.get_orientation(),
                 move_destination: obj.movement.target_position,
+                target_location: obj.target_location,
+                guard_target: obj.guard_target,
+                using_ability: obj.status.using_ability,
+                airborne_target: obj.status.airborne_target,
+                move_max_speed: obj.movement.max_speed,
+                velocity: obj.movement.velocity,
+                ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                    &obj.ai_state,
+                ),
                 attack_target: obj.target,
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
                 production_queue: obj
@@ -3528,6 +3551,44 @@ impl PresentationFrame {
                 obj.guard_position = gp;
                 dirty = true;
             }
+            // Movement / target residual.
+            let tl = ent
+                .target_location
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            if obj.target_location != tl {
+                obj.target_location = tl;
+                dirty = true;
+            }
+            let gt = if ent.guard_target_host == 0 {
+                None
+            } else {
+                Some(crate::game_logic::ObjectId(ent.guard_target_host))
+            };
+            if obj.guard_target != gt {
+                obj.guard_target = gt;
+                dirty = true;
+            }
+            if obj.using_ability != ent.using_ability {
+                obj.using_ability = ent.using_ability;
+                dirty = true;
+            }
+            if obj.airborne_target != ent.airborne_target {
+                obj.airborne_target = ent.airborne_target;
+                dirty = true;
+            }
+            if (obj.move_max_speed - ent.move_max_speed).abs() > 1e-3 {
+                obj.move_max_speed = ent.move_max_speed;
+                dirty = true;
+            }
+            let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
+            if (obj.velocity - vel).length_squared() > 1e-6 {
+                obj.velocity = vel;
+                dirty = true;
+            }
+            if obj.ai_state_ordinal != ent.ai_state_ordinal {
+                obj.ai_state_ordinal = ent.ai_state_ordinal;
+                dirty = true;
+            }
             let rp = ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
             if obj.rally_point != rp {
                 obj.rally_point = rp;
@@ -5067,6 +5128,8 @@ mod tests {
                 && src.contains("ent.display_name")
                 && src.contains("ent.weapon_min_range")
                 && src.contains("ent.weapon_ammo")
+                && src.contains("ent.guard_target_host")
+                && src.contains("ent.ai_state_ordinal")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
