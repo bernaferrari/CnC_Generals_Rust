@@ -3598,6 +3598,52 @@ impl PresentationFrame {
                 obj.veterancy = vet;
                 dirty = true;
             }
+            // KindOf bitset residual → presentation ORDER vector.
+            {
+                use crate::game_logic::KindOf;
+                const ORDER: &[KindOf] = &[
+                    KindOf::Structure,
+                    KindOf::Infantry,
+                    KindOf::Vehicle,
+                    KindOf::Aircraft,
+                    KindOf::Projectile,
+                    KindOf::Resource,
+                    KindOf::Selectable,
+                    KindOf::Attackable,
+                    KindOf::CommandCenter,
+                    KindOf::Worker,
+                    KindOf::Hero,
+                    KindOf::SupplyCenter,
+                    KindOf::PowerPlant,
+                    KindOf::FSBarracks,
+                    KindOf::FSWarFactory,
+                    KindOf::FSAirfield,
+                    KindOf::FSInternetCenter,
+                    KindOf::FSPower,
+                    KindOf::FSBaseDefense,
+                    KindOf::FSSupplyDropzone,
+                    KindOf::FSSupplyCenter,
+                    KindOf::FSSuperweapon,
+                    KindOf::FSStrategyCenter,
+                    KindOf::FSFake,
+                    KindOf::FSTechnology,
+                    KindOf::FSBlackMarket,
+                    KindOf::FSAdvancedTech,
+                    KindOf::Harvestable,
+                    KindOf::Powered,
+                ];
+                let mut v: Vec<KindOf> = ORDER
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| ent.kind_of_bits & (1u32 << i) != 0)
+                    .map(|(_, k)| *k)
+                    .collect();
+                v.truncate(32);
+                if obj.kind_of != v {
+                    obj.kind_of = v;
+                    dirty = true;
+                }
+            }
             // Effectively stealthed residual from shadow flags.
             let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
             if obj.effectively_stealthed != eff {
@@ -4728,6 +4774,7 @@ mod tests {
                 && src.contains("obj.has_mine = ent.has_mine_data")
                 && src.contains("obj.garrisoned_units = garrisoned")
                 && src.contains("obj.contained_by = contained")
+                && src.contains("ent.kind_of_bits")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
