@@ -6,7 +6,7 @@ use std::collections::{HashMap, VecDeque};
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 
 /// AI difficulty levels affecting decision making and timing
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AIDifficulty {
     Easy,
     Medium,

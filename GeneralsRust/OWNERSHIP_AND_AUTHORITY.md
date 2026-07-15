@@ -1052,3 +1052,9 @@ Fail-closed: difficulty still live host; not sole GameWorld authority.
 Engine alliance broadcast prefers presentation then drains live take.
 Fail-closed: not sole GameWorld authority.
 
+### Presentation difficulty/game_mode residual (2026-07-14)
+
+`PresentationFrame` freezes `ai_difficulty` and `game_mode`. Save-info,
+restart-mission, and runtime-host map status prefer presentation when
+installed. Live host reads remain boot residual only.
+

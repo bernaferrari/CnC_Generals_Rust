@@ -1806,12 +1806,21 @@ impl CnCGameEngine {
             (false, String::new())
         };
 
-        let map_name = self.game_logic.get_current_map_name().trim();
-        let map_name = if map_name.is_empty() {
-            "-".to_string()
-        } else {
-            map_name.to_string()
-        };
+        // Prefer presentation world_env map residual when installed.
+        let map_name = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.map_name.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                // Boot residual only.
+                let map_name = self.game_logic.get_current_map_name().trim();
+                if map_name.is_empty() {
+                    "-".to_string()
+                } else {
+                    map_name.to_string()
+                }
+            });
 
         let ui_screen = self
             .runtime_host_ui_screen_override
@@ -7368,12 +7377,28 @@ impl CnCGameEngine {
     }
 
     fn restart_mission_from_ui(&mut self) {
-        let map = self.game_logic.get_current_map_name().to_string();
-        let mode = self.game_logic.game_mode();
+        // Prefer presentation residual for map/mode/faction when installed.
+        let map = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.map_name.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| self.game_logic.get_current_map_name().to_string());
+        let mode = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.game_mode)
+            .unwrap_or_else(|| self.game_logic.game_mode());
         let faction = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team.get_name().to_string())
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.local_team.get_name().to_string())
+            .or_else(|| {
+                // Boot residual only.
+                self.game_logic
+                    .get_player(self.current_player_id)
+                    .map(|p| p.team.get_name().to_string())
+            })
             .unwrap_or_else(|| "USA".to_string());
 
         info!(
@@ -7405,7 +7430,12 @@ impl CnCGameEngine {
             .map(|p| p.world_env.map_name.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| self.game_logic.get_current_map_name().to_string());
-        let difficulty = Self::map_ai_difficulty_to_save(self.game_logic.get_difficulty());
+        let difficulty = Self::map_ai_difficulty_to_save(
+            self.last_presentation_frame
+                .as_ref()
+                .map(|p| p.ai_difficulty)
+                .unwrap_or_else(|| self.game_logic.get_difficulty()),
+        );
         let play_time = std::time::Duration::from_secs_f32(
             self.last_presentation_frame
                 .as_ref()
