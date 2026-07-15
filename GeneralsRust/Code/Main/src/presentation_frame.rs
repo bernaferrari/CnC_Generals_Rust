@@ -277,6 +277,16 @@ pub struct RenderableObject {
     pub is_helix_transport: bool,
     pub has_overlord_gattling_addon: bool,
     pub has_overlord_propaganda_addon: bool,
+    pub is_battle_bus_transport: bool,
+    pub is_technical_transport: bool,
+    pub is_combat_cycle_transport: bool,
+    pub combat_cycle_rider: u8,
+    pub is_tunnel_network: bool,
+    pub is_combat_chinook_transport: bool,
+    pub max_transport: usize,
+    pub overlord_bunker_capacity: usize,
+    pub passengers_allowed_to_fire: bool,
+    pub display_name: String,
     pub demo_suicided_detonating: bool,
     /// Host turret_holding residual.
     pub turret_holding: bool,
@@ -2023,6 +2033,16 @@ impl PresentationFrame {
                 is_helix_transport: obj.is_helix_transport,
                 has_overlord_gattling_addon: obj.has_overlord_gattling_addon,
                 has_overlord_propaganda_addon: obj.has_overlord_propaganda_addon,
+                is_battle_bus_transport: obj.is_battle_bus_transport,
+                is_technical_transport: obj.is_technical_transport,
+                is_combat_cycle_transport: obj.is_combat_cycle_transport,
+                combat_cycle_rider: obj.combat_cycle_rider,
+                is_tunnel_network: obj.is_tunnel_network,
+                is_combat_chinook_transport: obj.is_combat_chinook_transport,
+                max_transport: obj.max_transport,
+                overlord_bunker_capacity: obj.overlord_bunker_capacity.unwrap_or(usize::MAX),
+                passengers_allowed_to_fire: obj.passengers_allowed_to_fire,
+                display_name: obj.name.clone(),
                 demo_suicided_detonating: obj.demo_suicided_detonating,
                 turret_holding: obj.turret_holding,
                 last_damage_source_host: obj.last_damage_source.map(|id| id.0).unwrap_or(0),
@@ -3593,6 +3613,52 @@ impl PresentationFrame {
                 obj.has_overlord_propaganda_addon = ent.has_overlord_propaganda_addon;
                 dirty = true;
             }
+            // Expanded transport-kind / display residual.
+            if obj.is_battle_bus_transport != ent.is_battle_bus_transport {
+                obj.is_battle_bus_transport = ent.is_battle_bus_transport;
+                dirty = true;
+            }
+            if obj.is_technical_transport != ent.is_technical_transport {
+                obj.is_technical_transport = ent.is_technical_transport;
+                dirty = true;
+            }
+            if obj.is_combat_cycle_transport != ent.is_combat_cycle_transport {
+                obj.is_combat_cycle_transport = ent.is_combat_cycle_transport;
+                dirty = true;
+            }
+            if obj.combat_cycle_rider != ent.combat_cycle_rider {
+                obj.combat_cycle_rider = ent.combat_cycle_rider;
+                dirty = true;
+            }
+            if obj.is_tunnel_network != ent.is_tunnel_network {
+                obj.is_tunnel_network = ent.is_tunnel_network;
+                dirty = true;
+            }
+            if obj.is_combat_chinook_transport != ent.is_combat_chinook_transport {
+                obj.is_combat_chinook_transport = ent.is_combat_chinook_transport;
+                dirty = true;
+            }
+            if obj.max_transport != ent.max_transport {
+                obj.max_transport = ent.max_transport;
+                dirty = true;
+            }
+            let bunker_cap = if ent.overlord_bunker_capacity == u16::MAX {
+                usize::MAX
+            } else {
+                ent.overlord_bunker_capacity as usize
+            };
+            if obj.overlord_bunker_capacity != bunker_cap {
+                obj.overlord_bunker_capacity = bunker_cap;
+                dirty = true;
+            }
+            if obj.passengers_allowed_to_fire != ent.passengers_allowed_to_fire {
+                obj.passengers_allowed_to_fire = ent.passengers_allowed_to_fire;
+                dirty = true;
+            }
+            if obj.display_name != ent.display_name {
+                obj.display_name = ent.display_name.clone();
+                dirty = true;
+            }
             if obj.demo_suicided_detonating != ent.demo_suicided_detonating {
                 obj.demo_suicided_detonating = ent.demo_suicided_detonating;
                 dirty = true;
@@ -4926,6 +4992,8 @@ mod tests {
                 && src.contains("ent.fow_visibility_alpha")
                 && src.contains("ent.ground_height")
                 && src.contains("ent.engine_bridged")
+                && src.contains("is_battle_bus_transport")
+                && src.contains("ent.display_name")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
