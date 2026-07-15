@@ -5912,18 +5912,40 @@ mod tests {
 
     #[test]
     fn production_tick_builds_presentation_after_side_systems() {
-        // Structural: presentation snapshot must be built after projectile/path host systems.
-        let src = include_str!("cnc_game_engine.rs");
-        let proj = src
+        // Structural: presentation is built after host GameLogic update returns.
+        // Projectile drain/step and path follow live inside GameLogic::update_simulation
+        // (not engine mid-frame dual systems).
+        let eng = include_str!("cnc_game_engine.rs");
+        let gl = include_str!("game_logic/game_logic.rs");
+        let proj = gl
             .find("drain_pending_projectiles")
-            .expect("projectile drain");
-        let path = src.find("move_unit_along_path").expect("path move");
-        let pres = src
+            .expect("projectile drain in GameLogic");
+        let path = gl
+            .find("fn update_movement")
+            .expect("path follow in GameLogic");
+        let eng_dual = eng.find("drain_pending_projectiles");
+        assert!(
+            eng_dual.is_none(),
+            "engine must not mid-frame drain_pending_projectiles (dual CombatSystem)"
+        );
+        assert!(
+            eng.find("move_unit_along_path").is_none(),
+            "engine must not mid-frame move_unit_along_path (dual path step)"
+        );
+        let pres = eng
             .find("PresentationFrame::build_from_logic")
             .expect("presentation build");
+        let host_update = eng
+            .find("game_logic.update_with_dt(")
+            .or_else(|| eng.find("game_logic.update_with_timing("))
+            .or_else(|| eng.find("game_logic.update("));
         assert!(
-            proj < pres && path < pres,
-            "PresentationFrame must be built after projectiles ({proj}) and path ({path}); found at {pres}"
+            host_update.is_some() && host_update.unwrap() < pres,
+            "PresentationFrame must be built after GameLogic update; update={host_update:?} pres={pres}"
+        );
+        assert!(
+            proj > 0 && path > 0,
+            "GameLogic owns projectile+path phases"
         );
     }
 
