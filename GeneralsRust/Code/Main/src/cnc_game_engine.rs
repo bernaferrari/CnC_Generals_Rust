@@ -8792,12 +8792,17 @@ impl CnCGameEngine {
 
     fn update_mouse_world_position(&mut self) {
         // Convert screen coordinates to world coordinates using current world bounds.
-        // This keeps click mapping stable across different map sizes and resolutions.
+        // Prefer presentation world_env when installed (no live dual-read for click map).
+        // Boot/loading without a frame still uses host GameLogic bounds.
         let size = self.window.inner_size();
         let normalized_x = (self.mouse_position.0 / size.width.max(1) as f32).clamp(0.0, 1.0);
         let normalized_y = (self.mouse_position.1 / size.height.max(1) as f32).clamp(0.0, 1.0);
 
-        let (world_min, world_max) = self.game_logic.world_bounds();
+        let (world_min, world_max) = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.world_env.world_bounds_vec3()
+        } else {
+            self.game_logic.world_bounds()
+        };
         let world_width = (world_max.x - world_min.x).max(1.0);
         let world_height = (world_max.z - world_min.z).max(1.0);
         let world_x = world_min.x + normalized_x * world_width;
