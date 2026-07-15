@@ -520,3 +520,10 @@ InGame render passes `None` when `last_presentation_frame` is set so selection
 circles use snapshot identity only. Live GameLogic remains boot residual without
 a presentation frame.
 
+### GameClient presentation shell deepen residual (2026-07-14)
+
+`update_presentation_shell` now applies C++ visual-freeze + script visual-speed
+scaling and ticks `DisplayStringManager`. Still skips Main-owned input/audio and
+`draw_display` (RenderPipeline remains sole 3D draw). Full `GameClient::update()`
+remains disconnected.
+

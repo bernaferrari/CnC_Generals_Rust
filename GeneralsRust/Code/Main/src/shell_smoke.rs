@@ -2936,3 +2936,37 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod presentation_shell_deepen_tests {
+    #[test]
+    fn presentation_shell_deepens_visual_speed_without_main_draw_ownership() {
+        let src = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        let idx = src
+            .find("fn update_presentation_shell")
+            .expect("presentation shell");
+        let window = &src[idx..idx + 2200];
+        assert!(
+            window.contains("get_script_visual_speed_multiplier"),
+            "shell must scale visual delta by script visual speed"
+        );
+        assert!(
+            window.contains("should_freeze_visual_time"),
+            "shell must honor visual freeze residual"
+        );
+        assert!(
+            window.contains("update_display_string_manager"),
+            "shell must tick DisplayStringManager residual"
+        );
+        assert!(
+            !window.contains("self.update_input")
+                && !window.contains("self.update_audio")
+                && !window.contains("self.draw_display"),
+            "presentation shell must not take Main input/audio/draw ownership"
+        );
+        assert!(
+            window.contains("update_drawables_local"),
+            "shell keeps local drawable path (no OBJECT_REGISTRY shroud bind)"
+        );
+    }
+}
