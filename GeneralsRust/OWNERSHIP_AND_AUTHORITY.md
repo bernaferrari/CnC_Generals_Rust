@@ -1249,3 +1249,14 @@ Compared C++ `AIPlayer::onUnitProduced`:
 - Dozer: repair-dozer handoff or `buildDelay=0` + `structureTimer=1`.
 - Always `teamDelay = 0` so queues re-evaluate immediately.
 
+### buildStructureWithDozer (2026-07-14)
+
+Compared C++ `AIPlayer::buildStructureWithDozer`:
+
+- `findDozer` + funds via `calcCostToBuild`; queue dozer if missing.
+- Spawn structure, set producer/builder, under-construction, dozer `set_build_task`.
+- Stamp BuildListInfo objectID/timestamp/underConstruction + decrement rebuilds.
+- `process_base_building` calls this on the first missing buildable entry (USE_DOZER).
+
+Fail-closed: legal-place wiggle / NO_ENEMY overlap residual; Main host AI separate.
+

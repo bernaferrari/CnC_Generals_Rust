@@ -2468,6 +2468,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_build_structure_with_dozer_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::buildStructureWithDozer`")
+                && src.contains("set_build_task")
+                && src.contains("build_structure_with_dozer"),
+            "buildStructureWithDozer must be wired for USE_DOZER base building"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
