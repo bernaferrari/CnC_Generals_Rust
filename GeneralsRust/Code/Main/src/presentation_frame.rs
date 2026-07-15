@@ -254,6 +254,18 @@ pub struct RenderableObject {
     pub vision_spied_mask: u32,
     /// Host cheer_timer residual.
     pub cheer_timer: f32,
+    /// Host transport-kind residual markers.
+    pub is_humvee_transport: bool,
+    pub is_listening_outpost_transport: bool,
+    pub is_troop_crawler_transport: bool,
+    pub is_helix_transport: bool,
+    pub has_overlord_gattling_addon: bool,
+    pub has_overlord_propaganda_addon: bool,
+    pub demo_suicided_detonating: bool,
+    /// Host turret_holding residual.
+    pub turret_holding: bool,
+    /// Host last_damage_source residual (0 = none).
+    pub last_damage_source_host: u32,
     /// Host Object::command_set_override residual (empty = template default).
     pub command_set_override: String,
     /// Host Object::is_detector residual.
@@ -1980,6 +1992,15 @@ impl PresentationFrame {
                 camo_friendly_opacity: obj.camo_friendly_opacity,
                 vision_spied_mask: obj.vision_spied_mask,
                 cheer_timer: obj.cheer_timer,
+                is_humvee_transport: obj.is_humvee_transport,
+                is_listening_outpost_transport: obj.is_listening_outpost_transport,
+                is_troop_crawler_transport: obj.is_troop_crawler_transport,
+                is_helix_transport: obj.is_helix_transport,
+                has_overlord_gattling_addon: obj.has_overlord_gattling_addon,
+                has_overlord_propaganda_addon: obj.has_overlord_propaganda_addon,
+                demo_suicided_detonating: obj.demo_suicided_detonating,
+                turret_holding: obj.turret_holding,
+                last_damage_source_host: obj.last_damage_source.map(|id| id.0).unwrap_or(0),
                 command_set_override: obj.command_set_override.clone().unwrap_or_default(),
                 is_detector: obj.is_detector,
                 active_weapon_slot: obj.active_weapon_slot,
@@ -2608,6 +2629,22 @@ impl PresentationFrame {
 
     /// Count presentation objects with any Strategy Center battle-plan bonus residual.
     /// Count presentation objects with host hive-slave residual.
+    /// Count presentation objects with host humvee transport residual.
+    pub fn humvee_transport_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.is_humvee_transport && !o.destroyed)
+            .count()
+    }
+
+    /// Count presentation objects with host overlord gattling addon residual.
+    pub fn overlord_gattling_object_count(&self) -> usize {
+        self.objects
+            .iter()
+            .filter(|o| o.has_overlord_gattling_addon && !o.destroyed)
+            .count()
+    }
+
     pub fn hive_object_count(&self) -> usize {
         self.objects
             .iter()
@@ -4161,6 +4198,54 @@ impl PresentationFrame {
 mod tests {
 
     #[test]
+    fn presentation_freezes_transport_kind_damage_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresTransportKind");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PresTK") {
+            let mut t = ThingTemplate::new("PresTK");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("PresTK".into(), t);
+        }
+        let id = logic
+            .create_object("PresTK", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
+            .expect("id");
+        let src_id = logic
+            .create_object("PresTK", Team::GLA, glam::Vec3::new(8.0, 0.0, 6.0))
+            .expect("src");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.is_humvee_transport = true;
+            obj.is_listening_outpost_transport = true;
+            obj.is_troop_crawler_transport = true;
+            obj.is_helix_transport = true;
+            obj.has_overlord_gattling_addon = true;
+            obj.has_overlord_propaganda_addon = true;
+            obj.demo_suicided_detonating = true;
+            obj.turret_holding = true;
+            obj.last_damage_source = Some(src_id);
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.humvee_transport_object_count(), 1);
+        assert_eq!(frame.overlord_gattling_object_count(), 1);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert!(ro.is_humvee_transport && ro.is_helix_transport);
+        assert!(ro.has_overlord_gattling_addon && ro.has_overlord_propaganda_addon);
+        assert!(ro.demo_suicided_detonating && ro.turret_holding);
+        assert_eq!(ro.last_damage_source_host, src_id.0);
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("is_humvee_transport: obj.is_humvee_transport")
+                && src.contains("last_damage_source_host: obj.last_damage_source")
+                && src.contains("has_overlord_gattling_addon: obj"),
+            "freeze must copy transport-kind/damage residual"
+        );
+    }
+
     fn presentation_freezes_hive_continuous_camo_residual() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
