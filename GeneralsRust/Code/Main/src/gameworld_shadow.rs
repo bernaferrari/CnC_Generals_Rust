@@ -430,6 +430,21 @@ impl GameWorldShadow {
                     e.is_tunnel_network = obj.is_tunnel_network;
                     e.is_combat_chinook_transport = obj.is_combat_chinook_transport;
                     e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
+                    {
+                        const MAX_GARRISON_IDS: usize = 16;
+                        let mut ids: Vec<u32> = Vec::new();
+                        if let Some(bd) = obj.building_data.as_ref() {
+                            for oid in bd.garrisoned_units.iter().take(MAX_GARRISON_IDS) {
+                                ids.push(oid.0);
+                            }
+                        }
+                        if ids.is_empty() {
+                            for oid in obj.occupants.iter().take(MAX_GARRISON_IDS) {
+                                ids.push(oid.0);
+                            }
+                        }
+                        e.garrisoned_host_ids = ids;
+                    }
                     e.cheer_timer = obj.cheer_timer;
                     e.overcharge_enabled = obj.overcharge_enabled;
                     e.active_weapon_slot = obj.active_weapon_slot;
@@ -633,6 +648,21 @@ impl GameWorldShadow {
                 e.is_tunnel_network = obj.is_tunnel_network;
                 e.is_combat_chinook_transport = obj.is_combat_chinook_transport;
                 e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
+                {
+                    const MAX_GARRISON_IDS: usize = 16;
+                    let mut ids: Vec<u32> = Vec::new();
+                    if let Some(bd) = obj.building_data.as_ref() {
+                        for oid in bd.garrisoned_units.iter().take(MAX_GARRISON_IDS) {
+                            ids.push(oid.0);
+                        }
+                    }
+                    if ids.is_empty() {
+                        for oid in obj.occupants.iter().take(MAX_GARRISON_IDS) {
+                            ids.push(oid.0);
+                        }
+                    }
+                    e.garrisoned_host_ids = ids;
+                }
                 e.cheer_timer = obj.cheer_timer;
                 e.overcharge_enabled = obj.overcharge_enabled;
                 e.active_weapon_slot = obj.active_weapon_slot;
@@ -781,6 +811,7 @@ impl GameWorldShadow {
             e.is_tunnel_network = false;
             e.is_combat_chinook_transport = false;
             e.contained_by_host = 0;
+            e.garrisoned_host_ids.clear();
             e.cheer_timer = 0.0;
             e.overcharge_enabled = false;
             e.active_weapon_slot = 0;
@@ -2392,6 +2423,47 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_garrison_contain_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityGarrisonContain");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "GarBldg", 500.0);
+        ensure_template(&mut logic, "GarInf", 100.0);
+        let bldg = logic
+            .create_object("GarBldg", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("bldg");
+        let inf = logic
+            .create_object("GarInf", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("inf");
+        {
+            use crate::game_logic::{BuildingData, BuildingType};
+            let obj = logic.get_objects_mut().get_mut(&bldg).expect("b");
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.garrisoned_units = vec![inf];
+            bd.max_garrison = 5;
+            obj.building_data = Some(bd);
+            obj.object_type = crate::game_logic::ObjectType::Building;
+        }
+        {
+            let obj = logic.get_objects_mut().get_mut(&inf).expect("i");
+            obj.contained_by = Some(bldg);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let be = shadow.entity_for_host(bldg).expect("bm");
+        let b = shadow.world().entity(be).expect("b");
+        assert_eq!(b.garrisoned_host_ids, vec![inf.0]);
+        assert_eq!(b.max_garrison, 5);
+        let ie = shadow.entity_for_host(inf).expect("im");
+        let i = shadow.world().entity(ie).expect("i");
+        assert_eq!(i.contained_by_host, bldg.0);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("garrisoned_host_ids") && src.contains("garrisoned_units"),
+            "sync must copy garrison residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_path_waypoints_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityPathWp");

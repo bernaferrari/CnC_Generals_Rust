@@ -232,6 +232,8 @@ pub struct Entity {
     pub is_combat_chinook_transport: bool,
     /// Host Object::contained_by residual as host object id (0 = free).
     pub contained_by_host: u32,
+    /// Host building_data.garrisoned_units / occupants host ids residual (capped).
+    pub garrisoned_host_ids: Vec<u32>,
     /// Host Object::cheer_timer residual.
     pub cheer_timer: f32,
     /// Host Object::overcharge_enabled residual.
@@ -456,6 +458,7 @@ impl EntityStore {
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by_host: 0,
+            garrisoned_host_ids: Vec::new(),
             cheer_timer: 0.0,
             overcharge_enabled: false,
             active_weapon_slot: 0,
