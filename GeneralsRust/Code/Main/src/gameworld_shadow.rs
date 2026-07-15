@@ -220,7 +220,9 @@ impl GameWorldShadow {
                 continue;
             };
             let pos = obj.get_position();
-            let transform = Transform::new([pos.x, pos.y, pos.z], 0.0);
+            // Prefer host facing on sync (pose channel). Zero was a residual wipe that
+            // forced apply_host_positions to re-queue every entity each tick.
+            let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
             let owner = self.owner_for_host_object(logic, obj.team);
             let health = obj.health.current.max(0.0);
 
@@ -1488,6 +1490,23 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_host_orientation() {
+        let src = include_str!("gameworld_shadow.rs");
+        let idx = src
+            .find("pub fn sync_from_host_with")
+            .expect("sync_from_host_with");
+        let window = &src[idx..idx + 2200];
+        assert!(
+            window.contains("obj.get_orientation()"),
+            "sync_from_host_with must copy host orientation into Transform"
+        );
+        assert!(
+            !window.contains("Transform::new([pos.x, pos.y, pos.z], 0.0)"),
+            "sync must not wipe orientation to 0.0"
+        );
     }
 
     #[test]
