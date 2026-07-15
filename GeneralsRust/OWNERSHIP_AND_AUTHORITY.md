@@ -1351,3 +1351,12 @@ Compared C++ AIPlayer:
   ready-queue if any else disband non-singleton.
 - Work-order helper matches optional/required split.
 
+### AISkirmishPlayer base defense / newMap (2026-07-14)
+
+Compared C++ AISkirmishPlayer:
+
+- `buildAIBaseDefenseStructure`: approach path offset, alternating angles,
+  legalize, `addToPriorityBuildList` (not generic building queue).
+- `newMap`: side build list + `adjustBuildList`, compute base center, initiallyBuilt
+  via `buildStructureNow` else `incrementNumRebuilds` (does not call AIPlayer::newMap).
+
