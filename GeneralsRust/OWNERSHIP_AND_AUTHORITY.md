@@ -782,3 +782,10 @@ host residual (alongside existing consecutive/detector/stealth fields).
 `sync_from_host_with` copies them each tick. Fail-closed: not full Frenzy
 countdown / Gattling coast / BattlePlan sight FSM authority.
 
+### Construction panel command_set_override residual (2026-07-14)
+
+`ConstructionPanel::show_for_building` accepts optional `command_set_override`
+and prefers it over ThingTemplate CommandSet lookup. Presentation consumers can
+feed selected `RenderableObject::command_set_override` without live template
+dual-reads. Fail-closed: not full CommandSet INI cameo/prerequisite matrix.
+

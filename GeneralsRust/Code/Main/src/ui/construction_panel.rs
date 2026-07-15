@@ -60,9 +60,9 @@ impl BuildableItem {
 #[derive(Debug, Clone)]
 pub struct BuildQueueEntry {
     pub item: BuildableItem,
-    pub progress: f32,        // 0.0 .. 1.0
-    pub remaining_time: f32,  // seconds
-    pub build_time: f32,      // total seconds for this item
+    pub progress: f32,       // 0.0 .. 1.0
+    pub remaining_time: f32, // seconds
+    pub build_time: f32,     // total seconds for this item
 }
 
 impl BuildQueueEntry {
@@ -389,8 +389,8 @@ impl ConstructionPanel {
         faction_side: &str,
         credits: i32,
     ) {
-        use game_engine::common::ini::ini_command_set::get_command_set_manager;
         use game_engine::common::ini::ini_command_button::get_control_bar;
+        use game_engine::common::ini::ini_command_set::get_command_set_manager;
 
         self.selected_building = Some(command_set_name.to_string());
         self.items.clear();
@@ -461,9 +461,20 @@ impl ConstructionPanel {
     }
 
     /// Populate from a known building name by looking up its command set.
-    pub fn show_for_building(&mut self, building_name: &str, faction_side: &str, credits: i32) {
-        // Try to look up the command set string from the thing template.
-        let command_set = find_command_set_for_object(building_name);
+    pub fn show_for_building(
+        &mut self,
+        building_name: &str,
+        faction_side: &str,
+        credits: i32,
+        command_set_override: Option<&str>,
+    ) {
+        // Prefer presentation/host command_set_override residual when provided;
+        // fall back to ThingTemplate CommandSet string.
+        let command_set = command_set_override
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| find_command_set_for_object(building_name));
         if let Some(ref cs_name) = command_set {
             self.populate_from_command_set(cs_name, faction_side, credits);
         } else {
@@ -495,7 +506,9 @@ impl ConstructionPanel {
     pub fn items_for_current_tab(&self) -> Vec<&BuildableItem> {
         self.items
             .iter()
-            .filter(|item| classify_button_tab(&item.command, &item.template_name, "") == self.current_tab)
+            .filter(|item| {
+                classify_button_tab(&item.command, &item.template_name, "") == self.current_tab
+            })
             .collect()
     }
 
@@ -556,11 +569,8 @@ impl ConstructionPanel {
 
     /// Begin placement mode for the given item.
     pub fn begin_placement(&mut self, item: &BuildableItem) {
-        self.placement.start(
-            &item.template_name,
-            &item.display_name,
-            item.cost,
-        );
+        self.placement
+            .start(&item.template_name, &item.display_name, item.cost);
     }
 
     // ---- radius cursor overlay --------------------------------------------
@@ -671,9 +681,7 @@ fn resolve_build_info(object_name: &str, fallback_cost: i32) -> (i32, f32, Strin
     if let Some(template) = gamelogic::helpers::TheThingFactory::find_template(object_name) {
         let cost = template.get_build_cost();
         let time = template.get_build_time();
-        let name = template
-            .get_name()
-            .to_string();
+        let name = template.get_name().to_string();
         // Use display_name if non-empty, else internal name.
         let display = if name.is_empty() || name == object_name {
             object_name.to_string()
@@ -685,11 +693,7 @@ fn resolve_build_info(object_name: &str, fallback_cost: i32) -> (i32, f32, Strin
 
     // Fallback: command button's own purchase_cost.
     (
-        if fallback_cost > 0 {
-            fallback_cost
-        } else {
-            0
-        },
+        if fallback_cost > 0 { fallback_cost } else { 0 },
         5.0,
         object_name.to_string(),
     )
@@ -707,6 +711,18 @@ fn find_command_set_for_object(object_name: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Resolve CommandSet name preferring presentation override residual.
+pub fn resolve_command_set_name(
+    building_name: &str,
+    command_set_override: Option<&str>,
+) -> Option<String> {
+    command_set_override
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| find_command_set_for_object(building_name))
 }
 
 // ---------------------------------------------------------------------------
@@ -814,7 +830,10 @@ mod tests {
 
     #[test]
     fn test_radius_for_type() {
-        assert_eq!(RadiusCursorOverlay::radius_for_type("PARTICLECANNON"), 200.0);
+        assert_eq!(
+            RadiusCursorOverlay::radius_for_type("PARTICLECANNON"),
+            200.0
+        );
         assert_eq!(RadiusCursorOverlay::radius_for_type("A10STRIKE"), 100.0);
         assert_eq!(RadiusCursorOverlay::radius_for_type("UNKNOWN"), 100.0);
     }
@@ -914,18 +933,8 @@ mod tests {
     #[test]
     fn test_superweapon_timer_dedup() {
         let mut panel = ConstructionPanel::new(0, 0);
-        let t1 = SuperweaponTimer::new(
-            "A10".into(),
-            "SP_A10".into(),
-            "a10".into(),
-            60.0,
-        );
-        let t2 = SuperweaponTimer::new(
-            "A10 Strike".into(),
-            "SP_A10".into(),
-            "a10_v2".into(),
-            90.0,
-        );
+        let t1 = SuperweaponTimer::new("A10".into(), "SP_A10".into(), "a10".into(), 60.0);
+        let t2 = SuperweaponTimer::new("A10 Strike".into(), "SP_A10".into(), "a10_v2".into(), 90.0);
         panel.add_superweapon_timer(t1);
         panel.add_superweapon_timer(t2);
         assert_eq!(panel.superweapon_timers().len(), 1);
@@ -933,6 +942,28 @@ mod tests {
     }
 
     #[test]
+    fn show_for_building_prefers_command_set_override_residual() {
+        let src = include_str!("construction_panel.rs");
+        assert!(
+            src.contains("command_set_override")
+                && src.contains("Prefer presentation/host command_set_override"),
+            "show_for_building must prefer presentation override residual"
+        );
+        assert!(
+            src.contains("pub fn resolve_command_set_name"),
+            "must expose resolve helper for presentation consumers"
+        );
+        assert_eq!(
+            resolve_command_set_name("NoSuchTemplateXYZ", Some("Command_AmericaDozer")),
+            Some("Command_AmericaDozer".into())
+        );
+        assert_eq!(
+            resolve_command_set_name("NoSuchTemplateXYZ", Some("  ")),
+            None
+        );
+        assert_eq!(resolve_command_set_name("NoSuchTemplateXYZ", None), None);
+    }
+
     fn test_tab_label() {
         assert_eq!(ConstructionTab::Buildings.label(), "Buildings");
         assert_eq!(ConstructionTab::Infantry.label(), "Infantry");
