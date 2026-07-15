@@ -3074,3 +3074,27 @@ mod presentation_local_team_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod presentation_select_similar_tests {
+    #[test]
+    fn select_similar_units_prefers_presentation_local_team() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("fn select_similar_units")
+            .expect("select_similar_units");
+        let window = &eng[idx..idx + 900];
+        assert!(
+            window.contains("local_team") || window.contains("local_team()"),
+            "select_similar_units must prefer presentation local_team"
+        );
+        assert!(
+            window.contains("similar_unit_ids"),
+            "select_similar_units must use presentation similar_unit_ids when frame set"
+        );
+        assert!(
+            window.contains("game_logic.get_player"),
+            "boot residual without frame may still use host player team"
+        );
+    }
+}

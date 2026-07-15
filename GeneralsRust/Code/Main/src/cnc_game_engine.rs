@@ -8395,10 +8395,15 @@ impl CnCGameEngine {
     }
 
     fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
-        let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-            return;
+        // Prefer presentation-frozen local_team when a frame is installed.
+        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
         };
-        let player_team = player.team;
 
         // Prefer presentation identity (template/team/selectable) when dual-tick snapshot exists.
         let (similar_units, template_label) = if let Some(frame) =
