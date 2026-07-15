@@ -3098,3 +3098,37 @@ mod presentation_select_similar_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod presentation_player_roster_tests {
+    #[test]
+    fn defeat_ui_prefers_presentation_player_roster() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("Broadcast defeat notifications")
+            .expect("defeat notifications");
+        let window = &eng[idx..idx + 1600];
+        assert!(
+            window.contains("player_info(player_id)") || window.contains("player_info("),
+            "defeat UI must prefer presentation player roster"
+        );
+        assert!(
+            window.contains("game_logic.get_player(player_id)"),
+            "boot residual without roster entry may still use host player"
+        );
+        let alliance_idx = eng
+            .find("Prefer presentation roster team when installed")
+            .expect("alliance roster prefer");
+        let alliance_window = &eng[alliance_idx..alliance_idx + 500];
+        assert!(
+            alliance_window.contains("player_team("),
+            "alliance radar must prefer presentation player_team"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("pub struct PresentationPlayerInfo")
+                && pf.contains("pub players: Vec<PresentationPlayerInfo>"),
+            "PresentationFrame must freeze players roster"
+        );
+    }
+}

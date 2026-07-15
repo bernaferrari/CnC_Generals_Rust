@@ -589,3 +589,10 @@ right-click attack prefer `frame.local_team()` when a frame is installed. Live
 `similar_unit_ids` when a frame is installed. Live `get_player` /
 `get_objects` remain boot residual without presentation.
 
+### Presentation player roster residual (2026-07-14)
+
+`PresentationFrame.players` freezes host player id/name/team/alive/local at
+snapshot time. Defeat notifications and alliance radar prefer the roster when
+a frame is installed. Live `GameLogic::get_player` remains residual without a
+matching roster entry.
+
