@@ -636,3 +636,9 @@ defeat/bounty/tint residual. `sync_players` copies them via
 `copy_host_player_residual` each tick. Fail-closed: not full victory-conditions
 module / bounty award pipeline / skirmish color table authority.
 
+### GameWorld entity selection/construction residual (2026-07-14)
+
+`Entity` carries `max_health`, `selected`, `destroyed`, and
+`construction_percent` host residual. `sync_from_host_with` copies them each
+tick. Fail-closed: not full selection-manager / build-queue module authority.
+
