@@ -576,3 +576,10 @@ remains boot residual without presentation.
 (no longer forces yaw 0). Pose writeback / `apply_host_positions_as_transforms`
 remain the last-writer path for mid-tick facing changes.
 
+### Presentation local_team residual (2026-07-14)
+
+`PresentationFrame` freezes `local_team` from the host player at snapshot time.
+Selection hotkeys (Ctrl+A, Tab cycle, control groups, box select), pick, and
+right-click attack prefer `frame.local_team()` when a frame is installed. Live
+`GameLogic::get_player` team reads remain boot residual without presentation.
+
