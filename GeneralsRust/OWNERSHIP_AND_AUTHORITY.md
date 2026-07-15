@@ -1099,6 +1099,13 @@ text/military caption remain UI-state projection only.
 
 `PresentationFrame` freezes `military_caption_remaining_ms` from host expiry.
 Main applies caption text+duration to GameClient InGameUI via
-`apply_presentation_military_caption`. Fail-closed: cinematic_text still
-UI-state only; not sole GameWorld authority.
+`apply_presentation_military_caption`. Cinematic text also pushes InGameUI HUD
+messages via `apply_presentation_cinematic_text` (anti-spam on text change).
+Fail-closed: not sole GameWorld authority.
+
+### Presentation cinematic text residual (2026-07-14)
+
+Main applies `PresentationFrame.cinematic_text` to GameClient InGameUI HUD
+messages (C++ display_cinematic_text → message). Anti-spam on text change.
+Fail-closed: remaining_ms frozen but not yet used for timed HUD expiry.
 

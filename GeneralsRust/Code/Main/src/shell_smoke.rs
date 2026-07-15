@@ -2181,6 +2181,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_cinematic_text_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        assert!(
+            gc.contains("fn apply_presentation_cinematic_text")
+                && gc.contains("push_hud_message")
+                && gc.contains("last_applied_cinematic_text")
+                && eng
+                    .contains("apply_presentation_cinematic_text(pres.cinematic_text.as_deref())")
+                && eng.contains("Cinematic text residual"),
+            "presentation cinematic_text must push InGameUI HUD message with anti-spam"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
