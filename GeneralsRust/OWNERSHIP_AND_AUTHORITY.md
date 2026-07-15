@@ -926,3 +926,10 @@ contain redirect / multi-door transport AI matrix.
 installed; live `get_player` is boot/menu residual only. Fail-closed: not full
 multi-slot LAN/skirmish load-screen parity from presentation alone.
 
+### Presentation weapon stats residual (2026-07-14)
+
+`RenderableObject` carries primary weapon min_range/reload/ammo/air-ground/
+projectile_speed plus armed_riders and player weapon-set upgrade flags. Freeze
+and overlay last-write from Entity residual. Fail-closed: not full multi-slot
+weapon set / clip reload state machine.
+
