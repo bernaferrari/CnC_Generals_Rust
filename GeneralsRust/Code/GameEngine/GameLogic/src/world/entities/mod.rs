@@ -224,6 +224,14 @@ pub struct Entity {
     pub model_key: String,
     /// Host ThingTemplate mesh scale residual (retail combat often 1.0).
     pub mesh_scale: f32,
+    /// Host FOW visibility residual (alpha / explored / falloff).
+    pub fow_visibility_alpha: f32,
+    pub fow_is_explored: f32,
+    pub fow_visibility_falloff: f32,
+    /// Host terrain ground height residual at object XY.
+    pub ground_height: f32,
+    /// True when ground_height came from terrain sample (not default-0).
+    pub ground_height_from_terrain: bool,
     /// Host Object::overlord_bunker_capacity residual:
     /// `u16::MAX` = None (not overlord-style).
     pub overlord_bunker_capacity: u16,
@@ -469,6 +477,11 @@ impl EntityStore {
             display_name: String::new(),
             model_key: String::new(),
             mesh_scale: 1.0,
+            fow_visibility_alpha: 1.0,
+            fow_is_explored: 1.0,
+            fow_visibility_falloff: 0.0,
+            ground_height: 0.0,
+            ground_height_from_terrain: false,
             overlord_bunker_capacity: u16::MAX,
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,

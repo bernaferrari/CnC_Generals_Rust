@@ -3324,6 +3324,27 @@ impl PresentationFrame {
                 obj.mesh_scale = ent.mesh_scale;
                 dirty = true;
             }
+            // FOW + ground-height residual.
+            {
+                use crate::fow_rendering::ObjectVisibility;
+                let vis = ObjectVisibility {
+                    visibility_alpha: ent.fow_visibility_alpha,
+                    is_explored: ent.fow_is_explored,
+                    visibility_falloff: ent.fow_visibility_falloff,
+                };
+                if obj.fow_visibility != vis {
+                    obj.fow_visibility = vis;
+                    dirty = true;
+                }
+            }
+            if (obj.ground_height - ent.ground_height).abs() > 1e-3 {
+                obj.ground_height = ent.ground_height;
+                dirty = true;
+            }
+            if obj.ground_height_from_terrain != ent.ground_height_from_terrain {
+                obj.ground_height_from_terrain = ent.ground_height_from_terrain;
+                dirty = true;
+            }
             if obj.selected != ent.selected {
                 obj.selected = ent.selected;
                 dirty = true;
@@ -4898,6 +4919,8 @@ mod tests {
                 && src.contains("obj.disguise_as_team = disguise_team")
                 && src.contains("ent.model_key")
                 && src.contains("ent.mesh_scale")
+                && src.contains("ent.fow_visibility_alpha")
+                && src.contains("ent.ground_height")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
