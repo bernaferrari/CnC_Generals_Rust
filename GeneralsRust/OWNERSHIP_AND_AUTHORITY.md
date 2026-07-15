@@ -413,3 +413,13 @@ With a presentation frame, GameClient uses `update_drawables_local` (no OBJECT_R
 - Client: `update_presentation_shell` for presentation path; soft WND via GENERALS_RUNTIME_HOST_WND.
 
 - Presentation freezes pending radar texts as `PresentationEvent::RadarMessage` (UI drain remains authoritative).
+
+### Executable smoke kill pattern (2026-07-14)
+
+`executable_smoke_gate` kills stale `generals` via `pkill -f` matching
+`-runtime_host` (underscore). A prior hyphenated `runtime-host` pattern never
+matched the real CLI and left GPU-holding processes that failed the next boot.
+
+`executable_host_ok` can go true (Menu→InGame via runtime host). `playable_claim`
+stays false until full WND widget click / retail interactive path.
+
