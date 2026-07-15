@@ -699,9 +699,13 @@ impl AISkirmishPlayer {
 
         let mut selected_plan = None;
         let mut selected_name = None;
+        let mut selected_loc = None;
+        let mut selected_angle = 0.0_f32;
         let mut is_priority = false;
         let mut power_plan = None;
         let mut power_name = None;
+        let mut power_loc = None;
+        let mut power_angle = 0.0_f32;
         let mut power_under_construction = false;
         let is_under_powered = self.is_under_powered();
 
@@ -726,12 +730,14 @@ impl AISkirmishPlayer {
                             if obj_guard.is_under_construction()
                                 && (cur_plan.is_kind_of(KindOf::FSPower)
                                     || cur_plan.is_kind_of(KindOf::PowerPlant))
+                                && !cur_plan.is_kind_of(KindOf::CashGenerator)
                             {
                                 power_under_construction = true;
                             }
                             if obj_guard.is_under_construction() {
                                 info.set_under_construction(true);
                                 let builder_id = obj_guard.get_builder_id();
+                                let bldg_pos = *obj_guard.get_position();
                                 let mut builder_valid = builder_id != crate::common::INVALID_ID;
 
                                 if builder_valid {
@@ -765,6 +771,47 @@ impl AISkirmishPlayer {
                                         log::debug!(
                                             "AISkirmishPlayer::queue_dozer failed while rebuilding: {err}"
                                         );
+                                    }
+                                    // C++ findDozer + aiResumeConstruction
+                                    if let Ok(Some(dozer_id)) =
+                                        self.base.find_dozer_public(&bldg_pos)
+                                    {
+                                        if let Some(dozer_arc) =
+                                            TheGameLogic::find_object_by_id(dozer_id)
+                                        {
+                                            if let Ok(dg) = dozer_arc.read() {
+                                                if let Some(ai) = dg.get_ai_update_interface() {
+                                                    if let Ok(mut ai_g) = ai.lock() {
+                                                        let mut params =
+                                                            crate::ai::AiCommandParams::new(
+                                                                crate::ai::AiCommandType::ResumeConstruction,
+                                                                crate::ai::CommandSourceType::FromAi,
+                                                            );
+                                                        params.obj = Some(obj_id);
+                                                        let _ = ai_g.execute_command(&params);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // C++ always re-issues resume construction on valid dozer.
+                                    if let Some(builder_arc) =
+                                        TheGameLogic::find_object_by_id(builder_id)
+                                    {
+                                        if let Ok(dg) = builder_arc.read() {
+                                            if let Some(ai) = dg.get_ai_update_interface() {
+                                                if let Ok(mut ai_g) = ai.lock() {
+                                                    let mut params =
+                                                        crate::ai::AiCommandParams::new(
+                                                            crate::ai::AiCommandType::ResumeConstruction,
+                                                            crate::ai::CommandSourceType::FromAi,
+                                                        );
+                                                    params.obj = Some(obj_id);
+                                                    let _ = ai_g.execute_command(&params);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             } else {
@@ -821,17 +868,23 @@ impl AISkirmishPlayer {
             if info.is_priority_build() && !is_priority {
                 selected_plan = Some(cur_plan.clone());
                 selected_name = Some(name.clone());
+                selected_loc = Some(*info.get_location());
+                selected_angle = info.get_angle();
                 is_priority = true;
             }
 
-            let is_power_plan =
-                cur_plan.is_kind_of(KindOf::FSPower) || cur_plan.is_kind_of(KindOf::PowerPlant);
+            // C++: FS_POWER && !CASH_GENERATOR
+            let is_power_plan = (cur_plan.is_kind_of(KindOf::FSPower)
+                || cur_plan.is_kind_of(KindOf::PowerPlant))
+                && !cur_plan.is_kind_of(KindOf::CashGenerator);
             if power_plan.is_none()
                 && is_power_plan
                 && (is_under_powered || info.is_automatic_build())
             {
                 power_plan = Some(cur_plan.clone());
                 power_name = Some(name.clone());
+                power_loc = Some(*info.get_location());
+                power_angle = info.get_angle();
             }
 
             if !info.is_automatic_build() {
@@ -844,9 +897,25 @@ impl AISkirmishPlayer {
                 continue;
             }
 
+            // C++ also requires a dozer present before selecting automatic builds.
             if selected_plan.is_none() {
+                if self
+                    .base
+                    .find_dozer_public(info.get_location())
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if is_under_powered {
+                        let _ = self.base.queue_dozer();
+                    }
+                    info_opt = info.get_next_mut();
+                    continue;
+                }
                 selected_plan = Some(cur_plan);
                 selected_name = Some(name);
+                selected_loc = Some(*info.get_location());
+                selected_angle = info.get_angle();
             }
 
             info_opt = info.get_next_mut();
@@ -858,38 +927,58 @@ impl AISkirmishPlayer {
                     if !power.is_equivalent_to(selected.as_ref()) {
                         selected_plan = Some(power);
                         selected_name = power_name;
-                        let _ = &selected_plan;
+                        selected_loc = power_loc;
+                        selected_angle = power_angle;
                     }
                 } else {
                     selected_plan = Some(power);
                     selected_name = power_name;
-                    let _ = &selected_plan;
+                    selected_loc = power_loc;
+                    selected_angle = power_angle;
                 }
             }
         }
 
-        if let Some(name) = selected_name {
-            if let Err(err) = self.base.build_specific_ai_building(name.as_str()) {
-                log::debug!(
-                    "AISkirmishPlayer::build_specific_ai_building('{}') failed: {err}",
-                    name
-                );
+        // Drop player lock before building.
+        drop(player_guard);
+        drop(player_arc);
+
+        if let (Some(name), Some(loc)) = (selected_name, selected_loc) {
+            // C++ USE_DOZER: buildStructureWithDozer + arm structure timer on success.
+            match self
+                .base
+                .build_structure_with_dozer(name.as_str(), loc, selected_angle)
+            {
+                Ok(Some(_bldg_id)) => {
+                    let delay_seconds = THE_AI
+                        .read()
+                        .ok()
+                        .and_then(|ai| {
+                            ai.get_ai_data()
+                                .read()
+                                .ok()
+                                .map(|data| data.structure_seconds as i32)
+                        })
+                        .unwrap_or(10);
+                    self.base.start_structure_timer_seconds(delay_seconds);
+                    self.adjust_build_timer_for_wealth();
+                    self.base
+                        .set_frame_last_building_built(TheGameLogic::get_frame());
+                }
+                Ok(None) => {
+                    log::debug!(
+                        "AISkirmishPlayer processBaseBuilding: could not start '{}'",
+                        name
+                    );
+                }
+                Err(err) => {
+                    log::debug!(
+                        "AISkirmishPlayer::build_structure_with_dozer('{}') failed: {err}",
+                        name
+                    );
+                }
             }
         }
-
-        let delay_seconds = THE_AI
-            .read()
-            .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.structure_seconds as i32)
-            })
-            .unwrap_or(10);
-        self.base.start_structure_timer_seconds(delay_seconds);
-
-        self.adjust_build_timer_for_wealth();
     }
 
     /// Adjust structure timer based on current wealth.
@@ -2579,6 +2668,27 @@ mod tests {
                 && src.contains("build_structure_now_at_public")
                 && src.contains("compute_center_and_radius_of_base"),
             "skirmish base defense + newMap C++ paths required"
+        );
+    }
+
+    #[test]
+    fn process_base_building_dozer_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("Matches C++ AISkirmishPlayer.cpp:75 processBaseBuilding")
+            .expect("processBaseBuilding");
+        let w = &src[i..src.len().min(i + 16000)];
+        assert!(
+            w.contains("build_structure_with_dozer")
+                && w.contains("ResumeConstruction")
+                && w.contains("CashGenerator")
+                && w.contains("find_dozer_public")
+                && w.contains("start_structure_timer_seconds")
+                && w.contains("adjust_build_timer_for_wealth"),
+            "processBaseBuilding must dozer-build, resume, power-force, arm timer"
         );
     }
 }
