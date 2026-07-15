@@ -562,7 +562,12 @@ impl GameWorldShadow {
                     e.disguise_as_template = obj.disguise_as_template.clone().unwrap_or_default();
                     e.disguise_as_team_ordinal = obj
                         .disguise_as_team
-                        .map(Self::host_team_ordinal)
+                        .map(|t| match t {
+                            Team::USA => 0,
+                            Team::China => 1,
+                            Team::GLA => 2,
+                            Team::Neutral => 3,
+                        })
                         .unwrap_or(255);
                     e.vision_spied_mask = obj.vision_spied_mask;
                     e.camo_friendly_opacity = obj.camo_friendly_opacity;
@@ -801,7 +806,12 @@ impl GameWorldShadow {
                 e.disguise_as_template = obj.disguise_as_template.clone().unwrap_or_default();
                 e.disguise_as_team_ordinal = obj
                     .disguise_as_team
-                    .map(Self::host_team_ordinal)
+                    .map(|t| match t {
+                        Team::USA => 0,
+                        Team::China => 1,
+                        Team::GLA => 2,
+                        Team::Neutral => 3,
+                    })
                     .unwrap_or(255);
                 e.vision_spied_mask = obj.vision_spied_mask;
                 e.camo_friendly_opacity = obj.camo_friendly_opacity;
