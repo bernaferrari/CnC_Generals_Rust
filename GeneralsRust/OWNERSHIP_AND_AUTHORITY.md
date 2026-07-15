@@ -558,3 +558,9 @@ Full `GameClient::update()` remains disconnected for input/audio dual-ownership.
 screen→world click mapping when a frame is installed. Live `GameLogic::world_bounds`
 remains boot residual without presentation.
 
+### Presentation camera clamp residual (2026-07-14)
+
+`clamp_to_world_bounds` prefers `PresentationFrame.world_env` for camera follow
+and scroll clamping when a frame is installed. Live `GameLogic::world_bounds`
+remains boot residual without presentation.
+
