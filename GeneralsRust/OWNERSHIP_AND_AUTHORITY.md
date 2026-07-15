@@ -846,3 +846,10 @@ occupants and `contained_by`. `overlay_gameworld_shadow` last-writes
 `contained_by`, `garrisoned_units`, `disabled`, and `veterancy` onto presentation.
 Fail-closed: not full multi-door garrison AI / contain redirect matrix.
 
+### GameWorld kind_of bits residual (2026-07-14)
+
+`Entity.kind_of_bits` encodes host ThingTemplate KindOf flags in presentation
+ORDER bit positions. Shadow sync copies bits; overlay reconstructs
+`RenderableObject.kind_of` without live template dual-read. Fail-closed: not
+full KindOf matrix beyond the frozen ORDER set.
+

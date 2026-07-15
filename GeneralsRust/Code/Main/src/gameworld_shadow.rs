@@ -240,6 +240,50 @@ impl GameWorldShadow {
         }
     }
 
+    /// Presentation KindOf ORDER residual (must match PresentationFrame freeze ORDER).
+    fn host_kind_of_bits(obj: &crate::game_logic::Object) -> u32 {
+        use crate::game_logic::KindOf;
+        const ORDER: &[KindOf] = &[
+            KindOf::Structure,
+            KindOf::Infantry,
+            KindOf::Vehicle,
+            KindOf::Aircraft,
+            KindOf::Projectile,
+            KindOf::Resource,
+            KindOf::Selectable,
+            KindOf::Attackable,
+            KindOf::CommandCenter,
+            KindOf::Worker,
+            KindOf::Hero,
+            KindOf::SupplyCenter,
+            KindOf::PowerPlant,
+            KindOf::FSBarracks,
+            KindOf::FSWarFactory,
+            KindOf::FSAirfield,
+            KindOf::FSInternetCenter,
+            KindOf::FSPower,
+            KindOf::FSBaseDefense,
+            KindOf::FSSupplyDropzone,
+            KindOf::FSSupplyCenter,
+            KindOf::FSSuperweapon,
+            KindOf::FSStrategyCenter,
+            KindOf::FSFake,
+            KindOf::FSTechnology,
+            KindOf::FSBlackMarket,
+            KindOf::FSAdvancedTech,
+            KindOf::Harvestable,
+            KindOf::Powered,
+        ];
+        let set = &obj.get_template().kind_of;
+        let mut bits = 0u32;
+        for (i, k) in ORDER.iter().enumerate() {
+            if set.contains(k) {
+                bits |= 1u32 << i;
+            }
+        }
+        bits
+    }
+
     fn host_object_type_ordinal(t: crate::game_logic::ObjectType) -> u8 {
         use crate::game_logic::ObjectType as T;
         match t {
@@ -445,6 +489,7 @@ impl GameWorldShadow {
                         }
                         e.garrisoned_host_ids = ids;
                     }
+                    e.kind_of_bits = Self::host_kind_of_bits(obj);
                     e.cheer_timer = obj.cheer_timer;
                     e.overcharge_enabled = obj.overcharge_enabled;
                     e.active_weapon_slot = obj.active_weapon_slot;
@@ -663,6 +708,7 @@ impl GameWorldShadow {
                     }
                     e.garrisoned_host_ids = ids;
                 }
+                e.kind_of_bits = Self::host_kind_of_bits(obj);
                 e.cheer_timer = obj.cheer_timer;
                 e.overcharge_enabled = obj.overcharge_enabled;
                 e.active_weapon_slot = obj.active_weapon_slot;
@@ -812,6 +858,7 @@ impl GameWorldShadow {
             e.is_combat_chinook_transport = false;
             e.contained_by_host = 0;
             e.garrisoned_host_ids.clear();
+            e.kind_of_bits = 0;
             e.cheer_timer = 0.0;
             e.overcharge_enabled = false;
             e.active_weapon_slot = 0;
@@ -2423,6 +2470,36 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_kind_of_bits_residual() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityKindOf");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "KindU", 100.0);
+        {
+            let t = logic.templates.get_mut("KindU").expect("t");
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Attackable);
+        }
+        let id = logic
+            .create_object("KindU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        // ORDER: Structure=0 Infantry=1 ... Selectable=6 Attackable=7
+        assert!(e.kind_of_bits & (1 << 1) != 0, "Infantry bit");
+        assert!(e.kind_of_bits & (1 << 6) != 0, "Selectable bit");
+        assert!(e.kind_of_bits & (1 << 7) != 0, "Attackable bit");
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("host_kind_of_bits") && src.contains("kind_of_bits"),
+            "sync must copy kind_of residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_garrison_contain_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityGarrisonContain");
