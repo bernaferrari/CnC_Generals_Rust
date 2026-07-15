@@ -2386,6 +2386,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn team_evaluate_production_condition_cpp() {
+        let team = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/team.rs"
+        ));
+        let ai = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            team.contains("evaluate_production_condition")
+                && team.contains("production_condition_runtime")
+                && team.contains("always_false")
+                && team.contains("evaluate_conditions")
+                && ai.contains("evaluate_production_condition()"),
+            "TeamPrototype::evaluateProductionCondition + isAGoodIdea wire required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
