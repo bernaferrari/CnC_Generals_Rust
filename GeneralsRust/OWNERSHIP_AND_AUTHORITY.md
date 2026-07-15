@@ -879,3 +879,10 @@ Shadow sync uses `mesh_asset_resolve` helpers; overlay last-writes presentation
 mesh identity. Fail-closed: not full bone/animation draw-scale matrix; FOW still
 freeze-path.
 
+### GameWorld FOW/ground residual (2026-07-14)
+
+`Entity` carries FOW alpha/explored/falloff and ground_height residual. Shadow
+sync samples host FOW bridge + terrain height; overlay last-writes presentation
+`fow_visibility` / `ground_height`. Fail-closed: not full shroud cell matrix
+authority.
+
