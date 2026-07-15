@@ -173,6 +173,34 @@ pub struct Entity {
     pub garrison_count: u16,
     /// Host BuildingData::max_garrison residual.
     pub max_garrison: u16,
+    /// Host Object::weapon present residual.
+    pub has_weapon: bool,
+    /// Host Weapon::damage residual.
+    pub weapon_damage: f32,
+    /// Host Weapon::range residual.
+    pub weapon_range: f32,
+    /// Host Weapon::min_range residual.
+    pub weapon_min_range: f32,
+    /// Host Weapon::reload_time residual (seconds).
+    pub weapon_reload_time: f32,
+    /// Host Weapon::ammo residual (`u32::MAX` = unlimited/None).
+    pub weapon_ammo: u32,
+    /// Host Weapon::can_target_air residual.
+    pub weapon_can_target_air: bool,
+    /// Host Weapon::can_target_ground residual.
+    pub weapon_can_target_ground: bool,
+    /// Host Weapon::projectile_speed residual.
+    pub weapon_projectile_speed: f32,
+    /// Host secondary_weapon present residual.
+    pub has_secondary_weapon: bool,
+    /// Host Movement::max_speed residual.
+    pub move_max_speed: f32,
+    /// Host Movement::velocity residual.
+    pub velocity: [f32; 3],
+    /// Host Movement::path.len residual.
+    pub path_len: u16,
+    /// Host Movement::current_path_index residual.
+    pub path_index: u16,
 }
 
 impl Entity {
@@ -286,6 +314,20 @@ impl EntityStore {
             rally_point: None,
             garrison_count: 0,
             max_garrison: 0,
+            has_weapon: false,
+            weapon_damage: 0.0,
+            weapon_range: 0.0,
+            weapon_min_range: 0.0,
+            weapon_reload_time: 0.0,
+            weapon_ammo: u32::MAX,
+            weapon_can_target_air: false,
+            weapon_can_target_ground: true,
+            weapon_projectile_speed: 0.0,
+            has_secondary_weapon: false,
+            move_max_speed: 0.0,
+            velocity: [0.0; 3],
+            path_len: 0,
+            path_index: 0,
         };
 
         self.alive.insert(id, entity);

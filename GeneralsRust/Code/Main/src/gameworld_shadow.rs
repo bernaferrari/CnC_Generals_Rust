@@ -369,6 +369,35 @@ impl GameWorldShadow {
                         e.garrison_count = 0;
                         e.max_garrison = 0;
                     }
+                    e.has_weapon = obj.weapon.is_some();
+                    if let Some(w) = obj.weapon.as_ref() {
+                        e.weapon_damage = w.damage;
+                        e.weapon_range = w.range;
+                        e.weapon_min_range = w.min_range;
+                        e.weapon_reload_time = w.reload_time;
+                        e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
+                        e.weapon_can_target_air = w.can_target_air;
+                        e.weapon_can_target_ground = w.can_target_ground;
+                        e.weapon_projectile_speed = w.projectile_speed;
+                    } else {
+                        e.weapon_damage = 0.0;
+                        e.weapon_range = 0.0;
+                        e.weapon_min_range = 0.0;
+                        e.weapon_reload_time = 0.0;
+                        e.weapon_ammo = u32::MAX;
+                        e.weapon_can_target_air = false;
+                        e.weapon_can_target_ground = true;
+                        e.weapon_projectile_speed = 0.0;
+                    }
+                    e.has_secondary_weapon = obj.secondary_weapon.is_some();
+                    e.move_max_speed = obj.movement.max_speed;
+                    e.velocity = [
+                        obj.movement.velocity.x,
+                        obj.movement.velocity.y,
+                        obj.movement.velocity.z,
+                    ];
+                    e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
+                    e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -452,6 +481,35 @@ impl GameWorldShadow {
                     e.garrison_count = 0;
                     e.max_garrison = 0;
                 }
+                e.has_weapon = obj.weapon.is_some();
+                if let Some(w) = obj.weapon.as_ref() {
+                    e.weapon_damage = w.damage;
+                    e.weapon_range = w.range;
+                    e.weapon_min_range = w.min_range;
+                    e.weapon_reload_time = w.reload_time;
+                    e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
+                    e.weapon_can_target_air = w.can_target_air;
+                    e.weapon_can_target_ground = w.can_target_ground;
+                    e.weapon_projectile_speed = w.projectile_speed;
+                } else {
+                    e.weapon_damage = 0.0;
+                    e.weapon_range = 0.0;
+                    e.weapon_min_range = 0.0;
+                    e.weapon_reload_time = 0.0;
+                    e.weapon_ammo = u32::MAX;
+                    e.weapon_can_target_air = false;
+                    e.weapon_can_target_ground = true;
+                    e.weapon_projectile_speed = 0.0;
+                }
+                e.has_secondary_weapon = obj.secondary_weapon.is_some();
+                e.move_max_speed = obj.movement.max_speed;
+                e.velocity = [
+                    obj.movement.velocity.x,
+                    obj.movement.velocity.y,
+                    obj.movement.velocity.z,
+                ];
+                e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
+                e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
             }
         }
 
@@ -514,6 +572,20 @@ impl GameWorldShadow {
             e.rally_point = None;
             e.garrison_count = 0;
             e.max_garrison = 0;
+            e.has_weapon = false;
+            e.weapon_damage = 0.0;
+            e.weapon_range = 0.0;
+            e.weapon_min_range = 0.0;
+            e.weapon_reload_time = 0.0;
+            e.weapon_ammo = u32::MAX;
+            e.weapon_can_target_air = false;
+            e.weapon_can_target_ground = true;
+            e.weapon_projectile_speed = 0.0;
+            e.has_secondary_weapon = false;
+            e.move_max_speed = 0.0;
+            e.velocity = [0.0; 3];
+            e.path_len = 0;
+            e.path_index = 0;
         }
     }
 
@@ -862,6 +934,24 @@ impl GameWorldShadow {
     /// Count shadow entities with host force_attack residual.
     /// Count shadow entities with Elite+ host veterancy residual.
     /// Count shadow entities with non-empty host production queue residual.
+    /// Count shadow entities with host weapon residual.
+    pub fn armed_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.has_weapon && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities with non-empty host movement path residual.
+    pub fn pathing_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.path_len > 0 && !e.destroyed)
+            .count()
+    }
+
     pub fn producing_entity_count(&self) -> usize {
         self.world
             .world()
@@ -1981,6 +2071,64 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_weapon_move_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityWeaponMove");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "WpnMoveU", 100.0);
+        let id = logic
+            .create_object("WpnMoveU", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
+            .expect("id");
+        {
+            use crate::game_logic::Weapon;
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 150.0,
+                min_range: 5.0,
+                reload_time: 1.5,
+                last_fire_time: 0.0,
+                ammo: Some(30),
+                can_target_air: true,
+                can_target_ground: true,
+                projectile_speed: 200.0,
+                pre_attack_delay: 0.1,
+            });
+            obj.secondary_weapon = Some(Weapon::default());
+            obj.movement.max_speed = 12.5;
+            obj.movement.velocity = glam::Vec3::new(1.0, 0.0, 2.0);
+            obj.movement.path = vec![
+                glam::Vec3::new(0.0, 0.0, 0.0),
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            ];
+            obj.movement.current_path_index = 1;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.armed_entity_count(), 1);
+        assert_eq!(shadow.pathing_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.has_weapon && e.has_secondary_weapon);
+        assert!((e.weapon_damage - 25.0).abs() < 0.01);
+        assert!((e.weapon_range - 150.0).abs() < 0.01);
+        assert!((e.weapon_min_range - 5.0).abs() < 0.01);
+        assert_eq!(e.weapon_ammo, 30);
+        assert!(e.weapon_can_target_air);
+        assert!((e.move_max_speed - 12.5).abs() < 0.01);
+        assert!((e.velocity[2] - 2.0).abs() < 0.01);
+        assert_eq!(e.path_len, 2);
+        assert_eq!(e.path_index, 1);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("weapon_damage")
+                && src.contains("move_max_speed")
+                && src.contains("path_len"),
+            "sync must copy weapon/movement residual"
+        );
     }
 
     #[test]
