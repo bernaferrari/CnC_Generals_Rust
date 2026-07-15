@@ -2482,6 +2482,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_new_map_and_build_structure_now_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::newMap`")
+                && src.contains("C++ `AIPlayer::buildStructureNow`")
+                && src.contains("C++ `AIPlayer::checkForSupplyCenter`")
+                && src.contains("is_initially_built")
+                && src.contains("set_desired_gatherers(desired + 1)"),
+            "newMap/buildStructureNow/checkForSupplyCenter C++ paths required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

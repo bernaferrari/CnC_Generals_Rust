@@ -1517,6 +1517,24 @@ impl Player {
         self.build_list = build_list.map(Box::new);
     }
 
+    /// C++ `Player::addToBuildList` — prepend a live factory/structure to the build list.
+    pub fn add_to_build_list(
+        &mut self,
+        object_id: crate::common::ObjectID,
+        template_name: AsciiString,
+        location: Coord3D,
+        angle: Real,
+    ) {
+        let mut info = BuildListInfo::new();
+        info.set_template_name(template_name);
+        info.set_location(location);
+        info.set_angle(angle);
+        info.set_object_id(object_id);
+        info.set_num_rebuilds(0); // can't rebuild placed factories
+        info.set_next_build_list(self.build_list.take().map(|b| *b));
+        self.build_list = Some(Box::new(info));
+    }
+
     pub fn is_skirmish_ai(&self) -> Bool {
         self.is_skirmish_ai
     }
