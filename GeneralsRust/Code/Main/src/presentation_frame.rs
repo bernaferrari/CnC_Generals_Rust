@@ -3345,6 +3345,10 @@ impl PresentationFrame {
                 obj.ground_height_from_terrain = ent.ground_height_from_terrain;
                 dirty = true;
             }
+            if obj.engine_bridged != ent.engine_bridged {
+                obj.engine_bridged = ent.engine_bridged;
+                dirty = true;
+            }
             if obj.selected != ent.selected {
                 obj.selected = ent.selected;
                 dirty = true;
@@ -4921,6 +4925,7 @@ mod tests {
                 && src.contains("ent.mesh_scale")
                 && src.contains("ent.fow_visibility_alpha")
                 && src.contains("ent.ground_height")
+                && src.contains("ent.engine_bridged")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
