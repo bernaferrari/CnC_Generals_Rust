@@ -23,7 +23,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | Attack target channel (shadow↔host) | **on** with shadow session | — |
 | Move destination channel (shadow↔host) | **on** with shadow session | — |
 | `engine_object_id` bridge | **off** unless dual/bridge env | `GENERALS_BRIDGE_ENGINE_OBJECTS` |
-| Full `GameClient::update()` | **not** called (Main owns input/audio) | — |
+| Full `GameClient::update()` | **not** called (`draw_display` dual-own) | shell polls input+audio |
 
 - Target end state: `gamelogic::GameWorld` sole host; Main = composition root only.
 - Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/pose/targets + presentation overlay.
@@ -987,4 +987,12 @@ re-aggregate after post-match object churn.
 keyboard/mouse device state machines (C++ update residual). Main still owns OS
 `WindowEvent` → gameplay command translation and sole 3D draw. Fail-closed: not
 full `GameClient::update` (no audio device dual-own, no `draw_display`).
+
+### Presentation shell client audio residual (2026-07-14)
+
+`GameClient::update_presentation_shell` drains client audio/music/speech via
+`update_audio` (C++ update residual). Distinct from Main
+`GameLogic::process_audio_events` / presentation SFX residual. Fail-closed: not
+full `GameClient::update` (`draw_display` stays Main RenderPipeline-only;
+startup movies remain Main-owned).
 
