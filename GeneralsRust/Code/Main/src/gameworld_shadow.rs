@@ -237,6 +237,10 @@ impl GameWorldShadow {
                         .target
                         .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
                     e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
+                    e.max_health = obj.max_health.max(obj.health.current).max(1.0);
+                    e.selected = obj.selected;
+                    e.destroyed = obj.status.destroyed;
+                    e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -266,6 +270,10 @@ impl GameWorldShadow {
             if let Some(e) = self.world.world_mut().entity_mut(eid) {
                 e.attack_target = at;
                 e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
+                e.max_health = obj.max_health.max(obj.health.current).max(1.0);
+                e.selected = obj.selected;
+                e.destroyed = obj.status.destroyed;
+                e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
             }
         }
 
@@ -287,6 +295,13 @@ impl GameWorldShadow {
             .spawn_entity(TemplateRef::new(template), owner, transform, health);
         self.host_to_entity.insert(host.0, eid);
         self.entity_to_host.insert(eid.get(), host.0);
+        // Defaults for residual fields until second-pass/host refresh fills them.
+        if let Some(e) = self.world.world_mut().entity_mut(eid) {
+            e.max_health = health.max(1.0);
+            e.selected = false;
+            e.destroyed = false;
+            e.construction_percent = 1.0;
+        }
     }
 
     fn copy_host_player_residual(
@@ -629,6 +644,24 @@ impl GameWorldShadow {
     /// True when any shadow player has non-zero produced or consumed power residual.
     /// True when any shadow player has radar providers or a disabled flag residual.
     /// Count shadow players still marked alive (defeat residual).
+    /// Count shadow entities marked selected (host UI residual).
+    pub fn selected_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.selected && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities still under construction residual.
+    pub fn under_construction_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.construction_percent < 0.999 && !e.destroyed)
+            .count()
+    }
+
     pub fn alive_player_count(&self) -> usize {
         self.world
             .world()
@@ -1638,6 +1671,39 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_selection_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntitySelectResidual");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "SelResU", 100.0);
+        let id = logic
+            .create_object("SelResU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.selected = true;
+            obj.max_health = 150.0;
+            obj.construction_percent = 0.4;
+            obj.status.destroyed = false;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.selected_entity_count(), 1);
+        assert_eq!(shadow.under_construction_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.selected);
+        assert!((e.max_health - 150.0).abs() < 0.01);
+        assert!((e.construction_percent - 0.4).abs() < 0.01);
+        assert!(!e.destroyed);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("e.selected = obj.selected") && src.contains("e.construction_percent"),
+            "sync must copy entity selection/construction residual"
+        );
     }
 
     #[test]

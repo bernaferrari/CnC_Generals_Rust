@@ -94,6 +94,14 @@ pub struct Entity {
     pub attack_target: Option<EntityId>,
     /// Move destination (shadow of host movement.target_position).
     pub move_target: Option<[f32; 3]>,
+    /// Host Object::max_health residual.
+    pub max_health: f32,
+    /// Host Object::selected residual (UI selection).
+    pub selected: bool,
+    /// Host Object::status.destroyed residual.
+    pub destroyed: bool,
+    /// Host Object::construction_percent residual (0..1).
+    pub construction_percent: f32,
 }
 
 impl Entity {
@@ -168,6 +176,10 @@ impl EntityStore {
             health,
             attack_target: None,
             move_target: None,
+            max_health: health.max(1.0),
+            selected: false,
+            destroyed: false,
+            construction_percent: 1.0,
         };
 
         self.alive.insert(id, entity);
