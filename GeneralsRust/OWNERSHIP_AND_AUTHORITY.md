@@ -671,3 +671,11 @@ extended host status flags (`stealthed`, `detected`, `using_ability`,
 Fail-closed: not full veterancy bonus matrix / stealth detector network /
 disabled-type FSM authority.
 
+### GameWorld entity building residual (2026-07-14)
+
+`Entity` carries `is_building`, `building_type_ordinal`, production queue head
+(`production_queue_len` / `production_progress` / `production_template`),
+`rally_point`, and garrison counts. `sync_from_host_with` copies them each tick.
+Fail-closed: not full ProductionUpdate / dual-queue / exit-door / garrison AI
+authority.
+

@@ -157,6 +157,22 @@ pub struct Entity {
     pub disabled_unmanned: bool,
     /// Host Object::status.disabled_hacked residual.
     pub disabled_hacked: bool,
+    /// Host Object::building_data present residual.
+    pub is_building: bool,
+    /// Host BuildingType residual ordinal (0..12; 255 = not a building).
+    pub building_type_ordinal: u8,
+    /// Host BuildingData::production_queue.len residual.
+    pub production_queue_len: u8,
+    /// Head of production queue progress residual (0..1-ish).
+    pub production_progress: f32,
+    /// Head of production queue template name residual (empty if none).
+    pub production_template: String,
+    /// Host BuildingData::rally_point residual.
+    pub rally_point: Option<[f32; 3]>,
+    /// Host BuildingData::garrisoned_units.len residual.
+    pub garrison_count: u16,
+    /// Host BuildingData::max_garrison residual.
+    pub max_garrison: u16,
 }
 
 impl Entity {
@@ -262,6 +278,14 @@ impl EntityStore {
             disabled_underpowered: false,
             disabled_unmanned: false,
             disabled_hacked: false,
+            is_building: false,
+            building_type_ordinal: 255,
+            production_queue_len: 0,
+            production_progress: 0.0,
+            production_template: String::new(),
+            rally_point: None,
+            garrison_count: 0,
+            max_garrison: 0,
         };
 
         self.alive.insert(id, entity);
