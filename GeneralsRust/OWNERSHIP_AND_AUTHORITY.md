@@ -774,3 +774,11 @@ OverlordContain / BodyModule damage-source FSM authority.
 battle-plan sight scalar applied. Fail-closed: not full StealthDetectorUpdate /
 StealthUpdate delay FSM / Frenzy countdown authority.
 
+### GameWorld entity combat-timing residual (2026-07-14)
+
+`Entity` carries `weapon_bonus_frenzy_until_frame`,
+`continuous_fire_coast_until_frame`, and `battle_plan_sight_scalar_applied`
+host residual (alongside existing consecutive/detector/stealth fields).
+`sync_from_host_with` copies them each tick. Fail-closed: not full Frenzy
+countdown / Gattling coast / BattlePlan sight FSM authority.
+

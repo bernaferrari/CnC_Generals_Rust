@@ -302,6 +302,12 @@ pub struct Entity {
     pub camo_stealth_look: u8,
     /// Host mine residual present flag.
     pub has_mine_data: bool,
+    /// Host weapon_bonus_frenzy_until_frame residual.
+    pub weapon_bonus_frenzy_until_frame: u32,
+    /// Host continuous_fire_coast_until_frame residual.
+    pub continuous_fire_coast_until_frame: u32,
+    /// Host battle_plan_sight_scalar_applied residual (1.0 = none).
+    pub battle_plan_sight_scalar_applied: f32,
 }
 
 impl Entity {
@@ -489,6 +495,9 @@ impl EntityStore {
             camo_friendly_opacity: 1.0,
             camo_stealth_look: 0,
             has_mine_data: false,
+            weapon_bonus_frenzy_until_frame: 0,
+            continuous_fire_coast_until_frame: 0,
+            battle_plan_sight_scalar_applied: 1.0,
         };
 
         self.alive.insert(id, entity);

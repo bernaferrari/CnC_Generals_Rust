@@ -469,6 +469,9 @@ impl GameWorldShadow {
                     e.camo_friendly_opacity = obj.camo_friendly_opacity;
                     e.camo_stealth_look = obj.camo_stealth_look as u8;
                     e.has_mine_data = obj.mine_data.is_some();
+                    e.weapon_bonus_frenzy_until_frame = obj.weapon_bonus_frenzy_until_frame;
+                    e.continuous_fire_coast_until_frame = obj.continuous_fire_coast_until_frame;
+                    e.battle_plan_sight_scalar_applied = obj.battle_plan_sight_scalar_applied;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -650,6 +653,9 @@ impl GameWorldShadow {
                 e.camo_friendly_opacity = obj.camo_friendly_opacity;
                 e.camo_stealth_look = obj.camo_stealth_look as u8;
                 e.has_mine_data = obj.mine_data.is_some();
+                e.weapon_bonus_frenzy_until_frame = obj.weapon_bonus_frenzy_until_frame;
+                e.continuous_fire_coast_until_frame = obj.continuous_fire_coast_until_frame;
+                e.battle_plan_sight_scalar_applied = obj.battle_plan_sight_scalar_applied;
             }
         }
 
@@ -786,6 +792,9 @@ impl GameWorldShadow {
             e.camo_friendly_opacity = 1.0;
             e.camo_stealth_look = 0;
             e.has_mine_data = false;
+            e.weapon_bonus_frenzy_until_frame = 0;
+            e.continuous_fire_coast_until_frame = 0;
+            e.battle_plan_sight_scalar_applied = 1.0;
         }
     }
 
@@ -1138,6 +1147,24 @@ impl GameWorldShadow {
     /// Count shadow entities with host battle-bus transport residual.
     /// Count shadow entities with host detector residual.
     /// Count shadow entities with host horde weapon-bonus residual.
+    /// Count shadow entities with host frenzy-until residual active.
+    pub fn frenzy_until_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.weapon_bonus_frenzy_until_frame > 0 && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities with battle-plan sight scalar residual != 1.0.
+    pub fn battle_plan_sight_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| (e.battle_plan_sight_scalar_applied - 1.0).abs() > 0.001 && !e.destroyed)
+            .count()
+    }
+
     pub fn horde_bonus_entity_count(&self) -> usize {
         self.world
             .world()
@@ -2328,6 +2355,40 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_combat_timing_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityCombatTiming");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "CbtTimeU", 100.0);
+        let id = logic
+            .create_object("CbtTimeU", Team::USA, glam::Vec3::new(13.0, 0.0, 13.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.weapon_bonus_frenzy_until_frame = 90;
+            obj.continuous_fire_coast_until_frame = 33;
+            obj.battle_plan_sight_scalar_applied = 1.5;
+            obj.continuous_fire_consecutive = 4;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.frenzy_until_entity_count(), 1);
+        assert_eq!(shadow.battle_plan_sight_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.weapon_bonus_frenzy_until_frame, 90);
+        assert_eq!(e.continuous_fire_coast_until_frame, 33);
+        assert!((e.battle_plan_sight_scalar_applied - 1.5).abs() < 0.001);
+        assert_eq!(e.continuous_fire_consecutive, 4);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("weapon_bonus_frenzy_until_frame")
+                && src.contains("continuous_fire_coast_until_frame")
+                && src.contains("battle_plan_sight_scalar_applied"),
+            "sync must copy combat-timing residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_combat_bonus_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityCombatBonus");
