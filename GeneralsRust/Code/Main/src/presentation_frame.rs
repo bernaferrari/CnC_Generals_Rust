@@ -1647,6 +1647,17 @@ impl PresentationProjectile {
     }
 }
 
+/// Snapshot-owned player roster residual (defeat/alliance UI / radar team).
+/// Fail-closed: not full Player science/upgrade/diplomacy matrix.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationPlayerInfo {
+    pub id: u32,
+    pub name: String,
+    pub team: Team,
+    pub is_alive: bool,
+    pub is_local: bool,
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -1656,6 +1667,8 @@ pub struct PresentationFrame {
     /// Local player team frozen at snapshot time (selection/hotkey residual).
     /// Prefer this over live `GameLogic::get_player` dual-reads when a frame is installed.
     pub local_team: Team,
+    /// Full player roster frozen at snapshot time (defeat/alliance UI residual).
+    pub players: Vec<PresentationPlayerInfo>,
     pub local_supplies: u32,
     pub local_power: i32,
     /// Host Player::power_produced residual (energy bar numerator side).
@@ -1973,6 +1986,18 @@ impl PresentationFrame {
 
         let local = logic.get_player(local_player_id);
         let local_team = local.map(|p| p.team).unwrap_or(Team::Neutral);
+        let mut players: Vec<PresentationPlayerInfo> = logic
+            .get_players()
+            .iter()
+            .map(|(&id, p)| PresentationPlayerInfo {
+                id,
+                name: p.name.clone(),
+                team: p.team,
+                is_alive: p.is_alive,
+                is_local: p.is_local,
+            })
+            .collect();
+        players.sort_by_key(|p| p.id);
         let local_supplies = local.map(|p| p.resources.supplies).unwrap_or(0);
         let local_power = local.map(|p| p.power_available).unwrap_or(0);
         let local_power_produced = local.map(|p| p.power_produced).unwrap_or(0);
@@ -2178,6 +2203,7 @@ impl PresentationFrame {
             objects,
             local_player_id,
             local_team,
+            players,
             local_supplies,
             local_power,
             local_power_produced,
@@ -2374,6 +2400,20 @@ impl PresentationFrame {
             Team::Neutral => 3u8,
         }
         .hash(&mut h);
+        self.players.len().hash(&mut h);
+        for p in &self.players {
+            p.id.hash(&mut h);
+            p.name.hash(&mut h);
+            match p.team {
+                Team::USA => 0u8,
+                Team::China => 1u8,
+                Team::GLA => 2u8,
+                Team::Neutral => 3u8,
+            }
+            .hash(&mut h);
+            p.is_alive.hash(&mut h);
+            p.is_local.hash(&mut h);
+        }
         self.laser_beams.len().hash(&mut h);
         for beam in &self.laser_beams {
             beam.beam_index.hash(&mut h);
@@ -2780,6 +2820,24 @@ impl PresentationFrame {
     #[inline]
     pub fn local_team(&self) -> Team {
         self.local_team
+    }
+
+    /// Look up frozen player roster entry by id.
+    #[inline]
+    pub fn player_info(&self, id: u32) -> Option<&PresentationPlayerInfo> {
+        self.players.iter().find(|p| p.id == id)
+    }
+
+    /// Frozen player display name (defeat/alliance UI residual).
+    #[inline]
+    pub fn player_name(&self, id: u32) -> Option<&str> {
+        self.player_info(id).map(|p| p.name.as_str())
+    }
+
+    /// Frozen player team (radar/defeat residual).
+    #[inline]
+    pub fn player_team(&self, id: u32) -> Option<Team> {
+        self.player_info(id).map(|p| p.team)
     }
 
     pub fn alive_selectable_friendly_ids(
@@ -4252,6 +4310,26 @@ mod tests {
         assert_eq!(frame.first_constructed_producer_id(Team::USA), Some(p));
         assert_eq!(frame.first_enemy_attackable_id(Team::USA), Some(e));
         assert_eq!(frame.count_mobile_friendlies(Team::USA), 1);
+    }
+
+    #[test]
+    fn player_roster_frozen_from_host() {
+        let mut logic = GameLogic::new();
+        let cfg = crate::skirmish_config::golden_skirmish_config("PlayerRosterFreeze");
+        crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        let host = logic.get_player(pid).expect("p");
+        let frame = PresentationFrame::build_from_logic(&logic, pid);
+        assert!(
+            !frame.players.is_empty(),
+            "roster must include skirmish players"
+        );
+        let info = frame.player_info(pid).expect("roster entry");
+        assert_eq!(info.name, host.name);
+        assert_eq!(info.team, host.team);
+        assert_eq!(frame.player_name(pid), Some(host.name.as_str()));
+        assert_eq!(frame.player_team(pid), Some(host.team));
+        assert!(frame.player_info(99999).is_none());
     }
 
     #[test]

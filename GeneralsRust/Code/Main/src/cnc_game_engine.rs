@@ -6442,7 +6442,23 @@ impl CnCGameEngine {
         // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow
         let defeated_players = self.game_logic.take_defeat_events();
         for player_id in defeated_players {
-            if let Some(player) = self.game_logic.get_player(player_id) {
+            // Prefer presentation roster when installed (no live get_player dual-read).
+            let roster = self
+                .last_presentation_frame
+                .as_ref()
+                .and_then(|f| f.player_info(player_id).cloned());
+            if let Some(player) = roster {
+                let message = localization::localize_with_args(
+                    "hud.message.player_defeated",
+                    "{player} has been defeated!",
+                    &[("player", player.name.as_str())],
+                );
+                info!("Player {} ({}) has been defeated", player.name, player_id);
+                self.game_hud.push_info_message(&message);
+                self.game_logic
+                    .queue_radar_message_for_team(player.team, message.clone());
+                self.game_logic.play_ui_sound("GUIMessageReceived");
+            } else if let Some(player) = self.game_logic.get_player(player_id) {
                 let message = localization::localize_with_args(
                     "hud.message.player_defeated",
                     "{player} has been defeated!",
@@ -6494,9 +6510,15 @@ impl CnCGameEngine {
 
             let message = localization::localize(key, fallback);
             self.game_hud.push_info_message(&message);
-            if let Some(event_player) = self.game_logic.get_player(event.player_id) {
+            // Prefer presentation roster team when installed.
+            let team = self
+                .last_presentation_frame
+                .as_ref()
+                .and_then(|f| f.player_team(event.player_id))
+                .or_else(|| self.game_logic.get_player(event.player_id).map(|p| p.team));
+            if let Some(team) = team {
                 self.game_logic
-                    .queue_radar_message_for_team(event_player.team, message.clone());
+                    .queue_radar_message_for_team(team, message.clone());
             } else {
                 self.game_logic.queue_radar_message(message.clone());
             }
