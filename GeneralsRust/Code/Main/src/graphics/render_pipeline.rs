@@ -980,25 +980,26 @@ impl RenderPipeline {
         }
 
         // Prefer frozen prewarm names from PresentationWorldEnv (capped list).
-        // Fall back to live map metadata only when presentation has none.
-        let template_names: Vec<String> = self
-            .presentation_frame
-            .as_ref()
-            .map(|p| p.world_env.prewarm_template_names.clone())
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| {
-                game_logic
-                    .and_then(|g| g.last_parsed_map_settings())
-                    .map(|m| {
-                        m.objects
-                            .iter()
-                            .map(|o| o.template.clone())
-                            .filter(|s| !s.trim().is_empty())
-                            .take(256)
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            });
+        // When a presentation frame is installed, never re-query live map metadata
+        // (empty prewarm list is fail-closed: skip names rather than dual-read logic).
+        let template_names: Vec<String> = if self.presentation_frame.is_some() {
+            self.presentation_frame
+                .as_ref()
+                .map(|p| p.world_env.prewarm_template_names.clone())
+                .unwrap_or_default()
+        } else {
+            game_logic
+                .and_then(|g| g.last_parsed_map_settings())
+                .map(|m| {
+                    m.objects
+                        .iter()
+                        .map(|o| o.template.clone())
+                        .filter(|s| !s.trim().is_empty())
+                        .take(256)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
 
         let mut candidates: Vec<String> = Vec::new();
         let mut seen = HashSet::new();
@@ -4615,6 +4616,42 @@ mod tests {
             "shell FOW must prefer presentation then live: {window}"
         );
     }
+
+    #[test]
+    fn prewarm_skips_live_logic_when_presentation_present() {
+        let src = include_str!("render_pipeline.rs");
+        let body = src
+            .split("fn prewarm_startup_models")
+            .nth(1)
+            .and_then(|s| {
+                s.split(
+                    "
+    fn ",
+                )
+                .next()
+            })
+            .expect("prewarm body");
+        let names = body
+            .split("let template_names")
+            .nth(1)
+            .expect("template_names block");
+        assert!(
+            names.contains("if self.presentation_frame.is_some()"),
+            "template prewarm must branch on presentation presence"
+        );
+        // Live last_parsed_map_settings only in the else branch of presentation check.
+        let branch = names
+            .find("if self.presentation_frame.is_some()")
+            .expect("branch");
+        let live = names
+            .find("last_parsed_map_settings")
+            .expect("live fallback exists for boot path");
+        assert!(
+            live > branch,
+            "live map metadata for names must only appear after presentation branch"
+        );
+    }
+
     #[test]
     fn execute_accepts_optional_game_logic_for_presentation_only_path() {
         let src = include_str!("render_pipeline.rs");

@@ -431,3 +431,10 @@ weather residual, script display state, post-draw UI, beacon notifications, and
 message pump — still **without** `OBJECT_REGISTRY` shroud binds or Main-owned
 input/audio/3D draw. Full `GameClient::update()` remains disconnected.
 
+### Presentation prewarm residual (2026-07-14)
+
+`RenderPipeline::prewarm_startup_models` uses `PresentationWorldEnv.prewarm_template_names`
+when a presentation frame is installed. Empty list is fail-closed (no live
+`last_parsed_map_settings` dual-read). Live metadata remains boot/loading-only
+when `execute(..., game_logic: Some(_))` without presentation.
+
