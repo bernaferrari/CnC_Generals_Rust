@@ -123,6 +123,20 @@ pub struct Entity {
     pub object_type_ordinal: u8,
     /// Host Object::max_transport residual (0 = heuristic default).
     pub max_transport: usize,
+    /// Host Object::force_attack residual.
+    pub force_attack: bool,
+    /// Host Object::show_health_bar residual.
+    pub show_health_bar: bool,
+    /// Host Object::target_location residual (ground attack).
+    pub target_location: Option<[f32; 3]>,
+    /// Host Object::guard_position residual.
+    pub guard_position: Option<[f32; 3]>,
+    /// Host Object::guard_target residual as host object id (0 = none).
+    pub guard_target_host: u32,
+    /// Host Object::ai_state residual ordinal (see host_ai_state_ordinal).
+    pub ai_state_ordinal: u8,
+    /// Host Object::occupants.len residual (transport/garrison count).
+    pub occupant_count: u16,
 }
 
 impl Entity {
@@ -211,6 +225,13 @@ impl EntityStore {
             power_consumed: 0,
             object_type_ordinal: 6,
             max_transport: 0,
+            force_attack: false,
+            show_health_bar: true,
+            target_location: None,
+            guard_position: None,
+            guard_target_host: 0,
+            ai_state_ordinal: 0,
+            occupant_count: 0,
         };
 
         self.alive.insert(id, entity);
