@@ -185,6 +185,19 @@ impl GameWorldShadow {
 
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
     /// Preserves EntityId for host objects that still exist.
+    fn host_object_type_ordinal(t: crate::game_logic::ObjectType) -> u8 {
+        use crate::game_logic::ObjectType as T;
+        match t {
+            T::Infantry => 0,
+            T::Vehicle => 1,
+            T::Aircraft => 2,
+            T::Building => 3,
+            T::Supply => 4,
+            T::Projectile => 5,
+            T::Neutral => 6,
+        }
+    }
+
     fn host_team_ordinal(team: Team) -> u8 {
         match team {
             Team::USA => 0,
@@ -255,6 +268,11 @@ impl GameWorldShadow {
                     e.under_construction = obj.status.under_construction;
                     e.moving = obj.status.moving;
                     e.attacking = obj.status.attacking;
+                    e.team_color = obj.team_color;
+                    e.power_provided = obj.power_provided;
+                    e.power_consumed = obj.power_consumed;
+                    e.object_type_ordinal = Self::host_object_type_ordinal(obj.object_type);
+                    e.max_transport = obj.max_transport;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -293,6 +311,11 @@ impl GameWorldShadow {
                 e.under_construction = obj.status.under_construction;
                 e.moving = obj.status.moving;
                 e.attacking = obj.status.attacking;
+                e.team_color = obj.team_color;
+                e.power_provided = obj.power_provided;
+                e.power_consumed = obj.power_consumed;
+                e.object_type_ordinal = Self::host_object_type_ordinal(obj.object_type);
+                e.max_transport = obj.max_transport;
             }
         }
 
@@ -325,6 +348,11 @@ impl GameWorldShadow {
             e.under_construction = false;
             e.moving = false;
             e.attacking = false;
+            e.team_color = [1.0, 1.0, 1.0, 1.0];
+            e.power_provided = 0;
+            e.power_consumed = 0;
+            e.object_type_ordinal = 6;
+            e.max_transport = 0;
         }
     }
 
@@ -669,6 +697,25 @@ impl GameWorldShadow {
     /// True when any shadow player has radar providers or a disabled flag residual.
     /// Count shadow players still marked alive (defeat residual).
     /// Count shadow entities marked selected (host UI residual).
+    /// Count shadow entities with host building object-type residual.
+    pub fn building_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.object_type_ordinal == 3 && !e.destroyed)
+            .count()
+    }
+
+    /// Sum of host power_provided residual on shadow entities.
+    pub fn total_entity_power_provided(&self) -> i32 {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| !e.destroyed)
+            .map(|e| e.power_provided)
+            .sum()
+    }
+
     pub fn moving_entity_count(&self) -> usize {
         self.world
             .world()
@@ -1719,6 +1766,43 @@ mod tests {
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
+    }
+
+    #[test]
+    fn sync_from_host_copies_entity_color_power_type() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityColorPower");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "PwrBldg", 200.0);
+        let id = logic
+            .create_object("PwrBldg", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.object_type = crate::game_logic::ObjectType::Building;
+            obj.team_color = [0.1, 0.2, 0.3, 0.9];
+            obj.power_provided = 50;
+            obj.power_consumed = 5;
+            obj.max_transport = 0;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.building_entity_count(), 1);
+        assert_eq!(shadow.total_entity_power_provided(), 50);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.object_type_ordinal, 3);
+        assert!((e.team_color[0] - 0.1).abs() < 0.001);
+        assert!((e.team_color[3] - 0.9).abs() < 0.001);
+        assert_eq!(e.power_provided, 50);
+        assert_eq!(e.power_consumed, 5);
+        let src = include_str!("gameworld_shadow.rs");
+        assert!(
+            src.contains("team_color")
+                && src.contains("power_provided")
+                && src.contains("object_type_ordinal"),
+            "sync must copy color/power/type residual"
+        );
     }
 
     #[test]
