@@ -2007,6 +2007,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presentation_defeat_save_info_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            pf.contains("defeated_player_ids")
+                && pf.contains("logic.peek_defeat_events()")
+                && gl.contains("fn peek_defeat_events")
+                && eng.contains("pres.defeated_player_ids.clone()")
+                && eng.contains("Prefer presentation residual for map/play_time/local team")
+                && eng.contains("p.total_play_time_seconds")
+                && eng.contains("p.world_env.map_name"),
+            "defeat notifications and save_info must prefer presentation freeze"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
