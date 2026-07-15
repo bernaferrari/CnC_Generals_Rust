@@ -246,7 +246,7 @@ impl IntegratedAiPlayer {
         }
     }
 
-    pub fn is_supply_source_attacked(&self) -> bool {
+    pub fn is_supply_source_attacked(&mut self) -> bool {
         match self {
             IntegratedAiPlayer::Standard(player) => player.is_supply_source_attacked(),
             IntegratedAiPlayer::Skirmish(player) => player.is_supply_source_attacked(),

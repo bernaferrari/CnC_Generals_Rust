@@ -1287,3 +1287,20 @@ Compared C++ `AIPlayer::queueSupplyTruck`:
 Fail-closed: full template linked-list scan residual (candidate name list);
 aiDock CMD_FROM_PLAYER residual.
 
+### findDozer / queueDozer / supply safety (2026-07-14)
+
+Compared C++ `AIPlayer::findDozer`, `queueDozer`, `isSupplySourceAttacked`,
+`isSupplySourceSafe`, `isLocationSafe`, `guardSupplyCenter`:
+
+- findDozer: skip repair dozer, ferrying workers, BUILD task; prefer idle closest;
+  queueDozer when none exist.
+- queueDozer: dozerInQueue gate, temp enable canBuildUnits, priority startTraining.
+- isSupplySourceAttacked: 10s scan rate, player attacked frame, cash/dozer/harvester
+  recent damage latch.
+- isSupplySourceSafe: findSupplyCenter + isLocationSafe (safe radius + enemies).
+- guardSupplyCenter: force check, attacked warehouse or find, offset toward enemy,
+  aiGuardPosition.
+
+Fail-closed: full partition filter set residual; template linked-list residual
+(candidate names); AiGroup groupGuardPosition uses per-member ai_guard_position.
+

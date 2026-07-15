@@ -1441,6 +1441,14 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
     fn cancel_task(&mut self, task: DozerTask) {
         self.cancel_task(task);
     }
+
+    fn is_task_pending(&self, task: DozerTask) -> bool {
+        self.is_task_pending(task)
+    }
+
+    fn is_any_task_pending(&self) -> bool {
+        self.is_any_task_pending()
+    }
 }
 
 /// Module wrapper for DozerAIUpdate to align with module system expectations.
