@@ -546,3 +546,9 @@ drains NewGame immediately. Falls back to Main SkirmishMenu mouse residual.
 Executable smoke enables WND when `DISPLAY` is set (xvfb). `playable_claim`
 still false (not full interactive retail navigation).
 
+### GameClient presentation shell display residual (2026-07-14)
+
+`update_presentation_shell` now runs C++ display UPDATE + drawable icon UI
+after effects, still skipping `draw_display` (Main RenderPipeline sole present).
+Full `GameClient::update()` remains disconnected for input/audio dual-ownership.
+
