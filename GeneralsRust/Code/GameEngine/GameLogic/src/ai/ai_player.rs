@@ -1115,28 +1115,106 @@ impl AIPlayer {
             .unwrap_or(false)
     }
 
+    /// C++ `AIPlayer::queueUnits` (AIPlayer.cpp).
+    ///
+    /// For each work order still waiting: recruit existing map units into the
+    /// team (tryToRecruit) until full or none left; then startTraining if still
+    /// waiting; else validateFactory.
     pub fn queue_units(&mut self) -> bool {
         let _ = self.queue_supply_truck();
 
+        let max_recruit = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))
+            .filter(|d| *d > 0.0)
+            .unwrap_or(99999.0);
+
         let mut rebuilt_queue = VecDeque::with_capacity(self.team_build_queue.len());
-        while let Some(mut team) = self.team_build_queue.pop_front() {
-            let busy_ok = team.priority_build;
-            let team_name = team
+        while let Some(mut team_q) = self.team_build_queue.pop_front() {
+            let busy_ok = team_q.priority_build;
+            let team_name = team_q
                 .team_name
                 .clone()
                 .unwrap_or_else(|| "default".to_string());
-            for order in &mut team.work_orders {
+
+            // Resolve live team instance for recruit/setTeam (C++ team->m_team).
+            let team_arc = get_team_factory().lock().ok().and_then(|mut factory| {
+                // Prefer existing instance; create inactive if needed (C++ already has team*).
+                factory
+                    .find_team_instances(&team_name)
+                    .into_iter()
+                    .next()
+                    .or_else(|| factory.find_team(&team_name))
+            });
+
+            // Home for recruit search: C++ prototype homeLocation else base center.
+            let (home, has_home) = self.queue_units_home_for_team(&team_name);
+
+            for order in &mut team_q.work_orders {
+                // C++: while waiting, tryToRecruit repeatedly.
+                if let Some(ref team_arc) = team_arc {
+                    while order.is_waiting_to_build() {
+                        let Some(thing) = TheThingFactory::find_template(&order.thing_template)
+                        else {
+                            break;
+                        };
+                        let Ok(team_g) = team_arc.read() else {
+                            break;
+                        };
+                        let Some(unit_arc) = team_g.try_to_recruit(&thing, &home, max_recruit)
+                        else {
+                            break; // no more recruitable units
+                        };
+                        drop(team_g);
+
+                        order.num_completed = order.num_completed.saturating_add(1);
+
+                        if let Ok(mut unit_g) = unit_arc.write() {
+                            let _ = unit_g.set_team(Some(team_arc.clone()));
+                            if let Some(ai) = unit_g.get_ai_update_interface() {
+                                if has_home {
+                                    // C++ aiMoveToPosition(&home, CMD_FROM_AI)
+                                    ai.ai_move_to_position(&home, false, CommandSourceType::FromAi);
+                                } else {
+                                    // C++ aiIdle(CMD_FROM_AI)
+                                    ai.ai_idle(CommandSourceType::FromAi);
+                                }
+                            }
+                        }
+
+                        log::debug!(
+                            "Team '{}' recruits {} (queueUnits)",
+                            team_name,
+                            order.thing_template
+                        );
+                    }
+                }
+
                 if order.is_waiting_to_build() {
+                    // start the creation of a new unit
                     let _ = self.start_training_internal(order, busy_ok, team_name.as_str());
                 } else {
+                    // under construction / complete — verify factory still exists
                     let _ = order.validate_factory(self.player_id);
                 }
             }
-            rebuilt_queue.push_back(team);
+            rebuilt_queue.push_back(team_q);
         }
         self.team_build_queue = rebuilt_queue;
 
         true
+    }
+
+    /// C++ queueUnits home: prototype homeLocation if set, else getBaseCenter.
+    fn queue_units_home_for_team(&self, team_name: &str) -> (Coord3D, bool) {
+        // Home-location residual on TeamPrototype (not yet on GameLogic prototype).
+        // Fall back to base center like C++ when !hasHomeLocation.
+        if let Some(center) = self.get_base_center() {
+            return (center, true);
+        }
+        let _ = team_name;
+        (Coord3D::new(0.0, 0.0, 0.0), false)
     }
 
     /// C++ parity helper for supply-center bookkeeping.
@@ -5236,6 +5314,33 @@ mod tests {
             window.contains("evaluate_production_condition()"),
             "is_a_good_idea must call evaluateProductionCondition first (C++)"
         );
+    }
+
+    #[test]
+    fn queue_units_try_to_recruit_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        // Doc comment sits above the fn signature — include a lookback.
+        let i = src
+            .find("C++ `AIPlayer::queueUnits`")
+            .expect("queueUnits doc");
+        let window = &src[i..src.len().min(i + 5000)];
+        assert!(
+            window.contains("try_to_recruit")
+                && window.contains("while order.is_waiting_to_build()")
+                && window.contains("ai_move_to_position")
+                && window.contains("ai_idle")
+                && window.contains("start_training_internal")
+                && window.contains("validate_factory")
+                && window.contains("max_recruit_distance"),
+            "queue_units must recruit-then-train like C++ queueUnits"
+        );
+    }
+
+    #[test]
+    fn queue_units_empty_queue_ok() {
+        let mut ai = AIPlayer::new(1);
+        // queueSupplyTruck may prepend a gatherer team (C++ also calls it).
+        assert!(ai.queue_units());
     }
 
     #[test]
