@@ -1822,6 +1822,8 @@ pub struct PresentationFrame {
     pub events: Vec<PresentationEvent>,
     pub match_over: bool,
     pub victory_label: Option<String>,
+    /// Players defeated this evaluate residual (C++ defeat notification queue).
+    pub defeated_player_ids: Vec<u32>,
     /// Host VictorySummary residual (mission/duration/player results).
     /// Fail-closed: stats tables frozen at evaluate; not live re-aggregate.
     /// Skipped in serde (Duration/player payload is host snapshot residual only).
@@ -2446,6 +2448,7 @@ impl PresentationFrame {
             events,
             match_over: false,
             victory_label: None,
+            defeated_player_ids: Vec::new(),
             victory_summary: None,
             beacons: {
                 #[cfg(feature = "game_client")]
@@ -2605,6 +2608,8 @@ impl PresentationFrame {
             // Freeze summary residual once (show_victory_screen prefers this).
             frame.victory_summary = Some(logic.build_victory_summary(winner));
         }
+        // Freeze defeat notification residual produced by evaluate (engine drains take).
+        frame.defeated_player_ids = logic.peek_defeat_events().to_vec();
         frame
     }
 

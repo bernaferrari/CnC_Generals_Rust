@@ -36184,6 +36184,10 @@ impl GameLogic {
             .evaluate(&self.players, &self.objects, self.frame)
     }
 
+    pub fn peek_defeat_events(&self) -> &[u32] {
+        self.victory_conditions.peek_defeat_events()
+    }
+
     pub fn take_defeat_events(&mut self) -> Vec<u32> {
         self.victory_conditions.take_defeat_events()
     }

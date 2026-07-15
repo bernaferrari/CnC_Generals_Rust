@@ -1039,3 +1039,10 @@ playback parity; boot path still plays movies when no frame.
 `current_game_time` prefers presentation (apply_to_ui_state + engine overwrite).
 Live `get_total_play_time` is boot residual only.
 
+### Presentation defeat/save-info residual (2026-07-14)
+
+`build_with_victory` freezes `defeated_player_ids` from `peek_defeat_events`.
+Engine defeat broadcast prefers presentation then drains live take.
+`build_save_info` prefers presentation map_name, play_time, and local_team.
+Fail-closed: difficulty still live host; not sole GameWorld authority.
+
