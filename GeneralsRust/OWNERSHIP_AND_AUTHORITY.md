@@ -940,3 +940,10 @@ airborne_target, move_max_speed, velocity, and ai_state_ordinal. Freeze +
 overlay last-write from Entity residual. Fail-closed: not full pathfinding
 replan authority.
 
+### Presentation path_len/occupant residual (2026-07-14)
+
+`RenderableObject` carries path_len, path_index, and occupant_count. Freeze +
+overlay last-write from Entity residual. Presentation shell documents Eva via
+`update_post_draw_ui` without dual input/audio ownership. Fail-closed: not full
+path replan / contain capacity matrix.
+

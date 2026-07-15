@@ -163,6 +163,12 @@ pub struct RenderableObject {
     pub attack_target: Option<ObjectId>,
     /// Path waypoints residual (capped) for line pack / debug draw.
     pub path_waypoints: Vec<Vec3>,
+    /// Host movement path length residual.
+    pub path_len: u16,
+    /// Host movement current path index residual.
+    pub path_index: u16,
+    /// Host occupant_count residual (transport/contain).
+    pub occupant_count: u16,
     /// Structure production queue residual (empty for non-buildings).
     pub production_queue: Vec<PresentationProductionItem>,
     /// Structure rally point residual.
@@ -1960,6 +1966,9 @@ impl PresentationFrame {
                 ),
                 attack_target: obj.target,
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
+                path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,
+                path_index: obj.movement.current_path_index.min(u16::MAX as usize) as u16,
+                occupant_count: obj.occupants.len().min(u16::MAX as usize) as u16,
                 production_queue: obj
                     .building_data
                     .as_ref()
@@ -3858,6 +3867,18 @@ impl PresentationFrame {
                 obj.path_waypoints = path_wp;
                 dirty = true;
             }
+            if obj.path_len != ent.path_len {
+                obj.path_len = ent.path_len;
+                dirty = true;
+            }
+            if obj.path_index != ent.path_index {
+                obj.path_index = ent.path_index;
+                dirty = true;
+            }
+            if obj.occupant_count != ent.occupant_count {
+                obj.occupant_count = ent.occupant_count;
+                dirty = true;
+            }
             // Production queue head residual.
             // Full production queue residual (not head-only).
             if !ent.production_queue_items.is_empty() {
@@ -5130,6 +5151,8 @@ mod tests {
                 && src.contains("ent.weapon_ammo")
                 && src.contains("ent.guard_target_host")
                 && src.contains("ent.ai_state_ordinal")
+                && src.contains("ent.path_len")
+                && src.contains("ent.occupant_count")
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );

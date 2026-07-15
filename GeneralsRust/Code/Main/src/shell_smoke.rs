@@ -1761,6 +1761,27 @@ mod tests {
     }
 
     #[test]
+    fn presentation_shell_eva_via_post_draw_ui_no_dual_input_audio() {
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        let start = gc
+            .find("pub fn update_presentation_shell")
+            .expect("presentation shell");
+        let window = &gc[start..start + 2500.min(gc.len() - start)];
+        assert!(
+            gc.contains("update_presentation_shell")
+                && gc.contains("Eva residual runs via update_post_draw_ui")
+                && gc.contains("update_drawables_local")
+                && !window.contains("self.update_input()?")
+                && !window.contains("self.update_audio()?")
+                && !window.contains("self.draw_display()?"),
+            "presentation shell must not dual-own input/audio/3D draw"
+        );
+        assert!(
+            gc.contains("fn update_post_draw_ui") && gc.contains("crate::eva::update_eva_system()"),
+            "Eva must tick from post-draw UI residual used by shell"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
