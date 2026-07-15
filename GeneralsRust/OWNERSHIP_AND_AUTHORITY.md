@@ -687,3 +687,11 @@ authority.
 Fail-closed: not full WeaponSet slots / projectile spawn / loco pathfinder
 authority.
 
+### GameWorld entity transport residual (2026-07-14)
+
+`Entity` carries `display_name`, `overlord_bunker_capacity`, passenger-fire /
+weapon-set flags, transport-kind markers (battle bus / technical / combat cycle /
+tunnel / combat chinook), `combat_cycle_rider`, and `contained_by_host`.
+`sync_from_host_with` copies them each tick. Fail-closed: not full
+OpenContain/RiderChangeContain/TunnelContain matrix authority.
+

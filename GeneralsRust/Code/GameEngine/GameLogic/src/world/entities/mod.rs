@@ -201,6 +201,31 @@ pub struct Entity {
     pub path_len: u16,
     /// Host Movement::current_path_index residual.
     pub path_index: u16,
+    /// Host Object::name residual (display/script name; empty if unset).
+    pub display_name: String,
+    /// Host Object::overlord_bunker_capacity residual:
+    /// `u16::MAX` = None (not overlord-style).
+    pub overlord_bunker_capacity: u16,
+    /// Host Object::passengers_allowed_to_fire residual.
+    pub passengers_allowed_to_fire: bool,
+    /// Host Object::armed_riders_upgrade_weapon_set residual.
+    pub armed_riders_upgrade_weapon_set: bool,
+    /// Host Object::weapon_set_player_upgrade residual.
+    pub weapon_set_player_upgrade: bool,
+    /// Host Object::is_battle_bus_transport residual.
+    pub is_battle_bus_transport: bool,
+    /// Host Object::is_technical_transport residual.
+    pub is_technical_transport: bool,
+    /// Host Object::is_combat_cycle_transport residual.
+    pub is_combat_cycle_transport: bool,
+    /// Host Object::combat_cycle_rider residual.
+    pub combat_cycle_rider: u8,
+    /// Host Object::is_tunnel_network residual.
+    pub is_tunnel_network: bool,
+    /// Host Object::is_combat_chinook_transport residual.
+    pub is_combat_chinook_transport: bool,
+    /// Host Object::contained_by residual as host object id (0 = free).
+    pub contained_by_host: u32,
 }
 
 impl Entity {
@@ -328,6 +353,18 @@ impl EntityStore {
             velocity: [0.0; 3],
             path_len: 0,
             path_index: 0,
+            display_name: String::new(),
+            overlord_bunker_capacity: u16::MAX,
+            passengers_allowed_to_fire: false,
+            armed_riders_upgrade_weapon_set: false,
+            weapon_set_player_upgrade: false,
+            is_battle_bus_transport: false,
+            is_technical_transport: false,
+            is_combat_cycle_transport: false,
+            combat_cycle_rider: 0,
+            is_tunnel_network: false,
+            is_combat_chinook_transport: false,
+            contained_by_host: 0,
         };
 
         self.alive.insert(id, entity);
