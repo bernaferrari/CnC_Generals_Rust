@@ -1729,6 +1729,11 @@ impl ThingTemplate {
         self.kindof
     }
 
+    /// C++ ThingTemplate::getPlacementViewAngle().
+    pub fn get_placement_view_angle(&self) -> Real {
+        self.placement_view_angle
+    }
+
     pub fn get_default_owning_side(&self) -> &AsciiString {
         &self.default_owning_side
     }

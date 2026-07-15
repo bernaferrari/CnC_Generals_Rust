@@ -2720,6 +2720,10 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_build_time(&self) -> Real {
         0.0
     }
+    /// C++ ThingTemplate::getPlacementViewAngle().
+    fn get_placement_view_angle(&self) -> Real {
+        0.0
+    }
     /// C++ ThingTemplate::getBuildable().
     fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
         None

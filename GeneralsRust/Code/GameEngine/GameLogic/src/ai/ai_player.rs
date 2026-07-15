@@ -2084,7 +2084,7 @@ impl AIPlayer {
         location.x -= offset_x * radius;
         location.y -= offset_y * radius;
 
-        let angle = 0.0_f32; // placement_view_angle residual on ThingTemplate trait
+        let angle = template.get_placement_view_angle();
         let placement = self
             .find_valid_build_location(&location, template.get_name().as_str(), angle)
             .unwrap_or(location);
@@ -2123,12 +2123,13 @@ impl AIPlayer {
             .get_base_center()
             .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
+        let angle = template.get_placement_view_angle();
         let mut build_location = location;
         if let Some(valid) =
-            self.find_valid_build_location(&build_location, template.get_name().as_str(), 0.0)
+            self.find_valid_build_location(&build_location, template.get_name().as_str(), angle)
         {
             build_location = valid;
-            self.queue_structure_construction(thing_name, build_location, 0.0)?;
+            self.queue_structure_construction(thing_name, build_location, angle)?;
         }
 
         Ok(())
@@ -2173,7 +2174,7 @@ impl AIPlayer {
         if !self.base_center_set {
             let _ = self.compute_center_and_radius_of_base();
         }
-        let angle = 0.0_f32; // placement_view_angle residual
+        let angle = template.get_placement_view_angle();
         let Some(mut new_pos) =
             self.find_valid_build_location(&location, template.get_name().as_str(), angle)
         else {
@@ -7545,6 +7546,27 @@ mod tests {
                 && ow.contains("check_for_supply_center")
                 && ow.contains("Structure not found in production queue"),
             "onStructureProduced list match + hole retarget + supply"
+        );
+    }
+
+    #[test]
+    fn build_paths_use_placement_view_angle_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn build_by_supplies")
+            .expect("build_by_supplies");
+        let w = &src[i..src.len().min(i + 2500)];
+        assert!(
+            w.contains("get_placement_view_angle()"),
+            "buildBySupplies must use ThingTemplate placement view angle (C++)"
+        );
+        let j = src
+            .find("fn build_specific_building_near_location")
+            .expect("near_location");
+        let w2 = &src[j..src.len().min(j + 1200)];
+        assert!(
+            w2.contains("get_placement_view_angle()"),
+            "buildSpecificBuildingNearLocation must use placement view angle"
         );
     }
 

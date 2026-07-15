@@ -389,6 +389,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.get_build_time()
     }
 
+    fn get_placement_view_angle(&self) -> crate::common::Real {
+        self.inner.get_placement_view_angle()
+    }
+
     fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
         Some(self.inner.get_buildable())
     }
