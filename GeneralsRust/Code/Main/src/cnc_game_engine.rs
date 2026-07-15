@@ -6247,11 +6247,9 @@ impl CnCGameEngine {
                 let _ = dt;
             }
 
-            // Drain queued player/AI commands before shadow so set_target/move logs
-            // from this frame enter the same session (InGame only).
-            if self.current_state == GameState::InGame {
-                self.game_logic.process_commands();
-            }
+            // AI/player commands queued during GameLogic::update_simulation are
+            // flushed in-phase (early commands + post-AI phase 8b). Engine does
+            // not re-drain the command list before shadow.
 
             // GameWorld shadow session AFTER host logic + projectiles + path so
             // host_damage_log / host_move_log / attack logs from this frame are not
