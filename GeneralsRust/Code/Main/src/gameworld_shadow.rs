@@ -428,6 +428,47 @@ impl GameWorldShadow {
                     e.stealth_breaks_on_attack = obj.stealth_breaks_on_attack;
                     e.stealth_breaks_on_move = obj.stealth_breaks_on_move;
                     e.innate_stealth = obj.innate_stealth;
+                    e.weapon_bonus_enthusiastic = obj.weapon_bonus_enthusiastic;
+                    e.weapon_bonus_subliminal = obj.weapon_bonus_subliminal;
+                    e.weapon_bonus_horde = obj.weapon_bonus_horde;
+                    e.weapon_bonus_nationalism = obj.weapon_bonus_nationalism;
+                    e.weapon_bonus_frenzy = obj.weapon_bonus_frenzy;
+                    e.weapon_bonus_frenzy_level = obj.weapon_bonus_frenzy_level;
+                    e.weapon_bonus_battle_plan_bombardment =
+                        obj.weapon_bonus_battle_plan_bombardment;
+                    e.weapon_bonus_battle_plan_hold_the_line =
+                        obj.weapon_bonus_battle_plan_hold_the_line;
+                    e.weapon_bonus_battle_plan_search_and_destroy =
+                        obj.weapon_bonus_battle_plan_search_and_destroy;
+                    e.continuous_fire_level = obj.continuous_fire_level;
+                    e.continuous_fire_consecutive =
+                        obj.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
+                    e.faerie_fire_until_frame = obj.faerie_fire_until_frame;
+                    e.is_humvee_transport = obj.is_humvee_transport;
+                    e.is_listening_outpost_transport = obj.is_listening_outpost_transport;
+                    e.is_troop_crawler_transport = obj.is_troop_crawler_transport;
+                    e.is_helix_transport = obj.is_helix_transport;
+                    e.has_overlord_gattling_addon = obj.has_overlord_gattling_addon;
+                    e.has_overlord_propaganda_addon = obj.has_overlord_propaganda_addon;
+                    e.demo_suicided_detonating = obj.demo_suicided_detonating;
+                    e.hive_slave_count = obj.hive_slave_count;
+                    e.hive_slave_hp = obj.hive_slave_hp;
+                    e.turret_angle_deg = obj.turret_angle_deg;
+                    e.turret_pitch_deg = obj.turret_pitch_deg;
+                    e.turret_idle_scanning = obj.turret_idle_scanning;
+                    e.turret_holding = obj.turret_holding;
+                    e.ai_attitude = obj.ai_attitude;
+                    e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
+                    e.command_set_override = obj.command_set_override.clone().unwrap_or_default();
+                    e.disguise_as_template = obj.disguise_as_template.clone().unwrap_or_default();
+                    e.disguise_as_team_ordinal = obj
+                        .disguise_as_team
+                        .map(Self::host_team_ordinal)
+                        .unwrap_or(255);
+                    e.vision_spied_mask = obj.vision_spied_mask;
+                    e.camo_friendly_opacity = obj.camo_friendly_opacity;
+                    e.camo_stealth_look = obj.camo_stealth_look as u8;
+                    e.has_mine_data = obj.mine_data.is_some();
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -569,6 +610,46 @@ impl GameWorldShadow {
                 e.stealth_breaks_on_attack = obj.stealth_breaks_on_attack;
                 e.stealth_breaks_on_move = obj.stealth_breaks_on_move;
                 e.innate_stealth = obj.innate_stealth;
+                e.weapon_bonus_enthusiastic = obj.weapon_bonus_enthusiastic;
+                e.weapon_bonus_subliminal = obj.weapon_bonus_subliminal;
+                e.weapon_bonus_horde = obj.weapon_bonus_horde;
+                e.weapon_bonus_nationalism = obj.weapon_bonus_nationalism;
+                e.weapon_bonus_frenzy = obj.weapon_bonus_frenzy;
+                e.weapon_bonus_frenzy_level = obj.weapon_bonus_frenzy_level;
+                e.weapon_bonus_battle_plan_bombardment = obj.weapon_bonus_battle_plan_bombardment;
+                e.weapon_bonus_battle_plan_hold_the_line =
+                    obj.weapon_bonus_battle_plan_hold_the_line;
+                e.weapon_bonus_battle_plan_search_and_destroy =
+                    obj.weapon_bonus_battle_plan_search_and_destroy;
+                e.continuous_fire_level = obj.continuous_fire_level;
+                e.continuous_fire_consecutive =
+                    obj.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
+                e.faerie_fire_until_frame = obj.faerie_fire_until_frame;
+                e.is_humvee_transport = obj.is_humvee_transport;
+                e.is_listening_outpost_transport = obj.is_listening_outpost_transport;
+                e.is_troop_crawler_transport = obj.is_troop_crawler_transport;
+                e.is_helix_transport = obj.is_helix_transport;
+                e.has_overlord_gattling_addon = obj.has_overlord_gattling_addon;
+                e.has_overlord_propaganda_addon = obj.has_overlord_propaganda_addon;
+                e.demo_suicided_detonating = obj.demo_suicided_detonating;
+                e.hive_slave_count = obj.hive_slave_count;
+                e.hive_slave_hp = obj.hive_slave_hp;
+                e.turret_angle_deg = obj.turret_angle_deg;
+                e.turret_pitch_deg = obj.turret_pitch_deg;
+                e.turret_idle_scanning = obj.turret_idle_scanning;
+                e.turret_holding = obj.turret_holding;
+                e.ai_attitude = obj.ai_attitude;
+                e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
+                e.command_set_override = obj.command_set_override.clone().unwrap_or_default();
+                e.disguise_as_template = obj.disguise_as_template.clone().unwrap_or_default();
+                e.disguise_as_team_ordinal = obj
+                    .disguise_as_team
+                    .map(Self::host_team_ordinal)
+                    .unwrap_or(255);
+                e.vision_spied_mask = obj.vision_spied_mask;
+                e.camo_friendly_opacity = obj.camo_friendly_opacity;
+                e.camo_stealth_look = obj.camo_stealth_look as u8;
+                e.has_mine_data = obj.mine_data.is_some();
             }
         }
 
@@ -671,6 +752,40 @@ impl GameWorldShadow {
             e.stealth_breaks_on_attack = false;
             e.stealth_breaks_on_move = false;
             e.innate_stealth = false;
+            e.weapon_bonus_enthusiastic = false;
+            e.weapon_bonus_subliminal = false;
+            e.weapon_bonus_horde = false;
+            e.weapon_bonus_nationalism = false;
+            e.weapon_bonus_frenzy = false;
+            e.weapon_bonus_frenzy_level = 0;
+            e.weapon_bonus_battle_plan_bombardment = false;
+            e.weapon_bonus_battle_plan_hold_the_line = false;
+            e.weapon_bonus_battle_plan_search_and_destroy = false;
+            e.continuous_fire_level = 0;
+            e.continuous_fire_consecutive = 0;
+            e.faerie_fire_until_frame = 0;
+            e.is_humvee_transport = false;
+            e.is_listening_outpost_transport = false;
+            e.is_troop_crawler_transport = false;
+            e.is_helix_transport = false;
+            e.has_overlord_gattling_addon = false;
+            e.has_overlord_propaganda_addon = false;
+            e.demo_suicided_detonating = false;
+            e.hive_slave_count = 0;
+            e.hive_slave_hp = 0.0;
+            e.turret_angle_deg = 0.0;
+            e.turret_pitch_deg = 0.0;
+            e.turret_idle_scanning = false;
+            e.turret_holding = false;
+            e.ai_attitude = 0;
+            e.last_damage_source_host = 0;
+            e.command_set_override.clear();
+            e.disguise_as_template.clear();
+            e.disguise_as_team_ordinal = 255;
+            e.vision_spied_mask = 0;
+            e.camo_friendly_opacity = 1.0;
+            e.camo_stealth_look = 0;
+            e.has_mine_data = false;
         }
     }
 
@@ -1022,6 +1137,24 @@ impl GameWorldShadow {
     /// Count shadow entities with host weapon residual.
     /// Count shadow entities with host battle-bus transport residual.
     /// Count shadow entities with host detector residual.
+    /// Count shadow entities with host horde weapon-bonus residual.
+    pub fn horde_bonus_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.weapon_bonus_horde && !e.destroyed)
+            .count()
+    }
+
+    /// Count shadow entities with host humvee transport residual.
+    pub fn humvee_transport_entity_count(&self) -> usize {
+        self.world
+            .world()
+            .entities()
+            .filter(|e| e.is_humvee_transport && !e.destroyed)
+            .count()
+    }
+
     pub fn detector_entity_count(&self) -> usize {
         self.world
             .world()
@@ -2195,6 +2328,85 @@ mod tests {
     }
 
     #[test]
+    fn sync_from_host_copies_entity_combat_bonus_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EntityCombatBonus");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "BonusU", 100.0);
+        let id = logic
+            .create_object("BonusU", Team::China, glam::Vec3::new(12.0, 0.0, 12.0))
+            .expect("id");
+        let src = logic
+            .create_object("BonusU", Team::GLA, glam::Vec3::new(20.0, 0.0, 12.0))
+            .expect("src");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            obj.weapon_bonus_enthusiastic = true;
+            obj.weapon_bonus_subliminal = true;
+            obj.weapon_bonus_horde = true;
+            obj.weapon_bonus_nationalism = true;
+            obj.weapon_bonus_frenzy = true;
+            obj.weapon_bonus_frenzy_level = 2;
+            obj.weapon_bonus_battle_plan_bombardment = true;
+            obj.weapon_bonus_battle_plan_hold_the_line = true;
+            obj.weapon_bonus_battle_plan_search_and_destroy = true;
+            obj.continuous_fire_level = 3;
+            obj.continuous_fire_consecutive = 7;
+            obj.faerie_fire_until_frame = 99;
+            obj.is_humvee_transport = true;
+            obj.is_listening_outpost_transport = true;
+            obj.is_troop_crawler_transport = true;
+            obj.is_helix_transport = true;
+            obj.has_overlord_gattling_addon = true;
+            obj.has_overlord_propaganda_addon = true;
+            obj.demo_suicided_detonating = true;
+            obj.hive_slave_count = 3;
+            obj.hive_slave_hp = 40.0;
+            obj.turret_angle_deg = 45.0;
+            obj.turret_pitch_deg = 15.0;
+            obj.turret_idle_scanning = true;
+            obj.turret_holding = true;
+            obj.ai_attitude = 2;
+            obj.last_damage_source = Some(src);
+            obj.command_set_override = Some("Command_ChinaTankOverlord".into());
+            obj.disguise_as_template = Some("AmericaVehicleHumvee".into());
+            obj.disguise_as_team = Some(Team::USA);
+            obj.vision_spied_mask = 0b101;
+            obj.camo_friendly_opacity = 0.4;
+            // camo_stealth_look left default
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert_eq!(shadow.horde_bonus_entity_count(), 1);
+        assert_eq!(shadow.humvee_transport_entity_count(), 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.weapon_bonus_enthusiastic && e.weapon_bonus_horde && e.weapon_bonus_frenzy);
+        assert_eq!(e.weapon_bonus_frenzy_level, 2);
+        assert_eq!(e.continuous_fire_level, 3);
+        assert_eq!(e.continuous_fire_consecutive, 7);
+        assert_eq!(e.faerie_fire_until_frame, 99);
+        assert!(e.is_humvee_transport && e.is_helix_transport);
+        assert!(e.has_overlord_gattling_addon && e.has_overlord_propaganda_addon);
+        assert!(e.demo_suicided_detonating);
+        assert_eq!(e.hive_slave_count, 3);
+        assert!((e.turret_angle_deg - 45.0).abs() < 0.01);
+        assert_eq!(e.ai_attitude, 2);
+        assert_eq!(e.last_damage_source_host, src.0);
+        assert_eq!(e.command_set_override, "Command_ChinaTankOverlord");
+        assert_eq!(e.disguise_as_template, "AmericaVehicleHumvee");
+        assert_eq!(e.disguise_as_team_ordinal, 0); // USA
+        assert_eq!(e.vision_spied_mask, 0b101);
+        assert!((e.camo_friendly_opacity - 0.4).abs() < 0.01);
+        let src_txt = include_str!("gameworld_shadow.rs");
+        assert!(
+            src_txt.contains("weapon_bonus_horde")
+                && src_txt.contains("turret_angle_deg")
+                && src_txt.contains("disguise_as_template"),
+            "sync must copy combat-bonus residual"
+        );
+    }
+
     fn sync_from_host_copies_entity_detector_sp_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityDetectorSp");

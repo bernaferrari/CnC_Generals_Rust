@@ -254,6 +254,54 @@ pub struct Entity {
     pub stealth_breaks_on_move: bool,
     /// Host Object::innate_stealth residual.
     pub innate_stealth: bool,
+    /// Host weapon-bonus flags residual.
+    pub weapon_bonus_enthusiastic: bool,
+    pub weapon_bonus_subliminal: bool,
+    pub weapon_bonus_horde: bool,
+    pub weapon_bonus_nationalism: bool,
+    pub weapon_bonus_frenzy: bool,
+    pub weapon_bonus_frenzy_level: u8,
+    pub weapon_bonus_battle_plan_bombardment: bool,
+    pub weapon_bonus_battle_plan_hold_the_line: bool,
+    pub weapon_bonus_battle_plan_search_and_destroy: bool,
+    /// Host continuous-fire residual.
+    pub continuous_fire_level: u8,
+    pub continuous_fire_consecutive: u16,
+    /// Host faerie_fire_until_frame residual.
+    pub faerie_fire_until_frame: u32,
+    /// Extra transport-kind markers.
+    pub is_humvee_transport: bool,
+    pub is_listening_outpost_transport: bool,
+    pub is_troop_crawler_transport: bool,
+    pub is_helix_transport: bool,
+    pub has_overlord_gattling_addon: bool,
+    pub has_overlord_propaganda_addon: bool,
+    /// Host demo/hive residual.
+    pub demo_suicided_detonating: bool,
+    pub hive_slave_count: u8,
+    pub hive_slave_hp: f32,
+    /// Host turret residual.
+    pub turret_angle_deg: f32,
+    pub turret_pitch_deg: f32,
+    pub turret_idle_scanning: bool,
+    pub turret_holding: bool,
+    /// Host AI attitude residual (-1..n as host i8).
+    pub ai_attitude: i8,
+    /// Host last_damage_source as host object id (0 = none).
+    pub last_damage_source_host: u32,
+    /// Host command_set_override residual (empty = none).
+    pub command_set_override: String,
+    /// Host disguise residual (empty template = none).
+    pub disguise_as_template: String,
+    /// Host disguise team ordinal (255 = none).
+    pub disguise_as_team_ordinal: u8,
+    /// Host vision_spied_mask residual.
+    pub vision_spied_mask: u32,
+    /// Host camo residual.
+    pub camo_friendly_opacity: f32,
+    pub camo_stealth_look: u8,
+    /// Host mine residual present flag.
+    pub has_mine_data: bool,
 }
 
 impl Entity {
@@ -407,6 +455,40 @@ impl EntityStore {
             stealth_breaks_on_attack: false,
             stealth_breaks_on_move: false,
             innate_stealth: false,
+            weapon_bonus_enthusiastic: false,
+            weapon_bonus_subliminal: false,
+            weapon_bonus_horde: false,
+            weapon_bonus_nationalism: false,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_battle_plan_bombardment: false,
+            weapon_bonus_battle_plan_hold_the_line: false,
+            weapon_bonus_battle_plan_search_and_destroy: false,
+            continuous_fire_level: 0,
+            continuous_fire_consecutive: 0,
+            faerie_fire_until_frame: 0,
+            is_humvee_transport: false,
+            is_listening_outpost_transport: false,
+            is_troop_crawler_transport: false,
+            is_helix_transport: false,
+            has_overlord_gattling_addon: false,
+            has_overlord_propaganda_addon: false,
+            demo_suicided_detonating: false,
+            hive_slave_count: 0,
+            hive_slave_hp: 0.0,
+            turret_angle_deg: 0.0,
+            turret_pitch_deg: 0.0,
+            turret_idle_scanning: false,
+            turret_holding: false,
+            ai_attitude: 0,
+            last_damage_source_host: 0,
+            command_set_override: String::new(),
+            disguise_as_template: String::new(),
+            disguise_as_team_ordinal: 255,
+            vision_spied_mask: 0,
+            camo_friendly_opacity: 1.0,
+            camo_stealth_look: 0,
+            has_mine_data: false,
         };
 
         self.alive.insert(id, entity);

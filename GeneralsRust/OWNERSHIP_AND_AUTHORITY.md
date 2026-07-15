@@ -702,3 +702,11 @@ OpenContain/RiderChangeContain/TunnelContain matrix authority.
 innate-stealth flags. `sync_from_host_with` copies them each tick. Fail-closed:
 not full SpecialPowerTemplate / StealthDetectorUpdate / upgrade-module authority.
 
+### GameWorld entity combat-bonus residual (2026-07-14)
+
+`Entity` carries weapon-bonus flags, continuous-fire/faerie-fire, extra transport
+kinds/addons, demo/hive, turret angles, AI attitude, last damage source,
+command-set override, disguise, vision-spied mask, and camo residual.
+`sync_from_host_with` copies them each tick. Fail-closed: not full
+WeaponBonusCondition / TurretAI / disguise drawable / mine module authority.
+
