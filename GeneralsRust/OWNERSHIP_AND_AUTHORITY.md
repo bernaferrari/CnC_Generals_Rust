@@ -747,3 +747,16 @@ full multi-select intersection / prerequisite / ScriptOnly filter matrix.
 without live Object dual-reads. Fail-closed: not full BattlePlanUpdate /
 sight-scalar / plan-switch FSM authority.
 
+### Unit-control selection center presentation residual (2026-07-14)
+
+`get_selection_center` prefers presentation object poses when a
+`PresentationFrame` is installed (live GameLogic only as boot fallback).
+Fail-closed: not full camera-follow / multi-group average matrix.
+
+### Presentation hive/continuous/camo residual (2026-07-14)
+
+`RenderableObject` freezes continuous-fire level, faerie-fire frame, hive slave
+count/hp, AI attitude, camo opacity, vision-spied mask, and cheer timer.
+Fail-closed: not full Gattling spin FSM / HiveStructureBody / stealth camo FX
+authority.
+
