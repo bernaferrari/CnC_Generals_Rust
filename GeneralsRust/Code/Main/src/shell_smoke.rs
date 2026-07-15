@@ -1761,6 +1761,23 @@ mod tests {
     }
 
     #[test]
+    fn play_sound_effect_prefers_presentation_audio_queue() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("Prefer presentation/host audio event residual when a frame is installed")
+                && eng.contains("Boot residual only — synthetic tones when no presentation frame")
+                && eng.contains("queue_audio_event")
+                && eng.contains("UnitSelect")
+                && eng.contains("UnitCommand"),
+            "InGame SFX must queue presentation audio events when frame installed"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("UnitMove") && pf.contains("MoveOrdered { unit"),
+            "MoveOrdered must map to UnitMove audio residual"
+        );
+    }
+
     fn presentation_shell_eva_via_post_draw_ui_no_dual_input_audio() {
         let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
         let start = gc
