@@ -2422,6 +2422,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_is_possible_to_build_team_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::isPossibleToBuildTeam`")
+                && src.contains("any_idle")
+                && src.contains("max_units as f32 + min_units as f32")
+                && src.contains("team_resources_to_build"),
+            "isPossibleToBuildTeam C++ factory/cost semantics required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(

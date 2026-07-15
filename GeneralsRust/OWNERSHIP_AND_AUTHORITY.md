@@ -1218,3 +1218,12 @@ Compared C++ `AIPlayer::queueUnits` to Rust:
 Fail-closed: TeamPrototype homeLocation field residual (uses base center);
 Main host AI still separate.
 
+### isPossibleToBuildTeam anyIdle/avg cost (2026-07-14)
+
+Compared C++ `AIPlayer::isPossibleToBuildTeam`:
+
+- Every unit type needs a factory (`findFactory(..., busyOK=true)`).
+- `anyIdle` if any type has an idle factory; when `requireIdleFactory` and none idle → false.
+- Cost uses `(minUnits+maxUnits)/2` average × `teamResourcesToBuild`.
+- Returns `(possible, notEnoughMoney)` like C++ out-param.
+
