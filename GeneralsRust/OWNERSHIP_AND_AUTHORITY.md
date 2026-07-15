@@ -1314,3 +1314,15 @@ Compared C++ `AIPlayer::computeSuperweaponTarget` / `getPlayerSuperweaponValue`:
 - Sneak attack: military/defenses negative; flying aircraft skip only when
   includeMilitaryUnits; CC/superweapon ×5 or /10.
 
+### buildUpgrade / buildBySupplies / repairStructure (2026-07-14)
+
+Compared C++ AIPlayer:
+
+- `buildSpecificAIBuilding`: solo AI logs only (skirmish override owns real work).
+- `buildUpgrade`: type/money/progress gates; walk build-list factories; command-set
+  match; queueUpgrade.
+- `buildBySupplies`: warehouse selection, base/enemy offset, legalize, priority
+  build list + curWarehouseID.
+- `repairStructure` / `updateBridgeRepair`: pristine skip, queue bound 2, 1 Hz
+  timer, findDozer/queueDozer, aiRepair, complete+home move.
+

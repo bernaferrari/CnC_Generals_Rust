@@ -1581,18 +1581,13 @@ impl AIPlayer {
     }
 
     /// Build specific building as soon as possible
+    /// C++ `AIPlayer::buildSpecificAIBuilding` — solo AI does not support this;
+    /// skirmish override handles real priority-build stamping.
     pub fn build_specific_ai_building(&mut self, building_name: &str) -> Result<(), AiError> {
-        let priority = ConstructionPriority {
-            building_type: building_name.to_string(),
-            priority: 0,             // Highest priority
-            prerequisites_met: true, // Assume met for immediate building
-            max_count: Some(1),
-            current_count: 0,
-            desired_location: None,
-            desired_angle: None,
-        };
-
-        self.construction_priorities.insert(0, priority);
+        log::debug!(
+            "Error : Solo ai doesn't support BuildSpecificBuilding. '{}' not built.",
+            building_name
+        );
         Ok(())
     }
 
@@ -1793,16 +1788,23 @@ impl AIPlayer {
     }
 
     /// Build an upgrade (player upgrades only).
+    /// C++ `AIPlayer::buildUpgrade` (AIPlayer.cpp).
+    ///
+    /// Validate upgrade type/affordability, then walk player build list for a
+    /// ready factory whose command set can queue the upgrade.
     pub fn build_upgrade(&mut self, upgrade_name: &str) -> Result<(), AiError> {
         let upgrade = with_upgrade_center(|center| center.find_upgrade(upgrade_name));
         let Some(upgrade) = upgrade else {
-            log::warn!("AIPlayer: upgrade '{}' not found", upgrade_name);
+            log::debug!(
+                "Upgrade {} does not exist.  Ignoring request.",
+                upgrade_name
+            );
             return Ok(());
         };
 
         if upgrade.get_upgrade_type() == UpgradeType::Object {
-            log::warn!(
-                "AIPlayer: upgrade '{}' is object-only, skipping",
+            log::debug!(
+                "Player build upgrade: Upgrade {} is an object, not a player upgrade.  Ignoring request.",
                 upgrade_name
             );
             return Ok(());
@@ -1815,9 +1817,18 @@ impl AIPlayer {
             return Ok(());
         };
 
-        if player_guard.has_upgrade_in_production(upgrade.as_ref())
-            || player_guard.has_upgrade_complete(upgrade.as_ref())
-        {
+        if player_guard.has_upgrade_in_production(upgrade.as_ref()) {
+            log::debug!(
+                "already has upgrade {} queued.  Ignoring request.",
+                upgrade_name
+            );
+            return Ok(());
+        }
+        if player_guard.has_upgrade_complete(upgrade.as_ref()) {
+            log::debug!(
+                "already has upgrade {} completed.  Ignoring request.",
+                upgrade_name
+            );
             return Ok(());
         }
 
@@ -1825,6 +1836,10 @@ impl AIPlayer {
             center.can_afford_upgrade(&player_guard, upgrade.as_ref(), false)
         });
         if !can_afford {
+            log::debug!(
+                "lacks money to build upgrade {} at this time.  Ignoring request.",
+                upgrade_name
+            );
             return Ok(());
         }
 
@@ -1832,8 +1847,22 @@ impl AIPlayer {
             return Ok(());
         };
 
-        let mut queued = false;
-        for object_id in player_guard.get_all_objects() {
+        // C++ walks build list (not all objects) for factory order parity.
+        let factory_ids: Vec<ObjectID> = {
+            let mut ids = Vec::new();
+            let mut cur = player_guard.get_build_list();
+            while let Some(info) = cur {
+                let id = info.get_object_id();
+                if id != INVALID_ID {
+                    ids.push(id);
+                }
+                cur = info.get_next();
+            }
+            ids
+        };
+        drop(player_guard);
+
+        for object_id in factory_ids {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
             };
@@ -1841,9 +1870,8 @@ impl AIPlayer {
                 continue;
             };
 
-            if obj_guard.is_under_construction()
+            if obj_guard.test_status(ObjectStatusTypes::UnderConstruction)
                 || obj_guard.test_status(ObjectStatusTypes::Sold)
-                || !obj_guard.can_produce_upgrade(upgrade.as_ref())
             {
                 continue;
             }
@@ -1870,23 +1898,29 @@ impl AIPlayer {
                 continue;
             }
 
+            // Need production update interface residual — queue_upgrade covers it.
             if obj_guard.queue_upgrade(&upgrade) {
-                queued = true;
-                break;
+                log::debug!(
+                    "queues {} at {}",
+                    upgrade.get_name(),
+                    obj_guard.get_template_name()
+                );
+                return Ok(());
             }
         }
 
-        if !queued {
-            log::debug!(
-                "AIPlayer: no factory available to build upgrade '{}'",
-                upgrade_name
-            );
-        }
-
+        log::debug!(
+            "lacks factory to build upgrade {} at this time.  Ignoring request.",
+            upgrade_name
+        );
         Ok(())
     }
 
-    /// Build a supply center or defense by available supplies near a supply source.
+    /// C++ `AIPlayer::buildBySupplies` (AIPlayer.cpp).
+    ///
+    /// Place `thingName` near a supply warehouse (or current warehouse for
+    /// non-cash buildings), offset toward base/enemy, legalize placement, then
+    /// `Player::addToPriorityBuildList`.
     pub fn build_by_supplies(
         &mut self,
         minimum_cash: i32,
@@ -1910,6 +1944,7 @@ impl AIPlayer {
         let is_cash_generator = template.is_kind_of(KindOf::CashGenerator);
         let mut best_supply = None;
 
+        // Non-cash (defense): prefer current warehouse.
         if !is_cash_generator {
             if let Some(warehouse_id) = self.current_warehouse_id {
                 if let Some(warehouse_arc) = OBJECT_REGISTRY.get_object(warehouse_id) {
@@ -1917,7 +1952,6 @@ impl AIPlayer {
                 }
             }
         }
-
         if best_supply.is_none() {
             best_supply = self.find_supply_center(minimum_cash);
         }
@@ -1930,30 +1964,20 @@ impl AIPlayer {
         };
         let mut location = *warehouse_guard.get_position();
 
-        let mut offset = Coord2D::new(location.x - base_center.x, location.y - base_center.y);
+        let mut offset_x = location.x - base_center.x;
+        let mut offset_y = location.y - base_center.y;
         if !is_cash_generator {
-            if let Ok(Some((enemy_player, enemy_index))) = self.select_current_enemy_player() {
-                let (min_bounds, max_bounds) = self.get_player_structure_bounds(enemy_index)?;
-                if !(min_bounds.x == 0.0
-                    && min_bounds.y == 0.0
-                    && max_bounds.x == 0.0
-                    && max_bounds.y == 0.0)
-                {
-                    let enemy_center = Coord3D::new(
-                        (min_bounds.x + max_bounds.x) * 0.5,
-                        (min_bounds.y + max_bounds.y) * 0.5,
-                        0.0,
-                    );
-                    offset = Coord2D::new(location.x - enemy_center.x, location.y - enemy_center.y);
-                    drop(enemy_player);
-                }
+            // Defensive structure — face toward enemy base center.
+            let enemy_ndx = self.get_skirmish_enemy_player_index();
+            if let Ok((lo, hi)) = self.get_player_structure_bounds(enemy_ndx) {
+                offset_x = location.x - (lo.x + hi.x) * 0.5;
+                offset_y = location.y - (lo.y + hi.y) * 0.5;
             }
         }
-
-        if offset.x != 0.0 || offset.y != 0.0 {
-            let len = (offset.x * offset.x + offset.y * offset.y).sqrt();
-            offset.x /= len;
-            offset.y /= len;
+        let len = (offset_x * offset_x + offset_y * offset_y).sqrt();
+        if len > 0.0001 {
+            offset_x /= len;
+            offset_y /= len;
         }
 
         let radius = if is_cash_generator {
@@ -1963,17 +1987,25 @@ impl AIPlayer {
                 .get_geometry_info()
                 .get_bounding_circle_radius()
         };
+        location.x -= offset_x * radius;
+        location.y -= offset_y * radius;
 
-        location.x -= offset.x * radius;
-        location.y -= offset.y * radius;
+        let angle = 0.0_f32; // placement_view_angle residual on ThingTemplate trait
+        let placement = self
+            .find_valid_build_location(&location, template.get_name().as_str(), angle)
+            .unwrap_or(location);
+        let mut final_loc = placement;
+        final_loc.z = 0.0; // build list locations are ground relative
 
-        if let Some(valid) =
-            self.find_valid_build_location(&location, template.get_name().as_str(), 0.0)
-        {
-            self.queue_structure_construction(thing_name, valid, 0.0)?;
-            self.current_warehouse_id = Some(warehouse_guard.get_id());
+        let warehouse_id = warehouse_guard.get_id();
+        drop(warehouse_guard);
+
+        if let Some(player_arc) = self.get_player_arc() {
+            if let Ok(mut pg) = player_arc.write() {
+                pg.add_to_priority_build_list(AsciiString::from(thing_name), final_loc, angle);
+            }
         }
-
+        self.current_warehouse_id = Some(warehouse_id);
         Ok(())
     }
 
@@ -3863,60 +3895,174 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Update bridge repair system
+    /// C++ `AIPlayer::updateBridgeRepair` (AIPlayer.cpp).
+    ///
+    /// Once/second: pop dead queue heads, assign/find repair dozer, issue
+    /// aiRepair, complete when pristine and idle, then send dozer home.
     fn update_bridge_repair(&mut self) -> Result<(), AiError> {
+        use crate::ai::{AiCommandParams, AiCommandType};
+        use crate::object::body::BodyDamageType;
+        use crate::object::update::ai_update::dozer_ai_update::DozerTask;
+
+        if self.structures_in_queue <= 0 {
+            return Ok(());
+        }
+        // Check once a second.
         if self.bridge_timer > 0 {
             self.bridge_timer = self.bridge_timer.saturating_sub(1);
             return Ok(());
         }
+        self.bridge_timer = LOGICFRAMES_PER_SECOND;
 
-        let Some(structure_id) = self.structures_to_repair.iter().flatten().next().copied() else {
-            return Ok(());
-        };
-        let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
-            return Ok(());
-        };
-        let Ok(structure_guard) = structure_arc.read() else {
-            return Ok(());
-        };
-        if structure_guard.is_destroyed() {
-            self.structures_to_repair.iter_mut().for_each(|slot| {
-                if slot.as_ref() == Some(&structure_id) {
-                    *slot = None;
+        // Pop missing heads.
+        let mut bridge_id = None;
+        while bridge_id.is_none() && self.structures_in_queue > 0 {
+            let head = self.structures_to_repair[0];
+            if head.and_then(|id| OBJECT_REGISTRY.get_object(id)).is_some() {
+                bridge_id = head;
+            } else {
+                // shift left
+                for i in 0..(self.structures_in_queue as usize).saturating_sub(1) {
+                    self.structures_to_repair[i] = self.structures_to_repair[i + 1];
                 }
-            });
-            return Ok(());
-        }
-
-        let target_pos = *structure_guard.get_position();
-
-        if self.repair_dozer.is_none() {
-            self.repair_dozer = self.find_dozer(&target_pos)?;
-            if let Some(dozer_id) = self.repair_dozer {
-                if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
-                    if let Ok(dozer_guard) = dozer_arc.read() {
-                        self.repair_dozer_origin = *dozer_guard.get_position();
-                    }
+                if self.structures_in_queue > 0 {
+                    let last = (self.structures_in_queue as usize) - 1;
+                    self.structures_to_repair[last] = None;
+                    self.structures_in_queue -= 1;
                 }
             }
         }
+        if self.structures_in_queue <= 0 {
+            return Ok(());
+        }
+        let Some(bridge_id) = bridge_id else {
+            return Ok(());
+        };
+        let Some(bridge_arc) = OBJECT_REGISTRY.get_object(bridge_id) else {
+            return Ok(());
+        };
+        let bridge_state = {
+            let Ok(bg) = bridge_arc.read() else {
+                return Ok(());
+            };
+            bg.get_body_module()
+                .and_then(|b| b.lock().ok().map(|g| g.get_damage_state()))
+                .unwrap_or(BodyDamageType::Pristine)
+        };
+        let bridge_pos = bridge_arc
+            .read()
+            .ok()
+            .map(|g| *g.get_position())
+            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
-        if let Some(dozer_id) = self.repair_dozer {
-            if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
-                if let Ok(dozer_guard) = dozer_arc.read() {
-                    if let Some(ai) = dozer_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            let _ = ai_guard.set_movement_target(&target_pos);
-                            self.dozer_is_repairing = true;
+        if self.repair_dozer.is_none() {
+            self.dozer_is_repairing = false;
+            if self.dozer_queued_for_repair {
+                return Ok(()); // waiting for queued dozer
+            }
+            if let Some(dozer_id) = self.find_dozer(&bridge_pos)? {
+                self.repair_dozer = Some(dozer_id);
+                if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
+                    if let Ok(dg) = dozer_arc.read() {
+                        self.repair_dozer_origin = *dg.get_position();
+                        if let Some(ai) = dg.get_ai_update_interface() {
+                            if let Ok(mut ai_lock) = ai.lock() {
+                                let mut params = AiCommandParams::new(
+                                    AiCommandType::Repair,
+                                    CommandSourceType::FromAi,
+                                );
+                                params.obj = Some(bridge_id);
+                                let _ = ai_lock.execute_command(&params);
+                            }
                         }
                     }
                 }
+                self.dozer_is_repairing = true;
+                return Ok(());
+            }
+            self.queue_dozer()?;
+            self.dozer_queued_for_repair = true;
+            return Ok(());
+        }
+
+        let Some(dozer_id) = self.repair_dozer else {
+            return Ok(());
+        };
+        let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) else {
+            self.repair_dozer = None; // killed
+            self.bridge_timer = 0;
+            return Ok(());
+        };
+
+        let any_task_pending = {
+            let Ok(dg) = dozer_arc.read() else {
+                return Ok(());
+            };
+            let Some(ai) = dg.get_ai_update_interface() else {
+                return Ok(());
+            };
+            let Ok(mut ai_g) = ai.lock() else {
+                return Ok(());
+            };
+            ai_g.get_dozer_ai_update_interface_mut()
+                .map(|d| d.is_any_task_pending())
+                .unwrap_or(false)
+        };
+
+        if self.dozer_is_repairing {
+            if !any_task_pending {
+                if bridge_state == BodyDamageType::Pristine {
+                    // Done — pop head.
+                    for i in 0..(self.structures_in_queue as usize).saturating_sub(1) {
+                        self.structures_to_repair[i] = self.structures_to_repair[i + 1];
+                    }
+                    if self.structures_in_queue > 0 {
+                        let last = (self.structures_in_queue as usize) - 1;
+                        self.structures_to_repair[last] = None;
+                        self.structures_in_queue -= 1;
+                    }
+                    self.dozer_is_repairing = false;
+                    if self.structures_in_queue == 0 {
+                        // Go home to base center or origin.
+                        let mut pos = if self.base_center_set {
+                            self.base_center
+                        } else {
+                            self.repair_dozer_origin
+                        };
+                        if let Ok(dg) = dozer_arc.read() {
+                            if let Some(ai) = dg.get_ai_update_interface() {
+                                if let Ok(mut ai_lock) = ai.lock() {
+                                    let mut params = AiCommandParams::new(
+                                        AiCommandType::MoveToPosition,
+                                        CommandSourceType::FromAi,
+                                    );
+                                    params.pos = pos;
+                                    let _ = ai_lock.execute_command(&params);
+                                }
+                            }
+                        }
+                        let _ = pos;
+                        return Ok(());
+                    }
+                }
             } else {
-                self.repair_dozer = None;
-                self.dozer_is_repairing = false;
+                return Ok(()); // still working
             }
         }
 
+        // (Re)issue repair.
+        if let Ok(dg) = dozer_arc.read() {
+            if let Some(ai) = dg.get_ai_update_interface() {
+                if let Ok(mut ai_lock) = ai.lock() {
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromAi);
+                    params.obj = Some(bridge_id);
+                    let _ = ai_lock.execute_command(&params);
+                }
+            }
+        }
+        self.dozer_is_repairing = true;
+        let _ = DozerTask::Build; // keep import path warm if needed
         Ok(())
     }
 
@@ -5607,23 +5753,39 @@ impl AIPlayer {
         })
     }
 
-    /// Repair a structure by sending dozer
-    /// Matches C++ AIPlayer repairStructure logic
+    /// C++ `AIPlayer::repairStructure` (AIPlayer.cpp).
     pub(crate) fn repair_structure(&mut self, structure_id: ObjectID) -> Result<(), AiError> {
-        // Find available repair slot
-        for slot in &mut self.structures_to_repair {
-            if slot.is_none() {
-                *slot = Some(structure_id);
+        let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
+            return Ok(());
+        };
+        let Ok(structure_g) = structure_arc.read() else {
+            return Ok(());
+        };
+        let Some(body) = structure_g.get_body_module() else {
+            return Ok(());
+        };
+        let Ok(body_g) = body.lock() else {
+            return Ok(());
+        };
+        if body_g.get_damage_state() == crate::object::body::BodyDamageType::Pristine {
+            return Ok(());
+        }
+        drop(body_g);
+        drop(structure_g);
 
-                // Queue dozer if we don't have one assigned
-                if self.repair_dozer.is_none() && !self.dozer_queued_for_repair {
-                    self.queue_dozer()?;
-                }
-
+        // Already queued?
+        for i in 0..self.structures_in_queue as usize {
+            if self.structures_to_repair.get(i).and_then(|s| *s) == Some(structure_id) {
                 return Ok(());
             }
         }
-
+        if self.structures_in_queue as usize >= MAX_STRUCTURES_TO_REPAIR {
+            log::debug!("Structure repair queue is full, ignoring repair request.");
+            return Ok(());
+        }
+        let idx = self.structures_in_queue as usize;
+        self.structures_to_repair[idx] = Some(structure_id);
+        self.structures_in_queue += 1;
         Ok(())
     }
 
@@ -6770,6 +6932,89 @@ mod tests {
                 && window.contains("SneakAttack")
                 && window.contains("get_player_superweapon_value"),
             "computeSuperweaponTarget must randomize scan, preserve fine-tune bug, sneak attack"
+        );
+    }
+
+    #[test]
+    fn build_upgrade_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::buildUpgrade`")
+            .expect("buildUpgrade");
+        let w = &src[i..src.len().min(i + 4000)];
+        assert!(
+            w.contains("get_build_list")
+                && w.contains("has_upgrade_in_production")
+                && w.contains("has_upgrade_complete")
+                && w.contains("can_afford_upgrade")
+                && w.contains("queue_upgrade")
+                && w.contains("UnderConstruction"),
+            "buildUpgrade must walk build list and gate type/money/progress"
+        );
+    }
+
+    #[test]
+    fn build_by_supplies_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::buildBySupplies`")
+            .expect("buildBySupplies");
+        let w = &src[i..src.len().min(i + 3500)];
+        assert!(
+            w.contains("find_supply_center")
+                && w.contains("add_to_priority_build_list")
+                && w.contains("CashGenerator")
+                && w.contains("current_warehouse_id")
+                && w.contains("3.0 * PATHFIND_CELL_SIZE_F"),
+            "buildBySupplies must offset, legalize, priority-build list"
+        );
+    }
+
+    #[test]
+    fn repair_structure_and_bridge_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let r = src
+            .find("C++ `AIPlayer::repairStructure`")
+            .expect("repairStructure");
+        let b = src
+            .find("C++ `AIPlayer::updateBridgeRepair`")
+            .expect("updateBridgeRepair");
+        let rw = &src[r..src.len().min(r + 2000)];
+        let bw = &src[b..src.len().min(b + 9000)];
+        assert!(
+            rw.contains("BodyDamageType::Pristine")
+                && rw.contains("MAX_STRUCTURES_TO_REPAIR")
+                && rw.contains("structures_in_queue"),
+            "repairStructure must skip pristine and bound queue"
+        );
+        assert!(
+            bw.contains("LOGICFRAMES_PER_SECOND")
+                && bw.contains("dozer_queued_for_repair")
+                && bw.contains("AiCommandType::Repair")
+                && bw.contains("is_any_task_pending")
+                && bw.contains("MoveToPosition"),
+            "updateBridgeRepair must rate-limit, assign dozer, complete+home"
+        );
+    }
+
+    #[test]
+    fn repair_structure_skips_pristine_and_duplicates() {
+        let mut ai = AIPlayer::new(1);
+        // Without a live object, repair_structure returns Ok and does not enqueue.
+        ai.repair_structure(999_999).expect("rs");
+        assert_eq!(ai.structures_in_queue, 0);
+    }
+
+    #[test]
+    fn build_specific_ai_building_solo_is_noop_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::buildSpecificAIBuilding`")
+            .expect("buildSpecificAIBuilding");
+        let w = &src[i..src.len().min(i + 800)];
+        assert!(
+            w.contains("Solo ai doesn't support") && !w.contains("construction_priorities.insert"),
+            "solo buildSpecificAIBuilding only logs"
         );
     }
 

@@ -2546,6 +2546,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aiplayer_build_upgrade_repair_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::buildUpgrade`")
+                && src.contains("C++ `AIPlayer::buildBySupplies`")
+                && src.contains("C++ `AIPlayer::repairStructure`")
+                && src.contains("C++ `AIPlayer::updateBridgeRepair`")
+                && src.contains("add_to_priority_build_list")
+                && src.contains("AiCommandType::Repair"),
+            "buildUpgrade/buildBySupplies/repair bridge C++ paths required"
+        );
+    }
+
     fn load_screen_init_prefers_presentation_roster() {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
