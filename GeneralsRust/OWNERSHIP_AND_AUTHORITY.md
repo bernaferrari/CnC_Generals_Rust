@@ -1360,3 +1360,12 @@ Compared C++ AISkirmishPlayer:
 - `newMap`: side build list + `adjustBuildList`, compute base center, initiallyBuilt
   via `buildStructureNow` else `incrementNumRebuilds` (does not call AIPlayer::newMap).
 
+### AISkirmishPlayer processBaseBuilding dozer (2026-07-14)
+
+Compared C++ USE_DOZER path:
+
+- Missing dozer on UC buildings → queueDozer + findDozer + aiResumeConstruction.
+- Power plants exclude CASH_GENERATOR; force power when underpowered.
+- Selected build uses `buildStructureWithDozer` (not priority-mark only).
+- On success: arm structureSeconds timer with wealth mods.
+
