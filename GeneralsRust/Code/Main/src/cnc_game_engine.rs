@@ -1178,8 +1178,6 @@ pub struct CnCGameEngine {
     /// Last presentation-overlaid UI state (selection health/minimap identity retained
     /// after render build so consumers are not dropped each frame).
     last_ui_state: Option<GameUIState>,
-    combat_system: CombatSystem,
-    pathfinding_system: PathfindingSystem,
     resource_manager: ResourceManager,
     save_file_manager: SaveFileManager,
 
@@ -4131,14 +4129,9 @@ impl CnCGameEngine {
             }
         }
 
-        // Initialize game systems
+        // Initialize game systems.
+        // CombatSystem + PathfindingSystem live on GameLogic (sole host authority).
         let game_logic = GameLogic::initialize();
-        let combat_system = CombatSystem::new();
-        let (world_min, world_max) = game_logic.world_bounds();
-        let world_width = (world_max.x - world_min.x).abs().max(1.0);
-        let world_height = (world_max.z - world_min.z).abs().max(1.0);
-        let pathfinding_system =
-            PathfindingSystem::new_with_origin(world_min, world_width, world_height);
         let resource_manager = ResourceManager::new();
         let mut save_file_manager = SaveFileManager::new();
         save_file_manager
@@ -4308,8 +4301,6 @@ impl CnCGameEngine {
                 None
             },
             last_ui_state: None,
-            combat_system,
-            pathfinding_system,
             resource_manager,
             save_file_manager,
             camera_position,
@@ -6247,26 +6238,13 @@ impl CnCGameEngine {
             // Host side systems (projectiles) run *before* shadow session + PresentationFrame
             // so damage logs and end-of-frame identity include this frame's side systems.
             // Path following already ran inside GameLogic::update_movement.
+            // Projectiles + path following are owned by GameLogic::update_simulation
+            // (update_combat drain/step + update_movement). Engine must not run a
+            // second mid-frame CombatSystem/PathfindingSystem mover.
             if !self.game_logic.is_time_frozen_for_simulation() {
-                {
-                    let objects = self.game_logic.get_objects();
-                    crate::game_logic::combat::drain_pending_projectiles(
-                        &mut self.combat_system,
-                        objects,
-                    );
-                }
-
-                let hits = self
-                    .combat_system
-                    .update_projectiles(dt, self.game_logic.get_objects_mut());
-
-                if !hits.is_empty() {
-                    self.play_sound_effect(SoundType::Hit);
-                }
-
-                // Path following is owned by GameLogic::update_movement (host update).
-                // Do not double-step paths here — that raced the logic frame and
-                // kept PathfindingSystem mid-frame authority outside GameLogic.
+                // Hit SFX residual: prefer presentation audio events; legacy direct
+                // Hit playback removed with dual CombatSystem step.
+                let _ = dt;
             }
 
             // Drain queued player/AI commands before shadow so set_target/move logs
@@ -7937,15 +7915,9 @@ impl CnCGameEngine {
         self.drain_renderer_attachments();
 
         self.game_logic.reset();
-        self.combat_system.clear();
         self.resource_manager = ResourceManager::new();
 
-        let (world_min, world_max) = self.game_logic.world_bounds();
-        let world_width = (world_max.x - world_min.x).abs().max(1.0);
-        let world_height = (world_max.z - world_min.z).abs().max(1.0);
-        self.pathfinding_system =
-            PathfindingSystem::new_with_origin(world_min, world_width, world_height);
-
+        // Path grid rebuild is owned by GameLogic on map load/reset.
         self.selected_objects.clear();
         self.keys_pressed.clear();
         self.mouse_position = (0.0, 0.0);
@@ -8889,11 +8861,7 @@ impl CnCGameEngine {
     }
 
     fn render_projectiles(&self, _render_pass: &mut wgpu::RenderPass) {
-        // Render active projectiles
-        for _projectile in self.combat_system.get_projectiles().values() {
-            // Render projectile (simplified point for now)
-            // In a full implementation, this would render proper projectile models
-        }
+        // Projectiles render from PresentationFrame (host CombatSystem freeze).
     }
 
     fn render_ui(&self, _render_pass: &mut wgpu::RenderPass) {
