@@ -2188,6 +2188,11 @@ impl AIPlayer {
     }
 
     /// Calculate superweapon target location
+    /// C++ `AIPlayer::computeSuperweaponTarget` (AIPlayer.cpp).
+    ///
+    /// Grid-sample enemy structure bounds (or map extent), randomize scan
+    /// direction, score with getPlayerSuperweaponValue, then fine-tune.
+    /// Preserves C++ fine-tune `(x-5)` on both axes (legacy bug).
     pub fn compute_superweapon_target(
         &self,
         power_template: &str,
@@ -2201,6 +2206,7 @@ impl AIPlayer {
         let radius = weapon_radius.max(1.0);
         let (mut min_bounds, mut max_bounds) = self.get_player_structure_bounds(enemy_index)?;
 
+        // Degenerate bounds (no buildings) → full map extent.
         if min_bounds.x == 0.0 && min_bounds.y == 0.0 && max_bounds.x == 0.0 && max_bounds.y == 0.0
         {
             if let Some(terrain) = TheTerrainLogic::get() {
@@ -2210,10 +2216,9 @@ impl AIPlayer {
             }
         }
 
+        // Shrink by weapon radius (C++ only shrinks X then clamps both axes).
         min_bounds.x += radius;
-        min_bounds.y += radius;
         max_bounds.x -= radius;
-        max_bounds.y -= radius;
         if max_bounds.x < min_bounds.x {
             let mid = (max_bounds.x + min_bounds.x) / 2.0;
             max_bounds.x = mid;
@@ -2227,6 +2232,7 @@ impl AIPlayer {
 
         let width = (max_bounds.x - min_bounds.x).max(0.0);
         let height = (max_bounds.y - min_bounds.y).max(0.0);
+        // C++: REAL_TO_INT_CEIL(bounds.width()/weaponRadius)+1, cap 10.
         let mut x_count = (width / radius).ceil() as i32 + 1;
         let mut y_count = (height / radius).ceil() as i32 + 1;
         if x_count > 10 {
@@ -2235,19 +2241,28 @@ impl AIPlayer {
         if y_count > 10 {
             y_count = 10;
         }
+        if x_count < 1 {
+            x_count = 1;
+        }
+        if y_count < 1 {
+            y_count = 1;
+        }
 
         let power = find_or_create_special_power_template(&AsciiString::from(power_template));
+        // SPECIAL_SNEAK_ATTACK → do not value military units positively.
         let target_military_units = power.get_special_power_type()
             != crate::object::special_power_types::SpecialPowerType::SneakAttack;
 
+        // C++ GameLogicRandomValue(1,4): starts at xCount/yCount (not count-1)
+        // when scanning max→min so first sample hits the far edge.
         let (x_delta, y_delta, x_start, y_start) = match game_logic_random_value(1, 4) {
-            1 => (1, 1, 0, 0),
-            2 => (-1, 1, x_count - 1, 0),
-            3 => (1, -1, 0, y_count - 1),
-            _ => (-1, -1, x_count - 1, y_count - 1),
+            1 => (1_i32, 1_i32, 0_i32, 0_i32),
+            2 => (-1, 1, x_count, 0),
+            3 => (1, -1, 0, y_count),
+            _ => (-1, -1, x_count, y_count),
         };
 
-        let mut best_cash = -1.0;
+        let mut best_cash = -1.0_f32;
         let mut best_pos = Coord3D::new(min_bounds.x, min_bounds.y, 0.0);
         let mut x_index = x_start;
         for _ in 0..x_count {
@@ -2273,17 +2288,15 @@ impl AIPlayer {
             x_index += x_delta;
         }
 
+        // Fine tune: C++ uses (x-5) for BOTH axes (legacy bug — keep for parity).
         let mut fine_best = best_pos;
-        let mut fine_cash = -1.0;
-        let mut fine_count = 0;
+        let mut fine_cash = -1.0_f32;
+        let mut fine_count = 0_i32;
         let fine_steps = 11;
         for x in 0..fine_steps {
-            for y in 0..fine_steps {
-                let pos = Coord3D::new(
-                    best_pos.x + (x - 5) as f32 * (radius / 10.0),
-                    best_pos.y + (y - 5) as f32 * (radius / 10.0),
-                    0.0,
-                );
+            for _y in 0..fine_steps {
+                let offset = (x - 5) as f32 * (radius / 10.0);
+                let pos = Coord3D::new(best_pos.x + offset, best_pos.y + offset, 0.0);
                 let value = self.get_player_superweapon_value(
                     &pos,
                     enemy_index,
@@ -2309,6 +2322,7 @@ impl AIPlayer {
             fine_best.z = terrain.get_ground_height(fine_best.x, fine_best.y, None);
         }
 
+        // C++ success = (cash > -1)
         if fine_cash > -1.0 {
             Ok(Some(fine_best))
         } else {
@@ -5905,6 +5919,7 @@ impl AIPlayer {
         count
     }
 
+    /// C++ `AIPlayer::getPlayerSuperweaponValue` (AIPlayer.cpp).
     fn get_player_superweapon_value(
         &self,
         center: &Coord3D,
@@ -5924,7 +5939,7 @@ impl AIPlayer {
             return Ok(0.0);
         };
 
-        let mut cash = 0.0;
+        let mut cash = 0.0_f32;
         let rad_sqr = radius * radius;
         for obj_id in player_guard.get_all_objects() {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
@@ -5933,25 +5948,26 @@ impl AIPlayer {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            if obj_guard.is_kind_of(KindOf::Aircraft) && obj_guard.is_significantly_above_terrain()
-            {
-                continue;
-            }
 
             let mut apply_neg_value = false;
             if !include_military_units {
-                if obj_guard.is_kind_of(KindOf::Defense) {
-                    apply_neg_value = true;
-                } else if obj_guard.is_kind_of(KindOf::Vehicle)
-                    || obj_guard.is_kind_of(KindOf::Infantry)
-                    || obj_guard.is_kind_of(KindOf::Aircraft)
+                // Sneak attack: defenses + combat units are hostile (negative).
+                if obj_guard.is_kind_of(KindOf::FSBaseDefense)
+                    || obj_guard.is_kind_of(KindOf::TechBaseDefense)
                 {
-                    if !obj_guard.is_kind_of(KindOf::Dozer)
-                        && !obj_guard.is_kind_of(KindOf::Harvester)
-                    {
-                        apply_neg_value = true;
-                    }
+                    apply_neg_value = true;
+                } else if (obj_guard.is_kind_of(KindOf::Vehicle)
+                    || obj_guard.is_kind_of(KindOf::Infantry))
+                    && !obj_guard.is_kind_of(KindOf::Dozer)
+                    && !obj_guard.is_kind_of(KindOf::Harvester)
+                {
+                    apply_neg_value = true;
                 }
+            } else if obj_guard.is_kind_of(KindOf::Aircraft)
+                && obj_guard.is_significantly_above_terrain()
+            {
+                // Only when valuing military: skip flying aircraft.
+                continue;
             }
 
             let pos = obj_guard.get_position();
@@ -5961,8 +5977,12 @@ impl AIPlayer {
                 continue;
             }
             let dist = (dx * dx + dy * dy).sqrt();
-            let factor = 1.0 - (dist / (2.0 * radius));
-            let mut value = obj_guard.get_template().calc_cost_to_build(None).max(1) as f32;
+            let factor = 1.0 - (dist / (2.0 * radius)); // 1.0 center, 0.5 edge
+                                                        // C++ calcCostToBuild(pPlayer) — pass player when possible.
+            let mut value = obj_guard
+                .get_template()
+                .calc_cost_to_build(Some(&*player_guard as &dyn std::any::Any))
+                .max(0) as f32;
             if obj_guard.is_kind_of(KindOf::CommandCenter) {
                 value = if include_military_units {
                     value / 10.0
@@ -6728,6 +6748,46 @@ mod tests {
                 && window.contains("closest_dozer")
                 && window.contains("queue_dozer"),
             "findDozer must prefer idle, skip ferrying/repair/build, queue if none"
+        );
+    }
+
+    #[test]
+    fn compute_superweapon_target_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::computeSuperweaponTarget`")
+            .expect("computeSuperweaponTarget");
+        let window = &src[i..src.len().min(i + 5500)];
+        assert!(
+            window.contains("x_count, y_count")
+                || (window.contains("x_count") && window.contains("y_count")),
+            "grid counts"
+        );
+        assert!(
+            window.contains("game_logic_random_value(1, 4)")
+                && window.contains("x_count, 0")
+                && window.contains("// Fine tune: C++ uses (x-5) for BOTH axes")
+                && window.contains("SneakAttack")
+                && window.contains("get_player_superweapon_value"),
+            "computeSuperweaponTarget must randomize scan, preserve fine-tune bug, sneak attack"
+        );
+    }
+
+    #[test]
+    fn get_player_superweapon_value_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::getPlayerSuperweaponValue`")
+            .expect("getPlayerSuperweaponValue");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("FSBaseDefense")
+                && window.contains("TechBaseDefense")
+                && window.contains("is_significantly_above_terrain")
+                && window.contains("CommandCenter")
+                && window.contains("FSSuperweapon")
+                && window.contains("factor * value * 5.0"),
+            "getPlayerSuperweaponValue must match C++ defense/aircraft/CC scoring"
         );
     }
 
