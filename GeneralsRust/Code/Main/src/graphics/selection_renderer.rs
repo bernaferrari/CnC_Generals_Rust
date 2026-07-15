@@ -441,13 +441,18 @@ pub fn collect_selected_units_from_presentation(
 /// snapshot-owned (position/team/selected/aliveness). Live `GameLogic` is only used
 /// as a fallback when no frame is available (boot/loading residuals).
 pub fn collect_selected_units(
-    game_logic: &crate::game_logic::GameLogic,
+    game_logic: Option<&crate::game_logic::GameLogic>,
     _local_player_id: u32,
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
 ) -> Vec<SelectedUnit> {
     if let Some(frame) = presentation {
         return collect_selected_units_from_presentation(frame);
     }
+
+    // Boot/loading residual only — production path always supplies presentation.
+    let Some(game_logic) = game_logic else {
+        return Vec::new();
+    };
 
     let mut units = Vec::new();
 
@@ -498,7 +503,7 @@ pub fn enqueue_selection_render(
     pipeline: &mut crate::graphics::render_pipeline::RenderPipeline,
     view_matrix: &Mat4,
     projection_matrix: &Mat4,
-    game_logic: &crate::game_logic::GameLogic,
+    game_logic: Option<&crate::game_logic::GameLogic>,
     drag_rect: Option<DragSelectRect>,
     local_player_id: u32,
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
@@ -605,7 +610,7 @@ mod presentation_selection_tests {
         }
 
         // Shipped path with presentation prefers snapshot.
-        let units = collect_selected_units(&logic, 0, Some(&snap));
+        let units = collect_selected_units(Some(&logic), 0, Some(&snap));
         assert_eq!(units.len(), 1, "snapshot still has selected unit");
         assert!(
             (units[0].position.x - 12.0).abs() < 0.01,
@@ -624,7 +629,7 @@ mod presentation_selection_tests {
         assert!((direct[0].position.x - 12.0).abs() < 0.01);
 
         // Without presentation, live re-read would see deselected unit (empty).
-        let live_fallback = collect_selected_units(&logic, 0, None);
+        let live_fallback = collect_selected_units(Some(&logic), 0, None);
         assert!(
             live_fallback.is_empty(),
             "live path reflects post-snapshot mutation (deselected)"
@@ -643,6 +648,13 @@ mod presentation_selection_tests {
         assert!(
             src.contains("last_presentation_frame.as_ref()"),
             "selection enqueue must pass presentation snapshot"
+        );
+        // With presentation installed, live GameLogic must not be dual-read.
+        let idx = src.find("enqueue_selection_render").expect("enqueue site");
+        let window = &src[idx..idx + 500];
+        assert!(
+            window.contains("None") && window.contains("last_presentation_frame.is_some()"),
+            "selection overlay must pass None GameLogic when presentation is present: {window}"
         );
         assert!(
             src.contains("selection_renderer::enqueue_selection_render"),
