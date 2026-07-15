@@ -6089,11 +6089,28 @@ impl CnCGameEngine {
                 self.cleanup_sound_effects();
                 let menu_tick_started = Instant::now();
                 let shell_update_started = Instant::now();
-                if self.game_logic.isInShellGame() && !self.game_paused {
+                // Prefer presentation shell residual when it affirms shell-map mode.
+                // Stale InGame frames (fow_shell_bypass=false) fall through to live
+                // isInShellGame so shell ticks are not suppressed after a match.
+                let in_shell = match self.last_presentation_frame.as_ref() {
+                    Some(pres) if pres.fow_shell_bypass => true,
+                    _ => self.game_logic.isInShellGame(),
+                };
+                if in_shell && !self.game_paused {
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
                     // catch-up loops to block the UI thread.
                     self.game_logic.update_shell_with_budget(dt, 1);
-                    if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
+                    // Prefer presentation script FPS residual when shell frame installed.
+                    if let Some(fps) = self
+                        .last_presentation_frame
+                        .as_ref()
+                        .filter(|p| p.fow_shell_bypass)
+                        .and_then(|p| p.script_fps_limit)
+                    {
+                        self.apply_script_fps_limit_request(fps);
+                        let _ = self.game_logic.take_script_fps_limit_request();
+                    } else if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
+                        // Boot/live residual when no shell presentation freeze.
                         self.apply_script_fps_limit_request(fps);
                     }
                 }
