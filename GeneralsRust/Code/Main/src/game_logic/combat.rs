@@ -59,6 +59,8 @@ pub struct Projectile {
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     /// C++ ProjectileObject residual for presentation mesh key.
     pub projectile_object_name: String,
+    /// C++ Weapon.ini ProjectileDetonationFX residual (spawned at impact).
+    pub detonation_fx_name: String,
 }
 
 impl Projectile {
@@ -91,6 +93,7 @@ impl Projectile {
             explosion_radius: 0.0,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: String::new(),
+            detonation_fx_name: String::new(),
         }
     }
 
@@ -165,11 +168,22 @@ pub enum DamageEvent {
     },
 }
 
+/// Projectile impact FX residual (ProjectileDetonationFX at real hit).
+#[derive(Debug, Clone)]
+pub struct ProjectileImpactFx {
+    pub position: Vec3,
+    pub shooter_id: ObjectId,
+    pub target_id: Option<ObjectId>,
+    pub detonation_fx_name: String,
+}
+
 /// Combat system manager
 #[derive(Debug)]
 pub struct CombatSystem {
     projectiles: HashMap<ObjectId, Projectile>,
     next_projectile_id: ObjectId,
+    /// Impacts carrying ProjectileDetonationFX residual (drained by GameLogic).
+    impact_fx: Vec<ProjectileImpactFx>,
 }
 
 /// Global projectile spawn queue. Objects call this when firing, and the
@@ -199,6 +213,8 @@ pub struct PendingProjectile {
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     /// C++ Weapon.ini ProjectileObject residual template name (empty = hitscan/no mesh).
     pub projectile_object_name: String,
+    /// C++ Weapon.ini ProjectileDetonationFX residual (empty = no impact FX name).
+    pub detonation_fx_name: String,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -256,6 +272,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.damage_type = p.damage_type;
             proj.death_type = p.death_type;
             proj.projectile_object_name = p.projectile_object_name.clone();
+            proj.detonation_fx_name = p.detonation_fx_name.clone();
         }
     }
 }
@@ -271,12 +288,18 @@ impl CombatSystem {
         Self {
             projectiles: HashMap::new(),
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
+            impact_fx: Vec::new(),
         }
     }
 
     /// Snapshot active projectiles for PresentationFrame freeze (read-only).
     pub fn projectiles_snapshot(&self) -> Vec<&Projectile> {
         self.projectiles.values().collect()
+    }
+
+    /// Drain ProjectileDetonationFX residual events produced by the last update.
+    pub fn take_impact_fx(&mut self) -> Vec<ProjectileImpactFx> {
+        std::mem::take(&mut self.impact_fx)
     }
 
     pub fn projectile_count(&self) -> usize {
@@ -445,6 +468,14 @@ impl CombatSystem {
                             death_type: projectile.death_type,
                         });
                     }
+                    if !projectile.detonation_fx_name.is_empty() {
+                        self.impact_fx.push(ProjectileImpactFx {
+                            position: impact,
+                            shooter_id: projectile.shooter_id,
+                            target_id: Some(sid),
+                            detonation_fx_name: projectile.detonation_fx_name.clone(),
+                        });
+                    }
                     projectiles_to_remove.push(proj_id);
                     continue;
                 }
@@ -474,6 +505,14 @@ impl CombatSystem {
                                     death_type: projectile.death_type,
                                 });
                             }
+                            if !projectile.detonation_fx_name.is_empty() {
+                                self.impact_fx.push(ProjectileImpactFx {
+                                    position: impact,
+                                    shooter_id: projectile.shooter_id,
+                                    target_id: Some(target_id),
+                                    detonation_fx_name: projectile.detonation_fx_name.clone(),
+                                });
+                            }
                             projectiles_to_remove.push(proj_id);
                         }
                     }
@@ -481,14 +520,23 @@ impl CombatSystem {
                     // Check ground impact
                     let distance = projectile.position.distance(projectile.target_position);
                     if distance <= 2.0 {
+                        let impact = projectile.target_position;
                         if projectile.explosion_radius > 0.0 {
                             damage_events.push(DamageEvent::Area {
-                                position: projectile.target_position,
+                                position: impact,
                                 damage: projectile.damage,
                                 damage_type: projectile.damage_type,
                                 death_type: projectile.death_type,
                                 radius: projectile.explosion_radius,
                                 shooter_id: projectile.shooter_id,
+                            });
+                        }
+                        if !projectile.detonation_fx_name.is_empty() {
+                            self.impact_fx.push(ProjectileImpactFx {
+                                position: impact,
+                                shooter_id: projectile.shooter_id,
+                                target_id: None,
+                                detonation_fx_name: projectile.detonation_fx_name.clone(),
                             });
                         }
                         projectiles_to_remove.push(proj_id);
@@ -986,5 +1034,53 @@ mod tests {
             src.contains("Instant residual") || src.contains("instant-hit"),
             "must document instant laser residual"
         );
+    }
+
+    #[test]
+    fn projectile_impact_queues_detonation_fx() {
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        let shooter = ObjectId(1);
+        let target = ObjectId(2);
+        let mut t = Object::new_simple(
+            target,
+            crate::game_logic::ObjectType::Infantry,
+            "GLARebel".to_string(),
+        );
+        t.set_position(Vec3::new(5.0, 0.0, 0.0));
+        objects.insert(target, t);
+
+        // Instant residual: same-frame impact (ProjectileDetonationFX at hit).
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(5.0, 0.0, 0.0),
+            &Weapon {
+                damage: 10.0,
+                range: 100.0,
+                min_range: 0.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                ammo: None,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: true,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+            },
+            shooter,
+            Some(target),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.detonation_fx_name = "FX_GenericTankShellDetonation".into();
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let fx = combat.take_impact_fx();
+        assert_eq!(fx.len(), 1, "impact must queue detonation fx");
+        assert_eq!(fx[0].detonation_fx_name, "FX_GenericTankShellDetonation");
+        assert_eq!(fx[0].target_id, Some(target));
     }
 }

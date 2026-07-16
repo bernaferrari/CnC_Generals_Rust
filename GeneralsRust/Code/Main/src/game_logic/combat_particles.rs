@@ -611,4 +611,22 @@ mod tests {
         let impact = reg.get(ids[1]).expect("impact");
         assert_eq!(impact.fx_list_name, "WeaponFX_JetMissileDetonation");
     }
+
+    #[test]
+    fn impact_detonation_fx_stamps_name() {
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named(
+            Vec3::ZERO,
+            Some(Vec3::ONE),
+            1,
+            ObjectId(1),
+            Some(ObjectId(2)),
+            "FX_Muzzle",
+            "FX_Detonate",
+        );
+        assert_eq!(ids.len(), 2);
+        let impact = reg.systems.get(&ids[1]).expect("impact");
+        assert_eq!(impact.fx_list_name, "FX_Detonate");
+        assert_eq!(impact.template_name, "FX_Detonate");
+    }
 }
