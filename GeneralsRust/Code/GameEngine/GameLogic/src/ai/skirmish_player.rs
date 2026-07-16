@@ -627,6 +627,8 @@ impl AISkirmishPlayer {
                 )
             };
 
+            // C++: goalPos = m_baseCenter; way = getClosestWaypointOnPath;
+            // else getPlayerStructureBounds(enemy) → center of bounds.
             let base_center = self.base.get_base_center().unwrap_or_default();
             let mut goal_pos = base_center;
             if let Some(terrain) = TheTerrainLogic::get() {
@@ -636,14 +638,13 @@ impl AISkirmishPlayer {
                 } else {
                     let enemy_index = self.get_my_enemy_player_index();
                     if enemy_index >= 0 {
-                        if let Ok(player_list) = ThePlayerList().read() {
-                            if let Some(enemy) = player_list.get_player(enemy_index) {
-                                if let Ok(enemy_guard) = enemy.read() {
-                                    if let Some(center) = self.get_enemy_base_center(&enemy_guard) {
-                                        goal_pos = center;
-                                    }
-                                }
-                            }
+                        if let Ok((lo, hi)) = self.base.get_player_structure_bounds(enemy_index) {
+                            // C++ Region2D center: lo + width/2, lo + height/2
+                            goal_pos = Coord3D::new(
+                                lo.x + (hi.x - lo.x) * 0.5,
+                                lo.y + (hi.y - lo.y) * 0.5,
+                                0.0,
+                            );
                         }
                     }
                 }
@@ -2751,6 +2752,25 @@ mod tests {
         assert!(!bytes
             .windows(4)
             .any(|window| window == &0x1234_5678u32.to_le_bytes()));
+    }
+
+    #[test]
+    fn cluster_mines_fallback_uses_structure_bounds_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("pub fn compute_superweapon_target")
+            .expect("compute_superweapon_target");
+        let w = &src[i..src.len().min(i + 2500)];
+        assert!(
+            w.contains("ClusterMines")
+                && w.contains("get_closest_waypoint_on_path")
+                && w.contains("get_player_structure_bounds")
+                && !w.contains("get_enemy_base_center"),
+            "cluster mines fallback must use enemy structure bounds center like C++"
+        );
     }
 
     #[test]
