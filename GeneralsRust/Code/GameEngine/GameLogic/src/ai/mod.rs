@@ -2327,6 +2327,17 @@ impl Pathfinder {
         self.inner.valid_movement_terrain(layer, surfaces, pos)
     }
 
+    /// C++ `Pathfinder::moveAlliesAwayFromDestination`.
+    pub fn move_allies_away_from_destination(
+        &self,
+        obj: &Object,
+        destination: &Coord3D,
+    ) -> Vec<ObjectID> {
+        let from = *obj.get_position();
+        self.inner
+            .move_allies_away_from_destination(obj.get_id(), &from, destination)
+    }
+
     /// C++ `Pathfinder::tightenPath`.
     pub fn tighten_path(
         &self,
