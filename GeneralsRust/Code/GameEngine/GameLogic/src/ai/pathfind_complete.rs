@@ -2896,6 +2896,21 @@ impl PathfindingSystem {
         self.debug_path_pos
     }
 
+    /// C++ `PathfindZoneManager::setBridge`.
+    pub fn set_zone_bridge(&self, cell: GridCoord, bridge: bool) {
+        if let Ok(mut z) = self.zones.lock() {
+            z.set_bridge(cell.x, cell.y, bridge);
+        }
+    }
+
+    /// C++ `PathfindZoneManager::interactsWithBridge`.
+    pub fn zone_interacts_with_bridge(&self, cell: GridCoord) -> bool {
+        self.zones
+            .lock()
+            .map(|z| z.interacts_with_bridge(cell.x, cell.y))
+            .unwrap_or(false)
+    }
+
     /// C++ `PathfindZoneManager::setPassable` — zone block + A* cost table.
     pub fn set_zone_cell_passable(&self, cell: GridCoord, passable: bool) {
         if let Ok(mut z) = self.zones.lock() {
@@ -2979,6 +2994,19 @@ impl PathfindingSystem {
                     Some(&layer_zones),
                 );
                 zones.rebuild_zone_blocks(Some(&types), Some(&fences));
+                // C++ after layer applyZone: setBridge(start/end) for live layers.
+                zones.clear_bridge_flags();
+                for bridge in &self.bridges {
+                    if bridge.destroyed {
+                        continue;
+                    }
+                    zones.set_bridge(bridge.start_cell.x, bridge.start_cell.y, true);
+                    zones.set_bridge(bridge.end_cell.x, bridge.end_cell.y, true);
+                    // Also stamp ground-connect entry cells (entry points).
+                    for c in &bridge.ground_connect_cells {
+                        zones.set_bridge(c.x, c.y, true);
+                    }
+                }
                 zones.zones_dirty = false;
             } else {
                 zones.calculate_zones();
@@ -5131,16 +5159,28 @@ impl PathfindingSystem {
         if !self.is_valid_coord(adj) {
             return None;
         }
+        // C++ hierarchical: skip pinched cells when expanding neighbors.
+        if let Ok(pf) = self.pathfinder.lock() {
+            if pf.is_pinched(adj) == Some(true) {
+                return None;
+            }
+        }
         let new_zone = zones.get_block_zone(surfaces, crusher, adj.x, adj.y);
         let parent_global = zones.get_effective_zone(surfaces, crusher, parent_zone);
         let new_global = zones.get_effective_zone(surfaces, crusher, new_zone);
         if new_global != parent_global {
-            return None;
+            // Bridge interaction residual: if parent block interacts with bridge,
+            // allow hierarchical continue only when adj also interacts (same block
+            // family). Full multi-layer bridge zone jump remains residual.
+            let parent_bridge = zones.interacts_with_bridge(scan_cell.x, scan_cell.y);
+            let adj_bridge = zones.interacts_with_bridge(adj.x, adj.y);
+            if !(parent_bridge && adj_bridge) {
+                return None;
+            }
         }
         if examined_zones.contains(&new_zone) {
             return None;
         }
-        // pinched residual: always record examined zone
         examined_zones.push(new_zone);
         Some((adj, new_zone))
     }
@@ -6310,6 +6350,41 @@ impl ZoneManager {
             .and_then(|c| c.get(by))
             .map(|b| b.marked_passable)
             .unwrap_or(true)
+    }
+
+    /// C++ `PathfindZoneManager::setBridge`.
+    fn set_bridge(&mut self, cell_x: i32, cell_y: i32, bridge: bool) {
+        if cell_x < 0 || cell_y < 0 {
+            return;
+        }
+        let bx = (cell_x / ZONE_BLOCK_SIZE) as usize;
+        let by = (cell_y / ZONE_BLOCK_SIZE) as usize;
+        if let Some(b) = self.zone_blocks.get_mut(bx).and_then(|c| c.get_mut(by)) {
+            b.interacts_with_bridge = bridge;
+        }
+    }
+
+    /// C++ `PathfindZoneManager::interactsWithBridge`.
+    fn interacts_with_bridge(&self, cell_x: i32, cell_y: i32) -> bool {
+        if cell_x < 0 || cell_y < 0 {
+            return false;
+        }
+        let bx = (cell_x / ZONE_BLOCK_SIZE) as usize;
+        let by = (cell_y / ZONE_BLOCK_SIZE) as usize;
+        self.zone_blocks
+            .get(bx)
+            .and_then(|c| c.get(by))
+            .map(|b| b.interacts_with_bridge)
+            .unwrap_or(false)
+    }
+
+    /// Clear all bridge interaction flags (before re-stamp from layers).
+    fn clear_bridge_flags(&mut self) {
+        for col in &mut self.zone_blocks {
+            for b in col.iter_mut() {
+                b.interacts_with_bridge = false;
+            }
+        }
     }
 
     /// Calculate zones using flood-fill by cell type, then build surface combiners.
@@ -8912,5 +8987,74 @@ mod tests {
         // Start neighborhood should be passable on A* table.
         let pf = system.pathfinder.lock().unwrap();
         assert!(pf.is_zone_passable(GridCoord::new(5, 5)));
+    }
+
+    #[test]
+    fn zone_bridge_flags_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("fn set_bridge"));
+        assert!(prod.contains("fn interacts_with_bridge"));
+        assert!(prod.contains("clear_bridge_flags"));
+        assert!(
+            prod.contains("set_bridge(bridge.start_cell")
+                || prod.contains("zones.set_bridge(bridge.start_cell"),
+            "recalc must stamp setBridge from live bridge layers"
+        );
+    }
+
+    #[test]
+    fn zone_bridge_flags_from_live_bridges() {
+        let mut system = PathfindingSystem::new(40, 40);
+        let bid = system.add_bridge((GridCoord::new(10, 10), GridCoord::new(20, 10)));
+        assert_ne!(bid, 0);
+        system.new_map();
+        // Start/end blocks should interact with bridge.
+        assert!(
+            system.zone_interacts_with_bridge(GridCoord::new(10, 10)),
+            "start cell block must interact with bridge"
+        );
+        assert!(
+            system.zone_interacts_with_bridge(GridCoord::new(20, 10)),
+            "end cell block must interact with bridge"
+        );
+        // Far cell should not.
+        assert!(
+            !system.zone_interacts_with_bridge(GridCoord::new(0, 0)),
+            "unrelated block must not interact"
+        );
+        // Destroyed bridge clears on next recalc.
+        system.set_bridge_destroyed(bid, true);
+        system.force_map_recalculation();
+        assert!(
+            !system.zone_interacts_with_bridge(GridCoord::new(10, 10)),
+            "destroyed bridge must not stamp setBridge"
+        );
+    }
+
+    #[test]
+    fn hierarchical_skips_pinched_cells() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        let cell = GridCoord::new(5, 5);
+        let adj = GridCoord::new(6, 5);
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            pf.set_pinched(adj, true);
+        }
+        let mut examined = Vec::new();
+        let parent_zone = system.zones.lock().unwrap().zone_at(cell);
+        let res = system.process_hierarchical_cell(
+            cell,
+            (1, 0),
+            parent_zone,
+            SURFACE_GROUND,
+            false,
+            &mut examined,
+        );
+        assert!(res.is_none(), "pinched neighbor must be skipped");
     }
 }
