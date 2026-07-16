@@ -3892,6 +3892,7 @@ impl PathfindingSystem {
                         if !self.is_valid_coord(cell) {
                             continue;
                         }
+                        // C++ PathfindCell::getPosUnit() — standing occupancy, not goal claim.
                         let pos_unit = {
                             let Ok(goals) = self.goal_cells.lock() else {
                                 continue;
@@ -3899,7 +3900,7 @@ impl PathfindingSystem {
                             goals
                                 .get(i as usize)
                                 .and_then(|row| row.get(j as usize))
-                                .map(|gc| gc.get_goal_unit(layer))
+                                .map(|gc| gc.get_pos_unit(layer))
                                 .unwrap_or(INVALID_ID)
                         };
                         if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
@@ -3928,7 +3929,11 @@ impl PathfindingSystem {
                             let Ok(ai_g) = other_ai.lock() else {
                                 continue;
                             };
-                            if ai_g.is_moving() || ai_g.is_attacking() || ai_g.is_busy() {
+                            // C++: skip if moving; also skip attacking / busy / ability.
+                            if ai_g.is_moving() {
+                                continue;
+                            }
+                            if ai_g.is_attacking() || ai_g.is_busy() {
                                 continue;
                             }
                         }
@@ -3945,7 +3950,9 @@ impl PathfindingSystem {
                     }
                 }
             }
-            moved_any
+            let _ = moved_any;
+            // C++ returns true after scanning the path (even if no ally moved).
+            true
         })();
         self.move_allies_depth -= 1;
         result
@@ -5199,7 +5206,7 @@ impl PathfindingSystem {
                     return 0;
                 };
                 let cell_layer = self.get_layer_for_coord(to_c);
-                let pos_unit = gc.get_goal_unit(cell_layer);
+                let pos_unit = gc.get_pos_unit(cell_layer);
                 drop(goals);
                 if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
                     return 0;
@@ -10276,6 +10283,25 @@ mod tests {
         assert!(
             !z.are_connected(a, b, SURFACE_GROUND, false),
             "plain ground must not see cliff-only merge"
+        );
+    }
+
+    #[test]
+    fn move_allies_uses_pos_unit_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn move_allies(").expect("moveAllies");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("get_pos_unit(layer)"),
+            "moveAllies must read PathfindCell::getPosUnit standing occupancy"
+        );
+        assert!(
+            !w.contains("get_goal_unit(layer)"),
+            "moveAllies must not use goal-unit claims for standing allies"
         );
     }
 }
