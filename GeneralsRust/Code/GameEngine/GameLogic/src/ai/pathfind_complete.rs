@@ -508,6 +508,9 @@ pub struct PathfindingSystem {
     /// C++ m_extent lo/hi as i32 pairs for CRC.
     extent_lo: ICoord2D,
     extent_hi: ICoord2D,
+    /// C++ debugPath / debugPathPos (AI debug residual).
+    debug_path: Option<PathResult>,
+    debug_path_pos: Coord3D,
 }
 
 impl std::fmt::Debug for PathfindingSystem {
@@ -588,6 +591,8 @@ impl PathfindingSystem {
             closed_list_count: 0,
             extent_lo: ICoord2D::new(0, 0),
             extent_hi: ICoord2D::new(0, 0),
+            debug_path: None,
+            debug_path_pos: Coord3D::new(0.0, 0.0, 0.0),
         }
     }
 
@@ -637,6 +642,8 @@ impl PathfindingSystem {
         self.open_list_count = 0;
         self.closed_list_count = 0;
         self.wall_height = 0.0;
+        self.debug_path = None;
+        self.debug_path_pos = Coord3D::new(0.0, 0.0, 0.0);
     }
 
     /// Queue a pathfinding request (full request residual).
@@ -2789,6 +2796,96 @@ impl PathfindingSystem {
     ///
     /// Resize/classify grid from terrain extent, classify map cells, mark ready.
     /// Object footprint classification is caller-driven (iterate objects).
+    /// C++ `Pathfinder::buildGroundPath` (AIPathfind.cpp:6765-6807).
+    pub fn build_ground_path(
+        &self,
+        from: &Coord3D,
+        grid_path: &[GridCoord],
+        is_crusher: bool,
+        center: bool,
+        path_diameter: i32,
+    ) -> PathResult {
+        let _ = center;
+        if grid_path.is_empty() {
+            return PathResult::none();
+        }
+        let to = grid_path
+            .last()
+            .map(|c| c.to_world(PathfindLayerEnum::Ground))
+            .unwrap_or(*from);
+        let built = self.build_actual_path(grid_path, from, &to, SURFACE_GROUND, is_crusher, false);
+        if !built.success {
+            return built;
+        }
+        let pass = |a: &Coord3D, b: &Coord3D, _diam: i32| {
+            self.is_line_passable_ex(a, b, SURFACE_GROUND, is_crusher, None, false)
+        };
+        let (waypoints, layers) = self.optimizer.optimize_ground_path(
+            &built.waypoints,
+            &built.layers,
+            is_crusher,
+            path_diameter,
+            pass,
+        );
+        let len = waypoints.len();
+        PathResult {
+            success: !waypoints.is_empty(),
+            waypoints,
+            layers,
+            can_optimize: vec![true; len],
+            total_cost: built.total_cost,
+            blocked_by_ally: false,
+        }
+    }
+
+    /// C++ `Pathfinder::buildHierachicalPath` (AIPathfind.cpp:6813-6867).
+    pub fn build_hierarchical_path(&self, from: &Coord3D, grid_path: &[GridCoord]) -> PathResult {
+        if grid_path.is_empty() {
+            return PathResult::none();
+        }
+        let to = grid_path
+            .last()
+            .map(|c| c.to_world(PathfindLayerEnum::Ground))
+            .unwrap_or(*from);
+        let built = self.build_actual_path(grid_path, from, &to, SURFACE_GROUND, false, false);
+        if !built.success || built.waypoints.is_empty() {
+            return built;
+        }
+        // Expand hierarchical path around start: setPassable in ZONE_BLOCK_SIZE box.
+        let pos = built.waypoints[0];
+        let half = ZONE_BLOCK_SIZE as f32 * PATHFIND_CELL_SIZE_F;
+        let min_pos = Coord3D::new(pos.x - half, pos.y - half, pos.z);
+        let max_pos = Coord3D::new(pos.x + half, pos.y + half, pos.z);
+        let lo = GridCoord::from_world(&min_pos);
+        let hi = GridCoord::from_world(&max_pos);
+        if let Ok(mut zones) = self.zones.lock() {
+            for i in lo.x..=hi.x {
+                for j in lo.y..=hi.y {
+                    zones.set_passable(i, j, true);
+                }
+            }
+        }
+        built
+    }
+
+    /// C++ `Pathfinder::setDebugPath`.
+    pub fn set_debug_path(&mut self, path: Option<PathResult>) {
+        self.debug_path = path;
+    }
+
+    pub fn debug_path(&self) -> Option<&PathResult> {
+        self.debug_path.as_ref()
+    }
+
+    /// C++ `setDebugPathPosition`.
+    pub fn set_debug_path_position(&mut self, pos: Coord3D) {
+        self.debug_path_pos = pos;
+    }
+
+    pub fn debug_path_position(&self) -> Coord3D {
+        self.debug_path_pos
+    }
+
     pub fn new_map(&mut self) {
         // Extent from current width/height (already allocated). Re-classify.
         self.extent_lo = ICoord2D::new(0, 0);
@@ -5963,6 +6060,20 @@ impl ZoneManager {
         }
     }
 
+    /// C++ `PathfindZoneManager::setPassable` residual — mark cell zone usable.
+    fn set_passable(&mut self, cell_x: i32, cell_y: i32, passable: bool) {
+        if cell_x < 0
+            || cell_y < 0
+            || cell_x as usize >= self.width
+            || cell_y as usize >= self.height
+        {
+            return;
+        }
+        if passable && self.zones[cell_x as usize][cell_y as usize] == 0 {
+            self.zones[cell_x as usize][cell_y as usize] = 1;
+        }
+    }
+
     fn calculate_zones(&mut self) {
         for col in self.zones.iter_mut() {
             for zone in col.iter_mut() {
@@ -7654,5 +7765,68 @@ mod tests {
         ));
         assert!((dest.x - 55.0).abs() < 0.01);
         assert!((dest.y - 65.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn build_ground_and_hierarchical_path_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn build_ground_path")
+            .expect("buildGroundPath");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("optimize_ground_path") && w.contains("build_actual_path"),
+            "buildGroundPath must prepend + optimizeGroundPath"
+        );
+        let j = prod
+            .find("pub fn build_hierarchical_path")
+            .expect("buildHierachicalPath");
+        let w2 = &prod[j..prod.len().min(j + 2000)];
+        assert!(
+            w2.contains("set_passable") && w2.contains("ZONE_BLOCK_SIZE"),
+            "buildHierarchicalPath expands passable around start"
+        );
+        assert!(prod.contains("pub fn set_debug_path"));
+    }
+
+    #[test]
+    fn build_ground_path_optimizes_waypoints() {
+        let system = PathfindingSystem::new(32, 32);
+        let from = Coord3D::new(15.0, 15.0, 0.0);
+        let grid = vec![
+            GridCoord::new(1, 1),
+            GridCoord::new(2, 1),
+            GridCoord::new(3, 1),
+            GridCoord::new(4, 1),
+            GridCoord::new(5, 1),
+        ];
+        let path = system.build_ground_path(&from, &grid, false, true, 0);
+        assert!(path.success);
+        assert!(!path.waypoints.is_empty());
+    }
+
+    #[test]
+    fn set_debug_path_stores_copy() {
+        let mut system = PathfindingSystem::new(8, 8);
+        assert!(system.debug_path().is_none());
+        let p = PathResult {
+            success: true,
+            waypoints: vec![Coord3D::new(1.0, 2.0, 0.0)],
+            layers: vec![PathfindLayerEnum::Ground],
+            can_optimize: vec![true],
+            total_cost: 1,
+            blocked_by_ally: false,
+        };
+        system.set_debug_path(Some(p));
+        assert!(system.debug_path().is_some());
+        system.set_debug_path_position(Coord3D::new(9.0, 8.0, 7.0));
+        let dp = system.debug_path_position();
+        assert!((dp.x - 9.0).abs() < 0.01);
+        system.reset();
+        assert!(system.debug_path().is_none());
     }
 }
