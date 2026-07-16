@@ -1920,6 +1920,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Check if AI is waiting for path (matches AIUpdateInterface::isWaitingForPath).
+    /// C++ AIUpdateInterface::doPathfind — process queued path request.
+    fn do_pathfind(&mut self) {}
+
     fn is_waiting_for_path(&self) -> bool {
         false
     }

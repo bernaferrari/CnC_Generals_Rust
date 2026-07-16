@@ -6606,6 +6606,13 @@ impl AIUpdateInterface for UnitAIUpdate {
         true
     }
 
+    fn do_pathfind(&mut self) {
+        // C++ AIUpdateInterface::doPathfind — process queued path request.
+        if let Err(e) = self.do_queued_pathfind_now() {
+            log::trace!("UnitAIUpdate::do_pathfind: {e}");
+        }
+    }
+
     fn is_waiting_for_path(&self) -> bool {
         if self.waiting_for_path {
             return true;
