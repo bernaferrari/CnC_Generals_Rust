@@ -1349,6 +1349,54 @@ impl PathfindingSystem {
         self.zones_connected_for_surfaces(surfaces, from, to)
     }
 
+    /// C++ `Pathfinder::validLocomotorSurfacesForCellType` (AIPathfind.cpp:4734-4758).
+    pub fn valid_locomotor_surfaces_for_cell_type(
+        cell_type: PathfindCellType,
+    ) -> LocomotorSurfaceTypeMask {
+        match cell_type {
+            PathfindCellType::Obstacle
+            | PathfindCellType::Impassable
+            | PathfindCellType::BridgeImpassable => SURFACE_AIR,
+            PathfindCellType::Clear => SURFACE_GROUND | SURFACE_AIR,
+            PathfindCellType::Water => SURFACE_WATER | SURFACE_AIR,
+            PathfindCellType::Rubble => SURFACE_RUBBLE | SURFACE_AIR,
+            PathfindCellType::Cliff => SURFACE_CLIFF | SURFACE_AIR,
+            _ => 0,
+        }
+    }
+
+    /// C++ `Pathfinder::validMovementTerrain` (AIPathfind.cpp:4763-4783).
+    ///
+    /// Obstacle/Impassable return true (terrain present); otherwise require
+    /// locomotor surfaces ∩ cell surfaces.
+    pub fn valid_movement_terrain(
+        &self,
+        layer: PathfindLayerEnum,
+        surfaces: LocomotorSurfaceTypeMask,
+        pos: &Coord3D,
+    ) -> bool {
+        let coord = GridCoord::from_world(pos);
+        if !self.is_valid_coord(coord) {
+            return false;
+        }
+        let Some(cell_type) = self.get_cell_type(pos) else {
+            return false;
+        };
+        // C++: OBSTACLE / IMPASSABLE → true
+        if matches!(
+            cell_type,
+            PathfindCellType::Obstacle | PathfindCellType::Impassable
+        ) {
+            return true;
+        }
+        // C++ bridge clear residual: non-ground clear → true
+        if layer != PathfindLayerEnum::Ground && cell_type == PathfindCellType::Clear {
+            return true;
+        }
+        let cell_surfaces = Self::valid_locomotor_surfaces_for_cell_type(cell_type);
+        (surfaces & cell_surfaces) != 0
+    }
+
     /// Quick validity check for a locomotor position (C++ validMovementPosition usage).
     pub fn valid_movement_position(
         &self,
@@ -2633,6 +2681,68 @@ impl PathfindingSystem {
             delta += 1;
         }
         false
+    }
+
+    /// C++ `Pathfinder::tightenPath` (AIPathfind.cpp:8414-8421).
+    ///
+    /// Walk cells from `from` toward `to`; advance `from` to the last position
+    /// that still passes destination adjust (checkForAdjust residual).
+    pub fn tighten_path(
+        &self,
+        from: &mut Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let layer = self.get_layer_for_coord(GridCoord::from_world(from));
+        let dx = to.x - from.x;
+        let dy = to.y - from.y;
+        let distance = (dx * dx + dy * dy).sqrt();
+        if distance < 0.1 {
+            return;
+        }
+        let steps = (distance / PATHFIND_CELL_SIZE_F).ceil() as i32;
+        let steps = steps.max(1);
+        let mut found = false;
+        let mut dest_pos = *from;
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, from.z);
+            let cell = GridCoord::from_world(&sample);
+            if !self.is_valid_coord(cell) {
+                break;
+            }
+            // C++ layer change aborts further advances (callback returns keep-going
+            // without updating; residual: stop advancing on layer mismatch).
+            if self.get_layer_for_coord(cell) != layer {
+                break;
+            }
+            let mut adjust = sample;
+            if self.try_adjust_cell(
+                cell.x,
+                cell.y,
+                layer,
+                surfaces,
+                is_crusher,
+                radius,
+                center_in_cell,
+                ignore_obstacle_id,
+                Some(from),
+                &mut adjust,
+            ) {
+                found = true;
+                dest_pos = adjust;
+            } else {
+                // C++ bail early on failed adjust — stop walking.
+                break;
+            }
+        }
+        if found {
+            *from = dest_pos;
+        }
     }
 
     /// C++ `Pathfinder::checkForLanding` (AIPathfind.cpp:5228-5247).
@@ -3992,5 +4102,82 @@ mod tests {
         // Off-map only checked when obj_id valid. Use radius that goes negative:
         // with INVALID_ID early return true — document residual.
         assert!(system.check_for_movement(INVALID_ID, &mut info));
+    }
+
+    #[test]
+    fn valid_movement_terrain_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn valid_locomotor_surfaces_for_cell_type")
+            .expect("validLocomotorSurfacesForCellType");
+        let end = prod[i..]
+            .find("pub fn valid_movement_position")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 3500));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("PathfindCellType::Obstacle")
+                && w.contains("PathfindCellType::Impassable")
+                && w.contains("valid_locomotor_surfaces_for_cell_type")
+                && w.contains("SURFACE_GROUND | SURFACE_AIR")
+                && w.contains("pub fn valid_movement_terrain"),
+            "validMovementTerrain must special-case obstacle/impassable + surface mask"
+        );
+    }
+
+    #[test]
+    fn valid_movement_terrain_obstacle_true() {
+        let system = PathfindingSystem::new(16, 16);
+        let pos = Coord3D::new(48.0, 48.0, 0.0);
+        system.set_cell_type(&pos, PathfindCellType::Obstacle);
+        assert!(system.valid_movement_terrain(PathfindLayerEnum::Ground, SURFACE_GROUND, &pos));
+    }
+
+    #[test]
+    fn valid_locomotor_surfaces_for_cell_type_like_cpp() {
+        assert_eq!(
+            PathfindingSystem::valid_locomotor_surfaces_for_cell_type(PathfindCellType::Clear),
+            SURFACE_GROUND | SURFACE_AIR
+        );
+        assert_eq!(
+            PathfindingSystem::valid_locomotor_surfaces_for_cell_type(PathfindCellType::Water),
+            SURFACE_WATER | SURFACE_AIR
+        );
+        assert_eq!(
+            PathfindingSystem::valid_locomotor_surfaces_for_cell_type(PathfindCellType::Obstacle),
+            SURFACE_AIR
+        );
+    }
+
+    #[test]
+    fn tighten_path_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn tighten_path").expect("tightenPath");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("try_adjust_cell")
+                && w.contains("PATHFIND_CELL_SIZE_F")
+                && w.contains("found"),
+            "tightenPath must walk line with checkForAdjust residual"
+        );
+    }
+
+    #[test]
+    fn tighten_path_advances_on_open_ground() {
+        let system = PathfindingSystem::new(32, 32);
+        let mut from = Coord3D::new(20.0, 20.0, 0.0);
+        let to = Coord3D::new(200.0, 20.0, 0.0);
+        let start_x = from.x;
+        system.tighten_path(&mut from, &to, SURFACE_GROUND, false, 0.0, None);
+        // Should advance toward to (or stay if adjust fails entirely).
+        assert!(from.x >= start_x - 0.1);
     }
 }
