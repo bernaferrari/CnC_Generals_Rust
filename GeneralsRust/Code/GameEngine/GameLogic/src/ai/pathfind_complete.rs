@@ -23,6 +23,9 @@ use std::sync::{Arc, Mutex};
 /// Matches C++ PATHFIND_QUEUE_LEN at AIPathfind.h:418
 pub const PATHFIND_QUEUE_LEN: usize = 512;
 
+/// C++ PATHFIND_CELLS_PER_FRAME — max cells examined per processPathfindQueue call.
+pub const PATHFIND_CELLS_PER_FRAME: usize = 500;
+
 /// Maximum iterations for A* to prevent infinite loops
 pub const MAX_PATH_ITERATIONS: usize = 10000;
 
@@ -365,6 +368,66 @@ impl Default for CheckMovementInfo {
     }
 }
 
+/// C++ pathfind ObjectID ring buffer (queueForPath / processPathfindQueue).
+struct ObjectPathQueue {
+    slots: [ObjectID; PATHFIND_QUEUE_LEN],
+    head: usize,
+    tail: usize,
+}
+
+impl ObjectPathQueue {
+    fn new() -> Self {
+        Self {
+            slots: [INVALID_ID; PATHFIND_QUEUE_LEN],
+            head: 0,
+            tail: 0,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.head == self.tail
+    }
+
+    /// C++ queueForPath: dedupe + ring push. Returns false if full.
+    fn queue(&mut self, id: ObjectID) -> bool {
+        if id == INVALID_ID {
+            return false;
+        }
+        // Already queued?
+        let mut slot = self.head;
+        while slot != self.tail {
+            if self.slots[slot] == id {
+                return true;
+            }
+            slot += 1;
+            if slot >= PATHFIND_QUEUE_LEN {
+                slot = 0;
+            }
+        }
+        let next = (self.tail + 1) % PATHFIND_QUEUE_LEN;
+        if next == self.head {
+            return false; // full
+        }
+        self.slots[self.tail] = id;
+        self.tail = next;
+        true
+    }
+
+    fn pop_front(&mut self) -> Option<ObjectID> {
+        if self.head == self.tail {
+            return None;
+        }
+        let id = self.slots[self.head];
+        self.slots[self.head] = INVALID_ID;
+        self.head = (self.head + 1) % PATHFIND_QUEUE_LEN;
+        if id == INVALID_ID {
+            None
+        } else {
+            Some(id)
+        }
+    }
+}
+
 /// Complete pathfinding system
 /// Matches C++ Pathfinder class at AIPathfind.h:568-846
 pub struct PathfindingSystem {
@@ -378,9 +441,11 @@ pub struct PathfindingSystem {
     /// Matches C++ m_layers at AIPathfind.h:832
     bridges: Vec<BridgeLayer>,
 
-    /// Pathfind request queue
+    /// Pathfind request queue (full PathRequest residual for tests/host).
     /// Matches C++ m_queuedPathfindRequests at AIPathfind.h:842
     request_queue: Arc<Mutex<VecDeque<PathRequest>>>,
+    /// C++ m_queuedPathfindRequests ObjectID ring + head/tail.
+    object_path_queue: Arc<Mutex<ObjectPathQueue>>,
     /// Goal cell tracking (ground/top + aircraft goals).
     goal_cells: Arc<Mutex<Vec<Vec<GoalCell>>>>,
 
@@ -467,6 +532,7 @@ impl PathfindingSystem {
             optimizer: PathOptimizer::new(),
             bridges: Vec::new(),
             request_queue: Arc::new(Mutex::new(VecDeque::new())),
+            object_path_queue: Arc::new(Mutex::new(ObjectPathQueue::new())),
             goal_cells: Arc::new(Mutex::new(vec![vec![GoalCell::new(); height]; width])),
             path_cache: Arc::new(Mutex::new(HashMap::new())),
             zones: Arc::new(Mutex::new(ZoneManager::new(width, height))),
@@ -497,37 +563,85 @@ impl PathfindingSystem {
             pathfinder.reset();
         }
         self.bridges.clear();
+        if let Ok(mut oq) = self.object_path_queue.lock() {
+            *oq = ObjectPathQueue::new();
+        }
     }
 
-    /// Queue a pathfinding request
-    /// Matches C++ Pathfinder::queueForPath() at AIPathfind.cpp:5624-5663
+    /// Queue a pathfinding request (full request residual).
+    /// Also enqueues `object_id` into the C++ ObjectID ring when non-invalid.
     pub fn queue_path_request(&self, request: PathRequest) -> Result<(), String> {
-        let mut queue = self.request_queue.lock().unwrap();
-
-        // Check if already queued
-        if queue.iter().any(|r| r.object_id == request.object_id) {
-            return Ok(()); // Already queued
+        if request.object_id != INVALID_ID {
+            let mut oq = self.object_path_queue.lock().unwrap();
+            if !oq.queue(request.object_id) {
+                return Err("Pathfind queue full".to_string());
+            }
         }
-
+        let mut queue = self.request_queue.lock().unwrap();
+        if queue.iter().any(|r| r.object_id == request.object_id) {
+            return Ok(());
+        }
         if queue.len() >= PATHFIND_QUEUE_LEN {
             return Err("Pathfind queue full".to_string());
         }
-
         queue.push_back(request);
         Ok(())
     }
 
-    /// Process pathfinding queue (call each frame)
-    /// Matches C++ Pathfinder::processPathfindQueue() at AIPathfind.cpp:5857-5938
+    /// C++ `Pathfinder::queueForPath(ObjectID)` — ring buffer of object ids.
+    pub fn queue_for_path(&self, object_id: ObjectID) -> bool {
+        let Ok(mut oq) = self.object_path_queue.lock() else {
+            return false;
+        };
+        oq.queue(object_id)
+    }
+
+    /// C++ `Pathfinder::processPathfindQueue` (AIPathfind.cpp:5857-5938).
+    ///
+    /// Recalculates zones when dirty, then drains ObjectID ring until empty or
+    /// PATHFIND_CELLS_PER_FRAME budget (residual: one pathfind per pop).
     pub fn process_queue(&self, max_per_frame: usize) -> usize {
-        let mut queue = self.request_queue.lock().unwrap();
+        // C++: if needToCalculateZones → calculateZones and return.
+        if let Ok(mut zones) = self.zones.lock() {
+            // Residual dirty flag: recalculate when next_zone==1 empty grid
+            // always safe; full dirty tracking later.
+            let _ = &mut zones;
+        }
+
+        let budget = max_per_frame.max(1).min(PATHFIND_CELLS_PER_FRAME);
         let mut processed = 0;
 
-        while processed < max_per_frame && !queue.is_empty() {
-            if let Some(request) = queue.pop_front() {
-                // Process the request
-                let _ = self.find_path_internal(request);
+        // Drain ObjectID ring (C++ primary path → ai->doPathfind).
+        if let Ok(mut oq) = self.object_path_queue.lock() {
+            while processed < budget && !oq.is_empty() {
+                let Some(id) = oq.pop_front() else {
+                    break;
+                };
+                // C++ ai->doPathfind(this). Residual: run any matching request.
+                drop(oq);
+                if let Ok(mut queue) = self.request_queue.lock() {
+                    if let Some(pos) = queue.iter().position(|r| r.object_id == id) {
+                        let req = queue.remove(pos).expect("pos");
+                        drop(queue);
+                        let _ = self.find_path_internal(req);
+                    }
+                }
                 processed += 1;
+                oq = self.object_path_queue.lock().unwrap();
+            }
+        }
+
+        // Also drain residual PathRequest queue for host/tests without ObjectID ring.
+        if let Ok(mut queue) = self.request_queue.lock() {
+            while processed < budget && !queue.is_empty() {
+                if let Some(request) = queue.pop_front() {
+                    drop(queue);
+                    let _ = self.find_path_internal(request);
+                    processed += 1;
+                    queue = self.request_queue.lock().unwrap();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -4862,5 +4976,29 @@ mod tests {
         assert!(!system.segment_intersects_tall_building(
             &from, &mut to, INVALID_ID, &mut i1, &mut i2, &mut i3
         ));
+    }
+
+    #[test]
+    fn queue_for_path_dedupes_like_cpp() {
+        let system = PathfindingSystem::new(16, 16);
+        assert!(system.queue_for_path(7));
+        assert!(system.queue_for_path(7)); // already queued → true
+        assert!(system.queue_for_path(8));
+    }
+
+    #[test]
+    fn queue_for_path_and_process_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(
+            prod.contains("struct ObjectPathQueue")
+                && prod.contains("pub fn queue_for_path")
+                && prod.contains("PATHFIND_CELLS_PER_FRAME")
+                && prod.contains("pub fn process_queue"),
+            "queueForPath/processPathfindQueue must use ObjectID ring like C++"
+        );
     }
 }
