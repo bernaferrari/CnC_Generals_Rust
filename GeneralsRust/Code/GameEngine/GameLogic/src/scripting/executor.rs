@@ -12700,9 +12700,11 @@ impl ScriptActionDispatcher {
                     }
                 }
                 IntegratedAiPlayer::Standard(standard_ai) => {
-                    if let Ok(Some(location)) =
-                        standard_ai.compute_superweapon_target(power_template.get_name(), radius)
-                    {
+                    if let Ok(Some(location)) = standard_ai.compute_superweapon_target(
+                        power_template.get_name(),
+                        radius,
+                        enemy_player_index,
+                    ) {
                         target_location = Some(location);
                     }
                 }
