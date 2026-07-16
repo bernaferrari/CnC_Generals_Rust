@@ -6756,8 +6756,16 @@ impl AIPlayer {
             return Ok(false);
         }
 
-        if self.team_build_queue.iter().any(|team| {
-            team.team_name
+        // C++: team->m_team->getPrototype() == proto (busy building this prototype).
+        if self.team_build_queue.iter().any(|q| {
+            if let Some(team_arc) = q.team.as_ref() {
+                if let Ok(tg) = team_arc.read() {
+                    if tg.get_name().as_str() == team_name {
+                        return true;
+                    }
+                }
+            }
+            q.team_name
                 .as_deref()
                 .map(|name| name == team_name)
                 .unwrap_or(false)
@@ -8056,6 +8064,21 @@ mod tests {
                 && !w.contains("analyze_building_needs")
                 && !w.contains("update_construction_priorities"),
             "processBaseBuilding must walk BuildListInfo only like C++ (no host priorities)"
+        );
+    }
+
+    #[test]
+    fn is_a_good_idea_checks_m_team_handle_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub(crate) fn is_a_good_idea_to_build_team")
+            .expect("is_a_good_idea");
+        let w = &src[i..src.len().min(i + 2200)];
+        assert!(
+            w.contains("q.team.as_ref()")
+                && w.contains("tg.get_name()")
+                && w.contains("team_build_queue.iter()"),
+            "isAGoodIdeaToBuildTeam must reject queue entries by m_team prototype, not only team_name"
         );
     }
 
