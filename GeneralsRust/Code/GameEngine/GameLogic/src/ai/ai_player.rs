@@ -4928,22 +4928,51 @@ impl AIPlayer {
         let mut stamped = false;
 
         // Prefer matching build-list entry props first (before object exists fully).
+        // C++ uses the BuildListInfo* argument — match by slot id or template+location.
         if let Ok(list) = player_list().read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(pg) = player_arc.read() {
+                    let mut best_dist = f32::MAX;
+                    let mut fallback_done = false;
                     let mut cur = pg.get_build_list();
                     while let Some(node) = cur {
                         let name_match = node.get_template_name().as_str() == template_name;
-                        let slot_match = stamp_object_id_slot
-                            .map(|id| node.get_object_id() == id)
-                            .unwrap_or(false)
-                            || (name_match && node.get_object_id() == INVALID_ID);
-                        if slot_match && name_match {
-                            map_building_name = node.get_building_name().to_string();
-                            map_script = node.get_script().to_string();
-                            map_health = node.get_health();
-                            map_unsellable = node.get_unsellable();
-                            break;
+                        if !name_match {
+                            cur = node.get_next();
+                            continue;
+                        }
+                        if let Some(id) = stamp_object_id_slot {
+                            if node.get_object_id() == id {
+                                map_building_name = node.get_building_name().to_string();
+                                map_script = node.get_script().to_string();
+                                map_health = node.get_health();
+                                map_unsellable = node.get_unsellable();
+                                best_dist = 0.0;
+                                break;
+                            }
+                        }
+                        if node.get_object_id() == INVALID_ID {
+                            let nloc = *node.get_location();
+                            let dx = nloc.x - location.x;
+                            let dy = nloc.y - location.y;
+                            let d2 = dx * dx + dy * dy;
+                            if d2 < best_dist {
+                                best_dist = d2;
+                                map_building_name = node.get_building_name().to_string();
+                                map_script = node.get_script().to_string();
+                                map_health = node.get_health();
+                                map_unsellable = node.get_unsellable();
+                            }
+                            if !fallback_done {
+                                // keep first free as last-resort if nothing closer later
+                                fallback_done = true;
+                                if best_dist == f32::MAX {
+                                    map_building_name = node.get_building_name().to_string();
+                                    map_script = node.get_script().to_string();
+                                    map_health = node.get_health();
+                                    map_unsellable = node.get_unsellable();
+                                }
+                            }
                         }
                         cur = node.get_next();
                     }
@@ -4988,28 +5017,75 @@ impl AIPlayer {
             guard.get_id()
         };
 
-        // Stamp build list entry: match by empty object id + template, or by slot hint.
+        // Stamp build list entry: C++ stamps the BuildListInfo* passed in.
+        // Prefer slot id hint, else template + requested location, else first free.
         if let Ok(list) = player_list().read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(mut pg) = player_arc.write() {
                     if let Some(info) = pg.get_build_list_mut() {
-                        let mut cur = Some(&mut *info);
-                        while let Some(node) = cur {
-                            let name_match = node.get_template_name().as_str() == template_name;
-                            let slot_match = stamp_object_id_slot
-                                .map(|id| node.get_object_id() == id)
-                                .unwrap_or(false)
-                                || (name_match && node.get_object_id() == INVALID_ID);
-                            if slot_match && name_match {
-                                node.set_object_id(bldg_id);
-                                node.set_object_timestamp(
-                                    TheGameLogic::get_frame().saturating_add(1),
-                                );
-                                node.set_under_construction(false);
-                                stamped = true;
-                                break;
+                        let mut best_loc: Option<Coord3D> = None;
+                        let mut best_dist = f32::MAX;
+                        let mut fallback_loc: Option<Coord3D> = None;
+                        let mut slot_loc: Option<Coord3D> = None;
+                        {
+                            let mut cur = Some(&*info);
+                            while let Some(node) = cur {
+                                if node.get_template_name().as_str() != template_name {
+                                    cur = node.get_next();
+                                    continue;
+                                }
+                                if let Some(id) = stamp_object_id_slot {
+                                    if node.get_object_id() == id {
+                                        slot_loc = Some(*node.get_location());
+                                        break;
+                                    }
+                                }
+                                if node.get_object_id() == INVALID_ID {
+                                    let nloc = *node.get_location();
+                                    let dx = nloc.x - location.x;
+                                    let dy = nloc.y - location.y;
+                                    let d2 = dx * dx + dy * dy;
+                                    if d2 < best_dist {
+                                        best_dist = d2;
+                                        best_loc = Some(nloc);
+                                    }
+                                    if fallback_loc.is_none() {
+                                        fallback_loc = Some(nloc);
+                                    }
+                                }
+                                cur = node.get_next();
                             }
-                            cur = node.get_next_mut();
+                        }
+                        let stamp_loc = slot_loc.or(if best_dist <= 1.0 {
+                            best_loc
+                        } else {
+                            fallback_loc.or(best_loc)
+                        });
+                        if let Some(target) = stamp_loc {
+                            let mut cur = Some(&mut *info);
+                            while let Some(node) = cur {
+                                if node.get_template_name().as_str() == template_name {
+                                    let nloc = *node.get_location();
+                                    let dx = nloc.x - target.x;
+                                    let dy = nloc.y - target.y;
+                                    if dx * dx + dy * dy <= 1.0 {
+                                        if stamp_object_id_slot
+                                            .map(|id| node.get_object_id() == id)
+                                            .unwrap_or(node.get_object_id() == INVALID_ID)
+                                            || node.get_object_id() == INVALID_ID
+                                        {
+                                            node.set_object_id(bldg_id);
+                                            node.set_object_timestamp(
+                                                TheGameLogic::get_frame().saturating_add(1),
+                                            );
+                                            node.set_under_construction(false);
+                                            stamped = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                cur = node.get_next_mut();
+                            }
                         }
                     }
                 }
@@ -8156,7 +8232,7 @@ mod tests {
         let i = src
             .find("C++ `AIPlayer::buildStructureNow` (AIPlayer.cpp)")
             .expect("buildStructureNow");
-        let window = &src[i..src.len().min(i + 8000)];
+        let window = &src[i..src.len().min(i + 14000)];
         assert!(
             window.contains("update_obj_values_from_map_properties")
                 && window.contains("key_object_initial_health")
@@ -8164,7 +8240,8 @@ mod tests {
                 && window.contains("update_upgrade_modules_from_player")
                 && window.contains("add_object_to_cache")
                 && window.contains("run_object_script")
-                && window.contains("check_for_supply_center"),
+                && window.contains("check_for_supply_center")
+                && window.contains("requested location"),
             "buildStructureNow must apply map props, clear UC, script cache/run, supply check"
         );
     }
