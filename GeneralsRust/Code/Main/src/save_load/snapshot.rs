@@ -3692,6 +3692,9 @@ impl XferData for CombatParticleKind {
             CombatParticleKind::DeathSmoke => 1,
             CombatParticleKind::WeaponMuzzleFlash => 2,
             CombatParticleKind::WeaponImpact => 3,
+            CombatParticleKind::DeathBurn => 4,
+            CombatParticleKind::DeathPoison => 5,
+            CombatParticleKind::DeathLaser => 6,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -3699,6 +3702,9 @@ impl XferData for CombatParticleKind {
             1 => CombatParticleKind::DeathSmoke,
             2 => CombatParticleKind::WeaponMuzzleFlash,
             3 => CombatParticleKind::WeaponImpact,
+            4 => CombatParticleKind::DeathBurn,
+            5 => CombatParticleKind::DeathPoison,
+            6 => CombatParticleKind::DeathLaser,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid CombatParticleKind discriminant: {other}"
