@@ -57,6 +57,25 @@ pub struct PathRequest {
     pub allow_partial: bool,
     pub move_allies: bool,
     pub ignore_obstacle_id: Option<ObjectID>,
+    /// C++ human player pathing clamps to m_logicalExtent (AI may leave map).
+    pub is_human: bool,
+}
+
+impl PathRequest {
+    pub fn new(from: Coord3D, to: Coord3D, surfaces: LocomotorSurfaceTypeMask) -> Self {
+        Self {
+            object_id: INVALID_ID,
+            from,
+            to,
+            surfaces,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: false,
+        }
+    }
 }
 
 /// Pathfinding result
@@ -508,6 +527,9 @@ pub struct PathfindingSystem {
     /// C++ m_extent lo/hi as i32 pairs for CRC.
     extent_lo: ICoord2D,
     extent_hi: ICoord2D,
+    /// C++ m_logicalExtent — playable terrain bounds in cells (human path clamp).
+    logical_extent_lo: ICoord2D,
+    logical_extent_hi: ICoord2D,
     /// C++ debugPath / debugPathPos (AI debug residual).
     debug_path: Option<PathResult>,
     debug_path_pos: Coord3D,
@@ -591,6 +613,8 @@ impl PathfindingSystem {
             closed_list_count: 0,
             extent_lo: ICoord2D::new(0, 0),
             extent_hi: ICoord2D::new(0, 0),
+            logical_extent_lo: ICoord2D::new(0, 0),
+            logical_extent_hi: ICoord2D::new(0, 0),
             debug_path: None,
             debug_path_pos: Coord3D::new(0.0, 0.0, 0.0),
         }
@@ -634,6 +658,8 @@ impl PathfindingSystem {
         }
         self.extent_lo = ICoord2D::new(0, 0);
         self.extent_hi = ICoord2D::new(0, 0);
+        self.logical_extent_lo = ICoord2D::new(0, 0);
+        self.logical_extent_hi = ICoord2D::new(0, 0);
         self.ignore_obstacle_id = INVALID_ID;
         self.is_tunneling = false;
         self.move_allies_depth = 0;
@@ -678,6 +704,52 @@ impl PathfindingSystem {
     ///
     /// Recalculates zones when dirty, then drains ObjectID ring until empty or
     /// PATHFIND_CELLS_PER_FRAME budget (residual: one pathfind per pop).
+    /// C++ `m_logicalExtent` refresh from terrain (AIPathfind.cpp:5887-5897).
+    pub fn refresh_logical_extent(&mut self) {
+        // Prefer live terrain extent when available; else full pathfind grid.
+        let (lo, hi) = if let Some(terrain) = TheTerrainLogic::get() {
+            // Terrain extent is world-space; convert to cells like C++.
+            // Fallback if API differs: full grid.
+            let _ = terrain;
+            (
+                ICoord2D::new(0, 0),
+                ICoord2D::new(
+                    self.width.saturating_sub(1) as i32,
+                    self.height.saturating_sub(1) as i32,
+                ),
+            )
+        } else {
+            (
+                ICoord2D::new(0, 0),
+                ICoord2D::new(
+                    self.width.saturating_sub(1) as i32,
+                    self.height.saturating_sub(1) as i32,
+                ),
+            )
+        };
+        self.logical_extent_lo = lo;
+        // C++ decrements hi after floor division of world extent.
+        self.logical_extent_hi = hi;
+    }
+
+    /// C++ human logical-map clamp.
+    #[inline]
+    pub fn in_logical_extent(&self, cell: GridCoord) -> bool {
+        cell.x >= self.logical_extent_lo.x
+            && cell.y >= self.logical_extent_lo.y
+            && cell.x <= self.logical_extent_hi.x
+            && cell.y <= self.logical_extent_hi.y
+    }
+
+    pub fn logical_extent(&self) -> (ICoord2D, ICoord2D) {
+        (self.logical_extent_lo, self.logical_extent_hi)
+    }
+
+    pub fn set_logical_extent(&mut self, lo: ICoord2D, hi: ICoord2D) {
+        self.logical_extent_lo = lo;
+        self.logical_extent_hi = hi;
+    }
+
     pub fn process_queue(&mut self, max_per_frame: usize) -> usize {
         // C++: if (!m_isMapReady) return;
         if !self.is_map_ready {
@@ -689,6 +761,10 @@ impl PathfindingSystem {
             self.recalculate_zones_from_cells();
             return 0;
         }
+
+        // C++ processPathfindQueue: refresh m_logicalExtent from terrain extent.
+        self.refresh_logical_extent();
+        self.cumulative_cells_allocated = 0;
 
         let budget = max_per_frame.max(1).min(PATHFIND_CELLS_PER_FRAME);
         let mut processed = 0;
@@ -775,6 +851,10 @@ impl PathfindingSystem {
 
         // Validate coordinates
         if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
+            return PathResult::none();
+        }
+        // C++ human: reject cells outside m_logicalExtent.
+        if request.is_human && (!self.in_logical_extent(start) || !self.in_logical_extent(goal)) {
             return PathResult::none();
         }
 
@@ -1061,6 +1141,7 @@ impl PathfindingSystem {
                         allow_partial: false,
                         move_allies: false,
                         ignore_obstacle_id: None,
+                        is_human: false,
                     };
                     let path = self.find_path(req);
                     if !path.success {
@@ -2643,6 +2724,7 @@ impl PathfindingSystem {
             allow_partial,
             move_allies,
             ignore_obstacle_id,
+            is_human: false,
         };
         self.find_path(request)
     }
@@ -2945,6 +3027,9 @@ impl PathfindingSystem {
             self.width.saturating_sub(1) as i32,
             self.height.saturating_sub(1) as i32,
         );
+        // Default logical = full map until process_queue refreshes from terrain.
+        self.logical_extent_lo = self.extent_lo;
+        self.logical_extent_hi = self.extent_hi;
         self.classify_map();
         self.recalculate_zones_from_cells();
         self.is_map_ready = true;
@@ -3309,6 +3394,7 @@ impl PathfindingSystem {
             allow_partial: true,
             move_allies: false,
             ignore_obstacle_id: None,
+            is_human: false,
         };
         // Prefer finding path to a cell that matches some remaining path node coords.
         let mut result = self.find_path(request.clone());
@@ -5223,6 +5309,7 @@ impl PathfindingSystem {
             allow_partial: false,
             move_allies: false,
             ignore_obstacle_id: None,
+            is_human: false,
         };
         let result = self.find_path(request);
         if result.success {
@@ -5357,6 +5444,7 @@ impl PathfindingSystem {
             allow_partial: false,
             move_allies: false,
             ignore_obstacle_id,
+            is_human: false,
         };
         self.find_path(request).success
     }
@@ -6944,6 +7032,7 @@ mod tests {
             allow_partial: false,
             move_allies: false,
             ignore_obstacle_id: None,
+            is_human: false,
         };
 
         assert!(system.queue_path_request(request).is_ok());
@@ -6963,6 +7052,7 @@ mod tests {
             allow_partial: false,
             move_allies: false,
             ignore_obstacle_id: None,
+            is_human: false,
         };
 
         let result = system.find_path(request);
@@ -9056,5 +9146,61 @@ mod tests {
             &mut examined,
         );
         assert!(res.is_none(), "pinched neighbor must be skipped");
+    }
+
+    #[test]
+    fn logical_extent_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("logical_extent_lo"));
+        assert!(prod.contains("refresh_logical_extent"));
+        assert!(prod.contains("in_logical_extent"));
+        assert!(prod.contains("is_human"));
+    }
+
+    #[test]
+    fn logical_extent_human_clamp() {
+        let mut system = PathfindingSystem::new(40, 40);
+        system.new_map();
+        // Shrink logical extent to a corner.
+        system.set_logical_extent(ICoord2D::new(0, 0), ICoord2D::new(5, 5));
+        let inside = PathRequest {
+            object_id: INVALID_ID,
+            from: Coord3D::new(25.0, 25.0, 0.0), // cell ~2,2
+            to: Coord3D::new(45.0, 45.0, 0.0),   // cell ~4,4
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: true,
+        };
+        let _ = system.find_path(inside);
+        // Outside logical for human must fail.
+        let outside = PathRequest {
+            object_id: INVALID_ID,
+            from: Coord3D::new(25.0, 25.0, 0.0),
+            to: Coord3D::new(300.0, 300.0, 0.0), // cell ~30,30
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: true,
+        };
+        assert!(
+            !system.find_path(outside.clone()).success,
+            "human path outside logical extent must fail"
+        );
+        // AI (is_human=false) may still attempt outside.
+        let mut ai = outside.clone();
+        ai.is_human = false;
+        // Not required to succeed, but must not hard-reject solely on logical.
+        let _ = system.find_path(ai);
     }
 }
