@@ -1041,6 +1041,42 @@ pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat
     dt.unwrap_or(crate::game_logic::combat::DamageType::Bullet)
 }
 
+/// Look up Weapon.ini DeathType residual by weapon template name.
+pub fn host_death_type_for_weapon_name(
+    name: &str,
+) -> crate::game_logic::host_usa_pilot::HostDeathType {
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use gamelogic::weapon::with_weapon_store;
+    let dt = with_weapon_store(|store| {
+        store.find_weapon_template(name).map(|wt| {
+            let d = HostDeathType::from_store(wt.death_type);
+            // When store leaves Normal, keep Normal (caller may refine by DamageType).
+            d
+        })
+    })
+    .ok()
+    .flatten();
+    dt.unwrap_or(HostDeathType::Normal)
+}
+
+/// Resolve kill DeathType: store DeathType, else DamageType residual mapping.
+pub fn resolve_host_death_type(
+    weapon_name: Option<&str>,
+    damage_type: crate::game_logic::combat::DamageType,
+) -> crate::game_logic::host_usa_pilot::HostDeathType {
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    if let Some(n) = weapon_name {
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        if crate::game_logic::thing::ThingTemplate::weapon_from_store(n).is_some() {
+            let d = host_death_type_for_weapon_name(n);
+            if d != HostDeathType::Normal {
+                return d;
+            }
+        }
+    }
+    HostDeathType::from_host_damage_type(damage_type)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1117,5 +1153,26 @@ mod tests {
         assert_eq!(rifle, crate::game_logic::combat::DamageType::Bullet);
         let bomb = host_damage_type_for_weapon_name("AuroraBombWeapon");
         assert_eq!(bomb, crate::game_logic::combat::DamageType::Explosive);
+    }
+
+    #[test]
+    fn seeded_weapon_death_type_residual() {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        assert_eq!(
+            host_death_type_for_weapon_name("PaladinPointDefenseLaser"),
+            HostDeathType::Lasered
+        );
+        assert_eq!(
+            host_death_type_for_weapon_name("AuroraBombWeapon"),
+            HostDeathType::Exploded
+        );
+        assert_eq!(
+            resolve_host_death_type(
+                Some("PaladinPointDefenseLaser"),
+                crate::game_logic::combat::DamageType::Bullet
+            ),
+            HostDeathType::Lasered
+        );
     }
 }

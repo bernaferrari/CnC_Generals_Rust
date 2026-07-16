@@ -94,10 +94,89 @@ pub enum HostDeathType {
     /// Default combat / generic residual death (passes ALL -CRUSHED -SPLATTED).
     #[default]
     Normal,
+    /// DEATH_NONE residual.
+    None,
     /// DEATH_CRUSHED residual — blocked by EjectPilotDie DeathTypes filter.
     Crushed,
+    /// DEATH_BURNED residual (flame weapons).
+    Burned,
+    /// DEATH_EXPLODED residual (missiles / bombs).
+    Exploded,
+    /// DEATH_POISONED residual.
+    Poisoned,
+    /// DEATH_TOPPLED residual.
+    Toppled,
+    /// DEATH_FLOODED residual.
+    Flooded,
+    /// DEATH_SUICIDED residual (terrorist / demo).
+    Suicided,
+    /// DEATH_LASERED residual.
+    Lasered,
+    /// DEATH_DETONATED residual.
+    Detonated,
     /// DEATH_SPLATTED residual — blocked by EjectPilotDie DeathTypes filter.
     Splatted,
+    /// DEATH_POISONED_BETA residual.
+    PoisonedBeta,
+    /// DEATH_POISONED_GAMMA residual.
+    PoisonedGamma,
+}
+
+impl HostDeathType {
+    /// Map gamelogic / Weapon.ini DeathType residual into host DieMux death class.
+    pub fn from_store(dt: gamelogic::damage::DeathType) -> Self {
+        use gamelogic::damage::DeathType as G;
+        match dt {
+            G::Normal => Self::Normal,
+            G::None => Self::None,
+            G::Crushed => Self::Crushed,
+            G::Burned => Self::Burned,
+            G::Exploded => Self::Exploded,
+            G::Poisoned => Self::Poisoned,
+            G::Toppled => Self::Toppled,
+            G::Flooded => Self::Flooded,
+            G::Suicided => Self::Suicided,
+            G::Lasered => Self::Lasered,
+            G::Detonated => Self::Detonated,
+            G::Splatted => Self::Splatted,
+            G::PoisonedBeta => Self::PoisonedBeta,
+            G::PoisonedGamma => Self::PoisonedGamma,
+            _ => Self::Normal,
+        }
+    }
+
+    /// Coarse DamageType → DeathType residual when weapon DeathType is unset/Normal.
+    pub fn from_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Self {
+        use crate::game_logic::combat::DamageType as H;
+        match dt {
+            H::Flame | H::Fire => Self::Burned,
+            H::Laser => Self::Lasered,
+            H::Toxin | H::Anthrax => Self::Poisoned,
+            H::Explosive => Self::Exploded,
+            H::Radiation => Self::Detonated,
+            H::EMP => Self::Normal,
+            H::Bullet | H::Unresistable => Self::Normal,
+        }
+    }
+
+    pub fn as_name(self) -> &'static str {
+        match self {
+            Self::Normal => "NORMAL",
+            Self::None => "NONE",
+            Self::Crushed => "CRUSHED",
+            Self::Burned => "BURNED",
+            Self::Exploded => "EXPLODED",
+            Self::Poisoned => "POISONED",
+            Self::Toppled => "TOPPLED",
+            Self::Flooded => "FLOODED",
+            Self::Suicided => "SUICIDED",
+            Self::Lasered => "LASERED",
+            Self::Detonated => "DETONATED",
+            Self::Splatted => "SPLATTED",
+            Self::PoisonedBeta => "POISONED_BETA",
+            Self::PoisonedGamma => "POISONED_GAMMA",
+        }
+    }
 }
 
 /// Retail pilot template family residual.
