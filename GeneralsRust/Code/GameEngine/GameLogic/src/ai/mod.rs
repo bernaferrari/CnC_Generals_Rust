@@ -2552,11 +2552,28 @@ impl Pathfinder {
             return false;
         }
 
-        // LOS_TERRAIN: weapon clear firing LOS (skip for immobile — can't move around).
+        // LOS_TERRAIN: weapon clear-goal firing LOS (skip for immobile — can't move around).
+        // C++ Weapon::isClearGoalFiringLineOfSightTerrain.
         if !attacker.is_kind_of(KindOf::Immobile) {
-            // Prefer weapon clear-goal firing LOS when available.
-            // Residual: terrain line-of-sight when weapon API not attached here.
-            if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+            if let Some((weapon, _)) = attacker.get_current_weapon() {
+                let clear = if let Some(v) = victim {
+                    weapon.is_clear_goal_firing_line_of_sight_terrain(
+                        attacker.get_id(),
+                        attacker_pos,
+                        v.get_id(),
+                    )
+                } else {
+                    weapon.is_clear_goal_firing_line_of_sight_terrain_pos(
+                        attacker.get_id(),
+                        attacker_pos,
+                        victim_pos,
+                    )
+                };
+                if !clear {
+                    return true;
+                }
+            } else if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+                // Fallback when no current weapon template is attached.
                 if !terrain.is_clear_line_of_sight(attacker_pos, victim_pos) {
                     return true;
                 }
@@ -3235,6 +3252,10 @@ mod tests {
         assert!(
             w.contains("victim_cell_obstacle") && w.contains("skip_count = 3"),
             "attack LOS must skipCount=3 off-ground and ignore victimCell obstacle"
+        );
+        assert!(
+            w.contains("is_clear_goal_firing_line_of_sight_terrain"),
+            "attack LOS must use Weapon::isClearGoalFiringLineOfSightTerrain"
         );
     }
 
