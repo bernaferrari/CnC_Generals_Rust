@@ -3033,8 +3033,13 @@ impl GameLogic {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> bool {
-        let (start, can_move) = match self.objects.get(&unit_id) {
-            Some(unit) => (unit.get_position(), unit.can_move()),
+        let (start, can_move, is_aircraft) = match self.objects.get(&unit_id) {
+            Some(unit) => (
+                unit.get_position(),
+                unit.can_move(),
+                unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                    || unit.object_type == crate::game_logic::ObjectType::Aircraft,
+            ),
             None => return false,
         };
         if !can_move {
@@ -3063,8 +3068,12 @@ impl GameLogic {
             let segment = if straight < 20.0 {
                 None
             } else {
-                self.pathfinding_system
-                    .find_path(segment_start, goal, &self.objects)
+                self.pathfinding_system.find_path_ex(
+                    segment_start,
+                    goal,
+                    &self.objects,
+                    is_aircraft,
+                )
             };
 
             match segment {
