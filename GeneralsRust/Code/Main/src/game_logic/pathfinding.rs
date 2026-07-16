@@ -972,6 +972,71 @@ impl PathfindingSystem {
         self.find_path_ex(start, goal, objects, false)
     }
 
+    /// C++ `Pathfinder::circleClipsTallBuilding` residual (AIPathfind.cpp:9522).
+    ///
+    /// If a tall / AIRCRAFT_PATH_AROUND building is within `circle_radius` of `to`,
+    /// write an adjusted goal on the building's radial offset toward `from`.
+    pub fn circle_clips_tall_building(
+        from: Vec3,
+        to: Vec3,
+        circle_radius: f32,
+        objects: &HashMap<ObjectId, Object>,
+        ignore: Option<ObjectId>,
+    ) -> Option<Vec3> {
+        let mut best: Option<(Vec3, f32, f32)> = None; // bldg_pos, bldg_r, dist
+        for obj in objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            if ignore == Some(obj.id) {
+                continue;
+            }
+            let is_tall = obj.is_kind_of(crate::game_logic::KindOf::AircraftPathAround)
+                || (obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                    && obj.selection_radius >= 20.0);
+            if !is_tall {
+                continue;
+            }
+            let p = obj.get_position();
+            let bldg_r = obj.selection_radius.max(8.0) + 2.0 * 10.0;
+            let dx = p.x - to.x;
+            let dz = p.z - to.z;
+            let d = (dx * dx + dz * dz).sqrt();
+            if d > circle_radius {
+                continue;
+            }
+            match best {
+                Some((_, _, bd)) if d >= bd => {}
+                _ => best = Some((p, bldg_r, d)),
+            }
+        }
+        let Some((bldg_pos, bldg_r, _)) = best else {
+            return None;
+        };
+
+        // Offset `to` away from building center along from→to residual.
+        let mut delta_x = to.x - bldg_pos.x;
+        let mut delta_z = to.z - bldg_pos.z;
+        let mut len = (delta_x * delta_x + delta_z * delta_z).sqrt();
+        if len < 0.1 {
+            // Degenerate: push away from `from` direction.
+            delta_x = to.x - from.x;
+            delta_z = to.z - from.z;
+            len = (delta_x * delta_x + delta_z * delta_z).sqrt();
+            if len < 0.1 {
+                delta_x = 1.0;
+                delta_z = 0.0;
+                len = 1.0;
+            }
+        }
+        let scale = (bldg_r + 1.0) / len;
+        Some(Vec3::new(
+            bldg_pos.x + delta_x * scale,
+            to.y,
+            bldg_pos.z + delta_z * scale,
+        ))
+    }
+
     /// `aircraft`: apply C++ tall-building aircraft path-around residual after A*.
     pub fn find_path_ex(
         &mut self,
@@ -989,8 +1054,20 @@ impl PathfindingSystem {
         // Aircraft residual: prefer direct segment then tall-building detours
         // (ground static blocks should not force aircraft under tall structures).
         let mut path = if aircraft {
-            let direct = vec![start, goal];
-            Self::detour_path_around_tall_buildings(&direct, objects)
+            // circleClipsTallBuilding residual: nudge goal off tall footprints.
+            let goal_adj = Self::circle_clips_tall_building(
+                start, goal, 40.0, // host residual approach circle
+                objects, None,
+            )
+            .unwrap_or(goal);
+            let direct = vec![start, goal_adj];
+            let mut detoured = Self::detour_path_around_tall_buildings(&direct, objects);
+            // Keep caller endpoint as final settle if we only nudged mid-path.
+            if let Some(last) = detoured.last_mut() {
+                // Prefer adjusted goal (not original inside building).
+                *last = goal_adj;
+            }
+            detoured
         } else {
             self.grid.find_path(start_grid, goal_grid)?
         };
@@ -1014,10 +1091,11 @@ impl PathfindingSystem {
             *first = start;
         }
         if let Some(last) = path.last_mut() {
-            *last = goal;
+            // Aircraft may have circleClips-adjusted goal; keep last waypoint.
+            if !aircraft {
+                *last = goal;
+            }
         }
-        // Ground paths: still apply tall detour if AIRCRAFT_PATH_AROUND clips
-        // hierarchical air-capable ground movers? C++ only aircraft — skip.
         Some(path)
     }
 
@@ -1262,5 +1340,36 @@ mod tests {
         assert!(src.contains("AIRCRAFT_PATH_AROUND"));
         assert!(src.contains("compute_normal_radial_offset_xz"));
         assert!(src.contains("find_path_ex"));
+    }
+
+    #[test]
+    fn circle_clips_tall_building_nudges_goal() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("TallCC");
+        tmpl.add_kind_of(KindOf::Structure);
+        tmpl.add_kind_of(KindOf::AircraftPathAround);
+        let mut bldg = Object::new(tmpl, ObjectId(9), Team::USA);
+        bldg.set_position(Vec3::new(0.0, 0.0, 0.0));
+        bldg.selection_radius = 30.0;
+        objects.insert(bldg.id, bldg);
+
+        let from = Vec3::new(-100.0, 50.0, 0.0);
+        let to = Vec3::new(5.0, 50.0, 0.0); // inside building footprint
+        let adj = PathfindingSystem::circle_clips_tall_building(from, to, 80.0, &objects, None)
+            .expect("must clip");
+        let d = (adj.x * adj.x + adj.z * adj.z).sqrt();
+        // selection 30 + 20 cell pad = 50; +1 => ~51
+        assert!(
+            d >= 45.0,
+            "adjusted goal still inside building d={d} adj={adj:?}"
+        );
+    }
+
+    #[test]
+    fn circle_clips_cpp_surface() {
+        let src = include_str!("pathfinding.rs");
+        assert!(src.contains("circleClipsTallBuilding"));
+        assert!(src.contains("circle_clips_tall_building"));
     }
 }
