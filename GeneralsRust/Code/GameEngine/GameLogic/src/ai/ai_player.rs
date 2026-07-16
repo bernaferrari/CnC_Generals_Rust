@@ -7147,9 +7147,10 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::getPlayerStructureBounds(bounds, playerNdx, conservative)`.
     ///
-    /// Structure AABB; if no structures, fall back to unit AABB. When
-    /// `conservative`, skip KINDOF_CONSERVATIVE_BUILDING (tech/sneak buildings)
-    /// so base bounds stay tight for inverse-cost placement.
+    /// Structure AABB only (non-structures never contribute). When `conservative`,
+    /// skip KINDOF_CONSERVATIVE_BUILDING. No structures → zeroed bounds (C++ leaves
+    /// Region2D at 0). Final C++ `if (!firstStructure) *bounds = objBounds` is a
+    /// no-op because both AABBs only track structures.
     pub fn get_player_structure_bounds_ex(
         &self,
         player_index: i32,
@@ -7166,12 +7167,9 @@ impl AIPlayer {
             return Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)));
         };
 
-        let mut first_object = true;
         let mut first_structure = true;
         let mut struct_min = Coord3D::new(0.0, 0.0, 0.0);
         let mut struct_max = Coord3D::new(0.0, 0.0, 0.0);
-        let mut obj_min = Coord3D::new(0.0, 0.0, 0.0);
-        let mut obj_max = Coord3D::new(0.0, 0.0, 0.0);
 
         for obj_id in player_guard.get_all_objects() {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
@@ -7180,20 +7178,7 @@ impl AIPlayer {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            let pos = *obj_guard.get_position();
-
-            // Always expand unit/object bounds (C++ objBounds for no-structure fallback).
-            if first_object {
-                obj_min = Coord3D::new(pos.x, pos.y, pos.z);
-                obj_max = Coord3D::new(pos.x, pos.y, pos.z);
-                first_object = false;
-            } else {
-                obj_min.x = obj_min.x.min(pos.x);
-                obj_min.y = obj_min.y.min(pos.y);
-                obj_max.x = obj_max.x.max(pos.x);
-                obj_max.y = obj_max.y.max(pos.y);
-            }
-
+            // C++ only enters the AABB expand when isKindOf(STRUCTURE).
             if !obj_guard.is_kind_of(KindOf::Structure) {
                 continue;
             }
@@ -7202,6 +7187,7 @@ impl AIPlayer {
                 continue;
             }
 
+            let pos = *obj_guard.get_position();
             if first_structure {
                 struct_min = Coord3D::new(pos.x, pos.y, pos.z);
                 struct_max = Coord3D::new(pos.x, pos.y, pos.z);
@@ -7214,27 +7200,11 @@ impl AIPlayer {
             }
         }
 
-        // C++ AIPlayer.cpp end:
-        //   if (!firstStructure) { *bounds = objBounds; }
-        // firstStructure is false once any structure is seen, so the live C++ code
-        // overwrites structure bounds with unit bounds whenever structures exist.
-        // Comment claims the opposite ("had no structures"). Port the **code** path
-        // for parity (awkward but observable).
-        if !first_structure {
-            // Structures were found, then C++ still assigns objBounds.
-            if !first_object {
-                Ok((obj_min, obj_max))
-            } else {
-                Ok((struct_min, struct_max))
-            }
-        } else if !first_object {
-            // No structures: unit bounds remain (C++ leaves bounds zeroed if only
-            // the structure path never ran — actually C++ leaves bounds at 0,0 if
-            // no structures; objBounds is only copied when !firstStructure.
-            // So with only units and no structures, C++ returns zeroed bounds!
+        // No structures → zeroed bounds (C++ never copies unit-only bounds).
+        if first_structure {
             Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)))
         } else {
-            Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)))
+            Ok((struct_min, struct_max))
         }
     }
 
@@ -8529,8 +8499,9 @@ mod tests {
                 && window.contains("ConservativeBuilding")
                 && window.contains("KindOf::Structure")
                 && window.contains("first_structure")
-                && window.contains("obj_min"),
-            "getPlayerStructureBounds must support conservative skip and unit fallback"
+                && window.contains("only enters the AABB expand when isKindOf(STRUCTURE)")
+                && !window.contains("obj_min"),
+            "getPlayerStructureBounds must structure-only AABB + conservative skip"
         );
     }
 
