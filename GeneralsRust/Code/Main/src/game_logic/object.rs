@@ -1506,15 +1506,48 @@ impl Object {
         self.ai_state = AIState::Idle;
     }
 
+    /// True when this aircraft is parked at an airfield (ParkingPlace residual).
+    pub fn is_parked_at_airfield(&self) -> bool {
+        (self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft)
+            && self.ai_state == AIState::Docked
+            && self.contained_by.is_some()
+    }
+
+    /// C++ JetAIUpdate takeoff residual from ParkingPlace.
+    ///
+    /// Clears hangar bookkeeping, lifts to ApproachHeight (**50**), marks airborne.
+    /// Returns the airfield id that was left (if any).
+    pub fn takeoff_from_airfield_parking(&mut self) -> Option<ObjectId> {
+        if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
+            return None;
+        }
+        if self.ai_state != AIState::Docked && self.contained_by.is_none() {
+            return None;
+        }
+        let af = self.contained_by.take();
+        self.ai_state = AIState::Idle;
+        self.status.airborne_target = true;
+        // Retail AmericaAirfield ApproachHeight residual.
+        use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
+        let mut pos = self.get_position();
+        if pos.y < PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT {
+            pos.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
+            self.set_position(pos);
+        }
+        af
+    }
+
     pub fn can_attack(&self) -> bool {
         // Garrisoned units may still fire from the structure (residual
         // fire-from-garrison). Docked transport cargo and units mid-enter cannot.
+        // Docked aircraft may attack (ParkingPlace takeoff/sortie residual).
         // weapons_jammed: C++ canFireWeapon DISABLED_SUBDUED residual (ECM field).
+        let parked_aircraft = self.is_parked_at_airfield();
         self.is_alive()
             && self.weapon.is_some()
             && !self.is_disabled()
             && !self.status.weapons_jammed
-            && !matches!(self.ai_state, AIState::Docked | AIState::Entering)
+            && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Entering))
     }
 
     /// Authoritative container for docked/garrisoned units.
@@ -2954,7 +2987,12 @@ impl Object {
     }
 
     pub fn attack_target(&mut self, target_id: ObjectId) {
-        if self.can_attack() && self.is_alive() {
+        if !self.is_alive() {
+            return;
+        }
+        // Jet takeoff residual: leave hangar before engaging.
+        let _ = self.takeoff_from_airfield_parking();
+        if self.can_attack() {
             if self.pre_attack_target != Some(target_id) {
                 // New target — fire_at will start PRE_ATTACK clock.
                 self.pre_attack_target = None;
@@ -3033,20 +3071,26 @@ impl Object {
     pub fn can_move(&self) -> bool {
         // weapons_jammed intentionally does NOT block movement (weapons-only residual).
         // disabled_subdued blocks move (C++ DISABLED_SUBDUED full disable for non-projectile).
+        // Docked aircraft may move (takeoff/sortie residual).
+        let parked_aircraft = self.is_parked_at_airfield();
         self.is_mobile()
             && self.is_alive()
             && !self.status.disabled_unmanned
             && !self.status.disabled_hacked
             && !self.status.disabled_emp
             && !self.status.disabled_subdued
-            && !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
+            && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned))
     }
 
     pub fn set_destination(&mut self, destination: Vec3) {
+        let _ = self.takeoff_from_airfield_parking();
         self.move_to(destination);
     }
 
     pub fn set_target(&mut self, target: Option<ObjectId>) {
+        if target.is_some() {
+            let _ = self.takeoff_from_airfield_parking();
+        }
         self.target = target;
         if target.is_some() {
             self.target_location = None;
@@ -4528,5 +4572,52 @@ mod tests {
         jet.ai_state = AIState::Idle;
         jet.rearm_return_to_base_weapons();
         assert_eq!(jet.apply_out_of_ammo_damage_frame(), 0.0);
+    }
+
+    #[test]
+    fn parked_jet_takeoff_on_attack_and_move() {
+        use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+        tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        tmpl.add_kind_of(KindOf::Aircraft);
+        tmpl.add_kind_of(KindOf::Attackable);
+        tmpl.set_health(100.0);
+        let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
+        jet.set_position(Vec3::new(0.0, 0.0, 0.0));
+        jet.weapon = Some(Weapon {
+            damage: 50.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(4),
+            clip_size: 4,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        jet.contained_by = Some(ObjectId(99));
+        jet.ai_state = AIState::Docked;
+        jet.status.airborne_target = false;
+        assert!(jet.is_parked_at_airfield());
+        assert!(jet.can_attack()); // parked aircraft may sortie
+        jet.attack_target(ObjectId(7));
+        assert!(jet.contained_by.is_none());
+        assert_ne!(jet.ai_state, AIState::Docked);
+        assert!(jet.status.airborne_target);
+        assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
+        assert_eq!(jet.target, Some(ObjectId(7)));
+        assert_eq!(jet.ai_state, AIState::Attacking);
+
+        // Re-dock and move.
+        jet.contained_by = Some(ObjectId(99));
+        jet.ai_state = AIState::Docked;
+        jet.status.airborne_target = false;
+        jet.set_position(Vec3::new(10.0, 0.0, 0.0));
+        jet.set_destination(Vec3::new(100.0, 0.0, 0.0));
+        assert!(jet.contained_by.is_none());
+        assert!(jet.status.airborne_target || jet.ai_state != AIState::Docked);
+        assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
     }
 }
