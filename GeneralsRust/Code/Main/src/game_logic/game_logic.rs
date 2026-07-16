@@ -1206,6 +1206,8 @@ pub struct GameLogic {
     patriot_assist_laser_to_target: u32,
     /// Active residual BinaryDataStream assist lasers (DeletionUpdate lifetime).
     patriot_assist_lasers: Vec<crate::game_logic::host_base_defense::ResidualPatriotAssistLaser>,
+    /// Weapon.ini LaserName residual beams (combat fire → presentation freeze).
+    weapon_lasers: Vec<crate::game_logic::host_weapon_laser::ResidualWeaponLaser>,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
     pending_patriot_assists: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
     /// StealthDetectorUpdate DetectionRate residual scans performed.
@@ -2265,6 +2267,7 @@ impl GameLogic {
             patriot_assist_laser_from_assisted: 0,
             patriot_assist_laser_to_target: 0,
             patriot_assist_lasers: Vec::new(),
+            weapon_lasers: Vec::new(),
             pending_patriot_assists: Vec::new(),
             stealth_detector_rate_scans: 0,
             is_paused: false,
@@ -7525,6 +7528,37 @@ impl GameLogic {
                     // Instant combat residual still stamps det_ocl at fire-time impact.
                     &det_ocl,
                 );
+                // C++ Weapon.ini LaserName residual: short-lived combat beam for
+                // presentation / laser_segment_upload observe path.
+                {
+                    let a = self.objects.get(&attacker_id);
+                    let (tname, pwn, swn) = a
+                        .map(|o| {
+                            (
+                                o.template_name.as_str(),
+                                o.thing.template.primary_weapon_name.as_deref(),
+                                o.thing.template.secondary_weapon_name.as_deref(),
+                            )
+                        })
+                        .unwrap_or(("", None, None));
+                    let laser_name =
+                        crate::game_logic::weapon_bootstrap::host_laser_name_for_unit_slot(
+                            tname, pwn, swn, slot,
+                        );
+                    if !laser_name.is_empty() {
+                        let to = impact_pos.unwrap_or(muzzle_pos);
+                        self.weapon_lasers.push(
+                            crate::game_logic::host_weapon_laser::ResidualWeaponLaser::new(
+                                laser_name,
+                                attacker_id,
+                                fire_target,
+                                (muzzle_pos.x, muzzle_pos.y, muzzle_pos.z),
+                                (to.x, to.y, to.z),
+                                fire_frame,
+                            ),
+                        );
+                    }
+                }
 
                 // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest.
                 // Prefer Weapon.ini FireSound via store name; fallback "WeaponFire".
@@ -7567,6 +7601,11 @@ impl GameLogic {
         self.update_pending_patriot_assists();
         // BinaryDataStream laser residual: expire DeletionUpdate lifetime beams.
         self.update_patriot_assist_lasers();
+        // Weapon.ini LaserName residual lifetime / scroll.
+        crate::game_logic::host_weapon_laser::update_weapon_lasers(
+            &mut self.weapon_lasers,
+            self.frame,
+        );
     }
 
     fn find_ground_attack_victim(
@@ -18383,6 +18422,25 @@ impl GameLogic {
         &self,
     ) -> &[crate::game_logic::host_base_defense::ResidualPatriotAssistLaser] {
         &self.patriot_assist_lasers
+    }
+
+    /// Weapon.ini LaserName residual beams still live at the current frame.
+    pub fn active_weapon_lasers(
+        &self,
+    ) -> &[crate::game_logic::host_weapon_laser::ResidualWeaponLaser] {
+        &self.weapon_lasers
+    }
+
+    /// Presentation / test inject for LaserName residual beams.
+    pub fn push_residual_weapon_laser_for_presentation(
+        &mut self,
+        laser: crate::game_logic::host_weapon_laser::ResidualWeaponLaser,
+    ) {
+        self.weapon_lasers.push(laser);
+    }
+
+    pub fn clear_residual_weapon_lasers_for_presentation(&mut self) {
+        self.weapon_lasers.clear();
     }
 
     /// Presentation / shell residual: inject host assist lasers for snapshot tests.
