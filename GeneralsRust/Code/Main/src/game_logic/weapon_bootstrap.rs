@@ -467,6 +467,135 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini ShockWaveAmount residual (Regular).
+///
+/// Fail-closed: impulse residual on splash victims only — not full PhysicsBehavior
+/// / ground-scrape matrix.
+pub fn host_shock_wave_amount_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.shock_wave_amount.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_shock_wave_amount_for(name)
+}
+
+/// C++ Weapon.ini ShockWaveRadius residual (Regular).
+pub fn host_shock_wave_radius_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.shock_wave_radius.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_shock_wave_radius_for(name)
+}
+
+/// C++ Weapon.ini ShockWaveTaperOff residual (Regular).
+pub fn host_shock_wave_taper_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.shock_wave_taper_off.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_shock_wave_taper_for(name)
+}
+
+fn seed_shock_wave_amount_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    if n.contains("moab") {
+        return 250.0;
+    }
+    if n.contains("nuke") || n.contains("nuclear") {
+        return 150.0;
+    }
+    if n.contains("scudstorm") || (n.contains("scud") && n.contains("damage")) {
+        return 75.0;
+    }
+    if n.contains("demotrap")
+        || n.contains("terrorist")
+        || n.contains("suicide")
+        || n.contains("carbomb")
+    {
+        return 50.0;
+    }
+    if n.contains("tomahawk") {
+        return 50.0;
+    }
+    if n.contains("inferno") || n.contains("napalm") {
+        return 30.0;
+    }
+    if n.contains("tankgun") || n.contains("cannon") {
+        return 10.0;
+    }
+    0.0
+}
+
+fn seed_shock_wave_radius_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    if n.contains("moab") {
+        return 100.0;
+    }
+    if n.contains("nuke") || n.contains("nuclear") {
+        return 80.0;
+    }
+    if n.contains("scudstorm") || (n.contains("scud") && n.contains("damage")) {
+        return 50.0;
+    }
+    if n.contains("demotrap")
+        || n.contains("terrorist")
+        || n.contains("suicide")
+        || n.contains("carbomb")
+    {
+        return 40.0;
+    }
+    if n.contains("tomahawk") {
+        return 40.0;
+    }
+    if n.contains("inferno") || n.contains("napalm") {
+        return 30.0;
+    }
+    if n.contains("tankgun") || n.contains("cannon") {
+        return 15.0;
+    }
+    0.0
+}
+
+fn seed_shock_wave_taper_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    // Retail-ish default taper when amount peels non-empty.
+    if seed_shock_wave_amount_for(name) > 0.0 {
+        return 0.75;
+    }
+    0.0
+}
+
 /// C++ Weapon.ini SecondaryDamage residual amount (Regular).
 ///
 /// Fail-closed: name peel / store lookup only — applied as outer splash ring
@@ -3840,6 +3969,18 @@ mod tests {
         assert_eq!(seed_secondary_damage_for("AmericaTankCrusaderGun"), 0.0);
         assert_eq!(
             host_secondary_damage_for_weapon_name("UnknownWeaponXYZ"),
+            0.0
+        );
+    }
+
+    #[test]
+    fn shock_wave_for_seeded_weapons_residual() {
+        assert_eq!(seed_shock_wave_amount_for("MOABDetonationWeapon"), 250.0);
+        assert_eq!(seed_shock_wave_radius_for("MOABDetonationWeapon"), 100.0);
+        assert!((seed_shock_wave_taper_for("MOABDetonationWeapon") - 0.75).abs() < 1e-3);
+        assert_eq!(seed_shock_wave_amount_for("AmericaTankCrusaderGun"), 0.0);
+        assert_eq!(
+            host_shock_wave_amount_for_weapon_name("UnknownWeaponXYZ"),
             0.0
         );
     }
