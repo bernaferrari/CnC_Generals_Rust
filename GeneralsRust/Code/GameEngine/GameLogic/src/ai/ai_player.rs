@@ -7223,68 +7223,9 @@ impl AIPlayer {
 }
 
 impl Snapshot for AIPlayer {
-    fn crc(&self, xfer: &mut dyn Xfer) {
-        let mut ready_to_build_team = self.ready_to_build_team;
-        let _ = xfer.xfer_bool(&mut ready_to_build_team);
-
-        let mut ready_to_build_structure = self.ready_to_build_structure;
-        let _ = xfer.xfer_bool(&mut ready_to_build_structure);
-
-        let mut team_timer = self.team_timer as i32;
-        let _ = xfer.xfer_int(&mut team_timer);
-
-        let mut structure_timer = self.structure_timer as i32;
-        let _ = xfer.xfer_int(&mut structure_timer);
-
-        let mut build_delay = self.build_delay as i32;
-        let _ = xfer.xfer_int(&mut build_delay);
-
-        let mut team_delay = self.team_delay as i32;
-        let _ = xfer.xfer_int(&mut team_delay);
-
-        let mut team_seconds = self.team_seconds.round() as i32;
-        let _ = xfer.xfer_int(&mut team_seconds);
-
-        let mut cur_warehouse_id = self.current_warehouse_id.unwrap_or(INVALID_ID);
-        let _ = xfer.xfer_object_id(&mut cur_warehouse_id);
-
-        let mut frame_last_building_built = self.frame_last_building_built as i32;
-        let _ = xfer.xfer_int(&mut frame_last_building_built);
-
-        let mut difficulty = self.difficulty as i32;
-        let _ = xfer.xfer_int(&mut difficulty);
-
-        let mut skillset_selector = self.skillset_selector;
-        let _ = xfer.xfer_int(&mut skillset_selector);
-
-        let mut base_center = self.base_center;
-        xfer.xfer_coord3d(&mut base_center);
-
-        let mut base_center_set = self.base_center_set;
-        let _ = xfer.xfer_bool(&mut base_center_set);
-
-        let mut base_radius = self.base_radius;
-        let _ = xfer.xfer_real(&mut base_radius);
-
-        for i in 0..MAX_STRUCTURES_TO_REPAIR {
-            let mut id = self.structures_to_repair[i].unwrap_or(INVALID_ID);
-            let _ = xfer.xfer_object_id(&mut id);
-        }
-
-        let mut repair_dozer = self.repair_dozer.unwrap_or(INVALID_ID);
-        let _ = xfer.xfer_object_id(&mut repair_dozer);
-
-        let mut structures_in_queue = self.structures_in_queue;
-        let _ = xfer.xfer_int(&mut structures_in_queue);
-
-        let mut dozer_queued_for_repair = self.dozer_queued_for_repair;
-        let _ = xfer.xfer_bool(&mut dozer_queued_for_repair);
-
-        let mut dozer_is_repairing = self.dozer_is_repairing;
-        let _ = xfer.xfer_bool(&mut dozer_is_repairing);
-
-        let mut bridge_timer = self.bridge_timer as i32;
-        let _ = xfer.xfer_int(&mut bridge_timer);
+    /// C++ `AIPlayer::crc` is empty (no fields hashed).
+    fn crc(&self, _xfer: &mut dyn Xfer) {
+        // Intentionally empty — matches GeneralsMD AIPlayer.cpp.
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
@@ -8263,6 +8204,22 @@ mod tests {
         assert!(
             h.contains("pub fn get_extent(&self)") && h.contains("guard.get_extent()"),
             "TheTerrainLogic must expose get_extent"
+        );
+    }
+
+    #[test]
+    fn ai_player_crc_is_empty_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("/// C++ `AIPlayer::crc` is empty")
+            .expect("crc doc");
+        let j = src[i..].find("fn xfer(").expect("xfer after crc") + i;
+        let window = &src[i..j];
+        assert!(
+            window.contains("Intentionally empty")
+                && !window.contains("ready_to_build_team")
+                && !window.contains("xfer_bool"),
+            "AIPlayer::crc must be empty like C++"
         );
     }
 
