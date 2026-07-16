@@ -687,14 +687,8 @@ impl AISkirmishPlayer {
             return;
         }
 
-        if self.is_under_powered() {
-            self.prioritize_power_buildings();
-        }
-
-        if self.enemy_threat_detected() {
-            self.prioritize_defensive_buildings();
-        }
-
+        // C++ walks BuildListInfo once: power preference is inline (FS_POWER pick),
+        // not a separate prioritize_* residual pass.
         let current_frame = TheGameLogic::get_frame();
         // C++: TheAI->getAiData()->m_rebuildDelaySeconds * LOGICFRAMES_PER_SECOND
         // Retail AIData = 30; fall back when AIData unloaded / zero.
@@ -2953,6 +2947,25 @@ mod tests {
                 && w.contains("queue_units")
                 && !w.contains("analyze_enemy_composition"),
             "processTeamBuilding must only selectTeamToBuild + queueUnits like C++"
+        );
+    }
+
+    #[test]
+    fn process_base_building_no_prioritize_residual_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("fn process_base_building(&mut self)")
+            .expect("process_base_building");
+        let w = &src[i..src.len().min(i + 2500)];
+        assert!(
+            !w.contains("prioritize_power_buildings")
+                && !w.contains("prioritize_defensive_buildings")
+                && w.contains("is_under_powered")
+                && w.contains("power_plan"),
+            "skirmish processBaseBuilding must pick power inline from build list like C++"
         );
     }
 
