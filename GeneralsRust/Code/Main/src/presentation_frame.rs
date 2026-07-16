@@ -432,9 +432,17 @@ impl UnitRenderInput {
         }
     }
 
-    /// World matrix for the unit mesh pass (translation + Y rotation).
+    /// World matrix for the unit mesh pass (translation + Y rotation + mesh scale).
+    /// Scale is presentation-frozen from the template residual (default 1.0).
     pub fn world_matrix(&self) -> glam::Mat4 {
-        glam::Mat4::from_translation(self.position) * glam::Mat4::from_rotation_y(self.orientation)
+        let scale = if self.mesh_scale.is_finite() && self.mesh_scale > 0.0 {
+            self.mesh_scale
+        } else {
+            1.0
+        };
+        glam::Mat4::from_translation(self.position)
+            * glam::Mat4::from_rotation_y(self.orientation)
+            * glam::Mat4::from_scale(glam::Vec3::splat(scale))
     }
 
     /// Never-explored skip for the main mesh pass (snapshot FOW only).
@@ -5195,6 +5203,39 @@ impl PresentationFrame {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn unit_render_input_world_matrix_applies_mesh_scale() {
+        use super::*;
+        use glam::Vec3;
+        let mut u = UnitRenderInput {
+            id: ObjectId(1),
+            template_name: "T".into(),
+            model_key: "M".into(),
+            mesh_scale: 2.0,
+            team: Team::USA,
+            team_color: [1.0, 1.0, 1.0, 1.0],
+            position: Vec3::new(10.0, 0.0, 20.0),
+            orientation: 0.0,
+            selected: false,
+            selection_radius: 5.0,
+            is_structure: false,
+            is_unit: true,
+            engine_bridged: false,
+            fow_visibility: ObjectVisibility::FULLY_VISIBLE,
+        };
+        let m = u.world_matrix();
+        // Column-major: scale is on the diagonal of the upper 3x3 after T*R*S.
+        let sx = m.x_axis.truncate().length();
+        let sy = m.y_axis.truncate().length();
+        let sz = m.z_axis.truncate().length();
+        assert!((sx - 2.0).abs() < 1e-4 && (sy - 2.0).abs() < 1e-4 && (sz - 2.0).abs() < 1e-4);
+        assert!((m.w_axis.x - 10.0).abs() < 1e-4 && (m.w_axis.z - 20.0).abs() < 1e-4);
+
+        u.mesh_scale = 0.0; // invalid → treat as 1.0
+        let m1 = u.world_matrix();
+        assert!((m1.x_axis.truncate().length() - 1.0).abs() < 1e-4);
+    }
 
     #[test]
     fn overlay_gameworld_shadow_copies_entity_residual() {
