@@ -742,18 +742,21 @@ impl PathfindingSystem {
     /// PATHFIND_CELLS_PER_FRAME budget (C++ m_cumulativeCellsAllocated).
     /// C++ `m_logicalExtent` refresh from terrain (AIPathfind.cpp:5887-5897).
     pub fn refresh_logical_extent(&mut self) {
-        // Prefer live terrain extent when available; else full pathfind grid.
+        // C++: TheTerrainLogic->getExtent → floor(/PATHFIND_CELL_SIZE_F); hi--.
         let (lo, hi) = if let Some(terrain) = TheTerrainLogic::get() {
-            // Terrain extent is world-space; convert to cells like C++.
-            // Fallback if API differs: full grid.
-            let _ = terrain;
-            (
-                ICoord2D::new(0, 0),
-                ICoord2D::new(
-                    self.width.saturating_sub(1) as i32,
-                    self.height.saturating_sub(1) as i32,
-                ),
-            )
+            let ext = terrain.get_extent();
+            let mut lo_x = (ext.lo.x / PATHFIND_CELL_SIZE_F).floor() as i32;
+            let mut lo_y = (ext.lo.y / PATHFIND_CELL_SIZE_F).floor() as i32;
+            let mut hi_x = (ext.hi.x / PATHFIND_CELL_SIZE_F).floor() as i32;
+            let mut hi_y = (ext.hi.y / PATHFIND_CELL_SIZE_F).floor() as i32;
+            hi_x -= 1;
+            hi_y -= 1;
+            // Clamp to pathfind map.
+            lo_x = lo_x.max(0);
+            lo_y = lo_y.max(0);
+            hi_x = hi_x.min(self.width.saturating_sub(1) as i32).max(lo_x);
+            hi_y = hi_y.min(self.height.saturating_sub(1) as i32).max(lo_y);
+            (ICoord2D::new(lo_x, lo_y), ICoord2D::new(hi_x, hi_y))
         } else {
             (
                 ICoord2D::new(0, 0),
@@ -764,7 +767,6 @@ impl PathfindingSystem {
             )
         };
         self.logical_extent_lo = lo;
-        // C++ decrements hi after floor division of world extent.
         self.logical_extent_hi = hi;
     }
 
@@ -813,11 +815,24 @@ impl PathfindingSystem {
                     break;
                 };
                 drop(oq);
-                if let Ok(mut queue) = self.request_queue.lock() {
-                    if let Some(pos) = queue.iter().position(|r| r.object_id == id) {
-                        let req = queue.remove(pos).expect("pos");
-                        drop(queue);
-                        let _ = self.find_path_internal(req);
+                // C++: Object* obj = findObjectByID; if (ai) ai->doPathfind(this);
+                if id != INVALID_ID {
+                    if let Some(obj_arc) = OBJECT_REGISTRY.get_object(id) {
+                        if let Ok(obj_g) = obj_arc.read() {
+                            if let Some(ai) = obj_g.get_ai_update_interface() {
+                                drop(obj_g);
+                                if let Ok(mut ai_g) = ai.lock() {
+                                    ai_g.do_pathfind();
+                                }
+                            }
+                        }
+                    } else if let Ok(mut queue) = self.request_queue.lock() {
+                        // Fallback: PathRequest residual for host/tests without registry object.
+                        if let Some(pos) = queue.iter().position(|r| r.object_id == id) {
+                            let req = queue.remove(pos).expect("pos");
+                            drop(queue);
+                            let _ = self.find_path_internal(req);
+                        }
                     }
                 }
                 processed += 1;
@@ -825,7 +840,7 @@ impl PathfindingSystem {
             }
         }
 
-        // Also drain residual PathRequest queue for host/tests without ObjectID ring.
+        // Also drain PathRequest queue for host/tests without ObjectID ring.
         if let Ok(mut queue) = self.request_queue.lock() {
             while (self.cumulative_cells_allocated() as usize) < cell_budget && !queue.is_empty() {
                 if let Some(request) = queue.pop_front() {
@@ -10615,5 +10630,41 @@ mod tests {
             &to,
         );
         assert!(bad >= 0x7fff_0000u32 as f32 * 0.5);
+    }
+
+    #[test]
+    fn refresh_logical_extent_from_terrain_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn refresh_logical_extent")
+            .expect("refreshLogicalExtent");
+        let w = &prod[i..prod.len().min(i + 1500)];
+        assert!(
+            w.contains("get_extent")
+                && w.contains("PATHFIND_CELL_SIZE_F")
+                && w.contains("hi_x -= 1"),
+            "refresh_logical_extent must floor terrain extent / cell size and decrement hi"
+        );
+    }
+
+    #[test]
+    fn process_queue_calls_do_pathfind_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn process_queue")
+            .expect("processPathfindQueue");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("do_pathfind"),
+            "processPathfindQueue must call AIUpdateInterface::doPathfind"
+        );
     }
 }
