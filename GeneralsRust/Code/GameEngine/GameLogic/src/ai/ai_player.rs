@@ -40,6 +40,7 @@ use crate::supply_system::BASE_VALUE_PER_SUPPLY_BOX;
 use crate::team::get_team_factory;
 use crate::upgrade::center::with_upgrade_center;
 use crate::upgrade::template::UpgradeType;
+use game_engine::common::system::build_assistant::LocalLegalToBuildOptions;
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock};
@@ -4692,14 +4693,23 @@ impl AIPlayer {
             pos.z += terrain.get_ground_height(pos.x, pos.y, None);
         }
 
-        // C++ first check: NO_ENEMY_OBJECT_OVERLAP only — fail hard if enemies.
-        let validator = FoundationValidator::new_ai();
-        if !self.is_location_safe(&pos, template.as_ref()) {
-            // Approximate enemy-overlap reject (C++ NO_ENEMY_OBJECT_OVERLAP).
+        // C++ first check: BuildAssistant::NO_ENEMY_OBJECT_OVERLAP only.
+        let enemy_only = FoundationValidator::from_build_options(
+            LocalLegalToBuildOptions::NO_ENEMY_OBJECT_OVERLAP,
+        );
+        if enemy_only
+            .validate_placement(&pos, template_name, angle, self.player_id as ObjectID)
+            .is_err()
+        {
             return Ok(None);
         }
 
         // C++ CLEAR_PATH | TERRAIN_RESTRICTIONS | NO_OBJECT_OVERLAP; wiggle if illegal.
+        let validator = FoundationValidator::from_build_options(
+            LocalLegalToBuildOptions::CLEAR_PATH
+                | LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
+                | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP,
+        );
         let is_skirmish = self.is_skirmish_ai_player();
         let mut legal = validator
             .validate_placement(&pos, template_name, angle, self.player_id as ObjectID)
@@ -4792,7 +4802,9 @@ impl AIPlayer {
                 legal = true;
             } else {
                 // C++ final fallback: NO_ENEMY_OBJECT_OVERLAP only.
-                legal = self.is_location_safe(&pos, template.as_ref());
+                legal = enemy_only
+                    .validate_placement(&pos, template_name, angle, self.player_id as ObjectID)
+                    .is_ok();
             }
         }
         if !legal {
@@ -8645,7 +8657,10 @@ mod tests {
                 && window.contains("set_build_task")
                 && window.contains("UnderConstruction")
                 && window.contains("decrement_num_rebuilds")
-                && window.contains("is_location_safe")
+                && window.contains("LocalLegalToBuildOptions::NO_ENEMY_OBJECT_OVERLAP")
+                && window.contains("LocalLegalToBuildOptions::CLEAR_PATH")
+                && window.contains("LocalLegalToBuildOptions::NO_OBJECT_OVERLAP")
+                && !window.contains("is_location_safe(&pos")
                 && window.contains("120.0 * PATHFIND_CELL_SIZE_F")
                 && window.contains("prefer location match")
                 && window.contains("client_safe_quick_does_path_exist")
