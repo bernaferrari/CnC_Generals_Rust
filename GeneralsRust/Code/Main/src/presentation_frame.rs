@@ -1981,9 +1981,27 @@ impl PresentationFrame {
             // Prefer explicit template model name so mesh resolve matches live collect path.
             // Alias remap (airanger → airanger_s) keeps PresentationFrame model_key aligned
             // with shipped W3D basenames for the residual mesh asset resolve path.
-            let model_key = Some(crate::assets::mesh_asset_resolve::model_key_from_template(
-                obj.get_template(),
-            ));
+            let base_model_key =
+                crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
+            let destroyed_for_mesh = obj.status.destroyed || !obj.is_alive();
+            let body_ord = {
+                use crate::game_logic::host_enum_table_residual::{
+                    host_calc_body_damage_state, HostBodyDamageType,
+                };
+                let state = if destroyed_for_mesh {
+                    HostBodyDamageType::Rubble
+                } else {
+                    host_calc_body_damage_state(obj.health.current, obj.health.maximum.max(0.0))
+                };
+                state as u8
+            };
+            let model_key = Some(
+                crate::assets::mesh_asset_resolve::model_key_with_body_damage(
+                    &base_model_key,
+                    body_ord,
+                    destroyed_for_mesh,
+                ),
+            );
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
             let mesh_scale =
                 crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
