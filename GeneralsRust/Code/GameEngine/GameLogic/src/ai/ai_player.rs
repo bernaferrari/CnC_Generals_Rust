@@ -4307,25 +4307,7 @@ impl AIPlayer {
             i += 1;
         }
 
-        // Residual: assign waiting work orders to factories (host factory bridge).
-        let mut orders_to_process: Vec<(usize, usize, String)> = Vec::new();
-        for (team_idx, team) in self.team_build_queue.iter().enumerate() {
-            for (order_idx, order) in team.work_orders.iter().enumerate() {
-                if order.is_waiting_to_build() {
-                    orders_to_process.push((team_idx, order_idx, order.thing_template.clone()));
-                }
-            }
-        }
-        for (team_idx, order_idx, thing_template) in orders_to_process {
-            let factory_id = self.find_factory_internal(&thing_template, false)?;
-            if let Some(team) = self.team_build_queue.get_mut(team_idx) {
-                if let Some(order) = team.work_orders.get_mut(order_idx) {
-                    if factory_id.is_some() {
-                        order.factory_id = factory_id;
-                    }
-                }
-            }
-        }
+        // C++ checkQueuedTeams does not bind factories here — queueUnits does.
 
         Ok(())
     }
@@ -4385,9 +4367,17 @@ impl AIPlayer {
             return Ok(());
         }
 
+        // C++: if (!getSciencePurchasePoints()) return; before sideInfo walk.
+        let purchase_points_early = self
+            .get_player()
+            .and_then(|p| p.read().ok().map(|g| g.get_science_purchase_points()))
+            .unwrap_or(0);
+        if purchase_points_early <= 0 {
+            return Ok(());
+        }
+
         // Find the AiSideInfo for our player's side
-        // C++ AIPlayer.cpp:2917-2926 — skillset is chosen even when science
-        // points are still 0 (purchase gated later).
+        // C++ AIPlayer.cpp:2917-2926
         let player_side = {
             let Some(player_arc) = self.get_player() else {
                 return Ok(());
@@ -4413,7 +4403,7 @@ impl AIPlayer {
         };
 
         // Skillset selection: pick randomly among defined skillsets
-        // C++ AIPlayer.cpp:2928-2948 (before science-points gate).
+        // C++ AIPlayer.cpp:2928-2948 (after science-points early-out).
         if self.skillset_selector == INVALID_SKILLSET_SELECTION {
             let mut limit: u32 = 0;
             // Pick randomly among the skillsets that have skills.
@@ -8002,7 +7992,7 @@ mod tests {
     }
 
     #[test]
-    fn skillset_selected_before_science_points_like_cpp() {
+    fn science_points_early_out_before_skillset_like_cpp() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src
             .find("pub(crate) fn do_upgrades_and_skills")
@@ -8018,18 +8008,38 @@ mod tests {
         let skillset_idx = w
             .find("skillset_selector == INVALID_SKILLSET_SELECTION")
             .expect("skillset pick");
-        let purchase_idx = w
-            .find("get_science_purchase_points")
-            .expect("purchase points");
-        assert!(
-            skillset_idx < purchase_idx,
-            "C++ selects skillset before science-points gate; Rust must match order"
-        );
-        // No early purchase-points return before side_info / skillset.
         let early = &w[..skillset_idx];
         assert!(
-            !early.contains("purchase_points_early") && !early.contains("if purchase_points <= 0"),
-            "must not early-out on science points before skillset selection"
+            early.contains("purchase_points_early")
+                && early.contains("if purchase_points_early <= 0"),
+            "C++ returns when science points are 0 before skillset selection"
+        );
+    }
+
+    #[test]
+    fn check_queued_teams_no_factory_residual_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub(crate) fn check_queued_teams")
+            .expect("check_queued_teams");
+        let end = src[i..]
+            .find(
+                "
+    /// C++ `AIPlayer::doTeamBuilding`",
+            )
+            .map(|o| i + o)
+            .unwrap_or(src.len().min(i + 5000));
+        let w = &src[i..end];
+        assert!(
+            !w.contains("orders_to_process")
+                && !w.contains("find_factory_internal(&thing_template"),
+            "checkQueuedTeams must not assign factory_id residual"
+        );
+        assert!(
+            w.contains("is_build_time_expired")
+                && w.contains("is_all_built")
+                && w.contains("get_execute_actions_on_create"),
+            "checkQueuedTeams must keep expire/all-built/executeActions phases"
         );
     }
 
