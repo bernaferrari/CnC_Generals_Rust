@@ -2167,6 +2167,35 @@ impl Pathfinder {
             .client_safe_quick_does_path_exist_for_ui(surfaces, from, to)
     }
 
+    /// C++ `Pathfinder::slowDoesPathExist` — full A* with optional ignore obstacle.
+    pub fn slow_does_path_exist(
+        &self,
+        obj: &Object,
+        from: &Coord3D,
+        to: &Coord3D,
+        ignore_object: Option<ObjectID>,
+    ) -> bool {
+        let Some(ai) = obj.get_ai_update_interface() else {
+            return false;
+        };
+        let Ok(ai_guard) = ai.lock() else {
+            return false;
+        };
+        let Some(loco_set) = ai_guard.get_locomotor_set_clone() else {
+            return false;
+        };
+        let surfaces = loco_set.get_valid_surfaces();
+        let is_crusher = obj.get_crusher_level() > 0;
+        self.inner.slow_does_path_exist_ex(
+            from,
+            to,
+            surfaces,
+            is_crusher,
+            ignore_object,
+            obj.get_id(),
+        )
+    }
+
     pub fn is_line_passable_for_surfaces(
         &self,
         from: &Coord3D,
@@ -2609,6 +2638,24 @@ mod tests {
                 && complete.contains("ground_connect_cells")
                 && complete.contains("bridge_object_id"),
             "BridgeLayer must expose connectsZones + ground_connect_cells + object id"
+        );
+    }
+
+    #[test]
+    fn slow_does_path_exist_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn slow_does_path_exist(")
+            .expect("slowDoesPathExist");
+        let w = &prod[i..prod.len().min(i + 1200)];
+        assert!(
+            w.contains("get_ai_update_interface")
+                && w.contains("get_locomotor_set_clone")
+                && w.contains("ignore_object")
+                && w.contains("slow_does_path_exist_ex")
+                && w.contains("get_crusher_level"),
+            "Pathfinder::slowDoesPathExist must match C++ obj/loco/ignore path"
         );
     }
 
