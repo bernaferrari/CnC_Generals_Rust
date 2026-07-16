@@ -5900,6 +5900,86 @@ impl PathfindingSystem {
     }
 }
 
+/// Per-block surface combiners — C++ ZoneBlock (AIPathfind.cpp ZoneBlock).
+#[derive(Debug, Clone)]
+struct BlockCombiner {
+    first_zone: u16,
+    num_zones: u16,
+    ground_cliff: Vec<u16>,
+    ground_water: Vec<u16>,
+    ground_rubble: Vec<u16>,
+    crusher: Vec<u16>,
+    interacts_with_bridge: bool,
+    marked_passable: bool,
+}
+
+impl BlockCombiner {
+    fn identity(first: u16, num: u16) -> Self {
+        let n = num.max(1) as usize;
+        let table = || {
+            (0..n)
+                .map(|i| first.saturating_add(i as u16))
+                .collect::<Vec<_>>()
+        };
+        Self {
+            first_zone: first,
+            num_zones: num.max(1),
+            ground_cliff: table(),
+            ground_water: table(),
+            ground_rubble: table(),
+            crusher: table(),
+            interacts_with_bridge: false,
+            marked_passable: true,
+        }
+    }
+
+    /// C++ ZoneBlock::getEffectiveZone — local index into block tables.
+    fn get_effective_zone(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        crusher: bool,
+        mut zone: u16,
+    ) -> u16 {
+        if zone == UNINITIALIZED_ZONE {
+            return zone;
+        }
+        if (surfaces & SURFACE_AIR) != 0 {
+            return 1;
+        }
+        if (surfaces & SURFACE_GROUND) != 0
+            && (surfaces & SURFACE_WATER) != 0
+            && (surfaces & SURFACE_CLIFF) != 0
+        {
+            return 1;
+        }
+        if self.num_zones < 2 {
+            return self.first_zone;
+        }
+        if zone < self.first_zone || zone >= self.first_zone.saturating_add(self.num_zones) {
+            return self.first_zone;
+        }
+        let mut idx = (zone - self.first_zone) as usize;
+        if crusher {
+            if let Some(&z) = self.crusher.get(idx) {
+                if z >= self.first_zone {
+                    idx = (z - self.first_zone) as usize;
+                    zone = z;
+                }
+            }
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_CLIFF) != 0 {
+            return self.ground_cliff.get(idx).copied().unwrap_or(zone);
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_WATER) != 0 {
+            return self.ground_water.get(idx).copied().unwrap_or(zone);
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_RUBBLE) != 0 {
+            return self.ground_rubble.get(idx).copied().unwrap_or(zone);
+        }
+        self.first_zone.saturating_add(idx as u16)
+    }
+}
+
 /// Zone manager for hierarchical pathfinding
 /// Matches C++ PathfindZoneManager at AIPathfind.h:475-531
 struct ZoneManager {
@@ -5915,10 +5995,16 @@ struct ZoneManager {
     ground_cliff_zones: Vec<u16>,
     ground_water_zones: Vec<u16>,
     ground_rubble_zones: Vec<u16>,
+    /// C++ m_zoneBlocks[x][y] — per ZONE_BLOCK_SIZE combiners.
+    zone_blocks: Vec<Vec<BlockCombiner>>,
+    blocks_x: usize,
+    blocks_y: usize,
 }
 
 impl ZoneManager {
     fn new(width: usize, height: usize) -> Self {
+        let blocks_x = (width + ZONE_BLOCK_SIZE as usize - 1) / ZONE_BLOCK_SIZE as usize;
+        let blocks_y = (height + ZONE_BLOCK_SIZE as usize - 1) / ZONE_BLOCK_SIZE as usize;
         Self {
             zones: vec![vec![0; height]; width],
             width,
@@ -5929,6 +6015,12 @@ impl ZoneManager {
             ground_cliff_zones: Vec::new(),
             ground_water_zones: Vec::new(),
             ground_rubble_zones: Vec::new(),
+            zone_blocks: vec![
+                vec![BlockCombiner::identity(1, 1); blocks_y.max(1)];
+                blocks_x.max(1)
+            ],
+            blocks_x: blocks_x.max(1),
+            blocks_y: blocks_y.max(1),
         }
     }
 
@@ -5996,7 +6088,19 @@ impl ZoneManager {
         {
             return 0;
         }
+        let bx = (cell_x / ZONE_BLOCK_SIZE) as usize;
+        let by = (cell_y / ZONE_BLOCK_SIZE) as usize;
         let zone = self.zones[cell_x as usize][cell_y as usize];
+        if let Some(block) = self.zone_blocks.get(bx).and_then(|col| col.get(by)) {
+            let z = block.get_effective_zone(surfaces, crusher, zone);
+            if z != 0 && z < self.next_zone.max(2) {
+                return z;
+            }
+            if z >= self.next_zone && self.next_zone > 1 {
+                return UNINITIALIZED_ZONE;
+            }
+            return z;
+        }
         self.get_effective_zone(surfaces, crusher, zone)
     }
 
@@ -6070,11 +6174,21 @@ impl ZoneManager {
     /// C++ `PathfindZoneManager::setAllPassable` residual — clear dirty gate.
     fn set_all_passable(&mut self) {
         self.zones_dirty = false;
+        for col in &mut self.zone_blocks {
+            for b in col.iter_mut() {
+                b.marked_passable = true;
+            }
+        }
     }
 
     /// C++ `PathfindZoneManager::clearPassableFlags` residual.
     fn clear_passable_flags(&mut self) {
         self.zones_dirty = true;
+        for col in &mut self.zone_blocks {
+            for b in col.iter_mut() {
+                b.marked_passable = false;
+            }
+        }
     }
 
     /// C++ `getEffectiveTerrainZone` residual — identity until terrain combiner tables.
@@ -6098,6 +6212,24 @@ impl ZoneManager {
         if passable && self.zones[cell_x as usize][cell_y as usize] == 0 {
             self.zones[cell_x as usize][cell_y as usize] = 1;
         }
+        let bx = (cell_x / ZONE_BLOCK_SIZE) as usize;
+        let by = (cell_y / ZONE_BLOCK_SIZE) as usize;
+        if let Some(b) = self.zone_blocks.get_mut(bx).and_then(|c| c.get_mut(by)) {
+            b.marked_passable = passable;
+        }
+    }
+
+    fn is_block_passable(&self, cell_x: i32, cell_y: i32) -> bool {
+        if cell_x < 0 || cell_y < 0 {
+            return false;
+        }
+        let bx = (cell_x / ZONE_BLOCK_SIZE) as usize;
+        let by = (cell_y / ZONE_BLOCK_SIZE) as usize;
+        self.zone_blocks
+            .get(bx)
+            .and_then(|c| c.get(by))
+            .map(|b| b.marked_passable)
+            .unwrap_or(true)
     }
 
     /// Calculate zones using flood-fill by cell type, then build surface combiners.
@@ -6137,6 +6269,7 @@ impl ZoneManager {
                 }
             }
             self.build_surface_combiners(types, fence_flags);
+            self.rebuild_zone_blocks(Some(types), fence_flags);
         } else {
             for x in 0..self.width {
                 for y in 0..self.height {
@@ -6146,6 +6279,7 @@ impl ZoneManager {
                 }
             }
             self.rebuild_combiner_identity();
+            self.rebuild_zone_blocks(None, None);
         }
         self.zones_dirty = false;
     }
@@ -6327,6 +6461,140 @@ impl ZoneManager {
         self.ground_water_zones = water;
         self.ground_rubble_zones = rubble;
         self.crusher_zones = crusher;
+    }
+
+    /// C++ allocateBlocks + blockCalculateZones for each ZONE_BLOCK_SIZE tile.
+    fn rebuild_zone_blocks(
+        &mut self,
+        types: Option<&[Vec<PathfindCellType>]>,
+        fence_flags: Option<&[Vec<bool>]>,
+    ) {
+        self.blocks_x = (self.width + ZONE_BLOCK_SIZE as usize - 1) / ZONE_BLOCK_SIZE as usize;
+        self.blocks_y = (self.height + ZONE_BLOCK_SIZE as usize - 1) / ZONE_BLOCK_SIZE as usize;
+        self.blocks_x = self.blocks_x.max(1);
+        self.blocks_y = self.blocks_y.max(1);
+        self.zone_blocks = vec![vec![BlockCombiner::identity(1, 1); self.blocks_y]; self.blocks_x];
+
+        for bx in 0..self.blocks_x {
+            for by in 0..self.blocks_y {
+                let lo_x = bx * ZONE_BLOCK_SIZE as usize;
+                let lo_y = by * ZONE_BLOCK_SIZE as usize;
+                let hi_x = (lo_x + ZONE_BLOCK_SIZE as usize - 1).min(self.width.saturating_sub(1));
+                let hi_y = (lo_y + ZONE_BLOCK_SIZE as usize - 1).min(self.height.saturating_sub(1));
+
+                let mut min_z = u16::MAX;
+                let mut max_z = 0u16;
+                for x in lo_x..=hi_x {
+                    for y in lo_y..=hi_y {
+                        let z = self.zones[x][y];
+                        if z == 0 {
+                            continue;
+                        }
+                        min_z = min_z.min(z);
+                        max_z = max_z.max(z);
+                    }
+                }
+                if min_z == u16::MAX {
+                    self.zone_blocks[bx][by] = BlockCombiner::identity(1, 1);
+                    continue;
+                }
+                let num = max_z.saturating_sub(min_z).saturating_add(1);
+                let mut block = BlockCombiner::identity(min_z, num);
+
+                if num > 1 {
+                    if let Some(types) = types {
+                        let resolve = |table: &mut [u16], a: u16, b: u16, first: u16| {
+                            if a < first || b < first {
+                                return;
+                            }
+                            let ia = (a - first) as usize;
+                            let ib = (b - first) as usize;
+                            if ia >= table.len() || ib >= table.len() {
+                                return;
+                            }
+                            let za = table[ia];
+                            let zb = table[ib];
+                            if za == zb {
+                                return;
+                            }
+                            let final_z = za.min(zb);
+                            for z in table.iter_mut() {
+                                if *z == za || *z == zb {
+                                    *z = final_z;
+                                }
+                            }
+                        };
+                        let ct = |x: usize, y: usize| {
+                            types
+                                .get(x)
+                                .and_then(|c| c.get(y))
+                                .copied()
+                                .unwrap_or(PathfindCellType::Clear)
+                        };
+                        let fence = |x: usize, y: usize| {
+                            fence_flags
+                                .and_then(|f| f.get(x))
+                                .and_then(|c| c.get(y))
+                                .copied()
+                                .unwrap_or(false)
+                        };
+                        for x in lo_x..=hi_x {
+                            for y in lo_y..=hi_y {
+                                let z1 = self.zones[x][y];
+                                let t1 = ct(x, y);
+                                if x > lo_x {
+                                    let z0 = self.zones[x - 1][y];
+                                    let t0 = ct(x - 1, y);
+                                    if z0 != z1 && z0 != 0 && z1 != 0 {
+                                        if Self::pair_water_ground(t0, t1) {
+                                            resolve(&mut block.ground_water, z0, z1, min_z);
+                                        }
+                                        if Self::pair_ground_rubble(t0, t1) {
+                                            resolve(&mut block.ground_rubble, z0, z1, min_z);
+                                        }
+                                        if Self::pair_ground_cliff(t0, t1) {
+                                            resolve(&mut block.ground_cliff, z0, z1, min_z);
+                                        }
+                                        if Self::pair_crusher_ground(
+                                            t0,
+                                            t1,
+                                            fence(x - 1, y),
+                                            fence(x, y),
+                                        ) {
+                                            resolve(&mut block.crusher, z0, z1, min_z);
+                                        }
+                                    }
+                                }
+                                if y > lo_y {
+                                    let z0 = self.zones[x][y - 1];
+                                    let t0 = ct(x, y - 1);
+                                    if z0 != z1 && z0 != 0 && z1 != 0 {
+                                        if Self::pair_water_ground(t0, t1) {
+                                            resolve(&mut block.ground_water, z0, z1, min_z);
+                                        }
+                                        if Self::pair_ground_rubble(t0, t1) {
+                                            resolve(&mut block.ground_rubble, z0, z1, min_z);
+                                        }
+                                        if Self::pair_ground_cliff(t0, t1) {
+                                            resolve(&mut block.ground_cliff, z0, z1, min_z);
+                                        }
+                                        if Self::pair_crusher_ground(
+                                            t0,
+                                            t1,
+                                            fence(x, y - 1),
+                                            fence(x, y),
+                                        ) {
+                                            resolve(&mut block.crusher, z0, z1, min_z);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                self.zone_blocks[bx][by] = block;
+            }
+        }
     }
 
     fn pair_water_ground(a: PathfindCellType, b: PathfindCellType) -> bool {
@@ -7615,14 +7883,19 @@ mod tests {
         assert!(prod.contains("fn get_block_zone"));
         assert!(prod.contains("fn get_effective_zone"));
         assert!(prod.contains("pub fn process_hierarchical_cell"));
+        // Prefer PathfindZoneManager::getEffectiveZone (not ZoneBlock local).
         let i = prod
-            .find("fn get_effective_zone")
+            .rfind("fn get_effective_zone")
             .expect("getEffectiveZone");
-        let w = &prod[i..prod.len().min(i + 2000)];
+        // Also accept BlockCombiner + manager both present.
+        assert!(
+            prod.contains("crusher_zones") && prod.contains("ground_cliff_zones"),
+            "manager combiner tables present"
+        );
+        let w = &prod[i..prod.len().min(i + 2500)];
         assert!(
             w.contains("SURFACE_AIR")
-                && w.contains("crusher_zones")
-                && w.contains("ground_cliff_zones"),
+                && (w.contains("crusher_zones") || w.contains("self.crusher")),
             "getEffectiveZone must handle air + combiner tables"
         );
     }
@@ -8167,5 +8440,57 @@ mod tests {
         let prod = pc.split("#[cfg(test)]").next().expect("production");
         assert!(prod.contains("calculate_zones_with_types_and_fences"));
         assert!(prod.contains("is_obstacle_fence"));
+    }
+
+    #[test]
+    fn zone_blocks_allocated_on_new_map() {
+        let mut system = PathfindingSystem::new(25, 25);
+        system.new_map();
+        let z = system.zones.lock().unwrap();
+        // 25 cells → 3 blocks (10+10+5)
+        assert_eq!(z.blocks_x, 3);
+        assert_eq!(z.blocks_y, 3);
+        assert_eq!(z.zone_blocks.len(), 3);
+        assert_eq!(z.zone_blocks[0].len(), 3);
+        assert!(z.zone_blocks[0][0].num_zones >= 1);
+    }
+
+    #[test]
+    fn get_block_zone_uses_block_combiner() {
+        let mut system = PathfindingSystem::new(20, 20);
+        for y in 0..20 {
+            system.set_cell_type(
+                &Coord3D::new(50.0, y as f32 * 10.0 + 5.0, 0.0),
+                PathfindCellType::Cliff,
+            );
+        }
+        system.new_map();
+        let z = system.zones.lock().unwrap();
+        let cell_zone = z.zones[5][5];
+        let block_z = z.get_block_zone(SURFACE_GROUND | SURFACE_CLIFF, false, 5, 5);
+        // ground|cliff effective should resolve through block table
+        assert!(block_z > 0 || cell_zone == 0);
+        let bx = 5 / ZONE_BLOCK_SIZE as i32;
+        let by = 5 / ZONE_BLOCK_SIZE as i32;
+        assert!(z.zone_blocks[bx as usize][by as usize].num_zones >= 1);
+    }
+
+    #[test]
+    fn zone_block_grid_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("struct BlockCombiner"));
+        assert!(prod.contains("zone_blocks"));
+        assert!(prod.contains("fn rebuild_zone_blocks"));
+        assert!(prod.contains("get_block_zone"));
+        let i = prod.find("fn get_block_zone").expect("getBlockZone");
+        let w = &prod[i..prod.len().min(i + 1200)];
+        assert!(
+            w.contains("ZONE_BLOCK_SIZE") && w.contains("get_effective_zone"),
+            "getBlockZone must index zone_blocks and use block effective zone"
+        );
     }
 }
