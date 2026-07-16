@@ -1072,7 +1072,7 @@ impl PathfindingSystem {
     /// `in_range(goal)` should implement weapon isGoalPosWithinAttackRange.
     /// `view_blocked(from,goal)` should implement isAttackViewBlockedByObstacle.
     pub fn find_attack_path<F, G>(
-        &mut self,
+        &self,
         from: &Coord3D,
         victim_pos: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -1088,7 +1088,6 @@ impl PathfindingSystem {
         F: FnMut(&Coord3D) -> bool,
         G: FnMut(&Coord3D, &Coord3D) -> bool,
     {
-        let _ = is_human;
         if !self.is_map_ready {
             return PathResult::none();
         }
@@ -1129,6 +1128,9 @@ impl PathfindingSystem {
                         center_in_cell,
                         None,
                     ) {
+                        break;
+                    }
+                    if is_human && !self.in_logical_extent(cell) {
                         break;
                     }
                     if in_range(&test) && !view_blocked(from, &test) {
@@ -1196,6 +1198,9 @@ impl PathfindingSystem {
                     ) {
                         continue;
                     }
+                    if is_human && !self.in_logical_extent(cell) {
+                        continue;
+                    }
                     if !in_range(&goal) || view_blocked(from, &goal) {
                         continue;
                     }
@@ -1209,7 +1214,7 @@ impl PathfindingSystem {
                         allow_partial: false,
                         move_allies: false,
                         ignore_obstacle_id: None,
-                        is_human: false,
+                        is_human,
                     };
                     let path = self.find_path(req);
                     if !path.success {
@@ -1238,7 +1243,7 @@ impl PathfindingSystem {
 
     /// Convenience: find_attack_path with simple 2D circle range and optional LOS.
     pub fn find_attack_path_range(
-        &mut self,
+        &self,
         from: &Coord3D,
         victim_pos: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -1250,11 +1255,9 @@ impl PathfindingSystem {
     ) -> PathResult {
         let range_sqr = attack_range * attack_range;
         let victim = *victim_pos;
-        let from_c = *from;
-        // Optional LOS: when enabled, reject goals with blocked line of sight.
-        // Capture surfaces/crusher by value so we can call via raw pointer workaround-free:
-        // re-check LOS after find_attack_path returns using post-filter.
-        let result = self.find_attack_path(
+        // C++: view_blocked applied during candidate selection (not post-filter only).
+        // Use ground line passability as the pathfinder LOS probe when check_los.
+        self.find_attack_path(
             from,
             victim_pos,
             surfaces,
@@ -1268,18 +1271,14 @@ impl PathfindingSystem {
                 let dy = goal.y - victim.y;
                 dx * dx + dy * dy <= range_sqr
             },
-            |_a, _b| false, // LOS applied below when check_los
-        );
-        if !check_los || !result.success {
-            return result;
-        }
-        // Verify final goal has LOS; if not, treat as failure (residual vs full re-search).
-        if let Some(goal) = result.waypoints.last() {
-            if !self.is_line_passable_ex(&from_c, goal, surfaces, is_crusher, None, false) {
-                return PathResult::none();
-            }
-        }
-        result
+            |a, b| {
+                if !check_los {
+                    return false;
+                }
+                // Blocked when line is not passable (obstacle/cliff/etc.).
+                !self.is_line_passable_ex(a, b, surfaces, is_crusher, None, false)
+            },
+        )
     }
 
     pub fn find_safe_path(
@@ -10004,5 +10003,41 @@ mod tests {
             "snapClosestGoal radius0 pass must use UNIT_PRESENT_FIXED flags"
         );
         assert!(!w.contains("Approximate UNIT_PRESENT_FIXED"));
+    }
+
+    #[test]
+    fn find_attack_path_range_los_during_search_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn find_attack_path_range")
+            .expect("findAttackPath range");
+        let w = &prod[i..prod.len().min(i + 2000)];
+        assert!(
+            w.contains("view_blocked") || w.contains("is_line_passable_ex"),
+            "find_attack_path_range must apply LOS during candidate selection"
+        );
+        assert!(!w.contains("residual vs full re-search"));
+        assert!(!w.contains("|_a, _b| false"));
+    }
+
+    #[test]
+    fn find_attack_path_human_logical_extent_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn find_attack_path")
+            .expect("findAttackPath");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("is_human") && w.contains("in_logical_extent"),
+            "findAttackPath must clamp human candidates to m_logicalExtent"
+        );
     }
 }
