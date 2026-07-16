@@ -3886,6 +3886,7 @@ impl AIPlayer {
         }
 
         // See if we are ready to start trying a structure.
+        // C++ AIPlayer::doBaseBuilding has NO 3s clamp (only AISkirmishPlayer does).
         if !self.ready_to_build_structure {
             if self.structure_timer > 0 {
                 self.structure_timer -= 1;
@@ -3893,11 +3894,6 @@ impl AIPlayer {
             if self.structure_timer == 0 {
                 self.ready_to_build_structure = true;
                 self.build_delay = 0; // Cause immediate check
-            }
-            // C++ skirmish clamps; solo also benefits from sane max.
-            let max_t = 3 * LOGICFRAMES_PER_SECOND;
-            if self.structure_timer > max_t {
-                self.structure_timer = max_t;
             }
         }
 
@@ -4303,6 +4299,7 @@ impl AIPlayer {
         }
 
         // See if we are ready to start trying a team.
+        // C++ AIPlayer::doTeamBuilding has NO 3s clamp (only AISkirmishPlayer does).
         if !self.ready_to_build_team {
             if self.team_timer > 0 {
                 self.team_timer -= 1;
@@ -4310,10 +4307,6 @@ impl AIPlayer {
             if self.team_timer == 0 {
                 self.ready_to_build_team = true;
                 self.team_delay = 0; // Cause immediate check
-            }
-            let max_t = 3 * LOGICFRAMES_PER_SECOND;
-            if self.team_timer > max_t {
-                self.team_timer = max_t;
             }
         }
 
@@ -7981,6 +7974,30 @@ mod tests {
             ai.team_delay, TEAM_DELAY_RECHECK_FRAMES,
             "after queue/process attempt, C++ sets teamDelay to 5 seconds"
         );
+    }
+
+    #[test]
+    fn solo_do_base_building_does_not_clamp_structure_timer_like_cpp() {
+        // C++ AIPlayer::doBaseBuilding has no 3*LOGICFRAMES clamp; skirmish does.
+        let mut ai = AIPlayer::new(1);
+        ai.ready_to_build_structure = false;
+        ai.structure_timer = 3 * LOGICFRAMES_PER_SECOND + 50;
+        let before = ai.structure_timer;
+        ai.do_base_building().expect("do_base");
+        // decremented by 1, not clamped to 3s
+        assert_eq!(ai.structure_timer, before - 1);
+        assert!(ai.structure_timer > 3 * LOGICFRAMES_PER_SECOND);
+    }
+
+    #[test]
+    fn solo_do_team_building_does_not_clamp_team_timer_like_cpp() {
+        let mut ai = AIPlayer::new(1);
+        ai.ready_to_build_team = false;
+        ai.team_timer = 3 * LOGICFRAMES_PER_SECOND + 50;
+        let before = ai.team_timer;
+        ai.do_team_building().expect("do_team");
+        assert_eq!(ai.team_timer, before - 1);
+        assert!(ai.team_timer > 3 * LOGICFRAMES_PER_SECOND);
     }
 
     #[test]
