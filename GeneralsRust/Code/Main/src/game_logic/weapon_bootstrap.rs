@@ -467,6 +467,134 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini AcceptableAimDelta residual (radians).
+///
+/// C++ `INI::parseAngleReal` stores radians. Host peels convert degree-like
+/// store values (`> PI`) via `to_radians`. Floor matches AIStates REL_THRESH
+/// (~2°) when the peel is smaller.
+pub const AIM_DELTA_REL_THRESH_RAD: f32 = 0.035;
+
+/// Normalize a raw AcceptableAimDelta peel into radians with REL_THRESH floor.
+pub fn normalize_aim_delta_radians(raw: f32) -> f32 {
+    let rad = if raw > std::f32::consts::PI + 0.01 {
+        // Degree-like residual from plain f32 INI peels (e.g. 20 / 180).
+        raw.to_radians()
+    } else {
+        raw.max(0.0)
+    };
+    if rad < AIM_DELTA_REL_THRESH_RAD {
+        AIM_DELTA_REL_THRESH_RAD
+    } else {
+        rad
+    }
+}
+
+/// Resolve AcceptableAimDelta for a weapon name (radians, REL_THRESH floor).
+pub fn host_aim_delta_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store =
+        with_weapon_store(|store| store.find_weapon_template(name).map(|wt| wt.aim_delta))
+            .ok()
+            .flatten();
+    if let Some(v) = from_store {
+        // Store default 0 still gets REL_THRESH floor.
+        return normalize_aim_delta_radians(v);
+    }
+    normalize_aim_delta_radians(seed_aim_delta_degrees_for(name))
+}
+
+fn seed_aim_delta_degrees_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    // Omni-fire residual (no turn required).
+    if n.contains("stinger")
+        || n.contains("drone")
+        || n.contains("sentry")
+        || n.contains("gunship")
+        || n.contains("spectre")
+        || n.contains("pointDefense")
+        || n.contains("pointdefense")
+        || (n.contains("laser") && n.contains("defense"))
+        || n.contains("scudstorm")
+        || n.contains("neutronmine")
+        || n.contains("demotrap")
+    {
+        return 180.0;
+    }
+    // Aircraft / bomb residual.
+    if n.contains("aurora") || n.contains("bomb") {
+        return 45.0;
+    }
+    // Common vehicle guns residual.
+    if n.contains("tankgun")
+        || n.contains("tankshell")
+        || n.contains("crusader")
+        || n.contains("paladin")
+        || n.contains("battlemaster")
+        || n.contains("scorpion")
+        || n.contains("marauder")
+        || n.contains("overlord")
+        || n.contains("humvee")
+        || n.contains("technical")
+        || n.contains("quadcannon")
+        || n.contains("tomahawk")
+        || n.contains("inferno")
+        || n.contains("howitzer")
+        || n.contains("firebase")
+    {
+        return 20.0;
+    }
+    // Infantry residual.
+    if n.contains("machinegun")
+        || n.contains("ranger")
+        || n.contains("rebel")
+        || n.contains("rpg")
+        || n.contains("missile")
+        || n.contains("ak47")
+        || n.contains("pathfinder")
+        || n.contains("jarmen")
+        || n.contains("burton")
+    {
+        return 30.0;
+    }
+    0.0
+}
+
+/// Shortest signed angle difference in radians, range (-PI, PI].
+pub fn shortest_angle_delta(from: f32, to: f32) -> f32 {
+    let mut d = to - from;
+    while d > std::f32::consts::PI {
+        d -= std::f32::consts::TAU;
+    }
+    while d <= -std::f32::consts::PI {
+        d += std::f32::consts::TAU;
+    }
+    d
+}
+
+/// C++ PartitionManager::getRelativeAngle2D residual (source facing → target).
+///
+/// Host XZ plane; orientation is yaw about Y (0 = +X residual matches movement).
+pub fn relative_angle_2d(
+    source_pos: glam::Vec3,
+    source_orientation: f32,
+    target_pos: glam::Vec3,
+) -> f32 {
+    let dx = target_pos.x - source_pos.x;
+    let dz = target_pos.z - source_pos.z;
+    if dx * dx + dz * dz < 1e-8 {
+        return 0.0;
+    }
+    // Match Object movement orientation: (-dz).atan2(dx).
+    let desired = (-dz).atan2(dx);
+    shortest_angle_delta(source_orientation, desired)
+}
+
+/// True when |relative angle| is within aim_delta (radians).
+pub fn is_within_aim_delta(rel_angle: f32, aim_delta_rad: f32) -> bool {
+    rel_angle.abs() <= aim_delta_rad.max(AIM_DELTA_REL_THRESH_RAD)
+}
+
 /// C++ Weapon.ini HistoricBonus residual peels.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HostHistoricBonusPeel {
@@ -4639,5 +4767,19 @@ mod tests {
         assert!(u.is_black_napalm_bonus());
         let none = seed_historic_bonus_for("AmericaTankCrusaderGun");
         assert!(!none.is_active());
+    }
+
+    #[test]
+    fn acceptable_aim_delta_normalize_and_seed() {
+        assert!((normalize_aim_delta_radians(180.0) - std::f32::consts::PI).abs() < 1e-3);
+        assert!((normalize_aim_delta_radians(0.0) - AIM_DELTA_REL_THRESH_RAD).abs() < 1e-5);
+        assert!((normalize_aim_delta_radians(20.0) - 20f32.to_radians()).abs() < 1e-4);
+        let omni = host_aim_delta_for_weapon_name("AmericaSentryDroneGun");
+        assert!(omni >= std::f32::consts::PI - 0.05);
+        // Orientation 0 faces +X (movement convention). Target on +Z → ~-PI/2.
+        let rel = relative_angle_2d(glam::Vec3::ZERO, 0.0, glam::Vec3::new(0.0, 0.0, 10.0));
+        assert!(rel.abs() > 1.0, "rel={rel}");
+        assert!(is_within_aim_delta(0.01, AIM_DELTA_REL_THRESH_RAD));
+        assert!(!is_within_aim_delta(1.0, 20f32.to_radians()));
     }
 }
