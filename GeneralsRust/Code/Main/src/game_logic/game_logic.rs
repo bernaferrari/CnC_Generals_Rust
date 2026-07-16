@@ -9679,6 +9679,7 @@ impl GameLogic {
                                 .as_ref()
                                 .map(|w| w.splash_radius)
                                 .unwrap_or(0.0),
+                            is_homing: false,
                         });
                     }
                 }
@@ -48402,6 +48403,7 @@ mod tests {
             damage: 25.0,
             speed: 1000.0,
             splash_radius: 0.0,
+            is_homing: false,
         });
 
         // One fixed step runs drain + projectile update.
