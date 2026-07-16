@@ -277,6 +277,14 @@ pub struct PendingProjectile {
     pub projectile_collides: u32,
     /// C++ effective ScatterRadius residual at fire time (0 = no scatter).
     pub scatter_radius: f32,
+    /// C++ MinWeaponSpeed residual (used when ScaleWeaponSpeed).
+    pub min_weapon_speed: f32,
+    /// C++ ScaleWeaponSpeed residual flag.
+    pub scale_weapon_speed: bool,
+    /// C++ AttackRange residual for ScaleWeaponSpeed ratio.
+    pub attack_range: f32,
+    /// C++ MinimumAttackRange residual for ScaleWeaponSpeed ratio.
+    pub min_attack_range: f32,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -322,6 +330,24 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             fire_target_id = None;
         }
 
+        // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
+        let mut flight_speed = p.speed;
+        if p.scale_weapon_speed {
+            let dx = target_pos.x - p.shooter_pos.x;
+            let dz = target_pos.z - p.shooter_pos.z;
+            let range_2d = (dx * dx + dz * dz).sqrt();
+            let peel = crate::game_logic::weapon_bootstrap::HostWeaponSpeedPeel {
+                weapon_speed: p.speed,
+                min_weapon_speed: p.min_weapon_speed,
+                scale_weapon_speed: true,
+                attack_range: p.attack_range,
+                min_attack_range: p.min_attack_range,
+            };
+            flight_speed =
+                crate::game_logic::weapon_bootstrap::host_scaled_weapon_speed(&peel, range_2d)
+                    .max(0.0);
+        }
+
         let weapon = Weapon {
             damage: p.damage,
             range: 100.0,
@@ -333,7 +359,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             clip_reload_time: 0.0,
             can_target_air: true,
             can_target_ground: true,
-            projectile_speed: p.speed,
+            projectile_speed: flight_speed,
             pre_attack_delay: 0.0,
             splash_radius: p.splash_radius,
         };
@@ -343,7 +369,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             &weapon,
             p.shooter_id,
             fire_target_id,
-            p.speed,
+            flight_speed,
             p.is_homing,
         );
         if let Some(proj) = combat.projectile_mut(pid) {
@@ -1338,6 +1364,10 @@ mod tests {
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
@@ -1652,6 +1682,10 @@ mod tests {
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 10.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
         });
         drain_pending_projectiles(&mut combat, &objects);
         let snaps: Vec<_> = combat.projectiles_snapshot();
@@ -1662,5 +1696,104 @@ mod tests {
         let aim = snaps[0].target_position;
         let d = (aim - Vec3::new(50.0, 0.0, 0.0)).length();
         assert!(d > 0.01 && d <= 10.0 + 1e-2, "scatter offset length {d}");
+    }
+
+    #[test]
+    fn scale_weapon_speed_slows_close_shots() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(90);
+        let tgt = ObjectId(91);
+        // Place target at firebase min range (50).
+        objects.insert(
+            tgt,
+            make_obj(
+                "GLATunnelNetwork",
+                tgt,
+                Team::GLA,
+                Vec3::new(50.0, 0.0, 0.0),
+                &[KindOf::Structure, KindOf::Attackable],
+                20.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        queue_projectile(PendingProjectile {
+            shooter_id: atk,
+            shooter_pos: Vec3::ZERO,
+            target_id: Some(tgt),
+            target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
+            damage: 50.0,
+            speed: 300.0,
+            splash_radius: 10.0,
+            is_homing: false,
+            damage_type: DamageType::Explosive,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            projectile_object_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects:
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
+            scatter_radius: 0.0,
+            min_weapon_speed: 75.0,
+            scale_weapon_speed: true,
+            attack_range: 375.0,
+            min_attack_range: 50.0,
+        });
+        drain_pending_projectiles(&mut combat, &objects);
+        let snaps: Vec<_> = combat.projectiles_snapshot();
+        assert_eq!(snaps.len(), 1);
+        assert!(
+            (snaps[0].speed - 75.0).abs() < 1e-2,
+            "close lob speed {}, want ~75",
+            snaps[0].speed
+        );
+
+        // Far shot at max range → full speed.
+        let mut combat2 = CombatSystem::new();
+        queue_projectile(PendingProjectile {
+            shooter_id: atk,
+            shooter_pos: Vec3::ZERO,
+            target_id: None,
+            target_pos: Some(Vec3::new(375.0, 0.0, 0.0)),
+            damage: 50.0,
+            speed: 300.0,
+            splash_radius: 10.0,
+            is_homing: false,
+            damage_type: DamageType::Explosive,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            projectile_object_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects:
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
+            scatter_radius: 0.0,
+            min_weapon_speed: 75.0,
+            scale_weapon_speed: true,
+            attack_range: 375.0,
+            min_attack_range: 50.0,
+        });
+        drain_pending_projectiles(&mut combat2, &objects);
+        let snaps2: Vec<_> = combat2.projectiles_snapshot();
+        assert_eq!(snaps2.len(), 1);
+        assert!(
+            (snaps2[0].speed - 300.0).abs() < 1e-2,
+            "far lob speed {}, want ~300",
+            snaps2[0].speed
+        );
     }
 }

@@ -9860,6 +9860,10 @@ impl GameLogic {
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
         });
                     }
                 }
@@ -48621,6 +48625,10 @@ mod tests {
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
         });
 
         // One fixed step runs drain + projectile update.
