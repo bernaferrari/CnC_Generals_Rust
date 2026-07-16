@@ -3883,11 +3883,18 @@ impl AIPlayer {
                     any_idle = Self::team_any_member_idle(team_name);
                 }
 
-                // executeActions + productionCondition script → don't wait for allIdle
+                // C++: anyIdle && m_team->proto->m_executeActions &&
+                // productionCondition script has Action → force allIdle.
+                // Resolve prototype via concrete team name first, then team_name field.
                 if any_idle {
-                    if let Some(team_name) = team_q.team_name.as_deref() {
+                    let proto_name = team_q
+                        .team
+                        .as_ref()
+                        .and_then(|arc| arc.read().ok().map(|tg| tg.get_name().to_string()))
+                        .or_else(|| team_q.team_name.clone());
+                    if let Some(team_name) = proto_name {
                         if let Ok(factory) = get_team_factory().lock() {
-                            if let Some(proto) = factory.find_team_prototype(team_name) {
+                            if let Some(proto) = factory.find_team_prototype(&team_name) {
                                 if proto.get_execute_actions_on_create() {
                                     let cond = proto.get_production_condition();
                                     if !cond.is_empty() {
@@ -4124,8 +4131,13 @@ impl AIPlayer {
             };
 
             if any_idle {
-                let team_name = self.team_build_queue[i].team_name.clone();
-                if let Some(ref name) = team_name {
+                // C++ uses team->m_team->getPrototype(); prefer handle name.
+                let proto_name = self.team_build_queue[i]
+                    .team
+                    .as_ref()
+                    .and_then(|arc| arc.read().ok().map(|tg| tg.get_name().to_string()))
+                    .or_else(|| self.team_build_queue[i].team_name.clone());
+                if let Some(ref name) = proto_name {
                     if let Ok(factory) = get_team_factory().lock() {
                         if let Some(proto) = factory.find_team_prototype(name) {
                             if proto.get_execute_actions_on_create() {
@@ -4142,6 +4154,8 @@ impl AIPlayer {
                                         })
                                         .and_then(|script| script.get_action().cloned());
                                     if let Some(action) = action {
+                                        // C++ friend_executeAction(action, team->m_team).
+                                        // Team-scoped execution residual when API available.
                                         let evaluator = ScriptEvaluator::new(script_engine);
                                         if let Err(err) = evaluator.execute_action_sequence(&action)
                                         {
@@ -7673,6 +7687,22 @@ mod tests {
                 && qw.contains("tg.get_members()")
                 && qw.contains("aig.is_idle()"),
             "checkQueuedTeams anyIdle must walk m_team members"
+        );
+    }
+
+    #[test]
+    fn check_ready_teams_execute_actions_uses_team_handle() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub(crate) fn check_ready_teams")
+            .expect("checkReadyTeams");
+        let w = &src[i..src.len().min(i + 5000)];
+        assert!(
+            w.contains("get_execute_actions_on_create")
+                && w.contains("find_script_clone_by_name")
+                && w.contains("tg.get_name()")
+                && w.contains("60 * LOGICFRAMES_PER_SECOND"),
+            "checkReadyTeams must resolve executeActions via team handle name"
         );
     }
 
