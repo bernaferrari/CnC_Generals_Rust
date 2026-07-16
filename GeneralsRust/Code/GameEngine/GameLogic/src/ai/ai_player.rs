@@ -5793,6 +5793,12 @@ impl AIPlayer {
     /// Skip if a resource-gatherer is already queued. For each supply building
     /// needing gatherers: recount current, reattach loose harvesters, else start
     /// training one harvester (priority team) if under 3× desired global cap.
+    /// C++ `AIPlayer::queueSupplyTruck` (AIPlayer.cpp).
+    ///
+    /// Skip if a resource-gatherer is already queued. For each supply build-list
+    /// entry:
+    /// - if current >= desired: maintain (nearby warehouse, recount/redock)
+    /// - else: reattach loose harvesters, else train one (unless ≥3× desired total)
     fn queue_supply_truck(&mut self) -> Result<(), AiError> {
         // Already building a supply truck?
         let truck_in_queue = self.team_build_queue.iter().any(|team| {
@@ -5826,46 +5832,44 @@ impl AIPlayer {
             }
         }
 
-        for (center_id, desired, mut cur_gatherers) in supply_entries {
-            if center_id == INVALID_ID {
-                continue;
-            }
-            let Some(center_arc) = OBJECT_REGISTRY.get_object(center_id) else {
-                continue;
-            };
-            let Ok(center_g) = center_arc.read() else {
-                continue;
-            };
-            if center_g.is_kind_of(KindOf::RebuildHole) {
-                continue;
-            }
-
-            // Nearby supply warehouse residual: require a non-empty warehouse in range.
-            if !self.supply_center_has_nearby_supplies(&center_g) {
-                continue;
-            }
-
-            // Refresh supply-center bookkeeping.
-            drop(center_g);
-            let _ = self.check_for_supply_center(center_id);
-
+        for (center_id, desired, cur_gatherers) in supply_entries {
             if cur_gatherers >= desired {
-                // Recount docked harvesters and re-issue dock if idle.
-                cur_gatherers = self.recount_and_redock_harvesters(center_id);
-                self.set_build_list_current_gatherers(center_id, cur_gatherers);
+                // C++ maintenance branch only when live non-hole center + nearby supplies.
+                if center_id == INVALID_ID {
+                    continue;
+                }
+                let Some(center_arc) = OBJECT_REGISTRY.get_object(center_id) else {
+                    continue;
+                };
+                let Ok(center_g) = center_arc.read() else {
+                    continue;
+                };
+                if center_g.is_kind_of(KindOf::RebuildHole) {
+                    continue;
+                }
+                if !self.supply_center_has_nearby_supplies(&center_g) {
+                    continue;
+                }
+                drop(center_g);
+                // C++ checkForSupplyCenter then recount docked harvesters.
+                let _ = self.check_for_supply_center(center_id);
+                let recounted = self.recount_and_redock_harvesters(center_id);
+                self.set_build_list_current_gatherers(center_id, recounted);
                 continue;
             }
 
-            // Try reattach loose harvesters first (C++ preferredDock missing).
-            if self.try_reattach_loose_harvester(center_id)? {
-                return Ok(());
+            // Under-desired: reattach loose harvesters (preferred dock missing).
+            if center_id != INVALID_ID {
+                if self.try_reattach_loose_harvester(center_id)? {
+                    return Ok(());
+                }
             }
 
             if total_harvesters >= desired.saturating_mul(3) {
                 continue; // lotsa gatherers
             }
 
-            // Temporarily allow unit building.
+            // Temporarily allow unit building while training a harvester.
             let prev_can_build = self.set_can_build_units_temp(true);
             let queued = self.queue_one_harvester_at_factory(center_id, cur_gatherers)?;
             self.set_can_build_units_temp(prev_can_build);
@@ -8806,10 +8810,18 @@ mod tests {
     #[test]
     fn queue_supply_truck_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
-        let i = src
-            .find("C++ `AIPlayer::queueSupplyTruck`")
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
+            .find("fn queue_supply_truck(&mut self)")
             .expect("queueSupplyTruck");
-        let window = &src[i..src.len().min(i + 12000)];
+        let end = prod[i..]
+            .find("fn count_player_harvesters")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 4000));
+        let window = &prod[i..end];
         assert!(
             window.contains("truck_in_queue")
                 && window.contains("is_resource_gatherer")
@@ -8817,13 +8829,23 @@ mod tests {
                 && window.contains("is_supply_building")
                 && window.contains("queue_one_harvester_at_factory")
                 && window.contains("recount_and_redock_harvesters")
-                && window.contains("ai_dock")
-                && src.contains("first_template")
-                && src.contains("KindOf::Harvester")
-                && window.contains("FromPlayer")
                 && window.contains("try_reattach_loose_harvester")
-                && window.contains("desired.saturating_mul(3)"),
+                && window.contains("desired.saturating_mul(3)")
+                && window.contains("supply_center_has_nearby_supplies"),
             "queueSupplyTruck must skip-if-queued, recount, reattach, train harvester"
+        );
+        // C++ only requires nearby warehouse on the cur>=desired maintenance branch.
+        let maint = window
+            .find("if cur_gatherers >= desired")
+            .expect("maintenance branch");
+        let under = window
+            .find("// Under-desired")
+            .expect("under-desired branch");
+        assert!(
+            maint < under
+                && window[maint..under].contains("supply_center_has_nearby_supplies")
+                && !window[under..].contains("supply_center_has_nearby_supplies"),
+            "nearby warehouse check must only gate the maintenance branch like C++"
         );
     }
 

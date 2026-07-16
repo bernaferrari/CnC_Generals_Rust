@@ -241,11 +241,10 @@ impl AISkirmishPlayer {
         let (Ok(factory_guard), Ok(unit_guard)) = (factory.read(), unit.read()) else {
             return;
         };
+        // C++ AISkirmishPlayer::onUnitProduced → AIPlayer::onUnitProduced only.
         let _ = self
             .base
             .on_unit_produced(factory_guard.get_id(), unit_guard.get_id());
-
-        // Additional skirmish-specific unit production logic
     }
 
     /// Build a specific AI team immediately
@@ -274,9 +273,19 @@ impl AISkirmishPlayer {
         let mut info_opt = player_guard.get_build_list_mut();
         while let Some(info) = info_opt {
             let name = info.get_template_name();
+            // C++: info->getTemplateName()==thingName (exact AsciiString match).
             if name == thing_name {
+                // C++ still loads the template; missing template → continue.
+                if name.is_empty() || TheThingFactory::find_template(name.as_str()).is_none() {
+                    info_opt = info.get_next_mut();
+                    continue;
+                }
                 found = true;
-                if info.get_object_id() != crate::common::INVALID_ID {
+                // C++: Object *bldg = findObjectByID; if (bldg) continue — live object only.
+                let obj_id = info.get_object_id();
+                if obj_id != crate::common::INVALID_ID
+                    && OBJECT_REGISTRY.get_object(obj_id).is_some()
+                {
                     info_opt = info.get_next_mut();
                     continue;
                 }
@@ -2715,6 +2724,33 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn build_specific_ai_building_uses_live_object_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
+            .find("pub fn build_specific_ai_building(&mut self, thing_name: &str)")
+            .expect("buildSpecificAIBuilding");
+        let end = prod[i..]
+            .find("pub fn build_ai_base_defense")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 2500));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("OBJECT_REGISTRY.get_object(obj_id)")
+                && w.contains("mark_priority_build")
+                && w.contains("set_build_delay_frames(0)")
+                && !w.contains("build_structure_now"),
+            "skirmish buildSpecificAIBuilding marks priority on missing live object only"
+        );
+    }
+
     fn adjust_build_list_calls_on_structure_undone_like_cpp() {
         let src = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
