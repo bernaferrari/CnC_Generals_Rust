@@ -467,6 +467,98 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini RadiusDamageAffects residual mask (Regular).
+///
+/// Bits match `host_ai_path_combat_residual_wave105` WeaponAffectsMaskType.
+/// Default when unset: ENEMIES | NEUTRALS (retail common residual).
+pub fn host_radius_damage_affects_for_weapon_name(name: &str) -> u32 {
+    seed_radius_damage_affects_for(name)
+}
+
+fn seed_radius_damage_affects_for(name: &str) -> u32 {
+    use crate::game_logic::host_ai_path_combat_residual_wave105::{
+        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
+        WEAPON_AFFECTS_SELF, WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
+        WEAPON_KILLS_SELF,
+    };
+    let n = name.to_ascii_lowercase();
+    // Default retail residual: enemies + neutrals.
+    let enemies_neutrals = WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS;
+    if n.contains("scudstorm")
+        || n.contains("nuke")
+        || n.contains("moab")
+        || n.contains("anthrax")
+        || n.contains("tomahawk")
+        || n.contains("overlord")
+        || n.contains("demotrap")
+        || n.contains("terrorist")
+        || n.contains("suicide")
+        || n.contains("carbomb")
+    {
+        // Friendly-fire residual weapons.
+        return WEAPON_AFFECTS_ALLIES | enemies_neutrals;
+    }
+    if n.contains("microwave") {
+        // Microwave residual: enemies + neutrals only (allies false).
+        return enemies_neutrals;
+    }
+    if n.contains("ecm") || n.contains("jammer") {
+        return enemies_neutrals;
+    }
+    if n.contains("propaganda") {
+        // Heal-ish residual: allies only (not used as splash damage usually).
+        return WEAPON_AFFECTS_ALLIES;
+    }
+    if n.contains("demo") && n.contains("truck") {
+        return WEAPON_AFFECTS_ALLIES | enemies_neutrals | WEAPON_AFFECTS_SELF | WEAPON_KILLS_SELF;
+    }
+    // Standard combat splash residual.
+    let _ = (
+        WEAPON_AFFECTS_SELF,
+        WEAPON_DOESNT_AFFECT_SIMILAR,
+        WEAPON_DOESNT_AFFECT_AIRBORNE,
+    );
+    enemies_neutrals
+}
+
+/// Whether splash may affect `victim` given shooter team and residual mask.
+pub fn radius_damage_affects_victim(
+    affects: u32,
+    shooter_team: crate::game_logic::Team,
+    shooter_id: crate::game_logic::ObjectId,
+    victim_id: crate::game_logic::ObjectId,
+    victim_team: crate::game_logic::Team,
+    victim_airborne: bool,
+    same_template: bool,
+) -> bool {
+    use crate::game_logic::host_ai_path_combat_residual_wave105::{
+        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
+        WEAPON_AFFECTS_SELF, WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
+    };
+    use crate::game_logic::Team;
+
+    if shooter_id == victim_id {
+        return (affects & WEAPON_AFFECTS_SELF) != 0;
+    }
+    if (affects & WEAPON_DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne {
+        return false;
+    }
+    if (affects & WEAPON_DOESNT_AFFECT_SIMILAR) != 0 && same_template {
+        // Similar skip only for allies residual (C++ friends same template).
+        if shooter_team == victim_team && shooter_team != Team::Neutral {
+            return false;
+        }
+    }
+    if victim_team == Team::Neutral {
+        return (affects & WEAPON_AFFECTS_NEUTRALS) != 0;
+    }
+    if shooter_team == victim_team {
+        return (affects & WEAPON_AFFECTS_ALLIES) != 0;
+    }
+    // Different non-neutral factions → enemies residual.
+    (affects & WEAPON_AFFECTS_ENEMIES) != 0
+}
+
 /// C++ Weapon.ini ShockWaveAmount residual (Regular).
 ///
 /// Fail-closed: impulse residual on splash victims only — not full PhysicsBehavior
@@ -588,7 +680,6 @@ fn seed_shock_wave_radius_for(name: &str) -> f32 {
 }
 
 fn seed_shock_wave_taper_for(name: &str) -> f32 {
-    let n = name.to_ascii_lowercase();
     // Retail-ish default taper when amount peels non-empty.
     if seed_shock_wave_amount_for(name) > 0.0 {
         return 0.75;
@@ -3983,5 +4074,48 @@ mod tests {
             host_shock_wave_amount_for_weapon_name("UnknownWeaponXYZ"),
             0.0
         );
+    }
+
+    #[test]
+    fn radius_damage_affects_for_seeded_weapons_residual() {
+        use crate::game_logic::host_ai_path_combat_residual_wave105::{
+            WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
+        };
+        let scud = seed_radius_damage_affects_for("ScudStormDamageWeapon");
+        assert_eq!(scud & WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ALLIES);
+        assert_eq!(scud & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
+        let gun = seed_radius_damage_affects_for("AmericaTankCrusaderGun");
+        assert_eq!(gun & WEAPON_AFFECTS_ALLIES, 0);
+        assert_eq!(gun & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
+        assert_eq!(gun & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
+
+        use crate::game_logic::{ObjectId, Team};
+        assert!(radius_damage_affects_victim(
+            gun,
+            Team::USA,
+            ObjectId(1),
+            ObjectId(2),
+            Team::GLA,
+            false,
+            false,
+        ));
+        assert!(!radius_damage_affects_victim(
+            gun,
+            Team::USA,
+            ObjectId(1),
+            ObjectId(3),
+            Team::USA,
+            false,
+            false,
+        ));
+        assert!(radius_damage_affects_victim(
+            scud,
+            Team::GLA,
+            ObjectId(1),
+            ObjectId(3),
+            Team::GLA,
+            false,
+            false,
+        ));
     }
 }
