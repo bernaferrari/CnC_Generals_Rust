@@ -15,7 +15,7 @@ use crate::object_manager::get_object_manager;
 use crate::player::{player_list, PLAYER_INDEX_INVALID};
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::core::Script;
-use crate::scripting::engine::{get_area_tracker, get_script_engine, SequentialScript};
+use crate::scripting::engine::{get_area_tracker, get_script_engine};
 use crate::scripting::evaluator::ScriptEvaluator;
 use crate::waypoint::WaypointId;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -139,6 +139,7 @@ pub fn flush_pending_team_script_events() {
         return;
     }
 
+    // C++ Team::updateState: TheScriptEngine->runScript(scriptName, this).
     let script_engine = get_script_engine();
     let Ok(mut engine_guard) = script_engine.write() else {
         return;
@@ -148,21 +149,7 @@ pub fn flush_pending_team_script_events() {
     };
 
     for event in pending {
-        let Some(script) = engine.find_script_clone_by_name(&event.script_name) else {
-            log::warn!(
-                "Team event script '{}' not found for team '{}'",
-                event.script_name,
-                event.team_name
-            );
-            continue;
-        };
-
-        let mut seq_script = SequentialScript::new();
-        seq_script.team_to_exec_on = Some(event.team_name);
-        seq_script.object_id = INVALID_ID;
-        seq_script.script_to_execute_sequentially = Some(Box::new(script));
-        seq_script.times_to_loop = 0;
-        engine.append_sequential_script(seq_script);
+        engine.run_script(&event.script_name, Some(event.team_name.as_str()));
     }
 }
 
@@ -3828,6 +3815,21 @@ mod tests {
         let mut proto = TeamPrototype::new("MissingScriptTeam".into());
         proto.set_production_condition("DoesNotExist_ScriptXYZ".into());
         assert!(!proto.evaluate_production_condition());
+    }
+
+    #[test]
+    fn flush_team_scripts_use_run_script_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/team.rs"));
+        let i = src
+            .find("pub fn flush_pending_team_script_events")
+            .expect("flush");
+        let w = &src[i..src.len().min(i + 900)];
+        assert!(
+            w.contains("run_script")
+                && w.contains("Some(event.team_name.as_str())")
+                && !w.contains("append_sequential_script"),
+            "Team event flush must runScript(name, team) like C++ updateState"
+        );
     }
 
     #[test]
