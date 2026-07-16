@@ -1613,34 +1613,38 @@ impl AISkirmishPlayer {
 
     /// Acquire enemy player for targeting
     /// Matches C++ AISkirmishPlayer.cpp:461 acquireEnemy
+    /// C++ `AISkirmishPlayer::acquireEnemy` (AISkirmishPlayer.cpp).
+    ///
+    /// Keep current enemy if healthy. Otherwise pick closest enemy with objects,
+    /// structure-bounds midpoint, bad-shape / gang-up distance fudges.
+    /// Only replace `m_currentEnemy` when a better candidate is found — never
+    /// clear to null on empty search (C++ keeps the prior pointer).
     fn acquire_enemy(&mut self) {
         let mut best_enemy: Option<Arc<RwLock<Player>>> = None;
         let mut best_distance_sqr = HUGE_DIST * HUGE_DIST;
 
         let Some(me_player) = self.base.get_player() else {
-            self.current_enemy = None;
             return;
         };
-        let mut me_guard = match me_player.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.current_enemy = None;
-                return;
-            }
+        let Ok(mut me_guard) = me_player.write() else {
+            return;
         };
         let me_index = me_guard.get_player_index();
-        let base_center = if let Some(center) = self.base.get_base_center() {
-            center
-        } else {
-            self.get_enemy_base_center(&me_guard).unwrap_or_default()
-        };
+        let base_center = self
+            .base
+            .get_base_center()
+            .unwrap_or_else(|| self.get_enemy_base_center(&me_guard).unwrap_or_default());
 
+        // C++: if current enemy exists and is not in bad shape, keep it.
         if let Some(enemy_weak) = self.current_enemy.as_ref() {
             if let Some(enemy_arc) = enemy_weak.upgrade() {
                 if let Ok(enemy_guard) = enemy_arc.try_read() {
                     let in_bad_shape =
                         !enemy_guard.has_any_units() || !enemy_guard.has_any_build_facility();
                     if !in_bad_shape {
+                        // Keep Player index cache aligned with m_currentEnemy.
+                        me_guard
+                            .set_current_enemy_player_index(Some(enemy_guard.get_player_index()));
                         return;
                     }
                 }
@@ -1648,7 +1652,6 @@ impl AISkirmishPlayer {
         }
 
         let Ok(player_list) = ThePlayerList().read() else {
-            self.current_enemy = None;
             return;
         };
 
@@ -1667,7 +1670,8 @@ impl AISkirmishPlayer {
                 continue;
             }
 
-            if !self.player_has_any_objects(&player_guard) {
+            // C++ curPlayer->hasAnyObjects()
+            if !player_guard.has_any_objects() {
                 continue;
             }
 
@@ -1693,14 +1697,16 @@ impl AISkirmishPlayer {
                 dist_sqr = HUGE_DIST * HUGE_DIST * 0.5;
             }
 
+            // C++: other skirmish AIs targeting this candidate / me.
+            // Uses cached enemy index (Player::getCurrentEnemy → AI getAiEnemy).
             for other_arc in player_list.iter() {
                 let Ok(other_guard) = other_arc.read() else {
                     continue;
                 };
-                if !other_guard.is_skirmish_ai() {
+                if other_guard.get_player_index() == player_guard.get_player_index() {
                     continue;
                 }
-                if other_guard.get_player_index() == player_guard.get_player_index() {
+                if !other_guard.is_skirmish_ai() {
                     continue;
                 }
                 if other_guard.get_current_enemy_player_index()
@@ -1722,13 +1728,36 @@ impl AISkirmishPlayer {
             }
         }
 
-        self.current_enemy = best_enemy.map(|enemy| Arc::downgrade(&enemy));
-        if let Some(enemy_arc) = self.current_enemy.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(enemy_guard) = enemy_arc.read() {
-                me_guard.set_current_enemy_player_index(Some(enemy_guard.get_player_index()));
+        // C++: only replace when bestEnemy != NULL && bestEnemy != m_currentEnemy.
+        // Empty search leaves the prior enemy intact.
+        let Some(best) = best_enemy else {
+            return;
+        };
+        let best_index = best.read().ok().map(|g| g.get_player_index());
+        let same_as_current = self
+            .current_enemy
+            .as_ref()
+            .and_then(|w| w.upgrade())
+            .and_then(|arc| {
+                arc.read()
+                    .ok()
+                    .map(|g| Some(g.get_player_index()) == best_index)
+            })
+            .unwrap_or(false);
+        if same_as_current {
+            if let Some(idx) = best_index {
+                me_guard.set_current_enemy_player_index(Some(idx));
             }
-        } else {
-            me_guard.set_current_enemy_player_index(None);
+            return;
+        }
+
+        self.current_enemy = Some(Arc::downgrade(&best));
+        if let Some(idx) = best_index {
+            me_guard.set_current_enemy_player_index(Some(idx));
+            log::debug!(
+                "AISkirmishPlayer acquiring target enemy player index {}",
+                idx
+            );
         }
     }
 
@@ -2665,16 +2694,23 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/src/ai/skirmish_player.rs"
         ));
-        let i = src
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
             .find("fn acquire_enemy(&mut self)")
             .expect("acquireEnemy");
-        let window = &src[i..src.len().min(i + 4500)];
+        let window = &prod[i..prod.len().min(i + 5500)];
         assert!(
             window.contains("get_player_structure_bounds")
                 && window.contains("HUGE_DIST")
                 && window.contains("500.0 * 500.0")
-                && window.contains("25.0 * 25.0"),
-            "acquireEnemy must use structure bounds + gang-up penalties"
+                && window.contains("25.0 * 25.0")
+                && window.contains("has_any_objects()")
+                && window.contains("let Some(best) = best_enemy else")
+                && !window.contains("self.current_enemy = None"),
+            "acquireEnemy must use structure bounds + gang-up penalties and keep prior enemy"
         );
     }
 
