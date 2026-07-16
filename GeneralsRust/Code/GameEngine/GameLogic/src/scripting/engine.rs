@@ -1245,6 +1245,69 @@ impl ScriptEngine {
         self.calling_team.as_deref()
     }
 
+    /// C++ `ScriptEngine::friend_executeAction(action, pThisTeam)`.
+    ///
+    /// Saves calling team / current player, binds `pThisTeam` (by name) as the
+    /// calling team and its controlling player as current player, runs the
+    /// action chain, then restores prior context.
+    pub fn friend_execute_action(
+        &mut self,
+        action: &crate::scripting::core::ScriptAction,
+        team_name: Option<&str>,
+    ) {
+        let saved_team = self.calling_team.take();
+        let saved_player = self.current_player.take();
+
+        self.calling_team = team_name.map(|s| s.to_string());
+        self.current_player = None;
+        if let Some(tname) = team_name {
+            if let Ok(mut factory) = get_team_factory().lock() {
+                if let Some(team_arc) = factory.find_team(tname) {
+                    if let Ok(team_guard) = team_arc.read() {
+                        if let Some(player_id) = team_guard.get_controlling_player_id() {
+                            self.current_player = crate::player::player_list()
+                                .read()
+                                .ok()
+                                .and_then(|list| list.get_player(player_id as i32).cloned())
+                                .and_then(|p| {
+                                    p.read().ok().and_then(|pg| {
+                                        game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
+                                            pg.get_player_name_key(),
+                                        )
+                                    })
+                                });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Use TLS active-engine + dispatcher (no re-lock of the global engine).
+        let _active = self.enter_active();
+        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        let exec_context = std::sync::Arc::new(std::sync::RwLock::new(
+            crate::scripting::executor::ScriptContext {
+                game_logic_id: 0,
+                object_manager_id: 0,
+                player_manager_id: 0,
+                event_system_id: 0,
+                camera_system_id: 0,
+                audio_system_id: 0,
+                partition_manager_id: 0,
+                special_powers_id: 0,
+                current_frame,
+                suppress_new_windows: false,
+            },
+        ));
+        let mut dispatcher = crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
+        if let Err(err) = self.execute_action_chain(action, &mut dispatcher) {
+            log::warn!("friend_execute_action: {}", err);
+        }
+
+        self.calling_team = saved_team;
+        self.current_player = saved_player;
+    }
+
     pub fn get_condition_team_name(&self) -> Option<&str> {
         self.condition_team.as_deref()
     }
