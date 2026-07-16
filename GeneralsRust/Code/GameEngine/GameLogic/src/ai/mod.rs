@@ -2186,6 +2186,30 @@ impl Pathfinder {
         self.inner.find_closest_path(request)
     }
 
+    /// C++ `Pathfinder::findAttackPath` with simple range circle.
+    pub fn find_attack_path_range(
+        &mut self,
+        from: &Coord3D,
+        victim_pos: &Coord3D,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        attack_range: f32,
+        obj_id: ObjectID,
+        check_los: bool,
+    ) -> crate::ai::pathfind_complete::PathResult {
+        self.inner.find_attack_path_range(
+            from,
+            victim_pos,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            attack_range,
+            obj_id,
+            check_los,
+        )
+    }
+
     pub fn find_safe_path_result(
         &self,
         request: ClassicPathRequest,
