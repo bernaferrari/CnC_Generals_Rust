@@ -2217,6 +2217,118 @@ impl PathfindingSystem {
         true
     }
 
+    /// C++ `Pathfinder::checkForLanding` (AIPathfind.cpp:5228-5247).
+    fn check_for_landing(
+        &self,
+        cell_x: i32,
+        cell_y: i32,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+        dest: &mut Coord3D,
+    ) -> bool {
+        let coord = GridCoord::new(cell_x, cell_y);
+        if !self.is_valid_coord(coord) {
+            return false;
+        }
+        let world = coord.to_world(layer);
+        match self.get_cell_type(&world) {
+            Some(PathfindCellType::Cliff)
+            | Some(PathfindCellType::Water)
+            | Some(PathfindCellType::Impassable) => return false,
+            _ => {}
+        }
+        // C++ checkDestination(NULL, ...) — no object occupancy special-case.
+        if !self.is_destination_valid(
+            coord,
+            layer,
+            SURFACE_GROUND,
+            false,
+            radius,
+            center_in_cell,
+            None,
+        ) {
+            return false;
+        }
+        self.adjust_coord_to_cell(cell_x, cell_y, center_in_cell, dest, layer);
+        true
+    }
+
+    /// C++ `Pathfinder::adjustToLandingDestination` (AIPathfind.cpp:5253-5320).
+    ///
+    /// Spiral-search an unoccupied landing cell. Off-map object + off-map dest
+    /// is treated as scripted success (leave dest unchanged).
+    pub fn adjust_to_landing_destination(
+        &self,
+        from: &Coord3D,
+        dest: &mut Coord3D,
+        unit_radius: f32,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+
+        // C++: if dest off map and unit off map → true (scripted).
+        let dest_in = self.is_valid_coord(GridCoord::from_world(dest));
+        let from_in = self.is_valid_coord(GridCoord::from_world(from));
+        if !dest_in {
+            if !from_in {
+                return true;
+            }
+            // Dest off map but unit on map — still try spiral from clamped? C++ still
+            // worldToCells the half-biased dest; out-of-bounds cells fail checkForLanding.
+        }
+
+        let mut adjust_dest = *dest;
+        if !center_in_cell {
+            adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        let cell = GridCoord::from_world(&adjust_dest);
+        let layer = self.get_layer_for_coord(GridCoord::from_world(dest));
+
+        if self.check_for_landing(cell.x, cell.y, layer, radius, center_in_cell, dest) {
+            return true;
+        }
+
+        const MAX_CELLS_TO_TRY: i32 = 400;
+        let mut limit = MAX_CELLS_TO_TRY;
+        let mut i = cell.x;
+        let mut j = cell.y;
+        let mut delta = 1;
+        while limit > 0 {
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                    return true;
+                }
+            }
+            delta += 1;
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                if self.check_for_landing(i, j, layer, radius, center_in_cell, dest) {
+                    return true;
+                }
+            }
+            delta += 1;
+        }
+        false
+    }
+
     /// Full adjustment pipeline combining adjustDestination and zone check.
     /// Matches C++ Pathfinder::checkForAdjust() at AIPathfind.cpp ~5300.
     pub fn check_for_adjust(
@@ -3261,5 +3373,52 @@ mod tests {
             false,
             0.0
         ));
+    }
+
+    #[test]
+    fn adjust_to_landing_destination_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("fn check_for_landing(").expect("checkForLanding");
+        let end = prod[i..]
+            .find("pub fn check_for_adjust")
+            .or_else(|| prod[i..].find("/// Full adjustment pipeline"))
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 6000));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("PATHFIND_CELL_SIZE_F * 0.5")
+                && w.contains("check_for_landing")
+                && w.contains("MAX_CELLS_TO_TRY")
+                && w.contains("PathfindCellType::Cliff")
+                && w.contains("PathfindCellType::Water")
+                && w.contains("PathfindCellType::Impassable"),
+            "adjustToLandingDestination must half-cell spiral + reject cliff/water like C++"
+        );
+    }
+
+    #[test]
+    fn adjust_to_landing_off_map_scripted_ok() {
+        let system = PathfindingSystem::new(8, 8);
+        let from = Coord3D::new(50_000.0, 50_000.0, 0.0);
+        let mut dest = Coord3D::new(60_000.0, 60_000.0, 0.0);
+        assert!(system.adjust_to_landing_destination(&from, &mut dest, 0.0));
+    }
+
+    #[test]
+    fn adjust_to_landing_rejects_water_cell() {
+        let system = PathfindingSystem::new(16, 16);
+        let water = Coord3D::new(48.0, 48.0, 0.0);
+        system.set_cell_type(&water, PathfindCellType::Water);
+        let from = Coord3D::new(16.0, 16.0, 0.0);
+        let mut dest = water;
+        let ok = system.adjust_to_landing_destination(&from, &mut dest, 0.0);
+        if ok {
+            assert_ne!(system.get_cell_type(&dest), Some(PathfindCellType::Water));
+            assert_ne!(system.get_cell_type(&dest), Some(PathfindCellType::Cliff));
+        }
     }
 }

@@ -2116,6 +2116,17 @@ impl Pathfinder {
         )
     }
 
+    /// C++ `Pathfinder::adjustToLandingDestination`.
+    pub fn adjust_to_landing_destination(&self, obj: &Object, dest: &mut Coord3D) -> bool {
+        let from = *obj.get_position();
+        let unit_radius = obj
+            .get_geometry_info()
+            .get_bounding_circle_radius()
+            .max(0.0);
+        self.inner
+            .adjust_to_landing_destination(&from, dest, unit_radius)
+    }
+
     /// C++ Pathfinder::adjustToPossibleDestination — spiral search for a reachable cell.
     pub fn adjust_to_possible_destination(
         &self,
