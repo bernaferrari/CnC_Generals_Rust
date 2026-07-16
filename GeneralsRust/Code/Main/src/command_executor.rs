@@ -285,16 +285,17 @@ impl<'a> CommandExecutor<'a> {
     // === Movement Commands ===
 
     fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
-        for &unit_id in units {
+        let goals = self.group_move_destinations(units, destination);
+        for (unit_id, goal) in goals {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
             } else {
                 return CommandResult::InvalidTarget;
             }
-            if !self.game_logic.assign_unit_path(unit_id, destination, &[]) {
+            if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
                 return CommandResult::InvalidCommand;
             }
-            debug!("Unit {} moving to {:?}", unit_id.0, destination);
+            debug!("Unit {} moving to {:?}", unit_id.0, goal);
         }
         CommandResult::Success
     }
@@ -305,32 +306,60 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> CommandResult {
-        for &unit_id in units {
+        let goals = self.group_move_destinations(units, destination);
+        for (unit_id, goal) in goals {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
             } else {
                 return CommandResult::InvalidTarget;
             }
-            if !self
-                .game_logic
-                .assign_unit_path(unit_id, destination, waypoints)
-            {
+            if !self.game_logic.assign_unit_path(unit_id, goal, waypoints) {
                 return CommandResult::InvalidCommand;
             }
-            debug!(
-                "Unit {} moving via waypoints to {:?}",
-                unit_id.0, destination
-            );
+            debug!("Unit {} moving via waypoints to {:?}", unit_id.0, goal);
         }
         CommandResult::Success
     }
 
+    /// C++-style group move goal spread: one unit keeps the click point; others
+    /// ring around it by selection radius so paths/goals don't collapse to one cell.
+    fn group_move_destinations(
+        &self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> Vec<(ObjectId, Vec3)> {
+        if units.len() <= 1 {
+            return units.iter().map(|&id| (id, destination)).collect();
+        }
+        let n = units.len() as f32;
+        let mut out = Vec::with_capacity(units.len());
+        for (i, &unit_id) in units.iter().enumerate() {
+            let spread = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|u| u.selection_radius.max(6.0))
+                .unwrap_or(8.0);
+            // Keep first unit on the exact click; ring the rest (index 1..).
+            let goal = if i == 0 {
+                destination
+            } else {
+                let angle = (i as f32) * std::f32::consts::TAU / (n - 1.0).max(1.0);
+                // Slight radial growth for larger groups so outer ring clears.
+                let ring = spread * (1.0 + ((i as f32) / n) * 0.35);
+                destination + Vec3::new(angle.cos() * ring, 0.0, angle.sin() * ring)
+            };
+            out.push((unit_id, goal));
+        }
+        out
+    }
+
     fn execute_attack_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
-        for &unit_id in units {
+        let goals = self.group_move_destinations(units, destination);
+        for (unit_id, goal) in goals {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 if unit.can_move() && unit.can_attack() {
                     unit.stop_attack();
-                    unit.set_destination(destination);
+                    unit.set_destination(goal);
                     unit.set_ai_state(AIState::AttackMoving);
                 }
             }
@@ -339,10 +368,11 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_force_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
-        for &unit_id in units {
+        let goals = self.group_move_destinations(units, destination);
+        for (unit_id, goal) in goals {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
-                unit.set_destination(destination);
+                unit.set_destination(goal);
                 unit.set_ai_state(AIState::Moving);
                 // Force move ignores threats
             }
@@ -3244,5 +3274,29 @@ impl<'a> CommandExecutor<'a> {
     /// Get execution statistics
     pub fn get_stats(&self) -> (usize, usize) {
         (self.commands_executed, self.commands_failed)
+    }
+}
+
+#[cfg(test)]
+mod group_move_tests {
+
+    #[test]
+    fn group_move_destinations_spreads_multi_unit() {
+        // Source-level: multi-unit move must call group_move_destinations.
+        let src = include_str!("command_executor.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert!(
+            prod.contains("fn group_move_destinations")
+                && prod.contains("group_move_destinations(units, destination)"),
+            "multi-unit move must spread destinations"
+        );
+        // Production execute_move must not assign the raw destination alone for groups.
+        let i = prod.find("fn execute_move(").expect("execute_move");
+        let w = &prod[i..prod.len().min(i + 1200)];
+        assert!(
+            w.contains("group_move_destinations")
+                && !w.contains("assign_unit_path(unit_id, destination, &[])"),
+            "execute_move must path to per-unit goals"
+        );
     }
 }
