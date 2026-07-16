@@ -2056,6 +2056,32 @@ impl Pathfinder {
         )
     }
 
+    /// Full C++ `getMoveAwayFromPath` path result (waypoints + cost).
+    pub fn get_move_away_from_path_result(
+        &mut self,
+        from: &Coord3D,
+        path_to_avoid: &[Coord3D],
+        path_to_avoid2: Option<&[Coord3D]>,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        other_radius: f32,
+        obj_id: ObjectID,
+        is_human: bool,
+    ) -> crate::ai::pathfind_complete::PathResult {
+        self.inner.get_move_away_from_path_result(
+            from,
+            path_to_avoid,
+            path_to_avoid2,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            other_radius,
+            obj_id,
+            is_human,
+        )
+    }
+
     pub fn move_allies(
         &mut self,
         obj_id: ObjectID,
