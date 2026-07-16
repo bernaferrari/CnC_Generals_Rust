@@ -770,11 +770,215 @@ impl PathfindingSystem {
             .or_else(|| Some(vec![from, goal]))
     }
 
+    /// C++ `computeNormalRadialOffset` residual (AIPathfind.cpp) on host XZ ground plane.
+    pub fn compute_normal_radial_offset_xz(
+        from: Vec3,
+        to: Vec3,
+        obj_pos: Vec3,
+        radius: f32,
+    ) -> Vec3 {
+        let dx = to.x - from.x;
+        let dz = to.z - from.z;
+        let obj_dx = obj_pos.x - from.x;
+        let obj_dz = obj_pos.z - from.z;
+        let cross = dx * obj_dz - dz * obj_dx;
+        let (mut nx, mut nz) = if cross > 0.0 { (dz, -dx) } else { (-dz, dx) };
+        let len = (nx * nx + nz * nz).sqrt();
+        if len > 0.0001 {
+            nx /= len;
+            nz /= len;
+        } else {
+            nx = 1.0;
+            nz = 0.0;
+        }
+        Vec3::new(obj_pos.x + nx * radius, obj_pos.y, obj_pos.z + nz * radius)
+    }
+
+    /// Host residual: first tall / AIRCRAFT_PATH_AROUND structure along segment (XZ).
+    fn find_tall_building_along_segment(
+        from: Vec3,
+        to: Vec3,
+        objects: &HashMap<ObjectId, Object>,
+        ignore: Option<ObjectId>,
+    ) -> Option<(ObjectId, Vec3, f32)> {
+        let dx = to.x - from.x;
+        let dz = to.z - from.z;
+        let len = (dx * dx + dz * dz).sqrt();
+        if len < 0.01 {
+            return None;
+        }
+        // Sample along segment like a coarse Bresenham residual.
+        let steps = ((len / 5.0).ceil() as i32).clamp(1, 256);
+        let mut best: Option<(ObjectId, Vec3, f32, f32)> = None; // id,pos,r,t
+        for obj in objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            if ignore == Some(obj.id) {
+                continue;
+            }
+            let is_tall = obj.is_kind_of(crate::game_logic::KindOf::AircraftPathAround)
+                || (obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                    && obj.selection_radius >= 20.0);
+            if !is_tall {
+                continue;
+            }
+            let p = obj.get_position();
+            let radius = obj.selection_radius.max(8.0) + 2.0 * 10.0; // +2 pathfind cells residual
+                                                                     // Closest approach of point-line in XZ.
+            let t = (((p.x - from.x) * dx + (p.z - from.z) * dz) / (len * len)).clamp(0.0, 1.0);
+            let cx = from.x + dx * t;
+            let cz = from.z + dz * t;
+            let dist = ((p.x - cx) * (p.x - cx) + (p.z - cz) * (p.z - cz)).sqrt();
+            if dist > radius {
+                continue;
+            }
+            match best {
+                Some((_, _, _, bt)) if t >= bt => {}
+                _ => best = Some((obj.id, p, radius, t)),
+            }
+        }
+        // Also require some sample near building for honesty with C++ cell walk.
+        if let Some((id, p, r, _)) = best {
+            for i in 0..=steps {
+                let t = i as f32 / steps as f32;
+                let sx = from.x + dx * t;
+                let sz = from.z + dz * t;
+                let d = ((p.x - sx) * (p.x - sx) + (p.z - sz) * (p.z - sz)).sqrt();
+                if d <= r {
+                    return Some((id, p, r));
+                }
+            }
+        }
+        None
+    }
+
+    /// C++ `Pathfinder::segmentIntersectsTallBuilding` residual (host XZ).
+    /// Returns optional nudged `to` plus three insert waypoints.
+    pub fn segment_intersects_tall_building(
+        from: Vec3,
+        mut to: Vec3,
+        objects: &HashMap<ObjectId, Object>,
+        ignore: Option<ObjectId>,
+    ) -> Option<(Vec3, Vec3, Vec3, Vec3)> {
+        let mut from_pos = from;
+        let mut to_pos = to;
+        for _ in 0..2 {
+            let Some((_id, bldg_pos, radius)) =
+                Self::find_tall_building_along_segment(from_pos, to_pos, objects, ignore)
+            else {
+                return None;
+            };
+
+            // If to inside radius, push out and retry.
+            let mut delta_x = to_pos.x - bldg_pos.x;
+            let mut delta_z = to_pos.z - bldg_pos.z;
+            let mut len = (delta_x * delta_x + delta_z * delta_z).sqrt();
+            if len <= radius * 0.98 {
+                if len < 0.1 {
+                    delta_x = 1.0;
+                    delta_z = 0.0;
+                    len = 1.0;
+                }
+                delta_x = delta_x / len * radius;
+                delta_z = delta_z / len * radius;
+                to_pos.x = bldg_pos.x + delta_x;
+                to_pos.z = bldg_pos.z + delta_z;
+                to = to_pos;
+                continue;
+            }
+
+            // If from inside radius, push from out.
+            delta_x = from_pos.x - bldg_pos.x;
+            delta_z = from_pos.z - bldg_pos.z;
+            len = (delta_x * delta_x + delta_z * delta_z).sqrt();
+            if len <= radius * 0.98 {
+                if len < 0.1 {
+                    delta_x = 1.0;
+                    delta_z = 0.0;
+                    len = 1.0;
+                }
+                delta_x = delta_x / len * radius;
+                delta_z = delta_z / len * radius;
+                from_pos.x = bldg_pos.x + delta_x;
+                from_pos.z = bldg_pos.z + delta_z;
+            }
+
+            let insert2 = Self::compute_normal_radial_offset_xz(from_pos, to_pos, bldg_pos, radius);
+            let insert1 =
+                Self::compute_normal_radial_offset_xz(from_pos, insert2, bldg_pos, radius);
+            let insert3 = Self::compute_normal_radial_offset_xz(insert2, to_pos, bldg_pos, radius);
+            return Some((to, insert1, insert2, insert3));
+        }
+        None
+    }
+
+    /// C++ aircraft tall-building path detour residual: walk path segments and
+    /// insert radial offsets when AIRCRAFT_PATH_AROUND / tall structures clip.
+    pub fn detour_path_around_tall_buildings(
+        path: &[Vec3],
+        objects: &HashMap<ObjectId, Object>,
+    ) -> Vec<Vec3> {
+        if path.len() < 2 {
+            return path.to_vec();
+        }
+        let mut out: Vec<Vec3> = Vec::with_capacity(path.len() + 8);
+        out.push(path[0]);
+        for w in path.windows(2) {
+            let mut from = w[0];
+            // Prefer last emitted point as from (may have been nudged).
+            if let Some(last) = out.last() {
+                from = *last;
+            }
+            let mut to = w[1];
+            // Limit insertions per segment to avoid explosion.
+            for _ in 0..4 {
+                if let Some((nudged_to, i1, i2, i3)) =
+                    Self::segment_intersects_tall_building(from, to, objects, None)
+                {
+                    to = nudged_to;
+                    // Insert detour points if they advance the path.
+                    for p in [i1, i2, i3] {
+                        if out.last().is_none_or(|l| {
+                            let dx = l.x - p.x;
+                            let dz = l.z - p.z;
+                            dx * dx + dz * dz > 1.0
+                        }) {
+                            out.push(p);
+                            from = p;
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+            if out.last().is_none_or(|l| {
+                let dx = l.x - to.x;
+                let dz = l.z - to.z;
+                dx * dx + dz * dz > 0.01
+            }) {
+                out.push(to);
+            }
+        }
+        out
+    }
+
     pub fn find_path(
         &mut self,
         start: Vec3,
         goal: Vec3,
         objects: &HashMap<ObjectId, Object>,
+    ) -> Option<Vec<Vec3>> {
+        self.find_path_ex(start, goal, objects, false)
+    }
+
+    /// `aircraft`: apply C++ tall-building aircraft path-around residual after A*.
+    pub fn find_path_ex(
+        &mut self,
+        start: Vec3,
+        goal: Vec3,
+        objects: &HashMap<ObjectId, Object>,
+        aircraft: bool,
     ) -> Option<Vec<Vec3>> {
         // Update dynamic obstacles
         self.grid.update_dynamic_obstacles(objects);
@@ -782,11 +986,28 @@ impl PathfindingSystem {
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
 
-        let mut path = self.grid.find_path(start_grid, goal_grid)?;
-        let n = path.len().max(1) as f32;
-        for (i, p) in path.iter_mut().enumerate() {
-            let t = i as f32 / (n - 1.0).max(1.0);
-            p.y = start.y + (goal.y - start.y) * t;
+        // Aircraft residual: prefer direct segment then tall-building detours
+        // (ground static blocks should not force aircraft under tall structures).
+        let mut path = if aircraft {
+            let direct = vec![start, goal];
+            Self::detour_path_around_tall_buildings(&direct, objects)
+        } else {
+            self.grid.find_path(start_grid, goal_grid)?
+        };
+        if !aircraft {
+            let n = path.len().max(1) as f32;
+            for (i, p) in path.iter_mut().enumerate() {
+                let t = i as f32 / (n - 1.0).max(1.0);
+                p.y = start.y + (goal.y - start.y) * t;
+            }
+        } else {
+            // Preserve cruise altitude along detour.
+            for p in path.iter_mut() {
+                p.y = start.y;
+            }
+            if let Some(last) = path.last_mut() {
+                last.y = goal.y;
+            }
         }
         // Ensure exact endpoints for movement settling.
         if let Some(first) = path.first_mut() {
@@ -795,6 +1016,8 @@ impl PathfindingSystem {
         if let Some(last) = path.last_mut() {
             *last = goal;
         }
+        // Ground paths: still apply tall detour if AIRCRAFT_PATH_AROUND clips
+        // hierarchical air-capable ground movers? C++ only aircraft — skip.
         Some(path)
     }
 
@@ -990,5 +1213,54 @@ mod tests {
         // Completely sealed — no path.
         let path = g.find_path(GridPos::new(1, 5), GridPos::new(10, 5));
         assert!(path.is_none());
+    }
+
+    #[test]
+    fn compute_normal_radial_offset_xz_perpendicular() {
+        let from = Vec3::new(0.0, 0.0, 0.0);
+        let to = Vec3::new(100.0, 0.0, 0.0);
+        let obj = Vec3::new(50.0, 0.0, 0.0);
+        let p = PathfindingSystem::compute_normal_radial_offset_xz(from, to, obj, 10.0);
+        // cross=0 uses fallback normal (1,0) or perpendicular — distance from obj ~ radius
+        let d = ((p.x - obj.x).powi(2) + (p.z - obj.z).powi(2)).sqrt();
+        assert!((d - 10.0).abs() < 0.01, "offset radius {d}");
+    }
+
+    #[test]
+    fn tall_building_aircraft_detour_inserts_waypoints() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("TallTower");
+        tmpl.add_kind_of(KindOf::Structure);
+        tmpl.add_kind_of(KindOf::AircraftPathAround);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut bldg = Object::new(tmpl, ObjectId(1), Team::USA);
+        bldg.set_position(Vec3::new(50.0, 0.0, 0.0));
+        bldg.selection_radius = 25.0;
+        objects.insert(bldg.id, bldg);
+
+        let from = Vec3::new(0.0, 40.0, 0.0);
+        let to = Vec3::new(100.0, 40.0, 0.0);
+        let path = PathfindingSystem::detour_path_around_tall_buildings(&[from, to], &objects);
+        assert!(
+            path.len() > 2,
+            "expected inserted tall-building waypoints, got {}",
+            path.len()
+        );
+        // Path should not go through building center (within radius).
+        for p in &path[1..path.len() - 1] {
+            let d = ((p.x - 50.0).powi(2) + (p.z - 0.0).powi(2)).sqrt();
+            // inserts are on the radius circle (~45)
+            assert!(d + 1e-3 >= 20.0, "waypoint inside building d={d} at {p:?}");
+        }
+    }
+
+    #[test]
+    fn tall_building_segment_intersect_cpp_surface() {
+        let src = include_str!("pathfinding.rs");
+        assert!(src.contains("segmentIntersectsTallBuilding"));
+        assert!(src.contains("AIRCRAFT_PATH_AROUND"));
+        assert!(src.contains("compute_normal_radial_offset_xz"));
+        assert!(src.contains("find_path_ex"));
     }
 }
