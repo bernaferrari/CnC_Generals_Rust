@@ -1933,7 +1933,19 @@ impl Pathfinder {
         &mut self,
         bounds: (pathfind_complete::GridCoord, pathfind_complete::GridCoord),
     ) -> crate::path::PathfindLayerEnum {
-        let layer_id = self.inner.add_bridge(bounds);
+        self.add_bridge_ex(bounds, INVALID_ID, bounds.0, bounds.1)
+    }
+
+    pub fn add_bridge_ex(
+        &mut self,
+        bounds: (pathfind_complete::GridCoord, pathfind_complete::GridCoord),
+        bridge_object_id: ObjectID,
+        start_cell: pathfind_complete::GridCoord,
+        end_cell: pathfind_complete::GridCoord,
+    ) -> crate::path::PathfindLayerEnum {
+        let layer_id = self
+            .inner
+            .add_bridge_ex(bounds, bridge_object_id, start_cell, end_cell);
         Self::bridge_layer_from_pathfinder_id(layer_id)
     }
 
@@ -2107,8 +2119,13 @@ impl Pathfinder {
             return None;
         }
 
-        // Residual for m_layers[i].isDestroyed() && connectsZones(...):
-        // destroyed bridge objects on the segment.
+        // C++ m_layers[i].isDestroyed() && connectsZones(...).
+        if let Some(id) = self.inner.find_broken_bridge_layer(from, to) {
+            return Some(id);
+        }
+
+        // Residual: terrain Bridge list destroyed/rubble segment scan when layer
+        // object ids were not registered.
         let terrain = crate::terrain::get_terrain_logic().read().ok()?;
         let delta = Coord3D::new(to.x - from.x, to.y - from.y, to.z - from.z);
         let dist_sq = delta.x * delta.x + delta.y * delta.y;
@@ -2650,6 +2667,30 @@ mod tests {
         ai_data.add_side_info(side_info);
         assert_eq!(ai_data.side_info.len(), 1);
         assert_eq!(ai_data.side_info[0].side, "USA");
+    }
+
+    #[test]
+    fn find_broken_bridge_prefers_destroyed_layers_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
+        let i = src
+            .find("pub fn find_broken_bridge")
+            .expect("find_broken_bridge");
+        let w = &src[i..src.len().min(i + 1200)];
+        assert!(
+            w.contains("find_broken_bridge_layer")
+                && w.contains("client_safe_quick_does_path_exist"),
+            "findBrokenBridge must check pathfinder destroyed layers before terrain residual"
+        );
+        let complete = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        assert!(
+            complete.contains("fn connects_zones")
+                && complete.contains("find_broken_bridge_layer")
+                && complete.contains("bridge_object_id"),
+            "BridgeLayer must expose connectsZones residual + object id"
+        );
     }
 
     #[test]

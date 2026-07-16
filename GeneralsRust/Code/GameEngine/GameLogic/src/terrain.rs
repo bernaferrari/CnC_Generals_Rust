@@ -807,11 +807,19 @@ impl TerrainLogic {
     }
 
     fn register_bridge_with_pathfinder(bridge_info: &BridgeInfo) -> Option<PathfindLayerEnum> {
+        use crate::ai::pathfind_complete::GridCoord;
         let (min_coord, max_coord) = Self::bridge_pathfinder_bounds(bridge_info);
+        let start_cell = GridCoord::from_world(&bridge_info.from);
+        let end_cell = GridCoord::from_world(&bridge_info.to);
         let ai_guard = THE_AI.read().ok()?;
         let pathfinder = ai_guard.pathfinder()?;
         let mut pathfinder_guard = pathfinder.write().ok()?;
-        Some(pathfinder_guard.add_bridge((min_coord, max_coord)))
+        Some(pathfinder_guard.add_bridge_ex(
+            (min_coord, max_coord),
+            bridge_info.bridge_object_id,
+            start_cell,
+            end_cell,
+        ))
     }
 
     fn remove_bridge_at(&mut self, location: &Coord3D) -> bool {
