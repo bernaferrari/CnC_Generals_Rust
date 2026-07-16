@@ -50,6 +50,12 @@ pub struct Object {
 
     /// Object status
     pub status: ObjectStatus,
+    /// C++ ModelConditionFlags residual bits (ALLOW_SURRENDER-off index layout).
+    #[serde(default)]
+    pub model_condition_bits: u128,
+    /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
+    #[serde(default)]
+    pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
 
     /// Health system
     pub health: Health,
@@ -532,6 +538,9 @@ impl Object {
             team,
             name: String::new(),
             status: ObjectStatus::default(),
+            model_condition_bits: 0,
+            body_damage_state:
+                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
             movement: Movement::default(),
             experience: Experience::default(),
@@ -664,6 +673,9 @@ impl Object {
             team,
             name: String::new(),
             status: ObjectStatus::default(),
+            model_condition_bits: 0,
+            body_damage_state:
+                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
             movement: Movement::default(),
             experience: Experience::default(),
@@ -1589,6 +1601,40 @@ impl Object {
         self.thing.get_transform_matrix()
     }
 
+    /// C++ ActiveBody visual condition + Drawable::reactToBodyDamageStateChange residual.
+    pub fn refresh_model_condition_bits(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            host_apply_body_damage_model_bits, host_calc_body_damage_state, HostBodyDamageType,
+            MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
+        };
+        let health = self.health.current;
+        let max_h = self.health.maximum.max(0.0);
+        let state = if self.status.destroyed || health <= 0.0 {
+            HostBodyDamageType::Rubble
+        } else {
+            host_calc_body_damage_state(health, max_h)
+        };
+        self.body_damage_state = state;
+        let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, state);
+        // Motion / combat residual bits from ObjectStatus.
+        if self.status.moving {
+            bits |= 1u128 << MC_BIT_MOVING;
+        } else {
+            bits &= !(1u128 << MC_BIT_MOVING);
+        }
+        if self.status.attacking {
+            bits |= 1u128 << MC_BIT_ATTACKING;
+        } else {
+            bits &= !(1u128 << MC_BIT_ATTACKING);
+        }
+        if self.status.destroyed {
+            bits |= 1u128 << MC_BIT_DYING;
+        } else {
+            bits &= !(1u128 << MC_BIT_DYING);
+        }
+        self.model_condition_bits = bits;
+    }
+
     pub fn take_damage(&mut self, damage: f32) -> bool {
         self.take_damage_from(damage, None)
     }
@@ -1671,6 +1717,7 @@ impl Object {
         // Frame-local log for GameWorld shadow mutation parity (actual HP damage).
         crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
 
+        self.refresh_model_condition_bits();
         destroyed
     }
 
@@ -1694,6 +1741,7 @@ impl Object {
             if self.health.current > before {
                 crate::game_logic::host_heal_log::record(self.id, self.health.current);
             }
+            self.refresh_model_condition_bits();
         }
     }
 
@@ -3408,6 +3456,83 @@ mod tests {
         assert_eq!(
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
+        );
+    }
+
+    #[test]
+    fn body_damage_sets_model_condition_bits() {
+        use crate::game_logic::host_enum_table_residual::{
+            host_model_condition_has, HostBodyDamageType, MC_BIT_DAMAGED, MC_BIT_DYING,
+            MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut tmpl = ThingTemplate::new("McBits");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(90), Team::USA);
+        o.refresh_model_condition_bits();
+        assert_eq!(o.body_damage_state, HostBodyDamageType::Pristine);
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_DAMAGED
+        ));
+
+        o.health.current = 40.0; // between 0.25 and 0.5
+        o.refresh_model_condition_bits();
+        assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_DAMAGED
+        ));
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_REALLYDAMAGED
+        ));
+
+        o.health.current = 10.0;
+        o.refresh_model_condition_bits();
+        assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_REALLYDAMAGED
+        ));
+
+        o.take_damage(9999.0);
+        assert!(o.status.destroyed);
+        assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_RUBBLE
+        ));
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_DYING
+        ));
+    }
+
+    #[test]
+    fn body_damage_threshold_cpp_surface() {
+        use crate::game_logic::host_enum_table_residual::{
+            host_calc_body_damage_state, HostBodyDamageType, HOST_UNIT_DAMAGED_THRESH,
+            HOST_UNIT_REALLY_DAMAGED_THRESH,
+        };
+        assert!((HOST_UNIT_DAMAGED_THRESH - 0.5).abs() < 1e-6);
+        assert!((HOST_UNIT_REALLY_DAMAGED_THRESH - 0.25).abs() < 1e-6);
+        assert_eq!(
+            host_calc_body_damage_state(100.0, 100.0),
+            HostBodyDamageType::Pristine
+        );
+        assert_eq!(
+            host_calc_body_damage_state(50.0, 100.0),
+            HostBodyDamageType::Damaged
+        );
+        assert_eq!(
+            host_calc_body_damage_state(25.0, 100.0),
+            HostBodyDamageType::ReallyDamaged
+        );
+        assert_eq!(
+            host_calc_body_damage_state(0.0, 100.0),
+            HostBodyDamageType::Rubble
         );
     }
 }

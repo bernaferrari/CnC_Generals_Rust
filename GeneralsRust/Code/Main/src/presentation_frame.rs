@@ -189,6 +189,12 @@ pub struct RenderableObject {
     pub health_max: f32,
     pub selected: bool,
     pub destroyed: bool,
+    /// C++ ModelConditionFlags residual (ALLOW_SURRENDER-off bit layout, low 128).
+    pub model_condition_bits: u128,
+    /// C++ BodyDamageType residual ordinal (0 pristine .. 3 rubble).
+    pub body_damage_state: u8,
+    /// C++ DeathType residual name for death FX (empty when alive).
+    pub death_type_name: String,
     pub under_construction: bool,
     /// Construction progress 0..1 residual (structures / dozer builds).
     pub construction_percent: f32,
@@ -2047,6 +2053,54 @@ impl PresentationFrame {
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
                 destroyed: obj.status.destroyed || !obj.is_alive(),
+                model_condition_bits: {
+                    // Prefer live residual bits; recompute if pristine-zero and damaged.
+                    let mut bits = obj.model_condition_bits;
+                    use crate::game_logic::host_enum_table_residual::{
+                        host_apply_body_damage_model_bits, host_calc_body_damage_state,
+                        HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
+                    };
+                    let destroyed = obj.status.destroyed || !obj.is_alive();
+                    let state = if destroyed {
+                        HostBodyDamageType::Rubble
+                    } else {
+                        host_calc_body_damage_state(obj.health.current, obj.health.maximum.max(0.0))
+                    };
+                    bits = host_apply_body_damage_model_bits(bits, state);
+                    if obj.status.moving {
+                        bits |= 1u128 << MC_BIT_MOVING;
+                    } else {
+                        bits &= !(1u128 << MC_BIT_MOVING);
+                    }
+                    if obj.status.attacking {
+                        bits |= 1u128 << MC_BIT_ATTACKING;
+                    } else {
+                        bits &= !(1u128 << MC_BIT_ATTACKING);
+                    }
+                    if destroyed {
+                        bits |= 1u128 << MC_BIT_DYING;
+                    } else {
+                        bits &= !(1u128 << MC_BIT_DYING);
+                    }
+                    bits
+                },
+                body_damage_state: {
+                    use crate::game_logic::host_enum_table_residual::{
+                        host_calc_body_damage_state, HostBodyDamageType,
+                    };
+                    let destroyed = obj.status.destroyed || !obj.is_alive();
+                    let state = if destroyed {
+                        HostBodyDamageType::Rubble
+                    } else {
+                        host_calc_body_damage_state(obj.health.current, obj.health.maximum.max(0.0))
+                    };
+                    state as u8
+                },
+                death_type_name: if obj.status.destroyed || !obj.is_alive() {
+                    obj.status.death_type.as_name().to_string()
+                } else {
+                    String::new()
+                },
                 under_construction: obj.status.under_construction,
                 construction_percent: obj.construction_percent.clamp(0.0, 1.0),
                 veterancy: PresentationVeterancy::from_host(obj.experience.level),
