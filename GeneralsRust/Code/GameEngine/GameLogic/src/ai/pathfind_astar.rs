@@ -619,6 +619,42 @@ impl AStarPathfinder {
         line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
         seed_line_to_goal: bool,
     ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_ex5(
+            start,
+            goal,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            line_cell_ok,
+            seed_line_to_goal,
+            false,
+        )
+    }
+
+    /// Like find_path_ex4 plus C++ m_isTunneling start flag and expand-time clear.
+    pub fn find_path_ex5(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        seed_line_to_goal: bool,
+        starts_tunneling: bool,
+    ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = BinaryHeap::new();
@@ -665,6 +701,9 @@ impl AStarPathfinder {
         open_set.push(start_node);
         g_scores.insert(start, 0);
 
+        // C++ m_isTunneling — clear once we expand into valid non-pinched cell.
+        let mut is_tunneling = starts_tunneling;
+
         let mut iterations = 0;
 
         // Main A* loop
@@ -697,11 +736,8 @@ impl AStarPathfinder {
 
             // C++ examineNeighboringCells: examineCellsCallback along parent→goal
             // when NO_ATTACK && !tunneling && !downhillOnly && goalCell.
-            let tunneling_now = force_passable.is_some()
-                && force_passable.map(|f| f(current.coord)).unwrap_or(false)
-                && !self.is_passable_with_ignore(current.coord, surfaces, is_crusher, ignore_cells);
-            // Prefer explicit seed flag; skip when downhill-only (C++ guard).
-            if seed_line_to_goal && !downhill_only && !tunneling_now {
+            // Prefer explicit seed flag; skip when downhill-only / tunneling (C++ guard).
+            if seed_line_to_goal && !downhill_only && !is_tunneling {
                 self.examine_cells_toward_goal(
                     current.coord,
                     current.g_score,
@@ -748,10 +784,15 @@ impl AStarPathfinder {
                     }
                 }
 
-                // Check if passable (or force_passable for tunneling / dozer).
-                if !self.is_passable_with_ignore(neighbor_coord, surfaces, is_crusher, ignore_cells)
-                    && !force_passable.map(|f| f(neighbor_coord)).unwrap_or(false)
-                {
+                let naturally_passable = self.is_passable_with_ignore(
+                    neighbor_coord,
+                    surfaces,
+                    is_crusher,
+                    ignore_cells,
+                );
+                let force_ok = force_passable.map(|f| f(neighbor_coord)).unwrap_or(false);
+                // C++: invalid movement only expands while m_isTunneling (or dozerHack).
+                if !naturally_passable && !force_ok && !is_tunneling {
                     continue;
                 }
 
@@ -767,7 +808,7 @@ impl AStarPathfinder {
                 }
 
                 // Calculate tentative g_score
-                // Matches C++ at AIPathfind.cpp:6259
+                // Matches C++ at AIPathfind.cpp:6259 + 6277-6333
                 let mut movement_cost = self.movement_cost_with_ignore(
                     current.coord,
                     neighbor_coord,
@@ -776,7 +817,38 @@ impl AStarPathfinder {
                     &came_from,
                 );
                 if movement_cost == u32::MAX {
-                    continue; // Impassable
+                    // Tunneling / force: still expand with base ortho/diag step.
+                    if is_tunneling || force_ok {
+                        movement_cost = if current.coord.is_diagonal(&neighbor_coord) {
+                            COST_DIAGONAL
+                        } else {
+                            COST_ORTHOGONAL
+                        };
+                        // C++ m_isTunneling invalid step: +10*COST_ORTHOGONAL
+                        if is_tunneling && !naturally_passable {
+                            movement_cost = movement_cost.saturating_add(10 * COST_ORTHOGONAL);
+                        }
+                    } else {
+                        continue; // Impassable
+                    }
+                }
+                // C++ examineNeighboringCells: pinched gets EXTRA COST_ORTHOGONAL
+                // on top of costSoFar's COST_DIAGONAL pinched surcharge.
+                if self.is_pinched(neighbor_coord).unwrap_or(false) {
+                    movement_cost = movement_cost.saturating_add(COST_ORTHOGONAL);
+                }
+                // C++ CELL_OBSTACLE: +100*COST_ORTHOGONAL when expanding through obstacle.
+                if let Some(cell) = self.get_cell(neighbor_coord) {
+                    if cell.get_type() == PathfindCellType::Obstacle
+                        && !self.is_ignored_obstacle(neighbor_coord, ignore_cells)
+                    {
+                        // Crusher already paid 100*ORTHO in movement_cost_with_ignore.
+                        if !(naturally_passable && is_crusher) {
+                            if !naturally_passable || is_tunneling || force_ok {
+                                movement_cost = movement_cost.saturating_add(100 * COST_ORTHOGONAL);
+                            }
+                        }
+                    }
                 }
                 // C++ notZonePassable: ground hierarchical block not yet expanded →
                 // heavy cost (100 * COST_ORTHOGONAL), not hard reject in this path.
@@ -802,6 +874,12 @@ impl AStarPathfinder {
                     }
                 }
 
+                // C++: if (movementValid && !pinched) m_isTunneling = false;
+                let neighbor_pinched = self.is_pinched(neighbor_coord).unwrap_or(false);
+                if naturally_passable && !neighbor_pinched {
+                    is_tunneling = false;
+                }
+
                 let tentative_g = current.g_score.saturating_add(movement_cost);
 
                 // Check if this path is better
@@ -817,8 +895,12 @@ impl AStarPathfinder {
                 g_scores.insert(neighbor_coord, tentative_g);
 
                 // Calculate h_score and f_score
-                // Matches C++ at AIPathfind.cpp:6296
-                let h_score = neighbor_coord.diagonal_distance(&goal);
+                // C++: if m_isTunneling, costRemaining = 0 (closest valid cell).
+                let h_score = if is_tunneling {
+                    0
+                } else {
+                    neighbor_coord.diagonal_distance(&goal)
+                };
                 let f_score = tentative_g.saturating_add(h_score);
 
                 // Add to open set
@@ -1430,6 +1512,80 @@ mod tests {
             path.0.iter().all(|c| c.y == 2),
             "line seed should prefer straight y=2: {:?}",
             path.0
+        );
+    }
+
+    #[test]
+    fn tunneling_invalid_step_allows_obstacle_with_surcharge() {
+        // C++: start inside obstacle (tunneling), exit to clear goal beyond wall.
+        // Tunneling clears on first valid non-pinched cell — so start must be obstacle.
+        let mut pf = AStarPathfinder::new(12, 12);
+        for x in 0..12 {
+            for y in 0..12 {
+                pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
+            }
+        }
+        // Solid obstacle blob containing start at (3,5); goal outside at (8,5).
+        for x in 2..=5 {
+            for y in 3..=7 {
+                pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Obstacle);
+            }
+        }
+        let start = GridCoord::new(3, 5);
+        let goal = GridCoord::new(8, 5);
+        // force_passable allows start/goal validation for obstacle start.
+        let force = |c: GridCoord| c == start;
+        assert!(pf
+            .find_path_ex5(
+                start,
+                goal,
+                0xFFFF,
+                false,
+                5000,
+                false,
+                None,
+                None,
+                false,
+                None,
+                Some(&force as &dyn Fn(GridCoord) -> bool),
+                None,
+                false,
+                false,
+            )
+            .is_none());
+        let path = pf
+            .find_path_ex5(
+                start,
+                goal,
+                0xFFFF,
+                false,
+                5000,
+                false,
+                None,
+                None,
+                false,
+                None,
+                Some(&force as &dyn Fn(GridCoord) -> bool),
+                None,
+                false,
+                true,
+            )
+            .expect("tunnel path");
+        assert_eq!(*path.0.first().unwrap(), start);
+        assert_eq!(*path.0.last().unwrap(), goal);
+    }
+
+    #[test]
+    fn pinched_extra_ortho_on_expand_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(
+            src.contains("starts_tunneling")
+                && src.contains("10 * COST_ORTHOGONAL")
+                && src.contains("is_tunneling = false"),
+            "expand must clear tunneling and apply C++ tunnel surcharge"
         );
     }
 }
