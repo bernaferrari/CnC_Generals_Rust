@@ -2380,6 +2380,24 @@ impl Object {
                     )
                     .unwrap_or(0.0)
                 },
+                radius_damage_affects: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_radius_damage_affects_for_weapon_name,
+                    )
+                    .unwrap_or(
+                        crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                            | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+                    )
+                },
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
