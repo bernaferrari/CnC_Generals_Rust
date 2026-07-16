@@ -283,13 +283,19 @@ impl TeamInQueue {
             if order.is_resource_gatherer {
                 return false;
             }
-            TheThingFactory::find_template(&order.thing_template)
+            if TheThingFactory::find_template(&order.thing_template)
                 .map(|t| t.is_kind_of(KindOf::Dozer))
-                .unwrap_or_else(|| {
-                    // Fallback when factory unloaded (tests): name heuristic.
-                    let n = order.thing_template.to_ascii_lowercase();
-                    n.contains("dozer") || n.contains("worker")
-                })
+                .unwrap_or(false)
+            {
+                return true;
+            }
+            // Residual name heuristic when templates lack KindOf flags (unit tests /
+            // early boot). Prefer "dozer"; "worker" only if no template was found.
+            let n = order.thing_template.to_ascii_lowercase();
+            if n.contains("dozer") {
+                return true;
+            }
+            TheThingFactory::find_template(&order.thing_template).is_none() && n.contains("worker")
         })
     }
 
@@ -6834,6 +6840,9 @@ impl AIPlayer {
                 .team_name
                 .clone()
                 .unwrap_or_else(|| "default".to_string());
+            // C++: prependTo_TeamBuildQueue then startTraining. Train first so we
+            // do not hold a queue borrow across &mut self (same observable result:
+            // factoryID stamped on the order before it sits in the queue).
             self.team_delay = 0;
             let _ = self.start_training_internal(&mut order, true, &team_name)?;
             team.work_orders.push(order);
@@ -6847,24 +6856,13 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Returns true if a dozer/worker is already present in the current queue.
-    /// C++ `dozerInQueue` — any work order whose template is KINDOF_DOZER.
+    /// Returns true if a dozer is already present in the build queue.
+    /// C++ `dozerInQueue` → `TeamInQueue::includesADozer` (KINDOF_DOZER and
+    /// **not** a resource-gatherer work order — GLA workers can be both).
     pub fn dozer_in_queue(&self) -> bool {
-        self.team_build_queue.iter().any(|team| {
-            team.work_orders.iter().any(|order| {
-                let name = order.thing_template.as_str();
-                if name.eq_ignore_ascii_case("Dozer")
-                    || name.eq_ignore_ascii_case("Worker")
-                    || name.to_ascii_lowercase().contains("dozer")
-                    || name.to_ascii_lowercase().contains("worker")
-                {
-                    return true;
-                }
-                TheThingFactory::find_template(name)
-                    .map(|t| t.is_kind_of(KindOf::Dozer))
-                    .unwrap_or(false)
-            })
-        })
+        self.team_build_queue
+            .iter()
+            .any(|team| team.includes_a_dozer())
     }
 
     /// C++ `AIPlayer::repairStructure` (AIPlayer.cpp).
@@ -8829,6 +8827,29 @@ mod tests {
                 && gw.contains("get_bounding_circle_radius")
                 && gw.contains("get_player_structure_bounds"),
             "guardSupplyCenter must force check, offset, and guard"
+        );
+    }
+
+    #[test]
+    fn dozer_in_queue_uses_includes_a_dozer_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("pub fn dozer_in_queue").expect("dozerInQueue");
+        let w = &src[i..src.len().min(i + 500)];
+        assert!(
+            w.contains("includes_a_dozer()"),
+            "dozerInQueue must use TeamInQueue::includesADozer"
+        );
+
+        // gatherer-only work order is not a "dozer in queue"
+        let mut ai = AIPlayer::new(1);
+        let mut order = WorkOrder::new("GLAInfantryWorker".into());
+        order.is_resource_gatherer = true;
+        let mut team = TeamInQueue::new();
+        team.work_orders.push(order);
+        ai.team_build_queue.push_front(team);
+        assert!(
+            !ai.dozer_in_queue(),
+            "resource-gatherer work order must not count as dozerInQueue"
         );
     }
 
