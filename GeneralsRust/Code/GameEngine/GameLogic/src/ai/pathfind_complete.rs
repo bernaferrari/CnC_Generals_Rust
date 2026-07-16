@@ -6013,9 +6013,10 @@ impl PathfindingSystem {
         let Some(gc) = row.get(cell.y as usize) else {
             return false;
         };
-        // Approximate UNIT_PRESENT_FIXED: any other unit claimed the goal.
-        let goal = gc.get_goal_unit(layer);
-        goal != INVALID_ID
+        // C++ getFlags() != UNIT_PRESENT_FIXED
+        const UNIT_PRESENT_FIXED: u8 = 0x03;
+        let flags = Self::cell_occupancy_flags(gc.get_goal_unit(layer), gc.get_pos_unit(layer));
+        flags == UNIT_PRESENT_FIXED
     }
 
     /// Snap a world position to the nearest cell center.
@@ -9972,5 +9973,36 @@ mod tests {
         assert_eq!(PathfindingSystem::cell_occupancy_flags(INVALID_ID, 2), 0x02); // UNIT_PRESENT_MOVING
         assert_eq!(PathfindingSystem::cell_occupancy_flags(3, 3), 0x03); // FIXED
         assert_eq!(PathfindingSystem::cell_occupancy_flags(4, 5), 0x05); // GOAL_OTHER_MOVING
+    }
+
+    #[test]
+    fn snap_closest_avoids_fixed_when_radius_zero() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        // Stamp FIXED occupancy at cell (5,5): same goal+pos unit.
+        let c = crate::common::ICoord2D::new(5, 5);
+        system.set_goal_cells(88, c, 0, true, PathfindLayerEnum::Ground, true, false);
+        system.set_pos_cells(88, c, 0, true, PathfindLayerEnum::Ground, true, false);
+        assert!(system.goal_cell_fixed_occupied(GridCoord::new(5, 5), PathfindLayerEnum::Ground));
+        // Open neighbor should not be fixed.
+        assert!(!system.goal_cell_fixed_occupied(GridCoord::new(6, 5), PathfindLayerEnum::Ground));
+    }
+
+    #[test]
+    fn snap_closest_fixed_uses_pos_goal_flags_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("fn goal_cell_fixed_occupied")
+            .expect("fixed helper");
+        let w = &prod[i..prod.len().min(i + 800)];
+        assert!(
+            w.contains("UNIT_PRESENT_FIXED") && w.contains("get_pos_unit"),
+            "snapClosestGoal radius0 pass must use UNIT_PRESENT_FIXED flags"
+        );
+        assert!(!w.contains("Approximate UNIT_PRESENT_FIXED"));
     }
 }
