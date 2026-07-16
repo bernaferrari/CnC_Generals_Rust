@@ -794,7 +794,15 @@ impl PathfindingSystem {
 
         // Line passability checker
         let passability = |from: &Coord3D, to: &Coord3D, layer: PathfindLayerEnum| {
-            self.is_line_passable(from, to, request.surfaces, layer, ignore_cells.as_ref())
+            self.is_line_passable(
+                from,
+                to,
+                request.surfaces,
+                request.is_crusher,
+                layer,
+                ignore_cells.as_ref(),
+                false,
+            )
         };
 
         let ground_passability = |from: &Coord3D, to: &Coord3D, diameter: i32| {
@@ -838,17 +846,20 @@ impl PathfindingSystem {
 
     /// Check if line between points is passable
     /// Matches C++ Pathfinder::isLinePassable() at AIPathfind.cpp:3989-4090
+    /// C++ `linePassableCallback` core used by `isLinePassable`.
     fn is_line_passable(
         &self,
         from: &Coord3D,
         to: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
         _layer: PathfindLayerEnum,
         ignore_cells: Option<&HashSet<GridCoord>>,
+        allow_pinched: bool,
     ) -> bool {
         let pathfinder = self.pathfinder.lock().unwrap();
 
-        // Sample along the line
+        // Sample along the line (Bresenham residual via dense samples).
         let dx = to.x - from.x;
         let dy = to.y - from.y;
         let distance = (dx * dx + dy * dy).sqrt();
@@ -865,7 +876,11 @@ impl PathfindingSystem {
             let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, 0.0);
 
             let coord = GridCoord::from_world(&sample);
-            if !pathfinder.is_passable_with_ignore(coord, surfaces, false, ignore_cells) {
+            // C++: if (!allowPinched && to->getPinched()) bail.
+            if !allow_pinched && pathfinder.is_pinched(coord) == Some(true) {
+                return false;
+            }
+            if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells) {
                 return false;
             }
         }
@@ -1478,6 +1493,7 @@ impl PathfindingSystem {
     }
 
     /// Line passability check using surface mask and optional ignored obstacle.
+    /// C++ `Pathfinder::isLinePassable` (default allowPinched=false, isCrusher=false).
     pub fn is_line_passable_for_surfaces(
         &self,
         from: &Coord3D,
@@ -1485,13 +1501,28 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
+        self.is_line_passable_ex(from, to, surfaces, false, ignore_obstacle_id, false)
+    }
+
+    /// C++ `Pathfinder::isLinePassable` with crusher + allowPinched flags.
+    pub fn is_line_passable_ex(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        allow_pinched: bool,
+    ) -> bool {
         let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
         self.is_line_passable(
             from,
             to,
             surfaces,
+            is_crusher,
             PathfindLayerEnum::Ground,
             ignore_cells.as_ref(),
+            allow_pinched,
         )
     }
 
@@ -3636,5 +3667,43 @@ mod tests {
             None,
             |_| true
         ));
+    }
+
+    #[test]
+    fn is_line_passable_rejects_pinched_like_cpp() {
+        let system = PathfindingSystem::new(16, 16);
+        let from = Coord3D::new(16.0, 16.0, 0.0);
+        let to = Coord3D::new(80.0, 16.0, 0.0);
+        // Mark a mid cell pinched via cliff expand (neighbors become pinched).
+        system.set_cell_type(&Coord3D::new(48.0, 16.0, 0.0), PathfindCellType::Cliff);
+        system.expand_cliff_cells_like_cpp();
+        // Default allow_pinched=false fails across pinched/cliff corridor.
+        assert!(!system.is_line_passable_for_surfaces(&from, &to, SURFACE_GROUND, None));
+        // Surface: API must expose allow_pinched + pinch gate.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        assert!(
+            src.contains("allow_pinched")
+                && src.contains("is_pinched(coord)")
+                && src.contains("pub fn is_line_passable_ex"),
+            "isLinePassable must gate pinched cells like C++ linePassableCallback"
+        );
+    }
+
+    #[test]
+    fn is_line_passable_ex_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("fn is_line_passable(").expect("is_line_passable");
+        let w = &prod[i..prod.len().min(i + 1500)];
+        assert!(
+            w.contains("allow_pinched") && w.contains("is_crusher") && w.contains("is_pinched"),
+            "is_line_passable core must take crusher + allowPinched"
+        );
     }
 }
