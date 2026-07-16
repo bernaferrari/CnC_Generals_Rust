@@ -13050,21 +13050,22 @@ impl GameLogic {
                 }
                 let victim_team = obj.team;
                 let frame = self.frame;
-                let _ = self.combat_particles.spawn_death_fx(
+                let death_type = obj.status.death_type;
+                let _ = self.combat_particles.spawn_death_fx_for_type(
                     death_pos,
                     frame,
                     event.id,
                     is_structure,
                     victim_team,
+                    death_type,
                 );
 
                 // Audio residual (hq-7zxm slice): unit/structure death → AudioEventRequest.
-                // Fail-closed: request path observable by AudioManager, not full Miles.
-                let death_event = if is_structure {
-                    "BuildingDie"
-                } else {
-                    "UnitDie"
-                };
+                // DeathType residual selects die cue family (not full voice bank).
+                let death_event = crate::game_logic::combat_particles::CombatParticleRegistry::death_audio_event_name(
+                    is_structure,
+                    death_type,
+                );
                 self.queue_audio_event(
                     AudioEventRequest::new(death_event)
                         .with_object(event.id)
