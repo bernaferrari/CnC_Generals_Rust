@@ -224,6 +224,18 @@ impl IntegratedAiPlayer {
         }
     }
 
+    /// C++ Player::checkBridges → AISkirmishPlayer::checkBridges (solo AI returns false).
+    pub fn check_bridges(
+        &mut self,
+        unit: &Arc<RwLock<crate::object::Object>>,
+        start_waypoint_id: crate::common::WaypointID,
+    ) -> bool {
+        match self {
+            IntegratedAiPlayer::Standard(_) => false,
+            IntegratedAiPlayer::Skirmish(player) => player.check_bridges(unit, start_waypoint_id),
+        }
+    }
+
     pub fn on_structure_produced(
         &mut self,
         factory_id: ObjectID,

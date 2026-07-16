@@ -12390,73 +12390,18 @@ impl ScriptActionDispatcher {
         })
     }
 
+    /// C++ ScriptActions: aiPlayer->checkBridges(firstUnit, way).
     fn check_bridges_for_waypoint(
         &self,
         player_id: u32,
         unit: &Arc<RwLock<crate::object::Object>>,
-        target: Coord3D,
+        start_waypoint_id: crate::common::WaypointID,
     ) {
-        let unit_pos = {
-            let Ok(unit_guard) = unit.read() else {
-                return;
-            };
-            *unit_guard.get_position()
-        };
-        let delta = Coord3D::new(
-            target.x - unit_pos.x,
-            target.y - unit_pos.y,
-            target.z - unit_pos.z,
-        );
-        let dist_sq = delta.x * delta.x + delta.y * delta.y;
-        if dist_sq < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
-            return;
-        }
-
-        let Ok(terrain_guard) = get_terrain_logic().read() else {
-            return;
-        };
-        let mut bridge_opt = terrain_guard.get_first_bridge();
-        while let Some(bridge) = bridge_opt {
-            let bridge_id = bridge.get_bridge_info().bridge_object_id;
-            if bridge_id == INVALID_ID {
-                bridge_opt = bridge.get_next();
-                continue;
-            }
-
-            let broken = match TheGameLogic::find_object_by_id(bridge_id) {
-                Some(obj) => obj
-                    .read()
-                    .ok()
-                    .map(|guard| guard.is_destroyed())
-                    .unwrap_or(true),
-                None => true,
-            };
-            if !broken {
-                bridge_opt = bridge.get_next();
-                continue;
-            }
-
-            let dist = dist_sq.sqrt().max(PATHFIND_CELL_SIZE_F);
-            let steps = (dist / PATHFIND_CELL_SIZE_F).ceil() as i32;
-            for i in 0..=steps {
-                let t = i as f32 / steps as f32;
-                let sample = Coord3D::new(
-                    unit_pos.x + delta.x * t,
-                    unit_pos.y + delta.y * t,
-                    unit_pos.z + delta.z * t,
-                );
-                if bridge.is_point_on_bridge(&sample) {
-                    let _ = with_ai_integration_mut(|manager| {
-                        manager.with_ai_player_mut(player_id, |ai_player| {
-                            let _ = ai_player.repair_structure(bridge_id);
-                        })
-                    });
-                    return;
-                }
-            }
-
-            bridge_opt = bridge.get_next();
-        }
+        let _ = with_ai_integration_mut(|manager| {
+            manager.with_ai_player_mut(player_id, |ai_player| {
+                ai_player.check_bridges(unit, start_waypoint_id);
+            })
+        });
     }
 
     fn do_skirmish_build_building(
@@ -12520,7 +12465,7 @@ impl ScriptActionDispatcher {
                 if let Some(player_arc) = list.find_player_by_name(&current_player_name) {
                     if let Ok(player_guard) = player_arc.read() {
                         let player_id = player_guard.get_player_index() as u32;
-                        self.check_bridges_for_waypoint(player_id, &first_unit, waypoint_pos);
+                        self.check_bridges_for_waypoint(player_id, &first_unit, waypoint_id);
                     }
                 }
             }
