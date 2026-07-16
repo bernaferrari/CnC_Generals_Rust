@@ -2324,6 +2324,23 @@ impl Pathfinder {
         self.inner.set_cell_type(pos, cell_type);
     }
 
+    /// C++ `Pathfinder::snapClosestGoalPosition`.
+    pub fn snap_closest_goal_position(
+        &self,
+        obj: &Object,
+        locomotor_set: &crate::locomotor::LocomotorSet,
+        pos: &mut Coord3D,
+    ) {
+        let surfaces = locomotor_set.get_valid_surfaces();
+        let is_crusher = obj.get_crusher_level() > 0;
+        let unit_radius = obj
+            .get_geometry_info()
+            .get_bounding_circle_radius()
+            .max(0.0);
+        self.inner
+            .snap_closest_goal_position(surfaces, is_crusher, pos, unit_radius, obj.get_id());
+    }
+
     pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
         self.inner.snap_position(pos)
     }

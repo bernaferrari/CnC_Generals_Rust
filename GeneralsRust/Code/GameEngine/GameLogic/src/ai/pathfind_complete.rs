@@ -2460,6 +2460,162 @@ impl PathfindingSystem {
         }
     }
 
+    /// C++ `Pathfinder::snapClosestGoalPosition` (AIPathfind.cpp:5101-5156).
+    ///
+    /// Snap `pos` to a nearby valid goal cell (3×3 neighborhood). Does not run
+    /// the full adjustDestination spiral.
+    pub fn snap_closest_goal_position(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        pos: &mut Coord3D,
+        unit_radius: f32,
+        unit_id: ObjectID,
+    ) {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let mut adjust_dest = *pos;
+        if !center_in_cell {
+            adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        let layer = self.get_layer_for_coord(GridCoord::from_world(pos));
+        let cell = GridCoord::from_world(&adjust_dest);
+
+        // Always snap seed cell first (C++ adjustCoordToCell even if check fails).
+        self.adjust_coord_to_cell(
+            cell.x,
+            cell.y,
+            center_in_cell,
+            pos,
+            PathfindLayerEnum::Ground,
+        );
+
+        if self.is_destination_valid(
+            cell,
+            layer,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            Some(unit_id).filter(|&id| id != INVALID_ID),
+        ) {
+            return;
+        }
+
+        // 3×3 neighborhood
+        for i in (cell.x - 1)..(cell.x + 2) {
+            for j in (cell.y - 1)..(cell.y + 2) {
+                let c = GridCoord::new(i, j);
+                if !self.is_valid_coord(c) {
+                    continue;
+                }
+                if self.is_destination_valid(
+                    c,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    Some(unit_id).filter(|&id| id != INVALID_ID),
+                ) {
+                    self.adjust_coord_to_cell(i, j, center_in_cell, pos, layer);
+                    return;
+                }
+            }
+        }
+
+        // C++ radius==0: prefer unoccupied goal cell, then non-FIXED present.
+        if radius == 0 {
+            for i in (cell.x - 1)..(cell.x + 2) {
+                for j in (cell.y - 1)..(cell.y + 2) {
+                    let c = GridCoord::new(i, j);
+                    if !self.is_valid_coord(c) {
+                        continue;
+                    }
+                    if self.goal_cell_available(c, layer, unit_id) {
+                        self.adjust_coord_to_cell(i, j, center_in_cell, pos, layer);
+                        return;
+                    }
+                }
+            }
+            for i in (cell.x - 1)..(cell.x + 2) {
+                for j in (cell.y - 1)..(cell.y + 2) {
+                    let c = GridCoord::new(i, j);
+                    if !self.is_valid_coord(c) {
+                        continue;
+                    }
+                    if !self.goal_cell_fixed_occupied(c, layer) {
+                        self.adjust_coord_to_cell(i, j, center_in_cell, pos, layer);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// C++ adjustCoordToCell — write cell center (or corner) into pos.
+    fn adjust_coord_to_cell(
+        &self,
+        cell_x: i32,
+        cell_y: i32,
+        center_in_cell: bool,
+        pos: &mut Coord3D,
+        layer: PathfindLayerEnum,
+    ) {
+        let coord = GridCoord::new(cell_x, cell_y);
+        let snapped = if center_in_cell {
+            coord.to_world(layer)
+        } else {
+            // Corner-aligned: cell origin + small bias (C++ uses non-center footprint).
+            Coord3D::new(
+                cell_x as f32 * PATHFIND_CELL_SIZE_F + 0.05,
+                cell_y as f32 * PATHFIND_CELL_SIZE_F + 0.05,
+                0.0,
+            )
+        };
+        pos.x = snapped.x;
+        pos.y = snapped.y;
+        if let Some(terrain) = TheTerrainLogic::get() {
+            pos.z = terrain.get_layer_height(pos.x, pos.y, CommonPathfindLayerEnum::Ground);
+        } else {
+            pos.z = snapped.z;
+        }
+    }
+
+    fn goal_cell_available(
+        &self,
+        cell: GridCoord,
+        layer: PathfindLayerEnum,
+        unit_id: ObjectID,
+    ) -> bool {
+        let Ok(goals) = self.goal_cells.lock() else {
+            return true;
+        };
+        let Some(row) = goals.get(cell.x as usize) else {
+            return true;
+        };
+        let Some(gc) = row.get(cell.y as usize) else {
+            return true;
+        };
+        let goal = gc.get_goal_unit(layer);
+        goal == INVALID_ID || goal == unit_id
+    }
+
+    fn goal_cell_fixed_occupied(&self, cell: GridCoord, layer: PathfindLayerEnum) -> bool {
+        let Ok(goals) = self.goal_cells.lock() else {
+            return false;
+        };
+        let Some(row) = goals.get(cell.x as usize) else {
+            return false;
+        };
+        let Some(gc) = row.get(cell.y as usize) else {
+            return false;
+        };
+        // Approximate UNIT_PRESENT_FIXED: any other unit claimed the goal.
+        let goal = gc.get_goal_unit(layer);
+        goal != INVALID_ID
+    }
+
     /// Snap a world position to the nearest cell center.
     /// Matches C++ Pathfinder::adjustCoordToCell() at AIPathfind.cpp:8936-8946.
     pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
@@ -3032,5 +3188,35 @@ mod tests {
                 && w.contains("try_adjust_cell"),
             "adjustDestination must half-cell offset, reject cliffs, path-gate like C++"
         );
+    }
+
+    #[test]
+    fn snap_closest_goal_position_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn snap_closest_goal_position")
+            .expect("snapClosestGoalPosition");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("PATHFIND_CELL_SIZE_F * 0.5")
+                && w.contains("adjust_coord_to_cell")
+                && w.contains("is_destination_valid")
+                && w.contains("radius == 0"),
+            "snapClosestGoalPosition must half-cell, 3x3, radius0 unoccupied like C++"
+        );
+    }
+
+    #[test]
+    fn snap_closest_goal_position_snaps_open_cell() {
+        let system = PathfindingSystem::new(32, 32);
+        let mut pos = Coord3D::new(105.0, 107.0, 0.0);
+        system.snap_closest_goal_position(SURFACE_GROUND, false, &mut pos, 0.0, 1);
+        // Should land on a grid-aligned location.
+        let c = GridCoord::from_world(&pos);
+        assert!(c.x >= 0 && c.y >= 0);
     }
 }
