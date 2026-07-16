@@ -194,6 +194,13 @@ pub struct Object {
     pub overcharge_enabled: bool,
     pub active_weapon_slot: u8,
 
+    /// C++ Weapon PRE_ATTACK residual: target being wound up against.
+    #[serde(default)]
+    pub pre_attack_target: Option<ObjectId>,
+    /// Absolute sim time when pre-attack delay elapses (ready to discharge).
+    #[serde(default)]
+    pub pre_attack_ready_at: f32,
+
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,
 
@@ -565,6 +572,8 @@ impl Object {
             cheer_timer: 0.0,
             overcharge_enabled: false,
             active_weapon_slot: 0,
+            pre_attack_target: None,
+            pre_attack_ready_at: 0.0,
             guard_radius: 0.0,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -695,6 +704,8 @@ impl Object {
             cheer_timer: 0.0,
             overcharge_enabled: false,
             active_weapon_slot: 0,
+            pre_attack_target: None,
+            pre_attack_ready_at: 0.0,
             guard_radius: 0.0,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -2083,6 +2094,23 @@ impl Object {
             }
         };
 
+        // C++ PRE_ATTACK residual: first engagement on a target waits pre_attack_delay.
+        let pre_delay = self
+            .weapon_slot(slot)
+            .map(|w| w.pre_attack_delay.max(0.0))
+            .unwrap_or(0.0);
+        if self.pre_attack_target != Some(target_id) {
+            self.pre_attack_target = Some(target_id);
+            self.pre_attack_ready_at = current_time + pre_delay;
+        }
+        if current_time + 1e-6 < self.pre_attack_ready_at {
+            // Still winding up — do not consume ammo / fire.
+            self.target = Some(target_id);
+            self.ai_state = AIState::Attacking;
+            self.status.attacking = true;
+            return false;
+        }
+
         if let Some(weapon) = self.weapon_slot_mut(slot) {
             Self::consume_ammo_on_fire(weapon, current_time);
             let weapon_damage = weapon.damage;
@@ -2146,6 +2174,11 @@ impl Object {
 
     pub fn attack_target(&mut self, target_id: ObjectId) {
         if self.can_attack() && self.is_alive() {
+            if self.pre_attack_target != Some(target_id) {
+                // New target — fire_at will start PRE_ATTACK clock.
+                self.pre_attack_target = None;
+                self.pre_attack_ready_at = 0.0;
+            }
             self.target = Some(target_id);
             self.target_location = None;
             self.force_attack = false;
@@ -2159,6 +2192,8 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.force_attack = false;
+        self.pre_attack_target = None;
+        self.pre_attack_ready_at = 0.0;
         self.status.attacking = false;
         crate::game_logic::host_attack_log::record(self.id, None);
         // C++ parity: guard units return to their guard state after a kill
@@ -3152,5 +3187,73 @@ mod tests {
         let src = include_str!("object.rs");
         assert!(src.contains("fn consume_ammo_on_fire"));
         assert!(src.contains("clip_reload_time"));
+    }
+
+    #[test]
+    fn pre_attack_delay_blocks_first_shot() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("PreAtk");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        atk.set_position(Vec3::ZERO);
+        atk.weapon = Some(Weapon {
+            damage: 25.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 1.0,
+            ammo: Some(5),
+            clip_size: 5,
+            ..Weapon::default()
+        });
+        let tgt_id = ObjectId(2);
+
+        // First call starts wind-up, must not fire (ammo unchanged).
+        assert!(!atk.fire_at(tgt_id, 10.0));
+        assert_eq!(atk.pre_attack_target, Some(tgt_id));
+        assert!((atk.pre_attack_ready_at - 11.0).abs() < 1e-4);
+        assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(5));
+
+        // Still winding up.
+        assert!(!atk.fire_at(tgt_id, 10.5));
+        assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(5));
+
+        // After delay, fires and consumes ammo.
+        assert!(atk.fire_at(tgt_id, 11.0));
+        assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(4));
+    }
+
+    #[test]
+    fn pre_attack_resets_on_new_target() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut tmpl = ThingTemplate::new("PreAtk2");
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(3), Team::USA);
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 50.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 2.0,
+            ..Weapon::default()
+        });
+        assert!(!atk.fire_at(ObjectId(10), 5.0));
+        assert!((atk.pre_attack_ready_at - 7.0).abs() < 1e-4);
+        // Switch target restarts delay.
+        assert!(!atk.fire_at(ObjectId(11), 6.0));
+        assert_eq!(atk.pre_attack_target, Some(ObjectId(11)));
+        assert!((atk.pre_attack_ready_at - 8.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn pre_attack_cpp_surface() {
+        let src = include_str!("object.rs");
+        assert!(src.contains("PRE_ATTACK residual"));
+        assert!(src.contains("pre_attack_ready_at"));
+        assert!(src.contains("pre_attack_delay"));
     }
 }
