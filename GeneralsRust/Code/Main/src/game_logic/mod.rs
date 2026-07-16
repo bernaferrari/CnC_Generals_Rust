@@ -868,6 +868,8 @@ pub enum KindOf {
     AttackNeedsLineOfSight,
     /// C++ KINDOF_IMMOBILE — structures/defenses; skip terrain LOS detour residual.
     Immobile,
+    /// C++ KINDOF_AIRCRAFT_PATH_AROUND — tall buildings aircraft path around.
+    AircraftPathAround,
 }
 
 /// Object status flags
