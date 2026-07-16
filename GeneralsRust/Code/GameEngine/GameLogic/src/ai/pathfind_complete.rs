@@ -2683,6 +2683,101 @@ impl PathfindingSystem {
         false
     }
 
+    /// C++ `Pathfinder::moveAlliesAwayFromDestination` (AIPathfind.cpp:6911-6922).
+    ///
+    /// Walk cells from unit to destination; for each allied idle unit occupying
+    /// a cell, issue `aiMoveAwayFromUnit` (via callback). Returns ids nudged.
+    pub fn move_allies_away_from_destination(
+        &self,
+        obj_id: ObjectID,
+        from: &Coord3D,
+        destination: &Coord3D,
+    ) -> Vec<ObjectID> {
+        let mut nudged = Vec::new();
+        if obj_id == INVALID_ID {
+            return nudged;
+        }
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return nudged;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return nudged;
+        };
+        let ignore_id = {
+            let mut id = INVALID_ID;
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                if let Ok(ai_g) = ai.lock() {
+                    id = ai_g.get_ignored_obstacle_id();
+                }
+            }
+            id
+        };
+
+        let dx = destination.x - from.x;
+        let dy = destination.y - from.y;
+        let distance = (dx * dx + dy * dy).sqrt();
+        if distance < 0.1 {
+            return nudged;
+        }
+        let steps = (distance / PATHFIND_CELL_SIZE_F).ceil() as i32;
+        let steps = steps.max(1);
+
+        let Ok(goals) = self.goal_cells.lock() else {
+            return nudged;
+        };
+
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, from.z);
+            let coord = GridCoord::from_world(&sample);
+            if !self.is_valid_coord(coord) {
+                continue;
+            }
+            let layer = self.get_layer_for_coord(coord);
+            let Some(row) = goals.get(coord.x as usize) else {
+                continue;
+            };
+            let Some(gc) = row.get(coord.y as usize) else {
+                continue;
+            };
+            let pos_unit = gc.get_goal_unit(layer);
+            // C++ MAD callback residual using goal occupancy.
+            if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
+                continue;
+            }
+            let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
+                continue;
+            };
+            let Ok(other_guard) = other_arc.read() else {
+                continue;
+            };
+            if obj_guard.relationship_to(&other_guard) != Relationship::Allies {
+                continue;
+            }
+            // C++: only move allies that are not moving / not busy ability.
+            let Some(other_ai) = other_guard.get_ai_update_interface() else {
+                continue;
+            };
+            {
+                let Ok(other_ai_g) = other_ai.lock() else {
+                    continue;
+                };
+                if !other_ai_g.is_idle() {
+                    // Patch 1.01: skip busy / using ability residual via !is_idle.
+                    continue;
+                }
+            }
+            drop(other_guard);
+            // Issue move-away (AIUpdateInterfaceExt on Arc).
+            use crate::modules::AIUpdateInterfaceExt;
+            other_ai.ai_move_away_from_unit(obj_id, crate::common::CommandSourceType::FromAi);
+            if !nudged.contains(&pos_unit) {
+                nudged.push(pos_unit);
+            }
+        }
+        nudged
+    }
+
     /// C++ `Pathfinder::tightenPath` (AIPathfind.cpp:8414-8421).
     ///
     /// Walk cells from `from` toward `to`; advance `from` to the last position
@@ -4179,5 +4274,35 @@ mod tests {
         system.tighten_path(&mut from, &to, SURFACE_GROUND, false, 0.0, None);
         // Should advance toward to (or stay if adjust fails entirely).
         assert!(from.x >= start_x - 0.1);
+    }
+
+    #[test]
+    fn move_allies_away_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn move_allies_away_from_destination")
+            .expect("moveAlliesAwayFromDestination");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("get_ignored_obstacle_id")
+                && w.contains("Relationship::Allies")
+                && w.contains("ai_move_away_from_unit")
+                && w.contains("is_idle")
+                && w.contains("CommandSourceType::FromAi"),
+            "moveAlliesAwayFromDestination must nudge idle allies along line like C++"
+        );
+    }
+
+    #[test]
+    fn move_allies_away_empty_line_no_nudge() {
+        let system = PathfindingSystem::new(16, 16);
+        let from = Coord3D::new(10.0, 10.0, 0.0);
+        let to = Coord3D::new(100.0, 10.0, 0.0);
+        let nudged = system.move_allies_away_from_destination(INVALID_ID, &from, &to);
+        assert!(nudged.is_empty());
     }
 }
