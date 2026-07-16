@@ -7567,6 +7567,138 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
     }
 
+    fn get_goal_position(&self) -> Option<Coord3D> {
+        let machine = self.ai_state_machine.as_ref()?;
+        let guard = machine.lock().ok()?;
+        guard.get_goal_position()
+    }
+
+    fn set_goal_position(&mut self, pos: Option<Coord3D>) {
+        let Some(pos) = pos else {
+            return;
+        };
+        let Some(machine) = self.ai_state_machine.as_ref() else {
+            return;
+        };
+        let Ok(mut guard) = machine.lock() else {
+            return;
+        };
+        guard.set_goal_position(pos);
+    }
+
+    /// C++ `AIUpdateInterface::joinTeam` (AIUpdate.cpp).
+    ///
+    /// After `clear()`, C++ `getCurrentStateID()` is `INVALID_STATE_ID` (NULL
+    /// current state). `setState(INVALID)` then falls through to the default
+    /// state. Port that literally — C++ does not read the teammate's state id.
+    fn join_team(&mut self) {
+        if self.is_ai_in_dead_state() {
+            return;
+        }
+        let Some(unit_arc) = self.unit.upgrade() else {
+            return;
+        };
+        let (mobile, self_id, team) = {
+            let Ok(g) = unit_arc.read() else {
+                return;
+            };
+            let self_id = g.get_id();
+            let base = g.base_object();
+            let Ok(obj) = base.read() else {
+                return;
+            };
+            (obj.is_mobile(), self_id, obj.get_team())
+        };
+        if !mobile {
+            return;
+        }
+
+        let _ = self.choose_locomotor_set(LocomotorSetType::Normal);
+
+        // getStateMachine()->clear(); setGoalWaypoint(NULL);
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                guard.clear();
+                guard.set_goal_waypoint(None);
+            }
+        }
+
+        let mut other_pos = None;
+        let mut other_idle = false;
+        let mut other_goal_obj: Option<Arc<RwLock<Object>>> = None;
+        let mut other_goal_pos: Option<Coord3D> = None;
+        let mut found_other = false;
+
+        if let Some(team_arc) = team {
+            let members = team_arc
+                .read()
+                .ok()
+                .map(|tg| tg.get_members().to_vec())
+                .unwrap_or_default();
+            for mid in members {
+                if mid == self_id {
+                    continue;
+                }
+                let Some(oarc) = crate::object::registry::OBJECT_REGISTRY.get_object(mid) else {
+                    continue;
+                };
+                let Ok(og) = oarc.read() else {
+                    continue;
+                };
+                let Some(oai) = og.get_ai_update_interface() else {
+                    continue;
+                };
+                if og.is_disabled_by_type(crate::common::types::DisabledType::Held) {
+                    continue;
+                }
+                other_pos = Some(*og.get_position());
+                if let Ok(aig) = oai.try_lock() {
+                    other_idle = aig.is_idle();
+                    other_goal_obj = aig.get_goal_object();
+                    other_goal_pos = aig.get_goal_position();
+                }
+                found_other = true;
+                break;
+            }
+        }
+
+        if !found_other {
+            return;
+        }
+        let Some(pos) = other_pos else {
+            return;
+        };
+
+        if other_idle {
+            self.last_command_source = CommandSourceType::FromAi;
+            let _ = self.ai_move_to_position(&pos);
+            return;
+        }
+
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                if let Some(goal_obj) = other_goal_obj.as_ref() {
+                    let gid = goal_obj
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(INVALID_ID);
+                    guard.set_goal_object(gid);
+                } else if let Some(gp) = other_goal_pos {
+                    guard.set_goal_position(gp);
+                }
+            }
+        }
+
+        // C++ after clear: getCurrentStateID() == INVALID_STATE_ID → default state.
+        self.last_command_source = CommandSourceType::FromAi;
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                let _ = guard.set_state(crate::state_machine::INVALID_STATE_ID);
+            }
+        }
+    }
+
     fn is_path_available(&self, destination: &Coord3D) -> bool {
         let Some(unit) = self.unit.upgrade() else {
             return false;
