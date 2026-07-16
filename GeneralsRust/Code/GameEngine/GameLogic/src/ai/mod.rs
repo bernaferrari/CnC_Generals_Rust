@@ -2089,6 +2089,79 @@ impl Pathfinder {
             .adjust_to_possible_destination(start, dest, surfaces, is_crusher, unit_radius)
     }
 
+    /// C++ `Pathfinder::findBrokenBridge` (AIPathfind.cpp).
+    ///
+    /// If terrain zones already connect for the locomotor set, no broken bridge
+    /// is the blocker. Otherwise scan destroyed/rubble bridges whose footprint
+    /// intersects the from→to segment (layer `connectsZones` residual until
+    /// full m_layers zone links are populated).
+    pub fn find_broken_bridge(
+        &self,
+        locomotor_set: &crate::locomotor::LocomotorSet,
+        from: &Coord3D,
+        to: &Coord3D,
+    ) -> Option<ObjectID> {
+        // C++: if zone1 == zone2 after effective terrain zone, return false.
+        // clientSafeQuickDoesPathExist is the same quick terrain connectivity test.
+        if self.client_safe_quick_does_path_exist(locomotor_set, from, to) {
+            return None;
+        }
+
+        // Residual for m_layers[i].isDestroyed() && connectsZones(...):
+        // destroyed bridge objects on the segment.
+        let terrain = crate::terrain::get_terrain_logic().read().ok()?;
+        let delta = Coord3D::new(to.x - from.x, to.y - from.y, to.z - from.z);
+        let dist_sq = delta.x * delta.x + delta.y * delta.y;
+        if dist_sq < crate::path::PATHFIND_CELL_SIZE_F * crate::path::PATHFIND_CELL_SIZE_F {
+            return None;
+        }
+        let dist = dist_sq.sqrt().max(crate::path::PATHFIND_CELL_SIZE_F);
+        let steps = (dist / crate::path::PATHFIND_CELL_SIZE_F).ceil() as i32;
+
+        let mut bridge_opt = terrain.get_first_bridge();
+        while let Some(bridge) = bridge_opt {
+            let bridge_id = bridge.get_bridge_info().bridge_object_id;
+            if bridge_id == INVALID_ID {
+                bridge_opt = bridge.get_next();
+                continue;
+            }
+            let broken = match OBJECT_REGISTRY.get_object(bridge_id) {
+                Some(obj) => {
+                    if let Ok(guard) = obj.read() {
+                        let mut is_rubble = false;
+                        if let Some(body) = guard.get_body_module() {
+                            if let Ok(bg) = body.lock() {
+                                is_rubble = bg.get_damage_state()
+                                    == crate::object::body::BodyDamageType::Rubble;
+                            }
+                        }
+                        guard.is_destroyed() || guard.is_effectively_dead() || is_rubble
+                    } else {
+                        true
+                    }
+                }
+                None => true,
+            };
+            if !broken {
+                bridge_opt = bridge.get_next();
+                continue;
+            }
+            for i in 0..=steps {
+                let t = i as f32 / steps as f32;
+                let sample = Coord3D::new(
+                    from.x + delta.x * t,
+                    from.y + delta.y * t,
+                    from.z + delta.z * t,
+                );
+                if bridge.is_point_on_bridge(&sample) {
+                    return Some(bridge_id);
+                }
+            }
+            bridge_opt = bridge.get_next();
+        }
+        None
+    }
+
     pub fn client_safe_quick_does_path_exist(
         &self,
         locomotor_set: &crate::locomotor::LocomotorSet,
