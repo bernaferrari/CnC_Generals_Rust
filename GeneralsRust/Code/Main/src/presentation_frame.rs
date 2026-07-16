@@ -768,6 +768,8 @@ pub struct PresentationLaserBeam {
 pub enum PresentationLaserKind {
     FromAssisted,
     ToTarget,
+    /// Weapon.ini LaserName combat residual (not Patriot assist pair).
+    WeaponLaser,
 }
 
 impl PresentationLaserKind {
@@ -790,6 +792,56 @@ impl PresentationLaserBeam {
     }
 
     /// Build from host residual laser with terrain-sample honesty flag.
+    /// Build from Weapon.ini LaserName residual beam.
+    pub fn from_weapon_laser(
+        laser: &crate::game_logic::host_weapon_laser::ResidualWeaponLaser,
+        beam_index: u32,
+        ground_height: f32,
+        ground_height_from_terrain: bool,
+    ) -> Self {
+        use crate::game_logic::host_base_defense::build_patriot_laser_line3d_segments;
+        let host_segs = build_patriot_laser_line3d_segments(
+            laser.from_pos(),
+            laser.to_pos(),
+            0.0, // combat lasers are straight residual (no Patriot arc)
+            laser.scroll_offset,
+            ground_height,
+        );
+        let segments = host_segs
+            .into_iter()
+            .map(|s| PresentationLaserSegment {
+                start: s.start,
+                end: s.end,
+                width: s.width,
+                tile_factor: s.tile_factor,
+                scroll_offset: s.scroll_offset,
+            })
+            .collect();
+        let mid = (
+            (laser.from_x + laser.to_x) * 0.5,
+            (laser.from_y + laser.to_y) * 0.5,
+            (laser.from_z + laser.to_z) * 0.5,
+        );
+        Self {
+            beam_index,
+            kind: PresentationLaserKind::WeaponLaser,
+            from_id: laser.from_id,
+            to_id: laser.to_id.unwrap_or(ObjectId(0)),
+            from: laser.from_pos(),
+            to: laser.to_pos(),
+            arc_mid: mid,
+            scroll_offset: laser.scroll_offset,
+            expires_frame: laser.expires_frame,
+            template_name: laser.laser_name.clone(),
+            texture_name: laser.laser_name.clone(),
+            inner_color: (1.0, 0.2, 0.2, 1.0),
+            segments,
+            ground_height,
+            ground_height_from_terrain,
+            soft_edge: None,
+        }
+    }
+
     pub fn from_host_laser_with_terrain(
         laser: &ResidualPatriotAssistLaser,
         beam_index: u32,
@@ -2460,7 +2512,7 @@ impl PresentationFrame {
         // W3DLaserDraw residual: freeze active assist lasers + Line3D segments.
         // Ground height residual: sample map height when available, else default-0.
         let logic_frame = logic.get_frame();
-        let laser_beams: Vec<PresentationLaserBeam> = logic
+        let mut laser_beams: Vec<PresentationLaserBeam> = logic
             .active_patriot_assist_lasers()
             .iter()
             .filter(|l| l.is_active_at(logic_frame))
@@ -2471,6 +2523,27 @@ impl PresentationFrame {
                 PresentationLaserBeam::from_host_laser_with_terrain(l, i as u32, gh, from_terrain)
             })
             .collect();
+        // Weapon.ini LaserName residual beams (combat fire path).
+        let base_idx = laser_beams.len() as u32;
+        for (i, l) in logic
+            .active_weapon_lasers()
+            .iter()
+            .filter(|l| l.is_active_at(logic_frame))
+            .enumerate()
+        {
+            let mid = Vec3::new(
+                (l.from_x + l.to_x) * 0.5,
+                (l.from_y + l.to_y) * 0.5,
+                (l.from_z + l.to_z) * 0.5,
+            );
+            let (gh, from_terrain) = sample_presentation_ground_height(logic, mid);
+            laser_beams.push(PresentationLaserBeam::from_weapon_laser(
+                l,
+                base_idx + i as u32,
+                gh,
+                from_terrain,
+            ));
+        }
 
         let projectiles: Vec<PresentationProjectile> = logic
             .combat_system()
@@ -9101,6 +9174,22 @@ mod tests {
             exhaust_name: String::new(),
         };
         assert!(ProjectileRenderInput::from_presentation(&p).is_none());
+    }
+
+    #[test]
+    fn weapon_laser_presentation_freezes_laser_name() {
+        let l = crate::game_logic::host_weapon_laser::ResidualWeaponLaser::new(
+            "PointDefenseLaserBeam",
+            ObjectId(1),
+            Some(ObjectId(2)),
+            (0.0, 5.0, 0.0),
+            (20.0, 5.0, 10.0),
+            0,
+        );
+        let beam = PresentationLaserBeam::from_weapon_laser(&l, 0, 0.0, false);
+        assert_eq!(beam.kind, PresentationLaserKind::WeaponLaser);
+        assert_eq!(beam.template_name, "PointDefenseLaserBeam");
+        assert!(!beam.segments.is_empty());
     }
 }
 
