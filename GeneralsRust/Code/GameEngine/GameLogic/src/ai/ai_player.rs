@@ -4414,9 +4414,10 @@ impl AIPlayer {
         if self.structures_in_queue <= 0 {
             return Ok(());
         }
-        // Check once a second.
+        // C++: m_bridgeTimer--; if (m_bridgeTimer>0) return; m_bridgeTimer = FPS;
+        // Decrement first so timer==1 proceeds this frame (not FPS+1 lag).
+        self.bridge_timer = self.bridge_timer.saturating_sub(1);
         if self.bridge_timer > 0 {
-            self.bridge_timer = self.bridge_timer.saturating_sub(1);
             return Ok(());
         }
         self.bridge_timer = LOGICFRAMES_PER_SECOND;
@@ -8700,8 +8701,25 @@ mod tests {
                 && bw.contains("dozer_queued_for_repair")
                 && bw.contains("AiCommandType::Repair")
                 && bw.contains("is_any_task_pending")
-                && bw.contains("MoveToPosition"),
-            "updateBridgeRepair must rate-limit, assign dozer, complete+home"
+                && bw.contains("MoveToPosition")
+                && bw.find("saturating_sub(1)").unwrap()
+                    < bw.find("if self.bridge_timer > 0").unwrap(),
+            "updateBridgeRepair must decrement timer first, assign dozer, complete+home"
+        );
+
+        // Behavioral: timer==1 with empty/missing queue still advances without hang.
+        let mut ai = AIPlayer::new(1);
+        ai.structures_in_queue = 1;
+        ai.structures_to_repair[0] = Some(999_999); // missing object → pop
+        ai.bridge_timer = 1;
+        ai.update_bridge_repair().expect("ubr");
+        assert_eq!(
+            ai.structures_in_queue, 0,
+            "missing repair target is popped when timer fires"
+        );
+        assert_eq!(
+            ai.bridge_timer, LOGICFRAMES_PER_SECOND,
+            "timer resets to 1s after fire"
         );
     }
 
