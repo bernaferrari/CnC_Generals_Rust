@@ -2504,6 +2504,13 @@ impl Pathfinder {
             .circle_clips_tall_building(from, to, circle_radius, ignore_building, adjust_to)
     }
 
+    /// C++ `getSlaverID` — SlavedUpdate / MobMemberSlavedUpdate slaver.
+    fn object_slaver_id(obj: &Object) -> ObjectID {
+        obj.with_slaved_update_interface(|s| s.slaver_id())
+            .flatten()
+            .unwrap_or(INVALID_ID)
+    }
+
     /// C++ `Pathfinder::isViewBlockedByObstacle`.
     pub fn is_view_blocked_by_obstacle(&self, obj: &Object, obj_other: &Object) -> bool {
         if obj_other.is_significantly_above_terrain() {
@@ -2556,35 +2563,67 @@ impl Pathfinder {
             }
         }
 
-        // C++ skipCount=3 when attacker is on a non-ground layer (bridge/rooftop).
+        // C++: layer = victim->getLayer() or GROUND; if attacker off-ground and
+        // victim on ground, use attacker layer; skipCount=3 for bridge/rooftop.
+        let attacker_layer = attacker.get_layer();
+        let victim_layer = victim
+            .map(|v| v.get_layer())
+            .unwrap_or(crate::common::PathfindLayerEnum::Ground);
+        let mut layer = if matches!(
+            victim_layer,
+            crate::common::PathfindLayerEnum::Ground | crate::common::PathfindLayerEnum::Invalid
+        ) {
+            crate::common::PathfindLayerEnum::Ground
+        } else {
+            victim_layer
+        };
         let mut skip_count = 0i32;
         if !matches!(
-            attacker.get_layer(),
+            attacker_layer,
             crate::common::PathfindLayerEnum::Ground | crate::common::PathfindLayerEnum::Invalid
         ) {
             skip_count = 3;
+            if matches!(
+                layer,
+                crate::common::PathfindLayerEnum::Ground
+                    | crate::common::PathfindLayerEnum::Invalid
+            ) {
+                layer = attacker_layer;
+            }
         }
+        let path_layer = match layer {
+            crate::common::PathfindLayerEnum::Top => {
+                crate::ai::pathfind_astar::PathfindLayerEnum::Top
+            }
+            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+        };
 
         let attacker_id = attacker.get_id();
         let victim_id = victim.map(|v| v.get_id()).unwrap_or(INVALID_ID);
         let container_id = attacker.get_contained_by().unwrap_or(INVALID_ID);
-        let producer_id = attacker.get_producer_id();
+        let attacker_slaver = Self::object_slaver_id(attacker);
         let victim_container = victim
             .and_then(|v| v.get_contained_by())
             .unwrap_or(INVALID_ID);
-        let victim_producer = victim.map(|v| v.get_producer_id()).unwrap_or(INVALID_ID);
+        let victim_slaver = victim.map(Self::object_slaver_id).unwrap_or(INVALID_ID);
 
-        // C++ lineBlockedByObstacleCallback via cell obstacle IDs.
+        // C++ info.victimCell = getCell(layer, &victimPos).
+        let victim_cell_obstacle = self
+            .inner
+            .get_cell_obstacle_id(crate::ai::pathfind_astar::GridCoord::from_world(victim_pos))
+            .unwrap_or(INVALID_ID);
+
+        // C++ attackBlockedByObstacleCallback via cell obstacle IDs.
         let blocked = self.inner.iterate_cells_along_line_world(
             attacker_pos,
             victim_pos,
-            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            path_layer,
             |_from, to_c, _x, _y| {
                 if skip_count > 0 {
                     skip_count -= 1;
                     return 0;
                 }
-                let world = to_c.to_world(crate::ai::pathfind_astar::PathfindLayerEnum::Ground);
+                let world = to_c.to_world(path_layer);
                 if self.inner.get_cell_type(&world) != Some(PathfindCellType::Obstacle) {
                     return 0;
                 }
@@ -2595,14 +2634,18 @@ impl Pathfinder {
                 if oid == INVALID_ID {
                     return 1; // unknown obstacle blocks
                 }
-                // C++ never block own view / victim / container / slaver(producer).
+                // C++ never block own / victim / container / slaver.
                 if oid == attacker_id
                     || oid == victim_id
                     || oid == container_id
                     || oid == victim_container
-                    || oid == producer_id
-                    || oid == victim_producer
+                    || oid == attacker_slaver
+                    || oid == victim_slaver
                 {
+                    return 0;
+                }
+                // C++: victim inside another object's bounds — don't block.
+                if victim_cell_obstacle != INVALID_ID && oid == victim_cell_obstacle {
                     return 0;
                 }
                 1
@@ -3178,6 +3221,20 @@ mod tests {
                 && w.contains("is_view_blocked_by_obstacle")
                 && w.contains("is_attack_view_blocked_by_obstacle"),
             "isAttackViewBlockedByObstacle must gate LOS kindof + obstacle Bresenham like C++"
+        );
+    }
+
+    #[test]
+    fn attack_los_ignores_victim_cell_obstacle() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn is_attack_view_blocked_by_obstacle")
+            .expect("isAttackViewBlocked");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("victim_cell_obstacle") && w.contains("skip_count = 3"),
+            "attack LOS must skipCount=3 off-ground and ignore victimCell obstacle"
         );
     }
 
