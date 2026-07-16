@@ -2712,10 +2712,12 @@ impl PathfindingSystem {
                 prev_type = Some(ctype);
                 prev_layer = Some(layer);
                 prev_coord = Some(coord);
-                // mark zone passable residual
+                // C++ setPassable(start cell) when building ground path reverse.
                 if let Ok(mut zones) = self.zones.lock() {
-                    // residual: zone passable flags not fully ported
-                    let _ = &mut zones;
+                    zones.set_passable(coord.x, coord.y, true);
+                }
+                if let Ok(mut pf) = self.pathfinder.lock() {
+                    pf.set_zone_passable(coord, true);
                 }
                 break;
             }
@@ -2865,6 +2867,14 @@ impl PathfindingSystem {
                 }
             }
         }
+        // Keep A* notZonePassable table in sync with hierarchical expansion.
+        if let Ok(mut pf) = self.pathfinder.lock() {
+            for i in lo.x..=hi.x {
+                for j in lo.y..=hi.y {
+                    pf.set_zone_passable(GridCoord::new(i, j), true);
+                }
+            }
+        }
         built
     }
 
@@ -2884,6 +2894,26 @@ impl PathfindingSystem {
 
     pub fn debug_path_position(&self) -> Coord3D {
         self.debug_path_pos
+    }
+
+    /// C++ `PathfindZoneManager::setPassable` — zone block + A* cost table.
+    pub fn set_zone_cell_passable(&self, cell: GridCoord, passable: bool) {
+        if let Ok(mut z) = self.zones.lock() {
+            z.set_passable(cell.x, cell.y, passable);
+        }
+        if let Ok(mut pf) = self.pathfinder.lock() {
+            pf.set_zone_passable(cell, passable);
+        }
+    }
+
+    /// C++ `PathfindZoneManager::clearPassableFlags`.
+    pub fn clear_zone_passable_flags(&self) {
+        if let Ok(mut z) = self.zones.lock() {
+            z.clear_passable_flags();
+        }
+        if let Ok(mut pf) = self.pathfinder.lock() {
+            pf.clear_zone_passable_flags();
+        }
     }
 
     /// C++ `PathfindZoneManager::markZonesDirty` / force zone rebuild next processQueue.
@@ -8846,5 +8876,41 @@ mod tests {
             w.contains("zones_dirty") && w.contains("recalculate_zones_from_cells"),
             "process_queue must recalculate dirty zones like C++"
         );
+    }
+
+    #[test]
+    fn zone_passable_cost_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("set_zone_passable"));
+        assert!(prod.contains("set_zone_cell_passable"));
+        let astar = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(astar.contains("ZONE_IMPASSABLE_COST"));
+        assert!(astar.contains("notZonePassable") || astar.contains("is_zone_passable"));
+    }
+
+    #[test]
+    fn hierarchical_path_marks_start_block_passable() {
+        let mut system = PathfindingSystem::new(40, 40);
+        system.new_map();
+        // Clear all passable first.
+        system.clear_zone_passable_flags();
+        let from = Coord3D::new(50.0, 50.0, 0.0);
+        let cells = vec![
+            GridCoord::new(5, 5),
+            GridCoord::new(6, 5),
+            GridCoord::new(7, 5),
+        ];
+        let res = system.build_hierarchical_path(&from, &cells);
+        assert!(res.success);
+        // Start neighborhood should be passable on A* table.
+        let pf = system.pathfinder.lock().unwrap();
+        assert!(pf.is_zone_passable(GridCoord::new(5, 5)));
     }
 }
