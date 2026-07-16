@@ -50,39 +50,6 @@ pub struct AISkirmishPlayer {
     frame_to_check_enemy: u32,
     /// Current enemy player
     current_enemy: Option<Weak<RwLock<Player>>>,
-    /// Cached enemy infantry count
-    enemy_infantry_count: u32,
-    /// Cached enemy vehicle count
-    enemy_vehicle_count: u32,
-    /// Cached enemy air count
-    enemy_air_count: u32,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ThreatType {
-    #[default]
-    None,
-    Infantry,
-    Vehicle,
-    Air,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ResponseType {
-    #[default]
-    Expand,
-    CounterAttack,
-    DefensiveBuild,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ThreatAssessment {
-    pub threat_level: f32,
-    pub dominant_type: ThreatType,
-    pub recommended_response: ResponseType,
-    pub infantry_count: u32,
-    pub vehicle_count: u32,
-    pub aircraft_count: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -92,23 +59,6 @@ pub enum EconomyDecision {
     ConserveResources,
     EmergencyEconomy,
     InvestHeavily,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DominantEnemyType {
-    Infantry,
-    Vehicle,
-    Air,
-    Unknown,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct FactionBuildPriority {
-    pub defense_structure: String,
-    pub anti_infantry_unit: String,
-    pub anti_vehicle_unit: String,
-    pub anti_air_unit: String,
-    pub priority_building: String,
 }
 
 impl AISkirmishPlayer {
@@ -125,9 +75,6 @@ impl AISkirmishPlayer {
             cur_right_flank_right_defense_angle: 0.0,
             frame_to_check_enemy: 0,
             current_enemy: None,
-            enemy_infantry_count: 0,
-            enemy_vehicle_count: 0,
-            enemy_air_count: 0,
         };
 
         // Turn on AI production by default for skirmish
@@ -186,9 +133,6 @@ impl AISkirmishPlayer {
         self.cur_right_flank_right_defense_angle = 0.0;
         self.frame_to_check_enemy = 0;
         self.current_enemy = None;
-        self.enemy_infantry_count = 0;
-        self.enemy_vehicle_count = 0;
-        self.enemy_air_count = 0;
 
         // Clear base queues/timers without factory-scan (skirmish owns build list).
         self.base.clear_teams_in_queue();
@@ -1296,43 +1240,6 @@ impl AISkirmishPlayer {
             .unwrap_or(false)
     }
 
-    fn score_team_for_enemy(&self, proto: &TeamPrototype) -> i32 {
-        let mut infantry = 0;
-        let mut vehicles = 0;
-        let mut air = 0;
-
-        for info in proto.units_info() {
-            if info.unit_thing_name.is_empty() {
-                continue;
-            }
-            if let Some(template) = TheThingFactory::find_template(info.unit_thing_name) {
-                if template.is_kind_of(KindOf::Aircraft) {
-                    air += 1;
-                } else if template.is_kind_of(KindOf::Vehicle) {
-                    vehicles += 1;
-                } else if template.is_kind_of(KindOf::Infantry) {
-                    infantry += 1;
-                }
-            }
-        }
-
-        let mut score = proto.get_production_priority();
-        if self.enemy_air_count > 0 && air > 0 {
-            score += 40;
-        }
-        if self.enemy_vehicle_count > self.enemy_infantry_count && vehicles > 0 {
-            score += 20;
-        }
-        if self.enemy_infantry_count > self.enemy_vehicle_count && infantry > 0 {
-            score += 20;
-        }
-        if self.enemy_air_count == 0 && air > 0 {
-            score -= 10;
-        }
-
-        score
-    }
-
     fn apply_expansion_ring(&mut self, list: &mut BuildListInfo) {
         let base_center = match self.base.get_base_center() {
             Some(center) => center,
@@ -1828,16 +1735,6 @@ impl AISkirmishPlayer {
         ))
     }
 
-    fn player_has_any_objects(&self, player: &Player) -> bool {
-        let obj_manager = get_object_manager();
-        let Ok(manager) = obj_manager.read() else {
-            return false;
-        };
-        let object_ids =
-            manager.get_objects_owned_by_player(player.get_player_index() as UnsignedInt);
-        !object_ids.is_empty()
-    }
-
     /// Check if under powered
     fn is_under_powered(&self) -> bool {
         let Some(player_arc) = self.base.get_player() else {
@@ -1847,160 +1744,6 @@ impl AISkirmishPlayer {
             return false;
         };
         player_guard.get_energy().is_low_power()
-    }
-
-    /// Prioritize power buildings
-    fn prioritize_power_buildings(&mut self) {
-        let Some(player_arc) = self.base.get_player() else {
-            return;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return;
-        };
-        let mut info_opt = player_guard.get_build_list_mut();
-        while let Some(info) = info_opt {
-            let name = info.get_template_name();
-            if name.is_empty() {
-                info_opt = info.get_next_mut();
-                continue;
-            }
-            if let Some(template) = TheThingFactory::find_template(name.as_str()) {
-                if template.is_kind_of(KindOf::PowerPlant) || template.is_kind_of(KindOf::FSPower) {
-                    if info.get_object_id() == crate::common::INVALID_ID
-                        && !info.is_priority_build()
-                    {
-                        info.mark_priority_build();
-                        break;
-                    }
-                }
-            }
-            info_opt = info.get_next_mut();
-        }
-        self.base.set_build_delay_frames(0);
-    }
-
-    /// Check if enemy threat is detected
-    fn enemy_threat_detected(&self) -> bool {
-        let Some(enemy_arc) = self
-            .current_enemy
-            .as_ref()
-            .and_then(|enemy| enemy.upgrade())
-        else {
-            return false;
-        };
-        let Ok(enemy_guard) = enemy_arc.read() else {
-            return false;
-        };
-        self.player_has_any_objects(&enemy_guard)
-    }
-
-    /// Prioritize defensive buildings
-    fn prioritize_defensive_buildings(&mut self) {
-        let Some(player_arc) = self.base.get_player() else {
-            return;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return;
-        };
-        let mut info_opt = player_guard.get_build_list_mut();
-        while let Some(info) = info_opt {
-            let name = info.get_template_name();
-            if name.is_empty() {
-                info_opt = info.get_next_mut();
-                continue;
-            }
-            if let Some(template) = TheThingFactory::find_template(name.as_str()) {
-                if template.is_kind_of(KindOf::Defense) {
-                    if info.get_object_id() == crate::common::INVALID_ID
-                        && !info.is_priority_build()
-                    {
-                        info.mark_priority_build();
-                        break;
-                    }
-                }
-            }
-            info_opt = info.get_next_mut();
-        }
-        self.base.set_build_delay_frames(0);
-    }
-
-    /// Analyze enemy composition
-    fn analyze_enemy_composition(&mut self, enemy: &Arc<RwLock<Player>>) {
-        let Ok(enemy_guard) = enemy.read() else {
-            return;
-        };
-        let enemy_index = enemy_guard.get_player_index() as UnsignedInt;
-
-        let obj_manager = get_object_manager();
-        let object_ids = {
-            let Ok(manager) = obj_manager.read() else {
-                return;
-            };
-            manager.get_objects_owned_by_player(enemy_index)
-        };
-
-        let mut infantry = 0u32;
-        let mut vehicles = 0u32;
-        let mut air = 0u32;
-
-        let Ok(manager) = obj_manager.read() else {
-            return;
-        };
-        for obj_id in object_ids {
-            let Some(obj_arc) = manager.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            {
-                let Ok(base_guard) = obj_guard.base.read() else {
-                    continue;
-                };
-                if base_guard.is_kind_of(KindOf::Aircraft) {
-                    air += 1;
-                } else if base_guard.is_kind_of(KindOf::Vehicle) {
-                    vehicles += 1;
-                } else if base_guard.is_kind_of(KindOf::Infantry) {
-                    infantry += 1;
-                }
-            }
-        }
-
-        self.enemy_infantry_count = infantry;
-        self.enemy_vehicle_count = vehicles;
-        self.enemy_air_count = air;
-    }
-
-    /// Build counter units based on enemy composition analysis.
-    /// Matches C++ AIPlayer team selection logic: when enemy has many of a unit
-    /// type, prioritize building teams that contain the counter unit type.
-    fn build_counter_units(&mut self) {
-        let faction_priority = self.select_faction_build_priority();
-
-        if self.enemy_air_count > 0 {
-            self.prioritize_defensive_buildings();
-            if !faction_priority.anti_air_unit.is_empty() {
-                self.build_specific_ai_team_by_name(&faction_priority.anti_air_unit, true);
-            }
-        }
-
-        if self.enemy_vehicle_count > self.enemy_infantry_count {
-            if !faction_priority.anti_vehicle_unit.is_empty() {
-                self.build_specific_ai_team_by_name(&faction_priority.anti_vehicle_unit, false);
-            }
-        }
-
-        if self.enemy_infantry_count > self.enemy_vehicle_count {
-            if !faction_priority.anti_infantry_unit.is_empty() {
-                self.build_specific_ai_team_by_name(&faction_priority.anti_infantry_unit, false);
-            }
-        }
-
-        if self.enemy_air_count > 0 || self.enemy_vehicle_count > self.enemy_infantry_count {
-            self.base.set_team_delay_frames(0);
-        }
     }
 
     /// Check if any ready teams have finished moving to the rally point.
@@ -2073,137 +1816,6 @@ impl AISkirmishPlayer {
         }
 
         decision
-    }
-
-    /// Select faction-specific build priority based on current game state.
-    /// Matches C++ AISideInfo faction defense structure selection used in
-    /// buildAIBaseDefense and the INI-driven side build lists.
-    pub fn select_faction_build_priority(&self) -> FactionBuildPriority {
-        let Some(player_arc) = self.base.get_player() else {
-            return FactionBuildPriority::default();
-        };
-        let player_side = match player_arc.read() {
-            Ok(guard) => guard.get_side().clone(),
-            Err(_) => return FactionBuildPriority::default(),
-        };
-
-        let (infantry, vehicles, air) = (
-            self.enemy_infantry_count,
-            self.enemy_vehicle_count,
-            self.enemy_air_count,
-        );
-
-        let dominant_enemy = if air > infantry && air > vehicles {
-            DominantEnemyType::Air
-        } else if vehicles > infantry {
-            DominantEnemyType::Vehicle
-        } else if infantry > 0 {
-            DominantEnemyType::Infantry
-        } else {
-            DominantEnemyType::Unknown
-        };
-
-        let is_under_powered = self.is_under_powered();
-
-        let priority = match player_side.as_str() {
-            "America" | "USA" => match dominant_enemy {
-                DominantEnemyType::Air => FactionBuildPriority {
-                    defense_structure: "AmericaPatriotBattery".to_string(),
-                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
-                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
-                    anti_air_unit: "AmericaJetRaptor".to_string(),
-                    priority_building: if is_under_powered {
-                        "AmericaPowerPlant".to_string()
-                    } else {
-                        "AmericaWarFactory".to_string()
-                    },
-                },
-                DominantEnemyType::Vehicle => FactionBuildPriority {
-                    defense_structure: "AmericaPatriotBattery".to_string(),
-                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
-                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
-                    anti_air_unit: "AmericaJetRaptor".to_string(),
-                    priority_building: "AmericaWarFactory".to_string(),
-                },
-                DominantEnemyType::Infantry => FactionBuildPriority {
-                    defense_structure: "AmericaPatriotBattery".to_string(),
-                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
-                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
-                    anti_air_unit: "AmericaJetRaptor".to_string(),
-                    priority_building: "AmericaBarracks".to_string(),
-                },
-                DominantEnemyType::Unknown => FactionBuildPriority {
-                    defense_structure: "AmericaPatriotBattery".to_string(),
-                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
-                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
-                    anti_air_unit: "AmericaJetRaptor".to_string(),
-                    priority_building: "AmericaSupplyCenter".to_string(),
-                },
-            },
-            "China" => match dominant_enemy {
-                DominantEnemyType::Air => FactionBuildPriority {
-                    defense_structure: "ChinaGattlingCannon".to_string(),
-                    anti_infantry_unit: "ChinaRedguard".to_string(),
-                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
-                    anti_air_unit: "ChinaJetMiG".to_string(),
-                    priority_building: "ChinaAirfield".to_string(),
-                },
-                DominantEnemyType::Vehicle => FactionBuildPriority {
-                    defense_structure: "ChinaBunker".to_string(),
-                    anti_infantry_unit: "ChinaRedguard".to_string(),
-                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
-                    anti_air_unit: "ChinaJetMiG".to_string(),
-                    priority_building: "ChinaWarFactory".to_string(),
-                },
-                DominantEnemyType::Infantry => FactionBuildPriority {
-                    defense_structure: "ChinaBunker".to_string(),
-                    anti_infantry_unit: "ChinaRedguard".to_string(),
-                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
-                    anti_air_unit: "ChinaJetMiG".to_string(),
-                    priority_building: "ChinaBarracks".to_string(),
-                },
-                DominantEnemyType::Unknown => FactionBuildPriority {
-                    defense_structure: "ChinaBunker".to_string(),
-                    anti_infantry_unit: "ChinaRedguard".to_string(),
-                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
-                    anti_air_unit: "ChinaJetMiG".to_string(),
-                    priority_building: "ChinaSupplyCenter".to_string(),
-                },
-            },
-            "GLA" => match dominant_enemy {
-                DominantEnemyType::Air => FactionBuildPriority {
-                    defense_structure: "GLAStingerSite".to_string(),
-                    anti_infantry_unit: "GLARebel".to_string(),
-                    anti_vehicle_unit: "GLATankScorpion".to_string(),
-                    anti_air_unit: "GLAQuadCannon".to_string(),
-                    priority_building: "GLAArmsDealer".to_string(),
-                },
-                DominantEnemyType::Vehicle => FactionBuildPriority {
-                    defense_structure: "GLATunnelNetwork".to_string(),
-                    anti_infantry_unit: "GLARebel".to_string(),
-                    anti_vehicle_unit: "GLATankScorpion".to_string(),
-                    anti_air_unit: "GLAQuadCannon".to_string(),
-                    priority_building: "GLAArmsDealer".to_string(),
-                },
-                DominantEnemyType::Infantry => FactionBuildPriority {
-                    defense_structure: "GLATunnelNetwork".to_string(),
-                    anti_infantry_unit: "GLARebel".to_string(),
-                    anti_vehicle_unit: "GLATankScorpion".to_string(),
-                    anti_air_unit: "GLAQuadCannon".to_string(),
-                    priority_building: "GLABarracks".to_string(),
-                },
-                DominantEnemyType::Unknown => FactionBuildPriority {
-                    defense_structure: "GLATunnelNetwork".to_string(),
-                    anti_infantry_unit: "GLARebel".to_string(),
-                    anti_vehicle_unit: "GLATankScorpion".to_string(),
-                    anti_air_unit: "GLAQuadCannon".to_string(),
-                    priority_building: "GLASupplyStash".to_string(),
-                },
-            },
-            _ => FactionBuildPriority::default(),
-        };
-
-        priority
     }
 
     /// Get AI difficulty
@@ -2283,242 +1895,6 @@ impl AISkirmishPlayer {
         structure_id: ObjectID,
     ) -> Result<(), crate::ai::AiError> {
         self.base.on_structure_produced(factory_id, structure_id)
-    }
-
-    /// Pick the next build order based on game state, difficulty, and enemy composition.
-    /// Returns the thing template name of the structure to build, or None if nothing to build.
-    /// PARITY_NOTE: C++ picks from the INI BuildList in sequence. This mirrors the
-    /// sequential scan with difficulty-weighted priority adjustments.
-    pub fn pick_build_order(&self) -> Option<String> {
-        let player_arc = self.base.get_player()?;
-        let player_guard = player_arc.read().ok()?;
-        let difficulty = self.base.get_ai_difficulty();
-
-        let mut build_info = player_guard.get_build_list();
-        let mut best_name: Option<String> = None;
-        let mut best_priority: i32 = i32::MIN;
-
-        while let Some(info) = build_info {
-            if info.get_object_id() != crate::common::types::INVALID_ID {
-                build_info = info.get_next();
-                continue;
-            }
-
-            let name = info.get_template_name().to_string();
-            let mut priority: i32 = if info.is_priority_build() { 10 } else { 0 };
-
-            match difficulty {
-                GameDifficulty::Hard => priority += 2,
-                GameDifficulty::Normal => priority += 1,
-                GameDifficulty::Easy => priority -= 1,
-                _ => {}
-            }
-
-            let enemy_infantry_heavy = self.enemy_infantry_count > self.enemy_vehicle_count
-                && self.enemy_infantry_count > self.enemy_air_count;
-            let enemy_vehicle_heavy = self.enemy_vehicle_count > self.enemy_infantry_count
-                && self.enemy_vehicle_count > self.enemy_air_count;
-            let enemy_air_heavy = self.enemy_air_count > self.enemy_infantry_count
-                && self.enemy_air_count > self.enemy_vehicle_count;
-
-            if enemy_infantry_heavy && name.contains("AntiInfantry") {
-                priority += 3;
-            }
-            if enemy_vehicle_heavy && name.contains("AntiTank") {
-                priority += 3;
-            }
-            if enemy_air_heavy && name.contains("AntiAir") {
-                priority += 3;
-            }
-
-            if priority > best_priority {
-                best_priority = priority;
-                best_name = Some(name);
-            }
-
-            build_info = info.get_next();
-        }
-
-        best_name
-    }
-
-    /// Evaluate the current threat level from enemies.
-    /// Returns a threat assessment with threat_level (0.0..1.0) and recommended_response.
-    /// PARITY_NOTE: C++ evaluates threat based on nearby enemy units detected via
-    /// partition manager spatial queries. This mirrors that logic with distance-based
-    /// threat weighting and unit type multipliers.
-    pub fn evaluate_threat(&self) -> ThreatAssessment {
-        let Some(player_arc) = self.base.get_player() else {
-            return ThreatAssessment::default();
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return ThreatAssessment::default();
-        };
-
-        let base_center = match self.base.get_base_center() {
-            Some(c) => c,
-            None => return ThreatAssessment::default(),
-        };
-
-        let mut total_threat: f32 = 0.0;
-        let mut nearby_infantry: u32 = 0;
-        let mut nearby_vehicles: u32 = 0;
-        let mut nearby_aircraft: u32 = 0;
-        let threat_radius: f32 = 500.0;
-
-        if let Some(partition_mgr) = ThePartitionManager::get() {
-            let objects_in_range = partition_mgr.get_objects_in_range(&base_center, threat_radius);
-
-            let Some(my_team_arc) = player_guard.get_default_team() else {
-                return ThreatAssessment::default();
-            };
-            let Ok(my_team) = my_team_arc.read() else {
-                return ThreatAssessment::default();
-            };
-
-            for obj_id in &objects_in_range {
-                let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id)
-                else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-
-                let Some(obj_team_arc) = obj_guard.get_team() else {
-                    continue;
-                };
-                let Ok(obj_team) = obj_team_arc.read() else {
-                    continue;
-                };
-
-                if my_team.get_relationship(&obj_team) != Relationship::Enemies {
-                    continue;
-                }
-
-                let pos = obj_guard.get_position();
-                let dx = pos.x - base_center.x;
-                let dy = pos.y - base_center.y;
-                let dist = (dx * dx + dy * dy).sqrt().max(1.0);
-                let proximity_weight = 1.0 - (dist / threat_radius).min(1.0);
-
-                if obj_guard.is_kind_of(KindOf::Infantry) {
-                    nearby_infantry += 1;
-                    total_threat += 1.0 * proximity_weight;
-                } else if obj_guard.is_kind_of(KindOf::Vehicle) {
-                    nearby_vehicles += 1;
-                    total_threat += 2.0 * proximity_weight;
-                } else if obj_guard.is_kind_of(KindOf::Aircraft) {
-                    nearby_aircraft += 1;
-                    total_threat += 2.5 * proximity_weight;
-                }
-            }
-        }
-
-        let threat_level = (total_threat / 50.0).min(1.0);
-
-        let dominant_type =
-            if nearby_aircraft >= nearby_infantry && nearby_aircraft >= nearby_vehicles {
-                ThreatType::Air
-            } else if nearby_vehicles >= nearby_infantry {
-                ThreatType::Vehicle
-            } else if nearby_infantry > 0 {
-                ThreatType::Infantry
-            } else {
-                ThreatType::None
-            };
-
-        let recommended_response = if threat_level > 0.7 {
-            ResponseType::DefensiveBuild
-        } else if threat_level > 0.4 {
-            ResponseType::CounterAttack
-        } else {
-            ResponseType::Expand
-        };
-
-        ThreatAssessment {
-            threat_level,
-            dominant_type,
-            recommended_response,
-            infantry_count: nearby_infantry,
-            vehicle_count: nearby_vehicles,
-            aircraft_count: nearby_aircraft,
-        }
-    }
-
-    /// Choose the best attack target based on distance, vulnerability, and strategic value.
-    /// Returns (player_index, target_position) of the best target.
-    /// PARITY_NOTE: C++ selects the nearest vulnerable enemy base via player list
-    /// iteration with base-center distance comparison. This mirrors that logic with
-    /// additional strategic weighting for weakened enemies.
-    pub fn choose_attack_target(&self) -> Option<(i32, Coord3D)> {
-        let Some(me_arc) = self.base.get_player() else {
-            return None;
-        };
-        let Ok(me_guard) = me_arc.read() else {
-            return None;
-        };
-        let my_center = self.base.get_base_center()?;
-
-        let Ok(player_list) = ThePlayerList().read() else {
-            return None;
-        };
-
-        let mut best_target: Option<(i32, Coord3D)> = None;
-        let mut best_score: f32 = f32::MAX;
-
-        for player_arc in player_list.iter() {
-            let Ok(player_guard) = player_arc.read() else {
-                continue;
-            };
-
-            let Some(their_team_arc) = player_guard.get_default_team() else {
-                continue;
-            };
-            let Ok(their_team) = their_team_arc.read() else {
-                continue;
-            };
-            let Some(my_team_arc) = me_guard.get_default_team() else {
-                continue;
-            };
-            let Ok(my_team) = my_team_arc.read() else {
-                continue;
-            };
-
-            if my_team.get_relationship(&their_team) != Relationship::Enemies {
-                continue;
-            }
-
-            let has_buildings = player_guard.has_any_build_facility();
-            let has_units = player_guard.has_any_units();
-            if !has_buildings && !has_units {
-                continue;
-            }
-
-            let enemy_center = self
-                .get_enemy_base_center(&player_guard)
-                .unwrap_or(my_center);
-
-            let dx = enemy_center.x - my_center.x;
-            let dy = enemy_center.y - my_center.y;
-            let dist = (dx * dx + dy * dy).sqrt();
-
-            let mut score = dist;
-
-            if !has_buildings {
-                score *= 2.0;
-            }
-            if !has_units {
-                score *= 1.5;
-            }
-
-            if score < best_score {
-                best_score = score;
-                best_target = Some((player_guard.get_player_index(), enemy_center));
-            }
-        }
-
-        best_target
     }
 }
 
@@ -2753,7 +2129,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn build_specific_ai_building_uses_live_object_like_cpp() {
         let src = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -2780,6 +2155,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn adjust_build_list_calls_on_structure_undone_like_cpp() {
         let src = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -2821,7 +2197,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn build_ai_base_defense_no_host_residual_like_cpp() {
         let src = include_str!(concat!(
@@ -2907,9 +2282,9 @@ mod tests {
             w.contains("build_structure_with_dozer")
                 && w.contains("ResumeConstruction")
                 && w.contains("CashGenerator")
-                && w.contains("find_dozer_public")
-                && w.contains("start_structure_timer_seconds")
-                && w.contains("adjust_build_timer_for_wealth"),
+                && w.contains("arm_structure_timer_after_build")
+                && w.contains("is_under_powered")
+                && w.contains("FSPower"),
             "processBaseBuilding must dozer-build, resume, power-force, arm timer"
         );
     }
