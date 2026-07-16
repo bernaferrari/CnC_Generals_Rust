@@ -1123,6 +1123,10 @@ pub struct Weapon {
     /// C++ parity (WeaponTemplate::m_preAttackDelay): delay before firing
     /// after a target is acquired, in seconds.  0.0 = no delay.
     pub pre_attack_delay: f32,
+    /// C++ radius damage residual (WeaponTemplate primary/secondary radius).
+    /// 0.0 = no splash (direct hit only).
+    #[serde(default)]
+    pub splash_radius: f32,
 }
 
 impl Default for Weapon {
@@ -1138,6 +1142,7 @@ impl Default for Weapon {
             can_target_ground: true,
             projectile_speed: 200.0,
             pre_attack_delay: 0.0,
+            splash_radius: 0.0,
         }
     }
 }

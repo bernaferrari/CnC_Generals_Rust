@@ -205,6 +205,7 @@ pub fn tomahawk_weapon() -> Weapon {
         can_target_ground: true,
         projectile_speed: TOMAHAWK_PROJECTILE_SPEED,
         pre_attack_delay: delay_frames_to_reload_secs(TOMAHAWK_PRE_ATTACK_FRAMES),
+        splash_radius: 0.0,
     }
 }
 

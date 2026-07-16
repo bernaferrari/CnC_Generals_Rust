@@ -160,6 +160,8 @@ pub struct PendingProjectile {
     pub target_pos: Option<Vec3>,
     pub damage: f32,
     pub speed: f32,
+    /// C++ radius damage residual at impact (0 = direct only).
+    pub splash_radius: f32,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -200,6 +202,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             can_target_ground: true,
             projectile_speed: p.speed,
             pre_attack_delay: 0.0,
+            splash_radius: p.splash_radius,
         };
         combat.fire_projectile(
             p.shooter_pos,
@@ -261,7 +264,8 @@ impl CombatSystem {
         // Use caller-specified speed (from weapon template), fallback to default.
         projectile.speed = if speed > 0.0 { speed } else { 200.0 };
         projectile.is_homing = false; // Some weapons have homing projectiles
-        projectile.explosion_radius = 0.0; // Explosive weapons would have this
+                                      // C++ radius damage residual from WeaponTemplate splash/radius.
+        projectile.explosion_radius = weapon.splash_radius.max(0.0);
 
         self.projectiles.insert(projectile_id, projectile);
 
@@ -329,12 +333,23 @@ impl CombatSystem {
                     }
                 }
                 if let Some(sid) = hit_structure {
-                    damage_events.push(DamageEvent::Direct {
-                        target_id: sid,
-                        position: projectile.position,
-                        damage: projectile.damage,
-                        damage_type: projectile.damage_type,
-                    });
+                    let impact = projectile.position;
+                    if projectile.explosion_radius > 0.0 {
+                        damage_events.push(DamageEvent::Area {
+                            position: impact,
+                            damage: projectile.damage,
+                            damage_type: projectile.damage_type,
+                            radius: projectile.explosion_radius,
+                            shooter_id: projectile.shooter_id,
+                        });
+                    } else {
+                        damage_events.push(DamageEvent::Direct {
+                            target_id: sid,
+                            position: impact,
+                            damage: projectile.damage,
+                            damage_type: projectile.damage_type,
+                        });
+                    }
                     projectiles_to_remove.push(proj_id);
                     continue;
                 }
@@ -344,12 +359,24 @@ impl CombatSystem {
                     if let Some(target) = objects.get(&target_id) {
                         let distance = projectile.position.distance(target.get_position());
                         if distance <= 5.0 {
-                            damage_events.push(DamageEvent::Direct {
-                                target_id,
-                                position: projectile.position,
-                                damage: projectile.damage,
-                                damage_type: projectile.damage_type,
-                            });
+                            let impact = projectile.position;
+                            if projectile.explosion_radius > 0.0 {
+                                // Splash residual: quadratic falloff includes full damage at center.
+                                damage_events.push(DamageEvent::Area {
+                                    position: impact,
+                                    damage: projectile.damage,
+                                    damage_type: projectile.damage_type,
+                                    radius: projectile.explosion_radius,
+                                    shooter_id: projectile.shooter_id,
+                                });
+                            } else {
+                                damage_events.push(DamageEvent::Direct {
+                                    target_id,
+                                    position: impact,
+                                    damage: projectile.damage,
+                                    damage_type: projectile.damage_type,
+                                });
+                            }
                             projectiles_to_remove.push(proj_id);
                         }
                     }
@@ -632,6 +659,78 @@ mod tests {
         assert!(
             tgt_hp1 < tgt_hp0 - 1.0,
             "open-field projectile must still hit target ({tgt_hp0}->{tgt_hp1})"
+        );
+    }
+
+    #[test]
+    fn projectile_splash_damages_nearby() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(20);
+        let tgt = ObjectId(21);
+        let near = ObjectId(22);
+        objects.insert(
+            atk,
+            make_obj(
+                "SpAtk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "SpTgt",
+                tgt,
+                Team::GLA,
+                Vec3::new(20.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            near,
+            make_obj(
+                "SpNear",
+                near,
+                Team::GLA,
+                Vec3::new(25.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 50.0,
+            range: 200.0,
+            projectile_speed: 500.0,
+            splash_radius: 15.0,
+            ..Weapon::default()
+        };
+        combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(20.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            500.0,
+        );
+        let tgt0 = objects.get(&tgt).unwrap().health.current;
+        let near0 = objects.get(&near).unwrap().health.current;
+        for _ in 0..60 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let tgt1 = objects.get(&tgt).unwrap().health.current;
+        let near1 = objects.get(&near).unwrap().health.current;
+        assert!(tgt1 < tgt0 - 1.0, "splash center must damage target");
+        assert!(
+            near1 < near0 - 1.0,
+            "nearby unit within splash_radius must take area damage ({near0}->{near1})"
         );
     }
 }

@@ -212,7 +212,7 @@ pub fn tank_hunter_weapon_stats(
 
 /// Build residual RPG Weapon with horde/nationalism ROF residual.
 pub fn tank_hunter_weapon(in_horde: bool, has_nationalism: bool) -> Weapon {
-    let (damage, range, min_range, delay, _splash, speed) =
+    let (damage, range, min_range, delay, splash, speed) =
         tank_hunter_weapon_stats(in_horde, has_nationalism);
     Weapon {
         damage,
@@ -225,6 +225,7 @@ pub fn tank_hunter_weapon(in_horde: bool, has_nationalism: bool) -> Weapon {
         can_target_ground: true,
         projectile_speed: speed,
         pre_attack_delay: 0.0,
+        splash_radius: splash,
     }
 }
 

@@ -2051,6 +2051,7 @@ impl Object {
             weapon.last_fire_time = current_time;
             let weapon_damage = weapon.damage;
             let weapon_speed = weapon.projectile_speed;
+            let weapon_splash = weapon.splash_radius;
             let shooter_id = self.id;
             let shooter_pos = self.get_position();
             self.target = Some(target_id);
@@ -2062,6 +2063,7 @@ impl Object {
                 target_pos: None,
                 damage: weapon_damage,
                 speed: weapon_speed,
+                splash_radius: weapon_splash,
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:

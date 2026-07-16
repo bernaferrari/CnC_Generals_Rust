@@ -258,6 +258,7 @@ pub fn troop_crawler_assault_weapon() -> Weapon {
         // Instant residual "deploy pulse" (WeaponSpeed 0 in retail).
         projectile_speed: 0.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
