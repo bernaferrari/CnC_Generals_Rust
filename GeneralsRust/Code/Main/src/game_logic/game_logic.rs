@@ -6109,30 +6109,35 @@ impl GameLogic {
                 None => return false, // hold off RTB dock until a runway frees
             }
         };
-        if let Some(jet) = self.objects.get_mut(&jet_id) {
-            if !jet.rearm_return_to_base_weapons() {
-                // Failed rearm — release landing runway hold.
+        let rearmed = {
+            let Some(jet) = self.objects.get_mut(&jet_id) else {
                 self.release_airfield_runway_for_jet(jet_id);
                 return false;
+            };
+            if !jet.rearm_return_to_base_weapons() {
+                false
+            } else {
+                // C++ setProducer + park residual: dock at airfield hangar.
+                jet.contained_by = Some(af_id);
+                jet.ai_state = AIState::Docked;
+                jet.status.moving = false;
+                jet.status.airborne_target = false;
+                jet.movement.path.clear();
+                jet.movement.current_path_index = 0;
+                jet.movement.target_position = None;
+                // Snap to airfield pad residual (hangar park).
+                // Landing taxi: approach along reserved runway offset then settle.
+                use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
+                let mut pad = af_pos;
+                if let Some(idx) = runway_idx {
+                    pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
+                }
+                pad.y = af_pos.y;
+                jet.set_position(pad);
+                true
             }
-            // C++ setProducer + park residual: dock at airfield hangar.
-            jet.contained_by = Some(af_id);
-            jet.ai_state = AIState::Docked;
-            jet.status.moving = false;
-            jet.status.airborne_target = false;
-            jet.movement.path.clear();
-            jet.movement.current_path_index = 0;
-            jet.movement.target_position = None;
-            // Snap to airfield pad residual (hangar park).
-            // Landing taxi: approach along reserved runway offset then settle.
-            use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
-            let mut pad = af_pos;
-            if let Some(idx) = runway_idx {
-                pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
-            }
-            pad.y = af_pos.y;
-            jet.set_position(pad);
-        } else {
+        };
+        if !rearmed {
             self.release_airfield_runway_for_jet(jet_id);
             return false;
         }
