@@ -7244,6 +7244,15 @@ impl AIUpdateInterface for UnitAIUpdate {
         })
     }
 
+    fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
+        let unit = self.unit.upgrade()?;
+        let guard = unit.read().ok()?;
+        if guard.locomotor_set.is_empty() {
+            return None;
+        }
+        Some(guard.locomotor_set.clone())
+    }
+
     fn get_path_destination(&self) -> Option<Coord3D> {
         let unit = self.unit.upgrade()?;
         let guard = unit.read().ok()?;

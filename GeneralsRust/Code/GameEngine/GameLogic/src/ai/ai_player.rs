@@ -4789,29 +4789,34 @@ impl AIPlayer {
             return Ok(None);
         }
 
-        // C++: if (!pathfinder->clientSafeQuickDoesPathExist(locoSet, dozerPos, &pos))
+        // C++: if (!pathfinder->clientSafeQuickDoesPathExist(
+        //           dozer->getAI()->getLocomotorSet(), dozerPos, &pos))
         //        { log; dozer->setPosition(&pos); }
         if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
             let Ok(dozer_g) = dozer_arc.read() else {
                 return Ok(None);
             };
-            if dozer_g.get_ai_update_interface().is_none() {
+            let Some(dozer_ai) = dozer_g.get_ai_update_interface() else {
                 return Ok(None);
-            }
+            };
             let dpos = *dozer_g.get_position();
+            // Ensure Normal set is selected (C++ getLocomotorSet is current).
+            dozer_ai.choose_locomotor_set(LocomotorSetType::Normal);
+            let loco_set = dozer_ai.get_locomotor_set_clone();
             drop(dozer_g);
 
             let mut path_ok = false;
-            if let Ok(ai_guard) = THE_AI.read() {
-                if let Some(pf_arc) = ai_guard.pathfinder() {
-                    if let Ok(pf) = pf_arc.read() {
-                        // Prefer a normal land locomotor set; empty set → path fails
-                        // → teleport (safe over-teleport when loco data missing).
-                        let loco_set = crate::locomotor::LocomotorSet::new();
-                        path_ok = pf.client_safe_quick_does_path_exist(&loco_set, &dpos, &pos);
+            if let Some(ref loco_set) = loco_set {
+                if let Ok(ai_guard) = THE_AI.read() {
+                    if let Some(pf_arc) = ai_guard.pathfinder() {
+                        if let Ok(pf) = pf_arc.read() {
+                            path_ok = pf.client_safe_quick_does_path_exist(loco_set, &dpos, &pos);
+                        }
                     }
                 }
             }
+            // Empty/missing loco set → path_ok stays false → teleport (same as C++
+            // when path fails; avoids always-teleport when loco data is present).
             if !path_ok {
                 log::debug!(
                     "{} - Dozer unable to reach building.  Teleporting.",
@@ -8336,6 +8341,8 @@ mod tests {
                 && window.contains("120.0 * PATHFIND_CELL_SIZE_F")
                 && window.contains("prefer location match")
                 && window.contains("client_safe_quick_does_path_exist")
+                && window.contains("get_locomotor_set_clone")
+                && !window.contains("LocomotorSet::new()")
                 && window.contains("Dozer unable to reach building.  Teleporting.")
                 && !window.contains("let _ = self.queue_dozer()"),
             "buildStructureWithDozer must path-check+teleport, stamp by location, skirmish wiggle"
