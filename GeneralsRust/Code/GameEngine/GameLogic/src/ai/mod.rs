@@ -2103,80 +2103,19 @@ impl Pathfinder {
 
     /// C++ `Pathfinder::findBrokenBridge` (AIPathfind.cpp).
     ///
-    /// If terrain zones already connect for the locomotor set, no broken bridge
-    /// is the blocker. Otherwise scan destroyed/rubble bridges whose footprint
-    /// intersects the from→to segment (layer `connectsZones` residual until
-    /// full m_layers zone links are populated).
+    /// Compute effective terrain zones at from/to; if equal, no bridge is the
+    /// blocker. Else scan destroyed pathfind layers whose `connectsZones` links
+    /// zone1↔zone2 and return that layer's bridge object id.
     pub fn find_broken_bridge(
         &self,
-        locomotor_set: &crate::locomotor::LocomotorSet,
+        _locomotor_set: &crate::locomotor::LocomotorSet,
         from: &Coord3D,
         to: &Coord3D,
     ) -> Option<ObjectID> {
-        // C++: if zone1 == zone2 after effective terrain zone, return false.
-        // clientSafeQuickDoesPathExist is the same quick terrain connectivity test.
-        if self.client_safe_quick_does_path_exist(locomotor_set, from, to) {
-            return None;
-        }
-
-        // C++ m_layers[i].isDestroyed() && connectsZones(...).
-        if let Some(id) = self.inner.find_broken_bridge_layer(from, to) {
-            return Some(id);
-        }
-
-        // Residual: terrain Bridge list destroyed/rubble segment scan when layer
-        // object ids were not registered.
-        let terrain = crate::terrain::get_terrain_logic().read().ok()?;
-        let delta = Coord3D::new(to.x - from.x, to.y - from.y, to.z - from.z);
-        let dist_sq = delta.x * delta.x + delta.y * delta.y;
-        if dist_sq < crate::path::PATHFIND_CELL_SIZE_F * crate::path::PATHFIND_CELL_SIZE_F {
-            return None;
-        }
-        let dist = dist_sq.sqrt().max(crate::path::PATHFIND_CELL_SIZE_F);
-        let steps = (dist / crate::path::PATHFIND_CELL_SIZE_F).ceil() as i32;
-
-        let mut bridge_opt = terrain.get_first_bridge();
-        while let Some(bridge) = bridge_opt {
-            let bridge_id = bridge.get_bridge_info().bridge_object_id;
-            if bridge_id == INVALID_ID {
-                bridge_opt = bridge.get_next();
-                continue;
-            }
-            let broken = match OBJECT_REGISTRY.get_object(bridge_id) {
-                Some(obj) => {
-                    if let Ok(guard) = obj.read() {
-                        let mut is_rubble = false;
-                        if let Some(body) = guard.get_body_module() {
-                            if let Ok(bg) = body.lock() {
-                                is_rubble = bg.get_damage_state()
-                                    == crate::object::body::BodyDamageType::Rubble;
-                            }
-                        }
-                        guard.is_destroyed() || guard.is_effectively_dead() || is_rubble
-                    } else {
-                        true
-                    }
-                }
-                None => true,
-            };
-            if !broken {
-                bridge_opt = bridge.get_next();
-                continue;
-            }
-            for i in 0..=steps {
-                let t = i as f32 / steps as f32;
-                let sample = Coord3D::new(
-                    from.x + delta.x * t,
-                    from.y + delta.y * t,
-                    from.z + delta.z * t,
-                );
-                if bridge.is_point_on_bridge(&sample) {
-                    return Some(bridge_id);
-                }
-            }
-            bridge_opt = bridge.get_next();
-        }
-        None
+        // C++: zone compare via zone manager (not clientSafeQuickDoesPathExist —
+        // that rejects cliffs/obstacles and is a different gate).
+        // C++ m_layers[i].isDestroyed() && connectsZones(zone1, zone2).
+        self.inner.find_broken_bridge_layer(from, to)
     }
 
     pub fn client_safe_quick_does_path_exist(
@@ -2672,23 +2611,34 @@ mod tests {
     #[test]
     fn find_broken_bridge_prefers_destroyed_layers_like_cpp() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
-        let i = src
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
             .find("pub fn find_broken_bridge")
-            .expect("find_broken_bridge");
-        let w = &src[i..src.len().min(i + 1200)];
+            .expect("findBrokenBridge");
+        let end = prod[i..]
+            .find(
+                "
+    pub fn ",
+            )
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 2500));
+        let w = &prod[i..end];
         assert!(
             w.contains("find_broken_bridge_layer")
-                && w.contains("client_safe_quick_does_path_exist"),
-            "findBrokenBridge must check pathfinder destroyed layers before terrain residual"
+                && !w.contains("get_first_bridge")
+                && !w.contains("is_point_on_bridge")
+                && !w.contains("client_safe_quick_does_path_exist"),
+            "findBrokenBridge must check pathfinder destroyed layers only (no terrain residual)"
         );
         let complete = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/ai/pathfind_complete.rs"
         ));
         assert!(
-            complete.contains("fn connects_zones")
-                && complete.contains("find_broken_bridge_layer")
-                && complete.contains("bridge_object_id"),
+            complete.contains("fn connects_zones") && complete.contains("bridge_object_id"),
             "BridgeLayer must expose connectsZones residual + object id"
         );
     }
