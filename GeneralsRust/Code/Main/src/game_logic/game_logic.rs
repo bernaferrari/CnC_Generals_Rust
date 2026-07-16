@@ -5784,6 +5784,47 @@ impl GameLogic {
     /// radius of the original victim position (mine-clear chain residual).
 
     /// C++ Weapon computeApproachTarget residual for host attack moves.
+
+    /// C++ MinimumAttackRange residual: back away when too close to fire.
+    ///
+    /// Returns true when a backup move was issued.
+    pub(crate) fn try_min_range_backup(
+        &mut self,
+        attacker_id: ObjectId,
+        target_pos: glam::Vec3,
+        min_range: f32,
+    ) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            compute_min_range_backup_pos, is_inside_minimum_attack_range,
+        };
+        let Some(attacker) = self.objects.get(&attacker_id) else {
+            return false;
+        };
+        if !attacker.can_move() || !attacker.is_alive() {
+            return false;
+        }
+        let src = attacker.get_position();
+        let dx = src.x - target_pos.x;
+        let dz = src.z - target_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        if !is_inside_minimum_attack_range(dist, min_range) {
+            return false;
+        }
+        let dest = compute_min_range_backup_pos(src, target_pos, min_range);
+        // Direct backup residual (fail-closed vs full reverse-pathfind matrix).
+        if let Some(a) = self.objects.get_mut(&attacker_id) {
+            a.movement.path.clear();
+            a.movement.current_path_index = 0;
+            a.movement.target_position = Some(dest);
+            a.ai_state = AIState::Attacking;
+            a.status.attacking = true;
+            a.status.moving = true;
+            crate::game_logic::host_move_log::record(attacker_id, Some([dest.x, dest.y, dest.z]));
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn approach_pos_for_attack(
         &self,
         attacker_id: ObjectId,
@@ -7853,15 +7894,21 @@ impl GameLogic {
                         }
                     }
                 } else if enemy_or_forced {
-                    // Ready weapons but out of range / cannot hit: chase.
-                    // Pathfind toward target (not straight-line through buildings).
-                    // Do not clobber interaction orders that also set `target`
-                    // (CaptureBuilding, SpecialAbility, Repair, Enter, etc.).
-                    let combat_chase_ok = self
+                    // Ready weapons but out of range / cannot hit.
+                    // MinimumAttackRange residual: if too close, back away instead
+                    // of chasing into the dead zone (artillery / rocket safety).
+                    let (min_r, max_r, can_chase) = self
                         .objects
                         .get(&attacker_id)
                         .map(|attacker| {
-                            attacker.can_move()
+                            let w = attacker
+                                .weapon
+                                .as_ref()
+                                .or(attacker.secondary_weapon.as_ref());
+                            let min_r = w.map(|w| w.min_range).unwrap_or(0.0);
+                            let max_r = w.map(|w| w.range).unwrap_or(0.0)
+                                * attacker.battle_plan_range_multiplier();
+                            let can = attacker.can_move()
                                 && matches!(
                                     attacker.ai_state,
                                     AIState::Idle
@@ -7870,9 +7917,32 @@ impl GameLogic {
                                         | AIState::AttackMoving
                                         | AIState::Patrolling
                                         | AIState::AttackingGround
-                                )
+                                );
+                            (min_r, max_r, can)
                         })
-                        .unwrap_or(false);
+                        .unwrap_or((0.0, 0.0, false));
+                    let too_close = {
+                        let src = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| a.get_position())
+                            .unwrap_or(target_position);
+                        let dx = src.x - target_position.x;
+                        let dz = src.z - target_position.z;
+                        let dist = (dx * dx + dz * dz).sqrt();
+                        crate::game_logic::weapon_bootstrap::is_inside_minimum_attack_range(
+                            dist, min_r,
+                        )
+                    };
+                    if too_close && can_chase {
+                        let _ = self.try_min_range_backup(attacker_id, target_position, min_r);
+                        continue;
+                    }
+                    // Pathfind toward target (not straight-line through buildings).
+                    // Do not clobber interaction orders that also set `target`
+                    // (CaptureBuilding, SpecialAbility, Repair, Enter, etc.).
+                    let combat_chase_ok = can_chase;
+                    let _ = max_r;
                     if combat_chase_ok {
                         // findAttackPath residual: path to in-range LOS cell, not target cell.
                         // Contact weapons path to the target; others stand off at range*0.9.
@@ -70524,6 +70594,112 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn minimum_attack_range_too_close_backs_away() {
+        use crate::game_logic::weapon_bootstrap::{
+            effective_minimum_attack_range, is_inside_minimum_attack_range,
+        };
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("Arty");
+            t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("Arty".into(), t);
+            let mut tg = ThingTemplate::new("CloseTgt");
+            tg.add_kind_of(KindOf::Vehicle);
+            tg.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("CloseTgt".into(), tg);
+        }
+        let arty = logic
+            .create_object("Arty", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let tgt = logic
+            .create_object("CloseTgt", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.objects.get_mut(&arty) {
+            o.weapon = Some(Weapon {
+                damage: 40.0,
+                range: 300.0,
+                min_range: 50.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                can_target_ground: true,
+                can_target_air: false,
+                ..Weapon::default()
+            });
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        let h0 = logic
+            .objects
+            .get(&tgt)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        // Too close: should back up, not damage.
+        assert!(logic.try_min_range_backup(arty, glam::Vec3::ZERO, 50.0,));
+        let dest = logic
+            .objects
+            .get(&arty)
+            .and_then(|o| o.movement.target_position)
+            .expect("backup sets move target");
+        let dist = (dest.x * dest.x + dest.z * dest.z).sqrt();
+        assert!(
+            dist + 0.5 >= effective_minimum_attack_range(50.0) - 1.0,
+            "backup dest dist={dist} dest={dest:?}"
+        );
+        // Combat path should not deal damage while still inside min (if still close).
+        // Place again inside and run combat.
+        if let Some(o) = logic.objects.get_mut(&arty) {
+            o.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+            o.movement.target_position = None;
+            o.movement.path.clear();
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        for _ in 0..5 {
+            logic.update_combat(&[arty, tgt], 1.0 / 30.0);
+        }
+        let h1 = logic
+            .objects
+            .get(&tgt)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (h1 - h0).abs() < 0.01,
+            "must not fire inside min range (h0={h0} h1={h1})"
+        );
+        // Outside min range — may fire.
+        if let Some(o) = logic.objects.get_mut(&arty) {
+            o.set_position(glam::Vec3::new(80.0, 0.0, 0.0));
+            o.movement.target_position = None;
+            o.movement.path.clear();
+            o.status.moving = false;
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        for _ in 0..30 {
+            logic.update_combat(&[arty, tgt], 1.0 / 30.0);
+        }
+        let h2 = logic
+            .objects
+            .get(&tgt)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            h2 < h0 - 1.0,
+            "outside min range must allow fire h0={h0} h2={h2}"
+        );
+        assert!(!is_inside_minimum_attack_range(80.0, 50.0));
     }
 
     #[test]
