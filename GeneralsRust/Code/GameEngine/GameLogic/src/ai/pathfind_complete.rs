@@ -110,6 +110,9 @@ struct GoalCell {
     goal_unit_ground: ObjectID,
     goal_unit_top: ObjectID,
     goal_aircraft: ObjectID,
+    /// C++ PathfindCell::getPosUnit / setPosUnit (UNIT_PRESENT_FIXED occupancy).
+    pos_unit_ground: ObjectID,
+    pos_unit_top: ObjectID,
 }
 
 impl GoalCell {
@@ -118,6 +121,8 @@ impl GoalCell {
             goal_unit_ground: INVALID_ID,
             goal_unit_top: INVALID_ID,
             goal_aircraft: INVALID_ID,
+            pos_unit_ground: INVALID_ID,
+            pos_unit_top: INVALID_ID,
         }
     }
 
@@ -145,6 +150,35 @@ impl GoalCell {
             _ => {
                 if self.goal_unit_top == unit {
                     self.goal_unit_top = INVALID_ID;
+                }
+            }
+        }
+    }
+
+    fn get_pos_unit(&self, layer: PathfindLayerEnum) -> ObjectID {
+        match layer {
+            PathfindLayerEnum::Ground => self.pos_unit_ground,
+            _ => self.pos_unit_top,
+        }
+    }
+
+    fn set_pos_unit(&mut self, layer: PathfindLayerEnum, unit: ObjectID) {
+        match layer {
+            PathfindLayerEnum::Ground => self.pos_unit_ground = unit,
+            _ => self.pos_unit_top = unit,
+        }
+    }
+
+    fn clear_pos_unit(&mut self, layer: PathfindLayerEnum, unit: ObjectID) {
+        match layer {
+            PathfindLayerEnum::Ground => {
+                if self.pos_unit_ground == unit {
+                    self.pos_unit_ground = INVALID_ID;
+                }
+            }
+            _ => {
+                if self.pos_unit_top == unit {
+                    self.pos_unit_top = INVALID_ID;
                 }
             }
         }
@@ -2239,21 +2273,29 @@ impl PathfindingSystem {
                 };
                 if ctype != PathfindCellType::Clear {
                     if ctype == PathfindCellType::Obstacle {
-                        // Fence residual: non-crusher blocked; treat all obstacles as block for non-crusher.
-                        if !crusher {
+                        // C++: fence obstacles block only non-crushers; solid obstacles always block.
+                        let is_fence = self
+                            .pathfinder
+                            .lock()
+                            .map(|pf| pf.is_obstacle_fence(coord))
+                            .unwrap_or(false);
+                        if is_fence {
+                            if !crusher {
+                                clear = false;
+                            }
+                        } else {
                             clear = false;
                         }
-                        // Crushers can pass obstacles (fence residual true).
                     } else {
                         clear = false;
                     }
                 }
-                // UNIT_PRESENT_FIXED residual via goal occupancy when diameter >= 2.
+                // C++ UNIT_PRESENT_FIXED via getPosUnit when pathDiameter >= 2.
                 if path_diameter >= 2 {
                     if let Some(ref goals) = goals {
                         if let Some(row) = goals.get(coord.x as usize) {
                             if let Some(gc) = row.get(coord.y as usize) {
-                                let pos_unit = gc.get_goal_unit(layer);
+                                let pos_unit = gc.get_pos_unit(layer);
                                 if pos_unit != INVALID_ID {
                                     if let Some(obj_arc) = OBJECT_REGISTRY.get_object(pos_unit) {
                                         if let Ok(og) = obj_arc.read() {
@@ -2482,6 +2524,69 @@ impl PathfindingSystem {
                 }
                 if do_layer {
                     cell.set_goal_unit(layer, unit_id);
+                }
+            }
+        });
+    }
+
+    /// C++ setPosUnit footprint stamp (UNIT_PRESENT_FIXED).
+    pub(crate) fn set_pos_cells(
+        &self,
+        unit_id: ObjectID,
+        center_cell: ICoord2D,
+        radius: i32,
+        center_in_cell: bool,
+        layer: PathfindLayerEnum,
+        do_ground: bool,
+        do_layer: bool,
+    ) {
+        let Ok(mut goals) = self.goal_cells.lock() else {
+            return;
+        };
+        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if !self.is_valid_coord(coord) {
+                return;
+            }
+            if let Some(cell) = goals
+                .get_mut(coord.x as usize)
+                .and_then(|row| row.get_mut(coord.y as usize))
+            {
+                if do_ground {
+                    cell.set_pos_unit(PathfindLayerEnum::Ground, unit_id);
+                }
+                if do_layer {
+                    cell.set_pos_unit(layer, unit_id);
+                }
+            }
+        });
+    }
+
+    pub(crate) fn clear_pos_cells(
+        &self,
+        unit_id: ObjectID,
+        center_cell: ICoord2D,
+        radius: i32,
+        center_in_cell: bool,
+        layer: PathfindLayerEnum,
+        clear_ground: bool,
+        clear_layer: bool,
+    ) {
+        let Ok(mut goals) = self.goal_cells.lock() else {
+            return;
+        };
+        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if !self.is_valid_coord(coord) {
+                return;
+            }
+            if let Some(cell) = goals
+                .get_mut(coord.x as usize)
+                .and_then(|row| row.get_mut(coord.y as usize))
+            {
+                if clear_ground {
+                    cell.clear_pos_unit(PathfindLayerEnum::Ground, unit_id);
+                }
+                if clear_layer {
+                    cell.clear_pos_unit(layer, unit_id);
                 }
             }
         });
@@ -6172,10 +6277,10 @@ impl PathfindingSystem {
         if let Ok(mut pos) = self.unit_pos_cells.lock() {
             pos.insert(unit_id, new_cell);
         }
-        // C++ updatePos: bridge end stamps both layer and ground occupancy.
+        // C++ updatePos: setPosUnit on layer (+ ground at bridge end).
         let do_layer = layer != PathfindLayerEnum::Ground;
         let do_ground = layer == PathfindLayerEnum::Ground || interacts_with_bridge_end;
-        self.set_goal_cells(
+        self.set_pos_cells(
             unit_id,
             new_cell,
             radius,
@@ -6211,7 +6316,7 @@ impl PathfindingSystem {
         if radius == 0 {
             radius = 1;
         }
-        self.clear_goal_cells(
+        self.clear_pos_cells(
             unit_id,
             cur,
             radius,
@@ -9686,5 +9791,58 @@ mod tests {
         assert!(system
             .find_tall_building_along_segment(&from, &to, INVALID_ID)
             .is_none());
+    }
+
+    #[test]
+    fn clear_cell_for_diameter_fence_and_pos_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn clear_cell_for_diameter")
+            .expect("clearCellForDiameter");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("is_obstacle_fence") && w.contains("get_pos_unit"),
+            "clearCellForDiameter must use fence flag + getPosUnit"
+        );
+        assert!(!w.contains("Fence residual"));
+        assert!(!w.contains("UNIT_PRESENT_FIXED residual via goal"));
+    }
+
+    #[test]
+    fn clear_cell_for_diameter_allows_crusher_through_fence() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            pf.set_cell_type(GridCoord::new(5, 5), PathfindCellType::Obstacle);
+            pf.set_cell_obstacle_id(GridCoord::new(5, 5), 1, true, false);
+        }
+        // Non-crusher blocked by fence.
+        assert_eq!(
+            system.clear_cell_for_diameter(false, 5, 5, PathfindLayerEnum::Ground, 1),
+            0
+        );
+        // Crusher can pass fence at diameter 1.
+        assert!(system.clear_cell_for_diameter(true, 5, 5, PathfindLayerEnum::Ground, 1) >= 1);
+    }
+
+    #[test]
+    fn update_pos_stamps_pos_unit_not_goal() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        let cell = GridCoord::new(4, 4);
+        system.update_pos(cell, 77, PathfindLayerEnum::Ground, 0, true, false);
+        let goals = system.goal_cells.lock().unwrap();
+        let gc = goals[4][4];
+        assert_eq!(gc.get_pos_unit(PathfindLayerEnum::Ground), 77);
+        assert_eq!(
+            gc.get_goal_unit(PathfindLayerEnum::Ground),
+            INVALID_ID,
+            "updatePos must not stamp goal units"
+        );
     }
 }
