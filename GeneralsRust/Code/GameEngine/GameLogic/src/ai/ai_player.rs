@@ -2742,8 +2742,10 @@ impl AIPlayer {
             }
         }
 
-        // C++ dozer path: repair dozer vs force structure rebuild check.
-        if found && !supply_truck && is_dozer {
+        // C++ dozer path is NOT gated on `found` (AIPlayer.cpp after the queue loop).
+        // supplyTruck defaults false unless a matched order set force-wanting true —
+        // C++ leaves it uninitialized when no SupplyTruckAI; treat unset as false.
+        if !supply_truck && is_dozer {
             if self.dozer_queued_for_repair {
                 self.repair_dozer = Some(unit_id);
                 self.dozer_queued_for_repair = false;
@@ -8107,8 +8109,10 @@ mod tests {
                 && window.contains("ai_follow_exit_production_path")
                 && window.contains("take_supply_gatherer_slot")
                 && window.contains("ai_dock")
-                && window.contains("FromPlayer"),
-            "onUnitProduced must match factory+template, setTeam, home exit path, supply dock/dozer"
+                && window.contains("FromPlayer")
+                && window.contains("!supply_truck && is_dozer")
+                && !window.contains("if found && !supply_truck && is_dozer"),
+            "onUnitProduced must match factory+template; dozer path not gated on found"
         );
     }
 
