@@ -2898,24 +2898,27 @@ impl PathfindingSystem {
         self.is_map_ready = true;
     }
 
-    /// Snapshot cell types from A* grid and rebuild zones + combiners.
+    /// Snapshot cell types + fence flags from A* grid and rebuild zones + combiners.
     fn recalculate_zones_from_cells(&self) {
-        let types = if let Ok(pf) = self.pathfinder.lock() {
+        let snapshot = if let Ok(pf) = self.pathfinder.lock() {
             let mut grid = vec![vec![PathfindCellType::Clear; self.height]; self.width];
+            let mut fences = vec![vec![false; self.height]; self.width];
             for x in 0..self.width {
                 for y in 0..self.height {
-                    if let Some(ct) = pf.get_cell_type(GridCoord::new(x as i32, y as i32)) {
+                    let c = GridCoord::new(x as i32, y as i32);
+                    if let Some(ct) = pf.get_cell_type(c) {
                         grid[x][y] = ct;
                     }
+                    fences[x][y] = pf.is_obstacle_fence(c);
                 }
             }
-            Some(grid)
+            Some((grid, fences))
         } else {
             None
         };
         if let Ok(mut zones) = self.zones.lock() {
-            if let Some(types) = types {
-                zones.calculate_zones_with_types(Some(&types));
+            if let Some((types, fences)) = snapshot {
+                zones.calculate_zones_with_types_and_fences(Some(&types), Some(&fences));
             } else {
                 zones.calculate_zones();
             }
@@ -6105,6 +6108,14 @@ impl ZoneManager {
     }
 
     fn calculate_zones_with_types(&mut self, cell_types: Option<&[Vec<PathfindCellType>]>) {
+        self.calculate_zones_with_types_and_fences(cell_types, None);
+    }
+
+    fn calculate_zones_with_types_and_fences(
+        &mut self,
+        cell_types: Option<&[Vec<PathfindCellType>]>,
+        fence_flags: Option<&[Vec<bool>]>,
+    ) {
         for col in self.zones.iter_mut() {
             for zone in col.iter_mut() {
                 *zone = 0;
@@ -6125,7 +6136,7 @@ impl ZoneManager {
                     }
                 }
             }
-            self.build_surface_combiners(types);
+            self.build_surface_combiners(types, fence_flags);
         } else {
             for x in 0..self.width {
                 for y in 0..self.height {
@@ -6215,7 +6226,11 @@ impl ZoneManager {
 
     /// Build ground/cliff, ground/water, ground/rubble, crusher combiner tables.
     /// C++ ZoneBlock::blockCalculateZones / PathfindZoneManager global tables.
-    fn build_surface_combiners(&mut self, types: &[Vec<PathfindCellType>]) {
+    fn build_surface_combiners(
+        &mut self,
+        types: &[Vec<PathfindCellType>],
+        fence_flags: Option<&[Vec<bool>]>,
+    ) {
         let n = (self.next_zone as usize).max(2);
         // Index by zone id; unused 0 slot identity.
         let mut cliff = (0..n).map(|i| i as u16).collect::<Vec<_>>();
@@ -6247,7 +6262,13 @@ impl ZoneManager {
                 .copied()
                 .unwrap_or(PathfindCellType::Clear)
         };
-        let is_fence_obs = |_x: usize, _y: usize| false; // residual: fence flag on obstacles
+        let is_fence_obs = |x: usize, y: usize| -> bool {
+            fence_flags
+                .and_then(|f| f.get(x))
+                .and_then(|col| col.get(y))
+                .copied()
+                .unwrap_or(false)
+        };
 
         for x in 0..self.width {
             for y in 0..self.height {
@@ -8085,5 +8106,66 @@ mod tests {
         assert!(prod.contains("pair_water_ground"));
         assert!(prod.contains("pair_crusher_ground"));
         assert!(prod.contains("recalculate_zones_from_cells"));
+    }
+
+    #[test]
+    fn obstacle_fence_flag_stamped_on_astar() {
+        let mut pf = crate::ai::pathfind_astar::AStarPathfinder::new(8, 8);
+        let c = GridCoord::new(3, 4);
+        pf.set_cell_obstacle_id(c, 42, true);
+        assert!(pf.is_obstacle_fence(c));
+        assert_eq!(pf.get_cell_type(c), Some(PathfindCellType::Obstacle));
+        assert!(pf.clear_cell_obstacle_id(c, 42));
+        assert!(!pf.is_obstacle_fence(c));
+    }
+
+    #[test]
+    fn crusher_combiner_merges_fence_obstacle() {
+        let mut system = PathfindingSystem::new(12, 12);
+        // Fence obstacle next to clear cells.
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            pf.set_cell_obstacle_id(GridCoord::new(5, 5), 7, true);
+        }
+        system.new_map();
+        let z = system.zones.lock().unwrap();
+        // Fence obstacle zone and neighboring clear should merge under crusher table.
+        let z_obs = z.zones[5][5];
+        let z_clear = z.zones[6][5];
+        assert_ne!(z_obs, 0);
+        assert_ne!(z_clear, 0);
+        if z_obs != z_clear {
+            let c_obs = z
+                .crusher_zones
+                .get(z_obs as usize)
+                .copied()
+                .unwrap_or(z_obs);
+            let c_clr = z
+                .crusher_zones
+                .get(z_clear as usize)
+                .copied()
+                .unwrap_or(z_clear);
+            assert_eq!(
+                c_obs, c_clr,
+                "crusher combiner should equate fence obstacle zone with clear"
+            );
+        }
+    }
+
+    #[test]
+    fn fence_flag_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(src.contains("obstacle_fence"));
+        assert!(src.contains("is_obstacle_fence"));
+        let pc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = pc.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("calculate_zones_with_types_and_fences"));
+        assert!(prod.contains("is_obstacle_fence"));
     }
 }
