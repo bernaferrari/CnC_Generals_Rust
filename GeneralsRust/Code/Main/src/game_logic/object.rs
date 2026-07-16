@@ -2305,6 +2305,36 @@ impl Object {
                         self.thing.template.secondary_weapon_name.as_deref(),
                         slot,
                     ),
+                secondary_damage: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name,
+                    )
+                    .unwrap_or(0.0)
+                },
+                secondary_damage_radius: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name,
+                    )
+                    .unwrap_or(0.0)
+                },
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
