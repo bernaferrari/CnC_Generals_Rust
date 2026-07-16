@@ -678,16 +678,16 @@ impl PathfindingSystem {
     ///
     /// Recalculates zones when dirty, then drains ObjectID ring until empty or
     /// PATHFIND_CELLS_PER_FRAME budget (residual: one pathfind per pop).
-    pub fn process_queue(&self, max_per_frame: usize) -> usize {
+    pub fn process_queue(&mut self, max_per_frame: usize) -> usize {
         // C++: if (!m_isMapReady) return;
         if !self.is_map_ready {
             return 0;
         }
-        // C++: if needToCalculateZones → calculateZones and return.
-        if let Ok(mut zones) = self.zones.lock() {
-            // Residual dirty flag: recalculate when next_zone==1 empty grid
-            // always safe; full dirty tracking later.
-            let _ = &mut zones;
+        // C++: if needToCalculateZones → calculateZones and return (no queue drain).
+        let dirty = self.zones.lock().map(|z| z.zones_dirty).unwrap_or(false);
+        if dirty {
+            self.recalculate_zones_from_cells();
+            return 0;
         }
 
         let budget = max_per_frame.max(1).min(PATHFIND_CELLS_PER_FRAME);
@@ -2884,6 +2884,13 @@ impl PathfindingSystem {
 
     pub fn debug_path_position(&self) -> Coord3D {
         self.debug_path_pos
+    }
+
+    /// C++ `PathfindZoneManager::markZonesDirty` / force zone rebuild next processQueue.
+    pub fn mark_zones_dirty(&self) {
+        if let Ok(mut z) = self.zones.lock() {
+            z.mark_zones_dirty(true);
+        }
     }
 
     pub fn new_map(&mut self) {
@@ -7763,7 +7770,7 @@ mod tests {
 
     #[test]
     fn process_queue_skips_when_map_not_ready() {
-        let system = PathfindingSystem::new(8, 8);
+        let mut system = PathfindingSystem::new(8, 8);
         assert!(!system.is_map_ready());
         assert_eq!(system.process_queue(10), 0);
     }
@@ -8807,6 +8814,37 @@ mod tests {
         assert_eq!(
             h_cell, h_bridge,
             "connect-layer clear cell must hierarchical-merge with bridge layer zone"
+        );
+    }
+
+    #[test]
+    fn process_queue_recalculates_dirty_zones() {
+        let mut system = PathfindingSystem::new(16, 16);
+        system.new_map();
+        assert!(system.is_map_ready);
+        system.mark_zones_dirty();
+        assert!(system.zones.lock().unwrap().zones_dirty);
+        // C++ processPathfindQueue: dirty → calculateZones and return 0 processed.
+        let n = system.process_queue(PATHFIND_CELLS_PER_FRAME);
+        assert_eq!(n, 0, "dirty zone frame must not drain path queue");
+        assert!(
+            !system.zones.lock().unwrap().zones_dirty,
+            "zones_dirty cleared after recalculate"
+        );
+    }
+
+    #[test]
+    fn process_queue_dirty_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn process_queue").expect("process_queue");
+        let w = &prod[i..prod.len().min(i + 900)];
+        assert!(
+            w.contains("zones_dirty") && w.contains("recalculate_zones_from_cells"),
+            "process_queue must recalculate dirty zones like C++"
         );
     }
 }
