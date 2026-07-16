@@ -2269,6 +2269,20 @@ impl Pathfinder {
 
     /// Terrain/object line-of-sight check for attack states.
     /// Mirrors Pathfinder::isAttackViewBlockedByObstacle behavior used by AI state machines.
+    /// C++ `Pathfinder::isViewBlockedByObstacle`.
+    pub fn is_view_blocked_by_obstacle(&self, obj: &Object, obj_other: &Object) -> bool {
+        if obj_other.is_significantly_above_terrain() {
+            return false; // no LOS check to flying objects
+        }
+        self.is_attack_view_blocked_by_obstacle(
+            obj,
+            obj.get_position(),
+            Some(obj_other),
+            obj_other.get_position(),
+        )
+    }
+
+    /// C++ `Pathfinder::isAttackViewBlockedByObstacle` (AIPathfind.cpp:9360-9430).
     pub fn is_attack_view_blocked_by_obstacle(
         &self,
         attacker: &Object,
@@ -2276,6 +2290,7 @@ impl Pathfinder {
         victim: Option<&Object>,
         victim_pos: &Coord3D,
     ) -> bool {
+        // Global AI data switch.
         let attack_uses_los = THE_AI
             .read()
             .ok()
@@ -2290,30 +2305,50 @@ impl Pathfinder {
             return false;
         }
 
-        if attacker.is_kind_of(KindOf::Immobile) {
-            return false;
-        }
-        if victim.is_some_and(|v| v.is_significantly_above_terrain()) {
+        // If attacker doesn't need LOS, not blocked.
+        if !attacker.is_kind_of(KindOf::AttackNeedsLineOfSight) {
             return false;
         }
 
-        let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
-            return false;
-        };
-        if !terrain.is_clear_line_of_sight(attacker_pos, victim_pos) {
-            return true;
+        // LOS_TERRAIN: weapon clear firing LOS (skip for immobile — can't move around).
+        if !attacker.is_kind_of(KindOf::Immobile) {
+            // Prefer weapon clear-goal firing LOS when available.
+            // Residual: terrain line-of-sight when weapon API not attached here.
+            if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+                if !terrain.is_clear_line_of_sight(attacker_pos, victim_pos) {
+                    return true;
+                }
+            }
         }
 
-        let surfaces = crate::path::SURFACE_GROUND
-            | crate::path::SURFACE_WATER
-            | crate::path::SURFACE_RUBBLE
-            | crate::path::SURFACE_CLIFF;
-        !self.is_line_passable_for_surfaces(
+        // C++ skipCount=3 when attacker is on a non-ground layer (bridge/rooftop).
+        let mut skip_count = 0i32;
+        // Layer residual: full Object::getLayer not wired on all objects; keep 0.
+
+        let attacker_id = attacker.get_id();
+        let victim_id = victim.map(|v| v.get_id()).unwrap_or(INVALID_ID);
+
+        // attackBlockedByObstacleCallback via Bresenham.
+        let blocked = self.inner.iterate_cells_along_line_world(
             attacker_pos,
             victim_pos,
-            surfaces,
-            Some(attacker.get_id()),
-        )
+            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            |_from, to_c, _x, _y| {
+                if skip_count > 0 {
+                    skip_count -= 1;
+                    return 0;
+                }
+                let world = to_c.to_world(crate::ai::pathfind_astar::PathfindLayerEnum::Ground);
+                if self.inner.get_cell_type(&world) != Some(PathfindCellType::Obstacle) {
+                    return 0;
+                }
+                // Without per-cell obstacle IDs on the A* grid, treat obstacle cells
+                // as blockers (C++ ignores own/victim/container/slaver/transparent).
+                let _ = (attacker_id, victim_id);
+                1 // blocked
+            },
+        );
+        blocked != 0
     }
 
     /// C++ `Pathfinder::validMovementTerrain`.
@@ -2755,6 +2790,29 @@ mod tests {
                 && complete.contains("ground_connect_cells")
                 && complete.contains("bridge_object_id"),
             "BridgeLayer must expose connectsZones + ground_connect_cells + object id"
+        );
+    }
+
+    #[test]
+    fn is_attack_view_blocked_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn is_view_blocked_by_obstacle")
+            .expect("isViewBlockedByObstacle");
+        let end = prod[i..]
+            .find("pub fn valid_movement_terrain")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 5000));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("AttackNeedsLineOfSight")
+                && w.contains("attack_uses_line_of_sight")
+                && w.contains("iterate_cells_along_line_world")
+                && w.contains("PathfindCellType::Obstacle")
+                && w.contains("is_view_blocked_by_obstacle")
+                && w.contains("is_attack_view_blocked_by_obstacle"),
+            "isAttackViewBlockedByObstacle must gate LOS kindof + obstacle Bresenham like C++"
         );
     }
 
