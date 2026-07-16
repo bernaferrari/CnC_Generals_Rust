@@ -1086,13 +1086,8 @@ impl AISkirmishPlayer {
     /// Process team building with skirmish-specific logic
     /// Matches C++ AISkirmishPlayer::processTeamBuilding
     /// C++ `AISkirmishPlayer::processTeamBuilding`.
+    /// C++ `AISkirmishPlayer::processTeamBuilding`: selectTeamToBuild then queueUnits.
     fn process_team_building(&mut self) {
-        // Enemy analysis residual kept warm for counter-unit helpers, but C++ order
-        // is selectTeamToBuild then queueUnits only.
-        if let Some(enemy) = self.get_ai_enemy() {
-            self.analyze_enemy_composition(&enemy);
-        }
-
         if self.select_team_to_build() {
             self.base.queue_units();
         }
@@ -2940,6 +2935,24 @@ mod tests {
                 && src.contains("is_a_good_idea_to_build_team(proto.get_name()")
                 && src.contains("processTeamBuilding"),
             "skirmish team selection must delegate to AIPlayer C++ path"
+        );
+    }
+
+    #[test]
+    fn process_team_building_select_then_queue_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("fn process_team_building")
+            .expect("process_team_building");
+        let w = &src[i..src.len().min(i + 500)];
+        assert!(
+            w.contains("select_team_to_build")
+                && w.contains("queue_units")
+                && !w.contains("analyze_enemy_composition"),
+            "processTeamBuilding must only selectTeamToBuild + queueUnits like C++"
         );
     }
 
