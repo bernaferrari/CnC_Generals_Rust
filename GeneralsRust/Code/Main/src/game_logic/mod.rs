@@ -864,6 +864,10 @@ pub enum KindOf {
     /// C++ KINDOF_POWERED: object gets DISABLED_UNDERPOWERED when player
     /// power consumption exceeds supply (defenses, factories, etc).
     Powered,
+    /// C++ KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT — fire gated by attack view LOS.
+    AttackNeedsLineOfSight,
+    /// C++ KINDOF_IMMOBILE — structures/defenses; skip terrain LOS detour residual.
+    Immobile,
 }
 
 /// Object status flags

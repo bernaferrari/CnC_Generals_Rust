@@ -163,6 +163,57 @@ impl PathfindingGrid {
         self.blocked.contains(&pos)
     }
 
+    /// C++ Pathfinder::isAttackViewBlockedByObstacle residual (static obstacles only).
+    /// Bresenham walk from `from`→`to` world positions; intermediate static-blocked
+    /// cells block attack view. Start/goal cells are skipped (attacker/victim footprint).
+    /// Fail-closed: not full tall-building callback / transparent / layer / weapon terrain LOS.
+    pub fn is_attack_view_blocked_static(&self, from: Vec3, to: Vec3) -> bool {
+        let start = self.world_to_grid(from);
+        let goal = self.world_to_grid(to);
+        if start == goal {
+            return false;
+        }
+        // Tiny range residual (C++ AIStates): skip LOS false positives at close range.
+        if start.manhattan_distance(goal) <= 1 {
+            return false;
+        }
+        let mut x0 = start.x;
+        let mut y0 = start.y;
+        let x1 = goal.x;
+        let y1 = goal.y;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        // Skip first cell (attacker).
+        loop {
+            let e2 = 2 * err;
+            if e2 >= dy {
+                if x0 == x1 {
+                    break;
+                }
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                if y0 == y1 {
+                    break;
+                }
+                err += dx;
+                y0 += sy;
+            }
+            let cell = GridPos::new(x0, y0);
+            if cell == goal {
+                break;
+            }
+            if self.is_valid_pos(cell) && self.is_static_blocked(cell) {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn set_blocked(&mut self, pos: GridPos, blocked: bool) {
         if blocked {
             self.blocked.insert(pos);
@@ -577,6 +628,11 @@ impl PathfindingSystem {
     ///
     /// Waypoint heights are lerped from start.y → goal.y so followers do not dive
     /// to Y=0 grid cells on maps with terrain height.
+    /// Host residual: static-obstacle attack LOS (C++ isAttackViewBlockedByObstacle subset).
+    pub fn is_attack_view_blocked(&self, from: Vec3, to: Vec3) -> bool {
+        self.grid.is_attack_view_blocked_static(from, to)
+    }
+
     pub fn find_path(
         &mut self,
         start: Vec3,
