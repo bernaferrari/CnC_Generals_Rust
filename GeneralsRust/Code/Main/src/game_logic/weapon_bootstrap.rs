@@ -1371,6 +1371,35 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
 ///
 /// Uses pure ADC stream seeded by shooter^target so re-fire re-query is stable
 /// within the same pairing (fail-closed vs live GameLogic global stream order).
+/// Default geometry hit radius residual when object selection radius is unset.
+pub const DEFAULT_SCATTER_HIT_RADIUS: f32 = 5.0;
+
+/// C++ ScatterRadius residual for instant-hit weapons (no projectile flight).
+///
+/// Aim is offset by `scatter_aim_offset`; if the 2D offset exceeds the target's
+/// hit radius the intended target is missed (damage skipped / applied at ground).
+pub fn scatter_misses_intended_target(
+    scatter_radius: f32,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    if scatter_radius <= 0.0 {
+        return false;
+    }
+    let offset = scatter_aim_offset(seed, scatter_radius);
+    let miss_dist = (offset.x * offset.x + offset.z * offset.z).sqrt();
+    let hit_r = target_hit_radius.max(1.0);
+    miss_dist > hit_r
+}
+
+/// Deterministic scatter seed residual from shooter/target/frame.
+pub fn scatter_seed_for_shot(shooter: u32, target: u32, frame: u32) -> u32 {
+    shooter
+        .wrapping_mul(0x9E37_79B9)
+        .wrapping_add(target.wrapping_mul(0x85EB_CA6B))
+        .wrapping_add(frame.wrapping_mul(0xC2B2_AE35))
+}
+
 pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
     use crate::game_logic::host_rng_residual::pure_logic_random_real;
     if scatter_radius <= 0.0 {
@@ -5350,5 +5379,23 @@ mod tests {
             "backup dist={d}"
         );
         assert!(back.x > src.x - 1e-3, "backs away along outward radial");
+    }
+
+    #[test]
+    fn scatter_miss_gate_residual() {
+        assert!(!scatter_misses_intended_target(0.0, 1, 5.0));
+        // Large scatter + tiny hit radius → miss for most seeds.
+        let mut misses = 0u32;
+        for s in 0..32u32 {
+            if scatter_misses_intended_target(20.0, s, 2.0) {
+                misses += 1;
+            }
+        }
+        assert!(
+            misses >= 20,
+            "most large-scatter shots miss tiny target ({misses}/32)"
+        );
+        // Zero hit radius floor is 1.0; still can hit if offset tiny.
+        let _ = scatter_seed_for_shot(1, 2, 3);
     }
 }

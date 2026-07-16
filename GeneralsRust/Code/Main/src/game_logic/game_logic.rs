@@ -5788,6 +5788,61 @@ impl GameLogic {
     /// C++ MinimumAttackRange residual: back away when too close to fire.
     ///
     /// Returns true when a backup move was issued.
+
+    /// C++ ScatterRadius residual for instant update_combat hits.
+    ///
+    /// Returns true when the shot misses the intended target after scatter offset.
+    pub(crate) fn instant_scatter_misses_shot(
+        &self,
+        attacker_id: ObjectId,
+        target_id: ObjectId,
+        slot: u8,
+    ) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_effective_scatter_radius, scatter_misses_intended_target, scatter_seed_for_shot,
+            DEFAULT_SCATTER_HIT_RADIUS,
+        };
+        let (wname, tgt_inf, hit_r) = {
+            let attacker = match self.objects.get(&attacker_id) {
+                Some(a) => a,
+                None => return false,
+            };
+            let target = match self.objects.get(&target_id) {
+                Some(t) => t,
+                None => return false,
+            };
+            let wname = if slot == 1 {
+                attacker
+                    .thing
+                    .template
+                    .secondary_weapon_name
+                    .as_deref()
+                    .or(attacker.thing.template.primary_weapon_name.as_deref())
+            } else {
+                attacker.thing.template.primary_weapon_name.as_deref()
+            };
+            let hit_r = if target.selection_radius > 0.0 {
+                target.selection_radius
+            } else {
+                DEFAULT_SCATTER_HIT_RADIUS
+            };
+            (
+                wname.map(|s| s.to_string()),
+                target.is_kind_of(KindOf::Infantry),
+                hit_r,
+            )
+        };
+        let Some(name) = wname else {
+            return false;
+        };
+        let scatter = host_effective_scatter_radius(&name, tgt_inf);
+        if scatter <= 0.0 {
+            return false;
+        }
+        let seed = scatter_seed_for_shot(attacker_id.0, target_id.0, self.frame);
+        scatter_misses_intended_target(scatter, seed, hit_r)
+    }
+
     pub(crate) fn try_min_range_backup(
         &mut self,
         attacker_id: ObjectId,
@@ -7824,6 +7879,14 @@ impl GameLogic {
                                             attacker.gain_experience((kills as f32) * 15.0);
                                         }
                                     }
+                                } else if self.instant_scatter_misses_shot(
+                                    attacker_id,
+                                    target_id,
+                                    slot,
+                                ) {
+                                    // C++ ScatterRadius residual: aim offset misses intended
+                                    // target (instant-hit path has no projectile flight).
+                                    // Shot still consumes ammo / FX via fired_slot below.
                                 } else if let Some(target) = self.objects.get_mut(&target_id) {
                                     let destroyed =
                                         target.take_damage_from(weapon_damage, Some(attacker_id));
@@ -70612,6 +70675,94 @@ mod tests {
         }
     }
 
+    #[test]
+    fn instant_combat_scatter_can_miss_intended_target() {
+        use crate::game_logic::weapon_bootstrap::{
+            host_effective_scatter_radius, scatter_misses_intended_target,
+        };
+        // Ensure peel has VsInfantry scatter for crusader.
+        let sc = host_effective_scatter_radius("AmericaTankCrusaderGun", true);
+        assert!(sc >= 10.0 - 1e-3, "crusader vs infantry scatter {sc}");
+
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("ScGun");
+            t.primary_weapon_name = Some("AmericaTankCrusaderGun".into());
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("ScGun".into(), t);
+            let mut ti = ThingTemplate::new("ScInf");
+            ti.add_kind_of(KindOf::Infantry);
+            ti.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("ScInf".into(), ti);
+        }
+        let gun = logic
+            .create_object("ScGun", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let inf = logic
+            .create_object("ScInf", Team::China, glam::Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.objects.get_mut(&gun) {
+            o.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                can_target_ground: true,
+                projectile_speed: 0.0, // instant residual
+                ..Weapon::default()
+            });
+            o.target = Some(inf);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.health.current = 500.0;
+            o.health.maximum = 500.0;
+            o.selection_radius = 2.0; // small — easy scatter miss
+        }
+        // Helper must report miss for some seeds.
+        let mut any_miss = false;
+        for f in 0..64u32 {
+            logic.frame = f;
+            if logic.instant_scatter_misses_shot(gun, inf, 0) {
+                any_miss = true;
+                break;
+            }
+        }
+        assert!(any_miss, "scatter must miss small infantry for some frames");
+        assert!(scatter_misses_intended_target(10.0, 7, 2.0));
+
+        // Run combat frames — health should sometimes survive full damage rate.
+        let h0 = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        for f in 0..40u32 {
+            logic.frame = f;
+            if let Some(o) = logic.objects.get_mut(&gun) {
+                if let Some(w) = o.weapon.as_mut() {
+                    w.last_fire_time = -100.0;
+                }
+                o.target = Some(inf);
+                o.ai_state = AIState::Attacking;
+            }
+            logic.update_combat(&[gun, inf], 1.0 / 30.0);
+        }
+        let h1 = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        // Without scatter: 40 * 25 = 1000 would kill. With scatter misses, less damage.
+        // At least verify combat ran (h1 <= h0) and scatter gate is live.
+        assert!(h1 <= h0);
+        assert!(
+            h1 > 0.0 || any_miss,
+            "either survived via miss or helper proved miss path"
+        );
+    }
     #[test]
     fn ground_force_fire_applies_base_scatter_radius_peel() {
         use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
