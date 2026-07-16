@@ -77,6 +77,8 @@ pub struct Projectile {
     pub shock_wave_taper_off: f32,
     /// C++ RadiusDamageAffects residual mask.
     pub radius_damage_affects: u32,
+    /// C++ ProjectileCollidesWith residual mask.
+    pub projectile_collides: u32,
 }
 
 impl Projectile {
@@ -119,6 +121,7 @@ impl Projectile {
             shock_wave_taper_off: 0.0,
             radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
         }
     }
 
@@ -270,6 +273,8 @@ pub struct PendingProjectile {
     pub shock_wave_taper_off: f32,
     /// C++ RadiusDamageAffects residual mask.
     pub radius_damage_affects: u32,
+    /// C++ ProjectileCollidesWith residual mask.
+    pub projectile_collides: u32,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -336,6 +341,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.shock_wave_radius = p.shock_wave_radius;
             proj.shock_wave_taper_off = p.shock_wave_taper_off;
             proj.radius_damage_affects = p.radius_damage_affects;
+            proj.projectile_collides = p.projectile_collides;
         }
     }
 }
@@ -474,10 +480,14 @@ impl CombatSystem {
 
                 // Intervening structure residual: ballistic shells impact the first
                 // constructed building whose footprint contains the projectile.
-                // C++-ish: cannot fly through buildings even if target is beyond.
+                // Gated by Weapon.ini ProjectileCollidesWith STRUCTURES|WALLS.
                 // Skip intended target (handled below) and shooter.
                 let mut hit_structure: Option<ObjectId> = None;
-                {
+                let collides_structures =
+                    crate::game_logic::weapon_bootstrap::projectile_collides_structures(
+                        projectile.projectile_collides,
+                    );
+                if collides_structures {
                     let shooter = projectile.shooter_id;
                     let intended = projectile.target_id;
                     let pos = projectile.position;
@@ -1308,6 +1318,7 @@ mod tests {
             shock_wave_taper_off: 0.0,
             radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
@@ -1502,5 +1513,81 @@ mod tests {
         let enemy1 = objects.get(&enemy).unwrap().health.current;
         assert_eq!(ally1, ally0, "default affects must skip allies");
         assert!(enemy1 < enemy0 - 1.0, "enemies must take splash");
+    }
+
+    #[test]
+    fn projectile_collides_mask_gates_structure_intercept() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(70);
+        let wall = ObjectId(71);
+        let tgt = ObjectId(72);
+        objects.insert(
+            atk,
+            make_obj(
+                "Atk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            wall,
+            make_obj(
+                "Wall",
+                wall,
+                Team::Neutral,
+                Vec3::new(40.0, 0.0, 0.0),
+                &[KindOf::Structure],
+                20.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "Tgt",
+                tgt,
+                Team::GLA,
+                Vec3::new(80.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let wall0 = objects.get(&wall).unwrap().health.current;
+        let tgt0 = objects.get(&tgt).unwrap().health.current;
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 50.0,
+            projectile_speed: 500.0,
+            ..Weapon::default()
+        };
+        // No structure collide residual (laser-like).
+        let pid = combat.fire_projectile_ex(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(80.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            500.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.projectile_collides = 0;
+        }
+        for _ in 0..60 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let wall1 = objects.get(&wall).unwrap().health.current;
+        let tgt1 = objects.get(&tgt).unwrap().health.current;
+        assert_eq!(wall1, wall0, "mask=0 must not intercept structure");
+        assert!(
+            tgt1 < tgt0 - 1.0,
+            "projectile must reach target when collides mask empty"
+        );
     }
 }
