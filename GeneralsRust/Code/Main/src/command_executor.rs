@@ -1561,8 +1561,8 @@ impl<'a> CommandExecutor<'a> {
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.set_target(Some(target_id));
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::Docking);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Docking) {
                 issued = true;
             }
         }
@@ -1578,10 +1578,7 @@ impl<'a> CommandExecutor<'a> {
         match target {
             DropTarget::Location(pos) => {
                 for &unit_id in units {
-                    if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                        unit.set_destination(*pos);
-                        unit.set_ai_state(AIState::Entering);
-                    }
+                    let _ = self.path_to_goal_with_state(unit_id, *pos, AIState::Entering);
                 }
             }
             DropTarget::Object(target_id) => {
@@ -1590,9 +1587,9 @@ impl<'a> CommandExecutor<'a> {
                     for &unit_id in units {
                         if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                             unit.set_target(Some(*target_id));
-                            unit.set_destination(target_pos);
-                            unit.set_ai_state(AIState::Entering);
                         }
+                        let _ =
+                            self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering);
                     }
                 } else {
                     return CommandResult::InvalidTarget;
@@ -1634,13 +1631,21 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any = false;
         for &unit_id in units {
+            let can = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| {
+                    unit.can_repair() && (unit.team == target_team || target_team == Team::Neutral)
+                })
+                .unwrap_or(false);
+            if !can {
+                continue;
+            }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if unit.can_repair() && (unit.team == target_team || target_team == Team::Neutral) {
-                    unit.set_target(Some(target_id));
-                    unit.set_destination(target_pos);
-                    unit.set_ai_state(AIState::Repairing);
-                    any = true;
-                }
+                unit.set_target(Some(target_id));
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Repairing) {
+                any = true;
             }
         }
         if any {
@@ -1683,30 +1688,36 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                let is_damaged = unit.health.current + 0.01 < unit.health.maximum;
-                let is_aircraft = unit.is_kind_of(KindOf::Aircraft);
-                let is_vehicle = unit.is_kind_of(KindOf::Vehicle);
-                let supports_unit = if is_aircraft {
-                    crate::game_logic::host_repair::building_provides_aircraft_repair(
-                        target_building_type,
-                    )
-                } else if is_vehicle {
-                    crate::game_logic::host_repair::building_provides_vehicle_repair(
-                        target_building_type,
-                    )
-                } else {
-                    false
-                };
-                if unit.team == target_team
-                    && unit.is_alive()
-                    && unit.can_move()
-                    && is_damaged
-                    && supports_unit
-                {
+            let can = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| {
+                    let is_damaged = unit.health.current + 0.01 < unit.health.maximum;
+                    let is_aircraft = unit.is_kind_of(KindOf::Aircraft);
+                    let is_vehicle = unit.is_kind_of(KindOf::Vehicle);
+                    let supports_unit = if is_aircraft {
+                        crate::game_logic::host_repair::building_provides_aircraft_repair(
+                            target_building_type,
+                        )
+                    } else if is_vehicle {
+                        crate::game_logic::host_repair::building_provides_vehicle_repair(
+                            target_building_type,
+                        )
+                    } else {
+                        false
+                    };
+                    unit.team == target_team
+                        && unit.is_alive()
+                        && unit.can_move()
+                        && is_damaged
+                        && supports_unit
+                })
+                .unwrap_or(false);
+            if can {
+                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                     unit.set_target(Some(target_id));
-                    unit.set_destination(target_pos);
-                    unit.set_ai_state(AIState::SeekingRepair);
+                }
+                if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingRepair) {
                     any = true;
                 }
             }
@@ -1752,17 +1763,23 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                let is_injured = unit.health.current + 0.01 < unit.health.maximum;
-                if unit.team == target_team
-                    && unit.is_alive()
-                    && unit.can_move()
-                    && is_injured
-                    && unit.is_kind_of(KindOf::Infantry)
-                {
+            let can = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| {
+                    let is_injured = unit.health.current + 0.01 < unit.health.maximum;
+                    unit.team == target_team
+                        && unit.is_alive()
+                        && unit.can_move()
+                        && is_injured
+                        && unit.is_kind_of(KindOf::Infantry)
+                })
+                .unwrap_or(false);
+            if can {
+                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                     unit.set_target(Some(target_id));
-                    unit.set_destination(target_pos);
-                    unit.set_ai_state(AIState::SeekingHealing);
+                }
+                if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingHealing) {
                     any = true;
                 }
             }
@@ -2046,8 +2063,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2109,8 +2126,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2173,8 +2190,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2253,8 +2270,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(building_pos);
-                unit.set_ai_state(AIState::Capturing);
+            }
+            if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing) {
                 any = true;
             }
         }
@@ -2313,8 +2330,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2383,8 +2400,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2453,8 +2470,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2525,8 +2542,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2664,8 +2681,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2757,8 +2774,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2845,8 +2862,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -2927,9 +2944,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                // Instant residual — still set destination for AI consistency.
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::SpecialAbility);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -3385,5 +3401,21 @@ mod group_move_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn interaction_commands_pathfind_surface() {
+        let src = include_str!("command_executor.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        // Production locomotion commands should prefer path_to_goal_with_state.
+        assert!(prod.matches("path_to_goal_with_state").count() >= 10);
+        // Bare set_destination should not remain in execute_* interaction paths.
+        let exec = prod;
+        let bare = exec.matches("unit.set_destination(").count()
+            + exec.matches("unit_mut.set_destination(").count();
+        assert_eq!(
+            bare, 0,
+            "production execute paths still call unit.set_destination ({bare})"
+        );
     }
 }
