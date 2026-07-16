@@ -2515,14 +2515,22 @@ impl AIPlayer {
     /// Grid-sample enemy structure bounds (or map extent), randomize scan
     /// direction, score with getPlayerSuperweaponValue, then fine-tune.
     /// Preserves C++ fine-tune `(x-5)` on both axes (legacy bug).
+    /// `player_index` is C++ `playerNdx` — player whose structures are scored.
     pub fn compute_superweapon_target(
         &self,
         power_template: &str,
         weapon_radius: Real,
+        player_index: i32,
     ) -> Result<Option<Coord3D>, AiError> {
-        let (_, enemy_index) = match self.select_current_enemy_player() {
-            Ok(Some(enemy)) => enemy,
-            _ => return Ok(None),
+        // Prefer explicit playerNdx (C++). Fall back to current enemy only when
+        // caller passes a negative / invalid index residual.
+        let enemy_index = if player_index >= 0 {
+            player_index
+        } else {
+            match self.select_current_enemy_player() {
+                Ok(Some((_, idx))) => idx,
+                _ => return Ok(None),
+            }
         };
 
         let radius = weapon_radius.max(1.0);
@@ -8448,8 +8456,10 @@ mod tests {
                 && !window.contains("get_maximum_pathfind_extent()")
                 && window.contains("let mut best_cash: i32 = -1")
                 && window.contains("let mut fine_cash: i32 = -1")
-                && window.contains("value == fine_cash"),
-            "computeSuperweaponTarget must use getExtent + Int cash + int ties"
+                && window.contains("value == fine_cash")
+                && window.contains("player_index: i32")
+                && window.contains("player_index >= 0"),
+            "computeSuperweaponTarget must use getExtent + Int cash + explicit playerNdx"
         );
         let j = src
             .find("/// C++ `AIPlayer::getPlayerSuperweaponValue`")
@@ -8516,8 +8526,9 @@ mod tests {
                 && window.contains("x_count, 0")
                 && window.contains("// Fine tune: C++ uses (x-5) for BOTH axes")
                 && window.contains("SneakAttack")
-                && window.contains("get_player_superweapon_value"),
-            "computeSuperweaponTarget must randomize scan, preserve fine-tune bug, sneak attack"
+                && window.contains("get_player_superweapon_value")
+                && window.contains("player_index"),
+            "computeSuperweaponTarget must randomize scan, preserve fine-tune bug, playerNdx"
         );
     }
 
