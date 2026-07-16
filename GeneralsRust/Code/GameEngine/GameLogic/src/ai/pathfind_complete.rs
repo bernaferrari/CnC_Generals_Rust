@@ -2912,7 +2912,7 @@ impl PathfindingSystem {
             z.clear_passable_flags();
         }
         if let Ok(mut pf) = self.pathfinder.lock() {
-            pf.clear_zone_passable_flags();
+            pf.mark_all_zone_blocks_impassable();
         }
     }
 
