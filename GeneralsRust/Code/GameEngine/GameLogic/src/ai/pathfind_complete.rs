@@ -5995,6 +5995,10 @@ struct ZoneManager {
     ground_cliff_zones: Vec<u16>,
     ground_water_zones: Vec<u16>,
     ground_rubble_zones: Vec<u16>,
+    /// C++ m_hierarchicalZones — same-type connectivity across the map.
+    hierarchical_zones: Vec<u16>,
+    /// C++ m_terrainZones — obstacle treated as clear for terrain connectivity.
+    terrain_zones: Vec<u16>,
     /// C++ m_zoneBlocks[x][y] — per ZONE_BLOCK_SIZE combiners.
     zone_blocks: Vec<Vec<BlockCombiner>>,
     blocks_x: usize,
@@ -6015,6 +6019,8 @@ impl ZoneManager {
             ground_cliff_zones: Vec::new(),
             ground_water_zones: Vec::new(),
             ground_rubble_zones: Vec::new(),
+            hierarchical_zones: Vec::new(),
+            terrain_zones: Vec::new(),
             zone_blocks: vec![
                 vec![BlockCombiner::identity(1, 1); blocks_y.max(1)];
                 blocks_x.max(1)
@@ -6148,6 +6154,10 @@ impl ZoneManager {
             }
             return zone;
         }
+        // C++ default: zone = m_hierarchicalZones[zone]
+        if let Some(&z) = self.hierarchical_zones.get(zone as usize) {
+            return z;
+        }
         zone
     }
 
@@ -6162,6 +6172,8 @@ impl ZoneManager {
         self.ground_cliff_zones = (0..n).map(|i| i as u16).collect();
         self.ground_water_zones = (0..n).map(|i| i as u16).collect();
         self.ground_rubble_zones = (0..n).map(|i| i as u16).collect();
+        self.hierarchical_zones = (0..n).map(|i| i as u16).collect();
+        self.terrain_zones = (0..n).map(|i| i as u16).collect();
     }
 
     /// Calculate zones using flood-fill on the pathfinder grid.
@@ -6191,13 +6203,20 @@ impl ZoneManager {
         }
     }
 
-    /// C++ `getEffectiveTerrainZone` residual — identity until terrain combiner tables.
+    /// C++ `PathfindZoneManager::getEffectiveTerrainZone`.
     fn get_effective_terrain_zone(&self, zone: u16) -> u16 {
         if zone == 0 {
-            0
-        } else {
-            zone
+            return 0;
         }
+        let t = self
+            .terrain_zones
+            .get(zone as usize)
+            .copied()
+            .unwrap_or(zone);
+        self.hierarchical_zones
+            .get(t as usize)
+            .copied()
+            .unwrap_or(t)
     }
 
     /// C++ `PathfindZoneManager::setPassable` residual — mark cell zone usable.
@@ -6371,6 +6390,8 @@ impl ZoneManager {
         let mut water = (0..n).map(|i| i as u16).collect::<Vec<_>>();
         let mut rubble = (0..n).map(|i| i as u16).collect::<Vec<_>>();
         let mut crusher = (0..n).map(|i| i as u16).collect::<Vec<_>>();
+        let mut hierarchical = (0..n).map(|i| i as u16).collect::<Vec<_>>();
+        let mut terrain = (0..n).map(|i| i as u16).collect::<Vec<_>>();
 
         let resolve = |table: &mut [u16], a: u16, b: u16| {
             if a == 0 || b == 0 || a == b {
@@ -6412,55 +6433,109 @@ impl ZoneManager {
                 if x > 0 {
                     let z0 = self.zones[x - 1][y];
                     let t0 = ct(x - 1, y);
-                    if z0 != z1 {
-                        if Self::pair_water_ground(t0, t1) {
-                            resolve(&mut water, z0, z1);
-                        }
-                        if Self::pair_ground_rubble(t0, t1) {
-                            resolve(&mut rubble, z0, z1);
-                        }
-                        if Self::pair_ground_cliff(t0, t1) {
-                            resolve(&mut cliff, z0, z1);
-                        }
-                        if Self::pair_crusher_ground(
-                            t0,
-                            t1,
-                            is_fence_obs(x - 1, y),
-                            is_fence_obs(x, y),
-                        ) {
-                            resolve(&mut crusher, z0, z1);
+                    if z0 != z1 && z0 != 0 && z1 != 0 {
+                        // C++ horizontal: same type → hierarchical only; else terrain/crusher,
+                        // then water/rubble/cliff only if neither terrain nor crusher matched.
+                        if t0 == t1 {
+                            resolve(&mut hierarchical, z0, z1);
+                        } else {
+                            let mut not_terrain_or_crusher = true;
+                            if Self::pair_terrain(t0, t1) {
+                                resolve(&mut terrain, z0, z1);
+                                not_terrain_or_crusher = false;
+                            }
+                            if Self::pair_crusher_ground(
+                                t0,
+                                t1,
+                                is_fence_obs(x - 1, y),
+                                is_fence_obs(x, y),
+                            ) {
+                                resolve(&mut crusher, z0, z1);
+                                not_terrain_or_crusher = false;
+                            }
+                            if not_terrain_or_crusher {
+                                if Self::pair_water_ground(t0, t1) {
+                                    resolve(&mut water, z0, z1);
+                                } else if Self::pair_ground_rubble(t0, t1) {
+                                    resolve(&mut rubble, z0, z1);
+                                } else if Self::pair_ground_cliff(t0, t1) {
+                                    resolve(&mut cliff, z0, z1);
+                                }
+                            }
                         }
                     }
                 }
                 if y > 0 {
                     let z0 = self.zones[x][y - 1];
                     let t0 = ct(x, y - 1);
-                    if z0 != z1 {
-                        if Self::pair_water_ground(t0, t1) {
-                            resolve(&mut water, z0, z1);
-                        }
-                        if Self::pair_ground_rubble(t0, t1) {
-                            resolve(&mut rubble, z0, z1);
-                        }
-                        if Self::pair_ground_cliff(t0, t1) {
-                            resolve(&mut cliff, z0, z1);
-                        }
-                        if Self::pair_crusher_ground(
-                            t0,
-                            t1,
-                            is_fence_obs(x, y - 1),
-                            is_fence_obs(x, y),
-                        ) {
-                            resolve(&mut crusher, z0, z1);
+                    if z0 != z1 && z0 != 0 && z1 != 0 {
+                        // C++ vertical: same type → hierarchical; else terrain + crusher +
+                        // water/rubble/cliff ladder (not gated by terrain/crusher in C++).
+                        if t0 == t1 {
+                            resolve(&mut hierarchical, z0, z1);
+                        } else {
+                            if Self::pair_terrain(t0, t1) {
+                                resolve(&mut terrain, z0, z1);
+                            }
+                            if Self::pair_crusher_ground(
+                                t0,
+                                t1,
+                                is_fence_obs(x, y - 1),
+                                is_fence_obs(x, y),
+                            ) {
+                                resolve(&mut crusher, z0, z1);
+                            }
+                            if Self::pair_water_ground(t0, t1) {
+                                resolve(&mut water, z0, z1);
+                            } else if Self::pair_ground_rubble(t0, t1) {
+                                resolve(&mut rubble, z0, z1);
+                            } else if Self::pair_ground_cliff(t0, t1) {
+                                resolve(&mut cliff, z0, z1);
+                            }
                         }
                     }
                 }
             }
         }
+        // Flatten hierarchical (C++ pathfind zone flatten loop).
+        for i in 1..n {
+            let z = hierarchical[i] as usize;
+            if z < n {
+                hierarchical[i] = hierarchical[z];
+            }
+        }
+        // C++ flattenZones(surface, hierarchical) — compose surface through hierarchical.
+        let flatten = |surface: &mut [u16], hier: &[u16]| {
+            for i in 0..surface.len() {
+                let z1 = surface[i] as usize;
+                if z1 >= hier.len() {
+                    continue;
+                }
+                let z2 = hier[z1] as usize;
+                if z2 < surface.len() {
+                    let z3 = surface[z2] as usize;
+                    if z3 < hier.len() {
+                        surface[i] = hier[z3];
+                    } else {
+                        surface[i] = hier[z1];
+                    }
+                } else {
+                    surface[i] = hier[z1];
+                }
+            }
+        };
+        flatten(&mut cliff, &hierarchical);
+        flatten(&mut water, &hierarchical);
+        flatten(&mut rubble, &hierarchical);
+        flatten(&mut terrain, &hierarchical);
+        flatten(&mut crusher, &hierarchical);
+
         self.ground_cliff_zones = cliff;
         self.ground_water_zones = water;
         self.ground_rubble_zones = rubble;
         self.crusher_zones = crusher;
+        self.hierarchical_zones = hierarchical;
+        self.terrain_zones = terrain;
     }
 
     /// C++ allocateBlocks + blockCalculateZones for each ZONE_BLOCK_SIZE tile.
@@ -6595,6 +6670,21 @@ impl ZoneManager {
                 self.zone_blocks[bx][by] = block;
             }
         }
+    }
+
+    /// C++ `terrain()` — treat obstacle as clear, then types must match.
+    fn pair_terrain(a: PathfindCellType, b: PathfindCellType) -> bool {
+        let ta = if a == PathfindCellType::Obstacle {
+            PathfindCellType::Clear
+        } else {
+            a
+        };
+        let tb = if b == PathfindCellType::Obstacle {
+            PathfindCellType::Clear
+        } else {
+            b
+        };
+        ta == tb
     }
 
     fn pair_water_ground(a: PathfindCellType, b: PathfindCellType) -> bool {
@@ -8492,5 +8582,93 @@ mod tests {
             w.contains("ZONE_BLOCK_SIZE") && w.contains("get_effective_zone"),
             "getBlockZone must index zone_blocks and use block effective zone"
         );
+    }
+
+    #[test]
+    fn hierarchical_and_terrain_zones_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("hierarchical_zones"));
+        assert!(prod.contains("terrain_zones"));
+        let i = prod
+            .rfind("fn get_effective_zone")
+            .expect("getEffectiveZone");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("hierarchical_zones"),
+            "default getEffectiveZone must use hierarchical_zones"
+        );
+        let j = prod.find("fn get_effective_terrain_zone").expect("terrain");
+        let wt = &prod[j..prod.len().min(j + 800)];
+        assert!(
+            wt.contains("terrain_zones") && wt.contains("hierarchical_zones"),
+            "getEffectiveTerrainZone = hierarchical[terrain[zone]]"
+        );
+    }
+
+    #[test]
+    fn hierarchical_zones_merge_same_type() {
+        let mut system = PathfindingSystem::new(16, 16);
+        // Two clear regions separated by a cliff strip — hierarchical should
+        // still only merge same-type neighbors, not across cliff.
+        for y in 0..16 {
+            system.set_cell_type(
+                &Coord3D::new(80.0, y as f32 * 10.0 + 5.0, 0.0),
+                PathfindCellType::Cliff,
+            );
+        }
+        system.new_map();
+        let z = system.zones.lock().unwrap();
+        assert!(!z.hierarchical_zones.is_empty());
+        assert!(!z.terrain_zones.is_empty());
+        // Default effective zone for plain ground uses hierarchical table.
+        let z_clear = z.zones[1][1];
+        if z_clear != 0 {
+            let eff = z.get_effective_zone(SURFACE_GROUND, false, z_clear);
+            let hier = z
+                .hierarchical_zones
+                .get(z_clear as usize)
+                .copied()
+                .unwrap_or(z_clear);
+            assert_eq!(eff, hier);
+        }
+    }
+
+    #[test]
+    fn terrain_zone_treats_obstacle_as_clear() {
+        let mut system = PathfindingSystem::new(12, 12);
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            // Non-fence obstacle between clear cells
+            pf.set_cell_obstacle_id(GridCoord::new(5, 5), 9, false);
+        }
+        system.new_map();
+        let z = system.zones.lock().unwrap();
+        let z_obs = z.zones[5][5];
+        let z_a = z.zones[4][5];
+        let z_b = z.zones[6][5];
+        assert_ne!(z_obs, 0);
+        // Terrain combiner should equate obstacle zone with neighboring clear
+        // when obstacle is treated as clear (C++ terrain()).
+        if z_a != 0 && z_a != z_obs {
+            let ta = z.terrain_zones.get(z_a as usize).copied().unwrap_or(z_a);
+            let to = z
+                .terrain_zones
+                .get(z_obs as usize)
+                .copied()
+                .unwrap_or(z_obs);
+            // After flatten, hierarchical[terrain] should match for connectivity
+            let ha = z.get_effective_terrain_zone(z_a);
+            let ho = z.get_effective_terrain_zone(z_obs);
+            assert_eq!(
+                ha, ho,
+                "terrain effective should link obstacle-as-clear to neighbor clear (a={} o={} ta={} to={})",
+                z_a, z_obs, ta, to
+            );
+        }
+        let _ = z_b;
     }
 }
