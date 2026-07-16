@@ -2261,6 +2261,13 @@ impl Object {
                         weapon_dtype,
                     )
                 },
+                projectile_object_name:
+                    crate::game_logic::weapon_bootstrap::host_projectile_name_for_unit_slot(
+                        self.template_name.as_str(),
+                        self.thing.template.primary_weapon_name.as_deref(),
+                        self.thing.template.secondary_weapon_name.as_deref(),
+                        slot,
+                    ),
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
