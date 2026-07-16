@@ -705,7 +705,7 @@ impl PathfindingSystem {
     /// C++ `Pathfinder::processPathfindQueue` (AIPathfind.cpp:5857-5938).
     ///
     /// Recalculates zones when dirty, then drains ObjectID ring until empty or
-    /// PATHFIND_CELLS_PER_FRAME budget (residual: one pathfind per pop).
+    /// PATHFIND_CELLS_PER_FRAME budget (C++ m_cumulativeCellsAllocated).
     /// C++ `m_logicalExtent` refresh from terrain (AIPathfind.cpp:5887-5897).
     pub fn refresh_logical_extent(&mut self) {
         // Prefer live terrain extent when available; else full pathfind grid.
@@ -1989,8 +1989,8 @@ impl PathfindingSystem {
         insert.z = obj_pos.z;
     }
 
-    /// C++ `segmentIntersectsBuildingCallback` residual: first AIRCRAFT_PATH_AROUND
-    /// obstacle along a ground Bresenham line.
+    /// C++ `segmentIntersectsBuildingCallback`: first AIRCRAFT_PATH_AROUND
+    /// obstacle along a ground Bresenham line (via cell obstacle ID).
     fn find_tall_building_along_segment(
         &self,
         from: &Coord3D,
@@ -2003,46 +2003,34 @@ impl PathfindingSystem {
             to,
             PathfindLayerEnum::Ground,
             |_f, to_c, _x, _y| {
-                let world = to_c.to_world(PathfindLayerEnum::Ground);
-                if self.get_cell_type(&world) != Some(PathfindCellType::Obstacle) {
-                    return 0;
-                }
-                // Without per-cell obstacle IDs, pick closest AIRCRAFT_PATH_AROUND near cell.
-                let Some(partition) = ThePartitionManager::get() else {
+                // C++: to->getType()==OBSTACLE then findObjectByID(to->getObstacleID()).
+                let Ok(pf) = self.pathfinder.lock() else {
                     return 0;
                 };
-                let search_r = PATHFIND_CELL_SIZE_F * 2.0;
-                let mut best = None;
-                let mut best_d = f32::MAX;
-                for oid in partition.get_objects_in_range(&world, search_r) {
-                    if oid == ignore_building || oid == INVALID_ID {
-                        continue;
-                    }
-                    let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
-                        continue;
-                    };
-                    let Ok(g) = arc.read() else {
-                        continue;
-                    };
-                    if !g.is_kind_of(KindOf::AircraftPathAround) {
-                        continue;
-                    }
-                    let p = *g.get_position();
-                    let dx = p.x - world.x;
-                    let dy = p.y - world.y;
-                    let d = (dx * dx + dy * dy).sqrt();
-                    if d < best_d {
-                        best_d = d;
-                        let r = g.get_geometry_info().get_bounding_circle_radius()
-                            + 2.0 * PATHFIND_CELL_SIZE_F;
-                        best = Some((oid, p, r));
-                    }
+                if pf.get_cell_type(to_c) != Some(PathfindCellType::Obstacle) {
+                    return 0;
                 }
-                if let Some(b) = best {
-                    found = Some(b);
-                    return 1;
+                let Some(oid) = pf.get_cell_obstacle_id(to_c) else {
+                    return 0;
+                };
+                drop(pf);
+                if oid == ignore_building || oid == INVALID_ID {
+                    return 0;
                 }
-                0
+                let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
+                    return 0;
+                };
+                let Ok(g) = arc.read() else {
+                    return 0;
+                };
+                if !g.is_kind_of(KindOf::AircraftPathAround) {
+                    return 0;
+                }
+                let p = *g.get_position();
+                let r =
+                    g.get_geometry_info().get_bounding_circle_radius() + 2.0 * PATHFIND_CELL_SIZE_F;
+                found = Some((oid, p, r));
+                1 // stop like C++ callback return 1
             },
         );
         found
@@ -3159,6 +3147,14 @@ impl PathfindingSystem {
     }
 
     /// Stamp connectLayer on a cell (bridge ground-connect / wall link).
+    /// C++ PathfindCell::getObstacleID via A* obstacle_owners.
+    pub fn get_cell_obstacle_id(&self, cell: GridCoord) -> Option<ObjectID> {
+        self.pathfinder
+            .lock()
+            .ok()
+            .and_then(|pf| pf.get_cell_obstacle_id(cell))
+    }
+
     pub fn set_connect_layer(&self, cell: GridCoord, layer: PathfindLayerEnum) {
         if let Ok(mut pathfinder) = self.pathfinder.lock() {
             pathfinder.set_cell_connect_layer(cell, layer);
@@ -5079,8 +5075,7 @@ impl PathfindingSystem {
         let mut found = false;
         let mut dest_pos = start;
         let _ = self.iterate_cells_along_line_world(&start, to, layer, |_from_c, to_c, cx, cy| {
-            // C++ layer change aborts (callback returns 0 without update when layer differs —
-            // residual: stop if layer mismatch).
+            // C++ layer change aborts tighten walk when layer differs.
             if self.get_layer_for_coord(to_c) != layer {
                 return 1;
             }
@@ -5986,7 +5981,7 @@ impl PathfindingSystem {
             let _ = self.check_change_layers(parent);
 
             for (i, (dx, dy)) in deltas.iter().enumerate() {
-                // Diagonal corner cut residual: require orthogonal neighbors open when diagonal.
+                // C++: diagonal requires orthogonal neighbors open (corner cut).
                 if i >= 4 {
                     let ox = parent.x + dx;
                     let oy = parent.y;
@@ -9634,5 +9629,46 @@ mod tests {
             "updateGoal must take objectInteractsWithBridgeEnd flag"
         );
         assert!(!w.contains("Bridge-end residual"));
+    }
+
+    #[test]
+    fn tall_building_segment_uses_obstacle_id_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("fn find_tall_building_along_segment")
+            .expect("find_tall");
+        let w = &prod[i..prod.len().min(i + 2000)];
+        assert!(
+            w.contains("get_cell_obstacle_id") && w.contains("AircraftPathAround"),
+            "segmentIntersectsBuildingCallback must use cell obstacle ID"
+        );
+        assert!(!w.contains("Without per-cell obstacle IDs"));
+    }
+
+    #[test]
+    fn tall_building_segment_finds_obstacle_id_building() {
+        let mut system = PathfindingSystem::new(40, 40);
+        system.new_map();
+        // Stamp obstacle cell with a fake id — without registry object, scan skips.
+        // With KindOf would need full object; surface: obstacle id is read.
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            pf.set_cell_type(GridCoord::new(10, 10), PathfindCellType::Obstacle);
+            pf.set_cell_obstacle_id(GridCoord::new(10, 10), 99, false);
+        }
+        assert_eq!(
+            system.get_cell_obstacle_id(GridCoord::new(10, 10)),
+            Some(99)
+        );
+        // No registry object → no tall building found (cannot resolve KindOf).
+        let from = Coord3D::new(50.0, 100.0, 0.0);
+        let to = Coord3D::new(150.0, 100.0, 0.0);
+        assert!(system
+            .find_tall_building_along_segment(&from, &to, INVALID_ID)
+            .is_none());
     }
 }

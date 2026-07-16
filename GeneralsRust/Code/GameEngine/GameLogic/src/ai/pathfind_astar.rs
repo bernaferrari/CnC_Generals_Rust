@@ -746,6 +746,11 @@ impl AStarPathfinder {
         Some(coord)
     }
 
+    /// C++ PathfindCell::getObstacleID.
+    pub fn get_cell_obstacle_id(&self, coord: GridCoord) -> Option<u32> {
+        self.obstacle_owners.get(&(coord.x, coord.y)).copied()
+    }
+
     pub fn set_cell_obstacle_id(&mut self, coord: GridCoord, obj_id: u32, is_fence: bool) {
         if let Some(cell) = self.get_cell_mut(coord) {
             cell.set_type(PathfindCellType::Obstacle);
