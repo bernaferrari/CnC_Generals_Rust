@@ -488,7 +488,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-    ) -> Option<Vec<GridCoord>> {
+    ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = BinaryHeap::new();
@@ -528,7 +528,7 @@ impl AStarPathfinder {
             if iterations > max_iterations {
                 // Prevent infinite loops
                 if allow_partial {
-                    return Some(self.reconstruct_path(&came_from, best_coord));
+                    return Some((self.reconstruct_path(&came_from, best_coord), iterations));
                 }
                 return None;
             }
@@ -536,7 +536,7 @@ impl AStarPathfinder {
             // Goal reached!
             // Matches C++ at AIPathfind.cpp:6595-6622
             if current.coord == goal {
-                return Some(self.reconstruct_path(&came_from, current.coord));
+                return Some((self.reconstruct_path(&came_from, current.coord), iterations));
             }
 
             let current_dist = current.coord.diagonal_distance(&goal);
@@ -641,7 +641,7 @@ impl AStarPathfinder {
         // No path found
         // Matches C++ at AIPathfind.cpp:6635-6693
         if allow_partial {
-            Some(self.reconstruct_path(&came_from, best_coord))
+            Some((self.reconstruct_path(&came_from, best_coord), iterations))
         } else {
             None
         }
@@ -934,7 +934,9 @@ mod tests {
         let start = GridCoord::new(0, 0);
         let goal = GridCoord::new(5, 5);
 
-        let path = pathfinder.find_path(start, goal, 0xFFFFFFFF, false, 1000, false, None);
+        let path = pathfinder
+            .find_path(start, goal, 0xFFFFFFFF, false, 1000, false, None)
+            .map(|(p, _)| p);
         assert!(path.is_some());
 
         let path = path.unwrap();
@@ -955,7 +957,9 @@ mod tests {
         let goal = GridCoord::new(9, 5);
 
         // Should find path around the wall
-        let path = pathfinder.find_path(start, goal, 0x01, false, 1000, false, None);
+        let path = pathfinder
+            .find_path(start, goal, 0x01, false, 1000, false, None)
+            .map(|(p, _)| p);
         assert!(path.is_some());
 
         let path = path.unwrap();
@@ -975,7 +979,9 @@ mod tests {
         let start = GridCoord::new(0, 5);
         let goal = GridCoord::new(9, 5);
 
-        let path = pathfinder.find_path(start, goal, 0x01, false, 1000, false, None);
+        let path = pathfinder
+            .find_path(start, goal, 0x01, false, 1000, false, None)
+            .map(|(p, _)| p);
         assert!(path.is_none());
     }
 
@@ -990,11 +996,15 @@ mod tests {
         let goal = GridCoord::new(9, 5);
 
         // Non-crusher should path around
-        let path_normal = pathfinder.find_path(start, goal, 0x01, false, 1000, false, None);
+        let path_normal = pathfinder
+            .find_path(start, goal, 0x01, false, 1000, false, None)
+            .map(|(p, _)| p);
         assert!(path_normal.is_some());
 
         // Crusher should be able to go through
-        let path_crusher = pathfinder.find_path(start, goal, 0x01, true, 1000, false, None);
+        let path_crusher = pathfinder
+            .find_path(start, goal, 0x01, true, 1000, false, None)
+            .map(|(p, _)| p);
         assert!(path_crusher.is_some());
 
         // Crusher path might be shorter (going through obstacles)
@@ -1018,7 +1028,7 @@ mod tests {
     fn zone_impassable_adds_cost_penalty() {
         let mut pf = AStarPathfinder::new(30, 30);
         let a = GridCoord::new(2, 2);
-        let path1 = pf
+        let (path1, cells1) = pf
             .find_path(
                 a,
                 GridCoord::new(25, 2),
@@ -1030,10 +1040,11 @@ mod tests {
             )
             .expect("path");
         assert!(path1.len() > 1);
+        assert!(cells1 >= 1);
         pf.set_zone_passable(GridCoord::new(25, 2), false);
         assert!(!pf.is_zone_passable(GridCoord::new(25, 2)));
         assert!(pf.is_zone_passable(a));
-        let path2 = pf
+        let (path2, cells2) = pf
             .find_path(
                 a,
                 GridCoord::new(25, 2),
@@ -1045,6 +1056,7 @@ mod tests {
             )
             .expect("path with zone penalty");
         assert!(path2.len() > 1);
+        assert!(cells2 >= 1);
         assert!(!pf.clip_is_zone_passable(-1, 0));
         assert!(!pf.clip_is_zone_passable(0, 1000));
     }
