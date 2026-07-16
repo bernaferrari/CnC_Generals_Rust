@@ -3830,8 +3830,8 @@ impl AIPlayer {
 
 impl AiPlayerTrait for AIPlayer {
     fn update(&mut self) -> Result<(), AiError> {
-        // C++ AIPlayer::update order (strategy residual first).
-        self.update_strategy()?;
+        // C++ AIPlayer::update (AIPlayer.cpp): base → ready → queued → team →
+        // upgrades → bridge. No strategy residual in C++.
         self.do_base_building()?;
         self.check_ready_teams()?;
         self.check_queued_teams()?;
@@ -8056,6 +8056,36 @@ mod tests {
                 && !w.contains("analyze_building_needs")
                 && !w.contains("update_construction_priorities"),
             "processBaseBuilding must walk BuildListInfo only like C++ (no host priorities)"
+        );
+    }
+
+    #[test]
+    fn ai_player_trait_update_order_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("impl AiPlayerTrait for AIPlayer").expect("trait");
+        let j = src[i..].find("fn update(&mut self)").expect("update") + i;
+        let w = &src[j..src.len().min(j + 600)];
+        assert!(
+            w.contains("do_base_building")
+                && w.contains("check_ready_teams")
+                && w.contains("check_queued_teams")
+                && w.contains("do_team_building")
+                && w.contains("do_upgrades_and_skills")
+                && w.contains("update_bridge_repair")
+                && !w.contains("update_strategy"),
+            "AiPlayerTrait::update must match C++ AIPlayer::update phase order only"
+        );
+        // update_with_frame also must not inject strategy into the C++ phase block.
+        let k = src
+            .find("pub fn update_with_frame")
+            .expect("update_with_frame");
+        let ww = &src[k..src.len().min(k + 1200)];
+        let base = ww.find("do_base_building").expect("base");
+        let bridge = ww.find("update_bridge_repair").expect("bridge");
+        let mid = &ww[base..=bridge];
+        assert!(
+            !mid.contains("update_strategy") && !mid.contains("process_attack_decisions"),
+            "C++ phase block in update_with_frame must stay free of host residuals"
         );
     }
 
