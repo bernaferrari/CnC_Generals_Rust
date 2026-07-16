@@ -2762,10 +2762,11 @@ mod tests {
         let w = &src[i..src.len().min(i + 3500)];
         assert!(
             w.contains("client_safe_quick_does_path_exist")
+                && w.contains("find_broken_bridge_layer")
                 && w.contains("get_first_bridge")
                 && w.contains("is_point_on_bridge")
                 && w.contains("BodyDamageType::Rubble"),
-            "findBrokenBridge must zone-connect first then scan destroyed bridges"
+            "findBrokenBridge must zone-connect, then destroyed layers, then terrain residual"
         );
     }
 

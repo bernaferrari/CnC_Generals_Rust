@@ -137,15 +137,33 @@ pub struct BridgeLayer {
     pub bounds: (GridCoord, GridCoord),
     pub destroyed: bool,
     pub zone: u16,
+    /// C++ PathfindLayer bridge object id (INVALID_ID if landmark-only).
+    pub bridge_object_id: ObjectID,
+    /// Approximate ground attach cells (C++ m_startCell / m_endCell residual).
+    pub start_cell: GridCoord,
+    pub end_cell: GridCoord,
 }
 
 impl BridgeLayer {
     pub fn new(layer_id: u32, bounds: (GridCoord, GridCoord)) -> Self {
+        Self::with_meta(layer_id, bounds, INVALID_ID, bounds.0, bounds.1)
+    }
+
+    pub fn with_meta(
+        layer_id: u32,
+        bounds: (GridCoord, GridCoord),
+        bridge_object_id: ObjectID,
+        start_cell: GridCoord,
+        end_cell: GridCoord,
+    ) -> Self {
         Self {
             layer_id,
             bounds,
             destroyed: false,
             zone: 0,
+            bridge_object_id,
+            start_cell,
+            end_cell,
         }
     }
 
@@ -154,6 +172,59 @@ impl BridgeLayer {
             && coord.x <= self.bounds.1.x
             && coord.y >= self.bounds.0.y
             && coord.y <= self.bounds.1.y
+    }
+
+    /// C++ `PathfindLayer::connectsZones` residual without full layer-cell table:
+    /// ground zones under start/end attach cells both present among zone1/zone2.
+    pub fn connects_zones(
+        &self,
+        zone_at: impl Fn(GridCoord) -> u16,
+        zone1: u16,
+        zone2: u16,
+    ) -> bool {
+        if !self.destroyed {
+            return false;
+        }
+        if zone1 == 0 || zone2 == 0 {
+            // Unzoned map residual: treat destroyed layer as a candidate.
+            return true;
+        }
+        let z_start = zone_at(self.start_cell);
+        let z_end = zone_at(self.end_cell);
+        let mut found1 = false;
+        let mut found2 = false;
+        for z in [z_start, z_end] {
+            if z == 0 {
+                continue;
+            }
+            if z == zone1 {
+                found1 = true;
+            }
+            if z == zone2 {
+                found2 = true;
+            }
+        }
+        // Also sample bound corners (C++ scans connect-layer ground cells).
+        let lo = self.bounds.0;
+        let hi = self.bounds.1;
+        for c in [
+            lo,
+            hi,
+            GridCoord::new(lo.x, hi.y),
+            GridCoord::new(hi.x, lo.y),
+        ] {
+            let z = zone_at(c);
+            if z == 0 {
+                continue;
+            }
+            if z == zone1 {
+                found1 = true;
+            }
+            if z == zone2 {
+                found2 = true;
+            }
+        }
+        found1 && found2
     }
 }
 
@@ -926,9 +997,53 @@ impl PathfindingSystem {
     /// Add a bridge layer
     /// Matches C++ Pathfinder::addBridge() at AIPathfind.h:698
     pub fn add_bridge(&mut self, bounds: (GridCoord, GridCoord)) -> u32 {
+        self.add_bridge_ex(bounds, INVALID_ID, bounds.0, bounds.1)
+    }
+
+    /// Add bridge with object id + attach cells (for findBrokenBridge / connectsZones).
+    pub fn add_bridge_ex(
+        &mut self,
+        bounds: (GridCoord, GridCoord),
+        bridge_object_id: ObjectID,
+        start_cell: GridCoord,
+        end_cell: GridCoord,
+    ) -> u32 {
         let layer_id = self.bridges.len() as u32 + 2; // Start from 2 (Ground=1)
-        self.bridges.push(BridgeLayer::new(layer_id, bounds));
+        self.bridges.push(BridgeLayer::with_meta(
+            layer_id,
+            bounds,
+            bridge_object_id,
+            start_cell,
+            end_cell,
+        ));
         layer_id
+    }
+
+    fn zone_at_cell(&self, cell: GridCoord) -> u16 {
+        let Ok(zones) = self.zones.lock() else {
+            return 0;
+        };
+        zones.zone_at(cell)
+    }
+
+    /// C++ `Pathfinder::findBrokenBridge` layer pass (m_layers isDestroyed + connectsZones).
+    pub fn find_broken_bridge_layer(&self, from: &Coord3D, to: &Coord3D) -> Option<ObjectID> {
+        let from_c = GridCoord::from_world(from);
+        let to_c = GridCoord::from_world(to);
+        let zone1 = self.zone_at_cell(from_c);
+        let zone2 = self.zone_at_cell(to_c);
+        for bridge in &self.bridges {
+            if !bridge.destroyed {
+                continue;
+            }
+            if !bridge.connects_zones(|c| self.zone_at_cell(c), zone1, zone2) {
+                continue;
+            }
+            if bridge.bridge_object_id != INVALID_ID {
+                return Some(bridge.bridge_object_id);
+            }
+        }
+        None
     }
 
     /// Set bridge destroyed state
@@ -2220,6 +2335,17 @@ impl ZoneManager {
             }
         }
         self.next_zone = 1;
+    }
+
+    fn zone_at(&self, cell: GridCoord) -> u16 {
+        if cell.x < 0
+            || cell.y < 0
+            || cell.x as usize >= self.width
+            || cell.y as usize >= self.height
+        {
+            return 0;
+        }
+        self.zones[cell.x as usize][cell.y as usize]
     }
 
     fn are_connected(
