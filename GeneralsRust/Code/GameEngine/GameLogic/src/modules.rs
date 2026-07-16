@@ -1456,6 +1456,12 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// C++ `AIUpdateInterface::joinTeam` — catch up to a live teammate.
     fn join_team(&mut self) {}
 
+    /// Snapshot of the unit's locomotor set for pathfinder queries
+    /// (matches C++ `AIUpdateInterface::getLocomotorSet()`).
+    fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
+        None
+    }
+
     /// Check if any path exists to a destination (matches AIUpdateInterface::isPathAvailable).
     fn is_path_available(&self, _destination: &Coord3D) -> bool {
         false
@@ -2134,6 +2140,7 @@ pub trait AIUpdateInterfaceExt {
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>>;
     fn get_goal_position(&self) -> Option<Coord3D>;
     fn join_team(&self);
+    fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet>;
     fn choose_locomotor_set(&self, set: LocomotorSetType);
     fn set_allow_invalid_position(&self, allow: bool);
     fn set_ultra_accurate(&self, ultra: bool);
@@ -2692,6 +2699,14 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     fn join_team(&self) {
         if let Ok(mut guard) = self.try_lock() {
             guard.join_team();
+        }
+    }
+
+    fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_locomotor_set_clone()
+        } else {
+            None
         }
     }
 
