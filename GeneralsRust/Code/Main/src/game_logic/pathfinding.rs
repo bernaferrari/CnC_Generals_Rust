@@ -222,6 +222,20 @@ impl PathfindingGrid {
         }
     }
 
+    /// Mark a structure footprint as static-blocked (C++ pathfind obstacle residual).
+    /// `radius_cells` is half-extent in grid cells (1 => 3×3).
+    pub fn block_structure_footprint(&mut self, center: GridPos, radius_cells: i32) {
+        let r = radius_cells.max(0);
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let p = GridPos::new(center.x + dx, center.y + dy);
+                if self.is_valid_pos(p) {
+                    self.set_blocked(p, true);
+                }
+            }
+        }
+    }
+
     pub fn clear_static_blocks(&mut self) {
         self.blocked.clear();
     }
@@ -599,6 +613,13 @@ impl FlowField {
     }
 }
 
+/// Cell half-extent for structure path/LOS block from selection radius.
+fn structure_block_radius_cells(selection_radius: f32, grid_size: f32) -> i32 {
+    let gs = grid_size.max(1.0);
+    // At least 1 (3×3); grow with large footprints.
+    ((selection_radius / gs).ceil() as i32).max(1).min(4)
+}
+
 /// Main pathfinding system
 #[derive(Debug)]
 pub struct PathfindingSystem {
@@ -631,6 +652,29 @@ impl PathfindingSystem {
     /// Host residual: static-obstacle attack LOS (C++ isAttackViewBlockedByObstacle subset).
     pub fn is_attack_view_blocked(&self, from: Vec3, to: Vec3) -> bool {
         self.grid.is_attack_view_blocked_static(from, to)
+    }
+
+    /// Static-block structure footprint at world position (constructed buildings).
+    pub fn block_structure_at_world(&mut self, world: Vec3, radius_cells: i32) {
+        let cell = self.grid.world_to_grid(world);
+        self.grid.block_structure_footprint(cell, radius_cells);
+    }
+
+    /// Rebuild structure static obstacles from live objects (map load / bulk sync).
+    /// Does not clear terrain slope blocks — only ORs structure footprints.
+    pub fn apply_structure_static_blocks(&mut self, objects: &HashMap<ObjectId, Object>) {
+        for obj in objects.values() {
+            if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            // Under-construction footprints are soft in C++ until built; host residual
+            // blocks when constructed (or map-placed completed).
+            if obj.status.under_construction {
+                continue;
+            }
+            let radius = structure_block_radius_cells(obj.selection_radius, self.grid.grid_size());
+            self.block_structure_at_world(obj.get_position(), radius);
+        }
     }
 
     /// C++ Pathfinder::findAttackPath residual (simplified).
