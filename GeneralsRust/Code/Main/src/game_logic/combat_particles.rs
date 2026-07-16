@@ -20,6 +20,12 @@ pub enum CombatParticleKind {
     DeathExplosion,
     /// Lingering smoke after death.
     DeathSmoke,
+    /// Flame / burned death residual (DEATH_BURNED).
+    DeathBurn,
+    /// Poison cloud residual (DEATH_POISONED*).
+    DeathPoison,
+    /// Laser vapor residual (DEATH_LASERED).
+    DeathLaser,
     /// Muzzle flash when a weapon fires.
     WeaponMuzzleFlash,
     /// Impact / hit feedback at target position.
@@ -32,6 +38,10 @@ impl CombatParticleKind {
         match self {
             CombatParticleKind::DeathExplosion => "MediumExplosion",
             CombatParticleKind::DeathSmoke => "SmokePlume",
+            // Fail-closed: reuse nearest GameClient presets until full FXList.ini.
+            CombatParticleKind::DeathBurn => "SmokePlume",
+            CombatParticleKind::DeathPoison => "SmokePlume",
+            CombatParticleKind::DeathLaser => "BulletImpact",
             CombatParticleKind::WeaponMuzzleFlash => "MuzzleFlash",
             CombatParticleKind::WeaponImpact => "BulletImpact",
         }
@@ -198,22 +208,140 @@ impl CombatParticleRegistry {
         is_structure: bool,
         victim_team: Team,
     ) -> Vec<u32> {
-        self.note_destroyed(victim, victim_team);
-        let explosion_kind = if is_structure {
-            CombatParticleKind::DeathExplosion
-        } else {
-            CombatParticleKind::DeathExplosion
-        };
-        let mut ids = Vec::with_capacity(2);
-        ids.push(self.spawn(explosion_kind, position, frame, Some(victim), None));
-        ids.push(self.spawn(
-            CombatParticleKind::DeathSmoke,
+        self.spawn_death_fx_for_type(
             position,
             frame,
-            Some(victim),
-            None,
-        ));
+            victim,
+            is_structure,
+            victim_team,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        )
+    }
+
+    /// C++ DeathType residual death FX peel (not full FXList.ini / SlowDeath).
+    pub fn spawn_death_fx_for_type(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        victim: ObjectId,
+        is_structure: bool,
+        victim_team: Team,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> Vec<u32> {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        self.note_destroyed(victim, victim_team);
+        let mut ids = Vec::with_capacity(3);
+        match death_type {
+            HostDeathType::Burned => {
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathBurn,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathSmoke,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+            }
+            HostDeathType::Poisoned
+            | HostDeathType::PoisonedBeta
+            | HostDeathType::PoisonedGamma => {
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathPoison,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathSmoke,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+            }
+            HostDeathType::Lasered => {
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathLaser,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+                // Light smoke residual after laser kill.
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathSmoke,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+            }
+            HostDeathType::Exploded | HostDeathType::Detonated | HostDeathType::Suicided => {
+                let _ = is_structure;
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathSmoke,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+            }
+            // Normal / crushed / splatted / toppled / flooded / none
+            _ => {
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+                ids.push(self.spawn(
+                    CombatParticleKind::DeathSmoke,
+                    position,
+                    frame,
+                    Some(victim),
+                    None,
+                ));
+            }
+        }
         ids
+    }
+
+    /// Audio event name residual for death scream / die cue by DeathType.
+    pub fn death_audio_event_name(
+        is_structure: bool,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> &'static str {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        if is_structure {
+            return "BuildingDie";
+        }
+        match death_type {
+            HostDeathType::Burned => "UnitDieBurned",
+            HostDeathType::Poisoned
+            | HostDeathType::PoisonedBeta
+            | HostDeathType::PoisonedGamma => "UnitDiePoisoned",
+            HostDeathType::Lasered => "UnitDieLasered",
+            HostDeathType::Exploded | HostDeathType::Detonated | HostDeathType::Suicided => {
+                "UnitDieExploded"
+            }
+            HostDeathType::Crushed | HostDeathType::Splatted => "UnitDieCrushed",
+            _ => "UnitDie",
+        }
     }
 
     /// Weapon fire feedback: muzzle flash at shooter, optional impact at target.
@@ -379,5 +507,50 @@ mod tests {
         assert_eq!(entry.kind, CombatParticleKind::WeaponMuzzleFlash);
         assert!((entry.position.x - 3.0).abs() < f32::EPSILON);
         assert_eq!(loaded.next_id(), next);
+    }
+
+    #[test]
+    fn death_type_selects_burn_and_poison_fx() {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use glam::Vec3;
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_death_fx_for_type(
+            Vec3::ZERO,
+            1,
+            ObjectId(1),
+            false,
+            Team::USA,
+            HostDeathType::Burned,
+        );
+        assert_eq!(ids.len(), 2);
+        let kinds: Vec<_> = ids
+            .iter()
+            .filter_map(|id| reg.get(*id).map(|e| e.kind))
+            .collect();
+        assert!(kinds.contains(&CombatParticleKind::DeathBurn));
+        assert!(kinds.contains(&CombatParticleKind::DeathSmoke));
+
+        let mut reg2 = CombatParticleRegistry::new();
+        let ids2 = reg2.spawn_death_fx_for_type(
+            Vec3::ZERO,
+            2,
+            ObjectId(2),
+            false,
+            Team::GLA,
+            HostDeathType::Poisoned,
+        );
+        let kinds2: Vec<_> = ids2
+            .iter()
+            .filter_map(|id| reg2.get(*id).map(|e| e.kind))
+            .collect();
+        assert!(kinds2.contains(&CombatParticleKind::DeathPoison));
+        assert_eq!(
+            CombatParticleRegistry::death_audio_event_name(false, HostDeathType::Lasered),
+            "UnitDieLasered"
+        );
+        assert_eq!(
+            CombatParticleRegistry::death_audio_event_name(true, HostDeathType::Burned),
+            "BuildingDie"
+        );
     }
 }
