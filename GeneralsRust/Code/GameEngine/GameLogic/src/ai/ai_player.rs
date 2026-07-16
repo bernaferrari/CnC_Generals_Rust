@@ -6348,8 +6348,9 @@ impl AIPlayer {
                 }
             }
 
-            // Rebuild delay after destruction (C++ m_rebuildDelaySeconds).
-            if info.get_object_timestamp() > 0 {
+            // C++: only apply rebuild delay when objectID is INVALID and timestamp>0.
+            // (Hole-attached IDs skip this branch until the hole is gone.)
+            if info.get_object_id() == INVALID_ID && info.get_object_timestamp() > 0 {
                 if info
                     .get_object_timestamp()
                     .saturating_add(rebuild_delay_frames)
@@ -6358,6 +6359,7 @@ impl AIPlayer {
                     info_opt = info.get_next_mut();
                     continue;
                 }
+                log::debug!("Enabling rebuild for {}", name);
                 info.set_object_timestamp(0); // ready to build
             }
 
@@ -6366,7 +6368,7 @@ impl AIPlayer {
                 continue;
             }
 
-            // Missing and buildable → select this entry (C++ builds first missing).
+            // C++: isBuildable && findObjectByID == NULL → dozer build.
             if info.get_object_id() == INVALID_ID {
                 to_build = Some((name.to_string(), *info.get_location(), info.get_angle()));
                 break;
@@ -8371,6 +8373,20 @@ mod tests {
                 && window.contains("resume_jobs")
                 && window.contains("AI's Dozer got killed"),
             "solo processBaseBuilding must resume construction on UC buildings"
+        );
+    }
+
+    #[test]
+    fn process_base_building_rebuild_delay_requires_invalid_id() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn process_base_building(&mut self)")
+            .expect("pbb");
+        let w = &src[i..src.len().min(i + 9000)];
+        assert!(
+            w.contains("get_object_id() == INVALID_ID && info.get_object_timestamp() > 0")
+                && w.contains("Enabling rebuild for"),
+            "solo processBaseBuilding rebuild delay must require INVALID_ID like C++"
         );
     }
 

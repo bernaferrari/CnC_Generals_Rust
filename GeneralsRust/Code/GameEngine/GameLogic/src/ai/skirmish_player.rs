@@ -912,11 +912,14 @@ impl AISkirmishPlayer {
                 }
             }
 
-            if info.get_object_timestamp() > 0 {
+            // C++: delay only when objectID==INVALID_ID && timestamp>0.
+            if info.get_object_id() == crate::common::INVALID_ID && info.get_object_timestamp() > 0
+            {
                 if info.get_object_timestamp() + rebuild_delay_frames > current_frame {
                     info_opt = info.get_next_mut();
                     continue;
                 }
+                log::debug!("Enabling rebuild for {}", name);
                 info.set_object_timestamp(0);
             }
 
