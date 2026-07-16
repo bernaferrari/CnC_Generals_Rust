@@ -275,8 +275,14 @@ impl TeamInQueue {
     }
 
     /// C++ `TeamInQueue::includesADozer` — any work order KINDOF_DOZER.
+    /// C++ `TeamInQueue::includesADozer`:
+    /// KINDOF_DOZER and not a resource-gatherer work order (GLA workers are both).
     pub fn includes_a_dozer(&self) -> bool {
         self.work_orders.iter().any(|order| {
+            // C++: isKindOf(DOZER) && !order->m_isResourceGatherer
+            if order.is_resource_gatherer {
+                return false;
+            }
             TheThingFactory::find_template(&order.thing_template)
                 .map(|t| t.is_kind_of(KindOf::Dozer))
                 .unwrap_or_else(|| {
@@ -1063,6 +1069,10 @@ impl AIPlayer {
     ///
     /// Scan enemies (alive, non-stealthed, significant, non-harvester, non-dozer)
     /// within supply-center safe radius + template bounding radius.
+    /// C++ `AIPlayer::isLocationSafe` (AIPlayer.cpp).
+    ///
+    /// Partition closest-object filters: enemies only, alive, not stealthed,
+    /// reject harvesters/dozers. Any hit → unsafe.
     pub fn is_location_safe(&self, pos: &Coord3D, thing: &dyn ThingTemplate) -> bool {
         let Some(player_arc) = self.get_player_arc() else {
             return true;
@@ -1083,6 +1093,7 @@ impl AIPlayer {
                     .ok()
                     .map(|d| d.supply_center_safe_radius)
             })
+            .filter(|r| *r > 0.0)
             .unwrap_or(SUPPLY_CENTER_SAFE_RADIUS);
         radius += thing
             .get_template_geometry_info()
@@ -1095,21 +1106,23 @@ impl AIPlayer {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            if obj_guard.is_destroyed() {
+            // PartitionFilterAlive
+            if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
                 continue;
             }
-            // Reject harvesters / dozers (C++ PartitionFilterRejectByKindOf).
+            // PartitionFilterRejectByKindOf harvester/dozer
             if obj_guard.is_kind_of(KindOf::Harvester) || obj_guard.is_kind_of(KindOf::Dozer) {
                 continue;
             }
-            // Stealthed and not detected/disguised residual.
+            // PartitionFilterRejectByObjectStatus stealthed (unless detected/disguised)
             if obj_guard.test_status(ObjectStatusTypes::Stealthed)
                 && !obj_guard.test_status(ObjectStatusTypes::Detected)
                 && !obj_guard.test_status(ObjectStatusTypes::Disguised)
             {
                 continue;
             }
-            // Affiliation: only enemies (ALLOW_ALLIES|ALLOW_NEUTRAL rejected).
+            // PartitionFilterPlayerAffiliation: enemies only
+            // (ALLOW_ALLIES|ALLOW_NEUTRAL rejected via affiliation=false)
             let Some(team_arc) = obj_guard.get_team() else {
                 continue;
             };
@@ -1119,9 +1132,13 @@ impl AIPlayer {
             if player_guard.get_relationship_with_team(&team) != Relationship::Enemies {
                 continue;
             }
-            // Significant buildings filter residual: skip pure civilians if flagged.
-            // Any enemy that passes filters fails safety.
-            let _ = thing;
+            // PartitionFilterInsignificantBuildings(true, false): reject bridges /
+            // bridge towers as insignificant for placement safety (closest match
+            // without KINDOF_INSIGNIFICANT_BUILDING enum in port).
+            if obj_guard.is_kind_of(KindOf::Bridge) || obj_guard.is_kind_of(KindOf::BridgeTower) {
+                continue;
+            }
+            // Any enemy that passes filters fails safety (C++ getClosestObject != NULL).
             return false;
         }
         true
@@ -7276,10 +7293,28 @@ mod tests {
     fn includes_a_dozer_uses_kindof_dozer() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src.find("pub fn includes_a_dozer").expect("includesADozer");
-        let window = &src[i..src.len().min(i + 900)];
+        let window = &src[i..src.len().min(i + 1200)];
         assert!(
-            window.contains("KindOf::Dozer") && window.contains("find_template"),
-            "includesADozer must check KINDOF_DOZER on template"
+            window.contains("KindOf::Dozer")
+                && window.contains("find_template")
+                && window.contains("is_resource_gatherer"),
+            "includesADozer must check KINDOF_DOZER and exclude resource gatherers"
+        );
+    }
+
+    #[test]
+    fn is_location_safe_filters_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("pub fn is_location_safe").expect("isLocationSafe");
+        let window = &src[i..src.len().min(i + 3500)];
+        assert!(
+            window.contains("supply_center_safe_radius")
+                && window.contains("KindOf::Harvester")
+                && window.contains("KindOf::Dozer")
+                && window.contains("ObjectStatusTypes::Stealthed")
+                && window.contains("Relationship::Enemies")
+                && window.contains("is_effectively_dead"),
+            "isLocationSafe must apply C++ partition filters"
         );
     }
 
