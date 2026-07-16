@@ -4784,27 +4784,67 @@ impl AIPlayer {
             }
         }
 
-        // C++ stamps build-list entry (setObjectID/timestamp/underConstruction).
+        // C++ stamps the BuildListInfo* passed into buildStructureWithDozer
+        // (setObjectID/timestamp/underConstruction). Match that entry by template
+        // + requested location so duplicate templates do not steal the stamp.
         // decrementNumRebuilds is done by caller in C++ processBaseBuilding; we
         // keep decrement here for solo process_base_building which does not.
         if let Ok(list) = player_list().read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(mut pg) = player_arc.write() {
                     if let Some(info) = pg.get_build_list_mut() {
-                        let mut cur = Some(&mut *info);
-                        while let Some(node) = cur {
-                            if node.get_template_name().as_str() == template_name
-                                && node.get_object_id() == INVALID_ID
-                            {
-                                node.set_object_id(bldg_id);
-                                node.set_object_timestamp(
-                                    TheGameLogic::get_frame().saturating_add(1),
-                                );
-                                node.set_under_construction(true);
-                                node.decrement_num_rebuilds();
-                                break;
+                        // Pass 1: prefer location match (C++ pointer identity).
+                        let mut best_loc: Option<Coord3D> = None;
+                        let mut best_dist = f32::MAX;
+                        let mut fallback_loc: Option<Coord3D> = None;
+                        {
+                            let mut cur = Some(&*info);
+                            while let Some(node) = cur {
+                                if node.get_template_name().as_str() == template_name
+                                    && node.get_object_id() == INVALID_ID
+                                {
+                                    let nloc = *node.get_location();
+                                    let dx = nloc.x - location.x;
+                                    let dy = nloc.y - location.y;
+                                    let d2 = dx * dx + dy * dy;
+                                    if d2 < best_dist {
+                                        best_dist = d2;
+                                        best_loc = Some(nloc);
+                                    }
+                                    if fallback_loc.is_none() {
+                                        fallback_loc = Some(nloc);
+                                    }
+                                }
+                                cur = node.get_next();
                             }
-                            cur = node.get_next_mut();
+                        }
+                        // Exact-ish location first; else first free slot of that template.
+                        let stamp_loc = if best_dist <= 1.0 {
+                            best_loc
+                        } else {
+                            fallback_loc.or(best_loc)
+                        };
+                        if let Some(target) = stamp_loc {
+                            let mut cur = Some(&mut *info);
+                            while let Some(node) = cur {
+                                if node.get_template_name().as_str() == template_name
+                                    && node.get_object_id() == INVALID_ID
+                                {
+                                    let nloc = *node.get_location();
+                                    let dx = nloc.x - target.x;
+                                    let dy = nloc.y - target.y;
+                                    if dx * dx + dy * dy <= 1.0 {
+                                        node.set_object_id(bldg_id);
+                                        node.set_object_timestamp(
+                                            TheGameLogic::get_frame().saturating_add(1),
+                                        );
+                                        node.set_under_construction(true);
+                                        node.decrement_num_rebuilds();
+                                        break;
+                                    }
+                                }
+                                cur = node.get_next_mut();
+                            }
                         }
                     }
                 }
@@ -8026,8 +8066,9 @@ mod tests {
                 && window.contains("decrement_num_rebuilds")
                 && window.contains("is_location_safe")
                 && window.contains("120.0 * PATHFIND_CELL_SIZE_F")
+                && window.contains("prefer location match")
                 && !window.contains("let _ = self.queue_dozer()"),
-            "buildStructureWithDozer must validate placement, skirmish wiggle, no double queueDozer"
+            "buildStructureWithDozer must stamp BuildListInfo by location, skirmish wiggle, no double queueDozer"
         );
     }
 
