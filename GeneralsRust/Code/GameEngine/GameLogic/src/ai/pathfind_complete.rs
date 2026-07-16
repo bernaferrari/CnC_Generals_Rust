@@ -6221,6 +6221,7 @@ impl PathfindingSystem {
     ///
     /// Uses the zone manager to verify that start and end are in connected
     /// zones, then delegates to the full A* pathfinder.
+    /// C++ `Pathfinder::findHierarchicalPath` → internal_findHierarchicalPath(closestOK=false).
     pub fn find_hierarchical_path(
         &self,
         start: Coord3D,
@@ -6228,57 +6229,10 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
     ) -> Option<PathResult> {
-        let start_cell = GridCoord::from_world(&start);
-        let end_cell = GridCoord::from_world(&end);
-
-        // C++ effective zone equality on start/goal (internal_findHierarchicalPath).
-        // Bridge layers can join otherwise-disjoint ground zones.
-        if let Ok(zones) = self.zones.lock() {
-            let z1 = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(start_cell));
-            let z2 = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(end_cell));
-            if z1 != 0 && z2 != 0 && z1 != z2 {
-                drop(zones);
-                if !self
-                    .hierarchical_zones_join_via_bridge(start_cell, end_cell, surfaces, is_crusher)
-                {
-                    return None;
-                }
-            } else if !zones.are_connected(start_cell, end_cell, surfaces, is_crusher) {
-                drop(zones);
-                if !self
-                    .hierarchical_zones_join_via_bridge(start_cell, end_cell, surfaces, is_crusher)
-                {
-                    return None;
-                }
-            }
-        }
-
-        // Zones are connected – run full A*
-        let request = PathRequest {
-            object_id: INVALID_ID,
-            from: start,
-            to: end,
-            surfaces,
-            is_crusher,
-            unit_radius: 0.0,
-            allow_partial: false,
-            move_allies: false,
-            ignore_obstacle_id: None,
-            is_human: false,
-        };
-        // Use internal A* — find_path would recurse through hierarchical precheck.
-        let result = self.find_path_internal(request);
-        if result.success {
-            Some(result)
-        } else {
-            None
-        }
+        self.internal_find_hierarchical_path(start, end, surfaces, is_crusher, false, false)
     }
 
-    /// Find closest reachable hierarchical path (for unreachable goals).
-    /// Matches C++ Pathfinder::findClosestHierarchicalPath().
-    ///
-    /// If exact path fails, searches nearby cells for reachable alternatives.
+    /// C++ `Pathfinder::findClosestHierarchicalPath` → closestOK=true.
     pub fn find_closest_hierarchical_path(
         &self,
         start: Coord3D,
@@ -6286,44 +6240,267 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
     ) -> Option<PathResult> {
-        // Try exact path first
-        if let Some(result) = self.find_hierarchical_path(start, end, surfaces, is_crusher) {
-            return Some(result);
+        self.internal_find_hierarchical_path(start, end, surfaces, is_crusher, true, false)
+    }
+
+    /// C++ `Pathfinder::internal_findHierarchicalPath` (AIPathfind.cpp:7434+).
+    ///
+    /// Zone-block A* using processHierarchicalCell + bridge jumps. On success
+    /// builds a cell path via find_path_internal from start to the reached cell
+    /// (exact goal or closest block when `closest_ok`).
+    pub fn internal_find_hierarchical_path(
+        &self,
+        start: Coord3D,
+        end: Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        closest_ok: bool,
+        is_human: bool,
+    ) -> Option<PathResult> {
+        const COST_ORTHO: i32 = 10;
+        const MAX_CELLS: i32 = 5000;
+
+        if !self.is_map_ready {
+            return None;
+        }
+        // C++ rejects path to 0,0 as generally a bug.
+        if end.x == 0.0 && end.y == 0.0 {
+            return None;
         }
 
-        // Search nearby cells for reachable alternatives
-        let goal_cell = GridCoord::from_world(&end);
-        let max_search: i32 = 20;
-
-        for radius in 1..=max_search {
-            for dx in -radius..=radius {
-                for dy in -radius..=radius {
-                    if dx.abs() < radius && dy.abs() < radius {
-                        continue;
-                    }
-                    let test_coord = GridCoord::new(goal_cell.x + dx, goal_cell.y + dy);
-                    if !self.is_valid_coord(test_coord) {
-                        continue;
-                    }
-                    // Check if this cell is passable
-                    let pathfinder = self.pathfinder.lock().unwrap();
-                    let passable = pathfinder.is_passable(test_coord, surfaces, is_crusher);
-                    drop(pathfinder);
-                    if !passable {
-                        continue;
-                    }
-
-                    let test_pos = test_coord.to_world(PathfindLayerEnum::Ground);
-                    if let Some(result) =
-                        self.find_hierarchical_path(start, test_pos, surfaces, is_crusher)
-                    {
-                        return Some(result);
-                    }
-                }
+        let start_cell = GridCoord::from_world(&start);
+        let end_cell = GridCoord::from_world(&end);
+        if !self.is_valid_coord(start_cell) || !self.is_valid_coord(end_cell) {
+            return None;
+        }
+        if is_human && (!self.in_logical_extent(start_cell) || !self.in_logical_extent(end_cell)) {
+            if is_human && !self.in_logical_extent(start_cell) {
+                return None;
             }
         }
 
-        None
+        // Effective zone equality gate (C++ zone1 != zone2 early out).
+        let (z1, z2) = {
+            let Ok(zones) = self.zones.lock() else {
+                return None;
+            };
+            let a = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(start_cell));
+            let b = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(end_cell));
+            (a, b)
+        };
+        if z1 != 0 && z2 != 0 && z1 != z2 {
+            if !self.hierarchical_zones_join_via_bridge(start_cell, end_cell, surfaces, is_crusher)
+            {
+                return None;
+            }
+        }
+
+        let goal_block_zone = {
+            let Ok(zones) = self.zones.lock() else {
+                return None;
+            };
+            zones.get_block_zone(surfaces, is_crusher, end_cell.x, end_cell.y)
+        };
+        let goal_block_ndx = (
+            end_cell.x.div_euclid(ZONE_BLOCK_SIZE),
+            end_cell.y.div_euclid(ZONE_BLOCK_SIZE),
+        );
+
+        // Hierarchical open list: f = g + h_to_goal_block, store (f, g, x, y).
+        let hier_h = |c: GridCoord| -> i32 {
+            let bx = c.x.div_euclid(ZONE_BLOCK_SIZE);
+            let by = c.y.div_euclid(ZONE_BLOCK_SIZE);
+            let dx = (goal_block_ndx.0 - bx).abs();
+            let dy = (goal_block_ndx.1 - by).abs();
+            // Block-scale orthogonal cost.
+            (dx + dy) * COST_ORTHO * ZONE_BLOCK_SIZE
+        };
+
+        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
+            std::collections::BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+        open.push(std::cmp::Reverse((
+            hier_h(start_cell),
+            0,
+            start_cell.x,
+            start_cell.y,
+        )));
+        g_score.insert((start_cell.x, start_cell.y), 0);
+
+        let mut closest: Option<(GridCoord, f32)> = None;
+        let mut cell_count = 0i32;
+        let mut reached: Option<GridCoord> = None;
+
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            let parent = GridCoord::new(cx, cy);
+            cell_count += 1;
+            if cell_count > MAX_CELLS {
+                break;
+            }
+
+            let parent_zone = {
+                let Ok(zones) = self.zones.lock() else {
+                    break;
+                };
+                zones.get_block_zone(surfaces, is_crusher, cx, cy)
+            };
+
+            let block_x = cx.div_euclid(ZONE_BLOCK_SIZE);
+            let block_y = cy.div_euclid(ZONE_BLOCK_SIZE);
+            let mut at_goal = parent_zone == goal_block_zone
+                && block_x == goal_block_ndx.0
+                && block_y == goal_block_ndx.1;
+            // Exact cell match also counts.
+            if cx == end_cell.x && cy == end_cell.y {
+                at_goal = true;
+            }
+
+            if at_goal {
+                reached = Some(parent);
+                break;
+            }
+
+            // Track closest for closestOK.
+            if closest_ok {
+                let dx = (end_cell.x - cx).abs() as f32;
+                let dy = (end_cell.y - cy).abs() as f32;
+                let d2 = dx * dx + dy * dy;
+                if closest.map(|(_, bd)| d2 < bd).unwrap_or(true) {
+                    closest = Some((parent, d2));
+                }
+            }
+
+            // Expand hierarchical neighbors (orthogonal zone-block steps +
+            // same-block cell steps for denser open-list like C++ block scan).
+            let mut examined = Vec::new();
+            let expand_deltas: [(i32, i32); 8] = [
+                (ZONE_BLOCK_SIZE, 0),
+                (0, ZONE_BLOCK_SIZE),
+                (-ZONE_BLOCK_SIZE, 0),
+                (0, -ZONE_BLOCK_SIZE),
+                (1, 0),
+                (0, 1),
+                (-1, 0),
+                (0, -1),
+            ];
+            for &(dx, dy) in &expand_deltas {
+                // C++ processHierarchicalCell(scan = parent, delta) expands into adj.
+                if let Some((adj, _nz)) = self.process_hierarchical_cell(
+                    parent,
+                    (dx, dy),
+                    parent_zone,
+                    surfaces,
+                    is_crusher,
+                    &mut examined,
+                ) {
+                    let key = (adj.x, adj.y);
+                    if closed.contains(&key) {
+                        continue;
+                    }
+                    if is_human && !self.in_logical_extent(adj) {
+                        continue;
+                    }
+                    let step = COST_ORTHO * ZONE_BLOCK_SIZE;
+                    let ng = g + step;
+                    if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                        continue;
+                    }
+                    g_score.insert(key, ng);
+                    came_from.insert(key, (cx, cy));
+                    let f = ng + hier_h(adj);
+                    open.push(std::cmp::Reverse((f, ng, adj.x, adj.y)));
+                }
+            }
+
+            // Bridge jumps from this cell.
+            for (far, _far_z, hit_goal) in self.hierarchical_bridge_jumps(
+                parent,
+                parent_zone,
+                goal_block_zone,
+                surfaces,
+                is_crusher,
+                &mut examined,
+            ) {
+                if hit_goal {
+                    reached = Some(far);
+                    // continue processing but mark goal
+                }
+                let key = (far.x, far.y);
+                if closed.contains(&key) {
+                    continue;
+                }
+                let step = COST_ORTHO * ZONE_BLOCK_SIZE;
+                let ng = g + step;
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                came_from.insert(key, (cx, cy));
+                let f = ng + hier_h(far);
+                open.push(std::cmp::Reverse((f, ng, far.x, far.y)));
+            }
+
+            if reached.is_some() {
+                break;
+            }
+        }
+
+        let dest_cell = if let Some(c) = reached {
+            c
+        } else if closest_ok {
+            closest.map(|(c, _)| c).unwrap_or(end_cell)
+        } else {
+            // Zone-block A* found no block path — if effective zones still connect
+            // (open ground single zone), fall through to cell A* like prior residual.
+            let connected = self
+                .zones
+                .lock()
+                .map(|z| z.are_connected(start_cell, end_cell, surfaces, is_crusher))
+                .unwrap_or(false)
+                || self
+                    .hierarchical_zones_join_via_bridge(start_cell, end_cell, surfaces, is_crusher);
+            if !connected {
+                return None;
+            }
+            end_cell
+        };
+
+        // Prefer exact goal world pos when we landed in goal block.
+        let to = if dest_cell.x == end_cell.x && dest_cell.y == end_cell.y {
+            end
+        } else if reached.is_some()
+            && dest_cell.x.div_euclid(ZONE_BLOCK_SIZE) == goal_block_ndx.0
+            && dest_cell.y.div_euclid(ZONE_BLOCK_SIZE) == goal_block_ndx.1
+        {
+            end
+        } else {
+            dest_cell.to_world(PathfindLayerEnum::Ground)
+        };
+
+        let request = PathRequest {
+            object_id: INVALID_ID,
+            from: start,
+            to,
+            surfaces,
+            is_crusher,
+            unit_radius: 0.0,
+            allow_partial: closest_ok,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human,
+        };
+        let result = self.find_path_internal(request);
+        if result.success {
+            Some(result)
+        } else {
+            None
+        }
     }
 
     // ========================================================================
@@ -11109,5 +11286,39 @@ mod tests {
         let r = system.find_closest_path(req);
         assert!(r.success);
         assert!(r.waypoints.len() >= 2);
+    }
+
+    #[test]
+    fn internal_find_hierarchical_path_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn internal_find_hierarchical_path")
+            .expect("internal_findHierarchicalPath");
+        let w = &prod[i..prod.len().min(i + 9000)];
+        assert!(
+            w.contains("process_hierarchical_cell")
+                && w.contains("hierarchical_bridge_jumps")
+                && w.contains("ZONE_BLOCK_SIZE")
+                && w.contains("closest_ok"),
+            "hierarchical path must zone-block A* with processHierarchicalCell"
+        );
+    }
+
+    #[test]
+    fn hierarchical_path_open_ground() {
+        let mut system = PathfindingSystem::new(64, 64);
+        system.new_map();
+        // Force zone calc
+        system.recalculate_zones_from_cells();
+        let start = Coord3D::new(30.0, 30.0, 0.0);
+        let end = Coord3D::new(200.0, 180.0, 0.0);
+        let r = system.find_hierarchical_path(start, end, SURFACE_GROUND, false);
+        assert!(r.is_some(), "hierarchical should connect open ground");
+        let path = r.unwrap();
+        assert!(path.success && path.waypoints.len() >= 2);
     }
 }
