@@ -1383,6 +1383,14 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    pub fn get_fence_width(&self) -> Real {
+        self.fence_width
+    }
+
+    pub fn get_fence_x_offset(&self) -> Real {
+        self.fence_x_offset
+    }
+
     pub fn new() -> Self {
         Self {
             template_id: 0,

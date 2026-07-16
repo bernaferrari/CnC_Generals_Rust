@@ -2707,6 +2707,14 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_build_cost(&self) -> Int {
         0
     }
+    /// C++ ThingTemplate::getFenceWidth().
+    fn get_fence_width(&self) -> Real {
+        0.0
+    }
+    /// C++ ThingTemplate::getFenceXOffset().
+    fn get_fence_x_offset(&self) -> Real {
+        0.0
+    }
     fn get_experience_value(&self, _level: usize) -> Int {
         0
     }

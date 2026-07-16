@@ -373,6 +373,14 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.get_build_cost() as crate::common::Int
     }
 
+    fn get_fence_width(&self) -> crate::common::Real {
+        self.inner.get_fence_width()
+    }
+
+    fn get_fence_x_offset(&self) -> crate::common::Real {
+        self.inner.get_fence_x_offset()
+    }
+
     fn get_experience_value(&self, level: usize) -> crate::common::Int {
         self.inner.get_experience_value(level)
     }
