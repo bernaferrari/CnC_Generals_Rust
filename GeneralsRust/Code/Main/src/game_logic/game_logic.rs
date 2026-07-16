@@ -6209,6 +6209,43 @@ impl GameLogic {
                         }
                     }
 
+                    // C++ Weapon MinTargetPitch/MaxTargetPitch residual: reject shots
+                    // whose elevation angle is outside the weapon loft window.
+                    {
+                        let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
+                            let wname = if slot == 1 {
+                                attacker
+                                    .thing
+                                    .template
+                                    .secondary_weapon_name
+                                    .as_deref()
+                                    .or(attacker.thing.template.primary_weapon_name.as_deref())
+                            } else {
+                                attacker.thing.template.primary_weapon_name.as_deref()
+                            };
+                            let limits = wname
+                                .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
+                                .unwrap_or_default();
+                            crate::game_logic::weapon_bootstrap::is_pitch_within_limits(
+                                attacker.get_position(),
+                                target_position,
+                                &limits,
+                            )
+                        } else {
+                            true
+                        };
+                        if !pitch_ok {
+                            // Out of pitch: keep engagement but do not fire this frame
+                            // (C++ AI continues aiming / repositioning).
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                attacker.ai_state = AIState::Attacking;
+                                attacker.status.attacking = true;
+                                attacker.target = Some(target_id);
+                            }
+                            continue;
+                        }
+                    }
+
                     // C++ PreAttackType residual: wind-up before first discharge of
                     // shot / attack / clip. Shared Object helpers match fire_at.
                     {
@@ -7562,6 +7599,35 @@ impl GameLogic {
                     };
                     if !aim_ok {
                         continue;
+                    }
+
+                    // Pitch window residual for ground fire.
+                    {
+                        let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
+                            let wname = if ground_slot == 1 {
+                                attacker
+                                    .thing
+                                    .template
+                                    .secondary_weapon_name
+                                    .as_deref()
+                                    .or(attacker.thing.template.primary_weapon_name.as_deref())
+                            } else {
+                                attacker.thing.template.primary_weapon_name.as_deref()
+                            };
+                            let limits = wname
+                                .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
+                                .unwrap_or_default();
+                            crate::game_logic::weapon_bootstrap::is_pitch_within_limits(
+                                attacker.get_position(),
+                                target_location,
+                                &limits,
+                            )
+                        } else {
+                            true
+                        };
+                        if !pitch_ok {
+                            continue;
+                        }
                     }
                     let mut weapon_damage = if rocket_pod_ground {
                         self.objects
@@ -70139,5 +70205,99 @@ mod tests {
             });
         }
         assert!(logic.try_return_to_base_rearm(jet2));
+    }
+    #[test]
+    fn target_pitch_gate_blocks_strategy_center_flat_shot() {
+        use crate::game_logic::weapon_bootstrap::{
+            host_target_pitch_limits_for_weapon_name, is_pitch_within_limits,
+        };
+        let mut logic = GameLogic::new();
+        // Install attacker template with Strategy Center artillery loft residual.
+        {
+            let mut tmpl = ThingTemplate::new("PitchSc");
+            tmpl.primary_weapon_name = Some("AmericaStrategyCenterArtillery".into());
+            tmpl.add_kind_of(KindOf::Structure);
+            // CanAttack residual covered by weapon + structure kinds
+            tmpl.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("PitchSc".into(), tmpl);
+            let mut tt = ThingTemplate::new("PitchTgt");
+            tt.add_kind_of(KindOf::Vehicle);
+            tt.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("PitchTgt".into(), tt);
+        }
+        let sc = logic
+            .create_object("PitchSc", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("sc");
+        let tgt = logic
+            .create_object("PitchTgt", Team::China, glam::Vec3::new(100.0, 0.0, 0.0))
+            .expect("tgt");
+        if let Some(o) = logic.objects.get_mut(&sc) {
+            o.weapon = Some(Weapon {
+                damage: 50.0,
+                range: 400.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+            o.health.current = 5000.0;
+            o.health.maximum = 5000.0;
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        if let Some(o) = logic.objects.get_mut(&tgt) {
+            o.health.current = 500.0;
+            o.health.maximum = 500.0;
+        }
+        let h0 = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        for _ in 0..30 {
+            logic.update_combat(&[sc, tgt], 1.0 / 30.0);
+        }
+        let h1 = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (h1 - h0).abs() < 0.01,
+            "flat pitch must not deal damage (h0={h0} h1={h1})"
+        );
+
+        // Elevate target into loft window (~60°) and allow fire.
+        if let Some(o) = logic.objects.get_mut(&tgt) {
+            let dy = 100.0_f32 * 60f32.to_radians().tan();
+            o.set_position(glam::Vec3::new(100.0, dy, 0.0));
+            o.health.current = h0;
+        }
+        if let Some(o) = logic.objects.get_mut(&sc) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        for _ in 0..30 {
+            logic.update_combat(&[sc, tgt], 1.0 / 30.0);
+        }
+        let h2 = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            h2 < h0 - 1.0,
+            "lofted pitch must allow fire (h0={h0} h2={h2})"
+        );
+        let lim = host_target_pitch_limits_for_weapon_name("AmericaStrategyCenterArtillery");
+        assert!(!is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(100.0, 0.0, 0.0),
+            &lim
+        ));
     }
 }
