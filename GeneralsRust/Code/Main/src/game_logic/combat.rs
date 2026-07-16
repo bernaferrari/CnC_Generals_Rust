@@ -75,6 +75,8 @@ pub struct Projectile {
     pub shock_wave_radius: f32,
     /// C++ ShockWaveTaperOff residual.
     pub shock_wave_taper_off: f32,
+    /// C++ RadiusDamageAffects residual mask.
+    pub radius_damage_affects: u32,
 }
 
 impl Projectile {
@@ -115,6 +117,8 @@ impl Projectile {
             shock_wave_amount: 0.0,
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
+            radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
         }
     }
 
@@ -193,6 +197,12 @@ pub enum DamageEvent {
         shock_wave_amount: f32,
         shock_wave_radius: f32,
         shock_wave_taper_off: f32,
+        /// C++ RadiusDamageAffects residual mask.
+        radius_damage_affects: u32,
+        /// Shooter team frozen at impact for ally/enemy filter.
+        shooter_team: crate::game_logic::Team,
+        /// Shooter template name residual (NOT_SIMILAR filter).
+        shooter_template: String,
     },
 }
 
@@ -258,6 +268,8 @@ pub struct PendingProjectile {
     pub shock_wave_radius: f32,
     /// C++ ShockWaveTaperOff residual.
     pub shock_wave_taper_off: f32,
+    /// C++ RadiusDamageAffects residual mask.
+    pub radius_damage_affects: u32,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -323,6 +335,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.shock_wave_amount = p.shock_wave_amount;
             proj.shock_wave_radius = p.shock_wave_radius;
             proj.shock_wave_taper_off = p.shock_wave_taper_off;
+            proj.radius_damage_affects = p.radius_damage_affects;
         }
     }
 }
@@ -513,6 +526,15 @@ impl CombatSystem {
                             shock_wave_amount: projectile.shock_wave_amount,
                             shock_wave_radius: projectile.shock_wave_radius,
                             shock_wave_taper_off: projectile.shock_wave_taper_off,
+                            radius_damage_affects: projectile.radius_damage_affects,
+                            shooter_team: objects
+                                .get(&projectile.shooter_id)
+                                .map(|o| o.team)
+                                .unwrap_or(crate::game_logic::Team::Neutral),
+                            shooter_template: objects
+                                .get(&projectile.shooter_id)
+                                .map(|o| o.template_name.clone())
+                                .unwrap_or_default(),
                         });
                     } else {
                         damage_events.push(DamageEvent::Direct {
@@ -558,6 +580,15 @@ impl CombatSystem {
                                     shock_wave_amount: projectile.shock_wave_amount,
                                     shock_wave_radius: projectile.shock_wave_radius,
                                     shock_wave_taper_off: projectile.shock_wave_taper_off,
+                                    radius_damage_affects: projectile.radius_damage_affects,
+                                    shooter_team: objects
+                                        .get(&projectile.shooter_id)
+                                        .map(|o| o.team)
+                                        .unwrap_or(crate::game_logic::Team::Neutral),
+                                    shooter_template: objects
+                                        .get(&projectile.shooter_id)
+                                        .map(|o| o.template_name.clone())
+                                        .unwrap_or_default(),
                                 });
                             } else {
                                 damage_events.push(DamageEvent::Direct {
@@ -600,6 +631,15 @@ impl CombatSystem {
                                 shock_wave_amount: projectile.shock_wave_amount,
                                 shock_wave_radius: projectile.shock_wave_radius,
                                 shock_wave_taper_off: projectile.shock_wave_taper_off,
+                                radius_damage_affects: projectile.radius_damage_affects,
+                                shooter_team: objects
+                                    .get(&projectile.shooter_id)
+                                    .map(|o| o.team)
+                                    .unwrap_or(crate::game_logic::Team::Neutral),
+                                shooter_template: objects
+                                    .get(&projectile.shooter_id)
+                                    .map(|o| o.template_name.clone())
+                                    .unwrap_or_default(),
                             });
                         }
                         if !projectile.detonation_fx_name.is_empty()
@@ -657,6 +697,10 @@ impl CombatSystem {
                     shock_wave_amount,
                     shock_wave_radius,
                     shock_wave_taper_off,
+                    radius_damage_affects,
+                    shooter_team,
+                    shooter_template,
+                    shooter_id,
                     ..
                 } => {
                     // C++ dealDamageInternal residual:
@@ -675,10 +719,27 @@ impl CombatSystem {
                     } else {
                         outer
                     };
-                    for (_id, obj) in objects.iter_mut() {
+                    for (vid, obj) in objects.iter_mut() {
                         let op = obj.get_position();
                         let dist = op.distance(*position);
                         if dist > push_outer {
+                            continue;
+                        }
+                        let airborne =
+                            obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                        let same_tmpl =
+                            !shooter_template.is_empty() && obj.template_name == *shooter_template;
+                        let allowed =
+                            crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
+                                *radius_damage_affects,
+                                *shooter_team,
+                                *shooter_id,
+                                *vid,
+                                obj.team,
+                                airborne,
+                                same_tmpl,
+                            );
+                        if !allowed {
                             continue;
                         }
                         if dist <= outer {
@@ -1245,6 +1306,8 @@ mod tests {
             shock_wave_amount: 0.0,
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
+            radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
@@ -1368,5 +1431,76 @@ mod tests {
             d1 > d0 + 0.1 || (pos1 - pos0).length() > 0.1,
             "shockwave must push unit outward ({pos0:?} -> {pos1:?})"
         );
+    }
+
+    #[test]
+    fn radius_damage_affects_skips_allies_by_default() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(60);
+        let ally = ObjectId(61);
+        let enemy = ObjectId(62);
+        objects.insert(
+            atk,
+            make_obj(
+                "USA_Ranger",
+                atk,
+                Team::USA,
+                Vec3::ZERO,
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            ally,
+            make_obj(
+                "USA_Ranger",
+                ally,
+                Team::USA,
+                Vec3::new(3.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            enemy,
+            make_obj(
+                "GLARebel",
+                enemy,
+                Team::GLA,
+                Vec3::new(4.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let ally0 = objects.get(&ally).unwrap().health.current;
+        let enemy0 = objects.get(&enemy).unwrap().health.current;
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            splash_radius: 20.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(4.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(enemy),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 20.0;
+            p.radius_damage_affects =
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let ally1 = objects.get(&ally).unwrap().health.current;
+        let enemy1 = objects.get(&enemy).unwrap().health.current;
+        assert_eq!(ally1, ally0, "default affects must skip allies");
+        assert!(enemy1 < enemy0 - 1.0, "enemies must take splash");
     }
 }

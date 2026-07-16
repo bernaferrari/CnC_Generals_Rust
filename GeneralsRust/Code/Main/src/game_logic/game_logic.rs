@@ -9856,6 +9856,8 @@ impl GameLogic {
             shock_wave_amount: 0.0,
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
+            radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
         });
                     }
                 }
@@ -48613,6 +48615,8 @@ mod tests {
             shock_wave_amount: 0.0,
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
+            radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
         });
 
         // One fixed step runs drain + projectile update.
