@@ -837,13 +837,17 @@ impl AIPlayer {
     ///   doBaseBuilding → checkReadyTeams → checkQueuedTeams →
     ///   doTeamBuilding → doUpgradesAndSkills → updateBridgeRepair
     ///
-    /// Timer/analysis prep runs first (Rust residual); attack decisions after the
-    /// C++ phase block (host residual — not part of C++ AIPlayer::update).
+    /// Optional host residuals (off by default for C++ parity):
+    /// - analysis prep before phases (`GENERALS_AI_HOST_ANALYSIS=1`)
+    /// - strength-threshold attack after phases (`GENERALS_AI_HOST_ATTACK=1`)
+    /// C++ skirmish attacks come from team scripts / AIGroup, not AIPlayer::update.
     pub fn update_with_frame(&mut self, frame: u32) -> Result<(), AiError> {
-        // Analysis residual (not in C++ AIPlayer::update) — keep before build phases.
-        self.analyze_economic_situation()?;
-        self.analyze_military_situation()?;
-        self.analyze_threats()?;
+        if Self::host_analysis_enabled() {
+            // Host residual (not in C++ AIPlayer::update).
+            self.analyze_economic_situation()?;
+            self.analyze_military_situation()?;
+            self.analyze_threats()?;
+        }
 
         // --- C++ AIPlayer::update phase order (timers live inside do_* ) ---
         self.do_base_building()?;
@@ -855,9 +859,40 @@ impl AIPlayer {
         // --- end C++ phase order ---
 
         // Host residual: strength-threshold attack (not in C++ AIPlayer::update).
-        self.process_attack_decisions(frame)?;
+        // Default off — opt in with GENERALS_AI_HOST_ATTACK=1 for host smoke gates.
+        if Self::host_attack_enabled() {
+            self.process_attack_decisions(frame)?;
+        }
 
         Ok(())
+    }
+
+    /// Opt-in host residual attack after C++ update phases.
+    fn host_attack_enabled() -> bool {
+        match std::env::var("GENERALS_AI_HOST_ATTACK") {
+            Ok(v) => {
+                let v = v.trim();
+                v == "1"
+                    || v.eq_ignore_ascii_case("true")
+                    || v.eq_ignore_ascii_case("on")
+                    || v.eq_ignore_ascii_case("yes")
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Opt-in host residual analysis before C++ update phases.
+    fn host_analysis_enabled() -> bool {
+        match std::env::var("GENERALS_AI_HOST_ANALYSIS") {
+            Ok(v) => {
+                let v = v.trim();
+                v == "1"
+                    || v.eq_ignore_ascii_case("true")
+                    || v.eq_ignore_ascii_case("on")
+                    || v.eq_ignore_ascii_case("yes")
+            }
+            Err(_) => false,
+        }
     }
 
     fn process_attack_decisions(&mut self, _frame: u32) -> Result<(), AiError> {
@@ -8029,7 +8064,7 @@ mod tests {
         // (delays are inside do_*, not pre-gated in update_with_frame).
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src.find("pub fn update_with_frame").expect("uwf");
-        let window = &src[i..src.len().min(i + 1600)];
+        let window = &src[i..src.len().min(i + 2800)];
         let base = window.find("self.do_base_building()?").expect("base");
         let ready = window.find("self.check_ready_teams()?").expect("ready");
         let queued = window.find("self.check_queued_teams()?").expect("queued");
@@ -8039,6 +8074,21 @@ mod tests {
             !window[..base].contains("if self.ready_to_build_structure && self.build_delay"),
             "update_with_frame must not pre-gate do_base_building (C++ always calls it)"
         );
+        assert!(
+            window.contains("host_attack_enabled()")
+                && window.contains("GENERALS_AI_HOST_ATTACK")
+                && window.contains("host_analysis_enabled()"),
+            "host residual attack/analysis must be env-gated off by default"
+        );
+    }
+
+    #[test]
+    fn host_attack_disabled_by_default_like_cpp_update() {
+        // Unset env in test process may inherit; function treats missing as false.
+        std::env::remove_var("GENERALS_AI_HOST_ATTACK");
+        assert!(!AIPlayer::host_attack_enabled());
+        std::env::remove_var("GENERALS_AI_HOST_ANALYSIS");
+        assert!(!AIPlayer::host_analysis_enabled());
     }
 
     #[test]
