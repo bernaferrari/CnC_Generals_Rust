@@ -2008,6 +2008,29 @@ impl Pathfinder {
     }
 
     /// C++ `Pathfinder::moveAllies`.
+
+    /// C++ `Pathfinder::getMoveAwayFromPath`.
+    pub fn get_move_away_from_path(
+        &mut self,
+        from: &Coord3D,
+        path_to_avoid: &[Coord3D],
+        path_to_avoid2: Option<&[Coord3D]>,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        other_radius: f32,
+    ) -> Option<Coord3D> {
+        self.inner.get_move_away_from_path(
+            from,
+            path_to_avoid,
+            path_to_avoid2,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            other_radius,
+        )
+    }
+
     pub fn move_allies(
         &mut self,
         obj_id: ObjectID,
