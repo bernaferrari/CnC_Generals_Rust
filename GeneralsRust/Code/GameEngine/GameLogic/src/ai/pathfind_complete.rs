@@ -1451,6 +1451,7 @@ impl PathfindingSystem {
         F: FnMut(&Coord3D) -> bool,
         G: FnMut(&Coord3D, &Coord3D) -> bool,
     {
+        // C++ Pathfinder::findAttackPath (AIPathfind.cpp:10506-10880).
         if !self.is_map_ready {
             return PathResult::none();
         }
@@ -1497,7 +1498,6 @@ impl PathfindingSystem {
                         break;
                     }
                     if in_range(&test) && !view_blocked(from, &test) {
-                        // two-node path: from → test
                         return PathResult {
                             success: true,
                             waypoints: vec![*from, test],
@@ -1522,86 +1522,307 @@ impl PathfindingSystem {
             }
         }
 
-        // Spiral search for attack position within attack_distance + 3 cells.
-        let max_dist = attack_distance + 3.0 * PATHFIND_CELL_SIZE_F;
-        let max_dist_sqr = max_dist * max_dist;
-        let start = GridCoord::from_world(from);
-        let victim_cell = GridCoord::from_world(victim_pos);
-        let search_r = ((max_dist / PATHFIND_CELL_SIZE_F).ceil() as i32)
-            .max(2)
-            .min(40);
+        // C++ attackDistance includes +3*PATHFIND_CELL_SIZE already at call sites.
+        // Here `attack_distance` is weapon range; match C++ by adding 3 cells for expand budget.
+        let attack_dist_cells = ((attack_distance / PATHFIND_CELL_SIZE_F).round() as i32) + 3;
+        let attack_dist_cost_units = attack_dist_cells.max(0) as u32 * COST_ORTHOGONAL;
 
-        let mut best: Option<(PathResult, f32)> = None;
-        for r in 0..=search_r {
-            for dx in -r..=r {
-                for dy in -r..=r {
-                    if r > 0 && dx.abs() != r && dy.abs() != r {
-                        continue;
+        let start = Self::cell_for_unit_position(from, center_in_cell);
+        if !self.is_valid_coord(start) {
+            return PathResult::none();
+        }
+        let victim_cell = GridCoord::from_world(victim_pos);
+        let is_vehicle = Self::object_is_vehicle(obj_id);
+
+        // A* open list: (f, g, x, y). Goal is any in-range attack cell, not victim cell.
+        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
+            std::collections::BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
+
+        const ATTACK_CELL_LIMIT: i32 = 2500;
+        let mut cell_count = 0i32;
+        let mut found_cell: Option<GridCoord> = None;
+        let mut closest_cell: Option<GridCoord> = None;
+        let mut closest_dist_sqr = f32::MAX;
+
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            let cell = GridCoord::new(cx, cy);
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+
+            let mut cell_center = Coord3D::new(0.0, 0.0, 0.0);
+            self.adjust_coord_to_cell(cx, cy, center_in_cell, &mut cell_center, layer);
+
+            // C++: weapon in range + checkDestination → candidate; reject start cell.
+            let dest_ok = self.is_destination_valid(
+                cell,
+                layer,
+                surfaces,
+                is_crusher,
+                radius,
+                center_in_cell,
+                None,
+            );
+            if dest_ok && in_range(&cell_center) {
+                let mut blocked = false;
+                // Never accept starting cell (C++ viewBlocked = true for start).
+                if cell.x == start.x && cell.y == start.y {
+                    blocked = true;
+                } else {
+                    let dx = cell_center.x - from.x;
+                    let dy = cell_center.y - from.y;
+                    if dx * dx + dy * dy < (PATHFIND_CELL_SIZE_F * 0.5).powi(2) {
+                        blocked = true;
                     }
-                    // Prefer cells near victim ring
-                    let cell = GridCoord::new(victim_cell.x + dx, victim_cell.y + dy);
-                    if !self.is_valid_coord(cell) {
-                        continue;
-                    }
-                    let goal = self.world_pos_for_coord(cell, layer);
-                    let ddx = goal.x - victim_pos.x;
-                    let ddy = goal.y - victim_pos.y;
-                    let d2 = ddx * ddx + ddy * ddy;
-                    if d2 > max_dist_sqr {
-                        continue;
-                    }
-                    if !self.is_destination_valid(
-                        cell,
-                        layer,
-                        surfaces,
-                        is_crusher,
-                        radius,
-                        center_in_cell,
-                        None,
-                    ) {
-                        continue;
-                    }
-                    if is_human && !self.in_logical_extent(cell) {
-                        continue;
-                    }
-                    if !in_range(&goal) || view_blocked(from, &goal) {
-                        continue;
-                    }
-                    let req = PathRequest {
-                        object_id: obj_id,
-                        from: *from,
-                        to: goal,
-                        surfaces,
-                        is_crusher,
-                        unit_radius,
-                        allow_partial: false,
-                        move_allies: false,
-                        ignore_obstacle_id: None,
-                        is_human,
-                    };
-                    let path = self.find_path(req);
-                    if !path.success {
-                        continue;
-                    }
-                    // Prefer closer to start
-                    let sdx = goal.x - from.x;
-                    let sdy = goal.y - from.y;
-                    let score = sdx * sdx + sdy * sdy;
-                    let better = match &best {
-                        None => true,
-                        Some((_, b)) => score < *b,
-                    };
-                    if better {
-                        best = Some((path, score));
+                }
+                if !blocked && view_blocked(from, &cell_center) {
+                    blocked = true;
+                }
+                if !blocked {
+                    found_cell = Some(cell);
+                    break;
+                }
+            }
+
+            // Track closest valid movement cell to victim (fallback).
+            if dest_ok {
+                let Ok(pf) = self.pathfinder.lock() else {
+                    continue;
+                };
+                if pf.is_passable(cell, surfaces, is_crusher) {
+                    let dx = (victim_cell.x - cx).abs() as f32;
+                    let dy = (victim_cell.y - cy).abs() as f32;
+                    let d2 = dx * dx + dy * dy;
+                    if d2 < closest_dist_sqr {
+                        closest_dist_sqr = d2;
+                        closest_cell = Some(cell);
                     }
                 }
             }
-            if best.is_some() && r >= 2 {
-                break;
+
+            if cell_count >= ATTACK_CELL_LIMIT {
+                continue;
+            }
+            cell_count += 1;
+            let _ = self.check_change_layers(cell);
+
+            // Expand neighbors with attackDistance costs (C++ examineNeighboringCells).
+            for (i, &(dx, dy)) in deltas.iter().enumerate() {
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridCoord::new(nx, ny);
+                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                if is_human && !self.in_logical_extent(nc) {
+                    continue;
+                }
+                // Diagonal corner cut
+                if i >= 4 {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
+                        || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
+                    {
+                        continue;
+                    }
+                }
+                {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(nc, surfaces, is_crusher) {
+                        continue;
+                    }
+                }
+
+                let mut step = if i >= 4 {
+                    COST_DIAGONAL as i32
+                } else {
+                    COST_ORTHOGONAL as i32
+                };
+
+                // Movement occupancy costs
+                let mut info = CheckMovementInfo {
+                    cell: nc,
+                    layer,
+                    center_in_cell,
+                    radius,
+                    consider_transient: false,
+                    acceptable_surfaces: surfaces,
+                    ..Default::default()
+                };
+                let move_ok = if obj_id != INVALID_ID {
+                    self.check_for_movement(obj_id, &mut info)
+                } else {
+                    true
+                };
+                if !move_ok || info.enemy_fixed {
+                    continue;
+                }
+                if info.ally_fixed_count > 0 {
+                    step += 3 * COST_DIAGONAL as i32;
+                }
+                let sdx = (nx - start.x).abs();
+                let sdy = (ny - start.y).abs();
+                if info.ally_moving && sdx < 10 && sdy < 10 {
+                    step += 3 * COST_DIAGONAL as i32;
+                }
+                // C++ attack path: allyGoal → vehicle 3*ORTHO else ORTHO
+                if info.ally_goal {
+                    if is_vehicle {
+                        step += 3 * COST_ORTHOGONAL as i32;
+                    } else {
+                        step += COST_ORTHOGONAL as i32;
+                    }
+                }
+                {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if pf.is_pinched(nc).unwrap_or(false) {
+                        step += COST_ORTHOGONAL as i32 + COST_DIAGONAL as i32;
+                    }
+                    if !pf.is_zone_passable(nc) {
+                        step += 100 * COST_ORTHOGONAL as i32;
+                    }
+                }
+
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                came_from.insert(key, (cx, cy));
+
+                // C++ attack heuristic: COST_ORTHO * euclid - attackDistance/2
+                let hdx = (nx - victim_cell.x) as f32;
+                let hdy = (ny - victim_cell.y) as f32;
+                let heu = (COST_ORTHOGONAL as f32) * (hdx * hdx + hdy * hdy).sqrt();
+                let mut h_rem = heu - (attack_dist_cost_units as f32) / 2.0;
+                if h_rem < 0.0 {
+                    h_rem = 0.0;
+                }
+                let f_cost = ng + h_rem as i32;
+                open.push(std::cmp::Reverse((f_cost, ng, nx, ny)));
             }
         }
-        let _ = start;
-        best.map(|(p, _)| p).unwrap_or_else(PathResult::none)
+
+        let mut goal_cell = found_cell.or(closest_cell);
+        let Some(mut goal) = goal_cell.take() else {
+            return PathResult::none();
+        };
+
+        // C++ vehicle strip-back: walk parent chain; if blocked by ally/enemy, retreat.
+        if is_vehicle && obj_id != INVALID_ID {
+            let mut chain: Vec<GridCoord> = Vec::new();
+            let mut cur = (goal.x, goal.y);
+            chain.push(GridCoord::new(cur.0, cur.1));
+            while let Some(&p) = came_from.get(&cur) {
+                chain.push(GridCoord::new(p.0, p.1));
+                cur = p;
+                if chain.len() > 64 {
+                    break;
+                }
+            }
+            // chain is goal→…→start; walk from goal toward start like C++.
+            let mut last_blocked: Option<GridCoord> = None;
+            let mut use_large = false;
+            let cell_limit = 12usize;
+            for (idx, c) in chain.iter().enumerate() {
+                if idx >= cell_limit {
+                    break;
+                }
+                let (r_use, cic_use) = if use_large {
+                    (radius, center_in_cell)
+                } else {
+                    (0, true)
+                };
+                let mut info = CheckMovementInfo {
+                    cell: *c,
+                    layer,
+                    center_in_cell: cic_use,
+                    radius: r_use,
+                    consider_transient: false,
+                    acceptable_surfaces: surfaces,
+                    ..Default::default()
+                };
+                let mut unit_idle = false;
+                let pos_unit = self.pos_unit_at(*c, layer);
+                if pos_unit != INVALID_ID {
+                    unit_idle = Self::object_is_idle(pos_unit);
+                }
+                let check_movement = self.check_for_movement(obj_id, &mut info);
+                let mut blocked_by_allies = info.ally_fixed_count > 0 || info.ally_goal;
+                if unit_idle {
+                    blocked_by_allies = false;
+                }
+                if !check_movement || info.enemy_fixed || blocked_by_allies {
+                    last_blocked = Some(*c);
+                    use_large = true;
+                } else {
+                    use_large = false;
+                }
+            }
+            if let Some(lb) = last_blocked {
+                // Prefer parent of last blocked.
+                if let Some(&(px, py)) = came_from.get(&(lb.x, lb.y)) {
+                    goal = GridCoord::new(px, py);
+                } else {
+                    goal = lb;
+                }
+            }
+        }
+
+        let goal_pos = {
+            let mut p = Coord3D::new(0.0, 0.0, 0.0);
+            self.adjust_coord_to_cell(goal.x, goal.y, center_in_cell, &mut p, layer);
+            p
+        };
+        let req = PathRequest {
+            object_id: obj_id,
+            from: *from,
+            to: goal_pos,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human,
+        };
+        let result = self.find_path(req);
+        if result.success {
+            result
+        } else {
+            PathResult {
+                success: true,
+                waypoints: vec![*from, goal_pos],
+                layers: vec![layer, layer],
+                can_optimize: vec![true, true],
+                total_cost: g_score.get(&(goal.x, goal.y)).copied().unwrap_or(0) as u32,
+                blocked_by_ally: false,
+            }
+        }
     }
 
     /// Convenience: find_attack_path with simple 2D circle range and optional LOS.
@@ -3330,6 +3551,43 @@ impl PathfindingSystem {
     ///
     /// Takes a list of grid coordinates and produces a `Path` with world-space
     /// waypoints, terrain layers, and path optimization applied.
+    fn object_is_vehicle(object_id: ObjectID) -> bool {
+        if object_id == INVALID_ID {
+            return false;
+        }
+        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return false;
+        };
+        let Ok(g) = arc.read() else {
+            return false;
+        };
+        g.is_kind_of(KindOf::Vehicle)
+    }
+
+    fn object_is_idle(object_id: ObjectID) -> bool {
+        if object_id == INVALID_ID {
+            return false;
+        }
+        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return false;
+        };
+        let Ok(g) = arc.read() else {
+            return false;
+        };
+        g.is_idle()
+    }
+
+    fn pos_unit_at(&self, cell: GridCoord, layer: PathfindLayerEnum) -> ObjectID {
+        let Ok(goals) = self.goal_cells.lock() else {
+            return INVALID_ID;
+        };
+        goals
+            .get(cell.x as usize)
+            .and_then(|row| row.get(cell.y as usize))
+            .map(|gc| gc.get_pos_unit(layer))
+            .unwrap_or(INVALID_ID)
+    }
+
     /// C++ obj->isKindOf(KINDOF_DOZER).
     fn object_is_dozer(object_id: ObjectID) -> bool {
         if object_id == INVALID_ID {
@@ -11827,6 +12085,24 @@ mod tests {
         assert!(
             prod.contains("find_path_ex5") && prod.contains("tunneling"),
             "internalFindPath must pass starts_tunneling into A*"
+        );
+    }
+
+    #[test]
+    fn find_attack_path_astar_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn find_attack_path").expect("fap");
+        let w = &prod[i..prod.len().min(i + 16000)];
+        assert!(
+            w.contains("ATTACK_CELL_LIMIT")
+                && w.contains("ally_goal")
+                && w.contains("attack_dist")
+                && w.contains("is_vehicle"),
+            "findAttackPath must A*-expand with attackDistance + allyGoal costs"
         );
     }
 }
