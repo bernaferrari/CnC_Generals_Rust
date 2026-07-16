@@ -937,6 +937,52 @@ fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.05
 }
 
+/// Map host combat damage class → Armor.ini DamageType residual.
+pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> DamageType {
+    use crate::game_logic::combat::DamageType as H;
+    match dt {
+        H::Bullet => DamageType::SmallArms,
+        H::Explosive => DamageType::Explosion,
+        H::Fire | H::Flame => DamageType::Flame,
+        H::Laser => DamageType::Laser,
+        H::Toxin | H::Anthrax => DamageType::Poison,
+        H::Radiation => DamageType::Radiation,
+        H::EMP => DamageType::Microwave,
+        H::Unresistable => DamageType::Unresistable,
+    }
+}
+
+/// Pick residual Armor.ini template by host object kind (fail-closed coarse matrix).
+pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTemplate {
+    use crate::game_logic::KindOf;
+    if obj.is_kind_of(KindOf::Aircraft) {
+        return build_airplane_armor_residual();
+    }
+    if obj.is_kind_of(KindOf::Structure) || obj.is_kind_of(KindOf::Immobile) {
+        return build_structure_armor_residual();
+    }
+    if obj.is_kind_of(KindOf::Infantry) {
+        return build_human_armor_residual();
+    }
+    if obj.is_kind_of(KindOf::Vehicle) {
+        return build_tank_armor_residual();
+    }
+    let mut t = ArmorTemplate::new();
+    t.set_default(1.0);
+    t
+}
+
+/// Apply residual armor coefficient to raw damage.
+pub fn apply_residual_armor(
+    obj: &crate::game_logic::Object,
+    host_damage_type: crate::game_logic::combat::DamageType,
+    amount: f32,
+) -> f32 {
+    let armor = residual_armor_for_object(obj);
+    let dt = map_host_damage_type(host_damage_type);
+    armor.adjust_damage(dt, amount).max(0.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Damage types in the game
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum DamageType {
+    #[default]
     Bullet,
     Explosive,
     Fire,
@@ -182,6 +183,8 @@ pub struct PendingProjectile {
     pub splash_radius: f32,
     /// C++ projectile homing residual (retarget velocity toward live target).
     pub is_homing: bool,
+    /// Host combat damage class residual for Armor.ini coefficients.
+    pub damage_type: DamageType,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -226,7 +229,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             pre_attack_delay: 0.0,
             splash_radius: p.splash_radius,
         };
-        combat.fire_projectile_ex(
+        let pid = combat.fire_projectile_ex(
             p.shooter_pos,
             target_pos,
             &weapon,
@@ -235,6 +238,9 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             p.speed,
             p.is_homing,
         );
+        if let Some(proj) = combat.projectile_mut(pid) {
+            proj.damage_type = p.damage_type;
+        }
     }
 }
 
@@ -259,6 +265,10 @@ impl CombatSystem {
 
     pub fn projectile_count(&self) -> usize {
         self.projectiles.len()
+    }
+
+    pub fn projectile_mut(&mut self, id: ObjectId) -> Option<&mut Projectile> {
+        self.projectiles.get_mut(&id)
     }
 
     /// Fire a projectile from one object to another
@@ -476,7 +486,7 @@ impl CombatSystem {
                     ..
                 } => {
                     if let Some(target) = objects.get_mut(target_id) {
-                        let destroyed = target.take_damage(*damage);
+                        let destroyed = target.take_damage_from_typed(*damage, None, *damage_type);
                         if destroyed {
                             log::debug!(
                                 "Projectile destroyed object {} (damage: {:.1}, type: {:?})",
@@ -490,7 +500,7 @@ impl CombatSystem {
                 DamageEvent::Area {
                     position,
                     damage,
-                    damage_type: _,
+                    damage_type,
                     radius,
                     ..
                 } => {
@@ -502,7 +512,7 @@ impl CombatSystem {
                             let falloff = 1.0 - (dist / radius).powi(2);
                             let area_damage = damage * falloff;
                             if area_damage > 0.0 {
-                                obj.take_damage(area_damage);
+                                obj.take_damage_from_typed(area_damage, None, *damage_type);
                             }
                         }
                     }
