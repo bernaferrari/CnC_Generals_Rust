@@ -2010,6 +2010,31 @@ impl Pathfinder {
     /// C++ `Pathfinder::moveAllies`.
 
     /// C++ `Pathfinder::getMoveAwayFromPath`.
+
+    /// C++ `Pathfinder::patchPath`.
+    pub fn patch_path(
+        &mut self,
+        from: &Coord3D,
+        original_waypoints: &[Coord3D],
+        original_layers: &[pathfind_astar::PathfindLayerEnum],
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        blocked: bool,
+        obj_id: ObjectID,
+    ) -> crate::ai::pathfind_complete::PathResult {
+        self.inner.patch_path(
+            from,
+            original_waypoints,
+            original_layers,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            blocked,
+            obj_id,
+        )
+    }
+
     pub fn get_move_away_from_path(
         &mut self,
         from: &Coord3D,
