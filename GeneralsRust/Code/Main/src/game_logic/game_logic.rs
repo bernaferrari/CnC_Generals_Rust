@@ -3105,6 +3105,71 @@ impl GameLogic {
     /// C++ Pathfinder::isAttackViewBlockedByObstacle residual for host combat.
     /// Units with AttackNeedsLineOfSight cannot fire through static obstacles.
     /// Aircraft / non-LOS kinds always clear. Fail-closed: not full weapon terrain LOS.
+    /// Path toward a firing position with LOS (C++ findAttackPath residual).
+    /// Falls back to path-to-target if no in-range LOS cell is found.
+    pub fn assign_unit_attack_path(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: Option<ObjectId>,
+        target_pos: Vec3,
+    ) -> bool {
+        let (from, range, can_move) = match self.objects.get(&unit_id) {
+            Some(u) => {
+                let range = u
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.range)
+                    .or_else(|| u.secondary_weapon.as_ref().map(|w| w.range))
+                    .unwrap_or(50.0)
+                    * u.battle_plan_range_multiplier();
+                (u.get_position(), range, u.can_move() && u.is_alive())
+            }
+            None => return false,
+        };
+        if !can_move {
+            return false;
+        }
+        // Snapshot objects for dynamic occupancy during search.
+        let path = self.pathfinding_system.find_attack_firing_position(
+            from,
+            target_pos,
+            range,
+            &self.objects,
+        );
+        if let Some(full_path) = path {
+            if full_path.len() >= 2 {
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.movement.path = full_path;
+                    unit.movement.current_path_index = 1;
+                    unit.movement.target_position = Some(unit.movement.path[1]);
+                    unit.status.moving = true;
+                    unit.ai_state = AIState::Attacking;
+                    unit.status.attacking = true;
+                    if let Some(tid) = target_id {
+                        unit.target = Some(tid);
+                    }
+                    crate::game_logic::host_move_log::record(
+                        unit_id,
+                        Some([target_pos.x, target_pos.y, target_pos.z]),
+                    );
+                }
+                return true;
+            }
+        }
+        // Fallback: path to target footprint (prior residual).
+        if self.assign_unit_path(unit_id, target_pos, &[]) {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.ai_state = AIState::Attacking;
+                unit.status.attacking = true;
+                if let Some(tid) = target_id {
+                    unit.target = Some(tid);
+                }
+            }
+            return true;
+        }
+        false
+    }
+
     pub fn attack_view_blocked(
         &self,
         attacker_id: ObjectId,
@@ -5673,7 +5738,7 @@ impl GameLogic {
                     // buildings; chase instead (falls through to OOR chase when we
                     // clear selected fire by treating as out-of-LOS).
                     if self.attack_view_blocked(attacker_id, Some(target_id), target_position) {
-                        // Ready but LOS blocked → pathfind chase like OOR.
+                        // Ready but LOS blocked → findAttackPath residual (firing cell).
                         let combat_chase_ok = self
                             .objects
                             .get(&attacker_id)
@@ -5691,12 +5756,11 @@ impl GameLogic {
                             })
                             .unwrap_or(false);
                         if combat_chase_ok {
-                            if self.assign_unit_path(attacker_id, target_position, &[]) {
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    attacker.ai_state = AIState::Attacking;
-                                    attacker.status.attacking = true;
-                                }
-                            }
+                            let _ = self.assign_unit_attack_path(
+                                attacker_id,
+                                Some(target_id),
+                                target_position,
+                            );
                         }
                         continue;
                     }
@@ -6906,24 +6970,25 @@ impl GameLogic {
                         })
                         .unwrap_or(false);
                     if combat_chase_ok {
-                        // assign_unit_path needs &mut self + objects free of active borrow.
-                        if self.assign_unit_path(attacker_id, target_position, &[]) {
+                        // findAttackPath residual: path to in-range LOS cell, not target cell.
+                        if !self.assign_unit_attack_path(
+                            attacker_id,
+                            Some(target_id),
+                            target_position,
+                        ) {
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                // Fallback: direct march if A* / attack-path fails.
+                                attacker.movement.path.clear();
+                                attacker.movement.current_path_index = 0;
+                                attacker.movement.target_position = Some(target_position);
+                                crate::game_logic::host_move_log::record(
+                                    attacker_id,
+                                    Some([target_position.x, target_position.y, target_position.z]),
+                                );
+                                attacker.status.moving = true;
                                 attacker.ai_state = AIState::Attacking;
                                 attacker.status.attacking = true;
                             }
-                        } else if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            // Fallback: direct march if A* fails (open field residual).
-                            attacker.movement.path.clear();
-                            attacker.movement.current_path_index = 0;
-                            attacker.movement.target_position = Some(target_position);
-                            crate::game_logic::host_move_log::record(
-                                attacker_id,
-                                Some([target_position.x, target_position.y, target_position.z]),
-                            );
-                            attacker.status.moving = true;
-                            attacker.ai_state = AIState::Attacking;
-                            attacker.status.attacking = true;
                         }
                     }
                 }
@@ -68647,24 +68712,26 @@ mod tests {
     #[test]
     fn combat_chase_pathfinds_cpp_surface() {
         let src = include_str!("game_logic.rs");
-        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
         assert!(
-            prod.contains("Ready weapons but out of range")
-                && prod.contains("assign_unit_path(attacker_id, target_position"),
-            "OOR combat chase must assign_unit_path"
+            src.contains("fn assign_unit_attack_path")
+                && src.contains("find_attack_firing_position"),
+            "combat chase must use findAttackPath residual (assign_unit_attack_path)"
         );
+        let i = src
+            .find("Ready weapons but out of range")
+            .expect("OOR chase comment");
+        let w = &src[i..i + 2500.min(src.len() - i)];
         assert!(
-            prod.contains("assign_unit_path(object_id, target_position")
-                && prod.contains("AIState::Capturing"),
-            "capture approach must pathfind when OOR"
+            w.contains("assign_unit_attack_path"),
+            "OOR combat chase must call assign_unit_attack_path"
         );
-        // OOR must not stop_attack in update_object_ai
-        let i = prod.find("fn update_object_ai").expect("update_object_ai");
-        let w = &prod[i..prod.len().min(i + 2500)];
+        let j = src
+            .find("isAttackViewBlockedByObstacle residual")
+            .expect("LOS gate");
+        let w2 = &src[j..j + 2000.min(src.len() - j)];
         assert!(
-            w.contains("do not stop_attack merely for distance")
-                || !w.contains("Target out of range or invalid, stop attacking"),
-            "update_object_ai must not abort attack solely for OOR"
+            w2.contains("assign_unit_attack_path"),
+            "LOS-blocked chase must call assign_unit_attack_path"
         );
     }
 
@@ -68840,6 +68907,108 @@ mod tests {
         assert!(
             hp_after < hp_before - 1.0,
             "open-field LOS must still allow fire (hp {hp_before} -> {hp_after})"
+        );
+    }
+
+    #[test]
+    fn find_attack_path_picks_los_cell_not_target_footprint() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        for (name, kinds) in [
+            (
+                "FapAtk",
+                vec![
+                    KindOf::Infantry,
+                    KindOf::Attackable,
+                    KindOf::AttackNeedsLineOfSight,
+                ],
+            ),
+            ("FapTgt", vec![KindOf::Infantry, KindOf::Attackable]),
+        ] {
+            if !logic.templates.contains_key(name) {
+                let mut tmpl = ThingTemplate::new(name);
+                tmpl.set_health(200.0);
+                for k in kinds {
+                    tmpl.add_kind_of(k);
+                }
+                logic.templates.insert(name.into(), tmpl);
+            }
+        }
+        let atk = logic
+            .create_object("FapAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("atk");
+        let tgt = logic
+            .create_object("FapTgt", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("tgt");
+        // Wall between but leave a northern corridor open for flanking LOS.
+        let from = glam::Vec3::new(0.0, 0.0, 0.0);
+        let to = glam::Vec3::new(80.0, 0.0, 0.0);
+        let start = logic.pathfinding_system.grid.world_to_grid(from);
+        let goal = logic.pathfinding_system.grid.world_to_grid(to);
+        let mut x0 = start.x;
+        let mut y0 = start.y;
+        let x1 = goal.x;
+        let y1 = goal.y;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            let e2 = 2 * err;
+            if e2 >= dy {
+                if x0 == x1 {
+                    break;
+                }
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                if y0 == y1 {
+                    break;
+                }
+                err += dx;
+                y0 += sy;
+            }
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+            // Block center line only (y==start.y); leave y+2 open for flank.
+            logic.set_pathfinding_static_block(x0, y0, true);
+        }
+        if let Some(o) = logic.objects.get_mut(&atk) {
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+        }
+        assert!(
+            logic.assign_unit_attack_path(atk, Some(tgt), to),
+            "must find an attack path"
+        );
+        let unit = logic.objects.get(&atk).expect("atk after");
+        let dest = unit
+            .movement
+            .path
+            .last()
+            .copied()
+            .or(unit.movement.target_position)
+            .expect("dest");
+        // Final cell should not be the victim cell (findAttackPath goal is firing cell).
+        let dest_cell = logic.pathfinding_system.grid.world_to_grid(dest);
+        let victim_cell = logic.pathfinding_system.grid.world_to_grid(to);
+        assert_ne!(
+            dest_cell, victim_cell,
+            "attack path should end on a firing cell, not victim footprint"
+        );
+        assert!(
+            !logic.pathfinding_system.is_attack_view_blocked(dest, to),
+            "firing cell must have clear LOS to victim"
         );
     }
 
