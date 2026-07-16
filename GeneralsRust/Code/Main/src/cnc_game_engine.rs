@@ -85,6 +85,23 @@ impl NetworkClock {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn presentation_path_ticks_drawables_like_cpp() {
+        let src = include_str!("cnc_game_engine.rs");
+        let i = src
+            .find("Presentation path: deepened shell tick")
+            .expect("pres path");
+        let w = &src[i..src.len().min(i + 2500)];
+        assert!(
+            w.contains("update_drawables(visual_delta)")
+                && w.contains("update_presentation_shell(visual_delta)")
+                && w.find("update_drawables(visual_delta)")
+                    < w.find("update_presentation_shell(visual_delta)"),
+            "presentation client path must tick drawables before shell"
+        );
+    }
+
     use super::{
         should_exit_for_smoke_test, should_keep_logic_running_while_iconic, CnCGameEngine,
         GameMode, GameState, StartupNewGameDispatch,
@@ -1160,8 +1177,8 @@ pub struct CnCGameEngine {
     shell_menu_active: bool, // C++ parity: Shell::push("Menus/MainMenu.wnd") / Shell::pop()
 
     // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop
-    // for drawable updates and display draw. Full GameClient::update() is NOT called
-    // because Main already handles input/audio/effects separately.
+    // for drawable updates and display draw. Full GameClient::update() OS-input path
+    // is not used (Main owns input→commands); drawables always tick with the frame.
     #[cfg(feature = "game_client")]
     game_client: game_client::core::game_client::GameClient,
     /// ControlBar selection panel (portrait + health). Presentation-fed; WND load optional.
@@ -6474,6 +6491,11 @@ impl CnCGameEngine {
                         // Cinematic text residual → InGameUI HUD message.
                         self.game_client
                             .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
+                    }
+                    // C++ GameClient::update always ticks drawables; presentation
+                    // path previously skipped this and left client anim/FX frozen.
+                    if let Err(e) = self.game_client.update_drawables(visual_delta) {
+                        log::trace!("GameClient drawable update failed (non-fatal): {e}");
                     }
                     if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
