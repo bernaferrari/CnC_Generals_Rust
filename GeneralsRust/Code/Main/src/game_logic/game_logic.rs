@@ -4819,6 +4819,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // Weapon fire and damage application as part of the object update pass.
         self.update_combat(&object_ids, dt);
+        self.tick_out_of_ammo_jet_damage();
 
         // Projectiles: drain global fire queue into host CombatSystem and step.
         // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
@@ -5696,6 +5697,28 @@ impl GameLogic {
     /// C++ JetAIUpdate RETURN_TO_BASE residual: rearm empty jet weapons near
     /// a friendly airfield (FSAirfield / name residual). Fail-closed vs full
     /// ParkingPlace reserve / taxi matrix.
+    /// C++ JetOrHeliCirclingDeadAirfieldState residual for all empty RTB jets.
+    fn tick_out_of_ammo_jet_damage(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
+                    && o.needs_return_to_base_rearm()
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            if self.try_return_to_base_rearm(id) {
+                continue;
+            }
+            if let Some(jet) = self.objects.get_mut(&id) {
+                let _ = jet.apply_out_of_ammo_damage_frame();
+            }
+        }
+    }
+
     fn try_return_to_base_rearm(&mut self, jet_id: ObjectId) -> bool {
         let (needs, jet_team, jet_pos) = {
             let Some(jet) = self.objects.get(&jet_id) else {
@@ -5745,6 +5768,7 @@ impl GameLogic {
     pub(crate) fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {
         for &attacker_id in object_ids {
             // RETURN_TO_BASE residual: attempt airfield rearm before fire checks.
+            // Out-of-ammo HP drip is applied once per frame in tick_out_of_ammo_jet_damage.
             let _ = self.try_return_to_base_rearm(attacker_id);
             let Some(attacker) = self.objects.get(&attacker_id) else {
                 continue;
