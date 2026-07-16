@@ -807,10 +807,36 @@ impl TerrainLogic {
     }
 
     fn register_bridge_with_pathfinder(bridge_info: &BridgeInfo) -> Option<PathfindLayerEnum> {
-        use crate::ai::pathfind_complete::GridCoord;
+        use crate::ai::pathfind_complete::{GridCoord, PATHFIND_CELL_SIZE_F};
         let (min_coord, max_coord) = Self::bridge_pathfinder_bounds(bridge_info);
-        let start_cell = GridCoord::from_world(&bridge_info.from);
-        let end_cell = GridCoord::from_world(&bridge_info.to);
+        // C++ PathfindLayer::classifyCells: offset from/to along bridgeDir by
+        // 0.7 * PATHFIND_CELL_SIZE before flooring to m_startCell / m_endCell.
+        let mut bridge_dir = Coord3D::new(
+            bridge_info.to.x - bridge_info.from.x,
+            bridge_info.to.y - bridge_info.from.y,
+            bridge_info.to.z - bridge_info.from.z,
+        );
+        let len = (bridge_dir.x * bridge_dir.x
+            + bridge_dir.y * bridge_dir.y
+            + bridge_dir.z * bridge_dir.z)
+            .sqrt();
+        if len > 0.0001 {
+            bridge_dir.x = bridge_dir.x / len * PATHFIND_CELL_SIZE_F * 0.7;
+            bridge_dir.y = bridge_dir.y / len * PATHFIND_CELL_SIZE_F * 0.7;
+            bridge_dir.z = bridge_dir.z / len * PATHFIND_CELL_SIZE_F * 0.7;
+        }
+        let start_world = Coord3D::new(
+            bridge_info.from.x - bridge_dir.x,
+            bridge_info.from.y - bridge_dir.y,
+            bridge_info.from.z - bridge_dir.z,
+        );
+        let end_world = Coord3D::new(
+            bridge_info.to.x + bridge_dir.x,
+            bridge_info.to.y + bridge_dir.y,
+            bridge_info.to.z + bridge_dir.z,
+        );
+        let start_cell = GridCoord::from_world(&start_world);
+        let end_cell = GridCoord::from_world(&end_world);
         let ai_guard = THE_AI.read().ok()?;
         let pathfinder = ai_guard.pathfinder()?;
         let mut pathfinder_guard = pathfinder.write().ok()?;
@@ -3327,6 +3353,23 @@ mod tests {
         map_data.height = height;
         map_data.heightmap = heightmap;
         map_data
+    }
+
+    #[test]
+    fn register_bridge_attach_cells_offset_like_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/terrain.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("fn register_bridge_with_pathfinder")
+            .expect("register_bridge");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("PATHFIND_CELL_SIZE_F * 0.7")
+                && w.contains("bridge_info.from.x - bridge_dir.x")
+                && w.contains("bridge_info.to.x + bridge_dir.x")
+                && w.contains("add_bridge_ex"),
+            "bridge m_startCell/m_endCell must offset 0.7 cell along bridgeDir like C++"
+        );
     }
 
     #[test]
