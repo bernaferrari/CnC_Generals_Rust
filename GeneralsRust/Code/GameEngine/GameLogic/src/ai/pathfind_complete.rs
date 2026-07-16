@@ -984,7 +984,7 @@ impl PathfindingSystem {
         // Convert grid path via buildActualPath (centerInCell from unit radius).
         // Matches C++ buildActualPath() at AIPathfind.cpp:8954-9071
         let (_radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
-        let built = self.build_actual_path(
+        let built = self.build_actual_path_for_object(
             &grid_path,
             &request.from,
             &request.to,
@@ -992,6 +992,7 @@ impl PathfindingSystem {
             request.is_crusher,
             false,
             center_in_cell,
+            request.object_id,
         );
         if built.success {
             let mut result = built;
@@ -3190,6 +3191,41 @@ impl PathfindingSystem {
     ///
     /// Takes a list of grid coordinates and produces a `Path` with world-space
     /// waypoints, terrain layers, and path optimization applied.
+    /// True when a standing ally occupies `cell` (C++ PathfindCell::isBlockedByAlly stamp).
+    fn cell_blocked_by_ally(
+        &self,
+        cell: GridCoord,
+        layer: PathfindLayerEnum,
+        object_id: ObjectID,
+    ) -> bool {
+        let pos_unit = {
+            let Ok(goals) = self.goal_cells.lock() else {
+                return false;
+            };
+            goals
+                .get(cell.x as usize)
+                .and_then(|row| row.get(cell.y as usize))
+                .map(|gc| gc.get_pos_unit(layer))
+                .unwrap_or(INVALID_ID)
+        };
+        if pos_unit == INVALID_ID || pos_unit == object_id {
+            return false;
+        }
+        let Some(self_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return false;
+        };
+        let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
+            return false;
+        };
+        let Ok(self_g) = self_arc.read() else {
+            return false;
+        };
+        let Ok(other_g) = other_arc.read() else {
+            return false;
+        };
+        self_g.relationship_to(&other_g) == crate::common::Relationship::Allies
+    }
+
     /// Build path from A* grid cells — C++ `buildActualPath` + `prependCells`.
     ///
     /// Walks cells in reverse (goal→start), applies cliff optimize flags, layer
@@ -3203,6 +3239,30 @@ impl PathfindingSystem {
         is_crusher: bool,
         blocked: bool,
         center_in_cell: bool,
+    ) -> PathResult {
+        self.build_actual_path_for_object(
+            grid_path,
+            from_world,
+            to_world,
+            surfaces,
+            is_crusher,
+            blocked,
+            center_in_cell,
+            INVALID_ID,
+        )
+    }
+
+    /// C++ buildActualPath with object for isBlockedByAlly cell stamps.
+    pub fn build_actual_path_for_object(
+        &self,
+        grid_path: &[GridCoord],
+        from_world: &Coord3D,
+        to_world: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        blocked: bool,
+        center_in_cell: bool,
+        object_id: ObjectID,
     ) -> PathResult {
         let _ = (surfaces, is_crusher);
         if grid_path.is_empty() {
@@ -3290,6 +3350,13 @@ impl PathfindingSystem {
             waypoints.insert(0, pos);
             layers.insert(0, layer);
             can_optimize.insert(0, can_opt);
+
+            // C++ cell->isBlockedByAlly() → path.setBlockedByAlly(true)
+            if object_id != INVALID_ID {
+                if self.cell_blocked_by_ally(coord, layer, object_id) {
+                    blocked_by_ally = true;
+                }
+            }
 
             prev_type = Some(ctype);
             prev_layer = Some(layer);
@@ -11416,5 +11483,22 @@ mod tests {
         // Entry cells should be Clear.
         let pf = system.pathfinder.lock().unwrap();
         assert_eq!(pf.get_cell_type(lo), Some(PathfindCellType::Clear));
+    }
+
+    #[test]
+    fn build_actual_path_ally_block_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn build_actual_path_for_object")
+            .expect("buildActualPath for object");
+        let w = &prod[i..prod.len().min(i + 7000)];
+        assert!(
+            w.contains("cell_blocked_by_ally") && w.contains("blocked_by_ally = true"),
+            "buildActualPath must stamp path blockedByAlly from cell occupancy"
+        );
     }
 }
