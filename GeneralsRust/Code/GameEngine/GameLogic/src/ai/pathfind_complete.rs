@@ -6330,10 +6330,11 @@ impl PathfindingSystem {
         true
     }
 
-    /// C++ `Pathfinder::checkPathCost` — coarse Manhattan/Bresenham cost estimate.
+    /// C++ `Pathfinder::checkPathCost` (AIPathfind.cpp:8432+).
     ///
-    /// Returns a distance-like cost for the path from `from` to `to`. When no
-    /// cheap path exists returns a large value so the 1.4*(dx+dy) gate rejects.
+    /// Limited A* (MAX_CELL_COUNT=500) returning path `costSoFar` at the goal.
+    /// Used by checkForAdjust: reject if `1.4*(|dx|+|dy|) < cost` (world dx/dy).
+    /// Returns MAX_COST (0x7fff0000) when no path / not ready / invalid.
     pub fn check_path_cost(
         &self,
         surfaces: LocomotorSurfaceTypeMask,
@@ -6341,20 +6342,114 @@ impl PathfindingSystem {
         from: &Coord3D,
         to: &Coord3D,
     ) -> f32 {
+        const MAX_COST: f32 = 0x7fff_0000u32 as f32;
+        const MAX_CELL_COUNT: i32 = 500;
+        // C++ COST_ORTHOGONAL / COST_DIAGONAL style (matches pathfind_astar).
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+
+        if !self.is_map_ready {
+            return MAX_COST;
+        }
         let start = GridCoord::from_world(from);
         let goal = GridCoord::from_world(to);
         if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
-            return f32::MAX * 0.25;
+            return MAX_COST;
         }
-        // Hierarchical zone gate first (cheap reject).
-        if !self.client_safe_quick_does_path_exist(surfaces, from, to) {
-            return f32::MAX * 0.25;
+        {
+            let Ok(pf) = self.pathfinder.lock() else {
+                return MAX_COST;
+            };
+            if !pf.is_passable(start, surfaces, is_crusher) {
+                return MAX_COST;
+            }
         }
-        // Approximate path cost as cell Manhattan * PATHFIND_CELL_SIZE_F
-        // (C++ uses A* costSoFar; this is sufficient for the 1.4 gate).
-        let dx = (goal.x - start.x).abs() as f32;
-        let dy = (goal.y - start.y).abs() as f32;
-        (dx + dy) * PATHFIND_CELL_SIZE_F
+        if start.x == goal.x && start.y == goal.y {
+            return 0.0;
+        }
+
+        let heuristic = |c: GridCoord| -> i32 {
+            let dx = (goal.x - c.x).abs();
+            let dy = (goal.y - c.y).abs();
+            // octile
+            let dmin = dx.min(dy);
+            let dmax = dx.max(dy);
+            COST_DIAG * dmin + COST_ORTHO * (dmax - dmin)
+        };
+
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+
+        // min-heap by f = g+h; store (f, g, x, y)
+        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
+            std::collections::BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let h0 = heuristic(start);
+        open.push(std::cmp::Reverse((h0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
+        let mut cell_count = 0i32;
+
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            if cx == goal.x && cy == goal.y {
+                // C++ returns getTotalCost at goal (= costSoFar when h=0).
+                return g as f32;
+            }
+            if cell_count > MAX_CELL_COUNT {
+                continue;
+            }
+            let parent = GridCoord::new(cx, cy);
+            let _ = self.check_change_layers(parent);
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                if i >= 4 {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
+                        || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
+                    {
+                        continue;
+                    }
+                }
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridCoord::new(nx, ny);
+                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(nc, surfaces, is_crusher) {
+                        continue;
+                    }
+                }
+                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                let f = ng + heuristic(nc);
+                open.push(std::cmp::Reverse((f, ng, nx, ny)));
+                cell_count += 1;
+            }
+        }
+        MAX_COST
     }
 
     /// C++ `Pathfinder::pathDestination` (AIPathfind.cpp:8154+).
@@ -10479,5 +10574,46 @@ mod tests {
             "path end {:?}",
             end
         );
+    }
+
+    #[test]
+    fn check_path_cost_astar_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn check_path_cost").expect("checkPathCost");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("MAX_CELL_COUNT") && w.contains("BinaryHeap") && w.contains("0x7fff_0000"),
+            "checkPathCost must run limited A* and return C++ MAX_COST"
+        );
+        assert!(!w.contains("Approximate path cost as cell Manhattan"));
+    }
+
+    #[test]
+    fn check_path_cost_straight_line_cheaper_than_detour_gate() {
+        let mut system = PathfindingSystem::new(32, 32);
+        system.new_map();
+        let from = Coord3D::new(20.0, 20.0, 0.0);
+        let to = Coord3D::new(80.0, 20.0, 0.0);
+        let cost = system.check_path_cost(SURFACE_GROUND, false, &from, &to);
+        let dx = (to.x - from.x).abs();
+        let dy = (to.y - from.y).abs();
+        // C++ checkForAdjust accepts when cost <= 1.4*(dx+dy)
+        assert!(
+            cost <= 1.4 * (dx + dy) + 1.0,
+            "straight path cost {cost} should pass 1.4*(dx+dy)={}",
+            1.4 * (dx + dy)
+        );
+        // Off-map / invalid start → MAX_COST like C++.
+        let bad = system.check_path_cost(
+            SURFACE_GROUND,
+            false,
+            &Coord3D::new(-100.0, -100.0, 0.0),
+            &to,
+        );
+        assert!(bad >= 0x7fff_0000u32 as f32 * 0.5);
     }
 }
