@@ -5753,6 +5753,90 @@ impl GameLogic {
             .count()
     }
 
+    /// C++ Weapon ContinueAttackRange residual (AIStates attack transfer).
+    ///
+    /// When a kill lands and the firing weapon has ContinueAttackRange > 0,
+    /// retarget the nearest living same-team-as-victim object within that
+    /// radius of the original victim position (mine-clear chain residual).
+    pub(crate) fn try_continue_attack_after_kill(
+        &mut self,
+        attacker_id: ObjectId,
+        dead_victim_id: ObjectId,
+        original_victim_pos: glam::Vec3,
+        continue_range: f32,
+        victim_team: Team,
+    ) -> bool {
+        if continue_range <= 0.0 {
+            return false;
+        }
+        let range_sq = continue_range * continue_range;
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (&id, obj) in &self.objects {
+            if id == attacker_id || id == dead_victim_id {
+                continue;
+            }
+            if !obj.is_alive() {
+                continue;
+            }
+            if obj.team != victim_team {
+                continue;
+            }
+            let pos = obj.get_position();
+            let dx = pos.x - original_victim_pos.x;
+            let dz = pos.z - original_victim_pos.z;
+            let d2 = dx * dx + dz * dz;
+            if d2 > range_sq {
+                continue;
+            }
+            if best.map(|(_, bd)| d2 < bd).unwrap_or(true) {
+                best = Some((id, d2));
+            }
+        }
+        let Some((next_id, _)) = best else {
+            return false;
+        };
+        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+            attacker.target = Some(next_id);
+            attacker.ai_state = AIState::Attacking;
+            attacker.status.attacking = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// After a combat kill: grant XP, ContinueAttackRange retarget, else stop.
+    pub(crate) fn continue_or_stop_after_kill(
+        &mut self,
+        attacker_id: ObjectId,
+        dead_victim_id: ObjectId,
+        original_victim_pos: glam::Vec3,
+        victim_team: Team,
+        weapon_name: Option<&str>,
+        kill_xp: f32,
+    ) {
+        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+            if kill_xp > 0.0 {
+                attacker.gain_experience(kill_xp);
+            }
+        }
+        let cont = weapon_name
+            .map(crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name)
+            .unwrap_or(0.0);
+        if self.try_continue_attack_after_kill(
+            attacker_id,
+            dead_victim_id,
+            original_victim_pos,
+            cont,
+            victim_team,
+        ) {
+            return;
+        }
+        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+            attacker.stop_attack();
+        }
+    }
+
     /// C++ JetAIUpdate leave ParkingPlace residual (clear hangar slot + takeoff).
     pub(crate) fn release_jet_from_airfield_parking(&mut self, jet_id: ObjectId) -> bool {
         let (team, af_hint) = {
@@ -6466,13 +6550,25 @@ impl GameLogic {
                                 let destroyed =
                                     target.take_damage_from(weapon_damage, Some(attacker_id));
                                 if destroyed {
+                                    let victim_pos = target.get_position();
+                                    let victim_team = target.team;
                                     self.mark_object_for_destruction(
                                         target_id,
                                         Some(attacker_team),
                                     );
-                                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                        attacker.gain_experience(20.0);
-                                    }
+                                    let wname = self.objects.get(&attacker_id).and_then(|a| {
+                                        a.thing.template.primary_weapon_name.clone().or_else(|| {
+                                            a.thing.template.secondary_weapon_name.clone()
+                                        })
+                                    });
+                                    self.continue_or_stop_after_kill(
+                                        attacker_id,
+                                        target_id,
+                                        victim_pos,
+                                        victim_team,
+                                        wname.as_deref(),
+                                        20.0,
+                                    );
                                 }
                             }
                         } else {
@@ -7443,14 +7539,31 @@ impl GameLogic {
                                             * Self::veterancy_xp_multiplier(
                                                 target.experience.level,
                                             );
+                                        let victim_pos = target.get_position();
+                                        let victim_team = target.team;
+                                        let cont_weapon = {
+                                            // Prefer the weapon name used for this shot when known.
+                                            None::<&str>
+                                        };
                                         self.mark_object_for_destruction(
                                             target_id,
                                             Some(attacker_team),
                                         );
-                                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                            attacker.gain_experience(kill_xp);
-                                            attacker.stop_attack();
-                                        }
+                                        // Resolve attacker weapon name after releasing target borrow.
+                                        let wname = self.objects.get(&attacker_id).and_then(|a| {
+                                            a.thing.template.primary_weapon_name.clone().or_else(
+                                                || a.thing.template.secondary_weapon_name.clone(),
+                                            )
+                                        });
+                                        let _ = cont_weapon;
+                                        self.continue_or_stop_after_kill(
+                                            attacker_id,
+                                            target_id,
+                                            victim_pos,
+                                            victim_team,
+                                            wname.as_deref(),
+                                            kill_xp,
+                                        );
                                     }
                                 }
                             }
@@ -10341,13 +10454,24 @@ impl GameLogic {
                 // C++ parity: XP based on victim's ExperienceValue.
                 let kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
+                let victim_pos = target.get_position();
+                let victim_team = target.team;
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
-
-                // Give experience to attacker
-                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    attacker.gain_experience(kill_xp);
-                    attacker.stop_attack();
-                }
+                let wname = self.objects.get(&attacker_id).and_then(|a| {
+                    a.thing
+                        .template
+                        .primary_weapon_name
+                        .clone()
+                        .or_else(|| a.thing.template.secondary_weapon_name.clone())
+                });
+                self.continue_or_stop_after_kill(
+                    attacker_id,
+                    target_id,
+                    victim_pos,
+                    victim_team,
+                    wname.as_deref(),
+                    kill_xp,
+                );
             }
         }
     }
@@ -70299,5 +70423,95 @@ mod tests {
             glam::Vec3::new(100.0, 0.0, 0.0),
             &lim
         ));
+    }
+    #[test]
+    fn continue_attack_range_chains_to_nearby_same_team_target() {
+        let mut logic = GameLogic::new();
+        {
+            let mut tmpl = ThingTemplate::new("ContAtk");
+            tmpl.primary_weapon_name = Some("DozerMineDisarmingWeapon".into());
+            tmpl.add_kind_of(KindOf::Vehicle);
+            tmpl.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("ContAtk".into(), tmpl);
+            let mut tm = ThingTemplate::new("ContMine");
+            tm.add_kind_of(KindOf::Attackable);
+            tm.experience_value = 5.0;
+            logic.templates.insert("ContMine".into(), tm);
+        }
+        let atk = logic
+            .create_object("ContAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("atk");
+        let mine1 = logic
+            .create_object("ContMine", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("m1");
+        let mine2 = logic
+            .create_object("ContMine", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("m2");
+        // Far mine outside ContinueAttackRange 100.
+        let mine_far = logic
+            .create_object("ContMine", Team::GLA, glam::Vec3::new(500.0, 0.0, 0.0))
+            .expect("mfar");
+        if let Some(o) = logic.objects.get_mut(&atk) {
+            o.weapon = Some(Weapon {
+                damage: 999.0,
+                range: 50.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+            o.target = Some(mine1);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        for id in [mine1, mine2, mine_far] {
+            if let Some(o) = logic.objects.get_mut(&id) {
+                o.health.current = 1.0;
+                o.health.maximum = 1.0;
+            }
+        }
+        // Direct kill path via helper (combat path may miss mines without AntiMine).
+        let pos = logic.objects.get(&mine1).unwrap().get_position();
+        let team = logic.objects.get(&mine1).unwrap().team;
+        logic.mark_object_for_destruction(mine1, Some(Team::USA));
+        // Force dead flag for is_alive filter.
+        if let Some(o) = logic.objects.get_mut(&mine1) {
+            o.health.current = 0.0;
+        }
+        assert!(logic.try_continue_attack_after_kill(atk, mine1, pos, 100.0, team,));
+        let next = logic.objects.get(&atk).and_then(|a| a.target);
+        assert_eq!(next, Some(mine2), "must chain to nearer same-team mine");
+        // Outside range: no continue.
+        if let Some(o) = logic.objects.get_mut(&atk) {
+            o.target = None;
+            o.stop_attack();
+        }
+        let far_pos = logic.objects.get(&mine_far).unwrap().get_position();
+        // Only far mine left as candidate if we pretend mine2 also dead.
+        if let Some(o) = logic.objects.get_mut(&mine2) {
+            o.health.current = 0.0;
+        }
+        assert!(!logic.try_continue_attack_after_kill(
+            atk,
+            mine2,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+            100.0,
+            team,
+        ));
+        let _ = far_pos;
+        assert!(
+            logic.objects.get(&atk).and_then(|a| a.target).is_none(),
+            "far mine outside range must not be acquired"
+        );
+        // continue_or_stop stops when nothing in range
+        logic.continue_or_stop_after_kill(
+            atk,
+            mine2,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+            team,
+            Some("DozerMineDisarmingWeapon"),
+            5.0,
+        );
+        let a = logic.objects.get(&atk).unwrap();
+        assert!(matches!(a.ai_state, AIState::Idle) || a.target.is_none());
     }
 }
