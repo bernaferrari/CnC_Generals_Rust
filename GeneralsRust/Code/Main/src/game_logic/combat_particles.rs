@@ -64,6 +64,9 @@ pub struct CombatParticleSystemEntry {
     /// C++ Weapon.ini FireFX / DetonationFX residual name (empty = preset only).
     #[serde(default)]
     pub fx_list_name: String,
+    /// C++ Weapon.ini FireOCL / ProjectileDetonationOCL residual name (empty = none).
+    #[serde(default)]
+    pub ocl_list_name: String,
 }
 
 /// Lightweight host particle system registry for combat/build feedback.
@@ -197,6 +200,7 @@ impl CombatParticleRegistry {
             active: true,
             client_system_id,
             fx_list_name: String::new(),
+            ocl_list_name: String::new(),
         };
         self.systems.insert(id, entry);
         self.spawned_this_frame.push(id);
@@ -375,6 +379,32 @@ impl CombatParticleRegistry {
         fire_fx_name: &str,
         detonation_fx_name: &str,
     ) -> Vec<u32> {
+        self.spawn_weapon_fire_fx_named_ocl(
+            muzzle_pos,
+            impact_pos,
+            frame,
+            shooter,
+            target,
+            fire_fx_name,
+            detonation_fx_name,
+            "",
+            "",
+        )
+    }
+
+    /// Weapon fire FX + OCL residual names (FireOCL at muzzle, DetonationOCL at impact).
+    pub fn spawn_weapon_fire_fx_named_ocl(
+        &mut self,
+        muzzle_pos: Vec3,
+        impact_pos: Option<Vec3>,
+        frame: u32,
+        shooter: ObjectId,
+        target: Option<ObjectId>,
+        fire_fx_name: &str,
+        detonation_fx_name: &str,
+        fire_ocl_name: &str,
+        detonation_ocl_name: &str,
+    ) -> Vec<u32> {
         let mut ids = Vec::with_capacity(2);
         let muzzle_id = self.spawn(
             CombatParticleKind::WeaponMuzzleFlash,
@@ -390,6 +420,11 @@ impl CombatParticleRegistry {
                 e.template_name = fire_fx_name.to_string();
             }
         }
+        if !fire_ocl_name.is_empty() {
+            if let Some(e) = self.systems.get_mut(&muzzle_id) {
+                e.ocl_list_name = fire_ocl_name.to_string();
+            }
+        }
         ids.push(muzzle_id);
         if let Some(impact) = impact_pos {
             let impact_id = self.spawn(
@@ -403,6 +438,11 @@ impl CombatParticleRegistry {
                 if let Some(e) = self.systems.get_mut(&impact_id) {
                     e.fx_list_name = detonation_fx_name.to_string();
                     e.template_name = detonation_fx_name.to_string();
+                }
+            }
+            if !detonation_ocl_name.is_empty() {
+                if let Some(e) = self.systems.get_mut(&impact_id) {
+                    e.ocl_list_name = detonation_ocl_name.to_string();
                 }
             }
             ids.push(impact_id);
@@ -628,5 +668,27 @@ mod tests {
         let impact = reg.systems.get(&ids[1]).expect("impact");
         assert_eq!(impact.fx_list_name, "FX_Detonate");
         assert_eq!(impact.template_name, "FX_Detonate");
+    }
+
+    #[test]
+    fn impact_detonation_ocl_stamps_name() {
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named_ocl(
+            Vec3::ZERO,
+            Some(Vec3::ONE),
+            1,
+            ObjectId(1),
+            Some(ObjectId(2)),
+            "FX_Muzzle",
+            "FX_Detonate",
+            "OCL_FireFieldSmall",
+            "OCL_PoisonFieldMedium",
+        );
+        assert_eq!(ids.len(), 2);
+        let muzzle = reg.systems.get(&ids[0]).expect("muzzle");
+        assert_eq!(muzzle.ocl_list_name, "OCL_FireFieldSmall");
+        let impact = reg.systems.get(&ids[1]).expect("impact");
+        assert_eq!(impact.fx_list_name, "FX_Detonate");
+        assert_eq!(impact.ocl_list_name, "OCL_PoisonFieldMedium");
     }
 }

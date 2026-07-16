@@ -467,6 +467,148 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini FireOCL residual name (Regular slot).
+///
+/// Fail-closed: name residual only — not full ObjectCreationList create_at_position
+/// / nugget spawn parity.
+pub fn host_fire_ocl_for_weapon_name(name: &str) -> String {
+    seed_fire_ocl_for(name)
+}
+
+/// C++ Weapon.ini ProjectileDetonationOCL residual name (Regular slot).
+///
+/// Fail-closed: name residual only — not full OCL object spawn at impact.
+pub fn host_detonation_ocl_for_weapon_name(name: &str) -> String {
+    seed_detonation_ocl_for(name)
+}
+
+/// Resolve FireOCL + ProjectileDetonationOCL for a host unit weapon slot.
+pub fn host_weapon_ocl_for_unit_slot(
+    template_name: &str,
+    primary_weapon_name: Option<&str>,
+    secondary_weapon_name: Option<&str>,
+    slot: u8,
+) -> (String, String) {
+    let wname = if slot == 1 {
+        secondary_weapon_name
+            .or_else(|| secondary_weapon_name_for_unit(template_name))
+            .or(primary_weapon_name)
+            .or_else(|| primary_weapon_name_for_unit(template_name))
+    } else {
+        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+    };
+    match wname {
+        Some(n) => (
+            host_fire_ocl_for_weapon_name(n),
+            host_detonation_ocl_for_weapon_name(n),
+        ),
+        None => (String::new(), String::new()),
+    }
+}
+
+fn seed_fire_ocl_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    // Retail Weapon.ini FireOCL peels (common ZH combat / death weapons).
+    if n.contains("anthraxbomb") && n.contains("gamma") {
+        return "OCL_PoisonFieldAnthraxGammaBomb".into();
+    }
+    if n.contains("anthraxbomb") {
+        return "OCL_PoisonFieldAnthraxBomb".into();
+    }
+    if n.contains("scudstorm") || (n.contains("scud") && n.contains("damage")) {
+        if n.contains("upgrade") {
+            return "OCL_PoisonFieldUpgradedLarge".into();
+        }
+        return "OCL_PoisonFieldLarge".into();
+    }
+    if n.contains("dirtynuke") {
+        return "OCL_DirtyNuke".into();
+    }
+    if n.contains("blacknapalm") && n.contains("bomb") {
+        return "OCL_BlackNapalmFirestormSmall".into();
+    }
+    if n.contains("napalmbomb") || (n.contains("napalm") && n.contains("bomb")) {
+        return "OCL_FirestormSmall".into();
+    }
+    if n.contains("mig") && n.contains("firestorm") {
+        return "OCL_MiGFirestorm".into();
+    }
+    if n.contains("nucleartank") || (n.contains("nuclear") && n.contains("death")) {
+        return "OCL_RadiationFieldSmall".into();
+    }
+    if n.contains("nukecannon") || (n.contains("nuclear") && n.contains("cannon")) {
+        return "OCL_RadiationFieldMedium".into();
+    }
+    if n.contains("demotrap") || n.contains("terrorist") || n.contains("carbomb") {
+        if n.contains("gamma") {
+            return "OCL_PoisonFieldGammaSmall".into();
+        }
+        if n.contains("anthrax") || n.contains("upgrade") || n.contains("beta") {
+            return "OCL_PoisonFieldUpgradedSmall".into();
+        }
+        // Standard / chem suicide residual peels to small poison field.
+        if n.contains("toxin")
+            || n.contains("poison")
+            || n.contains("chem")
+            || n.contains("suicide")
+            || n.contains("terrorist")
+            || n.contains("demotrap")
+            || n.contains("carbomb")
+        {
+            return "OCL_PoisonFieldSmall".into();
+        }
+    }
+    if n.contains("toxin") || n.contains("contaminat") {
+        if n.contains("gamma") {
+            return "OCL_PoisonFieldGammaMedium".into();
+        }
+        if n.contains("upgrade") || n.contains("anthrax") || n.contains("beta") {
+            return "OCL_PoisonFieldUpgradedMedium".into();
+        }
+        return "OCL_PoisonFieldMedium".into();
+    }
+    if n.contains("inferno") {
+        if n.contains("black") || n.contains("upgrade") {
+            return "OCL_FireFieldUpgradedSmall".into();
+        }
+        return "OCL_FireFieldSmall".into();
+    }
+    String::new()
+}
+
+fn seed_detonation_ocl_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    // Retail Weapon.ini ProjectileDetonationOCL peels.
+    if n.contains("firewall") {
+        if n.contains("upgrade") || n.contains("black") {
+            return "OCL_FireWallSegmentUpgraded".into();
+        }
+        return "OCL_FireWallSegment".into();
+    }
+    if n.contains("nukecannon") || (n.contains("nuclear") && n.contains("shell")) {
+        if n.contains("medium") {
+            return "OCL_RadiationFieldMedium".into();
+        }
+        return "OCL_RadiationFieldSmall".into();
+    }
+    if n.contains("inferno") {
+        if n.contains("black") || n.contains("upgrade") {
+            return "OCL_FireFieldUpgradedSmall".into();
+        }
+        return "OCL_FireFieldSmall".into();
+    }
+    if n.contains("toxin") || n.contains("scud") || n.contains("poison") || n.contains("anthrax") {
+        if n.contains("gamma") {
+            return "OCL_PoisonFieldGammaMedium".into();
+        }
+        if n.contains("upgrade") || n.contains("beta") || n.contains("anthrax") {
+            return "OCL_PoisonFieldUpgradedMedium".into();
+        }
+        return "OCL_PoisonFieldMedium".into();
+    }
+    String::new()
+}
+
 /// Resolve FireFX + DetonationFX for a host unit firing a weapon slot.
 pub fn host_weapon_fx_for_unit_slot(
     template_name: &str,
@@ -3243,5 +3385,36 @@ mod tests {
         // Prefer non-empty for crusader family peel/store.
         let peel = seed_projectile_name_for(CRUSADER_TANK_GUN);
         assert_eq!(peel, "GenericTankShell");
+    }
+
+    #[test]
+    fn fire_ocl_for_seeded_weapons_residual() {
+        assert_eq!(
+            seed_fire_ocl_for("ChinaTankInfernoCannonGun"),
+            "OCL_FireFieldSmall"
+        );
+        assert_eq!(
+            seed_detonation_ocl_for("ChinaTankInfernoCannonGun"),
+            "OCL_FireFieldSmall"
+        );
+        assert_eq!(
+            seed_fire_ocl_for("GLAInfantryTerroristSuicideWeapon"),
+            "OCL_PoisonFieldSmall"
+        );
+        assert_eq!(
+            host_detonation_ocl_for_weapon_name("ToxinShellWeapon"),
+            "OCL_PoisonFieldMedium"
+        );
+        let (f, d) = host_weapon_ocl_for_unit_slot(
+            "ChinaTankInfernoCannon",
+            Some("ChinaTankInfernoCannonGun"),
+            None,
+            0,
+        );
+        assert_eq!(f, "OCL_FireFieldSmall");
+        assert_eq!(d, "OCL_FireFieldSmall");
+        // Unknown stays empty (fail-closed).
+        assert!(host_fire_ocl_for_weapon_name("UnknownWeaponXYZ").is_empty());
+        assert!(host_detonation_ocl_for_weapon_name("UnknownWeaponXYZ").is_empty());
     }
 }

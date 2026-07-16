@@ -3771,6 +3771,7 @@ impl XferData for CombatParticleRegistrySnapshot {
                 active: false,
                 client_system_id: None,
                 fx_list_name: String::new(),
+                ocl_list_name: String::new(),
             },
         )?;
         Ok(())

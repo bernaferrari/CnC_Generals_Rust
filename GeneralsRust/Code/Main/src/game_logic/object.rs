@@ -2283,6 +2283,21 @@ impl Object {
                     )
                     .unwrap_or_default()
                 },
+                detonation_ocl_name: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name,
+                    )
+                    .unwrap_or_default()
+                },
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
@@ -3564,6 +3579,8 @@ mod tests {
         let src = include_str!("object.rs");
         assert!(src.contains("detonation_fx_name"));
         assert!(src.contains("host_detonation_fx_for_weapon_name"));
+        assert!(src.contains("detonation_ocl_name"));
+        assert!(src.contains("host_detonation_ocl_for_weapon_name"));
         let csrc = include_str!("combat.rs");
         assert!(csrc.contains("take_impact_fx"));
         assert!(csrc.contains("ProjectileImpactFx"));
