@@ -624,7 +624,7 @@ impl AISkirmishPlayer {
         &mut self,
         power: &SpecialPowerTemplate,
         pos: &mut Coord3D,
-        _player_index: i32,
+        player_index: i32,
         weapon_radius: f32,
     ) -> bool {
         let power_type = power.get_special_power_type();
@@ -698,9 +698,9 @@ impl AISkirmishPlayer {
             return true;
         }
 
-        if let Ok(Some(target)) = self
-            .base
-            .compute_superweapon_target(power.get_name(), weapon_radius)
+        if let Ok(Some(target)) =
+            self.base
+                .compute_superweapon_target(power.get_name(), weapon_radius, player_index)
         {
             *pos = target;
             return true;
