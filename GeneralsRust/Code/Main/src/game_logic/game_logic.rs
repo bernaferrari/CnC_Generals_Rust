@@ -5858,6 +5858,107 @@ impl GameLogic {
     /// Deals full `weapon_damage` within primary splash radius and half in the
     /// outer ring to secondary radius. Respects team vs RadiusDamageAffects ENEMIES
     /// residual (host default: enemies + neutrals).
+
+    /// C++ dealDamageInternal dual-radius residual after a direct hit.
+    ///
+    /// Intended target is already damaged; splash hits others in primary/secondary
+    /// rings using PrimaryDamage / SecondaryDamage peels and RadiusDamageAffects.
+    pub(crate) fn apply_instant_hit_splash_at(
+        &mut self,
+        impact: glam::Vec3,
+        primary_damage: f32,
+        secondary_damage: f32,
+        primary_radius: f32,
+        secondary_radius: f32,
+        attacker_id: ObjectId,
+        attacker_team: Team,
+        intended_id: ObjectId,
+        weapon_name: Option<&str>,
+    ) -> u32 {
+        let max_r = primary_radius.max(secondary_radius);
+        if max_r <= 0.0 || (primary_damage <= 0.0 && secondary_damage <= 0.0) {
+            return 0;
+        }
+        use crate::game_logic::host_ai_path_combat_residual_wave105::{
+            WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+        };
+        let affects = weapon_name
+            .map(host_radius_damage_affects_for_weapon_name)
+            .unwrap_or(WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS);
+        let shooter_template = self
+            .objects
+            .get(&attacker_id)
+            .map(|a| a.template_name.clone())
+            .unwrap_or_default();
+        let primary_sq = primary_radius * primary_radius;
+        let secondary_sq = max_r * max_r;
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if *id == intended_id {
+                    return None;
+                }
+                if !obj.is_alive() {
+                    return None;
+                }
+                if obj.is_eject_invulnerable() {
+                    return None;
+                }
+                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let same_tmpl = !shooter_template.is_empty()
+                    && obj.template_name.eq_ignore_ascii_case(&shooter_template);
+                if !radius_damage_affects_victim(
+                    affects,
+                    attacker_team,
+                    attacker_id,
+                    *id,
+                    obj.team,
+                    airborne,
+                    same_tmpl,
+                ) {
+                    return None;
+                }
+                let p = obj.get_position();
+                let dx = p.x - impact.x;
+                let dz = p.z - impact.z;
+                let d2 = dx * dx + dz * dz;
+                if d2 > secondary_sq {
+                    return None;
+                }
+                Some((*id, d2))
+            })
+            .collect();
+        let mut hits = 0u32;
+        let mut destroy: Vec<ObjectId> = Vec::new();
+        for (id, d2) in candidates {
+            let dmg = if primary_radius > 0.0 && d2 <= primary_sq {
+                primary_damage
+            } else if secondary_damage > 0.0 {
+                secondary_damage
+            } else {
+                0.0
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let dead = obj.take_damage_from(dmg, Some(attacker_id));
+                hits = hits.saturating_add(1);
+                if dead {
+                    destroy.push(id);
+                }
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, Some(attacker_team));
+        }
+        hits
+    }
+
     pub(crate) fn apply_scatter_miss_splash_at(
         &mut self,
         impact: glam::Vec3,
@@ -8092,40 +8193,114 @@ impl GameLogic {
                                     }
                                 } {
                                     // Miss path handled above (splash optional).
-                                } else if let Some(target) = self.objects.get_mut(&target_id) {
-                                    let destroyed =
-                                        target.take_damage_from(weapon_damage, Some(attacker_id));
-                                    if destroyed {
-                                        // C++ parity: XP is based on victim's ExperienceValue.
-                                        let kill_xp = target.thing.template.experience_value
-                                            * Self::veterancy_xp_multiplier(
-                                                target.experience.level,
+                                } else {
+                                    if let Some(target) = self.objects.get_mut(&target_id) {
+                                        let destroyed = target
+                                            .take_damage_from(weapon_damage, Some(attacker_id));
+                                        if destroyed {
+                                            // C++ parity: XP is based on victim's ExperienceValue.
+                                            let kill_xp = target.thing.template.experience_value
+                                                * Self::veterancy_xp_multiplier(
+                                                    target.experience.level,
+                                                );
+                                            let victim_pos = target.get_position();
+                                            let victim_team = target.team;
+                                            let cont_weapon = {
+                                                // Prefer the weapon name used for this shot when known.
+                                                None::<&str>
+                                            };
+                                            self.mark_object_for_destruction(
+                                                target_id,
+                                                Some(attacker_team),
                                             );
-                                        let victim_pos = target.get_position();
-                                        let victim_team = target.team;
-                                        let cont_weapon = {
-                                            // Prefer the weapon name used for this shot when known.
-                                            None::<&str>
+                                            // Resolve attacker weapon name after releasing target borrow.
+                                            let wname =
+                                                self.objects.get(&attacker_id).and_then(|a| {
+                                                    a.thing
+                                                        .template
+                                                        .primary_weapon_name
+                                                        .clone()
+                                                        .or_else(|| {
+                                                            a.thing
+                                                                .template
+                                                                .secondary_weapon_name
+                                                                .clone()
+                                                        })
+                                                });
+                                            let _ = cont_weapon;
+                                            self.continue_or_stop_after_kill(
+                                                attacker_id,
+                                                target_id,
+                                                victim_pos,
+                                                victim_team,
+                                                wname.as_deref(),
+                                                kill_xp,
+                                            );
+                                        }
+                                    }
+                                    // C++ dual-radius splash residual after direct hit.
+                                    {
+                                        use crate::game_logic::weapon_bootstrap::{
+                                            host_primary_damage_radius_for_weapon_name,
+                                            host_secondary_damage_for_weapon_name,
+                                            host_secondary_damage_radius_for_weapon_name,
                                         };
-                                        self.mark_object_for_destruction(
-                                            target_id,
-                                            Some(attacker_team),
-                                        );
-                                        // Resolve attacker weapon name after releasing target borrow.
                                         let wname = self.objects.get(&attacker_id).and_then(|a| {
-                                            a.thing.template.primary_weapon_name.clone().or_else(
-                                                || a.thing.template.secondary_weapon_name.clone(),
-                                            )
+                                            if slot == 1 {
+                                                a.thing
+                                                    .template
+                                                    .secondary_weapon_name
+                                                    .clone()
+                                                    .or_else(|| {
+                                                        a.thing.template.primary_weapon_name.clone()
+                                                    })
+                                            } else {
+                                                a.thing.template.primary_weapon_name.clone()
+                                            }
                                         });
-                                        let _ = cont_weapon;
-                                        self.continue_or_stop_after_kill(
-                                            attacker_id,
-                                            target_id,
-                                            victim_pos,
-                                            victim_team,
-                                            wname.as_deref(),
-                                            kill_xp,
-                                        );
+                                        let (pr, sr, sd) = if let Some(ref n) = wname {
+                                            (
+                                                host_primary_damage_radius_for_weapon_name(n),
+                                                host_secondary_damage_radius_for_weapon_name(n),
+                                                host_secondary_damage_for_weapon_name(n),
+                                            )
+                                        } else {
+                                            (0.0, 0.0, 0.0)
+                                        };
+                                        let splash_weapon = self
+                                            .objects
+                                            .get(&attacker_id)
+                                            .and_then(|a| a.weapon_slot(slot))
+                                            .map(|w| w.splash_radius.max(0.0))
+                                            .unwrap_or(0.0);
+                                        let primary_r = pr.max(splash_weapon);
+                                        let secondary_r = sr.max(if primary_r > 0.0 {
+                                            primary_r * 1.5
+                                        } else {
+                                            0.0
+                                        });
+                                        if primary_r > 0.0 || secondary_r > 0.0 {
+                                            let sec_dmg =
+                                                if sd > 0.0 { sd } else { weapon_damage * 0.5 };
+                                            let hits = self.apply_instant_hit_splash_at(
+                                                target_position,
+                                                weapon_damage,
+                                                sec_dmg,
+                                                primary_r,
+                                                secondary_r,
+                                                attacker_id,
+                                                attacker_team,
+                                                target_id,
+                                                wname.as_deref(),
+                                            );
+                                            if hits > 0 {
+                                                if let Some(attacker) =
+                                                    self.objects.get_mut(&attacker_id)
+                                                {
+                                                    attacker.gain_experience((hits as f32) * 5.0);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -70878,6 +71053,68 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn direct_hit_applies_dual_radius_splash_to_neighbors() {
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("HitGun");
+            t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("HitGun".into(), t);
+            let mut ti = ThingTemplate::new("HitTgt");
+            ti.add_kind_of(KindOf::Vehicle);
+            ti.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("HitTgt".into(), ti);
+            let mut tn = ThingTemplate::new("HitNear");
+            tn.add_kind_of(KindOf::Vehicle);
+            tn.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("HitNear".into(), tn);
+        }
+        let gun = logic
+            .create_object("HitGun", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let tgt = logic
+            .create_object("HitTgt", Team::China, glam::Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
+        let near = logic
+            .create_object("HitNear", Team::China, glam::Vec3::new(90.0, 0.0, 0.0))
+            .unwrap();
+        for id in [tgt, near] {
+            if let Some(o) = logic.objects.get_mut(&id) {
+                o.health.current = 300.0;
+                o.health.maximum = 300.0;
+            }
+        }
+        let hits = logic.apply_instant_hit_splash_at(
+            glam::Vec3::new(80.0, 0.0, 0.0),
+            40.0,
+            20.0,
+            25.0,
+            40.0,
+            gun,
+            Team::USA,
+            tgt,
+            Some("AmericaFireBaseHowitzer"),
+        );
+        assert!(hits >= 1, "neighbor in primary ring must splash");
+        let nh = logic
+            .objects
+            .get(&near)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(nh < 300.0 - 1.0, "near took splash nh={nh}");
+        let th = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (th - 300.0).abs() < 0.01,
+            "intended skipped by splash helper"
+        );
     }
 
     #[test]
