@@ -233,6 +233,8 @@ pub struct AStarPathfinder {
     grid: Vec<Vec<PathfindCell>>,
     width: usize,
     height: usize,
+    /// Cell -> owning obstacle object id (C++ PathfindCellInfo::obstacleID).
+    obstacle_owners: HashMap<(i32, i32), u32>,
 }
 
 impl AStarPathfinder {
@@ -242,6 +244,7 @@ impl AStarPathfinder {
             grid,
             width,
             height,
+            obstacle_owners: HashMap::new(),
         }
     }
 
@@ -251,6 +254,7 @@ impl AStarPathfinder {
                 *cell = PathfindCell::new();
             }
         }
+        self.obstacle_owners.clear();
     }
 
     /// Get cell at grid coordinates
@@ -623,6 +627,30 @@ impl AStarPathfinder {
     pub fn set_cell_type(&mut self, coord: GridCoord, cell_type: PathfindCellType) {
         if let Some(cell) = self.get_cell_mut(coord) {
             cell.set_type(cell_type);
+        }
+    }
+
+    /// Stamp obstacle object id / fence flag on a cell (C++ setTypeAsObstacle).
+    pub fn set_cell_obstacle_id(&mut self, coord: GridCoord, obj_id: u32, is_fence: bool) {
+        let _ = is_fence;
+        if let Some(cell) = self.get_cell_mut(coord) {
+            cell.set_type(PathfindCellType::Obstacle);
+        }
+        self.obstacle_owners.insert((coord.x, coord.y), obj_id);
+    }
+
+    /// Clear obstacle if it matches obj_id (C++ removeObstacle).
+    pub fn clear_cell_obstacle_id(&mut self, coord: GridCoord, obj_id: u32) -> bool {
+        let key = (coord.x, coord.y);
+        match self.obstacle_owners.get(&key).copied() {
+            Some(owner) if owner == obj_id => {
+                self.obstacle_owners.remove(&key);
+                if let Some(cell) = self.get_cell_mut(coord) {
+                    cell.set_type(PathfindCellType::Clear);
+                }
+                true
+            }
+            _ => false,
         }
     }
 
