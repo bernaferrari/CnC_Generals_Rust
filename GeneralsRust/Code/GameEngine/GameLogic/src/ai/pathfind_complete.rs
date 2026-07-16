@@ -4599,10 +4599,32 @@ impl PathfindingSystem {
         true
     }
 
+    /// C++ PathfindCell flags derived from goal/pos unit IDs (setGoalUnit/setPosUnit).
+    #[inline]
+    fn cell_occupancy_flags(goal_u: ObjectID, pos_u: ObjectID) -> u8 {
+        // Matches AIPathfind.h CellFlags + setGoalUnit/setPosUnit transitions.
+        const NO_UNITS: u8 = 0x00;
+        const UNIT_GOAL: u8 = 0x01;
+        const UNIT_PRESENT_MOVING: u8 = 0x02;
+        const UNIT_PRESENT_FIXED: u8 = 0x03;
+        const UNIT_GOAL_OTHER_MOVING: u8 = 0x05;
+        if goal_u == INVALID_ID && pos_u == INVALID_ID {
+            NO_UNITS
+        } else if goal_u != INVALID_ID && pos_u == INVALID_ID {
+            UNIT_GOAL
+        } else if goal_u == INVALID_ID && pos_u != INVALID_ID {
+            UNIT_PRESENT_MOVING
+        } else if goal_u == pos_u {
+            UNIT_PRESENT_FIXED
+        } else {
+            UNIT_GOAL_OTHER_MOVING
+        }
+    }
+
     /// C++ `Pathfinder::checkForMovement` (AIPathfind.cpp:4971-5076).
     ///
     /// Footprint scan of goal/pos occupancy. Populates ally/enemy fixed counts.
-    /// Returns false if off-map or blocked by non-crushable enemy fixed unit.
+    /// Returns false if off-map or blocked by non-AI ally fixed unit.
     pub fn check_for_movement(&self, obj_id: ObjectID, info: &mut CheckMovementInfo) -> bool {
         info.ally_fixed_count = 0;
         info.ally_moving = false;
@@ -4639,6 +4661,11 @@ impl PathfindingSystem {
         let mut allies: [ObjectID; MAX_ALLY] = [INVALID_ID; MAX_ALLY];
         let mut num_ally = 0usize;
 
+        const UNIT_GOAL: u8 = 0x01;
+        const UNIT_PRESENT_MOVING: u8 = 0x02;
+        const UNIT_PRESENT_FIXED: u8 = 0x03;
+        const UNIT_GOAL_OTHER_MOVING: u8 = 0x05;
+
         let Ok(goals) = self.goal_cells.lock() else {
             return true;
         };
@@ -4655,17 +4682,50 @@ impl PathfindingSystem {
                 let Some(gc) = row.get(coord.y as usize) else {
                     continue;
                 };
-                let pos_unit = gc.get_goal_unit(info.layer);
-                // C++ NO_UNITS continue — empty goal slot ≈ no unit tracked.
+                let goal_u = gc.get_goal_unit(info.layer);
+                let pos_u = gc.get_pos_unit(info.layer);
+                let flags = Self::cell_occupancy_flags(goal_u, pos_u);
+
+                // C++: UNIT_GOAL | UNIT_GOAL_OTHER_MOVING → allyGoal.
+                if flags == UNIT_GOAL || flags == UNIT_GOAL_OTHER_MOVING {
+                    info.ally_goal = true;
+                }
+
+                // C++ NO_UNITS continue.
+                if flags == 0x00 {
+                    continue;
+                }
+
+                // C++ uses getPosUnit for the occupying unit identity.
+                let pos_unit = pos_u;
                 if pos_unit == INVALID_ID {
+                    // Goal-only cell: no present unit to collide with for fixed/moving checks.
                     continue;
                 }
                 if pos_unit == obj_id || pos_unit == ignore_id {
                     continue;
                 }
 
-                // Goal reservation implies UNIT_GOAL residual.
-                info.ally_goal = true;
+                let mut check = false;
+                if flags == UNIT_PRESENT_MOVING || flags == UNIT_GOAL_OTHER_MOVING {
+                    if let Some(unit_arc) = OBJECT_REGISTRY.get_object(pos_unit) {
+                        if let Ok(unit_guard) = unit_arc.read() {
+                            if obj_guard.relationship_to(&unit_guard) == Relationship::Allies {
+                                info.ally_moving = true;
+                            }
+                        }
+                    }
+                    if info.consider_transient {
+                        check = true;
+                    }
+                }
+                if flags == UNIT_PRESENT_FIXED {
+                    check = true;
+                }
+
+                if !check {
+                    continue;
+                }
 
                 let Some(unit_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
                     continue;
@@ -4678,9 +4738,9 @@ impl PathfindingSystem {
                 let rel = obj_guard.relationship_to(&unit_guard);
 
                 if rel == Relationship::Allies {
-                    // C++ ally fixed path (UNIT_PRESENT_FIXED residual via goal claim).
+                    // C++: can't path through non-AI allies.
                     if unit_guard.get_ai_update_interface().is_none() {
-                        return false; // can't path through non-AI allies
+                        return false;
                     }
                     let mut found = false;
                     for k in 0..num_ally {
@@ -9701,7 +9761,7 @@ mod tests {
         let i = prod
             .find("pub fn check_for_movement")
             .expect("checkForMovement");
-        let w = &prod[i..prod.len().min(i + 4500)];
+        let w = &prod[i..prod.len().min(i + 8000)];
         assert!(
             w.contains("can_crush_or_squish")
                 && w.contains("CrushSquishTestType::TestCrushOrSquish"),
@@ -9844,5 +9904,73 @@ mod tests {
             INVALID_ID,
             "updatePos must not stamp goal units"
         );
+    }
+
+    #[test]
+    fn check_for_movement_flag_semantics_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn check_for_movement")
+            .expect("checkForMovement");
+        let w = &prod[i..prod.len().min(i + 5500)];
+        assert!(
+            w.contains("get_pos_unit")
+                && w.contains("UNIT_PRESENT_MOVING")
+                && w.contains("ally_moving")
+                && w.contains("consider_transient"),
+            "checkForMovement must use pos units + moving/fixed flags"
+        );
+        assert!(!w.contains("UNIT_PRESENT_FIXED residual via goal claim"));
+    }
+
+    #[test]
+    fn check_for_movement_ally_moving_from_pos_without_goal() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        // Stamp only pos unit → UNIT_PRESENT_MOVING.
+        system.set_pos_cells(
+            55,
+            crate::common::ICoord2D::new(5, 5),
+            0,
+            true,
+            PathfindLayerEnum::Ground,
+            true,
+            false,
+        );
+        let mut info = CheckMovementInfo {
+            cell: GridCoord::new(5, 5),
+            layer: PathfindLayerEnum::Ground,
+            center_in_cell: true,
+            radius: 0,
+            consider_transient: false,
+            ..Default::default()
+        };
+        // Without a real object in registry for obj_id, returns true early.
+        // Surface: occupancy flags are queryable.
+        let goals = system.goal_cells.lock().unwrap();
+        let gc = goals[5][5];
+        assert_eq!(gc.get_pos_unit(PathfindLayerEnum::Ground), 55);
+        assert_eq!(gc.get_goal_unit(PathfindLayerEnum::Ground), INVALID_ID);
+        assert_eq!(
+            PathfindingSystem::cell_occupancy_flags(INVALID_ID, 55),
+            0x02, // UNIT_PRESENT_MOVING
+        );
+        let _ = info;
+    }
+
+    #[test]
+    fn cell_occupancy_flags_match_cpp_setters() {
+        assert_eq!(
+            PathfindingSystem::cell_occupancy_flags(INVALID_ID, INVALID_ID),
+            0x00
+        );
+        assert_eq!(PathfindingSystem::cell_occupancy_flags(1, INVALID_ID), 0x01); // UNIT_GOAL
+        assert_eq!(PathfindingSystem::cell_occupancy_flags(INVALID_ID, 2), 0x02); // UNIT_PRESENT_MOVING
+        assert_eq!(PathfindingSystem::cell_occupancy_flags(3, 3), 0x03); // FIXED
+        assert_eq!(PathfindingSystem::cell_occupancy_flags(4, 5), 0x05); // GOAL_OTHER_MOVING
     }
 }
