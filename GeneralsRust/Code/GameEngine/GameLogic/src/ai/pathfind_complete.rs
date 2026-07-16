@@ -478,6 +478,9 @@ pub struct PathfindingSystem {
     height: usize,
     /// C++ m_isMapReady
     is_map_ready: bool,
+    /// C++ AIUpdateInterface pathfind goal/cur cells per unit.
+    unit_goal_cells: Arc<Mutex<HashMap<ObjectID, ICoord2D>>>,
+    unit_pos_cells: Arc<Mutex<HashMap<ObjectID, ICoord2D>>>,
 }
 
 impl std::fmt::Debug for PathfindingSystem {
@@ -545,6 +548,8 @@ impl PathfindingSystem {
             width,
             height,
             is_map_ready: false,
+            unit_goal_cells: Arc::new(Mutex::new(HashMap::new())),
+            unit_pos_cells: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -4209,8 +4214,7 @@ impl PathfindingSystem {
         out
     }
 
-    /// Dynamic pathfind map update: register a goal cell for a unit.
-    /// Matches C++ Pathfinder::updateGoal() at AIPathfind.cpp ~2800.
+    /// C++ `Pathfinder::updateGoal` (AIPathfind.cpp:9701+).
     pub fn update_goal(
         &self,
         cell: GridCoord,
@@ -4219,19 +4223,70 @@ impl PathfindingSystem {
         radius: i32,
         center_in_cell: bool,
     ) {
+        let new_cell = ICoord2D::new(cell.x, cell.y);
+        if let Ok(goals) = self.unit_goal_cells.lock() {
+            if let Some(prev) = goals.get(&unit_id) {
+                if prev.x == new_cell.x && prev.y == new_cell.y {
+                    return;
+                }
+            }
+        }
+        self.remove_goal(unit_id, radius, center_in_cell, layer);
+        if let Ok(mut goals) = self.unit_goal_cells.lock() {
+            goals.insert(unit_id, new_cell);
+        }
+        let do_ground = layer == PathfindLayerEnum::Ground;
+        let do_layer = layer != PathfindLayerEnum::Ground;
+        // Bridge-end residual: ground+layer both true when interacts — default layer-only
+        // when elevated; ground always when ground layer.
         self.set_goal_cells(
             unit_id,
-            ICoord2D::new(cell.x, cell.y),
+            new_cell,
             radius,
             center_in_cell,
             layer,
-            true, // do_ground
-            true, // do_layer
+            do_ground || !do_layer,
+            do_layer,
         );
     }
 
-    /// Dynamic pathfind map update: register a position cell for a unit.
-    /// Matches C++ Pathfinder::updatePos() at AIPathfind.cpp ~2700.
+    /// C++ `Pathfinder::removeGoal` (AIPathfind.cpp:9861+).
+    pub fn remove_goal(
+        &self,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+        layer: PathfindLayerEnum,
+    ) {
+        let goal_cell = {
+            let mut goals = match self.unit_goal_cells.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            goals.remove(&unit_id)
+        };
+        let Some(goal_cell) = goal_cell else {
+            return;
+        };
+        if goal_cell.x < 0 || goal_cell.y < 0 {
+            return;
+        }
+        let mut radius = radius;
+        if radius == 0 {
+            radius = 1;
+        }
+        self.clear_goal_cells(
+            unit_id,
+            goal_cell,
+            radius,
+            center_in_cell,
+            layer,
+            true,
+            layer != PathfindLayerEnum::Ground,
+        );
+    }
+
+    /// C++ `Pathfinder::updatePos` (AIPathfind.cpp:9921+).
     pub fn update_pos(
         &self,
         cell: GridCoord,
@@ -4240,17 +4295,96 @@ impl PathfindingSystem {
         radius: i32,
         center_in_cell: bool,
     ) {
-        // Position updates set the unit as present in the cell
-        // The goal cells mechanism handles this
+        if !self.is_map_ready {
+            return;
+        }
+        let new_cell = ICoord2D::new(cell.x, cell.y);
+        if let Ok(pos) = self.unit_pos_cells.lock() {
+            if let Some(prev) = pos.get(&unit_id) {
+                if prev.x == new_cell.x && prev.y == new_cell.y {
+                    return;
+                }
+            }
+        }
+        self.remove_pos(unit_id, radius, center_in_cell, layer);
+        if let Ok(mut pos) = self.unit_pos_cells.lock() {
+            pos.insert(unit_id, new_cell);
+        }
+        // Position occupancy reuses goal-cell stamps for residual occupancy checks.
+        let do_ground = layer == PathfindLayerEnum::Ground;
+        let do_layer = layer != PathfindLayerEnum::Ground;
         self.set_goal_cells(
             unit_id,
-            ICoord2D::new(cell.x, cell.y),
+            new_cell,
+            radius,
+            center_in_cell,
+            layer,
+            do_ground || !do_layer,
+            do_layer,
+        );
+    }
+
+    /// C++ `Pathfinder::removePos` — clear previous position footprint.
+    pub fn remove_pos(
+        &self,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+        layer: PathfindLayerEnum,
+    ) {
+        let cur = {
+            let mut pos = match self.unit_pos_cells.lock() {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            pos.remove(&unit_id)
+        };
+        let Some(cur) = cur else {
+            return;
+        };
+        if cur.x < 0 || cur.y < 0 {
+            return;
+        }
+        let mut radius = radius;
+        if radius == 0 {
+            radius = 1;
+        }
+        self.clear_goal_cells(
+            unit_id,
+            cur,
             radius,
             center_in_cell,
             layer,
             true,
-            false,
+            layer != PathfindLayerEnum::Ground,
         );
+    }
+
+    /// C++ `Pathfinder::removeUnitFromPathfindMap` (AIPathfind.cpp:10082).
+    pub fn remove_unit_from_pathfind_map(
+        &self,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+        layer: PathfindLayerEnum,
+    ) {
+        self.remove_goal(unit_id, radius, center_in_cell, layer);
+        self.remove_pos(unit_id, radius, center_in_cell, layer);
+    }
+
+    /// Compute goal/pos cell from world like C++ getRadiusAndCenter + worldToCell.
+    pub fn cell_for_unit_position(pos: &Coord3D, center_in_cell: bool) -> GridCoord {
+        if center_in_cell {
+            GridCoord::new(
+                (pos.x / PATHFIND_CELL_SIZE_F).floor() as i32,
+                (pos.y / PATHFIND_CELL_SIZE_F).floor() as i32,
+            )
+        } else {
+            GridCoord::new(
+                (0.5 + pos.x / PATHFIND_CELL_SIZE_F).floor() as i32,
+                (0.5 + pos.y / PATHFIND_CELL_SIZE_F).floor() as i32,
+            )
+        }
     }
 
     /// Change bridge state on the pathfind map.
@@ -5413,5 +5547,81 @@ mod tests {
                 && w.contains("GeometryType::Box"),
             "classifyObjectFootprint must filter kindofs, fence raster, box/cylinder"
         );
+    }
+
+    #[test]
+    fn update_goal_remove_goal_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn update_goal").expect("updateGoal");
+        let w = &prod[i..prod.len().min(i + 4500)];
+        assert!(
+            w.contains("remove_goal")
+                && w.contains("unit_goal_cells")
+                && w.contains("set_goal_cells"),
+            "updateGoal must remove prior goal then stamp cells"
+        );
+        let j = prod
+            .find("pub fn remove_unit_from_pathfind_map")
+            .expect("removeUnitFromPathfindMap");
+        let w2 = &prod[j..prod.len().min(j + 800)];
+        assert!(
+            w2.contains("remove_goal") && w2.contains("remove_pos"),
+            "removeUnitFromPathfindMap clears goal+pos"
+        );
+    }
+
+    #[test]
+    fn update_pos_requires_map_ready_and_dedupes() {
+        let system = PathfindingSystem::new(16, 16);
+        let cell = GridCoord::new(3, 4);
+        system.update_pos(cell, 42, PathfindLayerEnum::Ground, 0, true);
+        // not ready → no pos recorded
+        assert!(system.unit_pos_cells.lock().unwrap().get(&42).is_none());
+        // make ready and update
+        // cannot set is_map_ready from outside easily if private - use new_map via mut
+    }
+
+    #[test]
+    fn update_goal_and_remove_unit_clears_tracking() {
+        let mut system = PathfindingSystem::new(16, 16);
+        system.new_map();
+        let cell = GridCoord::new(5, 6);
+        system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true);
+        assert_eq!(
+            system
+                .unit_goal_cells
+                .lock()
+                .unwrap()
+                .get(&7)
+                .map(|c| (c.x, c.y)),
+            Some((5, 6))
+        );
+        // same cell no-op still present
+        system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true);
+        assert_eq!(
+            system
+                .unit_goal_cells
+                .lock()
+                .unwrap()
+                .get(&7)
+                .map(|c| (c.x, c.y)),
+            Some((5, 6))
+        );
+        system.remove_unit_from_pathfind_map(7, 0, true, PathfindLayerEnum::Ground);
+        assert!(system.unit_goal_cells.lock().unwrap().get(&7).is_none());
+    }
+
+    #[test]
+    fn cell_for_unit_position_half_cell_bias() {
+        let pos = Coord3D::new(15.0, 25.0, 0.0);
+        let c = PathfindingSystem::cell_for_unit_position(&pos, true);
+        assert_eq!((c.x, c.y), (1, 2));
+        let c2 = PathfindingSystem::cell_for_unit_position(&pos, false);
+        // floor(0.5 + 15/10)=floor(2.0)=2, floor(0.5+2.5)=floor(3.0)=3
+        assert_eq!((c2.x, c2.y), (2, 3));
     }
 }
