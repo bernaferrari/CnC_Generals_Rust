@@ -7449,11 +7449,25 @@ impl GameLogic {
                     fire_target,
                 );
 
-                // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest
-                // (not silent no-op). process_audio_events routes to AudioManager;
-                // fail-closed vs full Miles retail handles.
+                // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest.
+                // Prefer Weapon.ini FireSound via store name; fallback "WeaponFire".
+                let fire_sound = {
+                    let a = self.objects.get(&attacker_id);
+                    let (tname, pwn, swn) = a
+                        .map(|o| {
+                            (
+                                o.template_name.as_str(),
+                                o.thing.template.primary_weapon_name.as_deref(),
+                                o.thing.template.secondary_weapon_name.as_deref(),
+                            )
+                        })
+                        .unwrap_or(("", None, None));
+                    crate::game_logic::weapon_bootstrap::host_fire_sound_for_unit_slot(
+                        tname, pwn, swn, slot,
+                    )
+                };
                 self.queue_audio_event(
-                    AudioEventRequest::new("WeaponFire")
+                    AudioEventRequest::new(fire_sound.as_str())
                         .with_object(attacker_id)
                         .with_position(muzzle_pos)
                         .with_priority(160),

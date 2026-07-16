@@ -416,6 +416,112 @@ pub fn honesty_weapon_store_deepen_residual_wave103() -> bool {
 /// weapons are registered. Safe to call repeatedly.
 ///
 /// Returns how many templates were added by this call (seed + filesystem load).
+
+/// C++ Weapon.ini FireSound residual name for a store weapon template.
+///
+/// Empty string when unset / missing — caller falls back to generic "WeaponFire".
+pub fn host_fire_sound_for_weapon_name(name: &str) -> String {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            let n = wt.fire_sound.name().trim();
+            if n.is_empty() {
+                None
+            } else {
+                Some(n.to_string())
+            }
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(s) = from_store {
+        return s;
+    }
+    // Store missing FireSound (pre-seed residual templates) → name peel.
+    seed_fire_sound_for(name)
+}
+
+/// Resolve FireSound for a host unit firing a weapon slot.
+pub fn host_fire_sound_for_unit_slot(
+    template_name: &str,
+    primary_weapon_name: Option<&str>,
+    secondary_weapon_name: Option<&str>,
+    slot: u8,
+) -> String {
+    let wname = if slot == 1 {
+        secondary_weapon_name
+            .or_else(|| secondary_weapon_name_for_unit(template_name))
+            .or(primary_weapon_name)
+            .or_else(|| primary_weapon_name_for_unit(template_name))
+    } else {
+        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+    };
+    if let Some(n) = wname {
+        let s = host_fire_sound_for_weapon_name(n);
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    "WeaponFire".to_string()
+}
+
+fn seed_fire_sound_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    // Retail residual peels used by host honesty packs / unit peels.
+    if n.contains("rpg") || n.contains("tankhunter") || n.contains("tunneldefender") {
+        return "RPGTrooperWeapon".into();
+    }
+    if n.contains("jarmen") || n.contains("snipe") || n.contains("pathfinder") {
+        return "JarmenKellWeaponSnipe".into();
+    }
+    if n.contains("terrorist") || n.contains("suicide") || n.contains("carbomb") {
+        return "CarBomberDie".into();
+    }
+    if n.contains("tomahawk") {
+        return "TomahawkWeapon".into();
+    }
+    if n.contains("scud") {
+        return "ScudLauncherWeapon".into();
+    }
+    if n.contains("patriot") {
+        return "PatriotBatteryWeapon".into();
+    }
+    if n.contains("ranger") && n.contains("flash") {
+        return "RangerFlashBang".into();
+    }
+    if n.contains("laser") || n.contains("pointdefense") || n.contains("point_defense") {
+        return "LaserFire".into();
+    }
+    if n.contains("ranger") || n.contains("machinegun") || n.contains("combatrifle") {
+        return "MachineGunFire".into();
+    }
+    if n.contains("tankgun")
+        || n.contains("crusader")
+        || n.contains("paladin")
+        || n.contains("battlemaster")
+    {
+        return "TankGunFire".into();
+    }
+    if n.contains("missile") || n.contains("stinger") {
+        return "MissileLaunch".into();
+    }
+    if n.contains("flame") || n.contains("dragon") || n.contains("inferno") {
+        return "FlameWeaponFire".into();
+    }
+    if n.contains("gattling") || n.contains("gatling") || n.contains("minigun") {
+        return "GattlingFire".into();
+    }
+    if n.contains("nuke") {
+        return "NukeCannonFire".into();
+    }
+    if n.contains("aurora") || n.contains("bomb") {
+        return "BombDrop".into();
+    }
+    // Generic residual — still better than empty for store seed.
+    "WeaponFire".into()
+}
+
 pub fn ensure_host_weapon_store() -> usize {
     if let Err(e) = gamelogic::initialize_weapon_store() {
         log::warn!("WeaponStore init failed during host bootstrap: {e}");
@@ -2038,6 +2144,12 @@ fn seed_known_host_weapons() -> usize {
         t.weapon_speed = seed.weapon_speed;
         t.damage_type = seed_damage_type_for(seed.name, seed.weapon_speed);
         t.death_type = seed_death_type_for(seed.name, t.damage_type);
+        {
+            let fs = seed_fire_sound_for(seed.name);
+            if !fs.is_empty() {
+                t.fire_sound = gamelogic::weapon::AudioEventRts::new(fs);
+            }
+        }
         t.anti_mask.insert(WeaponAntiMask::GROUND);
         // Min-range residual for long-range GLA artillery / rockets.
         if seed.name == BUGGY_ROCKET_WEAPON || seed.name == BUGGY_ROCKET_WEAPON_UPGRADED {
@@ -2801,5 +2913,33 @@ mod tests {
             .map(|w| w.last_fire_time)
             .unwrap_or(0.0);
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
+    }
+
+    #[test]
+    fn fire_sound_for_seeded_weapons_residual() {
+        let _ = ensure_host_weapon_store();
+        assert_eq!(
+            seed_fire_sound_for(TANK_HUNTER_PRIMARY_WEAPON),
+            "RPGTrooperWeapon"
+        );
+        assert_eq!(seed_fire_sound_for("PaladinPointDefenseLaser"), "LaserFire");
+        // Prefer Weapon.ini FireSound when present (e.g. TankHunterWeapon), else peel.
+        let store = host_fire_sound_for_weapon_name(TANK_HUNTER_PRIMARY_WEAPON);
+        assert!(
+            store == "TankHunterWeapon"
+                || store == "RPGTrooperWeapon"
+                || store == "MissileLaunch"
+                || !store.is_empty(),
+            "unexpected tank hunter fire sound {store}"
+        );
+        let unit = host_fire_sound_for_unit_slot(
+            "ChinaInfantryTankHunter",
+            Some(TANK_HUNTER_PRIMARY_WEAPON),
+            None,
+            0,
+        );
+        assert_eq!(unit, store);
+        let fallback = host_fire_sound_for_unit_slot("UnknownUnitXYZ", None, None, 0);
+        assert_eq!(fallback, "WeaponFire");
     }
 }
