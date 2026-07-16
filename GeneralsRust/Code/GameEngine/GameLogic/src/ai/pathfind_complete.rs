@@ -3628,10 +3628,11 @@ impl PathfindingSystem {
         }
     }
 
-    /// C++ `Pathfinder::getMoveAwayFromPath` core search (AIPathfind.cpp:10180+).
+    /// C++ `Pathfinder::getMoveAwayFromPath` (AIPathfind.cpp:10180-10340).
     ///
-    /// Search nearby cells for a destination whose clearance box does not
-    /// overlap `path_to_avoid` segments. Returns world position if found.
+    /// A* from unit feet until a cell whose clearance box does not overlap the
+    /// avoided path segments (and is not the start cell). Returns full path via
+    /// buildActualPath-equivalent `find_path` to that cell.
     pub fn get_move_away_from_path(
         &mut self,
         from: &Coord3D,
@@ -3642,20 +3643,72 @@ impl PathfindingSystem {
         unit_radius: f32,
         other_radius: f32,
     ) -> Option<Coord3D> {
-        if !self.is_map_ready {
-            return None;
+        let path = self.get_move_away_from_path_result(
+            from,
+            path_to_avoid,
+            path_to_avoid2,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            other_radius,
+            INVALID_ID,
+            true,
+        );
+        if path.success {
+            path.waypoints.last().copied()
+        } else {
+            None
         }
+    }
+
+    /// Full C++ `getMoveAwayFromPath` returning `PathResult` (waypoints + cost).
+    pub fn get_move_away_from_path_result(
+        &mut self,
+        from: &Coord3D,
+        path_to_avoid: &[Coord3D],
+        path_to_avoid2: Option<&[Coord3D]>,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        other_radius: f32,
+        obj_id: ObjectID,
+        is_human: bool,
+    ) -> PathResult {
+        if !self.is_map_ready {
+            return PathResult::none();
+        }
+        if let Ok(mut zones) = self.zones.lock() {
+            zones.set_all_passable();
+        }
+
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         let (other_r, other_center) = Self::compute_radius_and_center(other_radius);
         let start = Self::cell_for_unit_position(from, center_in_cell);
         if !self.is_valid_coord(start) {
-            return None;
+            return PathResult::none();
         }
+
+        // C++ tunneling when current cell invalid movement or enemyFixed.
+        self.is_tunneling = false;
         {
             let Ok(pf) = self.pathfinder.lock() else {
-                return None;
+                return PathResult::none();
             };
             if !pf.is_passable(start, surfaces, is_crusher) {
+                self.is_tunneling = true;
+            }
+        }
+        if obj_id != INVALID_ID {
+            let mut info = CheckMovementInfo {
+                cell: start,
+                layer: PathfindLayerEnum::Ground,
+                center_in_cell,
+                radius,
+                consider_transient: false,
+                acceptable_surfaces: surfaces,
+                ..Default::default()
+            };
+            if !self.check_for_movement(obj_id, &mut info) || info.enemy_fixed {
                 self.is_tunneling = true;
             }
         }
@@ -3669,96 +3722,185 @@ impl PathfindingSystem {
             box_half += PATHFIND_CELL_SIZE_F / 2.0;
         }
 
-        // Spiral / BFS limited search for a non-overlapping cell.
-        let max_r = 12i32;
-        let mut best: Option<(i32, Coord3D)> = None;
-        for r in 0..=max_r {
-            for dx in -r..=r {
-                for dy in -r..=r {
-                    if r > 0 && dx.abs() != r && dy.abs() != r {
-                        continue;
-                    }
-                    let cell = GridCoord::new(start.x + dx, start.y + dy);
-                    if !self.is_valid_coord(cell) {
-                        continue;
-                    }
-                    {
-                        let Ok(pf) = self.pathfinder.lock() else {
-                            continue;
-                        };
-                        if !self.is_tunneling && !pf.is_passable(cell, surfaces, is_crusher) {
-                            continue;
-                        }
-                    }
-                    let mut center = Coord3D::new(0.0, 0.0, 0.0);
-                    self.adjust_coord_to_cell(
-                        cell.x,
-                        cell.y,
-                        center_in_cell,
-                        &mut center,
-                        PathfindLayerEnum::Ground,
-                    );
-                    let lo_x = center.x - box_half;
-                    let lo_y = center.y - box_half;
-                    let hi_x = center.x + box_half;
-                    let hi_y = center.y + box_half;
+        // A* open list (lowest cost first) matching C++ examineNeighboringCells expansion.
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        // (f_cost, g_cost, cell)
+        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
+            std::collections::BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
+        self.note_open_closed_cells(1, 0);
 
-                    let mut overlap = false;
-                    // Must move at least one cell from start.
-                    if cell.x == start.x && cell.y == start.y {
+        let mut found: Option<(GridCoord, Coord3D)> = None;
+        let mut expanded = 0i32;
+        const MAX_EXPAND: i32 = 2500;
+
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            let cell = GridCoord::new(cx, cy);
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            expanded += 1;
+            if expanded > MAX_EXPAND {
+                break;
+            }
+
+            let mut center = Coord3D::new(0.0, 0.0, 0.0);
+            self.adjust_coord_to_cell(
+                cell.x,
+                cell.y,
+                center_in_cell,
+                &mut center,
+                PathfindLayerEnum::Ground,
+            );
+            let lo_x = center.x - box_half;
+            let lo_y = center.y - box_half;
+            let hi_x = center.x + box_half;
+            let hi_y = center.y + box_half;
+
+            let mut overlap = false;
+            // C++: must move at least one cell from start.
+            if cell.x == start.x && cell.y == start.y {
+                overlap = true;
+            }
+            let check_path = |path: &[Coord3D]| -> bool {
+                for w in path.windows(2) {
+                    let s = Coord2D::new(w[0].x, w[0].y);
+                    let e = Coord2D::new(w[1].x, w[1].y);
+                    if Self::line_in_region(&s, &e, lo_x, lo_y, hi_x, hi_y) {
+                        return true;
+                    }
+                }
+                false
+            };
+            if !overlap && check_path(path_to_avoid) {
+                overlap = true;
+            }
+            if !overlap {
+                if let Some(p2) = path_to_avoid2 {
+                    if check_path(p2) {
                         overlap = true;
-                    }
-                    let check_path = |path: &[Coord3D]| -> bool {
-                        for w in path.windows(2) {
-                            let s = Coord2D::new(w[0].x, w[0].y);
-                            let e = Coord2D::new(w[1].x, w[1].y);
-                            if Self::line_in_region(&s, &e, lo_x, lo_y, hi_x, hi_y) {
-                                return true;
-                            }
-                        }
-                        false
-                    };
-                    if !overlap && check_path(path_to_avoid) {
-                        overlap = true;
-                    }
-                    if !overlap {
-                        if let Some(p2) = path_to_avoid2 {
-                            if check_path(p2) {
-                                overlap = true;
-                            }
-                        }
-                    }
-                    if overlap {
-                        continue;
-                    }
-                    // Destination must be valid movement cell.
-                    if !self.is_destination_valid(
-                        cell,
-                        PathfindLayerEnum::Ground,
-                        surfaces,
-                        is_crusher,
-                        radius,
-                        center_in_cell,
-                        None,
-                    ) {
-                        continue;
-                    }
-                    let dist = dx.abs() + dy.abs();
-                    let better = match best {
-                        None => true,
-                        Some((bd, _)) => dist < bd,
-                    };
-                    if better {
-                        best = Some((dist, center));
                     }
                 }
             }
-            if best.is_some() && r >= 1 {
-                break;
+
+            if !overlap
+                && self.is_destination_valid(
+                    cell,
+                    PathfindLayerEnum::Ground,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    None,
+                )
+            {
+                // Human clamp like C++ examineNeighboringCells isHuman path.
+                if is_human && !self.in_logical_extent(cell) {
+                    // not a valid final goal for humans
+                } else {
+                    found = Some((cell, center));
+                    break;
+                }
+            }
+
+            // Expand neighbors (C++ examineNeighboringCells orthogonal+diagonal).
+            let _ = self.check_change_layers(cell);
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                if i >= 4 {
+                    // corner cut: both orthogonal legs passable
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !self.is_tunneling {
+                        if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
+                            || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
+                        {
+                            continue;
+                        }
+                    }
+                }
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridCoord::new(nx, ny);
+                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                if is_human && !self.in_logical_extent(nc) {
+                    continue;
+                }
+                {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !self.is_tunneling && !pf.is_passable(nc, surfaces, is_crusher) {
+                        continue;
+                    }
+                }
+                let step = if i >= 4 { 14 } else { 10 }; // diagonal ~1.4
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                came_from.insert(key, (cx, cy));
+                // No goal heuristic — pure Dijkstra like C++ startPathfind(NULL).
+                open.push(std::cmp::Reverse((ng, ng, nx, ny)));
             }
         }
+
+        self.note_open_closed_cells(open.len() as i32, closed.len() as i32);
+        self.clean_open_and_closed_lists();
         self.is_tunneling = false;
-        best.map(|(_, p)| p)
+
+        let Some((_goal_cell, goal_pos)) = found else {
+            return PathResult::none();
+        };
+
+        // C++ buildActualPath from unit position to goal cell.
+        let req = PathRequest {
+            object_id: obj_id,
+            from: *from,
+            to: goal_pos,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human,
+        };
+        let result = self.find_path(req);
+        if result.success {
+            result
+        } else {
+            // Fallback: two-node path feet → goal (still better than bare coord).
+            PathResult {
+                success: true,
+                waypoints: vec![*from, goal_pos],
+                layers: vec![PathfindLayerEnum::Ground, PathfindLayerEnum::Ground],
+                can_optimize: vec![true, true],
+                total_cost: g_score
+                    .get(&(_goal_cell.x, _goal_cell.y))
+                    .copied()
+                    .unwrap_or(0) as u32,
+                blocked_by_ally: false,
+            }
+        }
     }
 
     /// C++ `Pathfinder::crc` (AIPathfind.cpp:11043-11082).
@@ -8958,15 +9100,19 @@ mod tests {
         ));
         let prod = src.split("#[cfg(test)]").next().expect("production");
         let i = prod
-            .find("pub fn get_move_away_from_path")
-            .expect("getMoveAwayFromPath");
-        let w = &prod[i..prod.len().min(i + 4000)];
+            .find("pub fn get_move_away_from_path_result")
+            .expect("getMoveAwayFromPath result");
+        let w = &prod[i..prod.len().min(i + 10000)];
         assert!(
             w.contains("line_in_region")
                 && w.contains("box_half")
                 && w.contains("path_to_avoid")
-                && w.contains("is_map_ready"),
-            "getMoveAwayFromPath must box-test path segments"
+                && w.contains("is_map_ready")
+                && w.contains("BinaryHeap")
+                && w.contains("check_for_movement")
+                && w.contains("set_all_passable")
+                && w.contains("find_path"),
+            "getMoveAwayFromPath must A* expand + box-test path segments + build path"
         );
         assert!(prod.contains("pub fn reset(&mut self)"));
         let j = prod.find("pub fn reset(&mut self)").expect("reset");
@@ -10302,6 +10448,36 @@ mod tests {
         assert!(
             !w.contains("get_goal_unit(layer)"),
             "moveAllies must not use goal-unit claims for standing allies"
+        );
+    }
+
+    #[test]
+    fn get_move_away_returns_path_result() {
+        let mut system = PathfindingSystem::new(32, 32);
+        system.new_map();
+        let from = Coord3D::new(55.0, 55.0, 0.0);
+        let path = vec![
+            Coord3D::new(10.0, 55.0, 0.0),
+            Coord3D::new(100.0, 55.0, 0.0),
+        ];
+        let result = system.get_move_away_from_path_result(
+            &from,
+            &path,
+            None,
+            SURFACE_GROUND,
+            false,
+            0.0,
+            0.0,
+            INVALID_ID,
+            true,
+        );
+        assert!(result.success);
+        assert!(result.waypoints.len() >= 2);
+        let end = result.waypoints.last().unwrap();
+        assert!(
+            (end.y - 55.0).abs() > 5.0 || (end.x - 55.0).abs() > 5.0,
+            "path end {:?}",
+            end
         );
     }
 }
