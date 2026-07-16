@@ -6247,10 +6247,7 @@ impl AIPlayer {
             return Ok(());
         }
 
-        // Residual analysis keeps construction_priorities warm when build list empty.
-        self.analyze_building_needs()?;
-        self.update_construction_priorities()?;
-
+        // C++ processBaseBuilding: build list walk only (no host priority analysis).
         let current_frame = TheGameLogic::get_frame();
         let rebuild_delay_frames = self.rebuild_delay_frames();
 
@@ -6447,13 +6444,7 @@ impl AIPlayer {
             }
         }
 
-        // Fallback residual: if build list empty but priorities exist, try first priority.
-        if let Some(priority) = self.construction_priorities.first().cloned() {
-            self.build_structure_now(&priority)?;
-            self.arm_structure_timer_after_build()?;
-            self.frame_last_building_built = current_frame;
-        }
-
+        // C++ processBaseBuilding walks BuildListInfo only — no construction_priorities fallback.
         Ok(())
     }
 
@@ -8041,6 +8032,30 @@ mod tests {
             w.contains("friend_execute_action")
                 && !w.contains("ScriptEvaluator::new(script_engine)"),
             "checkQueuedTeams must call friend_execute_action with team name"
+        );
+    }
+
+    #[test]
+    fn process_base_building_no_priority_fallback_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn process_base_building(&mut self)")
+            .expect("process_base_building");
+        let end = src[i..]
+            .find(
+                "
+    /// C++ rebuild delay frames",
+            )
+            .map(|o| i + o)
+            .unwrap_or(src.len().min(i + 8000));
+        let w = &src[i..end];
+        assert!(
+            w.contains("build_structure_with_dozer")
+                && !w.contains("construction_priorities.first()")
+                && !w.contains("build_structure_now(&priority)")
+                && !w.contains("analyze_building_needs")
+                && !w.contains("update_construction_priorities"),
+            "processBaseBuilding must walk BuildListInfo only like C++ (no host priorities)"
         );
     }
 
