@@ -19,7 +19,6 @@ use crate::player::{player_list, GameDifficulty, Player};
 use crate::player::{PlayerType, ThePlayerList};
 use crate::team::{get_team_factory, TeamPrototype};
 use crate::terrain::get_terrain_logic;
-use crate::waypoint::Waypoint;
 
 use std::sync::{Arc, RwLock, Weak};
 
@@ -531,7 +530,15 @@ impl AISkirmishPlayer {
     /// Walk the waypoint path: if `clientSafeQuickDoesPathExist` for the unit's
     /// locomotor set, that hop is fine. Else `pathfinder->findBrokenBridge` and
     /// `repairStructure` when a destroyed bridge blocks the hop.
-    pub fn check_bridges(&mut self, unit: &Arc<RwLock<Object>>, waypoint: &Waypoint) -> bool {
+    /// C++ `AISkirmishPlayer::checkBridges` (AISkirmishPlayer.cpp).
+    ///
+    /// Walk `way->getNext()` (global waypoint list from start), for each hop:
+    /// if path exists continue; else findBrokenBridge → repairStructure → true.
+    pub fn check_bridges(
+        &mut self,
+        unit: &Arc<RwLock<Object>>,
+        start_waypoint_id: crate::common::WaypointID,
+    ) -> bool {
         let (unit_pos, loco_set) = {
             let Ok(unit_guard) = unit.try_read() else {
                 return false;
@@ -548,15 +555,19 @@ impl AISkirmishPlayer {
         };
 
         // C++: for (curWay = way; curWay; curWay = curWay->getNext())
-        // Rust Waypoint uses link IDs; walk this waypoint then linked targets.
-        let mut hop_targets: Vec<Coord3D> = vec![waypoint.position];
-        if let Ok(terrain_guard) = get_terrain_logic().read() {
-            for link_id in &waypoint.links {
-                if let Some(linked) = terrain_guard.get_waypoint_by_id(*link_id) {
-                    hop_targets.push(*linked.get_location());
-                }
+        // Snapshot hop targets from terrain list (getNext), then pathfind.
+        let hop_targets: Vec<Coord3D> = {
+            let Ok(terrain) = get_terrain_logic().read() else {
+                return false;
+            };
+            let mut out = Vec::new();
+            let mut cur = terrain.get_waypoint_by_id(start_waypoint_id);
+            while let Some(way) = cur {
+                out.push(*way.get_location());
+                cur = way.get_next();
             }
-        }
+            out
+        };
 
         let Some(pf_arc) = THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
@@ -2684,16 +2695,24 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/src/ai/skirmish_player.rs"
         ));
-        let i = src.find("pub fn check_bridges").expect("checkBridges");
-        let window = &src[i..src.len().min(i + 4500)];
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod.find("pub fn check_bridges").expect("checkBridges");
+        let end = prod[i..]
+            .find("pub fn get_ai_enemy")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 3500));
+        let w = &prod[i..end];
         assert!(
-            window.contains("get_ai_update_interface")
-                && window.contains("get_locomotor_set_clone")
-                && window.contains("client_safe_quick_does_path_exist")
-                && window.contains("find_broken_bridge")
-                && window.contains("repair_structure")
-                && window.contains("findBrokenBridge"),
-            "checkBridges must path-exist hop first, then pathfinder findBrokenBridge + repair"
+            w.contains("get_waypoint_by_id")
+                && w.contains("get_next()")
+                && w.contains("client_safe_quick_does_path_exist")
+                && w.contains("find_broken_bridge")
+                && w.contains("repair_structure")
+                && !w.contains("waypoint.links"),
+            "checkBridges must walk way->getNext() then pathfinder findBrokenBridge + repair"
         );
     }
 
