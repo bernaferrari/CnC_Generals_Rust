@@ -752,6 +752,9 @@ pub struct PresentationLaserBeam {
     pub expires_frame: u32,
     pub template_name: String,
     pub texture_name: String,
+    /// C++ Weapon.ini LaserBoneName residual (empty for Patriot assist beams).
+    #[serde(default)]
+    pub laser_bone_name: String,
     pub inner_color: (f32, f32, f32, f32),
     pub segments: Vec<PresentationLaserSegment>,
     /// Line3D ground-skim residual used when segments were built.
@@ -834,6 +837,7 @@ impl PresentationLaserBeam {
             expires_frame: laser.expires_frame,
             template_name: laser.laser_name.clone(),
             texture_name: laser.laser_name.clone(),
+            laser_bone_name: laser.laser_bone_name.clone(),
             inner_color: (1.0, 0.2, 0.2, 1.0),
             segments,
             ground_height,
@@ -877,6 +881,7 @@ impl PresentationLaserBeam {
             expires_frame: laser.expires_frame,
             template_name: PATRIOT_BINARY_DATA_STREAM.to_string(),
             texture_name: PATRIOT_LASER_TEXTURE.to_string(),
+            laser_bone_name: String::new(),
             inner_color: PATRIOT_LASER_INNER_COLOR,
             segments,
             ground_height,
@@ -928,6 +933,7 @@ impl PresentationLaserBeam {
             expires_frame: start_frame.saturating_add(30),
             template_name: "ParticleUplinkCannon_OrbitalLaser".into(),
             texture_name: PRESENTATION_ORBITAL_LASER_TEXTURE.to_string(),
+            laser_bone_name: String::new(),
             inner_color: (1.0, 1.0, 1.0, 250.0 / 255.0),
             segments: vec![PresentationLaserSegment {
                 start,
@@ -9189,7 +9195,20 @@ mod tests {
         let beam = PresentationLaserBeam::from_weapon_laser(&l, 0, 0.0, false);
         assert_eq!(beam.kind, PresentationLaserKind::WeaponLaser);
         assert_eq!(beam.template_name, "PointDefenseLaserBeam");
+        assert!(beam.laser_bone_name.is_empty() || beam.laser_bone_name == "LASER");
         assert!(!beam.segments.is_empty());
+
+        let l2 = crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
+            "PointDefenseLaserBeam",
+            "LASER",
+            ObjectId(1),
+            Some(ObjectId(2)),
+            (0.0, 5.0, 0.0),
+            (20.0, 5.0, 10.0),
+            0,
+        );
+        let beam2 = PresentationLaserBeam::from_weapon_laser(&l2, 1, 0.0, false);
+        assert_eq!(beam2.laser_bone_name, "LASER");
     }
 }
 
