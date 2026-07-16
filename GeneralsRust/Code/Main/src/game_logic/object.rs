@@ -206,6 +206,11 @@ pub struct Object {
     /// Absolute sim time when pre-attack delay elapses (ready to discharge).
     #[serde(default)]
     pub pre_attack_ready_at: f32,
+    /// C++ Object consecutive-shot residual for PreAttackType PER_ATTACK.
+    #[serde(default)]
+    pub consecutive_shot_target: Option<ObjectId>,
+    #[serde(default)]
+    pub consecutive_shots_at_target: u32,
     /// C++ Weapon::m_leechWeaponRangeActive residual (primary).
     #[serde(default)]
     pub leech_range_active_primary: bool,
@@ -589,6 +594,8 @@ impl Object {
             active_weapon_slot: 0,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
+            consecutive_shot_target: None,
+            consecutive_shots_at_target: 0,
             leech_range_active_primary: false,
             leech_range_active_secondary: false,
             guard_radius: 0.0,
@@ -726,6 +733,8 @@ impl Object {
             active_weapon_slot: 0,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
+            consecutive_shot_target: None,
+            consecutive_shots_at_target: 0,
             leech_range_active_primary: false,
             leech_range_active_secondary: false,
             guard_radius: 0.0,
@@ -2230,6 +2239,48 @@ impl Object {
         crate::game_logic::weapon_bootstrap::is_within_aim_delta(rel2, aim)
     }
 
+    /// C++ Weapon::getPreAttackDelay residual: whether PreAttackDelay applies this shot.
+    pub fn pre_attack_delay_applies(
+        &self,
+        slot: u8,
+        target_id: ObjectId,
+        prefire: crate::game_logic::weapon_bootstrap::HostPrefireType,
+        pre_delay: f32,
+    ) -> bool {
+        use crate::game_logic::weapon_bootstrap::HostPrefireType;
+        if pre_delay <= 0.0 {
+            return false;
+        }
+        match prefire {
+            HostPrefireType::PerShot => true,
+            HostPrefireType::PerAttack => {
+                // Only the first shot of an engagement against this victim.
+                !(self.consecutive_shot_target == Some(target_id)
+                    && self.consecutive_shots_at_target > 0)
+            }
+            HostPrefireType::PerClip => match self.weapon_slot(slot) {
+                Some(w) if w.clip_size > 0 => {
+                    let ammo = w.ammo.unwrap_or(w.clip_size);
+                    ammo >= w.clip_size
+                }
+                // Unlimited clip residual: treat like per-shot.
+                _ => true,
+            },
+        }
+    }
+
+    /// Record a successful discharge for PreAttackType PER_ATTACK bookkeeping.
+    pub fn record_shot_at_target(&mut self, target_id: ObjectId) {
+        if self.consecutive_shot_target == Some(target_id) {
+            self.consecutive_shots_at_target = self.consecutive_shots_at_target.saturating_add(1);
+        } else {
+            self.consecutive_shot_target = Some(target_id);
+            self.consecutive_shots_at_target = 1;
+        }
+        // PER_SHOT: force next fire_at to re-arm delay by clearing ready stamp into the past.
+        self.pre_attack_ready_at = 0.0;
+    }
+
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
         // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
         if self.status.weapons_jammed || self.is_disabled() {
@@ -2257,23 +2308,48 @@ impl Object {
             }
         };
 
-        // C++ PRE_ATTACK residual: first engagement on a target waits pre_attack_delay.
+        // C++ Weapon::getPreAttackDelay / PreAttackType residual.
         let pre_delay = self
             .weapon_slot(slot)
             .map(|w| w.pre_attack_delay.max(0.0))
             .unwrap_or(0.0);
-        if self.pre_attack_target != Some(target_id) {
+        let prefire = {
+            let name = if slot == 1 {
+                self.thing.template.secondary_weapon_name.as_deref().or(self
+                    .thing
+                    .template
+                    .primary_weapon_name
+                    .as_deref())
+            } else {
+                self.thing.template.primary_weapon_name.as_deref()
+            };
+            name.map(crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name)
+                .unwrap_or(crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot)
+        };
+        let apply_delay = self.pre_attack_delay_applies(slot, target_id, prefire, pre_delay);
+        if apply_delay {
+            // Arm a wind-up when:
+            // - new target, or
+            // - ready_at == 0 (previous shot completed / no active cycle).
+            // Once armed, wait until ready_at; do NOT re-arm while ready_at is set
+            // (even after it elapses) until record_shot_at_target clears it.
+            let needs_arm =
+                self.pre_attack_target != Some(target_id) || self.pre_attack_ready_at <= 0.0;
+            if needs_arm {
+                self.pre_attack_target = Some(target_id);
+                self.pre_attack_ready_at = current_time + pre_delay;
+                // C++ Weapon::preFireWeapon LeechRange activate residual.
+                self.activate_leech_range_for_slot(slot);
+            }
+            if current_time + 1e-6 < self.pre_attack_ready_at {
+                self.target = Some(target_id);
+                self.ai_state = AIState::Attacking;
+                self.status.attacking = true;
+                return false;
+            }
+            // Delay complete — fall through to fire; record_shot clears ready_at.
+        } else {
             self.pre_attack_target = Some(target_id);
-            self.pre_attack_ready_at = current_time + pre_delay;
-            // C++ Weapon::preFireWeapon LeechRange activate residual.
-            self.activate_leech_range_for_slot(slot);
-        }
-        if current_time + 1e-6 < self.pre_attack_ready_at {
-            // Still winding up — do not consume ammo / fire.
-            self.target = Some(target_id);
-            self.ai_state = AIState::Attacking;
-            self.status.attacking = true;
-            return false;
         }
 
         if let Some(weapon) = self.weapon_slot_mut(slot) {
@@ -2671,6 +2747,7 @@ impl Object {
             });
             // C++ fireWeaponTemplate LeechRange activate residual.
             self.activate_leech_range_for_slot(slot);
+            self.record_shot_at_target(target_id);
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
             // firing breaks stealth (default host residual).
@@ -2763,6 +2840,8 @@ impl Object {
         self.force_attack = false;
         self.pre_attack_target = None;
         self.pre_attack_ready_at = 0.0;
+        self.consecutive_shot_target = None;
+        self.consecutive_shots_at_target = 0;
         self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
         crate::game_logic::host_attack_log::record(self.id, None);
@@ -4076,5 +4155,106 @@ mod tests {
         atk.set_orientation(0.0);
         let target = glam::Vec3::new(-40.0, 0.0, 10.0);
         assert!(atk.is_aimed_at_position(target, 0));
+    }
+
+    #[test]
+    fn pre_attack_type_per_shot_delays_every_discharge() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("Gattling");
+        tmpl.primary_weapon_name = Some("AmericaGattlingTankGun".into());
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        atk.set_position(Vec3::ZERO);
+        atk.weapon = Some(Weapon {
+            damage: 5.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 0.5,
+            ..Weapon::default()
+        });
+        let tgt = ObjectId(9);
+        // First wind-up
+        assert!(!atk.fire_at(tgt, 10.0));
+        assert!((atk.pre_attack_ready_at - 10.5).abs() < 1e-4);
+        // Still winding
+        assert!(!atk.fire_at(tgt, 10.2));
+        // Fire after delay
+        assert!(atk.fire_at(tgt, 10.5));
+        assert_eq!(atk.consecutive_shots_at_target, 1);
+        // PER_SHOT: next shot needs a new delay even vs same target
+        assert!(!atk.fire_at(tgt, 10.5));
+        assert!(atk.pre_attack_ready_at > 10.5);
+        assert!(!atk.fire_at(tgt, 10.7));
+        assert!(atk.fire_at(tgt, 11.0));
+        assert_eq!(atk.consecutive_shots_at_target, 2);
+    }
+
+    #[test]
+    fn pre_attack_type_per_attack_delays_once_per_target() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.primary_weapon_name = Some("AmericaRangerMachineGun".into());
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        atk.set_position(Vec3::ZERO);
+        atk.weapon = Some(Weapon {
+            damage: 5.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 1.0,
+            ammo: Some(5),
+            clip_size: 5,
+            ..Weapon::default()
+        });
+        let tgt = ObjectId(9);
+        assert!(!atk.fire_at(tgt, 5.0)); // wind-up
+        assert!(atk.fire_at(tgt, 6.0)); // fire
+                                        // Same target: no second wind-up
+        assert!(atk.fire_at(tgt, 6.0));
+        assert_eq!(atk.consecutive_shots_at_target, 2);
+        // New target: delay again
+        let tgt2 = ObjectId(10);
+        assert!(!atk.fire_at(tgt2, 6.0));
+        assert!(atk.fire_at(tgt2, 7.0));
+    }
+
+    #[test]
+    fn pre_attack_type_per_clip_delays_on_full_clip_only() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("Scud");
+        // Seed-only name (not in WeaponStore) so PreAttackType peels to PER_CLIP.
+        tmpl.primary_weapon_name = Some("HostTestScudStormClipWeapon".into());
+        tmpl.add_kind_of(KindOf::Structure);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::GLA);
+        atk.set_position(Vec3::ZERO);
+        atk.weapon = Some(Weapon {
+            damage: 50.0,
+            range: 300.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 2.0,
+            ammo: Some(3),
+            clip_size: 3,
+            clip_reload_time: 0.0,
+            ..Weapon::default()
+        });
+        let tgt = ObjectId(9);
+        // Full clip → delay
+        assert!(!atk.fire_at(tgt, 1.0));
+        assert!(atk.fire_at(tgt, 3.0));
+        assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(2));
+        // Mid-clip → no delay
+        assert!(atk.fire_at(tgt, 3.0));
+        assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(1));
+        assert!(atk.fire_at(tgt, 3.0));
+        assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(0));
     }
 }
