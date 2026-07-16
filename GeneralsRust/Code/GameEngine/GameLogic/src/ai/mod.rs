@@ -2269,6 +2269,26 @@ impl Pathfinder {
 
     /// Terrain/object line-of-sight check for attack states.
     /// Mirrors Pathfinder::isAttackViewBlockedByObstacle behavior used by AI state machines.
+    /// C++ `Pathfinder::segmentIntersectsTallBuilding`.
+    pub fn segment_intersects_tall_building(
+        &self,
+        from: &Coord3D,
+        to: &mut Coord3D,
+        ignore_building: ObjectID,
+        insert1: &mut Coord3D,
+        insert2: &mut Coord3D,
+        insert3: &mut Coord3D,
+    ) -> bool {
+        self.inner.segment_intersects_tall_building(
+            from,
+            to,
+            ignore_building,
+            insert1,
+            insert2,
+            insert3,
+        )
+    }
+
     /// C++ `Pathfinder::circleClipsTallBuilding`.
     pub fn circle_clips_tall_building(
         &self,
