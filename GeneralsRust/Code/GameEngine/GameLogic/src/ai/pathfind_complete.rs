@@ -959,9 +959,40 @@ impl PathfindingSystem {
             }
         }
 
+        // C++ examineNeighboringCells: allyFixedCount → +3*COST_DIAGONAL.
+        let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
+        let obj_id = request.object_id;
+        let can_path_through = request.move_allies;
+        let ally_extra = |cell: GridCoord| -> u32 {
+            if obj_id == INVALID_ID {
+                return 0;
+            }
+            let mut info = CheckMovementInfo {
+                cell,
+                layer: PathfindLayerEnum::Ground,
+                center_in_cell,
+                radius,
+                consider_transient: false,
+                acceptable_surfaces: request.surfaces,
+                ..Default::default()
+            };
+            if !self.check_for_movement(obj_id, &mut info) {
+                return 0;
+            }
+            if info.ally_fixed_count > 0 {
+                // C++ 3*COST_DIAGONAL regardless of canPathThroughUnits.
+                3 * COST_DIAGONAL
+            } else if info.ally_moving && !can_path_through {
+                // C++ allyMoving nearby soft penalty.
+                3 * COST_DIAGONAL
+            } else {
+                0
+            }
+        };
+
         // Run A* pathfinding
         let pathfinder = self.pathfinder.lock().unwrap();
-        let grid_path = pathfinder.find_path(
+        let grid_path = pathfinder.find_path_ex(
             start,
             goal,
             request.surfaces,
@@ -969,6 +1000,7 @@ impl PathfindingSystem {
             MAX_PATH_ITERATIONS,
             request.allow_partial,
             ignore_cells.as_ref(),
+            Some(&ally_extra as &dyn Fn(GridCoord) -> u32),
         );
 
         drop(pathfinder); // Release lock
@@ -11499,6 +11531,31 @@ mod tests {
         assert!(
             w.contains("cell_blocked_by_ally") && w.contains("blocked_by_ally = true"),
             "buildActualPath must stamp path blockedByAlly from cell occupancy"
+        );
+    }
+
+    #[test]
+    fn find_path_ex_ally_cost_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(
+            src.contains("find_path_ex") && src.contains("extra_cost"),
+            "A* must accept per-cell extra cost for allyFixedCount"
+        );
+        let complete = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = complete.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("fn find_path_internal")
+            .expect("internalFindPath");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("ally_fixed_count") && w.contains("find_path_ex"),
+            "internalFindPath must feed allyFixedCount into A* costs"
         );
     }
 }
