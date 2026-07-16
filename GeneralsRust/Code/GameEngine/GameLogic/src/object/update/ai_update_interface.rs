@@ -1227,6 +1227,7 @@ impl AIUpdateInterface {
             allow_partial: false,
             move_allies: self.can_path_through_units,
             ignore_obstacle_id,
+            is_human: false,
         };
         let mut path_result = pathfinder.find_path_result(request.clone());
         if !path_result.success && self.path.is_none() {
@@ -1300,6 +1301,7 @@ impl AIUpdateInterface {
             allow_partial: false,
             move_allies: false,
             ignore_obstacle_id,
+            is_human: false,
         };
         let path_result = pathfinder.find_closest_path_result(request);
         drop(pathfinder);

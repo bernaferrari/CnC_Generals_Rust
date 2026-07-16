@@ -86,6 +86,7 @@ impl GroupPathfinder {
                 allow_partial: true,
                 move_allies: true,
                 ignore_obstacle_id: None,
+                is_human: false,
             };
 
             let result = pathfinder.find_path(request);
