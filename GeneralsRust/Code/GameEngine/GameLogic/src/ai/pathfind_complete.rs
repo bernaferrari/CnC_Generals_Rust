@@ -3147,6 +3147,14 @@ impl PathfindingSystem {
     }
 
     /// Stamp connectLayer on a cell (bridge ground-connect / wall link).
+    /// C++ PathfindCell::isObstacleTransparent.
+    pub fn is_cell_obstacle_transparent(&self, cell: GridCoord) -> bool {
+        self.pathfinder
+            .lock()
+            .map(|pf| pf.is_obstacle_transparent(cell))
+            .unwrap_or(false)
+    }
+
     /// C++ PathfindCell::getObstacleID via A* obstacle_owners.
     pub fn get_cell_obstacle_id(&self, cell: GridCoord) -> Option<ObjectID> {
         self.pathfinder
@@ -4185,10 +4193,18 @@ impl PathfindingSystem {
         insert: bool,
     ) -> bool {
         let coord = GridCoord::new(cx, cy);
+        // C++ m_obstacleIsTransparent from KINDOF_CAN_SEE_THROUGH_STRUCTURE.
+        let is_transparent = if let Some(arc) = OBJECT_REGISTRY.get_object(obj_id) {
+            arc.read()
+                .map(|g| g.is_kind_of(KindOf::CanSeeThrough))
+                .unwrap_or(false)
+        } else {
+            false
+        };
         if let Ok(mut pathfinder) = self.pathfinder.lock() {
             if insert {
                 pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
-                pathfinder.set_cell_obstacle_id(coord, obj_id, is_fence);
+                pathfinder.set_cell_obstacle_id(coord, obj_id, is_fence, is_transparent);
                 true
             } else if pathfinder.clear_cell_obstacle_id(coord, obj_id) {
                 true
@@ -8969,7 +8985,7 @@ mod tests {
     fn obstacle_fence_flag_stamped_on_astar() {
         let mut pf = crate::ai::pathfind_astar::AStarPathfinder::new(8, 8);
         let c = GridCoord::new(3, 4);
-        pf.set_cell_obstacle_id(c, 42, true);
+        pf.set_cell_obstacle_id(c, 42, true, false);
         assert!(pf.is_obstacle_fence(c));
         assert_eq!(pf.get_cell_type(c), Some(PathfindCellType::Obstacle));
         assert!(pf.clear_cell_obstacle_id(c, 42));
@@ -8982,7 +8998,7 @@ mod tests {
         // Fence obstacle next to clear cells.
         {
             let mut pf = system.pathfinder.lock().unwrap();
-            pf.set_cell_obstacle_id(GridCoord::new(5, 5), 7, true);
+            pf.set_cell_obstacle_id(GridCoord::new(5, 5), 7, true, false);
         }
         system.new_map();
         let z = system.zones.lock().unwrap();
@@ -9137,7 +9153,7 @@ mod tests {
         {
             let mut pf = system.pathfinder.lock().unwrap();
             // Non-fence obstacle between clear cells
-            pf.set_cell_obstacle_id(GridCoord::new(5, 5), 9, false);
+            pf.set_cell_obstacle_id(GridCoord::new(5, 5), 9, false, false);
         }
         system.new_map();
         let z = system.zones.lock().unwrap();
@@ -9658,7 +9674,7 @@ mod tests {
         {
             let mut pf = system.pathfinder.lock().unwrap();
             pf.set_cell_type(GridCoord::new(10, 10), PathfindCellType::Obstacle);
-            pf.set_cell_obstacle_id(GridCoord::new(10, 10), 99, false);
+            pf.set_cell_obstacle_id(GridCoord::new(10, 10), 99, false, false);
         }
         assert_eq!(
             system.get_cell_obstacle_id(GridCoord::new(10, 10)),

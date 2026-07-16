@@ -2558,12 +2558,23 @@ impl Pathfinder {
 
         // C++ skipCount=3 when attacker is on a non-ground layer (bridge/rooftop).
         let mut skip_count = 0i32;
-        // Layer residual: full Object::getLayer not wired on all objects; keep 0.
+        if !matches!(
+            attacker.get_layer(),
+            crate::common::PathfindLayerEnum::Ground | crate::common::PathfindLayerEnum::Invalid
+        ) {
+            skip_count = 3;
+        }
 
         let attacker_id = attacker.get_id();
         let victim_id = victim.map(|v| v.get_id()).unwrap_or(INVALID_ID);
+        let container_id = attacker.get_contained_by().unwrap_or(INVALID_ID);
+        let producer_id = attacker.get_producer_id();
+        let victim_container = victim
+            .and_then(|v| v.get_contained_by())
+            .unwrap_or(INVALID_ID);
+        let victim_producer = victim.map(|v| v.get_producer_id()).unwrap_or(INVALID_ID);
 
-        // attackBlockedByObstacleCallback via Bresenham.
+        // C++ lineBlockedByObstacleCallback via cell obstacle IDs.
         let blocked = self.inner.iterate_cells_along_line_world(
             attacker_pos,
             victim_pos,
@@ -2577,10 +2588,24 @@ impl Pathfinder {
                 if self.inner.get_cell_type(&world) != Some(PathfindCellType::Obstacle) {
                     return 0;
                 }
-                // Without per-cell obstacle IDs on the A* grid, treat obstacle cells
-                // as blockers (C++ ignores own/victim/container/slaver/transparent).
-                let _ = (attacker_id, victim_id);
-                1 // blocked
+                if self.inner.is_cell_obstacle_transparent(to_c) {
+                    return 0;
+                }
+                let oid = self.inner.get_cell_obstacle_id(to_c).unwrap_or(INVALID_ID);
+                if oid == INVALID_ID {
+                    return 1; // unknown obstacle blocks
+                }
+                // C++ never block own view / victim / container / slaver(producer).
+                if oid == attacker_id
+                    || oid == victim_id
+                    || oid == container_id
+                    || oid == victim_container
+                    || oid == producer_id
+                    || oid == victim_producer
+                {
+                    return 0;
+                }
+                1
             },
         );
         blocked != 0
