@@ -1032,12 +1032,7 @@ impl PathfindingSystem {
         // Run A* pathfinding
         let pathfinder = self.pathfinder.lock().unwrap();
         let force_pass = |cell: GridCoord| -> bool {
-            // Tunneling: any cell is force-passable until we leave obstacles
-            // (A* still prefers clear via costs; this only unlocks expansion).
-            if tunneling {
-                return true;
-            }
-            // Dozer hack: non-enemy obstacle cells are walkable.
+            // Dozer hack only — tunneling is m_isTunneling inside A* (starts_tunneling).
             if is_dozer {
                 let is_obs = self
                     .pathfinder
@@ -1048,9 +1043,6 @@ impl PathfindingSystem {
                 if !is_obs {
                     return false;
                 }
-                // Resolve obstacle owner if stamped.
-                // Without per-cell obstacle ID here, allow structure cells for dozers
-                // (relationship refined when obstacle IDs present on pathfinder).
                 let _ = obj_id_for_force;
                 return true;
             }
@@ -1080,7 +1072,7 @@ impl PathfindingSystem {
         };
         // Seed line when not tunneling and not downhill-only (C++ guards).
         let seed_line = !tunneling && !downhill_only;
-        let grid_path = pathfinder.find_path_ex4(
+        let grid_path = pathfinder.find_path_ex5(
             start,
             goal,
             request.surfaces,
@@ -1094,6 +1086,7 @@ impl PathfindingSystem {
             Some(&force_pass as &dyn Fn(GridCoord) -> bool),
             Some(&line_ok as &dyn Fn(GridCoord) -> bool),
             seed_line,
+            tunneling,
         );
 
         drop(pathfinder); // Release lock
@@ -11761,7 +11754,8 @@ mod tests {
             prod.contains("object_is_downhill_only")
                 && (prod.contains("find_path_ex2")
                     || prod.contains("find_path_ex3")
-                    || prod.contains("find_path_ex4")),
+                    || prod.contains("find_path_ex4")
+                    || prod.contains("find_path_ex5")),
             "internalFindPath must pass downhill_only into A*"
         );
     }
@@ -11781,7 +11775,9 @@ mod tests {
         assert!(
             prod.contains("start_is_obstacle")
                 && prod.contains("object_is_dozer")
-                && (prod.contains("find_path_ex3") || prod.contains("find_path_ex4")),
+                && (prod.contains("find_path_ex3")
+                    || prod.contains("find_path_ex4")
+                    || prod.contains("find_path_ex5")),
             "internalFindPath must set tunneling from obstacle start and dozer force-pass"
         );
     }
@@ -11805,9 +11801,32 @@ mod tests {
         let prod = complete.split("#[cfg(test)]").next().expect("production");
         assert!(
             prod.contains("seed_line")
-                && prod.contains("find_path_ex4")
+                && (prod.contains("find_path_ex4") || prod.contains("find_path_ex5"))
                 && prod.contains("line_ok"),
             "internalFindPath must enable examineCellsCallback line seed"
+        );
+    }
+
+    #[test]
+    fn tunneling_dynamic_clear_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(
+            src.contains("starts_tunneling")
+                && src.contains("is_tunneling = false")
+                && src.contains("10 * COST_ORTHOGONAL"),
+            "A* must clear tunneling and apply C++ tunnel surcharge"
+        );
+        let complete = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = complete.split("#[cfg(test)]").next().expect("production");
+        assert!(
+            prod.contains("find_path_ex5") && prod.contains("tunneling"),
+            "internalFindPath must pass starts_tunneling into A*"
         );
     }
 }
