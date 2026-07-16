@@ -5264,20 +5264,164 @@ impl PathfindingSystem {
         let parent_global = zones.get_effective_zone(surfaces, crusher, parent_zone);
         let new_global = zones.get_effective_zone(surfaces, crusher, new_zone);
         if new_global != parent_global {
-            // Bridge interaction residual: if parent block interacts with bridge,
-            // allow hierarchical continue only when adj also interacts (same block
-            // family). Full multi-layer bridge zone jump remains residual.
-            let parent_bridge = zones.interacts_with_bridge(scan_cell.x, scan_cell.y);
-            let adj_bridge = zones.interacts_with_bridge(adj.x, adj.y);
-            if !(parent_bridge && adj_bridge) {
-                return None;
-            }
+            // Orthogonal neighbors must share effective zone. Bridge jumps use
+            // `hierarchical_bridge_jumps` (C++ interactsWithBridge layer scan).
+            return None;
         }
         if examined_zones.contains(&new_zone) {
             return None;
         }
         examined_zones.push(new_zone);
         Some((adj, new_zone))
+    }
+
+    /// C++ hierarchical bridge expansion (AIPathfind.cpp ~7595-7650).
+    ///
+    /// When the parent cell's zone block interacts with a bridge, enqueue the
+    /// far-end ground cell of each live bridge attached to that block.
+    pub fn hierarchical_bridge_jumps(
+        &self,
+        parent_cell: GridCoord,
+        parent_zone: u16,
+        goal_zone: u16,
+        surfaces: LocomotorSurfaceTypeMask,
+        crusher: bool,
+        examined_zones: &mut Vec<u16>,
+    ) -> Vec<(GridCoord, u16, bool)> {
+        // Returns (far_end_cell, far_block_zone, reached_goal).
+        let mut out = Vec::new();
+        if parent_zone == 0 || parent_zone == UNINITIALIZED_ZONE {
+            return out;
+        }
+        let Ok(zones) = self.zones.lock() else {
+            return out;
+        };
+        if !zones.interacts_with_bridge(parent_cell.x, parent_cell.y) {
+            return out;
+        }
+        let block_x = parent_cell.x.div_euclid(ZONE_BLOCK_SIZE);
+        let block_y = parent_cell.y.div_euclid(ZONE_BLOCK_SIZE);
+
+        for bridge in &self.bridges {
+            if bridge.destroyed {
+                continue;
+            }
+            // C++: pick orientation so start (ndx) is in parent block.
+            let (near, far) = {
+                let s = bridge.start_cell;
+                let e = bridge.end_cell;
+                let sbx = s.x.div_euclid(ZONE_BLOCK_SIZE);
+                let sby = s.y.div_euclid(ZONE_BLOCK_SIZE);
+                let ebx = e.x.div_euclid(ZONE_BLOCK_SIZE);
+                let eby = e.y.div_euclid(ZONE_BLOCK_SIZE);
+                if sbx == block_x && sby == block_y {
+                    (s, e)
+                } else if ebx == block_x && eby == block_y {
+                    (e, s)
+                } else {
+                    // Also accept ground_connect_cells in this block.
+                    let mut found_near = None;
+                    let mut found_far = None;
+                    for c in &bridge.ground_connect_cells {
+                        let bx = c.x.div_euclid(ZONE_BLOCK_SIZE);
+                        let by = c.y.div_euclid(ZONE_BLOCK_SIZE);
+                        if bx == block_x && by == block_y {
+                            found_near = Some(*c);
+                        } else {
+                            found_far = Some(*c);
+                        }
+                    }
+                    match (found_near, found_far) {
+                        (Some(n), Some(f)) => (n, f),
+                        _ => continue,
+                    }
+                }
+            };
+            if near.x < 0 || near.y < 0 || far.x < 0 || far.y < 0 {
+                continue;
+            }
+            if !self.is_valid_coord(near) || !self.is_valid_coord(far) {
+                continue;
+            }
+            let near_zone = zones.get_block_zone(surfaces, crusher, near.x, near.y);
+            if near_zone != parent_zone {
+                continue;
+            }
+            // Goal via bridge layer zone.
+            if bridge.zone != 0 && bridge.zone == goal_zone {
+                out.push((
+                    far,
+                    zones.get_block_zone(surfaces, crusher, far.x, far.y),
+                    true,
+                ));
+                continue;
+            }
+            let far_zone = zones.get_block_zone(surfaces, crusher, far.x, far.y);
+            if far_zone == 0 || examined_zones.contains(&far_zone) {
+                continue;
+            }
+            examined_zones.push(far_zone);
+            out.push((far, far_zone, false));
+        }
+        out
+    }
+
+    /// BFS over hierarchical bridge jumps to see if start can reach goal zone.
+    fn hierarchical_zones_join_via_bridge(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: LocomotorSurfaceTypeMask,
+        crusher: bool,
+    ) -> bool {
+        let Ok(zones) = self.zones.lock() else {
+            return false;
+        };
+        let start_z = zones.get_block_zone(surfaces, crusher, start.x, start.y);
+        let goal_z = zones.get_block_zone(surfaces, crusher, goal.x, goal.y);
+        drop(zones);
+        if start_z == 0 || goal_z == 0 {
+            return false;
+        }
+        if start_z == goal_z {
+            return true;
+        }
+        let mut examined = vec![start_z];
+        let mut queue = vec![start];
+        let mut seen_cells = std::collections::HashSet::new();
+        seen_cells.insert(start);
+        let mut steps = 0;
+        while let Some(cell) = queue.pop() {
+            steps += 1;
+            if steps > 256 {
+                break;
+            }
+            let parent_z = {
+                let Ok(zones) = self.zones.lock() else {
+                    break;
+                };
+                zones.get_block_zone(surfaces, crusher, cell.x, cell.y)
+            };
+            if parent_z == goal_z {
+                return true;
+            }
+            for (far, far_z, reached) in self.hierarchical_bridge_jumps(
+                cell,
+                parent_z,
+                goal_z,
+                surfaces,
+                crusher,
+                &mut examined,
+            ) {
+                if reached || far_z == goal_z {
+                    return true;
+                }
+                if seen_cells.insert(far) {
+                    queue.push(far);
+                }
+            }
+        }
+        false
     }
 
     /// Long-distance hierarchical path check using zone connectivity.
@@ -5296,14 +5440,24 @@ impl PathfindingSystem {
         let end_cell = GridCoord::from_world(&end);
 
         // C++ effective zone equality on start/goal (internal_findHierarchicalPath).
+        // Bridge layers can join otherwise-disjoint ground zones.
         if let Ok(zones) = self.zones.lock() {
-            let z1 = zones.get_effective_zone(surfaces, false, zones.zone_at(start_cell));
-            let z2 = zones.get_effective_zone(surfaces, false, zones.zone_at(end_cell));
+            let z1 = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(start_cell));
+            let z2 = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(end_cell));
             if z1 != 0 && z2 != 0 && z1 != z2 {
-                return None;
-            }
-            if !zones.are_connected(start_cell, end_cell, surfaces, is_crusher) {
-                return None;
+                drop(zones);
+                if !self
+                    .hierarchical_zones_join_via_bridge(start_cell, end_cell, surfaces, is_crusher)
+                {
+                    return None;
+                }
+            } else if !zones.are_connected(start_cell, end_cell, surfaces, is_crusher) {
+                drop(zones);
+                if !self
+                    .hierarchical_zones_join_via_bridge(start_cell, end_cell, surfaces, is_crusher)
+                {
+                    return None;
+                }
             }
         }
 
@@ -9269,5 +9423,52 @@ mod tests {
         let w = &prod[i..prod.len().min(i + 1200)];
         assert!(w.contains("cell_budget") || w.contains("PATHFIND_CELLS_PER_FRAME"));
         assert!(w.contains("cumulative_cells_allocated"));
+    }
+
+    #[test]
+    fn hierarchical_bridge_jumps_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("fn hierarchical_bridge_jumps"));
+        assert!(prod.contains("hierarchical_zones_join_via_bridge"));
+        assert!(
+            !prod.contains("Full multi-layer bridge zone jump remains residual"),
+            "bridge jump residual comment must be gone"
+        );
+    }
+
+    #[test]
+    fn hierarchical_bridge_jumps_from_live_bridge() {
+        let mut system = PathfindingSystem::new(40, 40);
+        // Bridge spanning two blocks: start block (1,1) cells 10-19, end block (2,1).
+        let bid = system.add_bridge((GridCoord::new(15, 15), GridCoord::new(25, 15)));
+        assert_ne!(bid, 0);
+        system.new_map();
+        assert!(system.zone_interacts_with_bridge(GridCoord::new(15, 15)));
+        let parent = GridCoord::new(15, 15);
+        let parent_z =
+            system
+                .zones
+                .lock()
+                .unwrap()
+                .get_block_zone(SURFACE_GROUND, false, parent.x, parent.y);
+        let mut examined = Vec::new();
+        let jumps = system.hierarchical_bridge_jumps(
+            parent,
+            parent_z,
+            0,
+            SURFACE_GROUND,
+            false,
+            &mut examined,
+        );
+        assert!(
+            !jumps.is_empty(),
+            "live bridge must yield hierarchical far-end jump"
+        );
+        let (far, _fz, _) = jumps[0];
+        assert_eq!(far, GridCoord::new(25, 15));
     }
 }
