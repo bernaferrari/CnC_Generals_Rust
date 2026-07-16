@@ -2048,10 +2048,9 @@ impl PathfindingSystem {
     }
 
     /// Find a pathable spot near the destination.
-    /// Matches C++ Pathfinder::adjustToPossibleDestination() at AIPathfind.cpp:5510-5617.
+    /// C++ `Pathfinder::adjustToPossibleDestination` (AIPathfind.cpp:5510-5617).
     ///
-    /// Searches for a cell in the same zone as the unit that is passable and
-    /// valid as a destination, using the same spiral search pattern.
+    /// Same-zone passable destination via spiral; half-cell bias when not centered.
     pub fn adjust_to_possible_destination(
         &self,
         start: &Coord3D,
@@ -2061,9 +2060,19 @@ impl PathfindingSystem {
         unit_radius: f32,
     ) -> bool {
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
-        let goal_cell = GridCoord::from_world(dest);
+        // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
+        let mut adjust_dest = *dest;
+        if !center_in_cell {
+            adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        let goal_cell = GridCoord::from_world(&adjust_dest);
+        // C++ worldToCell returns true when outside bounds → fail.
+        if !self.is_valid_coord(goal_cell) {
+            return false;
+        }
+        let destination_layer = self.get_layer_for_coord(goal_cell);
 
-        // Check if start and goal are in the same zone
         let start_cell = GridCoord::from_world(start);
         let same_zone = if let Ok(zones) = self.zones.lock() {
             zones.are_connected(start_cell, goal_cell, surfaces, is_crusher)
@@ -2074,13 +2083,14 @@ impl PathfindingSystem {
         if same_zone {
             if self.is_destination_valid(
                 goal_cell,
-                PathfindLayerEnum::Ground,
+                destination_layer,
                 surfaces,
                 is_crusher,
                 radius,
                 center_in_cell,
                 None,
             ) {
+                // C++ returns true without rewriting dest when seed is already valid.
                 return true;
             }
         }
@@ -2164,6 +2174,7 @@ impl PathfindingSystem {
         false
     }
 
+    /// C++ checkForPossible + checkDestination for adjustToPossibleDestination spiral.
     fn try_zone_adjust(
         &self,
         cx: i32,
@@ -2179,8 +2190,8 @@ impl PathfindingSystem {
         if !self.is_valid_coord(coord) {
             return false;
         }
+        let layer = self.get_layer_for_coord(coord);
 
-        // Check zone connectivity
         let connected = if let Ok(zones) = self.zones.lock() {
             zones.are_connected(start_cell, coord, surfaces, is_crusher)
         } else {
@@ -2192,7 +2203,7 @@ impl PathfindingSystem {
 
         if !self.is_destination_valid(
             coord,
-            PathfindLayerEnum::Ground,
+            layer,
             surfaces,
             is_crusher,
             radius,
@@ -2202,13 +2213,7 @@ impl PathfindingSystem {
             return false;
         }
 
-        let snapped = coord.to_world(PathfindLayerEnum::Ground);
-        if let Some(terrain) = TheTerrainLogic::get() {
-            dest.x = snapped.x;
-            dest.y = snapped.y;
-            dest.z =
-                terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
-        }
+        self.adjust_coord_to_cell(cx, cy, center_in_cell, dest, layer);
         true
     }
 
@@ -3218,5 +3223,43 @@ mod tests {
         // Should land on a grid-aligned location.
         let c = GridCoord::from_world(&pos);
         assert!(c.x >= 0 && c.y >= 0);
+    }
+
+    #[test]
+    fn adjust_to_possible_destination_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn adjust_to_possible_destination")
+            .expect("adjustToPossibleDestination");
+        let end = prod[i..]
+            .find("fn try_zone_adjust")
+            .map(|o| i + o + 1200)
+            .unwrap_or(prod.len().min(i + 5000));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("PATHFIND_CELL_SIZE_F * 0.5")
+                && w.contains("is_valid_coord(goal_cell)")
+                && w.contains("are_connected")
+                && w.contains("adjust_coord_to_cell"),
+            "adjustToPossibleDestination must half-cell, bounds-fail, zone+snap like C++"
+        );
+    }
+
+    #[test]
+    fn adjust_to_possible_destination_out_of_bounds_fails() {
+        let system = PathfindingSystem::new(8, 8);
+        let start = Coord3D::new(10.0, 10.0, 0.0);
+        let mut dest = Coord3D::new(50_000.0, 50_000.0, 0.0);
+        assert!(!system.adjust_to_possible_destination(
+            &start,
+            &mut dest,
+            SURFACE_GROUND,
+            false,
+            0.0
+        ));
     }
 }
