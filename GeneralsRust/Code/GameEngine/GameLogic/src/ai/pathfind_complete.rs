@@ -6701,9 +6701,9 @@ struct ZoneManager {
     next_zone: u16,
     /// C++ needToCalculateZones / markZonesDirty.
     zones_dirty: bool,
-    /// C++ m_crusherZones — residual identity until full combiner tables.
+    /// C++ m_crusherZones — filled by build_surface_combiners / identity fallback.
     crusher_zones: Vec<u16>,
-    /// C++ m_groundCliffZones combiner residual (identity).
+    /// C++ m_groundCliffZones — filled by build_surface_combiners / identity fallback.
     ground_cliff_zones: Vec<u16>,
     ground_water_zones: Vec<u16>,
     ground_rubble_zones: Vec<u16>,
@@ -6762,12 +6762,16 @@ impl ZoneManager {
         self.zones[cell.x as usize][cell.y as usize]
     }
 
+    /// C++ hierarchical connectivity via `getEffectiveZone` (not raw cell zones).
+    ///
+    /// Ground+cliff locomotors share ground_cliff combiners; crushers share
+    /// crusher combiners, etc. Identity residual only when combiners unbuilt.
     fn are_connected(
         &self,
         start: GridCoord,
         goal: GridCoord,
-        _surfaces: LocomotorSurfaceTypeMask,
-        _is_crusher: bool,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
     ) -> bool {
         if start.x < 0
             || start.x >= self.width as i32
@@ -6785,10 +6789,13 @@ impl ZoneManager {
         let goal_zone = self.zones[goal.x as usize][goal.y as usize];
 
         if start_zone == 0 || goal_zone == 0 {
+            // Unzoned (dirty/partial) — don't hard-reject hierarchical precheck.
             return true;
         }
 
-        start_zone == goal_zone
+        let z1 = self.get_effective_zone(surfaces, is_crusher, start_zone);
+        let z2 = self.get_effective_zone(surfaces, is_crusher, goal_zone);
+        z1 == z2
     }
 
     /// C++ `PathfindZoneManager::getBlockZone`.
@@ -6877,7 +6884,7 @@ impl ZoneManager {
         (cell_x / ZONE_BLOCK_SIZE, cell_y / ZONE_BLOCK_SIZE)
     }
 
-    /// Rebuild identity combiner tables after flood fill (full C++ combiners residual).
+    /// Rebuild identity combiner tables when cell types are unavailable.
     fn rebuild_combiner_identity(&mut self) {
         let n = self.next_zone as usize + 1;
         self.crusher_zones = (0..n).map(|i| i as u16).collect();
@@ -10228,5 +10235,47 @@ mod tests {
             "pathDestination must call full checkForAdjust with is_human + groupDest"
         );
         assert!(!w.contains("let _ = is_human"));
+    }
+
+    #[test]
+    fn are_connected_uses_effective_zone_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("fn are_connected(").expect("are_connected");
+        let w = &prod[i..prod.len().min(i + 1500)];
+        assert!(
+            w.contains("get_effective_zone"),
+            "are_connected must compare getEffectiveZone results, not raw cell zones"
+        );
+        assert!(!w.contains("_surfaces"));
+        assert!(!w.contains("_is_crusher"));
+    }
+
+    #[test]
+    fn are_connected_ground_cliff_merge() {
+        // Two zones linked only via ground_cliff combiner should connect for
+        // SURFACE_GROUND|CLIFF locomotors but not plain GROUND.
+        let mut z = ZoneManager::new(4, 4);
+        z.next_zone = 3;
+        z.zones = vec![vec![1u16; 4]; 4];
+        z.zones[0][0] = 1;
+        z.zones[3][3] = 2;
+        z.rebuild_combiner_identity();
+        // Manually merge zone 1 and 2 in ground_cliff table only.
+        z.ground_cliff_zones[1] = 1;
+        z.ground_cliff_zones[2] = 1;
+        let a = GridCoord::new(0, 0);
+        let b = GridCoord::new(3, 3);
+        assert!(
+            z.are_connected(a, b, SURFACE_GROUND | SURFACE_CLIFF, false),
+            "ground+cliff should share merged effective zone"
+        );
+        assert!(
+            !z.are_connected(a, b, SURFACE_GROUND, false),
+            "plain ground must not see cliff-only merge"
+        );
     }
 }
