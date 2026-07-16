@@ -493,6 +493,30 @@ impl AStarPathfinder {
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
     ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_ex(
+            start,
+            goal,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            None,
+        )
+    }
+
+    /// A* with optional per-cell extra cost (C++ allyFixedCount / blockedByAlly penalty).
+    pub fn find_path_ex(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+    ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = BinaryHeap::new();
@@ -608,6 +632,10 @@ impl AStarPathfinder {
                 // heavy cost (100 * COST_ORTHOGONAL), not hard reject in this path.
                 if !self.is_zone_passable(neighbor_coord) {
                     movement_cost = movement_cost.saturating_add(ZONE_IMPASSABLE_COST);
+                }
+                // C++ allyFixedCount > 0 → +3*COST_DIAGONAL (and setBlockedByAlly).
+                if let Some(extra) = extra_cost {
+                    movement_cost = movement_cost.saturating_add(extra(neighbor_coord));
                 }
 
                 let tentative_g = current.g_score.saturating_add(movement_cost);
