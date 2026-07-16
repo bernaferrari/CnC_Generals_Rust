@@ -2898,11 +2898,12 @@ impl PathfindingSystem {
         self.is_map_ready = true;
     }
 
-    /// Snapshot cell types + fence flags from A* grid and rebuild zones + combiners.
-    fn recalculate_zones_from_cells(&self) {
+    /// Snapshot cell types + fence flags + connect layers; rebuild zones + combiners.
+    fn recalculate_zones_from_cells(&mut self) {
         let snapshot = if let Ok(pf) = self.pathfinder.lock() {
             let mut grid = vec![vec![PathfindCellType::Clear; self.height]; self.width];
             let mut fences = vec![vec![false; self.height]; self.width];
+            let mut connects = vec![vec![0u8; self.height]; self.width];
             for x in 0..self.width {
                 for y in 0..self.height {
                     let c = GridCoord::new(x as i32, y as i32);
@@ -2910,15 +2911,38 @@ impl PathfindingSystem {
                         grid[x][y] = ct;
                     }
                     fences[x][y] = pf.is_obstacle_fence(c);
+                    if let Some(cl) = pf.get_cell_connect_layer(c) {
+                        connects[x][y] = cl as u8;
+                    }
                 }
             }
-            Some((grid, fences))
+            Some((grid, fences, connects))
         } else {
             None
         };
         if let Ok(mut zones) = self.zones.lock() {
-            if let Some((types, fences)) = snapshot {
-                zones.calculate_zones_with_types_and_fences(Some(&types), Some(&fences));
+            if let Some((types, fences, connects)) = snapshot {
+                // Flood-fill ground cells once.
+                zones.flood_fill_from_types(&types);
+                // C++ PathfindLayer::m_zone — each elevated layer gets its own zone id
+                // (distinct from ground cells) so connectLayer hierarchical resolve merges.
+                let mut layer_zones = vec![0u16; 32];
+                for bridge in self.bridges.iter_mut() {
+                    let z = zones.allocate_zone_id();
+                    bridge.zone = z;
+                    let lid = bridge.layer_id as usize;
+                    if lid < layer_zones.len() {
+                        layer_zones[lid] = z;
+                    }
+                }
+                zones.build_surface_combiners(
+                    &types,
+                    Some(&fences),
+                    Some(&connects),
+                    Some(&layer_zones),
+                );
+                zones.rebuild_zone_blocks(Some(&types), Some(&fences));
+                zones.zones_dirty = false;
             } else {
                 zones.calculate_zones();
             }
@@ -6253,19 +6277,56 @@ impl ZoneManager {
 
     /// Calculate zones using flood-fill by cell type, then build surface combiners.
     /// Matches C++ PathfindZoneManager::calculateZones + ZoneBlock combiners.
+    /// Flood-fill zones from a cell-type grid (no combiners).
+    fn flood_fill_from_types(&mut self, types: &[Vec<PathfindCellType>]) {
+        for col in self.zones.iter_mut() {
+            for zone in col.iter_mut() {
+                *zone = 0;
+            }
+        }
+        self.next_zone = 1;
+        for x in 0..self.width {
+            for y in 0..self.height {
+                if self.zones[x][y] == 0 {
+                    let ct = types
+                        .get(x)
+                        .and_then(|col| col.get(y))
+                        .copied()
+                        .unwrap_or(PathfindCellType::Clear);
+                    self.flood_fill_type(x, y, ct, types);
+                }
+            }
+        }
+        if self.next_zone == 0 {
+            self.next_zone = 1;
+        }
+    }
+
+    /// Allocate a fresh zone id (C++ PathfindLayer zone assignment).
+    fn allocate_zone_id(&mut self) -> u16 {
+        let z = self.next_zone;
+        self.next_zone = self.next_zone.saturating_add(1).max(1);
+        if self.next_zone == 0 {
+            self.next_zone = 1;
+        }
+        z
+    }
+
     fn calculate_zones(&mut self) {
         // Without cell types, identity flood-fill.
         self.calculate_zones_with_types(None);
     }
 
     fn calculate_zones_with_types(&mut self, cell_types: Option<&[Vec<PathfindCellType>]>) {
-        self.calculate_zones_with_types_and_fences(cell_types, None);
+        self.calculate_zones_with_types_and_fences(cell_types, None, None, None);
     }
 
     fn calculate_zones_with_types_and_fences(
         &mut self,
         cell_types: Option<&[Vec<PathfindCellType>]>,
         fence_flags: Option<&[Vec<bool>]>,
+        connect_layers: Option<&[Vec<u8>]>,
+        layer_zones: Option<&[u16]>,
     ) {
         for col in self.zones.iter_mut() {
             for zone in col.iter_mut() {
@@ -6287,7 +6348,7 @@ impl ZoneManager {
                     }
                 }
             }
-            self.build_surface_combiners(types, fence_flags);
+            self.build_surface_combiners(types, fence_flags, connect_layers, layer_zones);
             self.rebuild_zone_blocks(Some(types), fence_flags);
         } else {
             for x in 0..self.width {
@@ -6383,6 +6444,8 @@ impl ZoneManager {
         &mut self,
         types: &[Vec<PathfindCellType>],
         fence_flags: Option<&[Vec<bool>]>,
+        connect_layers: Option<&[Vec<u8>]>,
+        layer_zones: Option<&[u16]>,
     ) {
         let n = (self.next_zone as usize).max(2);
         // Index by zone id; unused 0 slot identity.
@@ -6424,6 +6487,31 @@ impl ZoneManager {
                 .copied()
                 .unwrap_or(false)
         };
+
+        // C++: clear cells with connectLayer > LAYER_GROUND resolve into hierarchical
+        // with PathfindLayer::getZone() (bridge layer zone).
+        if let (Some(connects), Some(lz)) = (connect_layers, layer_zones) {
+            for x in 0..self.width {
+                for y in 0..self.height {
+                    let cl = connects.get(x).and_then(|c| c.get(y)).copied().unwrap_or(0);
+                    // PathfindLayerEnum::Ground = 1; only layers above ground.
+                    if cl <= PathfindLayerEnum::Ground as u8 {
+                        continue;
+                    }
+                    if ct(x, y) != PathfindCellType::Clear {
+                        continue;
+                    }
+                    let cell_z = self.zones[x][y];
+                    if cell_z == 0 {
+                        continue;
+                    }
+                    let layer_z = lz.get(cl as usize).copied().unwrap_or(0);
+                    if layer_z != 0 {
+                        resolve(&mut hierarchical, cell_z, layer_z);
+                    }
+                }
+            }
+        }
 
         for x in 0..self.width {
             for y in 0..self.height {
@@ -8670,5 +8758,55 @@ mod tests {
             );
         }
         let _ = z_b;
+    }
+
+    #[test]
+    fn connect_layer_hierarchical_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("connect_layers"));
+        assert!(prod.contains("layer_zones"));
+        assert!(
+            prod.contains("PathfindLayerEnum::Ground as u8"),
+            "connectLayer > LAYER_GROUND hierarchical resolve"
+        );
+    }
+
+    #[test]
+    fn connect_layer_merges_hierarchical_zone() {
+        let mut system = PathfindingSystem::new(20, 20);
+        // Bridge layer id starts at 2 (Top).
+        let bid = system.add_bridge((GridCoord::new(8, 8), GridCoord::new(12, 8)));
+        assert_eq!(bid, 2);
+        // Mark a clear ground cell as connecting to the bridge layer.
+        system.set_connect_layer(GridCoord::new(8, 7), PathfindLayerEnum::Top);
+        system.new_map();
+        let bridge_zone = system.bridge_by_layer_id(bid).expect("bridge").zone;
+        assert_ne!(bridge_zone, 0, "bridge layer zone must be allocated");
+        let z = system.zones.lock().unwrap();
+        assert!(!z.hierarchical_zones.is_empty());
+        let cell_z = z.zones[8][7];
+        assert_ne!(cell_z, 0);
+        assert_ne!(
+            cell_z, bridge_zone,
+            "layer zone must be distinct from ground cell zone"
+        );
+        let h_cell = z
+            .hierarchical_zones
+            .get(cell_z as usize)
+            .copied()
+            .unwrap_or(cell_z);
+        let h_bridge = z
+            .hierarchical_zones
+            .get(bridge_zone as usize)
+            .copied()
+            .unwrap_or(bridge_zone);
+        assert_eq!(
+            h_cell, h_bridge,
+            "connect-layer clear cell must hierarchical-merge with bridge layer zone"
+        );
     }
 }
