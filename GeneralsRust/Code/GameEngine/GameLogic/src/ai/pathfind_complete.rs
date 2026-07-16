@@ -2710,6 +2710,183 @@ impl PathfindingSystem {
             && t0 <= t1
     }
 
+    /// C++ `Pathfinder::patchPath` (AIPathfind.cpp:10344-10520).
+    ///
+    /// From current position, A* toward the nearest still-clear original path
+    /// node, then splice the remaining original path tail.
+    pub fn patch_path(
+        &mut self,
+        from: &Coord3D,
+        original_waypoints: &[Coord3D],
+        original_layers: &[PathfindLayerEnum],
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        blocked: bool,
+        obj_id: ObjectID,
+    ) -> PathResult {
+        const CELL_LIMIT: usize = 2000;
+        if original_waypoints.len() < 2 || !self.is_map_ready {
+            return PathResult::none();
+        }
+        if let Ok(mut zones) = self.zones.lock() {
+            zones.set_all_passable();
+        }
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let start = Self::cell_for_unit_position(from, center_in_cell);
+        if !self.is_valid_coord(start) {
+            return PathResult::none();
+        }
+
+        self.is_tunneling = false;
+        self.note_open_closed_cells(0, 0);
+
+        // Walk original path reverse; stop at first blocked node.
+        let mut start_node_idx = 0usize; // exclusive upper for patchable nodes
+        let mut goal_pos = *original_waypoints.last().unwrap();
+        let mut goal_delta = {
+            let dx = goal_pos.x - from.x;
+            let dy = goal_pos.y - from.y;
+            dx * dx + dy * dy
+        };
+        // C++: for startNode = last; startNode != first; startNode = previous
+        for idx in (1..original_waypoints.len()).rev() {
+            let pos = &original_waypoints[idx];
+            let layer = original_layers
+                .get(idx)
+                .copied()
+                .unwrap_or(PathfindLayerEnum::Ground);
+            let cell = GridCoord::from_world(pos);
+            let mut info = CheckMovementInfo {
+                cell,
+                layer,
+                center_in_cell,
+                radius,
+                consider_transient: blocked,
+                acceptable_surfaces: surfaces,
+                ..Default::default()
+            };
+            let dx = cell.x - start.x;
+            let dy = cell.y - start.y;
+            if dx < -2 || dx > 2 || dy < -2 || dy > 2 {
+                info.consider_transient = false;
+            }
+            if !self.check_for_movement(obj_id, &mut info)
+                || info.ally_fixed_count > 0
+                || info.enemy_fixed
+            {
+                start_node_idx = idx;
+                break;
+            }
+            let cur = {
+                let dx = pos.x - from.x;
+                let dy = pos.y - from.y;
+                dx * dx + dy * dy
+            };
+            if cur < goal_delta {
+                goal_pos = *pos;
+                goal_delta = cur;
+            }
+            start_node_idx = idx; // still open through this node
+        }
+        // If last node itself failed immediately, C++ returns null when startNode==last
+        if start_node_idx + 1 >= original_waypoints.len() {
+            self.clean_open_and_closed_lists();
+            return PathResult::none();
+        }
+
+        // A* from current toward goal_pos (matched path node).
+        let mut request = PathRequest {
+            object_id: obj_id,
+            from: *from,
+            to: goal_pos,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            allow_partial: true,
+            move_allies: false,
+            ignore_obstacle_id: None,
+        };
+        // Prefer finding path to a cell that matches some remaining path node coords.
+        let mut result = self.find_path(request.clone());
+        if !result.success {
+            // Try intermediate path nodes between start_node and last.
+            for idx in ((start_node_idx + 1)..original_waypoints.len()).rev() {
+                request.to = original_waypoints[idx];
+                let trial = self.find_path(request.clone());
+                if trial.success {
+                    result = trial;
+                    goal_pos = original_waypoints[idx];
+                    break;
+                }
+            }
+        }
+        if !result.success {
+            self.is_tunneling = false;
+            self.clean_open_and_closed_lists();
+            return PathResult::none();
+        }
+
+        // Find match node on original path by world position of path end.
+        let end = result.waypoints.last().copied().unwrap_or(goal_pos);
+        let mut match_idx = None;
+        for idx in ((start_node_idx + 1)..original_waypoints.len()).rev() {
+            let p = &original_waypoints[idx];
+            if (p.x - end.x).abs() < 0.5 && (p.y - end.y).abs() < 0.5 {
+                match_idx = Some(idx);
+                break;
+            }
+            // Also accept cell equality.
+            let a = GridCoord::from_world(p);
+            let b = GridCoord::from_world(&end);
+            if a.x == b.x && a.y == b.y {
+                match_idx = Some(idx);
+                break;
+            }
+        }
+        let match_idx = match_idx.unwrap_or(original_waypoints.len() - 1);
+
+        // Splice: patched prefix + original from match to last.
+        let mut waypoints = result.waypoints;
+        let mut layers = result.layers;
+        let mut can_optimize = result.can_optimize;
+        // Drop last of patch if it duplicates match
+        if let Some(last) = waypoints.last() {
+            let m = &original_waypoints[match_idx];
+            if (last.x - m.x).abs() < 0.5 && (last.y - m.y).abs() < 0.5 {
+                waypoints.pop();
+                layers.pop();
+                can_optimize.pop();
+            }
+        }
+        for idx in match_idx..original_waypoints.len() {
+            waypoints.push(original_waypoints[idx]);
+            layers.push(
+                original_layers
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(PathfindLayerEnum::Ground),
+            );
+            can_optimize.push(true);
+        }
+
+        // Optimize patched path
+        let optimized = self.optimize_path(&waypoints, &layers, &request);
+        let opt_len = optimized.0.len();
+        self.is_tunneling = false;
+        self.note_open_closed_cells(CELL_LIMIT as i32 / 10, 0);
+        self.clean_open_and_closed_lists();
+
+        PathResult {
+            success: !optimized.0.is_empty(),
+            waypoints: optimized.0,
+            layers: optimized.1,
+            can_optimize: vec![true; opt_len],
+            total_cost: 0,
+            blocked_by_ally: blocked,
+        }
+    }
+
     /// C++ `Pathfinder::getMoveAwayFromPath` core search (AIPathfind.cpp:10180+).
     ///
     /// Search nearby cells for a destination whose clearance box does not
@@ -5425,6 +5602,11 @@ impl ZoneManager {
         self.zones_dirty = true;
     }
 
+    /// C++ `PathfindZoneManager::setAllPassable` residual — clear dirty gate.
+    fn set_all_passable(&mut self) {
+        self.zones_dirty = false;
+    }
+
     fn calculate_zones(&mut self) {
         for col in self.zones.iter_mut() {
             for zone in col.iter_mut() {
@@ -6928,5 +7110,74 @@ mod tests {
         assert!(!PathfindingSystem::line_in_region(
             &s, &e, 0.0, 6.0, 10.0, 10.0
         ));
+    }
+
+    #[test]
+    fn patch_path_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn patch_path").expect("patchPath");
+        let w = &prod[i..prod.len().min(i + 8000)];
+        assert!(
+            w.contains("check_for_movement")
+                && w.contains("CELL_LIMIT")
+                && w.contains("original_waypoints")
+                && w.contains("set_all_passable")
+                && w.contains("optimize_path"),
+            "patchPath must walk original path, A* reconnect, splice + optimize"
+        );
+    }
+
+    #[test]
+    fn patch_path_reconnects_open_map() {
+        let mut system = PathfindingSystem::new(40, 40);
+        system.new_map();
+        let from = Coord3D::new(15.0, 25.0, 0.0); // off original path
+        let original = vec![
+            Coord3D::new(15.0, 15.0, 0.0),
+            Coord3D::new(55.0, 15.0, 0.0),
+            Coord3D::new(95.0, 15.0, 0.0),
+            Coord3D::new(95.0, 55.0, 0.0),
+        ];
+        let layers = vec![PathfindLayerEnum::Ground; original.len()];
+        let result = system.patch_path(
+            &from,
+            &original,
+            &layers,
+            SURFACE_GROUND,
+            false,
+            0.0,
+            false,
+            INVALID_ID,
+        );
+        assert!(result.success, "open map should patch onto path");
+        assert!(result.waypoints.len() >= 2);
+        // Should end near original goal
+        let end = result.waypoints.last().unwrap();
+        assert!(
+            (end.x - 95.0).abs() < 20.0 && (end.y - 55.0).abs() < 20.0,
+            "end {:?}",
+            end
+        );
+    }
+
+    #[test]
+    fn patch_path_empty_original_fails() {
+        let mut system = PathfindingSystem::new(8, 8);
+        system.new_map();
+        let r = system.patch_path(
+            &Coord3D::new(10.0, 10.0, 0.0),
+            &[],
+            &[],
+            SURFACE_GROUND,
+            false,
+            0.0,
+            false,
+            INVALID_ID,
+        );
+        assert!(!r.success);
     }
 }
