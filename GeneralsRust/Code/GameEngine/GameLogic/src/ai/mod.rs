@@ -2187,6 +2187,45 @@ impl Pathfinder {
     }
 
     /// C++ `Pathfinder::findAttackPath` with simple range circle.
+
+    /// C++ `Pathfinder::getAircraftPath`.
+    pub fn get_aircraft_path(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        check_clips: bool,
+        avoid_object: ObjectID,
+    ) -> crate::ai::pathfind_complete::PathResult {
+        self.inner
+            .get_aircraft_path(from, to, check_clips, avoid_object)
+    }
+
+    /// C++ `Pathfinder::checkForPossible`.
+    pub fn check_for_possible(
+        &self,
+        is_crusher: bool,
+        from_zone: u16,
+        center: bool,
+        surfaces: u32,
+        cell_x: i32,
+        cell_y: i32,
+        layer: pathfind_astar::PathfindLayerEnum,
+        dest: &mut Coord3D,
+        starting_in_obstacle: bool,
+    ) -> bool {
+        self.inner.check_for_possible(
+            is_crusher,
+            from_zone,
+            center,
+            surfaces,
+            cell_x,
+            cell_y,
+            layer,
+            dest,
+            starting_in_obstacle,
+        )
+    }
+
     pub fn find_attack_path_range(
         &mut self,
         from: &Coord3D,
