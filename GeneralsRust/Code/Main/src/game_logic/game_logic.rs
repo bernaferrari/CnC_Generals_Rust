@@ -7546,10 +7546,15 @@ impl GameLogic {
                             tname, pwn, swn, slot,
                         );
                     if !laser_name.is_empty() {
+                        let laser_bone =
+                            crate::game_logic::weapon_bootstrap::host_laser_bone_name_for_unit_slot(
+                                tname, pwn, swn, slot,
+                            );
                         let to = impact_pos.unwrap_or(muzzle_pos);
                         self.weapon_lasers.push(
-                            crate::game_logic::host_weapon_laser::ResidualWeaponLaser::new(
+                            crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
                                 laser_name,
+                                laser_bone,
                                 attacker_id,
                                 fire_target,
                                 (muzzle_pos.x, muzzle_pos.y, muzzle_pos.z),

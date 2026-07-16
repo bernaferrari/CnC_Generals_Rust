@@ -467,6 +467,94 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini LaserBoneName residual — muzzle/bone attach name for laser start.
+///
+/// Fail-closed: name residual only; not full drawable bone matrix lookup.
+pub fn host_laser_bone_name_for_weapon_name(name: &str) -> String {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            let n = wt.laser_bone_name.trim();
+            if n.is_empty() {
+                None
+            } else {
+                Some(n.to_string())
+            }
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(s) = from_store {
+        return s;
+    }
+    seed_laser_bone_name_for(name)
+}
+
+/// Resolve LaserBoneName for a host unit weapon slot.
+pub fn host_laser_bone_name_for_unit_slot(
+    template_name: &str,
+    primary_weapon_name: Option<&str>,
+    secondary_weapon_name: Option<&str>,
+    slot: u8,
+) -> String {
+    let wname = if slot == 1 {
+        secondary_weapon_name
+            .or_else(|| secondary_weapon_name_for_unit(template_name))
+            .or(primary_weapon_name)
+            .or_else(|| primary_weapon_name_for_unit(template_name))
+    } else {
+        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+    };
+    wname
+        .map(host_laser_bone_name_for_weapon_name)
+        .unwrap_or_default()
+}
+
+fn seed_laser_bone_name_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    // Only meaningful when LaserName peels non-empty.
+    if seed_laser_name_for(name).is_empty() {
+        return String::new();
+    }
+    if n.contains("microwave") {
+        return "WEAPON02".into();
+    }
+    if n.contains("ecm") || n.contains("frequencyjammer") || n.contains("jammer") {
+        return "WEAPONA01".into();
+    }
+    if n.contains("avenger") && n.contains("target") {
+        return "TurretFX03".into();
+    }
+    if n.contains("avenger") && (n.contains("pointdefense") || n.contains("pdl")) {
+        return "LazerSpot01".into();
+    }
+    if n.contains("avenger") {
+        return "TurretFX01".into();
+    }
+    if n.contains("lazr") {
+        if n.contains("patriot") {
+            return "WEAPONA01".into();
+        }
+        return "TurretMS01".into();
+    }
+    if n.contains("pointdefense")
+        || n.contains("point_defense")
+        || n.contains("pdl")
+        || n.contains("paladin")
+    {
+        return "LASER".into();
+    }
+    if n.contains("supw") {
+        return "MUZZLE01".into();
+    }
+    if n.contains("airf") {
+        return "WeaponA01".into();
+    }
+    // Generic laser weapon residual bone.
+    "LASER".into()
+}
+
 /// C++ Weapon.ini LaserName residual (Regular) — laser drawable / beam template.
 ///
 /// Fail-closed: name + host residual beam spawn only; not full ThingFactory
@@ -3627,5 +3715,30 @@ mod tests {
         );
         assert_eq!(n, "AvengerLaserBeam");
         assert!(host_laser_name_for_weapon_name("UnknownWeaponXYZ").is_empty());
+    }
+
+    #[test]
+    fn laser_bone_name_for_seeded_weapons_residual() {
+        assert_eq!(
+            seed_laser_bone_name_for("AmericaTankPaladinPointDefenseLaser"),
+            "LASER"
+        );
+        assert_eq!(
+            seed_laser_bone_name_for("AmericaVehicleAvengerLaserWeapon"),
+            "TurretFX01"
+        );
+        assert_eq!(
+            seed_laser_bone_name_for("Lazr_AmericaTankCrusaderLaserWeapon"),
+            "TurretMS01"
+        );
+        assert_eq!(seed_laser_bone_name_for("AmericaTankCrusaderGun"), "");
+        let b = host_laser_bone_name_for_unit_slot(
+            "AmericaTankPaladin",
+            Some("AmericaTankPaladinPointDefenseLaser"),
+            None,
+            0,
+        );
+        assert_eq!(b, "LASER");
+        assert!(host_laser_bone_name_for_weapon_name("UnknownWeaponXYZ").is_empty());
     }
 }
