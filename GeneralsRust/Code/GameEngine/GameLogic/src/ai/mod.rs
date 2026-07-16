@@ -2269,6 +2269,19 @@ impl Pathfinder {
 
     /// Terrain/object line-of-sight check for attack states.
     /// Mirrors Pathfinder::isAttackViewBlockedByObstacle behavior used by AI state machines.
+    /// C++ `Pathfinder::circleClipsTallBuilding`.
+    pub fn circle_clips_tall_building(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        circle_radius: f32,
+        ignore_building: ObjectID,
+        adjust_to: &mut Coord3D,
+    ) -> bool {
+        self.inner
+            .circle_clips_tall_building(from, to, circle_radius, ignore_building, adjust_to)
+    }
+
     /// C++ `Pathfinder::isViewBlockedByObstacle`.
     pub fn is_view_blocked_by_obstacle(&self, obj: &Object, obj_other: &Object) -> bool {
         if obj_other.is_significantly_above_terrain() {
