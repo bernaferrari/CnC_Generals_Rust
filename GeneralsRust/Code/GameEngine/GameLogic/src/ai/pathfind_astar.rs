@@ -634,6 +634,7 @@ impl AStarPathfinder {
             line_cell_ok,
             seed_line_to_goal,
             false,
+            None,
         )
     }
 
@@ -654,6 +655,7 @@ impl AStarPathfinder {
         line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
         seed_line_to_goal: bool,
         starts_tunneling: bool,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
     ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
@@ -747,6 +749,7 @@ impl AStarPathfinder {
                     ignore_cells,
                     force_passable,
                     line_cell_ok,
+                    cell_allowed,
                     &mut open_set,
                     &mut closed_set,
                     &mut came_from,
@@ -767,6 +770,13 @@ impl AStarPathfinder {
                 // Skip if already evaluated
                 if closed_set.contains(&neighbor_coord) {
                     continue;
+                }
+
+                // C++ isHuman logical extent clamp (examineNeighboringCells).
+                if let Some(ok) = cell_allowed {
+                    if !ok(neighbor_coord) {
+                        continue;
+                    }
                 }
 
                 // Prevent diagonal corner-cutting through blocked orthogonal neighbors.
@@ -937,6 +947,7 @@ impl AStarPathfinder {
         ignore_cells: Option<&HashSet<GridCoord>>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
         line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         open_set: &mut BinaryHeap<AStarNode>,
         closed_set: &mut HashSet<GridCoord>,
         came_from: &mut HashMap<GridCoord, GridCoord>,
@@ -995,6 +1006,11 @@ impl AStarPathfinder {
             }
             if self.get_cell(to).is_none() {
                 break;
+            }
+            if let Some(ok) = cell_allowed {
+                if !ok(to) {
+                    break;
+                }
             }
 
             // Abort line (return 1) conditions from examineCellsCallback.
@@ -1551,6 +1567,7 @@ mod tests {
                 None,
                 false,
                 false,
+                None,
             )
             .is_none());
         let path = pf
@@ -1569,6 +1586,7 @@ mod tests {
                 None,
                 false,
                 true,
+                None,
             )
             .expect("tunnel path");
         assert_eq!(*path.0.first().unwrap(), start);
