@@ -2639,30 +2639,9 @@ impl AISkirmishPlayer {
 }
 
 impl Snapshot for AISkirmishPlayer {
-    fn crc(&self, xfer: &mut dyn Xfer) {
-        let mut cur_front_base_defense = self.cur_front_base_defense;
-        let _ = xfer.xfer_int(&mut cur_front_base_defense);
-
-        let mut cur_flank_base_defense = self.cur_flank_base_defense;
-        let _ = xfer.xfer_int(&mut cur_flank_base_defense);
-
-        let mut cur_front_left_defense_angle = self.cur_front_left_defense_angle;
-        let _ = xfer.xfer_real(&mut cur_front_left_defense_angle);
-
-        let mut cur_front_right_defense_angle = self.cur_front_right_defense_angle;
-        let _ = xfer.xfer_real(&mut cur_front_right_defense_angle);
-
-        let mut cur_left_flank_left_defense_angle = self.cur_left_flank_left_defense_angle;
-        let _ = xfer.xfer_real(&mut cur_left_flank_left_defense_angle);
-
-        let mut cur_left_flank_right_defense_angle = self.cur_left_flank_right_defense_angle;
-        let _ = xfer.xfer_real(&mut cur_left_flank_right_defense_angle);
-
-        let mut cur_right_flank_left_defense_angle = self.cur_right_flank_left_defense_angle;
-        let _ = xfer.xfer_real(&mut cur_right_flank_left_defense_angle);
-
-        let mut cur_right_flank_right_defense_angle = self.cur_right_flank_right_defense_angle;
-        let _ = xfer.xfer_real(&mut cur_right_flank_right_defense_angle);
+    /// C++ `AISkirmishPlayer::crc` is empty (does not call base or xfer fields).
+    fn crc(&self, _xfer: &mut dyn Xfer) {
+        // Intentionally empty — matches GeneralsMD AISkirmishPlayer.cpp.
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
@@ -2719,9 +2698,8 @@ impl Snapshot for AISkirmishPlayer {
             self.cur_right_flank_right_defense_angle = cur_right_flank_right_defense_angle;
         }
 
-        // PARITY_NOTE: C++ also xfers m_currentEnemy (Player*), but in Rust
-        // we use Weak<RwLock<Player>> which cannot be directly serialized.
-        // The enemy is re-acquired via acquire_enemy() on load.
+        // PARITY_NOTE: C++ does not xfer m_currentEnemy or m_frameToCheckEnemy
+        // (runtime). Enemy is re-acquired via getAiEnemy/acquireEnemy after load.
     }
 
     fn load_post_process(&mut self) {
@@ -2734,6 +2712,25 @@ mod tests {
     use super::*;
     use game_engine::system::xfer_save::XferSave;
     use std::io::Cursor;
+
+    #[test]
+    fn skirmish_crc_is_empty_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("/// C++ `AISkirmishPlayer::crc` is empty")
+            .expect("crc doc");
+        let j = src[i..].find("fn xfer(").expect("xfer after crc") + i;
+        let window = &src[i..j];
+        assert!(
+            window.contains("Intentionally empty")
+                && !window.contains("xfer_int")
+                && !window.contains("xfer_real"),
+            "AISkirmishPlayer::crc must be empty like C++"
+        );
+    }
 
     #[test]
     fn skirmish_xfer_does_not_write_runtime_enemy_check_frame() {
