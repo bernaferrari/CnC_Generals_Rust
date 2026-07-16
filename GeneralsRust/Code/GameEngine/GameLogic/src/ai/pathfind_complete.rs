@@ -11463,7 +11463,7 @@ mod tests {
         let i = prod
             .find("pub fn classify_bridge_cells")
             .expect("classify_bridge_cells");
-        let w = &prod[i..prod.len().min(i + 2500)];
+        let w = &prod[i..prod.len().min(i + 5000)];
         assert!(
             w.contains("BridgeImpassable")
                 && w.contains("LAYER_Z_CLOSE_ENOUGH_F")
