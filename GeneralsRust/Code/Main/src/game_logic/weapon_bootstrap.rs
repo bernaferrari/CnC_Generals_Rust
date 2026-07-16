@@ -501,6 +501,43 @@ pub fn normalize_pitch_radians(raw: f32) -> f32 {
 }
 
 /// Resolve Min/MaxTargetPitch for a weapon name.
+/// C++ Weapon.ini ContinueAttackRange residual (world units).
+///
+/// After destroying a target (esp. mines), look for another similar object
+/// controlled by the same player within this radius of the original victim pos.
+pub fn host_continue_attack_range_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.continue_attack_range.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_continue_attack_range_for(name)
+}
+
+pub fn seed_continue_attack_range_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    // Worker / Dozer mine disarm residual (ContinueAttackRange = 100).
+    if n.contains("minedisarm") || n.contains("mine_disarm") || n.contains("disarming") {
+        return 100.0;
+    }
+    if n.contains("dozer") && n.contains("mine") {
+        return 100.0;
+    }
+    if n.contains("worker") && (n.contains("mine") || n.contains("disarm")) {
+        return 100.0;
+    }
+    0.0
+}
+
 pub fn host_target_pitch_limits_for_weapon_name(name: &str) -> HostTargetPitchLimits {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
@@ -5098,5 +5135,24 @@ mod tests {
             glam::Vec3::new(1.0, 100.0, 0.0),
             &open
         ));
+    }
+
+    #[test]
+    fn continue_attack_range_seed_residual() {
+        assert_eq!(
+            seed_continue_attack_range_for("DozerMineDisarmingWeapon"),
+            100.0
+        );
+        assert_eq!(
+            seed_continue_attack_range_for("WorkerMineDisarmingWeapon"),
+            100.0
+        );
+        assert_eq!(
+            seed_continue_attack_range_for("RangerAdvancedCombatRifle"),
+            0.0
+        );
+        assert!(
+            host_continue_attack_range_for_weapon_name("DozerMineDisarmingWeapon") >= 100.0 - 1e-3
+        );
     }
 }
