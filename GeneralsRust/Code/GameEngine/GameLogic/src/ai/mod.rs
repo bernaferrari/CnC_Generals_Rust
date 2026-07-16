@@ -2118,33 +2118,22 @@ impl Pathfinder {
         self.inner.find_broken_bridge_layer(from, to)
     }
 
+    /// C++ `Pathfinder::clientSafeQuickDoesPathExist` — zone connectivity only.
     pub fn client_safe_quick_does_path_exist(
         &self,
         locomotor_set: &crate::locomotor::LocomotorSet,
         from: &Coord3D,
         to: &Coord3D,
     ) -> bool {
-        let Some(locomotor) = locomotor_set.get_default_locomotor() else {
-            return false;
-        };
-        let Ok(loco_guard) = locomotor.lock() else {
-            return false;
-        };
-        let surfaces = loco_guard.get_legal_surfaces();
-        let request = ClassicPathRequest {
-            object_id: 0,
-            from: *from,
-            to: *to,
-            surfaces,
-            is_crusher: false,
-            unit_radius: 0.0,
-            allow_partial: false,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-        self.inner.find_path(request).success
+        let surfaces = locomotor_set.get_valid_surfaces();
+        self.inner
+            .client_safe_quick_does_path_exist(surfaces, from, to)
     }
 
+    /// Zone-based quick path that ignores one obstacle for destination validity.
+    ///
+    /// C++ `clientSafeQuickDoesPathExist` has no ignore variant; this keeps the
+    /// host helper but uses the same zone connectivity core (not A*).
     pub fn client_safe_quick_does_path_exist_with_ignore(
         &self,
         locomotor_set: &crate::locomotor::LocomotorSet,
@@ -2152,52 +2141,30 @@ impl Pathfinder {
         to: &Coord3D,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        let Some(locomotor) = locomotor_set.get_default_locomotor() else {
+        let surfaces = locomotor_set.get_valid_surfaces();
+        if !self
+            .inner
+            .valid_movement_position(surfaces, false, to, ignore_obstacle_id)
+        {
             return false;
-        };
-        let Ok(loco_guard) = locomotor.lock() else {
+        }
+        if self.inner.get_cell_type(to) == Some(PathfindCellType::Cliff) {
             return false;
-        };
-        let surfaces = loco_guard.get_legal_surfaces();
-        let request = ClassicPathRequest {
-            object_id: 0,
-            from: *from,
-            to: *to,
-            surfaces,
-            is_crusher: false,
-            unit_radius: 0.0,
-            allow_partial: false,
-            move_allies: false,
-            ignore_obstacle_id,
-        };
-        self.inner.find_path(request).success
+        }
+        // Zone connectivity only — independent of the ignored unit.
+        self.inner.zones_connected_for_surfaces(surfaces, from, to)
     }
 
+    /// C++ `Pathfinder::clientSafeQuickDoesPathExistForUI` — terrain zones only.
     pub fn client_safe_quick_does_path_exist_for_ui(
         &self,
         locomotor_set: &crate::locomotor::LocomotorSet,
         from: &Coord3D,
         to: &Coord3D,
     ) -> bool {
-        let Some(locomotor) = locomotor_set.get_default_locomotor() else {
-            return false;
-        };
-        let Ok(loco_guard) = locomotor.lock() else {
-            return false;
-        };
-        let surfaces = loco_guard.get_legal_surfaces();
-        let request = ClassicPathRequest {
-            object_id: 0,
-            from: *from,
-            to: *to,
-            surfaces,
-            is_crusher: false,
-            unit_radius: 0.0,
-            allow_partial: true,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-        self.inner.find_path(request).success
+        let surfaces = locomotor_set.get_valid_surfaces();
+        self.inner
+            .client_safe_quick_does_path_exist_for_ui(surfaces, from, to)
     }
 
     pub fn is_line_passable_for_surfaces(
