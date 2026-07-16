@@ -1990,44 +1990,168 @@ impl Object {
     }
 
     /// Weapon ready on reload timer (not range).
-    /// Empty clip still becomes ready after between-shot/clip-reload interval so
-    /// `consume_ammo_on_fire` can refill (C++ AutoReloadsClip residual).
+    ///
+    /// C++ AutoReloadsClip residual via weapon-name peel:
+    /// - Auto: empty clip becomes ready after clip reload (refill on fire).
+    /// - Manual / ReturnToBase: empty stays OUT_OF_AMMO until `rearm_weapon_full`.
     pub fn weapon_ready(weapon: &Weapon, current_time: f32) -> bool {
+        // Without a name peel, treat as Auto (legacy).
         current_time - weapon.last_fire_time >= weapon.reload_time
+            && Self::weapon_has_ammo_for_shot(weapon, None)
     }
 
-    /// C++ clip residual: consume one round; empty clip stretches next ready
-    /// to `clip_reload_time` (or `reload_time` when unset).
+    /// Name-aware ready check (preferred).
+    pub fn weapon_ready_named(
+        weapon: &Weapon,
+        current_time: f32,
+        weapon_name: Option<&str>,
+    ) -> bool {
+        current_time - weapon.last_fire_time >= weapon.reload_time
+            && Self::weapon_has_ammo_for_shot(weapon, weapon_name)
+    }
+
+    pub fn weapon_has_ammo_for_shot(weapon: &Weapon, weapon_name: Option<&str>) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_reload_type_for_weapon_name, HostReloadType,
+        };
+        let rt = weapon_name
+            .map(host_reload_type_for_weapon_name)
+            .unwrap_or(HostReloadType::Auto);
+        match rt {
+            HostReloadType::Auto => true,
+            HostReloadType::Manual | HostReloadType::ReturnToBase => match weapon.ammo {
+                Some(0) => false,
+                Some(_) => true,
+                None => true, // unlimited residual
+            },
+        }
+    }
+
+    /// C++ clip residual: consume one round.
     pub fn consume_ammo_on_fire(weapon: &mut Weapon, current_time: f32) {
+        Self::consume_ammo_on_fire_named(weapon, current_time, None);
+    }
+
+    pub fn consume_ammo_on_fire_named(
+        weapon: &mut Weapon,
+        current_time: f32,
+        weapon_name: Option<&str>,
+    ) {
+        use crate::game_logic::weapon_bootstrap::{
+            host_reload_type_for_weapon_name, HostReloadType,
+        };
         weapon.last_fire_time = current_time;
+        let rt = weapon_name
+            .map(host_reload_type_for_weapon_name)
+            .unwrap_or(HostReloadType::Auto);
+
         if weapon.clip_size == 0 {
-            // Unlimited / no clip bookkeeping.
             if let Some(a) = weapon.ammo.as_mut() {
-                // Soft residual: if someone set ammo without clip_size, still decrement.
                 if *a > 0 {
                     *a -= 1;
                 }
             }
             return;
         }
-        // Refill empty clip after reload wait (caller ensured weapon_ready).
-        if weapon.ammo == Some(0) || weapon.ammo.is_none() {
-            weapon.ammo = Some(weapon.clip_size);
-        }
-        if let Some(a) = weapon.ammo.as_mut() {
-            *a = a.saturating_sub(1);
-            if *a == 0 {
-                let clip_rt = if weapon.clip_reload_time > 0.0 {
-                    weapon.clip_reload_time
-                } else {
-                    weapon.reload_time
-                };
-                // Next weapon_ready when current + clip_rt:
-                // ready iff now - last >= reload_time
-                // => last = now - reload_time + clip_rt
-                weapon.last_fire_time = current_time - weapon.reload_time + clip_rt;
+
+        match rt {
+            HostReloadType::Auto => {
+                if weapon.ammo == Some(0) || weapon.ammo.is_none() {
+                    weapon.ammo = Some(weapon.clip_size);
+                }
+                if let Some(a) = weapon.ammo.as_mut() {
+                    *a = a.saturating_sub(1);
+                    if *a == 0 {
+                        let clip_rt = if weapon.clip_reload_time > 0.0 {
+                            weapon.clip_reload_time
+                        } else {
+                            weapon.reload_time
+                        };
+                        weapon.last_fire_time = current_time - weapon.reload_time + clip_rt;
+                    }
+                }
+            }
+            HostReloadType::Manual | HostReloadType::ReturnToBase => {
+                if weapon.ammo.is_none() {
+                    weapon.ammo = Some(weapon.clip_size);
+                }
+                if let Some(a) = weapon.ammo.as_mut() {
+                    if *a > 0 {
+                        *a = a.saturating_sub(1);
+                    }
+                }
             }
         }
+    }
+
+    pub fn rearm_weapon_full(weapon: &mut Weapon) {
+        if weapon.clip_size > 0 {
+            weapon.ammo = Some(weapon.clip_size);
+        } else if let Some(a) = weapon.ammo {
+            weapon.ammo = Some(a.max(1));
+        }
+        weapon.last_fire_time = -1.0e6;
+    }
+
+    fn primary_weapon_name(&self) -> Option<&str> {
+        self.thing.template.primary_weapon_name.as_deref()
+    }
+
+    fn secondary_weapon_name(&self) -> Option<&str> {
+        self.thing.template.secondary_weapon_name.as_deref().or(self
+            .thing
+            .template
+            .primary_weapon_name
+            .as_deref())
+    }
+
+    pub fn needs_return_to_base_rearm(&self) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_reload_type_for_weapon_name, HostReloadType,
+        };
+        let empty_rtb = |w: &Weapon, name: Option<&str>| {
+            let rt = name
+                .map(host_reload_type_for_weapon_name)
+                .unwrap_or(HostReloadType::Auto);
+            rt == HostReloadType::ReturnToBase && matches!(w.ammo, Some(0))
+        };
+        self.weapon
+            .as_ref()
+            .is_some_and(|w| empty_rtb(w, self.primary_weapon_name()))
+            || self
+                .secondary_weapon
+                .as_ref()
+                .is_some_and(|w| empty_rtb(w, self.secondary_weapon_name()))
+    }
+
+    pub fn rearm_return_to_base_weapons(&mut self) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_reload_type_for_weapon_name, HostReloadType,
+        };
+        let mut any = false;
+        let pri = self.primary_weapon_name().map(|s| s.to_string());
+        let sec = self.secondary_weapon_name().map(|s| s.to_string());
+        if let Some(w) = self.weapon.as_mut() {
+            let rt = pri
+                .as_deref()
+                .map(host_reload_type_for_weapon_name)
+                .unwrap_or(HostReloadType::Auto);
+            if rt == HostReloadType::ReturnToBase {
+                Self::rearm_weapon_full(w);
+                any = true;
+            }
+        }
+        if let Some(w) = self.secondary_weapon.as_mut() {
+            let rt = sec
+                .as_deref()
+                .map(host_reload_type_for_weapon_name)
+                .unwrap_or(HostReloadType::Auto);
+            if rt == HostReloadType::ReturnToBase {
+                Self::rearm_weapon_full(w);
+                any = true;
+            }
+        }
+        any
     }
 
     pub fn can_fire(&self, current_time: f32) -> bool {
@@ -2289,14 +2413,12 @@ impl Object {
         // Prefer the locked/active slot when ready; else primary; else secondary.
         let slot = {
             let prefer_secondary = self.active_weapon_slot == 1;
-            let primary_ready = self
-                .weapon
-                .as_ref()
-                .is_some_and(|w| Self::weapon_ready(w, current_time));
-            let secondary_ready = self
-                .secondary_weapon
-                .as_ref()
-                .is_some_and(|w| Self::weapon_ready(w, current_time));
+            let primary_ready = self.weapon.as_ref().is_some_and(|w| {
+                Self::weapon_ready_named(w, current_time, self.primary_weapon_name())
+            });
+            let secondary_ready = self.secondary_weapon.as_ref().is_some_and(|w| {
+                Self::weapon_ready_named(w, current_time, self.secondary_weapon_name())
+            });
             if prefer_secondary && secondary_ready {
                 1u8
             } else if primary_ready {
@@ -2352,8 +2474,13 @@ impl Object {
             self.pre_attack_target = Some(target_id);
         }
 
+        let fire_weapon_name = if slot == 1 {
+            self.secondary_weapon_name().map(|s| s.to_string())
+        } else {
+            self.primary_weapon_name().map(|s| s.to_string())
+        };
         if let Some(weapon) = self.weapon_slot_mut(slot) {
-            Self::consume_ammo_on_fire(weapon, current_time);
+            Self::consume_ammo_on_fire_named(weapon, current_time, fire_weapon_name.as_deref());
             let weapon_damage = weapon.damage;
             let weapon_speed = weapon.projectile_speed;
             let weapon_splash = weapon.splash_radius;
@@ -4256,5 +4383,73 @@ mod tests {
         assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(1));
         assert!(atk.fire_at(tgt, 3.0));
         assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(0));
+    }
+
+    #[test]
+    fn return_to_base_blocks_fire_until_rearm() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+        // Seed-only name so store cannot peel YES over RETURN_TO_BASE.
+        tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        tmpl.add_kind_of(KindOf::Aircraft);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
+        jet.set_position(Vec3::ZERO);
+        jet.weapon = Some(Weapon {
+            damage: 100.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(2),
+            clip_size: 2,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        let tgt = ObjectId(9);
+        assert!(jet.fire_at(tgt, 1.0));
+        assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
+        assert!(jet.fire_at(tgt, 1.0));
+        assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
+        assert!(jet.needs_return_to_base_rearm());
+        assert!(!jet.fire_at(tgt, 2.0));
+        assert!(!Object::weapon_ready_named(
+            jet.weapon.as_ref().unwrap(),
+            2.0,
+            Some("HostTestRaptorJetMissileWeapon")
+        ));
+        assert!(jet.rearm_return_to_base_weapons());
+        assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(2));
+        assert!(jet.fire_at(tgt, 3.0));
+        assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
+    }
+
+    #[test]
+    fn auto_reload_still_refills_clip() {
+        use crate::game_logic::Weapon;
+        let mut w = Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.1,
+            ammo: Some(1),
+            clip_size: 2,
+            clip_reload_time: 1.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        };
+        let t0 = 5.0;
+        assert!(Object::weapon_ready(&w, t0));
+        Object::consume_ammo_on_fire(&mut w, t0);
+        assert_eq!(w.ammo, Some(0));
+        // After clip reload gap, ready again and refill on fire.
+        assert!(
+            Object::weapon_ready(&w, t0 + 1.05),
+            "last_fire={} reload={}",
+            w.last_fire_time,
+            w.reload_time
+        );
+        Object::consume_ammo_on_fire(&mut w, t0 + 1.05);
+        assert_eq!(w.ammo, Some(1)); // refilled to 2, spent 1
     }
 }

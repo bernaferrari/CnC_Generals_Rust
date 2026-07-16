@@ -467,6 +467,52 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ AutoReloadsClip residual (not stored on host Weapon to avoid mass literal churn).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostReloadType {
+    Auto,
+    Manual,
+    ReturnToBase,
+}
+
+/// Resolve AutoReloadsClip / reload type residual for a weapon name.
+pub fn host_reload_type_for_weapon_name(name: &str) -> HostReloadType {
+    use gamelogic::weapon::{with_weapon_store, WeaponReloadType as GlReload};
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| match wt.reload_type {
+                GlReload::AutoReload => HostReloadType::Auto,
+                GlReload::ReturnToBaseToReload => HostReloadType::ReturnToBase,
+                _ => HostReloadType::Manual,
+            })
+    })
+    .ok()
+    .flatten();
+    if let Some(t) = from_store {
+        return t;
+    }
+    seed_reload_type_for(name)
+}
+
+fn seed_reload_type_for(name: &str) -> HostReloadType {
+    let n = name.to_ascii_lowercase();
+    if n.contains("raptor")
+        || (n.contains("mig") && n.contains("missile"))
+        || n.contains("jetmissile")
+        || n.contains("stealthfighter")
+        || (n.contains("aurora") && (n.contains("bomb") || n.contains("weapon")))
+        || (n.contains("comanche") && n.contains("rocket"))
+    {
+        return HostReloadType::ReturnToBase;
+    }
+    if n.contains("terrorist") || n.contains("carbomb") || n.contains("suicide") {
+        return HostReloadType::Manual;
+    }
+    HostReloadType::Auto
+}
+
 /// C++ Weapon.ini PreAttackType residual (WeaponPrefireType).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostPrefireType {
@@ -4873,6 +4919,23 @@ mod tests {
         assert_eq!(
             HostPrefireType::from_ini("per_attack"),
             HostPrefireType::PerAttack
+        );
+    }
+
+    #[test]
+    fn reload_type_seed_return_to_base() {
+        use super::HostReloadType;
+        assert_eq!(
+            seed_reload_type_for("RaptorJetMissileWeapon"),
+            HostReloadType::ReturnToBase
+        );
+        assert_eq!(
+            seed_reload_type_for("AmericaTankCrusaderGun"),
+            HostReloadType::Auto
+        );
+        assert_eq!(
+            seed_reload_type_for("GLAInfantryTerrorist"),
+            HostReloadType::Manual
         );
     }
 }
