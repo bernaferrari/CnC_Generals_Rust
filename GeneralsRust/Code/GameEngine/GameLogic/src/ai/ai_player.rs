@@ -1863,6 +1863,15 @@ impl AIPlayer {
             }
         }
 
+        // C++: warn missing home when not skirmish AI (AIPlayer) / always for skirmish
+        // override path. Still recruits using template home (often origin).
+        if !proto.has_home_location() && !self.is_skirmish_ai_player() {
+            log::debug!(
+                "Error : team '{}' has no Home Position (or Origin).",
+                team_name
+            );
+        }
+
         let Some(team_arc) = factory.create_inactive_team(team_name) else {
             return Ok(());
         };
@@ -1872,10 +1881,8 @@ impl AIPlayer {
             tg.set_controlling_player_id(Some(self.player_id as UnsignedInt));
         }
 
-        // Home position residual: prototype home missing → base center.
-        let home = self
-            .get_base_center()
-            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+        // C++ tryToRecruit / aiMoveToPosition use teamProto homeLocation.
+        let home = proto.home_location();
 
         let mut units_recruited = 0i32;
         for unit_info in proto.units_info() {
@@ -8323,15 +8330,18 @@ mod tests {
         let i = src
             .find("C++ `AIPlayer::recruitSpecificAITeam`")
             .expect("recruitSpecificAITeam");
-        let w = &src[i..src.len().min(i + 4500)];
+        let w = &src[i..src.len().min(i + 7000)];
         assert!(
             w.contains("try_to_recruit")
                 && w.contains("team_ready_queue.push_front")
                 && w.contains("create_inactive_team")
                 && w.contains("MoveToPosition")
                 && w.contains("team_about_to_be_deleted")
-                && w.contains("Recruited 0 units"),
-            "recruitSpecificAITeam must tryToRecruit, ready-queue or disband"
+                && w.contains("Recruited 0 units")
+                && w.contains("home_location()")
+                && w.contains("has_home_location")
+                && w.contains("is_skirmish_ai_player"),
+            "recruitSpecificAITeam must tryToRecruit, homeLocation, ready-queue or disband"
         );
     }
 
