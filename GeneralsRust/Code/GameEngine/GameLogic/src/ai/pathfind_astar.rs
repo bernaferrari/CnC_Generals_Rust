@@ -421,7 +421,8 @@ impl AStarPathfinder {
                 cost = (cost as f32 * 1.5) as u32; // Slower in water
             }
             PathfindCellType::Cliff => {
-                // C++ adds cliff climbing cost regardless of pinched state (AIPathfind.cpp:6275)
+                // Base cliff surcharge applied when height unavailable; find_path_ex2
+                // adjusts via ground_height when |dz| is known (C++ AIPathfind.cpp:6263-6276).
                 cost += 7 * COST_DIAGONAL;
             }
             PathfindCellType::Rubble => {
@@ -505,7 +506,11 @@ impl AStarPathfinder {
         )
     }
 
-    /// A* with optional per-cell extra cost (C++ allyFixedCount / blockedByAlly penalty).
+    /// A* with optional per-cell extra cost and downhill-only filter.
+    ///
+    /// `extra_cost`: C++ allyFixedCount / allyMoving penalties.
+    /// `downhill_only`: C++ locomotorSet.isDownhillOnly() — reject uphill steps.
+    /// `ground_height`: world ground Z at cell center (for downhill + cliff |dz|).
     pub fn find_path_ex(
         &self,
         start: GridCoord,
@@ -516,6 +521,33 @@ impl AStarPathfinder {
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
         extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+    ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_ex2(
+            start,
+            goal,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            false,
+            None,
+        )
+    }
+
+    pub fn find_path_ex2(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
     ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
@@ -616,6 +648,17 @@ impl AStarPathfinder {
                     continue;
                 }
 
+                // C++ locomotorSet.isDownhillOnly(): reject if from.z < to.z
+                if downhill_only {
+                    if let Some(h) = ground_height {
+                        let fz = h(current.coord);
+                        let tz = h(neighbor_coord);
+                        if fz < tz {
+                            continue;
+                        }
+                    }
+                }
+
                 // Calculate tentative g_score
                 // Matches C++ at AIPathfind.cpp:6259
                 let mut movement_cost = self.movement_cost_with_ignore(
@@ -636,6 +679,20 @@ impl AStarPathfinder {
                 // C++ allyFixedCount > 0 → +3*COST_DIAGONAL (and setBlockedByAlly).
                 if let Some(extra) = extra_cost {
                     movement_cost = movement_cost.saturating_add(extra(neighbor_coord));
+                }
+                // C++ cliff: if !pinched && |dz| < PATHFIND_CELL_SIZE_F → already has
+                // base cliff cost in movement_cost; when |dz| >= cell size, remove the
+                // flat-cliff surcharge (movement_cost always adds 7*DIAG for cliffs).
+                if let Some(h) = ground_height {
+                    if let Some(cell) = self.get_cell(neighbor_coord) {
+                        if cell.get_type() == PathfindCellType::Cliff && !cell.is_pinched() {
+                            let dz = (h(current.coord) - h(neighbor_coord)).abs();
+                            if dz >= PATHFIND_CELL_SIZE_F {
+                                // Steep cliff step: undo flat surcharge (keep base ortho/diag).
+                                movement_cost = movement_cost.saturating_sub(7 * COST_DIAGONAL);
+                            }
+                        }
+                    }
                 }
 
                 let tentative_g = current.g_score.saturating_add(movement_cost);
