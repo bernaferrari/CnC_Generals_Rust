@@ -67,6 +67,7 @@ pub mod host_heal;
 pub mod host_helix_minigun;
 pub mod host_helix_napalm;
 pub mod host_hero_abilities;
+pub mod host_historic_bonus;
 pub mod host_humvee;
 pub mod host_inferno_cannon;
 pub mod host_jarmen_kell;
