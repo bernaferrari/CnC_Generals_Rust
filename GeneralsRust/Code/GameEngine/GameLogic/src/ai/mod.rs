@@ -2486,6 +2486,15 @@ impl Pathfinder {
             .snap_closest_goal_position(surfaces, is_crusher, pos, unit_radius, obj.get_id());
     }
 
+    /// C++ `Pathfinder::snapPosition(Object*, Coord3D*)`.
+    pub fn snap_position_for_object(&self, obj: &Object, pos: &mut Coord3D) {
+        let unit_radius = obj
+            .get_geometry_info()
+            .get_bounding_circle_radius()
+            .max(0.0);
+        *pos = self.inner.snap_position_for_radius(pos, unit_radius);
+    }
+
     pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
         self.inner.snap_position(pos)
     }

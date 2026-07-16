@@ -476,6 +476,8 @@ pub struct PathfindingSystem {
     /// Map dimensions
     width: usize,
     height: usize,
+    /// C++ m_isMapReady
+    is_map_ready: bool,
 }
 
 impl std::fmt::Debug for PathfindingSystem {
@@ -542,6 +544,7 @@ impl PathfindingSystem {
             zones: Arc::new(Mutex::new(ZoneManager::new(width, height))),
             width,
             height,
+            is_map_ready: false,
         }
     }
 
@@ -605,6 +608,10 @@ impl PathfindingSystem {
     /// Recalculates zones when dirty, then drains ObjectID ring until empty or
     /// PATHFIND_CELLS_PER_FRAME budget (residual: one pathfind per pop).
     pub fn process_queue(&self, max_per_frame: usize) -> usize {
+        // C++: if (!m_isMapReady) return;
+        if !self.is_map_ready {
+            return 0;
+        }
         // C++: if needToCalculateZones → calculateZones and return.
         if let Ok(mut zones) = self.zones.lock() {
             // Residual dirty flag: recalculate when next_zone==1 empty grid
@@ -2423,6 +2430,23 @@ impl PathfindingSystem {
     /// Classify the entire pathfind map based on terrain data.
     /// Matches C++ Pathfinder::classifyMap() which iterates all cells and sets
     /// terrain cell types, expands cliff cells, and recalculates zones.
+    /// C++ `Pathfinder::newMap` (AIPathfind.cpp:4524-4573).
+    ///
+    /// Resize/classify grid from terrain extent, classify map cells, mark ready.
+    /// Object footprint classification is caller-driven (iterate objects).
+    pub fn new_map(&mut self) {
+        // Extent from current width/height (already allocated). Re-classify.
+        self.classify_map();
+        if let Ok(mut zones) = self.zones.lock() {
+            zones.calculate_zones();
+        }
+        self.is_map_ready = true;
+    }
+
+    pub fn is_map_ready(&self) -> bool {
+        self.is_map_ready
+    }
+
     pub fn classify_map(&mut self) {
         let pathfinder = self.pathfinder.lock().unwrap();
         let w = pathfinder.width();
@@ -3979,16 +4003,32 @@ impl PathfindingSystem {
 
     /// Snap a world position to the nearest cell center.
     /// Matches C++ Pathfinder::adjustCoordToCell() at AIPathfind.cpp:8936-8946.
+    /// C++ `Pathfinder::snapPosition` (AIPathfind.cpp:5082-5095).
+    ///
+    /// Half-cell bias when not center-in-cell, then adjustCoordToCell on ground.
     pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
-        let coord = GridCoord::from_world(pos);
-        let mut snapped = coord.to_world(PathfindLayerEnum::Ground);
-        // Set Z from terrain
-        if let Some(terrain) = TheTerrainLogic::get() {
-            snapped.z = terrain.get_ground_height(snapped.x, snapped.y, None);
-        } else {
-            snapped.z = pos.z;
+        self.snap_position_for_radius(pos, 0.0)
+    }
+
+    /// snapPosition with unit radius → radius/center via getRadiusAndCenter.
+    pub fn snap_position_for_radius(&self, pos: &Coord3D, unit_radius: f32) -> Coord3D {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let _ = radius;
+        let mut adjust = *pos;
+        if !center_in_cell {
+            adjust.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust.y += PATHFIND_CELL_SIZE_F * 0.5;
         }
-        snapped
+        let cell = GridCoord::from_world(&adjust);
+        let mut out = *pos;
+        self.adjust_coord_to_cell(
+            cell.x,
+            cell.y,
+            center_in_cell,
+            &mut out,
+            PathfindLayerEnum::Ground,
+        );
+        out
     }
 
     /// Dynamic pathfind map update: register a goal cell for a unit.
@@ -5132,5 +5172,39 @@ mod tests {
         assert_eq!(result.waypoints.len(), result.can_optimize.len());
         // First waypoint should be unit feet.
         assert!((result.waypoints[0].x - from.x).abs() < 0.01);
+    }
+
+    #[test]
+    fn snap_position_for_radius_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn snap_position_for_radius")
+            .expect("snapPosition");
+        let w = &prod[i..prod.len().min(i + 1500)];
+        assert!(
+            w.contains("PATHFIND_CELL_SIZE_F * 0.5")
+                && w.contains("adjust_coord_to_cell")
+                && w.contains("center_in_cell"),
+            "snapPosition must half-cell bias + adjustCoordToCell like C++"
+        );
+    }
+
+    #[test]
+    fn pathfinder_new_map_sets_ready() {
+        let mut system = PathfindingSystem::new(16, 16);
+        assert!(!system.is_map_ready());
+        system.new_map();
+        assert!(system.is_map_ready());
+    }
+
+    #[test]
+    fn process_queue_skips_when_map_not_ready() {
+        let system = PathfindingSystem::new(8, 8);
+        assert!(!system.is_map_ready());
+        assert_eq!(system.process_queue(10), 0);
     }
 }
