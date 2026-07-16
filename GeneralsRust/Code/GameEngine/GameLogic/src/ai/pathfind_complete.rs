@@ -2254,7 +2254,7 @@ impl PathfindingSystem {
     }
 
     /// Full path existence check (runs actual A*).
-    /// Matches C++ Pathfinder::slowDoesPathExist() concept.
+    /// C++ `Pathfinder::slowDoesPathExist(obj, from, to, ignoreObject)`.
     pub fn slow_does_path_exist(
         &self,
         start: &Coord3D,
@@ -2262,8 +2262,22 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
     ) -> bool {
+        self.slow_does_path_exist_ex(start, end, surfaces, is_crusher, None, INVALID_ID)
+    }
+
+    /// C++ `slowDoesPathExist` with ignore obstacle + optional object id for radius.
+    pub fn slow_does_path_exist_ex(
+        &self,
+        start: &Coord3D,
+        end: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        object_id: ObjectID,
+    ) -> bool {
+        // C++ temporarily sets m_ignoreObstacleID around findPath.
         let request = PathRequest {
-            object_id: INVALID_ID,
+            object_id,
             from: *start,
             to: *end,
             surfaces,
@@ -2271,7 +2285,7 @@ impl PathfindingSystem {
             unit_radius: 0.0,
             allow_partial: false,
             move_allies: false,
-            ignore_obstacle_id: None,
+            ignore_obstacle_id,
         };
         self.find_path(request).success
     }
@@ -2734,5 +2748,33 @@ mod tests {
         assert!(bridge.ground_connect_cells.contains(&GridCoord::new(8, 3)));
         // End-row expansion should include more than just start/end.
         assert!(bridge.ground_connect_cells.len() > 2);
+    }
+
+    #[test]
+    fn slow_does_path_exist_ex_passes_ignore_obstacle_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn slow_does_path_exist_ex")
+            .expect("slowDoesPathExistEx");
+        let w = &prod[i..prod.len().min(i + 800)];
+        assert!(
+            w.contains("ignore_obstacle_id")
+                && w.contains("find_path(request)")
+                && w.contains("object_id"),
+            "slowDoesPathExist must thread ignoreObject into findPath like C++"
+        );
+    }
+
+    #[test]
+    fn slow_does_path_exist_finds_open_path() {
+        let system = PathfindingSystem::new(32, 32);
+        let from = Coord3D::new(16.0, 16.0, 0.0);
+        let to = Coord3D::new(200.0, 200.0, 0.0);
+        assert!(system.slow_does_path_exist(&from, &to, SURFACE_GROUND, false));
+        assert!(system.slow_does_path_exist_ex(&from, &to, SURFACE_GROUND, false, Some(99), 1));
     }
 }
