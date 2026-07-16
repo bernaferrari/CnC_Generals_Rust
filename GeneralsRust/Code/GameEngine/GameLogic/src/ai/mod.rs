@@ -1986,6 +1986,45 @@ impl Pathfinder {
     }
 
     /// C++ `Pathfinder::forceMapRecalculation`.
+
+    /// C++ `Pathfinder::cleanOpenAndClosedLists`.
+    pub fn clean_open_and_closed_lists(&mut self) {
+        self.inner.clean_open_and_closed_lists();
+    }
+
+    /// C++ `Pathfinder::crc`.
+    pub fn crc_pathfinder(&self, xfer: &mut dyn crate::common::xfer::Xfer) {
+        self.inner.crc(xfer);
+    }
+
+    /// C++ `Pathfinder::xfer`.
+    pub fn xfer_pathfinder(&mut self, xfer: &mut dyn crate::common::xfer::Xfer) {
+        self.inner.xfer(xfer);
+    }
+
+    /// C++ `Pathfinder::loadPostProcess`.
+    pub fn load_post_process_pathfinder(&mut self) {
+        self.inner.load_post_process();
+    }
+
+    /// C++ `Pathfinder::moveAllies`.
+    pub fn move_allies(
+        &mut self,
+        obj_id: ObjectID,
+        path_waypoints: &[Coord3D],
+        path_layers: &[pathfind_astar::PathfindLayerEnum],
+        blocked_by_ally: bool,
+        unit_radius: f32,
+    ) -> bool {
+        self.inner.move_allies(
+            obj_id,
+            path_waypoints,
+            path_layers,
+            blocked_by_ally,
+            unit_radius,
+        )
+    }
+
     pub fn force_map_recalculation(&mut self) {
         self.inner.force_map_recalculation();
     }
