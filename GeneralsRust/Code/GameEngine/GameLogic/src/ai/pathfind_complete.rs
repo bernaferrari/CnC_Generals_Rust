@@ -1834,6 +1834,179 @@ impl PathfindingSystem {
         }
     }
 
+    /// C++ `Pathfinder::isAttackViewBlockedByObstacle` (AIPathfind.cpp:9360-9429).
+    ///
+    /// Returns true when an opaque obstacle cell lies on the Bresenham line from
+    /// attacker to victim (after KINDOF / AI global / transparent / self/victim skips).
+    pub fn is_attack_view_blocked_by_obstacle(
+        &self,
+        attacker_id: ObjectID,
+        attacker_pos: &Coord3D,
+        victim_id: Option<ObjectID>,
+        victim_pos: &Coord3D,
+    ) -> bool {
+        // Global switch TheAI->getAiData()->m_attackUsesLineOfSight
+        let los_enabled = crate::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| d.attack_uses_line_of_sight)
+            })
+            .unwrap_or(true);
+        if !los_enabled {
+            return false;
+        }
+
+        // If attacker doesn't need LOS, not blocked.
+        if attacker_id != INVALID_ID {
+            if let Some(arc) = OBJECT_REGISTRY.get_object(attacker_id) {
+                if let Ok(g) = arc.read() {
+                    if !g.is_kind_of(KindOf::AttackNeedsLineOfSight) {
+                        return false;
+                    }
+                    // Flying victim: C++ isViewBlocked early-out for significantly above terrain.
+                    if let Some(vid) = victim_id {
+                        if let Some(varc) = OBJECT_REGISTRY.get_object(vid) {
+                            if let Ok(vg) = varc.read() {
+                                if vg.is_significantly_above_terrain() {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Terrain weapon LOS (LOS_TERRAIN) is deferred when Weapon binding is absent;
+        // obstacle Bresenham remains the primary pathfinder check.
+
+        let to_pf_layer = |l: CommonPathfindLayerEnum| -> PathfindLayerEnum {
+            match l {
+                CommonPathfindLayerEnum::Top => PathfindLayerEnum::Top,
+                _ => PathfindLayerEnum::Ground,
+            }
+        };
+        let mut skip_count = 0i32;
+        let mut layer = PathfindLayerEnum::Ground;
+        if let Some(vid) = victim_id {
+            if let Some(varc) = OBJECT_REGISTRY.get_object(vid) {
+                if let Ok(vg) = varc.read() {
+                    layer = to_pf_layer(vg.get_layer());
+                }
+            }
+        }
+        if attacker_id != INVALID_ID {
+            if let Some(arc) = OBJECT_REGISTRY.get_object(attacker_id) {
+                if let Ok(g) = arc.read() {
+                    let al = g.get_layer();
+                    if !matches!(
+                        al,
+                        CommonPathfindLayerEnum::Ground | CommonPathfindLayerEnum::Invalid
+                    ) {
+                        // Magic 3: bridge/rooftop can see 3 cells off structure.
+                        skip_count = 3;
+                        if layer == PathfindLayerEnum::Ground {
+                            layer = to_pf_layer(al);
+                        }
+                    }
+                }
+            }
+        }
+
+        let victim_cell = GridCoord::from_world(victim_pos);
+        let victim_obstacle_id = self
+            .pathfinder
+            .lock()
+            .ok()
+            .and_then(|pf| pf.get_cell_obstacle_id(victim_cell));
+
+        let attacker_container = Self::object_container_id(attacker_id);
+        let attacker_slaver = Self::object_slaver_id(attacker_id);
+        let victim_slaver = victim_id.map(Self::object_slaver_id).unwrap_or(INVALID_ID);
+
+        let mut remaining_skip = skip_count;
+        let ret = self.iterate_cells_along_line_world(
+            attacker_pos,
+            victim_pos,
+            layer,
+            |_from, to, _x, _y| {
+                if remaining_skip > 0 {
+                    remaining_skip -= 1;
+                    return 0;
+                }
+                let Ok(pf) = self.pathfinder.lock() else {
+                    return 0;
+                };
+                if pf.get_cell_type(to) != Some(PathfindCellType::Obstacle) {
+                    return 0;
+                }
+                let obs_id = pf.get_cell_obstacle_id(to).unwrap_or(INVALID_ID);
+                // never block own view
+                if attacker_id != INVALID_ID && obs_id == attacker_id {
+                    return 0;
+                }
+                if let Some(vid) = victim_id {
+                    if obs_id == vid {
+                        return 0;
+                    }
+                    if victim_slaver != INVALID_ID && obs_id == victim_slaver {
+                        return 0;
+                    }
+                }
+                if attacker_container != INVALID_ID && obs_id == attacker_container {
+                    return 0;
+                }
+                if attacker_slaver != INVALID_ID && obs_id == attacker_slaver {
+                    return 0;
+                }
+                if pf.is_obstacle_transparent(to) {
+                    return 0;
+                }
+                // Victim inside another object's footprint — don't block (edge case).
+                if let Some(void) = victim_obstacle_id {
+                    if obs_id == void {
+                        return 0;
+                    }
+                }
+                1 // blocked
+            },
+        );
+        ret != 0
+    }
+
+    fn object_container_id(object_id: ObjectID) -> ObjectID {
+        if object_id == INVALID_ID {
+            return INVALID_ID;
+        }
+        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return INVALID_ID;
+        };
+        let Ok(g) = arc.read() else {
+            return INVALID_ID;
+        };
+        g.get_contained_by().unwrap_or(INVALID_ID)
+    }
+
+    fn object_slaver_id(object_id: ObjectID) -> ObjectID {
+        if object_id == INVALID_ID {
+            return INVALID_ID;
+        }
+        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return INVALID_ID;
+        };
+        let Ok(g) = arc.read() else {
+            return INVALID_ID;
+        };
+        // C++ getSlaverID via SlavedUpdate / MobMemberSlavedUpdate.
+        g.with_slaved_update_interface(|s| s.slaver_id())
+            .flatten()
+            .unwrap_or(INVALID_ID)
+    }
+
     /// Convenience: find_attack_path with simple 2D circle range and optional LOS.
     pub fn find_attack_path_range(
         &self,
@@ -1868,8 +2041,13 @@ impl PathfindingSystem {
                 if !check_los {
                     return false;
                 }
-                // Blocked when line is not passable (obstacle/cliff/etc.).
-                !self.is_line_passable_ex(a, b, surfaces, is_crusher, None, false)
+                // C++ isAttackViewBlockedByObstacle from attack cell `a` toward victim `b`.
+                // When attacker id known, use full obstacle LOS; else line passability fallback.
+                if obj_id != INVALID_ID {
+                    self.is_attack_view_blocked_by_obstacle(obj_id, a, None, b)
+                } else {
+                    !self.is_line_passable_ex(a, b, surfaces, is_crusher, None, false)
+                }
             },
         )
     }
@@ -12183,6 +12361,66 @@ mod tests {
             r2.success,
             "computer may path outside logical extent: {:?}",
             r2.waypoints.len()
+        );
+    }
+
+    #[test]
+    fn is_attack_view_blocked_by_obstacle_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn is_attack_view_blocked_by_obstacle")
+            .expect("LOS");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("AttackNeedsLineOfSight")
+                && w.contains("skip_count")
+                && w.contains("is_obstacle_transparent"),
+            "isAttackViewBlockedByObstacle must match C++ callback skips"
+        );
+    }
+
+    #[test]
+    fn attack_los_blocks_opaque_obstacle_on_line() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        if let Ok(mut pf) = system.pathfinder.lock() {
+            for x in 0..20 {
+                for y in 0..20 {
+                    pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
+                }
+            }
+            // Opaque wall at x=10
+            for y in 0..20 {
+                let c = GridCoord::new(10, y);
+                pf.set_cell_obstacle_id(c, 999, false, false);
+            }
+        }
+        let from = Coord3D::new(5.0 * PATHFIND_CELL_SIZE_F, 10.0 * PATHFIND_CELL_SIZE_F, 0.0);
+        let to = Coord3D::new(
+            15.0 * PATHFIND_CELL_SIZE_F,
+            10.0 * PATHFIND_CELL_SIZE_F,
+            0.0,
+        );
+        // Without AttackNeedsLineOfSight kind and without object, KINDOF check is skipped when id INVALID
+        // With INVALID attacker, still runs Bresenham obstacle check
+        assert!(
+            system.is_attack_view_blocked_by_obstacle(INVALID_ID, &from, None, &to),
+            "opaque obstacle must block attack LOS"
+        );
+        // Transparent wall should not block
+        if let Ok(mut pf) = system.pathfinder.lock() {
+            for y in 0..20 {
+                let c = GridCoord::new(10, y);
+                pf.set_cell_obstacle_id(c, 999, false, true);
+            }
+        }
+        assert!(
+            !system.is_attack_view_blocked_by_obstacle(INVALID_ID, &from, None, &to),
+            "transparent obstacle must not block"
         );
     }
 }
