@@ -27,6 +27,10 @@ pub const PATHFIND_QUEUE_LEN: usize = 512;
 pub const PATHFIND_CELLS_PER_FRAME: usize = 500;
 /// C++ MAX_WALL_PIECES (AIPathfind.h).
 pub const MAX_WALL_PIECES: usize = 128;
+/// C++ PathfindZoneManager::ZONE_BLOCK_SIZE (AIPathfind.h:479).
+pub const ZONE_BLOCK_SIZE: i32 = 10;
+/// C++ PathfindZoneManager::UNINITIALIZED_ZONE.
+pub const UNINITIALIZED_ZONE: u16 = 0xFFFF;
 
 /// Maximum iterations for A* to prevent infinite loops
 pub const MAX_PATH_ITERATIONS: usize = 10000;
@@ -3930,6 +3934,50 @@ impl PathfindingSystem {
     // GROUP C – Hierarchical pathfinding
     // ========================================================================
 
+    /// C++ `Pathfinder::processHierarchicalCell` (AIPathfind.cpp:7322+).
+    ///
+    /// Expand from parent zone-block cell into an adjacent block cell when both
+    /// share the same effective global zone. Returns true if adj was enqueued.
+    pub fn process_hierarchical_cell(
+        &self,
+        scan_cell: GridCoord,
+        delta: (i32, i32),
+        parent_zone: u16,
+        surfaces: LocomotorSurfaceTypeMask,
+        crusher: bool,
+        examined_zones: &mut Vec<u16>,
+    ) -> Option<(GridCoord, u16)> {
+        if parent_zone == UNINITIALIZED_ZONE || parent_zone == 0 {
+            return None;
+        }
+        if !self.is_valid_coord(scan_cell) {
+            return None;
+        }
+        let Ok(zones) = self.zones.lock() else {
+            return None;
+        };
+        let scan_block = zones.get_block_zone(surfaces, crusher, scan_cell.x, scan_cell.y);
+        if scan_block != parent_zone {
+            return None;
+        }
+        let adj = GridCoord::new(scan_cell.x + delta.0, scan_cell.y + delta.1);
+        if !self.is_valid_coord(adj) {
+            return None;
+        }
+        let new_zone = zones.get_block_zone(surfaces, crusher, adj.x, adj.y);
+        let parent_global = zones.get_effective_zone(surfaces, crusher, parent_zone);
+        let new_global = zones.get_effective_zone(surfaces, crusher, new_zone);
+        if new_global != parent_global {
+            return None;
+        }
+        if examined_zones.contains(&new_zone) {
+            return None;
+        }
+        // pinched residual: always record examined zone
+        examined_zones.push(new_zone);
+        Some((adj, new_zone))
+    }
+
     /// Long-distance hierarchical path check using zone connectivity.
     /// Matches C++ Pathfinder::findHierarchicalPath() concept.
     ///
@@ -3945,8 +3993,13 @@ impl PathfindingSystem {
         let start_cell = GridCoord::from_world(&start);
         let end_cell = GridCoord::from_world(&end);
 
-        // Zone connectivity check (fast rejection for disconnected areas)
+        // C++ effective zone equality on start/goal (internal_findHierarchicalPath).
         if let Ok(zones) = self.zones.lock() {
+            let z1 = zones.get_effective_zone(surfaces, false, zones.zone_at(start_cell));
+            let z2 = zones.get_effective_zone(surfaces, false, zones.zone_at(end_cell));
+            if z1 != 0 && z2 != 0 && z1 != z2 {
+                return None;
+            }
             if !zones.are_connected(start_cell, end_cell, surfaces, is_crusher) {
                 return None;
             }
@@ -4750,6 +4803,12 @@ struct ZoneManager {
     next_zone: u16,
     /// C++ needToCalculateZones / markZonesDirty.
     zones_dirty: bool,
+    /// C++ m_crusherZones — residual identity until full combiner tables.
+    crusher_zones: Vec<u16>,
+    /// C++ m_groundCliffZones combiner residual (identity).
+    ground_cliff_zones: Vec<u16>,
+    ground_water_zones: Vec<u16>,
+    ground_rubble_zones: Vec<u16>,
 }
 
 impl ZoneManager {
@@ -4760,6 +4819,10 @@ impl ZoneManager {
             height,
             next_zone: 1,
             zones_dirty: true,
+            crusher_zones: Vec::new(),
+            ground_cliff_zones: Vec::new(),
+            ground_water_zones: Vec::new(),
+            ground_rubble_zones: Vec::new(),
         }
     }
 
@@ -4812,6 +4875,85 @@ impl ZoneManager {
         start_zone == goal_zone
     }
 
+    /// C++ `PathfindZoneManager::getBlockZone`.
+    fn get_block_zone(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        crusher: bool,
+        cell_x: i32,
+        cell_y: i32,
+    ) -> u16 {
+        if cell_x < 0
+            || cell_y < 0
+            || cell_x as usize >= self.width
+            || cell_y as usize >= self.height
+        {
+            return 0;
+        }
+        let zone = self.zones[cell_x as usize][cell_y as usize];
+        self.get_effective_zone(surfaces, crusher, zone)
+    }
+
+    /// C++ `PathfindZoneManager::getEffectiveZone` (AIPathfind.cpp:3118+).
+    fn get_effective_zone(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        crusher: bool,
+        mut zone: u16,
+    ) -> u16 {
+        if zone == 0 {
+            return 0;
+        }
+        // AIR → single zone
+        if (surfaces & SURFACE_AIR) != 0 {
+            return 1;
+        }
+        // ground+water+cliff → 1
+        if (surfaces & SURFACE_GROUND) != 0
+            && (surfaces & SURFACE_WATER) != 0
+            && (surfaces & SURFACE_CLIFF) != 0
+        {
+            return 1;
+        }
+        if crusher {
+            if let Some(&z) = self.crusher_zones.get(zone as usize) {
+                zone = z;
+            }
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_CLIFF) != 0 {
+            if let Some(&z) = self.ground_cliff_zones.get(zone as usize) {
+                return z;
+            }
+            return zone;
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_WATER) != 0 {
+            if let Some(&z) = self.ground_water_zones.get(zone as usize) {
+                return z;
+            }
+            return zone;
+        }
+        if (surfaces & SURFACE_GROUND) != 0 && (surfaces & SURFACE_RUBBLE) != 0 {
+            if let Some(&z) = self.ground_rubble_zones.get(zone as usize) {
+                return z;
+            }
+            return zone;
+        }
+        zone
+    }
+
+    fn block_index(cell_x: i32, cell_y: i32) -> (i32, i32) {
+        (cell_x / ZONE_BLOCK_SIZE, cell_y / ZONE_BLOCK_SIZE)
+    }
+
+    /// Rebuild identity combiner tables after flood fill (full C++ combiners residual).
+    fn rebuild_combiner_identity(&mut self) {
+        let n = self.next_zone as usize + 1;
+        self.crusher_zones = (0..n).map(|i| i as u16).collect();
+        self.ground_cliff_zones = (0..n).map(|i| i as u16).collect();
+        self.ground_water_zones = (0..n).map(|i| i as u16).collect();
+        self.ground_rubble_zones = (0..n).map(|i| i as u16).collect();
+    }
+
     /// Calculate zones using flood-fill on the pathfinder grid.
     /// Matches C++ PathfindZoneManager::calculateZones().
     fn mark_zones_dirty(&mut self, _insert: bool) {
@@ -4834,6 +4976,7 @@ impl ZoneManager {
                 }
             }
         }
+        self.rebuild_combiner_identity();
     }
 
     fn flood_fill(&mut self, start_x: usize, start_y: usize) {
@@ -6110,5 +6253,78 @@ mod tests {
         let group = Coord3D::new(85.0, 85.0, 0.0);
         let ok = system.path_destination(&mut dest, &group, SURFACE_GROUND, false, 0.0, true);
         assert!(ok, "open map should find adjustable destination");
+    }
+
+    #[test]
+    fn zone_block_and_effective_zone_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("ZONE_BLOCK_SIZE"));
+        assert!(prod.contains("fn get_block_zone"));
+        assert!(prod.contains("fn get_effective_zone"));
+        assert!(prod.contains("pub fn process_hierarchical_cell"));
+        let i = prod
+            .find("fn get_effective_zone")
+            .expect("getEffectiveZone");
+        let w = &prod[i..prod.len().min(i + 2000)];
+        assert!(
+            w.contains("SURFACE_AIR")
+                && w.contains("crusher_zones")
+                && w.contains("ground_cliff_zones"),
+            "getEffectiveZone must handle air + combiner tables"
+        );
+    }
+
+    #[test]
+    fn get_effective_zone_air_is_one() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        let z = system
+            .zones
+            .lock()
+            .unwrap()
+            .get_effective_zone(SURFACE_AIR, false, 7);
+        assert_eq!(z, 1);
+    }
+
+    #[test]
+    fn process_hierarchical_cell_same_zone_expands() {
+        let mut system = PathfindingSystem::new(30, 30);
+        system.new_map();
+        // Force same zones across block boundary
+        {
+            let mut zones = system.zones.lock().unwrap();
+            for x in 0..30 {
+                for y in 0..30 {
+                    zones.zones[x][y] = 1;
+                }
+            }
+            zones.rebuild_combiner_identity();
+        }
+        let parent_zone = 1u16;
+        let scan = GridCoord::new(9, 5); // near block edge (ZONE_BLOCK_SIZE=10)
+        let mut examined = Vec::new();
+        let res = system.process_hierarchical_cell(
+            scan,
+            (1, 0),
+            parent_zone,
+            SURFACE_GROUND,
+            false,
+            &mut examined,
+        );
+        assert!(res.is_some(), "should expand into adjacent cell");
+        let (adj, _z) = res.unwrap();
+        assert_eq!((adj.x, adj.y), (10, 5));
+        assert!(!examined.is_empty());
+    }
+
+    #[test]
+    fn block_index_uses_zone_block_size() {
+        assert_eq!(ZoneManager::block_index(0, 0), (0, 0));
+        assert_eq!(ZoneManager::block_index(9, 19), (0, 1));
+        assert_eq!(ZoneManager::block_index(10, 20), (1, 2));
     }
 }
