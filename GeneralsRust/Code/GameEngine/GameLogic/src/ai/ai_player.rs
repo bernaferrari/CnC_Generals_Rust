@@ -5285,9 +5285,9 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::findFactory` (AIPlayer.cpp).
     ///
-    /// Prefers the player **build list** (C++ iteration order). Falls back to all
-    /// player objects if the build list has no match. `busy_ok` allows returning a
-    /// busy factory when no idle one exists (script priority teams).
+    /// Iterates the player **build list only** (C++). Clears object IDs for
+    /// captured factories. `busy_ok` allows returning a busy factory when no
+    /// idle one exists (script priority teams).
     fn find_factory_internal(
         &self,
         thing_template: &str,
@@ -5304,28 +5304,46 @@ impl AIPlayer {
             return Ok(None);
         };
 
-        // --- C++ path: iterate build list first ---
-        if let Some(head) = player_guard.get_build_list() {
-            let mut current = Some(head);
-            while let Some(info) = current {
-                let obj_id = info.get_object_id();
-                if obj_id != INVALID_ID {
-                    if let Some(found) =
-                        self.factory_candidate(obj_id, thing_template, busy_ok, &mut busy_factory)?
-                    {
-                        return Ok(Some(found));
+        // --- C++ path: iterate build list only (no full-object scan). ---
+        // Need mut build list to clear captured factory IDs like C++.
+        drop(player_guard);
+        drop(list);
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(mut player_guard) = player_arc.write() {
+                    if let Some(head) = player_guard.get_build_list_mut() {
+                        let mut current = Some(&mut *head);
+                        while let Some(info) = current {
+                            let obj_id = info.get_object_id();
+                            if obj_id != INVALID_ID {
+                                // C++: if factory->getControllingPlayer() != m_player → clear ID.
+                                let wrong_owner = if let Some(arc) =
+                                    OBJECT_REGISTRY.get_object(obj_id)
+                                {
+                                    arc.read()
+                                        .ok()
+                                        .map(|g| {
+                                            g.get_controlling_player_id() != Some(self.player_id)
+                                        })
+                                        .unwrap_or(false)
+                                } else {
+                                    false
+                                };
+                                if wrong_owner {
+                                    info.set_object_id(INVALID_ID);
+                                } else if let Some(found) = self.factory_candidate(
+                                    obj_id,
+                                    thing_template,
+                                    busy_ok,
+                                    &mut busy_factory,
+                                )? {
+                                    return Ok(Some(found));
+                                }
+                            }
+                            current = info.get_next_mut();
+                        }
                     }
                 }
-                current = info.get_next();
-            }
-        }
-
-        // Fallback residual: scan all player objects (covers factories not on list).
-        for obj_id in player_guard.get_all_objects() {
-            if let Some(found) =
-                self.factory_candidate(obj_id, thing_template, busy_ok, &mut busy_factory)?
-            {
-                return Ok(Some(found));
             }
         }
 
@@ -6471,8 +6489,9 @@ impl AIPlayer {
         // Cost calc needs player, but find_factory_internal also locks the player
         // RwLock (not reentrant) — snapshot money/cost player handle briefly, drop,
         // then factory-scan, then re-check money.
+        // C++ uses Int cost with float intermediate truncated each assignment.
         let mut any_idle = false;
-        let mut cost: f32 = 0.0;
+        let mut cost: i32 = 0;
         {
             let Ok(list) = player_list().read() else {
                 return Ok((false, false));
@@ -6487,9 +6506,10 @@ impl AIPlayer {
                 let Some(template) = TheThingFactory::find_template(thing_name) else {
                     continue;
                 };
-                let thing_cost = template.calc_cost_to_build(Some(&*player_guard)) as f32;
-                // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f)
-                cost += thing_cost * ((*max_units as f32 + *min_units as f32) / 2.0);
+                let thing_cost = template.calc_cost_to_build(Some(&*player_guard)) as i32;
+                // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f);  // truncates to Int
+                cost +=
+                    (thing_cost as f32 * ((*max_units as f32 + *min_units as f32) / 2.0)) as i32;
             }
         }
 
@@ -6518,7 +6538,8 @@ impl AIPlayer {
             })
             .filter(|m| *m > 0.0)
             .unwrap_or(TEAM_RESOURCES_TO_BUILD);
-        cost *= resources_mod;
+        // C++: cost *= m_teamResourcesToBuild; (Int *= Real truncates)
+        cost = (cost as f32 * resources_mod) as i32;
 
         let money = {
             let Ok(list) = player_list().read() else {
@@ -6530,9 +6551,9 @@ impl AIPlayer {
             let Ok(player_guard) = player_arc.read() else {
                 return Ok((false, false));
             };
-            player_guard.get_money().get_money()
+            player_guard.get_money().get_money() as i32
         };
-        if (money as f32) < cost {
+        if money < cost {
             return Ok((false, true)); // notEnoughMoney
         }
         if any_idle {
@@ -8085,8 +8106,10 @@ mod tests {
                 && window.contains("team_resources_to_build")
                 && window.contains("notEnoughMoney")
                 && window.contains("!require_idle_factory")
-                && window.contains("find_factory_internal also locks the player"),
-            "isPossibleToBuildTeam must match C++ anyIdle/avg cost/resources mod"
+                && window.contains("find_factory_internal also locks the player")
+                && window.contains("let mut cost: i32 = 0")
+                && window.contains("as i32"),
+            "isPossibleToBuildTeam must match C++ anyIdle/Int avg cost/resources mod"
         );
     }
 
@@ -8114,10 +8137,12 @@ mod tests {
             .expect("findFactory doc");
         let window = &src[i..src.len().min(i + 2500)];
         assert!(
-            window.contains("get_build_list")
+            window.contains("get_build_list_mut")
                 && window.contains("factory_candidate")
-                && window.contains("build list first"),
-            "findFactory must iterate player build list first (C++)"
+                && window.contains("build list only")
+                && window.contains("set_object_id(INVALID_ID)")
+                && !window.contains("get_all_objects()"),
+            "findFactory must iterate build list only and clear captured factories"
         );
     }
 
