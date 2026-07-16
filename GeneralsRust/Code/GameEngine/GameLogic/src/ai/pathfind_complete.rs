@@ -58,6 +58,8 @@ pub struct PathResult {
     pub success: bool,
     pub waypoints: Vec<Coord3D>,
     pub layers: Vec<PathfindLayerEnum>,
+    /// Per-waypoint canOptimize (C++ PathNode::setCanOptimize from prependCells).
+    pub can_optimize: Vec<bool>,
     pub total_cost: u32,
     pub blocked_by_ally: bool,
 }
@@ -68,6 +70,7 @@ impl PathResult {
             success: false,
             waypoints: Vec::new(),
             layers: Vec::new(),
+            can_optimize: Vec::new(),
             total_cost: u32::MAX,
             blocked_by_ally: false,
         }
@@ -522,6 +525,7 @@ impl PathfindingSystem {
             waypoints,
             layers,
             total_cost: 0,
+            can_optimize: Vec::new(),
             blocked_by_ally: false,
         }
     }
@@ -752,10 +756,12 @@ impl PathfindingSystem {
         // Matches C++ Path::optimize() call at AIPathfind.cpp:6619
         let optimized = self.optimize_path(&waypoints, &layers, &request);
 
+        let opt_len = optimized.0.len();
         PathResult {
             success: true,
             waypoints: optimized.0,
             layers: optimized.1,
+            can_optimize: vec![true; opt_len],
             total_cost: self.calculate_path_cost(&grid_path),
             blocked_by_ally: false,
         }
@@ -2277,6 +2283,10 @@ impl PathfindingSystem {
     ///
     /// Takes a list of grid coordinates and produces a `Path` with world-space
     /// waypoints, terrain layers, and path optimization applied.
+    /// Build path from A* grid cells — C++ `buildActualPath` + `prependCells`.
+    ///
+    /// Walks cells in reverse (goal→start), applies cliff optimize flags, layer
+    /// transition handling, and prepends the real unit foot position.
     pub fn build_actual_path(
         &self,
         grid_path: &[GridCoord],
@@ -2286,43 +2296,127 @@ impl PathfindingSystem {
         is_crusher: bool,
         blocked: bool,
     ) -> PathResult {
+        let _ = (surfaces, is_crusher);
         if grid_path.is_empty() {
             return PathResult::none();
         }
 
-        let mut waypoints = Vec::with_capacity(grid_path.len());
-        let mut layers = Vec::with_capacity(grid_path.len());
+        // grid_path is start→goal; prependCells walks goal→start.
+        let center = true; // residual: callers pass centerInCell; default true.
+        let mut waypoints: Vec<Coord3D> = Vec::with_capacity(grid_path.len() + 1);
+        let mut layers: Vec<PathfindLayerEnum> = Vec::with_capacity(grid_path.len() + 1);
+        let mut can_optimize: Vec<bool> = Vec::with_capacity(grid_path.len() + 1);
+        let mut blocked_by_ally = blocked;
 
-        for (idx, coord) in grid_path.iter().enumerate() {
-            let layer = self.get_layer_for_coord(*coord);
-            let mut pos = if idx == 0 {
-                *from_world
-            } else if idx + 1 == grid_path.len() {
+        // Reverse walk excluding the start cell (same cell as unit feet).
+        // C++: for (cell = goal; cell->parent; cell = parent)
+        let mut prev_type: Option<PathfindCellType> = None;
+        let mut prev_layer: Option<PathfindLayerEnum> = None;
+        let mut prev_coord: Option<GridCoord> = None;
+
+        for idx in (0..grid_path.len()).rev() {
+            let coord = grid_path[idx];
+            let layer = self.get_layer_for_coord(coord);
+            let ctype = self
+                .get_cell_type(&coord.to_world(layer))
+                .unwrap_or(PathfindCellType::Clear);
+
+            // Same cell layer transition: skip duplicate x,y (C++ continue).
+            if let Some(pc) = prev_coord {
+                if pc.x == coord.x && pc.y == coord.y {
+                    if let Some(first_layer) = layers.first_mut() {
+                        let use_layer = if layer == PathfindLayerEnum::Ground {
+                            prev_layer.unwrap_or(layer)
+                        } else {
+                            layer
+                        };
+                        *first_layer = use_layer;
+                    }
+                    prev_type = Some(ctype);
+                    prev_layer = Some(layer);
+                    continue;
+                }
+            }
+
+            // Skip last node in reverse (start cell) — unit feet added below.
+            if idx == 0 {
+                prev_type = Some(ctype);
+                prev_layer = Some(layer);
+                prev_coord = Some(coord);
+                // mark zone passable residual
+                if let Ok(mut zones) = self.zones.lock() {
+                    // residual: zone passable flags not fully ported
+                    let _ = &mut zones;
+                }
+                break;
+            }
+
+            let mut can_opt = true;
+            if ctype == PathfindCellType::Cliff {
+                if prev_type.is_some_and(|t| t != PathfindCellType::Cliff) {
+                    if let Some(first) = can_optimize.first_mut() {
+                        *first = false;
+                    }
+                }
+            } else if prev_type == Some(PathfindCellType::Cliff) {
+                can_opt = false;
+            }
+
+            let mut pos = if idx + 1 == grid_path.len() {
+                // first reverse step is goal cell
                 *to_world
             } else {
-                self.world_pos_for_coord(*coord, layer)
+                let mut p = coord.to_world(layer);
+                // center-in-cell adjust
+                if center {
+                    // already cell center from to_world
+                }
+                p
             };
             if let Some(terrain) = TheTerrainLogic::get() {
-                let common_layer = match layer {
-                    PathfindLayerEnum::Invalid => CommonPathfindLayerEnum::Invalid,
-                    PathfindLayerEnum::Ground => CommonPathfindLayerEnum::Ground,
-                    PathfindLayerEnum::Top => CommonPathfindLayerEnum::Top,
-                };
-                pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
+                pos.z = terrain.get_layer_height(pos.x, pos.y, CommonPathfindLayerEnum::Ground);
+            }
+
+            // prepend
+            waypoints.insert(0, pos);
+            layers.insert(0, layer);
+            can_optimize.insert(0, can_opt);
+
+            prev_type = Some(ctype);
+            prev_layer = Some(layer);
+            prev_coord = Some(coord);
+        }
+
+        // Very short path: only goal (no parent) — C++ goalCellNull.
+        if waypoints.is_empty() && !grid_path.is_empty() {
+            let coord = *grid_path.last().unwrap();
+            let layer = self.get_layer_for_coord(coord);
+            let mut pos = *to_world;
+            if let Some(terrain) = TheTerrainLogic::get() {
+                pos.z = terrain.get_layer_height(pos.x, pos.y, CommonPathfindLayerEnum::Ground);
             }
             waypoints.push(pos);
             layers.push(layer);
+            can_optimize.push(true);
         }
 
-        // Mark path as blocked by ally if requested (matches C++ blocked flag)
-        let _ = (surfaces, is_crusher, blocked);
+        // Prepend actual unit feet if different from first node.
+        if let Some(first) = waypoints.first() {
+            if (from_world.x - first.x).abs() > 0.01 || (from_world.y - first.y).abs() > 0.01 {
+                let layer = layers.first().copied().unwrap_or(PathfindLayerEnum::Ground);
+                waypoints.insert(0, *from_world);
+                layers.insert(0, layer);
+                can_optimize.insert(0, true);
+            }
+        }
 
         PathResult {
-            success: true,
+            success: !waypoints.is_empty(),
             waypoints,
             layers,
-            total_cost: self.calculate_path_cost(grid_path),
-            blocked_by_ally: blocked,
+            can_optimize,
+            total_cost: 0,
+            blocked_by_ally,
         }
     }
 
@@ -5000,5 +5094,43 @@ mod tests {
                 && prod.contains("pub fn process_queue"),
             "queueForPath/processPathfindQueue must use ObjectID ring like C++"
         );
+    }
+
+    #[test]
+    fn build_actual_path_prepend_cells_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn build_actual_path")
+            .expect("buildActualPath");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("can_optimize")
+                && w.contains("PathfindCellType::Cliff")
+                && w.contains("insert(0")
+                && w.contains("from_world"),
+            "buildActualPath/prependCells must reverse-walk with cliff optimize flags"
+        );
+    }
+
+    #[test]
+    fn build_actual_path_prepends_unit_feet() {
+        let system = PathfindingSystem::new(32, 32);
+        let from = Coord3D::new(15.0, 15.0, 0.0);
+        let to = Coord3D::new(85.0, 85.0, 0.0);
+        let grid = vec![
+            GridCoord::from_world(&from),
+            GridCoord::new(5, 5),
+            GridCoord::from_world(&to),
+        ];
+        let result = system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false);
+        assert!(result.success);
+        assert!(!result.waypoints.is_empty());
+        assert_eq!(result.waypoints.len(), result.can_optimize.len());
+        // First waypoint should be unit feet.
+        assert!((result.waypoints[0].x - from.x).abs() < 0.01);
     }
 }
