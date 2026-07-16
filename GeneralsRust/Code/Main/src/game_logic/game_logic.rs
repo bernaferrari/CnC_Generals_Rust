@@ -2876,12 +2876,47 @@ impl GameLogic {
             );
             self.terrain = Some(terrain);
             self.seed_pathfinding_from_terrain();
+            self.pathfinding_system
+                .apply_structure_static_blocks(&self.objects);
             true
         }
         #[cfg(not(feature = "game_client"))]
         {
             true
         }
+    }
+
+    /// Re-apply structure footprints onto the static path/LOS grid.
+    /// Call after map object spawn bulk and when a structure dies.
+    pub fn sync_structure_path_blocks(&mut self) {
+        #[cfg(feature = "game_client")]
+        let had_terrain = self.terrain.is_some();
+        #[cfg(not(feature = "game_client"))]
+        let had_terrain = false;
+        if had_terrain {
+            self.seed_pathfinding_from_terrain();
+            self.pathfinding_system
+                .apply_structure_static_blocks(&self.objects);
+        } else {
+            self.pathfinding_system.clear_static_blocks();
+        }
+        self.pathfinding_system
+            .apply_structure_static_blocks(&self.objects);
+    }
+
+    /// Block one constructed structure footprint without full rebuild.
+    fn block_structure_object_path(&mut self, object_id: ObjectId) {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        if !obj.is_kind_of(KindOf::Structure) || !obj.is_alive() || obj.status.under_construction {
+            return;
+        }
+        let pos = obj.get_position();
+        let radius = obj.selection_radius;
+        let gs = self.pathfinding_system.grid.grid_size();
+        let r = ((radius / gs.max(1.0)).ceil() as i32).max(1).min(4);
+        self.pathfinding_system.block_structure_at_world(pos, r);
     }
 
     pub fn set_pathfinding_static_block(&mut self, x: i32, y: i32, blocked: bool) {
@@ -4298,6 +4333,8 @@ impl GameLogic {
                                 );
                             }
                             self.seed_pathfinding_from_terrain();
+                            self.pathfinding_system
+                                .apply_structure_static_blocks(&self.objects);
                         }
                     }
                 } else {
@@ -4377,6 +4414,8 @@ impl GameLogic {
                                 );
                             }
                             self.seed_pathfinding_from_terrain();
+                            self.pathfinding_system
+                                .apply_structure_static_blocks(&self.objects);
                         } else {
                             log::warn!("Failed to load heightmap '{}'", path_str);
                         }
@@ -4947,6 +4986,8 @@ impl GameLogic {
             if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
                 self.record_structure_completion(team);
             }
+            // Constructed footprint is a static path/LOS obstacle.
+            self.block_structure_object_path(completed_id);
         }
     }
 
@@ -12441,6 +12482,8 @@ impl GameLogic {
                 self.record_unit_production(team);
             } else if is_structure && !starts_under_construction {
                 self.record_structure_completion(team);
+                // Static path/LOS obstacle (C++ pathfind structure residual).
+                self.block_structure_object_path(id);
             }
             log::debug!(
                 "Created object {} ({}) at {:?}",
@@ -12881,6 +12924,7 @@ impl GameLogic {
     }
 
     fn process_destroy_list(&mut self) {
+        let mut destroyed_structure = false;
         while let Some(event) = self.objects_to_destroy.pop_front() {
             self.pending_special_abilities.remove(&event.id);
             self.pending_special_abilities
@@ -12894,6 +12938,9 @@ impl GameLogic {
                 // PresentationFrame / client can observe systems after the kill.
                 let death_pos = obj.get_position();
                 let is_structure = obj.is_kind_of(KindOf::Structure);
+                if is_structure {
+                    destroyed_structure = true;
+                }
                 let victim_team = obj.team;
                 let frame = self.frame;
                 let _ = self.combat_particles.spawn_death_fx(
@@ -13231,6 +13278,11 @@ impl GameLogic {
                     }
                 }
             }
+        }
+
+        if destroyed_structure {
+            // Rebuild static path/LOS mask without the destroyed footprint.
+            self.sync_structure_path_blocks();
         }
     }
 
@@ -69009,6 +69061,92 @@ mod tests {
         assert!(
             !logic.pathfinding_system.is_attack_view_blocked(dest, to),
             "firing cell must have clear LOS to victim"
+        );
+    }
+
+    #[test]
+    fn structure_footprint_blocks_attack_los() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        for (name, kinds) in [
+            (
+                "SfAtk",
+                vec![
+                    KindOf::Infantry,
+                    KindOf::Attackable,
+                    KindOf::AttackNeedsLineOfSight,
+                ],
+            ),
+            ("SfTgt", vec![KindOf::Infantry, KindOf::Attackable]),
+            ("SfWall", vec![KindOf::Structure]),
+        ] {
+            if !logic.templates.contains_key(name) {
+                let mut tmpl = ThingTemplate::new(name);
+                tmpl.set_health(500.0);
+                for k in kinds {
+                    tmpl.add_kind_of(k);
+                }
+                logic.templates.insert(name.into(), tmpl);
+            }
+        }
+        let atk = logic
+            .create_object("SfAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("atk");
+        let wall = logic
+            .create_object("SfWall", Team::Neutral, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("wall");
+        if let Some(o) = logic.objects.get_mut(&wall) {
+            o.selection_radius = 18.0;
+        }
+        // Re-block with larger footprint after radius bump.
+        logic.sync_structure_path_blocks();
+        let tgt = logic
+            .create_object("SfTgt", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("tgt");
+        // Structure create must have static-blocked its footprint.
+        assert!(
+            logic.attack_view_blocked(atk, Some(tgt), glam::Vec3::new(80.0, 0.0, 0.0)),
+            "structure between attacker and target must block attack LOS"
+        );
+        if let Some(o) = logic.objects.get_mut(&atk) {
+            o.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        let hp_before = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        logic.update_combat(&[atk, tgt, wall], 1.0 / 30.0);
+        let hp_after = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (hp_after - hp_before).abs() < 0.01,
+            "must not fire through live structure footprint (hp {hp_before}->{hp_after})"
+        );
+    }
+
+    #[test]
+    fn structure_path_block_cpp_surface() {
+        let src = include_str!("game_logic.rs");
+        assert!(src.contains("fn sync_structure_path_blocks"));
+        assert!(src.contains("fn block_structure_object_path"));
+        assert!(src.contains("apply_structure_static_blocks"));
+        assert!(
+            src.contains("block_structure_object_path(id)")
+                || src.contains("block_structure_object_path(completed_id)"),
+            "create/complete must block structure footprints"
         );
     }
 
