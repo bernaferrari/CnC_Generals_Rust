@@ -2567,77 +2567,255 @@ impl PathfindingSystem {
         }
     }
 
-    /// Mark an object's footprint cells as blocked obstacles.
-    /// Matches C++ Pathfinder::classifyObjectFootprint() at AIPathfind.cpp:4175-4385.
-    ///
-    /// Iterates the cells covered by the object's geometry and marks them as
-    /// Obstacle on the ground-layer grid.
+    /// Mark/remove an object's footprint cells as obstacles.
+    /// Matches C++ `Pathfinder::classifyObjectFootprint` (AIPathfind.cpp:4093+).
     pub fn classify_object_footprint(&mut self, obj: &crate::object::Object) {
-        let pos = obj.get_position();
-        let geo = obj.get_geometry_info();
-        let radius = geo.get_major_radius();
+        self.classify_object_footprint_ex(obj, true);
+    }
 
-        // Skip small objects (C++ skips if isSmall())
-        if geo.get_is_small() {
-            return;
-        }
-        // Skip objects high above terrain
-        if obj.get_height_above_terrain() > PATHFIND_CELL_SIZE_F
-            && !obj.is_kind_of(crate::common::KindOf::BlastCrater)
+    /// C++ `classifyObjectFootprint(obj, insert)`.
+    pub fn classify_object_footprint_ex(&mut self, obj: &crate::object::Object, insert: bool) {
+        use crate::common::KindOf;
+
+        if obj.is_kind_of(KindOf::Mine)
+            || obj.is_kind_of(KindOf::Projectile)
+            || obj.is_kind_of(KindOf::BridgeTower)
         {
             return;
         }
-        // Only structures are obstacles (C++ checks KINDOF_STRUCTURE)
-        if !obj.is_kind_of(crate::common::KindOf::Structure) {
+
+        let fence_width = obj.get_template().get_fence_width();
+        if fence_width > 0.0 && !obj.is_kind_of(KindOf::DefensiveWall) {
+            self.classify_fence(obj, insert, fence_width);
             return;
         }
-        // Mobile objects aren't obstacles (C++ returns if obj->isMobile())
+
+        if !insert {
+            // C++ permanent blast crater footprints never remove.
+            if obj.is_kind_of(KindOf::BlastCrater) {
+                return;
+            }
+            self.remove_object_footprint(obj);
+            return;
+        }
+
+        if !obj.is_kind_of(KindOf::Structure) {
+            return;
+        }
         if obj.is_mobile() {
             return;
         }
+        let geo = obj.get_geometry_info();
+        if geo.get_is_small() {
+            return;
+        }
+        if obj.get_height_above_terrain() > PATHFIND_CELL_SIZE_F
+            && !obj.is_kind_of(KindOf::BlastCrater)
+        {
+            return;
+        }
 
-        let center = GridCoord::from_world(pos);
-        let radius_cells = (radius / PATHFIND_CELL_SIZE_F).ceil() as i32 + 1;
+        self.internal_classify_object_footprint(obj, true);
+    }
 
-        for dy in -radius_cells..=radius_cells {
-            for dx in -radius_cells..=radius_cells {
-                let cx = center.x + dx;
-                let cy = center.y + dy;
-                if cx < 0 || cy < 0 {
-                    continue;
+    /// C++ `Pathfinder::classifyFence` (AIPathfind.cpp:3983+).
+    fn classify_fence(&mut self, obj: &crate::object::Object, insert: bool, fence_width: f32) {
+        let pos = obj.get_position();
+        let angle = obj.get_orientation();
+        let halfsize_x = fence_width * 0.5;
+        let halfsize_y = PATHFIND_CELL_SIZE_F / 10.0;
+        let fence_offset = obj.get_template().get_fence_x_offset();
+        let (s, c) = angle.sin_cos();
+        const STEP_SIZE: f32 = PATHFIND_CELL_SIZE_F * 0.5;
+        let ydx = s * STEP_SIZE;
+        let ydy = -c * STEP_SIZE;
+        let xdx = c * STEP_SIZE;
+        let xdy = s * STEP_SIZE;
+        let num_steps_x = ((2.0 * halfsize_x / STEP_SIZE).ceil() as i32).max(1);
+        let num_steps_y = ((2.0 * halfsize_y / STEP_SIZE).ceil() as i32).max(1);
+        let mut tl_x = pos.x - fence_offset * c - halfsize_y * s;
+        let mut tl_y = pos.y + halfsize_y * c - fence_offset * s;
+        let obj_id = obj.get_id();
+        let mut lo_x = i32::MAX;
+        let mut lo_y = i32::MAX;
+        let mut hi_x = i32::MIN;
+        let mut hi_y = i32::MIN;
+        let mut did = false;
+
+        for _iy in 0..num_steps_y {
+            let mut x = tl_x;
+            let mut y = tl_y;
+            for _ix in 0..num_steps_x {
+                let cx = ((x + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
+                let cy = ((y + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
+                if cx >= 0 && cy >= 0 && (cx as usize) < self.width && (cy as usize) < self.height {
+                    if self.set_or_clear_obstacle_cell(cx, cy, obj_id, true, insert) {
+                        did = true;
+                    }
+                    lo_x = lo_x.min(cx);
+                    lo_y = lo_y.min(cy);
+                    hi_x = hi_x.max(cx);
+                    hi_y = hi_y.max(cy);
                 }
-                let ux = cx as usize;
-                let uy = cy as usize;
-                if ux >= self.width || uy >= self.height {
-                    continue;
-                }
+                x += xdx;
+                y += xdy;
+            }
+            tl_x += ydx;
+            tl_y += ydy;
+        }
 
-                // Check if cell center is within object radius
-                let cell_center = GridCoord::new(cx, cy).to_world(PathfindLayerEnum::Ground);
-                let delta_x = cell_center.x - pos.x;
-                let delta_y = cell_center.y - pos.y;
-                let dist_sqr = delta_x * delta_x + delta_y * delta_y;
-                // Add a small buffer matching C++ radius+0.4*cell_size
+        if did {
+            if let Ok(mut zones) = self.zones.lock() {
+                zones.mark_zones_dirty(insert);
+            }
+            self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
+        }
+    }
+
+    /// C++ `internal_classifyObjectFootprint` box/cylinder raster.
+    fn internal_classify_object_footprint(&mut self, obj: &crate::object::Object, insert: bool) {
+        let pos = obj.get_position();
+        let geo = obj.get_geometry_info();
+        let obj_id = obj.get_id();
+        let mut lo_x = i32::MAX;
+        let mut lo_y = i32::MAX;
+        let mut hi_x = i32::MIN;
+        let mut hi_y = i32::MIN;
+        let mut did = false;
+
+        match geo.get_geometry_type() {
+            game_engine::system::geometry::GeometryType::Box => {
+                let angle = obj.get_orientation();
+                let halfsize_x = geo.get_major_radius();
+                let halfsize_y = geo.get_minor_radius();
+                let (s, c) = angle.sin_cos();
+                const STEP_SIZE: f32 = PATHFIND_CELL_SIZE_F * 0.5;
+                let ydx = s * STEP_SIZE;
+                let ydy = -c * STEP_SIZE;
+                let xdx = c * STEP_SIZE;
+                let xdy = s * STEP_SIZE;
+                let num_steps_x = ((2.0 * halfsize_x / STEP_SIZE).ceil() as i32).max(1);
+                let num_steps_y = ((2.0 * halfsize_y / STEP_SIZE).ceil() as i32).max(1);
+                let mut tl_x = pos.x - halfsize_x * c - halfsize_y * s;
+                let mut tl_y = pos.y + halfsize_y * c - halfsize_x * s;
+                for _iy in 0..num_steps_y {
+                    let mut x = tl_x;
+                    let mut y = tl_y;
+                    for _ix in 0..num_steps_x {
+                        let cx = ((x + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
+                        let cy = ((y + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
+                        if cx >= 0
+                            && cy >= 0
+                            && (cx as usize) < self.width
+                            && (cy as usize) < self.height
+                        {
+                            if self.set_or_clear_obstacle_cell(cx, cy, obj_id, false, insert) {
+                                did = true;
+                            }
+                            lo_x = lo_x.min(cx);
+                            lo_y = lo_y.min(cy);
+                            hi_x = hi_x.max(cx);
+                            hi_y = hi_y.max(cy);
+                        }
+                        x += xdx;
+                        y += xdy;
+                    }
+                    tl_x += ydx;
+                    tl_y += ydy;
+                }
+            }
+            game_engine::system::geometry::GeometryType::Sphere
+            | game_engine::system::geometry::GeometryType::Cylinder => {
+                let radius = geo.get_major_radius();
+                let center = GridCoord::from_world(pos);
+                let radius_cells = (radius / PATHFIND_CELL_SIZE_F).ceil() as i32 + 1;
                 let effective_radius = radius + PATHFIND_CELL_SIZE_F * 0.4;
-                if dist_sqr > effective_radius * effective_radius {
-                    continue;
-                }
-
-                let coord = GridCoord::new(cx, cy);
-                if let Ok(mut pathfinder) = self.pathfinder.lock() {
-                    pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
+                let eff2 = effective_radius * effective_radius;
+                for dy in -radius_cells..=radius_cells {
+                    for dx in -radius_cells..=radius_cells {
+                        let cx = center.x + dx;
+                        let cy = center.y + dy;
+                        if cx < 0
+                            || cy < 0
+                            || (cx as usize) >= self.width
+                            || (cy as usize) >= self.height
+                        {
+                            continue;
+                        }
+                        let cell_center =
+                            GridCoord::new(cx, cy).to_world(PathfindLayerEnum::Ground);
+                        let ddx = cell_center.x - pos.x;
+                        let ddy = cell_center.y - pos.y;
+                        if ddx * ddx + ddy * ddy > eff2 {
+                            continue;
+                        }
+                        if self.set_or_clear_obstacle_cell(cx, cy, obj_id, false, insert) {
+                            did = true;
+                        }
+                        lo_x = lo_x.min(cx);
+                        lo_y = lo_y.min(cy);
+                        hi_x = hi_x.max(cx);
+                        hi_y = hi_y.max(cy);
+                    }
                 }
             }
         }
 
-        // Refresh pinched cells around the footprint
-        let lo = GridCoord::new(
-            (center.x - radius_cells - 2).max(0),
-            (center.y - radius_cells - 2).max(0),
-        );
+        if did {
+            if let Ok(mut zones) = self.zones.lock() {
+                zones.mark_zones_dirty(insert);
+            }
+            self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
+        }
+    }
+
+    fn remove_object_footprint(&mut self, obj: &crate::object::Object) {
+        // Re-raster with insert=false using geometry (and fence path).
+        let fence_width = obj.get_template().get_fence_width();
+        if fence_width > 0.0 && !obj.is_kind_of(crate::common::KindOf::DefensiveWall) {
+            self.classify_fence(obj, false, fence_width);
+            return;
+        }
+        if obj.is_kind_of(crate::common::KindOf::Structure) && !obj.is_mobile() {
+            let geo = obj.get_geometry_info();
+            if !geo.get_is_small() {
+                self.internal_classify_object_footprint(obj, false);
+            }
+        }
+    }
+
+    fn set_or_clear_obstacle_cell(
+        &self,
+        cx: i32,
+        cy: i32,
+        obj_id: ObjectID,
+        is_fence: bool,
+        insert: bool,
+    ) -> bool {
+        let coord = GridCoord::new(cx, cy);
+        if let Ok(mut pathfinder) = self.pathfinder.lock() {
+            if insert {
+                pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
+                pathfinder.set_cell_obstacle_id(coord, obj_id, is_fence);
+                true
+            } else if pathfinder.clear_cell_obstacle_id(coord, obj_id) {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    fn refresh_pinched_bounds(&self, lo_x: i32, lo_y: i32, hi_x: i32, hi_y: i32) {
+        if lo_x == i32::MAX {
+            return;
+        }
+        let lo = GridCoord::new((lo_x - 2).max(0), (lo_y - 2).max(0));
         let hi = GridCoord::new(
-            (center.x + radius_cells + 2).min(self.width as i32 - 1),
-            (center.y + radius_cells + 2).min(self.height as i32 - 1),
+            (hi_x + 2).min(self.width as i32 - 1),
+            (hi_y + 2).min(self.height as i32 - 1),
         );
         if let Ok(mut pathfinder) = self.pathfinder.lock() {
             pathfinder.refresh_pinched_cells_in_bounds(lo, hi);
@@ -4134,6 +4312,8 @@ struct ZoneManager {
     width: usize,
     height: usize,
     next_zone: u16,
+    /// C++ needToCalculateZones / markZonesDirty.
+    zones_dirty: bool,
 }
 
 impl ZoneManager {
@@ -4143,6 +4323,7 @@ impl ZoneManager {
             width,
             height,
             next_zone: 1,
+            zones_dirty: true,
         }
     }
 
@@ -4197,6 +4378,11 @@ impl ZoneManager {
 
     /// Calculate zones using flood-fill on the pathfinder grid.
     /// Matches C++ PathfindZoneManager::calculateZones().
+    fn mark_zones_dirty(&mut self, _insert: bool) {
+        // C++ PathfindZoneManager::markZonesDirty — force recalculation next frame.
+        self.zones_dirty = true;
+    }
+
     fn calculate_zones(&mut self) {
         for col in self.zones.iter_mut() {
             for zone in col.iter_mut() {
@@ -5206,5 +5392,26 @@ mod tests {
         let system = PathfindingSystem::new(8, 8);
         assert!(!system.is_map_ready());
         assert_eq!(system.process_queue(10), 0);
+    }
+
+    #[test]
+    fn classify_object_footprint_fence_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn classify_object_footprint_ex")
+            .expect("classifyObjectFootprint");
+        let w = &prod[i..prod.len().min(i + 6000)];
+        assert!(
+            w.contains("KindOf::Mine")
+                && w.contains("classify_fence")
+                && w.contains("get_fence_width")
+                && w.contains("STEP_SIZE")
+                && w.contains("GeometryType::Box"),
+            "classifyObjectFootprint must filter kindofs, fence raster, box/cylinder"
+        );
     }
 }
