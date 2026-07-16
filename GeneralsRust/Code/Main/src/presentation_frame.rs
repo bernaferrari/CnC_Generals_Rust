@@ -1840,6 +1840,9 @@ pub struct PresentationProjectile {
     pub projectile_object_name: String,
     /// Resolved W3D model key residual from ProjectileObject (empty = trail-only).
     pub model_key: String,
+    /// C++ Weapon.ini ProjectileExhaust residual PSys name (empty = none).
+    #[serde(default)]
+    pub exhaust_name: String,
 }
 
 impl PresentationProjectile {
@@ -1861,6 +1864,7 @@ impl PresentationProjectile {
             is_homing: p.is_homing,
             projectile_object_name,
             model_key,
+            exhaust_name: p.exhaust_name.clone(),
         }
     }
 }
@@ -9068,6 +9072,8 @@ mod tests {
             is_homing: false,
             projectile_object_name: "GenericTankShell".into(),
             model_key: String::new(),
+
+            exhaust_name: String::new(),
         };
         let input = ProjectileRenderInput::from_presentation(&p).expect("mesh key");
         assert_eq!(input.model_key.to_ascii_lowercase(), "pmgntankshell");
@@ -9091,6 +9097,8 @@ mod tests {
             is_homing: false,
             projectile_object_name: String::new(),
             model_key: String::new(),
+
+            exhaust_name: String::new(),
         };
         assert!(ProjectileRenderInput::from_presentation(&p).is_none());
     }

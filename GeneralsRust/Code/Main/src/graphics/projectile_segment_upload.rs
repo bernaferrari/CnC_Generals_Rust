@@ -189,6 +189,7 @@ mod tests {
             is_homing: false,
             projectile_object_name: "GenericTankShell".into(),
             model_key: String::new(),
+            exhaust_name: String::new(),
         }];
         let pack = ProjectileSegmentUpload::pack_projectiles(&projectiles);
         assert_eq!(pack.honesty.projectiles_packed, 1);
