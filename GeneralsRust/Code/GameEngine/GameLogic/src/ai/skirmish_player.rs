@@ -1454,8 +1454,11 @@ impl AISkirmishPlayer {
             // C++: m_player->onStructureUndone(obj);
             //      TheAI->pathfinder()->removeObjectFromPathfindMap(obj);
             //      TheGameLogic->destroyObject(obj);
-            // onStructureUndone residual deferred (Player hook not ported); clear
-            // pathfind obstacle before destroy so rebuild sites are walkable.
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(mut player_guard) = player_arc.write() {
+                    player_guard.on_structure_undone(&obj_arc);
+                }
+            }
             let positions: Vec<Coord3D> = OBJECT_REGISTRY
                 .get_object(obj_id)
                 .and_then(|arc| arc.read().ok().map(|g| vec![*g.get_position()]))
@@ -2801,6 +2804,29 @@ mod tests {
                 && window.contains("500.0 * 500.0")
                 && window.contains("25.0 * 25.0"),
             "acquireEnemy must use structure bounds + gang-up penalties"
+        );
+    }
+
+    #[test]
+    fn adjust_build_list_calls_on_structure_undone_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src.find("fn adjust_build_list").expect("adjust_build_list");
+        let w = &src[i..src.len().min(i + 3500)];
+        assert!(
+            w.contains("on_structure_undone")
+                && w.contains("remove_object_from_map")
+                && w.contains("destroy_object")
+                && !w.contains("onStructureUndone residual deferred"),
+            "adjust_build_list must call Player::onStructureUndone before pathfind remove + destroy"
+        );
+        let player_src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/player.rs"));
+        assert!(
+            player_src.contains("fn on_structure_undone")
+                && player_src.contains("remove_object_built_obj"),
+            "Player::on_structure_undone must removeObjectBuilt like C++"
         );
     }
 
