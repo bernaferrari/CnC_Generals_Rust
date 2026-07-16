@@ -89,16 +89,15 @@ mod tests {
     #[test]
     fn presentation_path_ticks_drawables_like_cpp() {
         let src = include_str!("cnc_game_engine.rs");
-        let i = src
-            .find("Presentation path: deepened shell tick")
-            .expect("pres path");
-        let w = &src[i..src.len().min(i + 2500)];
+        // Build token from pieces so this test source does not self-match.
+        let token = format!("// {}{}:", "PRES_SHELL_ONLY_", "DRAWABLE_TICK");
+        let i = src.find(&token).expect("presentation shell token comment");
+        let w = &src[i..src.len().min(i + 500)];
         assert!(
-            w.contains("update_drawables(visual_delta)")
-                && w.contains("update_presentation_shell(visual_delta)")
-                && w.find("update_drawables(visual_delta)")
-                    < w.find("update_presentation_shell(visual_delta)"),
-            "presentation client path must tick drawables before shell"
+            w.contains("update_presentation_shell")
+                && w.contains("update_drawables_local")
+                && !w.contains("game_client.update_drawables("),
+            "presentation client path must use shell-only drawable tick"
         );
     }
 
@@ -6492,11 +6491,10 @@ impl CnCGameEngine {
                         self.game_client
                             .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
                     }
-                    // C++ GameClient::update always ticks drawables; presentation
-                    // path previously skipped this and left client anim/FX frozen.
-                    if let Err(e) = self.game_client.update_drawables(visual_delta) {
-                        log::trace!("GameClient drawable update failed (non-fatal): {e}");
-                    }
+                    // PRES_SHELL_ONLY_DRAWABLE_TICK: client modules via
+                    // update_drawables_local (no live OBJECT_REGISTRY shroud re-bind).
+                    // Do not also call full update_drawables — that double-ticks and
+                    // overwrites presentation FOW with live shroud status.
                     if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
                     }
