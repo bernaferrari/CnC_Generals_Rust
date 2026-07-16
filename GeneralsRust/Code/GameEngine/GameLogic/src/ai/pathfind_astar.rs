@@ -9,6 +9,8 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 /// Movement cost constants matching C++ AIPathfind.cpp:1649-1650
 pub const COST_ORTHOGONAL: u32 = 10;
 pub const COST_DIAGONAL: u32 = 14;
+/// C++ notZonePassable penalty: `100 * COST_ORTHOGONAL`.
+pub const ZONE_IMPASSABLE_COST: u32 = 100 * COST_ORTHOGONAL;
 
 /// Pathfinding cell size matching C++ AIPathfind.h:415-416
 pub const PATHFIND_CELL_SIZE: i32 = 10;
@@ -256,6 +258,9 @@ pub struct AStarPathfinder {
     obstacle_owners: HashMap<(i32, i32), u32>,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
     obstacle_fence: HashSet<(i32, i32)>,
+    /// C++ PathfindZoneManager block passable — only false entries stored; missing = true.
+    /// Used for hierarchical setPassable / isPassable neighbor cost penalty.
+    zone_impassable: HashSet<(i32, i32)>,
 }
 
 impl AStarPathfinder {
@@ -267,6 +272,7 @@ impl AStarPathfinder {
             height,
             obstacle_owners: HashMap::new(),
             obstacle_fence: HashSet::new(),
+            zone_impassable: HashSet::new(),
         }
     }
 
@@ -278,6 +284,7 @@ impl AStarPathfinder {
         }
         self.obstacle_owners.clear();
         self.obstacle_fence.clear();
+        self.zone_impassable.clear();
     }
 
     /// Get cell at grid coordinates
@@ -583,7 +590,7 @@ impl AStarPathfinder {
 
                 // Calculate tentative g_score
                 // Matches C++ at AIPathfind.cpp:6259
-                let movement_cost = self.movement_cost_with_ignore(
+                let mut movement_cost = self.movement_cost_with_ignore(
                     current.coord,
                     neighbor_coord,
                     is_crusher,
@@ -592,6 +599,11 @@ impl AStarPathfinder {
                 );
                 if movement_cost == u32::MAX {
                     continue; // Impassable
+                }
+                // C++ notZonePassable: ground hierarchical block not yet expanded →
+                // heavy cost (100 * COST_ORTHOGONAL), not hard reject in this path.
+                if !self.is_zone_passable(neighbor_coord) {
+                    movement_cost = movement_cost.saturating_add(ZONE_IMPASSABLE_COST);
                 }
 
                 let tentative_g = current.g_score.saturating_add(movement_cost);
@@ -662,6 +674,25 @@ impl AStarPathfinder {
 
     /// Stamp obstacle object id / fence flag on a cell (C++ setTypeAsObstacle).
     /// C++ cell connectLayer stamp for bridge/wall transitions.
+    /// C++ `PathfindZoneManager::setPassable` stamp for A* notZonePassable cost.
+    pub fn set_zone_passable(&mut self, coord: GridCoord, passable: bool) {
+        let key = (coord.x, coord.y);
+        if passable {
+            self.zone_impassable.remove(&key);
+        } else {
+            self.zone_impassable.insert(key);
+        }
+    }
+
+    pub fn clear_zone_passable_flags(&mut self) {
+        self.zone_impassable.clear();
+    }
+
+    #[inline]
+    pub fn is_zone_passable(&self, coord: GridCoord) -> bool {
+        !self.zone_impassable.contains(&(coord.x, coord.y))
+    }
+
     pub fn set_cell_connect_layer(&mut self, coord: GridCoord, layer: PathfindLayerEnum) {
         if let Some(cell) = self.get_cell_mut(coord) {
             cell.set_connect_layer(layer);
@@ -952,5 +983,43 @@ mod tests {
 
         assert!(!pathfinder.is_passable_with_ignore(obstacle, 0x01, false, None));
         assert!(pathfinder.is_passable_with_ignore(obstacle, 0x01, false, Some(&ignore)));
+    }
+
+    #[test]
+    fn zone_impassable_adds_cost_penalty() {
+        let mut pf = AStarPathfinder::new(20, 20);
+        let a = GridCoord::new(2, 2);
+        let b = GridCoord::new(3, 2);
+        // Baseline path cost without penalty.
+        let path1 = pf
+            .find_path(
+                a,
+                GridCoord::new(8, 2),
+                SURFACE_GROUND,
+                false,
+                5000,
+                false,
+                None,
+            )
+            .expect("path");
+        assert!(path1.len() > 1);
+        // Mark middle cells impassable-zone; path should still succeed with penalty.
+        for x in 4..7 {
+            pf.set_zone_passable(GridCoord::new(x, 2), false);
+        }
+        let path2 = pf
+            .find_path(
+                a,
+                GridCoord::new(8, 2),
+                SURFACE_GROUND,
+                false,
+                5000,
+                false,
+                None,
+            )
+            .expect("path with zone penalty");
+        assert!(path2.len() > 1);
+        assert!(pf.is_zone_passable(a));
+        assert!(!pf.is_zone_passable(GridCoord::new(5, 2)));
     }
 }
