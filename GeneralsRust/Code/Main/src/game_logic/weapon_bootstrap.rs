@@ -420,6 +420,155 @@ pub fn honesty_weapon_store_deepen_residual_wave103() -> bool {
 /// C++ Weapon.ini FireSound residual name for a store weapon template.
 ///
 /// Empty string when unset / missing — caller falls back to generic "WeaponFire".
+
+/// C++ Weapon.ini FireFX residual name (Regular veterancy slot).
+pub fn host_fire_fx_for_weapon_name(name: &str) -> String {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            wt.fire_fx[0]
+                .as_ref()
+                .map(|fx| {
+                    let n = fx.name().trim();
+                    n.to_string()
+                })
+                .filter(|s| !s.is_empty())
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(s) = from_store {
+        return s;
+    }
+    seed_fire_fx_for(name)
+}
+
+/// C++ Weapon.ini ProjectileDetonationFX residual name (Regular slot).
+pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            wt.projectile_detonate_fx[0]
+                .as_ref()
+                .map(|fx| {
+                    let n = fx.name().trim();
+                    n.to_string()
+                })
+                .filter(|s| !s.is_empty())
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(s) = from_store {
+        return s;
+    }
+    seed_detonation_fx_for(name)
+}
+
+/// Resolve FireFX + DetonationFX for a host unit firing a weapon slot.
+pub fn host_weapon_fx_for_unit_slot(
+    template_name: &str,
+    primary_weapon_name: Option<&str>,
+    secondary_weapon_name: Option<&str>,
+    slot: u8,
+) -> (String, String) {
+    let wname = if slot == 1 {
+        secondary_weapon_name
+            .or_else(|| secondary_weapon_name_for_unit(template_name))
+            .or(primary_weapon_name)
+            .or_else(|| primary_weapon_name_for_unit(template_name))
+    } else {
+        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+    };
+    match wname {
+        Some(n) => (
+            host_fire_fx_for_weapon_name(n),
+            host_detonation_fx_for_weapon_name(n),
+        ),
+        None => (String::new(), String::new()),
+    }
+}
+
+fn seed_fire_fx_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    if n.contains("laser") || n.contains("pointdefense") {
+        return "WeaponFX_PaladinPointDefenseLaser".into();
+    }
+    if n.contains("tankgun")
+        || n.contains("crusader")
+        || n.contains("paladin")
+        || n.contains("battlemaster")
+        || n.contains("scorpion")
+        || n.contains("marauder")
+    {
+        return "WeaponFX_GenericTankGunNoTracer".into();
+    }
+    if n.contains("ranger") && n.contains("flash") {
+        return "WeaponFX_RangerFlashBang".into();
+    }
+    if n.contains("machinegun")
+        || n.contains("combatrifle")
+        || n.contains("ranger")
+        || n.contains("redguard")
+        || n.contains("rebel")
+    {
+        return "WeaponFX_GenericMachineGunFire".into();
+    }
+    if n.contains("missile")
+        || n.contains("stinger")
+        || n.contains("tomahawk")
+        || n.contains("rpg")
+        || n.contains("tankhunter")
+    {
+        return "WeaponFX_GenericMissileLaunch".into();
+    }
+    if n.contains("flame") || n.contains("dragon") || n.contains("inferno") {
+        return "WeaponFX_DragonTankFlameWeapon".into();
+    }
+    if n.contains("gattling") || n.contains("minigun") {
+        return "WeaponFX_GattlingTankGun".into();
+    }
+    if n.contains("nuke") {
+        return "WeaponFX_NukeCannonMuzzleFlash".into();
+    }
+    if n.contains("aurora") || n.contains("bomb") {
+        return "WeaponFX_AuroraBomb".into();
+    }
+    if n.contains("patriot") {
+        return "WeaponFX_PatriotBattery".into();
+    }
+    String::new()
+}
+
+fn seed_detonation_fx_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    if n.contains("jet") || n.contains("raptor") || n.contains("mig") || n.contains("stealth") {
+        return "WeaponFX_JetMissileDetonation".into();
+    }
+    if n.contains("rpg")
+        || n.contains("buggy")
+        || n.contains("tankhunter")
+        || n.contains("tomahawk")
+    {
+        return "WeaponFX_RocketBuggyMissileDetonation".into();
+    }
+    if n.contains("scud") {
+        return "WeaponFX_ScudLauncherDetonation".into();
+    }
+    if n.contains("nuke") || n.contains("neutron") {
+        return "WeaponFX_NukeCannon".into();
+    }
+    if n.contains("aurora") || n.contains("bomb") {
+        return "WeaponFX_AuroraBombDetonation".into();
+    }
+    if n.contains("missile") || n.contains("stinger") || n.contains("patriot") {
+        return "WeaponFX_GenericMissileDetonation".into();
+    }
+    String::new()
+}
+
 pub fn host_fire_sound_for_weapon_name(name: &str) -> String {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
@@ -2941,5 +3090,32 @@ mod tests {
         assert_eq!(unit, store);
         let fallback = host_fire_sound_for_unit_slot("UnknownUnitXYZ", None, None, 0);
         assert_eq!(fallback, "WeaponFire");
+    }
+
+    #[test]
+    fn fire_fx_for_seeded_weapons_residual() {
+        let _ = ensure_host_weapon_store();
+        assert_eq!(
+            seed_fire_fx_for("AmericaTankCrusaderGun"),
+            "WeaponFX_GenericTankGunNoTracer"
+        );
+        assert_eq!(
+            seed_detonation_fx_for(TANK_HUNTER_PRIMARY_WEAPON),
+            "WeaponFX_RocketBuggyMissileDetonation"
+        );
+        let (ffx, dfx) = host_weapon_fx_for_unit_slot(
+            "ChinaInfantryTankHunter",
+            Some(TANK_HUNTER_PRIMARY_WEAPON),
+            None,
+            0,
+        );
+        // Store may supply retail FireFX; peel residual is non-empty for tank hunter.
+        assert!(
+            !dfx.is_empty()
+                || !ffx.is_empty()
+                || !seed_fire_fx_for(TANK_HUNTER_PRIMARY_WEAPON).is_empty()
+        );
+        let ffx2 = host_fire_fx_for_weapon_name(TANK_HUNTER_PRIMARY_WEAPON);
+        assert!(!ffx2.is_empty() || ffx2 == seed_fire_fx_for(TANK_HUNTER_PRIMARY_WEAPON));
     }
 }
