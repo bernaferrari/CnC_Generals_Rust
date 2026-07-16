@@ -10671,9 +10671,14 @@ impl GameLogic {
                     } else if let Some(attacker) = self.objects.get(&object_id) {
                         if attacker.can_target(target) {
                             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                            let tgt_inf = self
+                                .objects
+                                .get(&target_id)
+                                .map(|t| t.is_kind_of(KindOf::Infantry))
+                                .unwrap_or(false);
                             if let Some(attacker) = self.objects.get_mut(&object_id) {
                                 if attacker.can_fire(current_time) {
-                                    attacker.fire_at(target_id, current_time);
+                                    attacker.fire_at_ex(target_id, current_time, tgt_inf);
                                 }
                             }
                         }
@@ -10705,13 +10710,32 @@ impl GameLogic {
                     let shooter_pos = attacker.get_position();
                     let weapon_damage = attacker.weapon.as_ref().map(|w| w.damage).unwrap_or(25.0);
                     if let Some(target_loc) = attacker.target_location {
+                        let wname = attacker.thing.template.primary_weapon_name.as_deref();
+                        let scatter = wname
+                            .map(|n| {
+                                crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
+                                    n, false, /* ground force-fire: base ScatterRadius only */
+                                )
+                            })
+                            .unwrap_or(0.0);
+                        let proj_speed = attacker
+                            .weapon
+                            .as_ref()
+                            .map(|w| {
+                                if w.projectile_speed > 0.0 {
+                                    w.projectile_speed
+                                } else {
+                                    200.0
+                                }
+                            })
+                            .unwrap_or(200.0);
                         super::combat::queue_projectile(super::combat::PendingProjectile {
                             shooter_id: object_id,
                             shooter_pos,
                             target_id: None,
                             target_pos: Some(target_loc),
                             damage: weapon_damage,
-                            speed: 200.0,
+                            speed: proj_speed,
                             splash_radius: attacker
                                 .weapon
                                 .as_ref()
@@ -10721,20 +10745,12 @@ impl GameLogic {
                             damage_type: crate::game_logic::combat::DamageType::Bullet,
                             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                             projectile_object_name: String::new(),
-                            detonation_fx_name: attacker
-                                .thing
-                                .template
-                                .primary_weapon_name
-                                .as_deref()
+                            detonation_fx_name: wname
                                 .map(
                                     crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name,
                                 )
                                 .unwrap_or_default(),
-                            detonation_ocl_name: attacker
-                                .thing
-                                .template
-                                .primary_weapon_name
-                                .as_deref()
+                            detonation_ocl_name: wname
                                 .map(
                                     crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name,
                                 )
@@ -10753,7 +10769,7 @@ impl GameLogic {
             radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
-            scatter_radius: 0.0,
+            scatter_radius: scatter,
             min_weapon_speed: 0.0,
             scale_weapon_speed: false,
             attack_range: 0.0,
@@ -70596,6 +70612,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn ground_force_fire_applies_base_scatter_radius_peel() {
+        use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+        // Neutron / artillery-style weapons often have base ScatterRadius > 0.
+        // Ground force-fire must not hardcode scatter_radius = 0.
+        let src = include_str!("game_logic.rs");
+        assert!(
+            src.contains("host_effective_scatter_radius") && src.contains("AttackingGround"),
+            "AttackingGround path must peel ScatterRadius"
+        );
+        // Honesty: base peel for crusader is 0; howitzer/firebase may be >0.
+        let _ = host_effective_scatter_radius("AmericaFireBaseHowitzer", false);
+    }
     #[test]
     fn minimum_attack_range_too_close_backs_away() {
         use crate::game_logic::weapon_bootstrap::{
