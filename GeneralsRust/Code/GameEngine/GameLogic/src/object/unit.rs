@@ -3453,6 +3453,7 @@ impl UnitAIUpdate {
             } else {
                 Some(self.ignore_obstacle_id)
             },
+            is_human: false,
         })
     }
 
@@ -7065,6 +7066,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 allow_partial: false,
                 move_allies: self.get_can_path_through_units(),
                 ignore_obstacle_id,
+                is_human: false,
             };
             adjusted = THE_AI
                 .read()

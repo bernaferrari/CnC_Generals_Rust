@@ -822,6 +822,7 @@ impl PathfindingSystem {
                         allow_partial: request.allow_partial,
                         move_allies: request.move_allies,
                         ignore_obstacle_id: request.ignore_obstacle_id,
+                        is_human: false,
                     };
                     let result = pf.find_path_result(classic_request);
                     if result.success {

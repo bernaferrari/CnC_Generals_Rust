@@ -2114,6 +2114,7 @@ impl Pathfinder {
             allow_partial: false,
             move_allies: false,
             ignore_obstacle_id: None,
+            is_human: false,
         };
         let result = self.inner.find_path(request);
         if result.success {
@@ -2169,6 +2170,7 @@ impl Pathfinder {
             allow_partial: false,
             move_allies,
             ignore_obstacle_id,
+            is_human: false,
         };
         let result = self.inner.find_path(request);
         if result.success {
