@@ -30,6 +30,8 @@ pub enum CombatParticleKind {
     WeaponMuzzleFlash,
     /// Impact / hit feedback at target position.
     WeaponImpact,
+    /// In-flight projectile exhaust residual (Weapon.ini ProjectileExhaust).
+    ProjectileExhaust,
 }
 
 impl CombatParticleKind {
@@ -44,6 +46,7 @@ impl CombatParticleKind {
             CombatParticleKind::DeathLaser => "BulletImpact",
             CombatParticleKind::WeaponMuzzleFlash => "MuzzleFlash",
             CombatParticleKind::WeaponImpact => "BulletImpact",
+            CombatParticleKind::ProjectileExhaust => "MissileExhaust",
         }
     }
 }
@@ -448,6 +451,35 @@ impl CombatParticleRegistry {
             ids.push(impact_id);
         }
         ids
+    }
+
+    /// C++ ProjectileExhaust residual: in-flight trail particle at projectile pos.
+    ///
+    /// Stamps retail exhaust template name when non-empty. Fail-closed vs full
+    /// client ParticleSystem attach-to-drawable matrix.
+    pub fn spawn_projectile_exhaust(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        shooter: ObjectId,
+        projectile_id: Option<ObjectId>,
+        exhaust_name: &str,
+    ) -> Option<u32> {
+        if exhaust_name.is_empty() {
+            return None;
+        }
+        let id = self.spawn(
+            CombatParticleKind::ProjectileExhaust,
+            position,
+            frame,
+            Some(shooter),
+            projectile_id,
+        );
+        if let Some(e) = self.systems.get_mut(&id) {
+            e.template_name = exhaust_name.to_string();
+            e.fx_list_name = exhaust_name.to_string();
+        }
+        Some(id)
     }
 
     pub fn deactivate(&mut self, id: u32) {

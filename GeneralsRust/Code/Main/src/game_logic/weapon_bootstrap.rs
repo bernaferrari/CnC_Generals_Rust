@@ -467,6 +467,79 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini ProjectileExhaust residual particle-system name (Regular).
+///
+/// Fail-closed: name residual for in-flight trail — not full client PSys attach
+/// / VeterancyProjectileExhaust HEROIC matrix.
+pub fn host_projectile_exhaust_for_weapon_name(name: &str) -> String {
+    seed_projectile_exhaust_for(name)
+}
+
+/// Resolve ProjectileExhaust for a host unit weapon slot.
+pub fn host_projectile_exhaust_for_unit_slot(
+    template_name: &str,
+    primary_weapon_name: Option<&str>,
+    secondary_weapon_name: Option<&str>,
+    slot: u8,
+) -> String {
+    let wname = if slot == 1 {
+        secondary_weapon_name
+            .or_else(|| secondary_weapon_name_for_unit(template_name))
+            .or(primary_weapon_name)
+            .or_else(|| primary_weapon_name_for_unit(template_name))
+    } else {
+        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+    };
+    wname
+        .map(host_projectile_exhaust_for_weapon_name)
+        .unwrap_or_default()
+}
+
+fn seed_projectile_exhaust_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    // Hitscan / beam / gun residual: no projectile exhaust.
+    if n.contains("laser")
+        || n.contains("machinegun")
+        || n.contains("chaingun")
+        || n.contains("gattling")
+        || n.contains("minigun")
+        || n.contains("flashbang")
+        || n.contains("combatrifle")
+        || n.contains("tankgun")
+        || (n.contains("cannon") && !n.contains("nuke"))
+    {
+        return String::new();
+    }
+    if n.contains("tow") {
+        return "TowMissileExhaust".into();
+    }
+    if n.contains("neutron") {
+        return "NeutronMissileExhaust".into();
+    }
+    if n.contains("scud") {
+        return "ScudMissileExhaust".into();
+    }
+    if n.contains("comanche") {
+        return "MissileExhaust".into();
+    }
+    if n.contains("missiledefender")
+        || n.contains("missile_defender")
+        || (n.contains("humvee") && n.contains("missile"))
+    {
+        return "MissileDefenderMissileExhaust".into();
+    }
+    if n.contains("stinger") || n.contains("patriot") {
+        return "MissileExhaust".into();
+    }
+    if n.contains("tankhunter") || n.contains("rpg") || n.contains("tunneldefender") {
+        return "MissileExhaust".into();
+    }
+    if n.contains("missile") || n.contains("rocket") || n.contains("tomahawk") {
+        return "MissileExhaust".into();
+    }
+    String::new()
+}
+
 /// C++ Weapon.ini FireOCL residual name (Regular slot).
 ///
 /// Fail-closed: name residual only — not full ObjectCreationList create_at_position
@@ -3416,5 +3489,30 @@ mod tests {
         // Unknown stays empty (fail-closed).
         assert!(host_fire_ocl_for_weapon_name("UnknownWeaponXYZ").is_empty());
         assert!(host_detonation_ocl_for_weapon_name("UnknownWeaponXYZ").is_empty());
+    }
+
+    #[test]
+    fn projectile_exhaust_for_seeded_weapons_residual() {
+        assert_eq!(
+            seed_projectile_exhaust_for("ChinaInfantryTankHunterMissileLauncher"),
+            "MissileExhaust"
+        );
+        assert_eq!(
+            seed_projectile_exhaust_for("AmericaMissileDefenderMissileWeapon"),
+            "MissileDefenderMissileExhaust"
+        );
+        assert_eq!(
+            seed_projectile_exhaust_for("GLAScudLauncherWeapon"),
+            "ScudMissileExhaust"
+        );
+        assert_eq!(seed_projectile_exhaust_for("AmericaTankCrusaderGun"), "");
+        let e = host_projectile_exhaust_for_unit_slot(
+            "ChinaInfantryTankHunter",
+            Some("ChinaInfantryTankHunterMissileLauncher"),
+            None,
+            0,
+        );
+        assert_eq!(e, "MissileExhaust");
+        assert!(host_projectile_exhaust_for_weapon_name("UnknownWeaponXYZ").is_empty());
     }
 }

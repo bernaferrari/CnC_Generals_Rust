@@ -63,6 +63,8 @@ pub struct Projectile {
     pub detonation_fx_name: String,
     /// C++ Weapon.ini ProjectileDetonationOCL residual name (spawned at impact).
     pub detonation_ocl_name: String,
+    /// C++ Weapon.ini ProjectileExhaust residual PSys name (in-flight trail).
+    pub exhaust_name: String,
 }
 
 impl Projectile {
@@ -97,6 +99,7 @@ impl Projectile {
             projectile_object_name: String::new(),
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
         }
     }
 
@@ -221,6 +224,8 @@ pub struct PendingProjectile {
     pub detonation_fx_name: String,
     /// C++ Weapon.ini ProjectileDetonationOCL residual (empty = no impact OCL name).
     pub detonation_ocl_name: String,
+    /// C++ Weapon.ini ProjectileExhaust residual (empty = no in-flight trail name).
+    pub exhaust_name: String,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -280,6 +285,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.projectile_object_name = p.projectile_object_name.clone();
             proj.detonation_fx_name = p.detonation_fx_name.clone();
             proj.detonation_ocl_name = p.detonation_ocl_name.clone();
+            proj.exhaust_name = p.exhaust_name.clone();
         }
     }
 }
@@ -1100,5 +1106,32 @@ mod tests {
         assert_eq!(fx[0].detonation_fx_name, "FX_GenericTankShellDetonation");
         assert_eq!(fx[0].detonation_ocl_name, "OCL_FireFieldSmall");
         assert_eq!(fx[0].target_id, Some(target));
+    }
+
+    #[test]
+    fn pending_projectile_carries_exhaust_name() {
+        let mut combat = CombatSystem::new();
+        let objects = HashMap::new();
+        queue_projectile(PendingProjectile {
+            shooter_id: ObjectId(1),
+            shooter_pos: Vec3::ZERO,
+            target_id: Some(ObjectId(2)),
+            target_pos: Some(Vec3::new(10.0, 0.0, 0.0)),
+            damage: 10.0,
+            speed: 100.0,
+            splash_radius: 0.0,
+            is_homing: false,
+            damage_type: DamageType::Explosive,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            projectile_object_name: "GenericTankShell".into(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: "MissileExhaust".into(),
+        });
+        // Need a dummy target for drain to resolve? target_pos is Some so OK.
+        drain_pending_projectiles(&mut combat, &objects);
+        let snaps: Vec<_> = combat.projectiles_snapshot();
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].exhaust_name, "MissileExhaust");
     }
 }
