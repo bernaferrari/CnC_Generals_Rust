@@ -1863,13 +1863,12 @@ impl AIPlayer {
                     })
                     .and_then(|script| script.get_action().cloned());
                 if let Some(action) = action {
-                    let evaluator = ScriptEvaluator::new(script_engine);
-                    if let Err(err) = evaluator.execute_action_sequence(&action) {
-                        log::warn!(
-                            "AIPlayer buildSpecificAITeam executeActions '{}': {}",
-                            cond,
-                            err
-                        );
+                    // C++ friend_executeAction(action, team)
+                    drop(script_engine);
+                    if let Ok(mut eng) = get_script_engine().write() {
+                        if let Some(e) = eng.as_mut() {
+                            e.friend_execute_action(&action, Some(team_name));
+                        }
                     }
                 }
             }
@@ -4184,8 +4183,7 @@ impl AIPlayer {
     ///
     /// 1. Expire build-time: min-built + complete → ready; else disband.
     /// 2. All-built → ready queue (prepend).
-    /// 3. Any idle + executeActions → run productionCondition action.
-    /// Plus residual: assign waiting work orders to idle factories.
+    /// 3. Any idle + executeActions → run productionCondition action (team-scoped).
     pub(crate) fn check_queued_teams(&mut self) -> Result<(), AiError> {
         // --- C++ phase 1: build-time expiry ---
         let mut i = 0;
@@ -4286,16 +4284,15 @@ impl AIPlayer {
                                         })
                                         .and_then(|script| script.get_action().cloned());
                                     if let Some(action) = action {
-                                        // C++ friend_executeAction(action, team->m_team).
-                                        // Team-scoped execution residual when API available.
-                                        let evaluator = ScriptEvaluator::new(script_engine);
-                                        if let Err(err) = evaluator.execute_action_sequence(&action)
-                                        {
-                                            log::warn!(
-                                                "AIPlayer: production condition '{}': {}",
-                                                cond,
-                                                err
-                                            );
+                                        // C++ friend_executeAction(action, team->m_team)
+                                        drop(script_engine);
+                                        if let Ok(mut eng) = get_script_engine().write() {
+                                            if let Some(e) = eng.as_mut() {
+                                                e.friend_execute_action(
+                                                    &action,
+                                                    Some(name.as_str()),
+                                                );
+                                            }
                                         }
                                     }
                                 }
@@ -8013,6 +8010,37 @@ mod tests {
             early.contains("purchase_points_early")
                 && early.contains("if purchase_points_early <= 0"),
             "C++ returns when science points are 0 before skillset selection"
+        );
+    }
+
+    #[test]
+    fn friend_execute_action_team_scoped_like_cpp() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/scripting/engine.rs"
+        ));
+        assert!(
+            eng.contains("fn friend_execute_action")
+                && eng.contains("calling_team")
+                && eng.contains("execute_action_chain"),
+            "ScriptEngine must expose friend_executeAction with team context"
+        );
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub(crate) fn check_queued_teams")
+            .expect("check_queued_teams");
+        let end = src[i..]
+            .find(
+                "
+    /// C++ `AIPlayer::doTeamBuilding`",
+            )
+            .map(|o| i + o)
+            .unwrap_or(src.len().min(i + 7000));
+        let w = &src[i..end];
+        assert!(
+            w.contains("friend_execute_action")
+                && !w.contains("ScriptEvaluator::new(script_engine)"),
+            "checkQueuedTeams must call friend_execute_action with team name"
         );
     }
 
