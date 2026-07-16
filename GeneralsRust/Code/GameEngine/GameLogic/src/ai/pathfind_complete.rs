@@ -139,9 +139,12 @@ pub struct BridgeLayer {
     pub zone: u16,
     /// C++ PathfindLayer bridge object id (INVALID_ID if landmark-only).
     pub bridge_object_id: ObjectID,
-    /// Approximate ground attach cells (C++ m_startCell / m_endCell residual).
+    /// C++ m_startCell / m_endCell (from bridge from/to attach).
     pub start_cell: GridCoord,
     pub end_cell: GridCoord,
+    /// C++ layer cells with getConnectLayer()==LAYER_GROUND (entry points).
+    /// Populated at classify/add time; scanned by `connectsZones`.
+    pub ground_connect_cells: Vec<GridCoord>,
 }
 
 impl BridgeLayer {
@@ -156,6 +159,15 @@ impl BridgeLayer {
         start_cell: GridCoord,
         end_cell: GridCoord,
     ) -> Self {
+        // Default entry points: attach cells (C++ isCellEntryPoint marks ends).
+        // Full classifyCells can replace this via set_ground_connect_cells.
+        let mut ground_connect_cells = Vec::new();
+        if start_cell != end_cell {
+            ground_connect_cells.push(start_cell);
+            ground_connect_cells.push(end_cell);
+        } else {
+            ground_connect_cells.push(start_cell);
+        }
         Self {
             layer_id,
             bounds,
@@ -164,6 +176,7 @@ impl BridgeLayer {
             bridge_object_id,
             start_cell,
             end_cell,
+            ground_connect_cells,
         }
     }
 
@@ -174,8 +187,15 @@ impl BridgeLayer {
             && coord.y <= self.bounds.1.y
     }
 
-    /// C++ `PathfindLayer::connectsZones` residual without full layer-cell table:
-    /// ground zones under start/end attach cells both present among zone1/zone2.
+    /// Replace entry-point cells after C++-style classifyCells.
+    pub fn set_ground_connect_cells(&mut self, cells: Vec<GridCoord>) {
+        self.ground_connect_cells = cells;
+    }
+
+    /// C++ `PathfindLayer::connectsZones` (AIPathfind.cpp).
+    ///
+    /// Scans layer cells with connectLayer==GROUND; reads ground-cell zones
+    /// via `zone_at` (effective terrain zone already applied by caller).
     pub fn connects_zones(
         &self,
         zone_at: impl Fn(GridCoord) -> u16,
@@ -185,13 +205,12 @@ impl BridgeLayer {
         if !self.destroyed {
             return false;
         }
-        // C++ only sets found flags when groundCell zone equals zone1/zone2
-        // (no special-case true when zone is 0/uninitialized).
-        let z_start = zone_at(self.start_cell);
-        let z_end = zone_at(self.end_cell);
+        // C++ only sets found when groundCell zone equals zone1/zone2.
+        // No special-case true for zone 0/uninitialized.
         let mut found1 = false;
         let mut found2 = false;
-        for z in [z_start, z_end] {
+        for c in &self.ground_connect_cells {
+            let z = zone_at(*c);
             if z == 0 {
                 continue;
             }
@@ -201,25 +220,8 @@ impl BridgeLayer {
             if z == zone2 {
                 found2 = true;
             }
-        }
-        // Also sample bound corners (C++ scans connect-layer ground cells).
-        let lo = self.bounds.0;
-        let hi = self.bounds.1;
-        for c in [
-            lo,
-            hi,
-            GridCoord::new(lo.x, hi.y),
-            GridCoord::new(hi.x, lo.y),
-        ] {
-            let z = zone_at(c);
-            if z == 0 {
-                continue;
-            }
-            if z == zone1 {
-                found1 = true;
-            }
-            if z == zone2 {
-                found2 = true;
+            if found1 && found2 {
+                return true;
             }
         }
         found1 && found2
@@ -1007,14 +1009,44 @@ impl PathfindingSystem {
         end_cell: GridCoord,
     ) -> u32 {
         let layer_id = self.bridges.len() as u32 + 2; // Start from 2 (Ground=1)
-        self.bridges.push(BridgeLayer::with_meta(
-            layer_id,
-            bounds,
-            bridge_object_id,
-            start_cell,
-            end_cell,
-        ));
+        let mut layer =
+            BridgeLayer::with_meta(layer_id, bounds, bridge_object_id, start_cell, end_cell);
+        // Approximate classifyCells entry points: cells on the bridge end rows
+        // (lo.y and hi.y spans) — C++ marks isCellEntryPoint at bridge ends.
+        layer.set_ground_connect_cells(Self::bridge_entry_cells(bounds, start_cell, end_cell));
+        self.bridges.push(layer);
         layer_id
+    }
+
+    /// Build ground-connect cell list for a bridge layer.
+    /// Prefer explicit start/end attach cells; also include end-edge cells in bounds
+    /// so connectsZones scans more than two points (closer to full layer table).
+    fn bridge_entry_cells(
+        bounds: (GridCoord, GridCoord),
+        start_cell: GridCoord,
+        end_cell: GridCoord,
+    ) -> Vec<GridCoord> {
+        let mut cells = Vec::new();
+        let push = |cells: &mut Vec<GridCoord>, c: GridCoord| {
+            if !cells.contains(&c) {
+                cells.push(c);
+            }
+        };
+        push(&mut cells, start_cell);
+        push(&mut cells, end_cell);
+        let lo = bounds.0;
+        let hi = bounds.1;
+        // End rows (y = lo.y and y = hi.y) — typical bridge entry spans.
+        for x in lo.x..=hi.x {
+            push(&mut cells, GridCoord::new(x, lo.y));
+            push(&mut cells, GridCoord::new(x, hi.y));
+        }
+        // End columns if bridge is axis-aligned the other way.
+        for y in lo.y..=hi.y {
+            push(&mut cells, GridCoord::new(lo.x, y));
+            push(&mut cells, GridCoord::new(hi.x, y));
+        }
+        cells
     }
 
     fn zone_at_cell(&self, cell: GridCoord) -> u16 {
@@ -2657,5 +2689,50 @@ mod tests {
             !w.contains("find_path(request)") && !w.contains("ClassicPathRequest"),
             "clientSafeQuickDoesPathExist must not run full A*"
         );
+    }
+
+    #[test]
+    fn connects_zones_scans_ground_connect_cells_like_cpp() {
+        let mut layer = BridgeLayer::with_meta(
+            2,
+            (GridCoord::new(0, 0), GridCoord::new(5, 2)),
+            42,
+            GridCoord::new(0, 0),
+            GridCoord::new(5, 2),
+        );
+        layer.destroyed = true;
+        // Only two connect cells with distinct zones.
+        layer.set_ground_connect_cells(vec![GridCoord::new(1, 0), GridCoord::new(4, 2)]);
+        let zone_at = |c: GridCoord| -> u16 {
+            if c == GridCoord::new(1, 0) {
+                10
+            } else if c == GridCoord::new(4, 2) {
+                20
+            } else {
+                0
+            }
+        };
+        assert!(layer.connects_zones(zone_at, 10, 20));
+        assert!(!layer.connects_zones(zone_at, 10, 30));
+        // Intact bridge never connects.
+        layer.destroyed = false;
+        assert!(!layer.connects_zones(zone_at, 10, 20));
+    }
+
+    #[test]
+    fn add_bridge_ex_populates_ground_connect_cells() {
+        let mut system = PathfindingSystem::new(32, 32);
+        let id = system.add_bridge_ex(
+            (GridCoord::new(2, 2), GridCoord::new(8, 4)),
+            7,
+            GridCoord::new(2, 3),
+            GridCoord::new(8, 3),
+        );
+        let bridge = system.bridge_by_layer_id(id).expect("bridge");
+        assert_eq!(bridge.bridge_object_id, 7);
+        assert!(bridge.ground_connect_cells.contains(&GridCoord::new(2, 3)));
+        assert!(bridge.ground_connect_cells.contains(&GridCoord::new(8, 3)));
+        // End-row expansion should include more than just start/end.
+        assert!(bridge.ground_connect_cells.len() > 2);
     }
 }
