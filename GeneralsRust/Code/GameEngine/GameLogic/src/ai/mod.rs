@@ -2748,9 +2748,16 @@ impl Pathfinder {
         layer: pathfind_astar::PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
+        interacts_with_bridge_end: bool,
     ) {
-        self.inner
-            .update_goal(cell, unit_id, layer, radius, center_in_cell);
+        self.inner.update_goal(
+            cell,
+            unit_id,
+            layer,
+            radius,
+            center_in_cell,
+            interacts_with_bridge_end,
+        );
     }
 
     /// C++ `Pathfinder::updatePos`.
@@ -2761,9 +2768,16 @@ impl Pathfinder {
         layer: pathfind_astar::PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
+        interacts_with_bridge_end: bool,
     ) {
-        self.inner
-            .update_pos(cell, unit_id, layer, radius, center_in_cell);
+        self.inner.update_pos(
+            cell,
+            unit_id,
+            layer,
+            radius,
+            center_in_cell,
+            interacts_with_bridge_end,
+        );
     }
 
     /// C++ `Pathfinder::removeUnitFromPathfindMap`.
