@@ -2605,8 +2605,10 @@ mod tests {
             "/src/ai/pathfind_complete.rs"
         ));
         assert!(
-            complete.contains("fn connects_zones") && complete.contains("bridge_object_id"),
-            "BridgeLayer must expose connectsZones residual + object id"
+            complete.contains("fn connects_zones")
+                && complete.contains("ground_connect_cells")
+                && complete.contains("bridge_object_id"),
+            "BridgeLayer must expose connectsZones + ground_connect_cells + object id"
         );
     }
 
