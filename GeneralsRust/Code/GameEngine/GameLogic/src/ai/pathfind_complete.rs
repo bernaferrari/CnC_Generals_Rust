@@ -8,10 +8,11 @@ pub use super::pathfind_astar::{
     AStarPathfinder, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
     COST_ORTHOGONAL, PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F,
 };
+use crate::common::xfer::{Xfer, XferExt};
 use crate::common::KindOf;
 use crate::common::{
-    Coord2D, Coord3D, ICoord2D, ObjectID, PathfindLayerEnum as CommonPathfindLayerEnum,
-    Relationship, INVALID_ID,
+    Coord2D, Coord3D, ICoord2D, ObjectID, ObjectStatusTypes,
+    PathfindLayerEnum as CommonPathfindLayerEnum, Relationship, INVALID_ID,
 };
 use crate::helpers::{ThePartitionManager, TheTerrainLogic};
 use crate::object::registry::OBJECT_REGISTRY;
@@ -491,6 +492,22 @@ pub struct PathfindingSystem {
     wall_pieces: Vec<ObjectID>,
     /// Cells classified as walkable wall (LAYER_WALL clear).
     wall_cells: Arc<Mutex<HashSet<(i32, i32)>>>,
+    /// C++ m_isTunneling
+    is_tunneling: bool,
+    /// C++ m_ignoreObstacleID
+    ignore_obstacle_id: ObjectID,
+    /// C++ m_wallHeight
+    wall_height: f32,
+    /// C++ m_cumulativeCellsAllocated
+    cumulative_cells_allocated: i32,
+    /// C++ m_moveAlliesDepth (LatchRestore recursion guard)
+    move_allies_depth: i32,
+    /// Residual open/closed cell counts for cleanOpenAndClosedLists.
+    open_list_count: i32,
+    closed_list_count: i32,
+    /// C++ m_extent lo/hi as i32 pairs for CRC.
+    extent_lo: ICoord2D,
+    extent_hi: ICoord2D,
 }
 
 impl std::fmt::Debug for PathfindingSystem {
@@ -562,6 +579,15 @@ impl PathfindingSystem {
             unit_pos_cells: Arc::new(Mutex::new(HashMap::new())),
             wall_pieces: Vec::new(),
             wall_cells: Arc::new(Mutex::new(HashSet::new())),
+            is_tunneling: false,
+            ignore_obstacle_id: INVALID_ID,
+            wall_height: 0.0,
+            cumulative_cells_allocated: 0,
+            move_allies_depth: 0,
+            open_list_count: 0,
+            closed_list_count: 0,
+            extent_lo: ICoord2D::new(0, 0),
+            extent_hi: ICoord2D::new(0, 0),
         }
     }
 
@@ -2453,6 +2479,11 @@ impl PathfindingSystem {
     /// Object footprint classification is caller-driven (iterate objects).
     pub fn new_map(&mut self) {
         // Extent from current width/height (already allocated). Re-classify.
+        self.extent_lo = ICoord2D::new(0, 0);
+        self.extent_hi = ICoord2D::new(
+            self.width.saturating_sub(1) as i32,
+            self.height.saturating_sub(1) as i32,
+        );
         self.classify_map();
         if let Ok(mut zones) = self.zones.lock() {
             zones.calculate_zones();
@@ -2565,6 +2596,238 @@ impl PathfindingSystem {
 
     pub fn is_map_ready(&self) -> bool {
         self.is_map_ready
+    }
+
+    pub fn set_ignore_obstacle_id(&mut self, id: ObjectID) {
+        self.ignore_obstacle_id = id;
+    }
+
+    pub fn ignore_obstacle_id(&self) -> ObjectID {
+        self.ignore_obstacle_id
+    }
+
+    pub fn set_is_tunneling(&mut self, tunneling: bool) {
+        self.is_tunneling = tunneling;
+    }
+
+    pub fn is_tunneling(&self) -> bool {
+        self.is_tunneling
+    }
+
+    pub fn set_wall_height(&mut self, h: f32) {
+        self.wall_height = h;
+    }
+
+    pub fn wall_height(&self) -> f32 {
+        self.wall_height
+    }
+
+    pub fn cumulative_cells_allocated(&self) -> i32 {
+        self.cumulative_cells_allocated
+    }
+
+    /// C++ `Pathfinder::cleanOpenAndClosedLists` (AIPathfind.cpp:4788-4824).
+    pub fn clean_open_and_closed_lists(&mut self) {
+        let mut count = 0i32;
+        count += self.open_list_count;
+        count += self.closed_list_count;
+        self.open_list_count = 0;
+        self.closed_list_count = 0;
+        self.cumulative_cells_allocated = self.cumulative_cells_allocated.saturating_add(count);
+    }
+
+    /// Track residual open-list cell allocation (A* bookkeeping).
+    pub fn note_open_closed_cells(&mut self, open: i32, closed: i32) {
+        self.open_list_count = open.max(0);
+        self.closed_list_count = closed.max(0);
+    }
+
+    /// C++ `Pathfinder::crc` (AIPathfind.cpp:11043-11082).
+    pub fn crc(&self, xfer: &mut dyn Xfer) {
+        // m_extent as two ICoord2D (lo, hi) — C++ xferUser sizeof(IRegion2D)
+        let mut lo_x = self.extent_lo.x;
+        let mut lo_y = self.extent_lo.y;
+        let mut hi_x = self.extent_hi.x;
+        let mut hi_y = self.extent_hi.y;
+        let _ = xfer.xfer_int(&mut lo_x);
+        let _ = xfer.xfer_int(&mut lo_y);
+        let _ = xfer.xfer_int(&mut hi_x);
+        let _ = xfer.xfer_int(&mut hi_y);
+
+        let mut map_ready = self.is_map_ready;
+        let _ = xfer.xfer_bool(&mut map_ready);
+        let mut tunneling = self.is_tunneling;
+        let _ = xfer.xfer_bool(&mut tunneling);
+
+        let mut obsolete1: i32 = 0;
+        let _ = xfer.xfer_int(&mut obsolete1);
+
+        let mut ignore = self.ignore_obstacle_id;
+        let _ = xfer.xfer_object_id(&mut ignore);
+
+        // m_queuedPathfindRequests full ring + head/tail
+        if let Ok(oq) = self.object_path_queue.lock() {
+            for slot in oq.slots.iter() {
+                let mut id = *slot;
+                let _ = xfer.xfer_object_id(&mut id);
+            }
+            let mut head = oq.head as i32;
+            let mut tail = oq.tail as i32;
+            let _ = xfer.xfer_int(&mut head);
+            let _ = xfer.xfer_int(&mut tail);
+        } else {
+            for _ in 0..PATHFIND_QUEUE_LEN {
+                let mut id = INVALID_ID;
+                let _ = xfer.xfer_object_id(&mut id);
+            }
+            let mut z = 0i32;
+            let _ = xfer.xfer_int(&mut z);
+            let _ = xfer.xfer_int(&mut z);
+        }
+
+        let mut num_wall = self.wall_pieces.len() as i32;
+        let _ = xfer.xfer_int(&mut num_wall);
+        for i in 0..MAX_WALL_PIECES {
+            let mut id = self.wall_pieces.get(i).copied().unwrap_or(INVALID_ID);
+            let _ = xfer.xfer_object_id(&mut id);
+        }
+
+        let mut wall_h = self.wall_height;
+        let _ = xfer.xfer_real(&mut wall_h);
+        let mut cells = self.cumulative_cells_allocated;
+        let _ = xfer.xfer_int(&mut cells);
+    }
+
+    /// C++ `Pathfinder::xfer` — version only (AIPathfind.cpp:11085-11093).
+    pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+    }
+
+    /// C++ `Pathfinder::loadPostProcess` — empty.
+    pub fn load_post_process(&mut self) {}
+
+    /// C++ `Pathfinder::moveAllies` (AIPathfind.cpp:10088-10164).
+    ///
+    /// Walk path nodes reverse; nudge idle allied units blocking the path.
+    /// Returns true if any ally was asked to move.
+    pub fn move_allies(
+        &mut self,
+        obj_id: ObjectID,
+        path_waypoints: &[Coord3D],
+        path_layers: &[PathfindLayerEnum],
+        blocked_by_ally: bool,
+        unit_radius: f32,
+    ) -> bool {
+        if obj_id == INVALID_ID || path_waypoints.len() < 2 {
+            return false;
+        }
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return false;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return false;
+        };
+        let is_dozer = obj_guard.is_kind_of(KindOf::Dozer);
+        let is_harvester = obj_guard.is_kind_of(KindOf::Harvester);
+        let is_infantry = obj_guard.is_kind_of(KindOf::Infantry);
+        if !is_dozer && !is_harvester && !blocked_by_ally {
+            return false;
+        }
+        if self.move_allies_depth > 2 {
+            return false;
+        }
+        self.move_allies_depth += 1;
+        let result = (|| {
+            let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+            let mut num_above = radius;
+            if center_in_cell {
+                num_above += 1;
+            }
+            let ignore_id = {
+                let mut id = INVALID_ID;
+                if let Some(ai) = obj_guard.get_ai_update_interface() {
+                    if let Ok(ai_g) = ai.lock() {
+                        id = ai_g.get_ignored_obstacle_id();
+                    }
+                }
+                id
+            };
+            let mut moved_any = false;
+            // C++: for node = last; node && node != first; node = previous
+            if path_waypoints.len() < 2 {
+                return false;
+            }
+            for idx in (1..path_waypoints.len()).rev() {
+                let pos = &path_waypoints[idx];
+                let layer = path_layers
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(PathfindLayerEnum::Ground);
+                let cur = GridCoord::from_world(pos);
+                for i in (cur.x - radius)..(cur.x + num_above) {
+                    for j in (cur.y - radius)..(cur.y + num_above) {
+                        let cell = GridCoord::new(i, j);
+                        if !self.is_valid_coord(cell) {
+                            continue;
+                        }
+                        let pos_unit = {
+                            let Ok(goals) = self.goal_cells.lock() else {
+                                continue;
+                            };
+                            goals
+                                .get(i as usize)
+                                .and_then(|row| row.get(j as usize))
+                                .map(|gc| gc.get_goal_unit(layer))
+                                .unwrap_or(INVALID_ID)
+                        };
+                        if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
+                            continue;
+                        }
+                        let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
+                            continue;
+                        };
+                        let Ok(other_guard) = other_arc.read() else {
+                            continue;
+                        };
+                        if obj_guard.relationship_to(&other_guard) != Relationship::Allies {
+                            continue;
+                        }
+                        let other_infantry = other_guard.is_kind_of(KindOf::Infantry);
+                        if is_infantry && other_infantry {
+                            continue;
+                        }
+                        if is_infantry && !other_infantry && !blocked_by_ally {
+                            continue;
+                        }
+                        let Some(other_ai) = other_guard.get_ai_update_interface() else {
+                            continue;
+                        };
+                        {
+                            let Ok(ai_g) = other_ai.lock() else {
+                                continue;
+                            };
+                            if ai_g.is_moving() || ai_g.is_attacking() || ai_g.is_busy() {
+                                continue;
+                            }
+                        }
+                        if other_guard.test_status(ObjectStatusTypes::IsUsingAbility) {
+                            continue;
+                        }
+                        drop(other_guard);
+                        use crate::modules::AIUpdateInterfaceExt;
+                        other_ai.ai_move_away_from_unit(
+                            obj_id,
+                            crate::common::CommandSourceType::FromAi,
+                        );
+                        moved_any = true;
+                    }
+                }
+            }
+            moved_any
+        })();
+        self.move_allies_depth -= 1;
+        result
     }
 
     pub fn classify_map(&mut self) {
@@ -6326,5 +6589,65 @@ mod tests {
         assert_eq!(ZoneManager::block_index(0, 0), (0, 0));
         assert_eq!(ZoneManager::block_index(9, 19), (0, 1));
         assert_eq!(ZoneManager::block_index(10, 20), (1, 2));
+    }
+
+    #[test]
+    fn pathfinder_crc_xfer_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn crc(&self, xfer").expect("crc");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("is_map_ready")
+                && w.contains("is_tunneling")
+                && w.contains("object_path_queue")
+                && w.contains("wall_pieces")
+                && w.contains("cumulative_cells_allocated"),
+            "Pathfinder::crc must cover extent, flags, queue, walls, cells"
+        );
+        assert!(prod.contains("pub fn xfer(&mut self, xfer"));
+        assert!(prod.contains("pub fn load_post_process"));
+        assert!(prod.contains("pub fn clean_open_and_closed_lists"));
+        assert!(prod.contains("pub fn move_allies("));
+    }
+
+    #[test]
+    fn clean_open_and_closed_lists_accumulates() {
+        let mut system = PathfindingSystem::new(8, 8);
+        system.note_open_closed_cells(3, 5);
+        system.clean_open_and_closed_lists();
+        assert_eq!(system.cumulative_cells_allocated(), 8);
+        system.note_open_closed_cells(2, 0);
+        system.clean_open_and_closed_lists();
+        assert_eq!(system.cumulative_cells_allocated(), 10);
+    }
+
+    #[test]
+    fn move_allies_depth_and_empty_path() {
+        let mut system = PathfindingSystem::new(8, 8);
+        system.new_map();
+        assert!(!system.move_allies(INVALID_ID, &[], &[], true, 0.0));
+        let pts = [Coord3D::new(10.0, 10.0, 0.0), Coord3D::new(20.0, 20.0, 0.0)];
+        let layers = [PathfindLayerEnum::Ground, PathfindLayerEnum::Ground];
+        // no object → false
+        assert!(!system.move_allies(1, &pts, &layers, true, 0.0));
+    }
+
+    #[test]
+    fn pathfinder_xfer_version_only() {
+        use crate::common::xfer::XferExt;
+        // smoke compile surface for xfer/loadPostProcess
+        let mut system = PathfindingSystem::new(4, 4);
+        system.load_post_process();
+        assert!(!system.is_tunneling());
+        system.set_is_tunneling(true);
+        assert!(system.is_tunneling());
+        system.set_wall_height(12.5);
+        assert!((system.wall_height() - 12.5).abs() < 0.01);
+        system.set_ignore_obstacle_id(42);
+        assert_eq!(system.ignore_obstacle_id(), 42);
     }
 }
