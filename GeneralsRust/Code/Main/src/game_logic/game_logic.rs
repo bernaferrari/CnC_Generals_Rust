@@ -5866,10 +5866,28 @@ impl GameLogic {
         attacker_id: ObjectId,
         attacker_team: Team,
         skip_id: ObjectId,
+        weapon_name: Option<&str>,
     ) -> u32 {
         if weapon_damage <= 0.0 || splash_radius <= 0.0 {
             return 0;
         }
+        use crate::game_logic::weapon_bootstrap::{
+            host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+        };
+        // Default residual when name unknown: ENEMIES|NEUTRALS.
+        let affects = weapon_name
+            .map(host_radius_damage_affects_for_weapon_name)
+            .unwrap_or_else(|| {
+                use crate::game_logic::host_ai_path_combat_residual_wave105::{
+                    WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
+                };
+                WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS
+            });
+        let shooter_template = self
+            .objects
+            .get(&attacker_id)
+            .map(|a| a.template_name.clone())
+            .unwrap_or_default();
         let primary_r = splash_radius;
         let secondary_r = splash_radius * 1.5; // outer residual taper ring
         let primary_sq = primary_r * primary_r;
@@ -5878,17 +5896,27 @@ impl GameLogic {
             .objects
             .iter()
             .filter_map(|(id, obj)| {
-                if *id == attacker_id || *id == skip_id {
+                if *id == skip_id {
                     return None;
                 }
                 if !obj.is_alive() {
                     return None;
                 }
-                // Enemies + neutrals residual (not allies).
-                if obj.team == attacker_team {
+                if obj.is_eject_invulnerable() {
                     return None;
                 }
-                if obj.is_eject_invulnerable() {
+                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let same_tmpl = !shooter_template.is_empty()
+                    && obj.template_name.eq_ignore_ascii_case(&shooter_template);
+                if !radius_damage_affects_victim(
+                    affects,
+                    attacker_team,
+                    attacker_id,
+                    *id,
+                    obj.team,
+                    airborne,
+                    same_tmpl,
+                ) {
                     return None;
                 }
                 let p = obj.get_position();
@@ -8024,6 +8052,23 @@ impl GameLogic {
                                     if sc_miss {
                                         // C++ ScatterRadius residual: miss intended; splash at offset.
                                         if sc_splash > 0.0 {
+                                            let wname_splash =
+                                                self.objects.get(&attacker_id).and_then(|a| {
+                                                    if slot == 1 {
+                                                        a.thing
+                                                            .template
+                                                            .secondary_weapon_name
+                                                            .clone()
+                                                            .or_else(|| {
+                                                                a.thing
+                                                                    .template
+                                                                    .primary_weapon_name
+                                                                    .clone()
+                                                            })
+                                                    } else {
+                                                        a.thing.template.primary_weapon_name.clone()
+                                                    }
+                                                });
                                             let hits = self.apply_scatter_miss_splash_at(
                                                 sc_impact,
                                                 weapon_damage,
@@ -8031,6 +8076,7 @@ impl GameLogic {
                                                 attacker_id,
                                                 attacker_team,
                                                 target_id,
+                                                wname_splash.as_deref(),
                                             );
                                             if hits > 0 {
                                                 if let Some(attacker) =
@@ -70835,6 +70881,107 @@ mod tests {
     }
 
     #[test]
+    fn scatter_miss_splash_honors_radius_damage_affects() {
+        use crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES;
+        use crate::game_logic::weapon_bootstrap::{
+            host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+        };
+        // Crusader residual: no allies.
+        let gun = host_radius_damage_affects_for_weapon_name("AmericaTankCrusaderGun");
+        assert_eq!(gun & WEAPON_AFFECTS_ALLIES, 0);
+        // Scud residual: allies yes.
+        let scud = host_radius_damage_affects_for_weapon_name("ScudStormDamageWeapon");
+        assert_ne!(scud & WEAPON_AFFECTS_ALLIES, 0);
+
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("SplashSrc");
+            t.primary_weapon_name = Some("AmericaTankCrusaderGun".into());
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("SplashSrc".into(), t);
+            let mut ta = ThingTemplate::new("SplashAlly");
+            ta.add_kind_of(KindOf::Vehicle);
+            ta.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("SplashAlly".into(), ta);
+            let mut te = ThingTemplate::new("SplashEnemy");
+            te.add_kind_of(KindOf::Vehicle);
+            te.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("SplashEnemy".into(), te);
+        }
+        let src = logic
+            .create_object("SplashSrc", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let ally = logic
+            .create_object("SplashAlly", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("SplashEnemy", Team::China, glam::Vec3::new(12.0, 0.0, 0.0))
+            .unwrap();
+        for id in [ally, enemy] {
+            if let Some(o) = logic.objects.get_mut(&id) {
+                o.health.current = 200.0;
+                o.health.maximum = 200.0;
+            }
+        }
+        let impact = glam::Vec3::new(11.0, 0.0, 0.0);
+        let _ = logic.apply_scatter_miss_splash_at(
+            impact,
+            50.0,
+            30.0,
+            src,
+            Team::USA,
+            ObjectId(0), // no skip
+            Some("AmericaTankCrusaderGun"),
+        );
+        let ah = logic
+            .objects
+            .get(&ally)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        let eh = logic
+            .objects
+            .get(&enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (ah - 200.0).abs() < 0.01,
+            "ally must not take crusader splash ah={ah}"
+        );
+        assert!(eh < 200.0 - 1.0, "enemy must take splash eh={eh}");
+
+        // Scud-style friendly fire residual damages allies.
+        if let Some(o) = logic.objects.get_mut(&ally) {
+            o.health.current = 200.0;
+        }
+        if let Some(o) = logic.objects.get_mut(&enemy) {
+            o.health.current = 200.0;
+        }
+        let _ = logic.apply_scatter_miss_splash_at(
+            impact,
+            50.0,
+            30.0,
+            src,
+            Team::USA,
+            ObjectId(0),
+            Some("ScudStormDamageWeapon"),
+        );
+        let ah2 = logic
+            .objects
+            .get(&ally)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(ah2 < 200.0 - 1.0, "scud splash hits allies ah2={ah2}");
+        assert!(radius_damage_affects_victim(
+            scud,
+            Team::USA,
+            src,
+            ally,
+            Team::USA,
+            false,
+            false,
+        ));
+    }
+    #[test]
     fn scatter_miss_applies_splash_at_offset() {
         let mut logic = GameLogic::new();
         {
@@ -70886,8 +71033,15 @@ mod tests {
         }
         // Force a miss frame if possible and apply splash helper at known impact.
         let impact = glam::Vec3::new(105.0, 0.0, 0.0);
-        let hits =
-            logic.apply_scatter_miss_splash_at(impact, 80.0, 30.0, arty, Team::USA, intended);
+        let hits = logic.apply_scatter_miss_splash_at(
+            impact,
+            80.0,
+            30.0,
+            arty,
+            Team::USA,
+            intended,
+            Some("AmericaFireBaseHowitzer"),
+        );
         assert!(hits >= 1, "neighbor in splash must be hit");
         let nh = logic
             .objects
