@@ -3378,29 +3378,25 @@ fn execute_pending_team_create_action_scripts(script_names: Vec<String>) {
         return;
     }
 
+    // C++ createInactiveTeam: friend_executeAction(action) with NULL team.
     let script_engine = get_script_engine();
-    let evaluator = ScriptEvaluator::new(script_engine.clone());
-
     for script_name in script_names {
-        let script = match script_engine.read() {
-            Ok(engine_guard) => engine_guard
+        let action = {
+            let Ok(engine_guard) = script_engine.read() else {
+                continue;
+            };
+            engine_guard
                 .as_ref()
-                .and_then(|engine| engine.find_script_clone_by_name(&script_name)),
-            Err(_) => None,
+                .and_then(|engine| engine.find_script_clone_by_name(&script_name))
+                .and_then(|script| script.get_action().cloned())
         };
-        let Some(script) = script else {
+        let Some(action) = action else {
             continue;
         };
-        let Some(action) = script.get_action() else {
-            continue;
-        };
-
-        if let Err(err) = evaluator.execute_action_sequence(action) {
-            log::warn!(
-                "TeamFactory: failed to execute create-action script '{}': {}",
-                script_name,
-                err
-            );
+        if let Ok(mut eng) = script_engine.write() {
+            if let Some(e) = eng.as_mut() {
+                e.friend_execute_action(&action, None);
+            }
         }
     }
 }
@@ -3510,14 +3506,12 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
         match eval_result {
             Ok(condition_true) => {
                 if condition_true {
-                    if let Some(action) = script.get_action() {
-                        if let Err(err) = evaluator.execute_action_sequence(action) {
-                            log::warn!(
-                                "Team generic script '{}' action failed for team '{}': {}",
-                                pending.script_name,
-                                pending.team_name,
-                                err
-                            );
+                    if let Some(action) = script.get_action().cloned() {
+                        // C++ friend_executeAction(action, this) — team-scoped.
+                        if let Ok(mut eng) = script_engine.write() {
+                            if let Some(e) = eng.as_mut() {
+                                e.friend_execute_action(&action, Some(pending.team_name.as_str()));
+                            }
                         }
                     }
 
@@ -3834,6 +3828,31 @@ mod tests {
         let mut proto = TeamPrototype::new("MissingScriptTeam".into());
         proto.set_production_condition("DoesNotExist_ScriptXYZ".into());
         assert!(!proto.evaluate_production_condition());
+    }
+
+    #[test]
+    fn team_scripts_use_friend_execute_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/team.rs"));
+        let create = src
+            .find("fn execute_pending_team_create_action_scripts")
+            .expect("create scripts");
+        let create_w = &src[create..src.len().min(create + 1200)];
+        assert!(
+            create_w.contains("friend_execute_action")
+                && create_w.contains("None")
+                && !create_w.contains("ScriptEvaluator::new"),
+            "createInactiveTeam path must friend_executeAction with NULL team"
+        );
+        let gen = src
+            .find("fn execute_pending_team_generic_script_evals")
+            .expect("generic scripts");
+        let gen_w = &src[gen..src.len().min(gen + 3500)];
+        assert!(
+            gen_w.contains("friend_execute_action")
+                && gen_w.contains("pending.team_name")
+                && !gen_w.contains("evaluator.execute_action_sequence"),
+            "updateGenericScripts path must friend_executeAction with team"
+        );
     }
 
     #[test]
