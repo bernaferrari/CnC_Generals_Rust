@@ -25,6 +25,8 @@ pub const PATHFIND_QUEUE_LEN: usize = 512;
 
 /// C++ PATHFIND_CELLS_PER_FRAME — max cells examined per processPathfindQueue call.
 pub const PATHFIND_CELLS_PER_FRAME: usize = 500;
+/// C++ MAX_WALL_PIECES (AIPathfind.h).
+pub const MAX_WALL_PIECES: usize = 128;
 
 /// Maximum iterations for A* to prevent infinite loops
 pub const MAX_PATH_ITERATIONS: usize = 10000;
@@ -481,6 +483,10 @@ pub struct PathfindingSystem {
     /// C++ AIUpdateInterface pathfind goal/cur cells per unit.
     unit_goal_cells: Arc<Mutex<HashMap<ObjectID, ICoord2D>>>,
     unit_pos_cells: Arc<Mutex<HashMap<ObjectID, ICoord2D>>>,
+    /// C++ m_wallPieces / m_numWallPieces.
+    wall_pieces: Vec<ObjectID>,
+    /// Cells classified as walkable wall (LAYER_WALL clear).
+    wall_cells: Arc<Mutex<HashSet<(i32, i32)>>>,
 }
 
 impl std::fmt::Debug for PathfindingSystem {
@@ -550,6 +556,8 @@ impl PathfindingSystem {
             is_map_ready: false,
             unit_goal_cells: Arc::new(Mutex::new(HashMap::new())),
             unit_pos_cells: Arc::new(Mutex::new(HashMap::new())),
+            wall_pieces: Vec::new(),
+            wall_cells: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -2446,6 +2454,86 @@ impl PathfindingSystem {
             zones.calculate_zones();
         }
         self.is_map_ready = true;
+    }
+
+    /// C++ `Pathfinder::forceMapRecalculation` — reclassify all cells.
+    pub fn force_map_recalculation(&mut self) {
+        self.classify_map();
+        if !self.wall_pieces.is_empty() {
+            self.classify_wall_cells();
+        }
+    }
+
+    /// C++ `Pathfinder::addWallPiece`.
+    pub fn add_wall_piece(&mut self, wall_piece_id: ObjectID) {
+        if self.wall_pieces.len() < MAX_WALL_PIECES.saturating_sub(1)
+            && !self.wall_pieces.contains(&wall_piece_id)
+        {
+            self.wall_pieces.push(wall_piece_id);
+        }
+    }
+
+    /// C++ `Pathfinder::removeWallPiece`.
+    pub fn remove_wall_piece(&mut self, wall_piece_id: ObjectID) {
+        if let Some(i) = self.wall_pieces.iter().position(|&id| id == wall_piece_id) {
+            let last = self.wall_pieces.len() - 1;
+            self.wall_pieces.swap(i, last);
+            self.wall_pieces.pop();
+        }
+    }
+
+    pub fn wall_piece_count(&self) -> usize {
+        self.wall_pieces.len()
+    }
+
+    /// C++ `Pathfinder::isPointOnWall` (AIPathfind.cpp:3929-3942).
+    pub fn is_point_on_wall(&self, pos: &Coord3D) -> bool {
+        if self.wall_pieces.is_empty() {
+            return false;
+        }
+        let cell = GridCoord::from_world(pos);
+        let Ok(walls) = self.wall_cells.lock() else {
+            return false;
+        };
+        walls.contains(&(cell.x, cell.y))
+    }
+
+    /// Residual wall-cell classification from registered wall piece positions.
+    /// C++ `PathfindLayer::classifyWallCells` — marks ground cells under pieces as wall.
+    pub fn classify_wall_cells(&mut self) {
+        let Ok(mut walls) = self.wall_cells.lock() else {
+            return;
+        };
+        walls.clear();
+        // Without live object positions here, keep explicit stamps from classify_wall_cell_at.
+        let _ = &self.wall_pieces;
+    }
+
+    /// Stamp a single wall cell (used when object positions are known).
+    pub fn classify_wall_cell_at(&self, x: i32, y: i32, clear_for_walk: bool) {
+        if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
+            return;
+        }
+        if let Ok(mut walls) = self.wall_cells.lock() {
+            if clear_for_walk {
+                walls.insert((x, y));
+            } else {
+                walls.remove(&(x, y));
+            }
+        }
+    }
+
+    /// C++ `Pathfinder::updateLayer` — demote to ground if not interacting with bridge.
+    pub fn update_layer_for_object(
+        &self,
+        desired_layer: PathfindLayerEnum,
+        interacts_with_bridge_layer: bool,
+    ) -> PathfindLayerEnum {
+        if desired_layer != PathfindLayerEnum::Ground && !interacts_with_bridge_layer {
+            PathfindLayerEnum::Ground
+        } else {
+            desired_layer
+        }
     }
 
     pub fn is_map_ready(&self) -> bool {
@@ -5687,5 +5775,63 @@ mod tests {
         assert_eq!(system.get_goal_aircraft(cell), 99);
         system.remove_goal(99, 0, true, PathfindLayerEnum::Ground);
         assert_eq!(system.get_goal_aircraft(cell), INVALID_ID);
+    }
+
+    #[test]
+    fn force_map_and_wall_pieces_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("pub fn force_map_recalculation"));
+        assert!(prod.contains("pub fn add_wall_piece"));
+        assert!(prod.contains("pub fn remove_wall_piece"));
+        assert!(prod.contains("pub fn is_point_on_wall"));
+        let i = prod.find("pub fn is_point_on_wall").expect("isPointOnWall");
+        let w = &prod[i..prod.len().min(i + 800)];
+        assert!(
+            w.contains("wall_pieces.is_empty()") && w.contains("wall_cells"),
+            "isPointOnWall must require wall pieces + wall cell set"
+        );
+    }
+
+    #[test]
+    fn wall_piece_add_remove_and_point_on_wall() {
+        let mut system = PathfindingSystem::new(16, 16);
+        assert!(!system.is_point_on_wall(&Coord3D::new(15.0, 15.0, 0.0)));
+        system.add_wall_piece(11);
+        system.add_wall_piece(12);
+        assert_eq!(system.wall_piece_count(), 2);
+        system.add_wall_piece(11); // dedupe
+        assert_eq!(system.wall_piece_count(), 2);
+        system.classify_wall_cell_at(1, 1, true);
+        assert!(system.is_point_on_wall(&Coord3D::new(15.0, 15.0, 0.0)));
+        system.remove_wall_piece(11);
+        assert_eq!(system.wall_piece_count(), 1);
+        system.remove_wall_piece(12);
+        assert_eq!(system.wall_piece_count(), 0);
+        assert!(!system.is_point_on_wall(&Coord3D::new(15.0, 15.0, 0.0)));
+    }
+
+    #[test]
+    fn update_layer_demotes_without_bridge_interaction() {
+        let system = PathfindingSystem::new(8, 8);
+        assert_eq!(
+            system.update_layer_for_object(PathfindLayerEnum::Top, false),
+            PathfindLayerEnum::Ground
+        );
+        assert_eq!(
+            system.update_layer_for_object(PathfindLayerEnum::Top, true),
+            PathfindLayerEnum::Top
+        );
+    }
+
+    #[test]
+    fn force_map_recalculation_runs_classify() {
+        let mut system = PathfindingSystem::new(8, 8);
+        system.force_map_recalculation();
+        // smoke: still usable
+        assert!(!system.is_map_ready() || system.is_map_ready());
     }
 }

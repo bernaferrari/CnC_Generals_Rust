@@ -1970,17 +1970,34 @@ impl Pathfinder {
         Ok(())
     }
 
-    /// Check whether a world position lies on the wall layer footprint.
+    /// C++ `Pathfinder::isPointOnWall`.
     pub fn is_point_on_wall(&self, pos: &Coord3D) -> bool {
+        self.inner.is_point_on_wall(pos)
+    }
+
+    /// C++ `Pathfinder::addWallPiece`.
+    pub fn add_wall_piece(&mut self, wall_piece_id: ObjectID) {
+        self.inner.add_wall_piece(wall_piece_id);
+    }
+
+    /// C++ `Pathfinder::removeWallPiece`.
+    pub fn remove_wall_piece(&mut self, wall_piece_id: ObjectID) {
+        self.inner.remove_wall_piece(wall_piece_id);
+    }
+
+    /// C++ `Pathfinder::forceMapRecalculation`.
+    pub fn force_map_recalculation(&mut self) {
+        self.inner.force_map_recalculation();
+    }
+
+    /// C++ `Pathfinder::updateLayer` bridge interaction demotion.
+    pub fn update_layer_for_object(
+        &self,
+        desired_layer: pathfind_astar::PathfindLayerEnum,
+        interacts_with_bridge_layer: bool,
+    ) -> pathfind_astar::PathfindLayerEnum {
         self.inner
-            .get_cell_type(pos)
-            .map(|cell_type| {
-                matches!(
-                    cell_type,
-                    PathfindCellType::Obstacle | PathfindCellType::Impassable
-                )
-            })
-            .unwrap_or(false)
+            .update_layer_for_object(desired_layer, interacts_with_bridge_layer)
     }
 
     /// Queue a pathfinding request (matches C++ Pathfinder::queueForPath).
