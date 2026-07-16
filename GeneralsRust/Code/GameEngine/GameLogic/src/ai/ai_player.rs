@@ -446,14 +446,27 @@ impl TeamInQueue {
             self.priority_build = priority_build;
         }
 
-        let mut team_name = self.team_name.clone().unwrap_or_default();
-        let _ = xfer.xfer_ascii_string(&mut team_name);
+        // C++: TeamID teamID = m_team ? m_team->getID() : TEAM_ID_INVALID;
+        //      xferUser(&teamID); load: m_team = TheTeamFactory->findTeamByID(teamID);
+        let mut team_id: u32 = self
+            .team
+            .as_ref()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::team::TEAM_ID_INVALID);
+        let _ = xfer.xfer_unsigned_int(&mut team_id);
         if xfer.is_loading() {
-            self.team_name = if team_name.is_empty() {
-                None
-            } else {
-                Some(team_name)
-            };
+            if team_id == crate::team::TEAM_ID_INVALID {
+                self.team = None;
+                self.team_name = None;
+            } else if let Ok(factory) = get_team_factory().lock() {
+                if let Some(arc) = factory.find_team_by_id(team_id) {
+                    self.team_name = arc.read().ok().map(|g| g.get_name().to_string());
+                    self.team = Some(arc);
+                } else {
+                    self.team = None;
+                    self.team_name = None;
+                }
+            }
         }
 
         let mut frame_started = self.frame_started as i32;
@@ -7799,6 +7812,27 @@ mod tests {
         assert!(!team.are_builds_complete());
         team.work_orders[0].factory_id = None;
         assert!(team.are_builds_complete());
+    }
+
+    #[test]
+    fn team_in_queue_xfer_uses_team_id_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src.find("impl TeamInQueue").unwrap_or(0);
+        // Find TeamInQueue::xfer after work orders
+        let j = src[i..]
+            .find("pub fn xfer(&mut self, xfer: &mut dyn Xfer)")
+            .expect("TeamInQueue xfer")
+            + i;
+        // There may be WorkOrder xfer first — find the one with priority_build
+        let k = src[j..].find("priority_build").expect("priority") + j;
+        let w = &src[k.saturating_sub(200)..src.len().min(k + 1200)];
+        assert!(
+            w.contains("xfer_unsigned_int(&mut team_id)")
+                && w.contains("find_team_by_id")
+                && w.contains("TEAM_ID_INVALID")
+                && !w.contains("xfer_ascii_string(&mut team_name)"),
+            "TeamInQueue xfer must use TeamID like C++, not team name string"
+        );
     }
 
     #[test]
