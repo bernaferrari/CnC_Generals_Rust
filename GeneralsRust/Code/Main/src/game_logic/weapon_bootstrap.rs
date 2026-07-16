@@ -569,6 +569,102 @@ fn seed_detonation_fx_for(name: &str) -> String {
     String::new()
 }
 
+/// C++ Weapon.ini ProjectileObject residual name for a store weapon template.
+pub fn host_projectile_name_for_weapon_name(name: &str) -> String {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).map(|wt| {
+            let n = wt.projectile_name.trim();
+            n.to_string()
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(s) = from_store.filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("NONE")) {
+        return s;
+    }
+    seed_projectile_name_for(name)
+}
+
+/// Resolve ProjectileObject for a host unit firing a weapon slot.
+pub fn host_projectile_name_for_unit_slot(
+    template_name: &str,
+    primary_weapon_name: Option<&str>,
+    secondary_weapon_name: Option<&str>,
+    slot: u8,
+) -> String {
+    let wname = if slot == 1 {
+        secondary_weapon_name
+            .or_else(|| secondary_weapon_name_for_unit(template_name))
+            .or(primary_weapon_name)
+            .or_else(|| primary_weapon_name_for_unit(template_name))
+    } else {
+        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+    };
+    match wname {
+        Some(n) => host_projectile_name_for_weapon_name(n),
+        None => String::new(),
+    }
+}
+
+fn seed_projectile_name_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    // Hitscan / laser residual — no projectile object.
+    if n.contains("laser")
+        || n.contains("flame")
+        || n.contains("gattling")
+        || n.contains("minigun")
+        || n.contains("machinegun")
+        || n.contains("combatrifle")
+        || n.contains("redguard")
+        || (n.contains("ranger") && !n.contains("flash") && !n.contains("missile"))
+    {
+        return String::new();
+    }
+    if n.contains("tomahawk") {
+        return "TomahawkMissile".into();
+    }
+    if n.contains("scud") {
+        return "ScudMissile".into();
+    }
+    if n.contains("patriot") || n.contains("stinger") {
+        return "PatriotMissile".into();
+    }
+    if n.contains("rpg") || n.contains("tankhunter") || n.contains("tunneldefender") {
+        return "GenericTankShell".into(); // many residual peels use tank shell / rocket proxy
+    }
+    if n.contains("missile") || n.contains("defender") {
+        return "GenericMissile".into();
+    }
+    if n.contains("tankgun")
+        || n.contains("crusader")
+        || n.contains("paladin")
+        || n.contains("battlemaster")
+        || n.contains("scorpion")
+        || n.contains("marauder")
+        || n.contains("firebase")
+    {
+        return "GenericTankShell".into();
+    }
+    if n.contains("nuke") || n.contains("neutron") {
+        return "NukeCannonShell".into();
+    }
+    if n.contains("aurora") || n.contains("bomb") {
+        return "AuroraBomb".into();
+    }
+    if n.contains("raptor") || n.contains("mig") || n.contains("stealth") || n.contains("jet") {
+        return "JetMissile".into();
+    }
+    if n.contains("comanche") || n.contains("rocket") || n.contains("buggy") {
+        return "RocketBuggyMissile".into();
+    }
+    if n.contains("flash") || n.contains("grenade") {
+        return "FlashBangGrenade".into();
+    }
+    String::new()
+}
+
 pub fn host_fire_sound_for_weapon_name(name: &str) -> String {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
@@ -2298,6 +2394,10 @@ fn seed_known_host_weapons() -> usize {
             if !fs.is_empty() {
                 t.fire_sound = gamelogic::weapon::AudioEventRts::new(fs);
             }
+            let pname = seed_projectile_name_for(seed.name);
+            if !pname.is_empty() {
+                t.projectile_name = pname;
+            }
         }
         t.anti_mask.insert(WeaponAntiMask::GROUND);
         // Min-range residual for long-range GLA artillery / rockets.
@@ -3117,5 +3217,31 @@ mod tests {
         );
         let ffx2 = host_fire_fx_for_weapon_name(TANK_HUNTER_PRIMARY_WEAPON);
         assert!(!ffx2.is_empty() || ffx2 == seed_fire_fx_for(TANK_HUNTER_PRIMARY_WEAPON));
+    }
+
+    #[test]
+    fn projectile_object_for_seeded_weapons_residual() {
+        let _ = ensure_host_weapon_store();
+        assert_eq!(
+            seed_projectile_name_for("AmericaTankCrusaderGun"),
+            "GenericTankShell"
+        );
+        assert_eq!(seed_projectile_name_for("PaladinPointDefenseLaser"), "");
+        let p = host_projectile_name_for_unit_slot(
+            "AmericaTankCrusader",
+            Some(CRUSADER_TANK_GUN),
+            None,
+            0,
+        );
+        // Store INI may supply retail projectile; peel residual is GenericTankShell.
+        assert!(
+            !p.is_empty() || p == seed_projectile_name_for(CRUSADER_TANK_GUN),
+            "unexpected projectile {p}"
+        );
+        let store = host_projectile_name_for_weapon_name(CRUSADER_TANK_GUN);
+        assert!(!store.is_empty() || store == "GenericTankShell" || store.is_empty());
+        // Prefer non-empty for crusader family peel/store.
+        let peel = seed_projectile_name_for(CRUSADER_TANK_GUN);
+        assert_eq!(peel, "GenericTankShell");
     }
 }

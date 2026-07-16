@@ -57,6 +57,8 @@ pub struct Projectile {
     pub explosion_radius: f32,
     /// C++ DeathType residual carried to kill application.
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    /// C++ ProjectileObject residual for presentation mesh key.
+    pub projectile_object_name: String,
 }
 
 impl Projectile {
@@ -88,6 +90,7 @@ impl Projectile {
             is_homing: false,
             explosion_radius: 0.0,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            projectile_object_name: String::new(),
         }
     }
 
@@ -194,6 +197,8 @@ pub struct PendingProjectile {
     pub damage_type: DamageType,
     /// C++ Weapon.ini DeathType residual applied on killing blow.
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    /// C++ Weapon.ini ProjectileObject residual template name (empty = hitscan/no mesh).
+    pub projectile_object_name: String,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -250,6 +255,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         if let Some(proj) = combat.projectile_mut(pid) {
             proj.damage_type = p.damage_type;
             proj.death_type = p.death_type;
+            proj.projectile_object_name = p.projectile_object_name.clone();
         }
     }
 }
