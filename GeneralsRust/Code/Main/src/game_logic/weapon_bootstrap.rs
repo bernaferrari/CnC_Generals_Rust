@@ -467,6 +467,94 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini LaserName residual (Regular) — laser drawable / beam template.
+///
+/// Fail-closed: name + host residual beam spawn only; not full ThingFactory
+/// laser object / LaserUpdate bone attach matrix.
+pub fn host_laser_name_for_weapon_name(name: &str) -> String {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            let n = wt.laser_name.trim();
+            if n.is_empty() {
+                None
+            } else {
+                Some(n.to_string())
+            }
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(s) = from_store {
+        return s;
+    }
+    seed_laser_name_for(name)
+}
+
+/// Resolve LaserName for a host unit weapon slot.
+pub fn host_laser_name_for_unit_slot(
+    template_name: &str,
+    primary_weapon_name: Option<&str>,
+    secondary_weapon_name: Option<&str>,
+    slot: u8,
+) -> String {
+    let wname = if slot == 1 {
+        secondary_weapon_name
+            .or_else(|| secondary_weapon_name_for_unit(template_name))
+            .or(primary_weapon_name)
+            .or_else(|| primary_weapon_name_for_unit(template_name))
+    } else {
+        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+    };
+    wname
+        .map(host_laser_name_for_weapon_name)
+        .unwrap_or_default()
+}
+
+fn seed_laser_name_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    if n.contains("microwave") {
+        return "MicrowaveDisableStream".into();
+    }
+    if n.contains("ecm") || n.contains("frequencyjammer") || n.contains("jammer") {
+        return "ECMDisableStream".into();
+    }
+    if n.contains("avenger") && n.contains("target") {
+        return "AvengerTargetingLaserBeam".into();
+    }
+    if n.contains("avenger")
+        && (n.contains("pointdefense") || n.contains("point_defense") || n.contains("pdl"))
+    {
+        return "AvengerPointDefenseLaserBeam".into();
+    }
+    if n.contains("avenger") {
+        return "AvengerLaserBeam".into();
+    }
+    if n.contains("lazr") && n.contains("crusader") {
+        return "Lazr_CrusaderLaserBeam".into();
+    }
+    if n.contains("lazr") && n.contains("patriot") {
+        return "Lazr_PatriotLaserBeam".into();
+    }
+    if n.contains("lazr") && (n.contains("paladin") || n.contains("tank")) {
+        return "Lazr_PaladinLaserBeam".into();
+    }
+    if n.contains("airf") && n.contains("pointdefense") {
+        return "AirF_PointDefenseLaserBeam".into();
+    }
+    if n.contains("supw") && n.contains("pointdefense") {
+        return "SupW_PointDefenseDroneLaserBeam".into();
+    }
+    if n.contains("pointdefense") || n.contains("point_defense") || n.contains("pdl") {
+        return "PointDefenseLaserBeam".into();
+    }
+    if n.contains("paladin") && n.contains("laser") {
+        return "PointDefenseLaserBeam".into();
+    }
+    String::new()
+}
+
 /// C++ Weapon.ini ProjectileExhaust residual particle-system name (Regular).
 ///
 /// Fail-closed: name residual for in-flight trail — not full client PSys attach
@@ -3514,5 +3602,30 @@ mod tests {
         );
         assert_eq!(e, "MissileExhaust");
         assert!(host_projectile_exhaust_for_weapon_name("UnknownWeaponXYZ").is_empty());
+    }
+
+    #[test]
+    fn laser_name_for_seeded_weapons_residual() {
+        assert_eq!(
+            seed_laser_name_for("AmericaVehicleAvengerTargetDesignator"),
+            "AvengerTargetingLaserBeam"
+        );
+        assert_eq!(
+            seed_laser_name_for("AmericaTankPaladinPointDefenseLaser"),
+            "PointDefenseLaserBeam"
+        );
+        assert_eq!(
+            seed_laser_name_for("Lazr_AmericaTankCrusaderLaserWeapon"),
+            "Lazr_CrusaderLaserBeam"
+        );
+        assert_eq!(seed_laser_name_for("AmericaTankCrusaderGun"), "");
+        let n = host_laser_name_for_unit_slot(
+            "AmericaVehicleAvenger",
+            Some("AmericaVehicleAvengerLaserWeapon"),
+            None,
+            0,
+        );
+        assert_eq!(n, "AvengerLaserBeam");
+        assert!(host_laser_name_for_weapon_name("UnknownWeaponXYZ").is_empty());
     }
 }

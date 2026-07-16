@@ -137,6 +137,7 @@ pub mod host_unit_training;
 pub mod host_upgrades;
 pub mod host_usa_pilot;
 pub mod host_usa_tanks;
+pub mod host_weapon_laser;
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;
 pub mod object;
