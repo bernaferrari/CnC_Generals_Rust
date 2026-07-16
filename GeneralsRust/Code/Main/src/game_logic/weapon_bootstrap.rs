@@ -467,6 +467,113 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini ScatterRadius residual (base).
+pub fn host_scatter_radius_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.scatter_radius.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_scatter_radius_for(name)
+}
+
+/// C++ Weapon.ini ScatterRadiusVsInfantry residual (added for infantry targets).
+pub fn host_scatter_radius_vs_infantry_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).map(|wt| {
+            // field may be infantry_inaccuracy_dist on template
+            wt.infantry_inaccuracy_dist.max(0.0)
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_scatter_radius_vs_infantry_for(name)
+}
+
+/// Effective scatter radius residual (C++ effective_scatter_radius).
+pub fn host_effective_scatter_radius(name: &str, target_is_infantry: bool) -> f32 {
+    let base = host_scatter_radius_for_weapon_name(name);
+    if !target_is_infantry {
+        return base;
+    }
+    let vs = host_scatter_radius_vs_infantry_for_weapon_name(name);
+    if vs > 0.0 {
+        base + vs
+    } else {
+        base
+    }
+}
+
+fn seed_scatter_radius_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    // Most combat shells use ScatterRadius 0 + ScatterRadiusVsInfantry only.
+    if n.contains("scudstorm") && n.contains("weapon") && !n.contains("damage") {
+        return 0.0;
+    }
+    0.0
+}
+
+fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    if n.contains("laser") || n.contains("machinegun") || n.contains("minigun") {
+        return 0.0;
+    }
+    // Common ZH residual: tank/missile shells vs infantry inaccuracy ~10.
+    if n.contains("tankgun")
+        || n.contains("tankshell")
+        || n.contains("crusader")
+        || n.contains("paladin")
+        || n.contains("battlemaster")
+        || n.contains("scorpion")
+        || n.contains("marauder")
+        || n.contains("overlord")
+        || n.contains("raptor")
+        || n.contains("missile")
+        || n.contains("rpg")
+        || n.contains("tankhunter")
+        || n.contains("tomahawk")
+        || n.contains("firebase")
+        || n.contains("howitzer")
+    {
+        return 10.0;
+    }
+    if n.contains("neutron") {
+        return 15.0;
+    }
+    0.0
+}
+
+/// Deterministic scatter offset residual (C++ random radius + angle).
+///
+/// Uses pure ADC stream seeded by shooter^target so re-fire re-query is stable
+/// within the same pairing (fail-closed vs live GameLogic global stream order).
+pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
+    use crate::game_logic::host_rng_residual::pure_logic_random_real;
+    if scatter_radius <= 0.0 {
+        return glam::Vec3::ZERO;
+    }
+    let r = pure_logic_random_real(seed, 0, 0.0, scatter_radius);
+    let ang = pure_logic_random_real(seed, 1, 0.0, std::f32::consts::TAU);
+    // Gameplay XZ plane residual (Y up).
+    glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin())
+}
+
 /// C++ ProjectileCollideMask residual bits (Weapon.cpp TheWeaponCollideMaskNames).
 pub const PROJECTILE_COLLIDE_ALLIES: u32 = 0x0001;
 pub const PROJECTILE_COLLIDE_ENEMIES: u32 = 0x0002;
@@ -4204,5 +4311,30 @@ mod tests {
             seed_projectile_collides_for("ScudStormDamageWeapon"),
             PROJECTILE_COLLIDE_STRUCTURES
         );
+    }
+
+    #[test]
+    fn scatter_radius_for_seeded_weapons_residual() {
+        assert_eq!(
+            seed_scatter_radius_vs_infantry_for("AmericaTankCrusaderGun"),
+            10.0
+        );
+        assert_eq!(
+            host_effective_scatter_radius("AmericaTankCrusaderGun", true),
+            10.0
+        );
+        assert_eq!(
+            host_effective_scatter_radius("AmericaTankCrusaderGun", false),
+            0.0
+        );
+        assert_eq!(
+            seed_scatter_radius_vs_infantry_for("PaladinPointDefenseLaser"),
+            0.0
+        );
+        let o = scatter_aim_offset(42, 10.0);
+        assert!(o.length() <= 10.0 + 1e-3);
+        // Stable re-query.
+        let o2 = scatter_aim_offset(42, 10.0);
+        assert_eq!(o, o2);
     }
 }
