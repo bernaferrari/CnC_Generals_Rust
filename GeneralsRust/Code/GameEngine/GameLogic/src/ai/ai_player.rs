@@ -5496,8 +5496,15 @@ impl AIPlayer {
             }
             let name = proto.get_name().as_str().to_string();
 
-            // Skip if already building this prototype.
+            // C++: busy if any TeamInQueue.m_team->getPrototype() == proto.
             let busy = self.team_build_queue.iter().any(|q| {
+                if let Some(team_arc) = q.team.as_ref() {
+                    if let Ok(tg) = team_arc.read() {
+                        if tg.get_name().as_str() == name.as_str() {
+                            return true;
+                        }
+                    }
+                }
                 q.team_name
                     .as_deref()
                     .map(|n| n == name.as_str())
@@ -5575,13 +5582,22 @@ impl AIPlayer {
                 return Ok(false);
             };
             let tid = team_g.get_id() as ObjectID;
-            // C++ prefers first member position; homeLocation residual if no members.
-            let origin = team_g
-                .get_members()
-                .first()
-                .and_then(|&mid| OBJECT_REGISTRY.get_object(mid))
-                .and_then(|o| o.read().ok().map(|g| *g.get_position()))
-                .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
+            // C++: origin = homeLocation; if first member exists, use its position.
+            let mut origin = Coord3D::new(0.0, 0.0, 0.0);
+            if let Ok(factory) = get_team_factory().lock() {
+                if let Some(proto) = factory.find_team_prototype(team_g.get_name().as_str()) {
+                    if proto.has_home_location() {
+                        origin = proto.home_location();
+                    }
+                }
+            }
+            if let Some(&mid) = team_g.get_members().first() {
+                if let Some(o) = OBJECT_REGISTRY.get_object(mid) {
+                    if let Ok(g) = o.read() {
+                        origin = *g.get_position();
+                    }
+                }
+            }
             (origin, tid)
         };
 
@@ -8855,8 +8871,11 @@ mod tests {
                 && window.contains("push_front(team_q)")
                 && window.contains("self.team_delay = 0")
                 && window.contains("find_factory_internal")
-                && window.contains("order.num_required = 1"),
-            "select_team_to_reinforce must match C++ auto-reinforce single-unit path"
+                && window.contains("order.num_required = 1")
+                && window.contains("q.team.as_ref()")
+                && window.contains("has_home_location")
+                && window.contains("get_members().first()"),
+            "select_team_to_reinforce must match C++ busy-by-handle + home/member origin"
         );
     }
 
