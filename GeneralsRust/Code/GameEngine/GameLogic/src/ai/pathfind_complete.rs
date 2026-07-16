@@ -1877,12 +1877,35 @@ impl PathfindingSystem {
                             }
                         }
                     }
+                    // LOS_TERRAIN: C++ Weapon::isClearGoalFiringLineOfSightTerrain
+                    // (skip for immobile — cannot path around terrain blockage).
+                    if !g.is_kind_of(KindOf::Immobile) {
+                        if let Some((weapon, _)) = g.get_current_weapon() {
+                            let clear = if let Some(vid) = victim_id {
+                                weapon.is_clear_goal_firing_line_of_sight_terrain(
+                                    attacker_id,
+                                    attacker_pos,
+                                    vid,
+                                )
+                            } else {
+                                weapon.is_clear_goal_firing_line_of_sight_terrain_pos(
+                                    attacker_id,
+                                    attacker_pos,
+                                    victim_pos,
+                                )
+                            };
+                            if !clear {
+                                return true;
+                            }
+                        } else if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+                            if !terrain.is_clear_line_of_sight(attacker_pos, victim_pos) {
+                                return true;
+                            }
+                        }
+                    }
                 }
             }
         }
-
-        // Terrain weapon LOS (LOS_TERRAIN) is deferred when Weapon binding is absent;
-        // obstacle Bresenham remains the primary pathfinder check.
 
         let to_pf_layer = |l: CommonPathfindLayerEnum| -> PathfindLayerEnum {
             match l {
@@ -12374,12 +12397,13 @@ mod tests {
         let i = prod
             .find("pub fn is_attack_view_blocked_by_obstacle")
             .expect("LOS");
-        let w = &prod[i..prod.len().min(i + 5000)];
+        let w = &prod[i..prod.len().min(i + 9000)];
         assert!(
             w.contains("AttackNeedsLineOfSight")
                 && w.contains("skip_count")
-                && w.contains("is_obstacle_transparent"),
-            "isAttackViewBlockedByObstacle must match C++ callback skips"
+                && w.contains("is_obstacle_transparent")
+                && w.contains("is_clear_goal_firing_line_of_sight_terrain"),
+            "isAttackViewBlockedByObstacle must match C++ callback + LOS_TERRAIN"
         );
     }
 
