@@ -248,6 +248,89 @@ fn ignored_obstacle_cells(ignore_obstacle_id: Option<ObjectID>) -> Option<HashSe
     }
 }
 
+/// Cohen–Sutherland style cell-line clip against inclusive grid extent (lo, hi).
+/// Matches C++ ClipLine2D usage in Pathfinder::clip.
+fn clip_line_cells(
+    p1: GridCoord,
+    p2: GridCoord,
+    extent: (GridCoord, GridCoord),
+) -> Option<(GridCoord, GridCoord)> {
+    let lo = extent.0;
+    let hi = extent.1;
+    let code = |c: GridCoord| -> u8 {
+        let mut out = 0u8;
+        if c.x < lo.x {
+            out |= 1;
+        } else if c.x > hi.x {
+            out |= 2;
+        }
+        if c.y < lo.y {
+            out |= 4;
+        } else if c.y > hi.y {
+            out |= 8;
+        }
+        out
+    };
+    let mut x1 = p1.x as f64;
+    let mut y1 = p1.y as f64;
+    let mut x2 = p2.x as f64;
+    let mut y2 = p2.y as f64;
+    let mut c1 = code(p1);
+    let mut c2 = code(p2);
+    for _ in 0..16 {
+        if (c1 | c2) == 0 {
+            return Some((
+                GridCoord::new(x1.round() as i32, y1.round() as i32),
+                GridCoord::new(x2.round() as i32, y2.round() as i32),
+            ));
+        }
+        if (c1 & c2) != 0 {
+            return None;
+        }
+        let out = if c1 != 0 { c1 } else { c2 };
+        let (x, y) = if out & 1 != 0 {
+            // left
+            let y = if (x2 - x1).abs() < f64::EPSILON {
+                y1
+            } else {
+                y1 + (y2 - y1) * (lo.x as f64 - x1) / (x2 - x1)
+            };
+            (lo.x as f64, y)
+        } else if out & 2 != 0 {
+            let y = if (x2 - x1).abs() < f64::EPSILON {
+                y1
+            } else {
+                y1 + (y2 - y1) * (hi.x as f64 - x1) / (x2 - x1)
+            };
+            (hi.x as f64, y)
+        } else if out & 4 != 0 {
+            let x = if (y2 - y1).abs() < f64::EPSILON {
+                x1
+            } else {
+                x1 + (x2 - x1) * (lo.y as f64 - y1) / (y2 - y1)
+            };
+            (x, lo.y as f64)
+        } else {
+            let x = if (y2 - y1).abs() < f64::EPSILON {
+                x1
+            } else {
+                x1 + (x2 - x1) * (hi.y as f64 - y1) / (y2 - y1)
+            };
+            (x, hi.y as f64)
+        };
+        if out == c1 {
+            x1 = x;
+            y1 = y;
+            c1 = code(GridCoord::new(x1.round() as i32, y1.round() as i32));
+        } else {
+            x2 = x;
+            y2 = y;
+            c2 = code(GridCoord::new(x2.round() as i32, y2.round() as i32));
+        }
+    }
+    None
+}
+
 /// Complete pathfinding system
 /// Matches C++ Pathfinder class at AIPathfind.h:568-846
 pub struct PathfindingSystem {
@@ -286,7 +369,6 @@ pub struct PathfindingSystem {
         >,
     >,
 
-    /// Zone manager for hierarchical pathfinding
     zones: Arc<Mutex<ZoneManager>>,
 
     /// Map dimensions
@@ -2302,6 +2384,32 @@ impl PathfindingSystem {
         self.is_ground_line_passable(start, end, is_crusher, diameter, None)
     }
 
+    /// C++ `Pathfinder::clip` (AIPathfind.cpp) — clip from/to cells to map extent.
+    ///
+    /// When an endpoint cell is outside `m_extent`, move that world point onto the
+    /// clipped cell ( + 0.05 like C++ ).
+    pub fn clip(&self, from: &mut Coord3D, to: &mut Coord3D) {
+        let from_cell = GridCoord::from_world(from);
+        let to_cell = GridCoord::from_world(to);
+        let extent = (
+            GridCoord::new(0, 0),
+            GridCoord::new(
+                self.width.saturating_sub(1) as i32,
+                self.height.saturating_sub(1) as i32,
+            ),
+        );
+        if let Some((cf, ct)) = clip_line_cells(from_cell, to_cell, extent) {
+            if cf != from_cell {
+                from.x = cf.x as f32 * PATHFIND_CELL_SIZE_F + 0.05;
+                from.y = cf.y as f32 * PATHFIND_CELL_SIZE_F + 0.05;
+            }
+            if ct != to_cell {
+                to.x = ct.x as f32 * PATHFIND_CELL_SIZE_F + 0.05;
+                to.y = ct.y as f32 * PATHFIND_CELL_SIZE_F + 0.05;
+            }
+        }
+    }
+
     /// Snap a world position to the nearest cell center.
     /// Matches C++ Pathfinder::adjustCoordToCell() at AIPathfind.cpp:8936-8946.
     pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
@@ -2776,5 +2884,40 @@ mod tests {
         let to = Coord3D::new(200.0, 200.0, 0.0);
         assert!(system.slow_does_path_exist(&from, &to, SURFACE_GROUND, false));
         assert!(system.slow_does_path_exist_ex(&from, &to, SURFACE_GROUND, false, Some(99), 1));
+    }
+
+    #[test]
+    fn pathfinder_clip_moves_outside_endpoint_like_cpp() {
+        let system = PathfindingSystem::new(16, 16);
+        let mut from = Coord3D::new(50.0, 50.0, 0.0);
+        let mut to = Coord3D::new(5000.0, 50.0, 0.0); // far outside
+        system.clip(&mut from, &mut to);
+        // to should be pulled onto map extent cell
+        let to_c = GridCoord::from_world(&to);
+        assert!(to_c.x >= 0 && to_c.x < 16);
+        assert!(to_c.y >= 0 && to_c.y < 16);
+        // inside endpoints unchanged
+        let mut a = Coord3D::new(20.0, 20.0, 0.0);
+        let mut b = Coord3D::new(40.0, 40.0, 0.0);
+        let a0 = a;
+        let b0 = b;
+        system.clip(&mut a, &mut b);
+        assert_eq!(a.x, a0.x);
+        assert_eq!(b.x, b0.x);
+    }
+
+    #[test]
+    fn pathfinder_clip_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn clip(").expect("clip");
+        let w = &prod[i..prod.len().min(i + 800)];
+        assert!(
+            w.contains("0.05") && w.contains("clip_line_cells") && w.contains("from_world"),
+            "Pathfinder::clip must floor cells, ClipLine, write +0.05 like C++"
+        );
     }
 }
