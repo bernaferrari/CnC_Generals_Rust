@@ -1385,6 +1385,130 @@ impl PathfindingSystem {
         insert.z = obj_pos.z;
     }
 
+    /// C++ `segmentIntersectsBuildingCallback` residual: first AIRCRAFT_PATH_AROUND
+    /// obstacle along a ground Bresenham line.
+    fn find_tall_building_along_segment(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        ignore_building: ObjectID,
+    ) -> Option<(ObjectID, Coord3D, f32)> {
+        let mut found = None;
+        let _ = self.iterate_cells_along_line_world(
+            from,
+            to,
+            PathfindLayerEnum::Ground,
+            |_f, to_c, _x, _y| {
+                let world = to_c.to_world(PathfindLayerEnum::Ground);
+                if self.get_cell_type(&world) != Some(PathfindCellType::Obstacle) {
+                    return 0;
+                }
+                // Without per-cell obstacle IDs, pick closest AIRCRAFT_PATH_AROUND near cell.
+                let Some(partition) = ThePartitionManager::get() else {
+                    return 0;
+                };
+                let search_r = PATHFIND_CELL_SIZE_F * 2.0;
+                let mut best = None;
+                let mut best_d = f32::MAX;
+                for oid in partition.get_objects_in_range(&world, search_r) {
+                    if oid == ignore_building || oid == INVALID_ID {
+                        continue;
+                    }
+                    let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
+                        continue;
+                    };
+                    let Ok(g) = arc.read() else {
+                        continue;
+                    };
+                    if !g.is_kind_of(KindOf::AircraftPathAround) {
+                        continue;
+                    }
+                    let p = *g.get_position();
+                    let dx = p.x - world.x;
+                    let dy = p.y - world.y;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d < best_d {
+                        best_d = d;
+                        let r = g.get_geometry_info().get_bounding_circle_radius()
+                            + 2.0 * PATHFIND_CELL_SIZE_F;
+                        best = Some((oid, p, r));
+                    }
+                }
+                if let Some(b) = best {
+                    found = Some(b);
+                    return 1;
+                }
+                0
+            },
+        );
+        found
+    }
+
+    /// C++ `Pathfinder::segmentIntersectsTallBuilding` (AIPathfind.cpp:9464-9519).
+    ///
+    /// If the ground segment hits a tall building, write three radial offset
+    /// insert positions and return true. May nudge `to` outward if it lies
+    /// inside the building radius.
+    pub fn segment_intersects_tall_building(
+        &self,
+        from: &Coord3D,
+        to: &mut Coord3D,
+        ignore_building: ObjectID,
+        insert1: &mut Coord3D,
+        insert2: &mut Coord3D,
+        insert3: &mut Coord3D,
+    ) -> bool {
+        let mut from_pos = *from;
+        let mut to_pos = *to;
+        for _ in 0..2 {
+            let Some((_id, bldg_pos, radius)) =
+                self.find_tall_building_along_segment(&from_pos, &to_pos, ignore_building)
+            else {
+                return false;
+            };
+
+            // If toPos inside radius, push it out (C++ nextNode->setPosition).
+            let mut delta_x = to_pos.x - bldg_pos.x;
+            let mut delta_y = to_pos.y - bldg_pos.y;
+            let mut len = (delta_x * delta_x + delta_y * delta_y).sqrt();
+            if len <= radius * 0.98 {
+                if len < 0.1 {
+                    delta_x = 1.0;
+                    delta_y = 0.0;
+                    len = 1.0;
+                }
+                delta_x = delta_x / len * radius;
+                delta_y = delta_y / len * radius;
+                to_pos.x = bldg_pos.x + delta_x;
+                to_pos.y = bldg_pos.y + delta_y;
+                *to = to_pos;
+                continue; // retry loop like C++
+            }
+
+            // If fromPos inside radius, push from out.
+            delta_x = from_pos.x - bldg_pos.x;
+            delta_y = from_pos.y - bldg_pos.y;
+            len = (delta_x * delta_x + delta_y * delta_y).sqrt();
+            if len <= radius * 0.98 {
+                if len < 0.1 {
+                    delta_x = 1.0;
+                    delta_y = 0.0;
+                    len = 1.0;
+                }
+                delta_x = delta_x / len * radius;
+                delta_y = delta_y / len * radius;
+                from_pos.x = bldg_pos.x + delta_x;
+                from_pos.y = bldg_pos.y + delta_y;
+            }
+
+            Self::compute_normal_radial_offset(&from_pos, insert2, &to_pos, &bldg_pos, radius);
+            Self::compute_normal_radial_offset(&from_pos, insert1, insert2, &bldg_pos, radius);
+            Self::compute_normal_radial_offset(insert2, insert3, &to_pos, &bldg_pos, radius);
+            return true;
+        }
+        false
+    }
+
     /// C++ `Pathfinder::circleClipsTallBuilding` (AIPathfind.cpp:9522-9539).
     ///
     /// If a KINDOF_AIRCRAFT_PATH_AROUND building is within circleRadius of `to`,
@@ -4705,5 +4829,38 @@ mod tests {
                 && w.contains("get_objects_in_range"),
             "circleClipsTallBuilding must path around AIRCRAFT_PATH_AROUND like C++"
         );
+    }
+
+    #[test]
+    fn segment_intersects_tall_building_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn segment_intersects_tall_building")
+            .expect("segmentIntersectsTallBuilding");
+        let w = &prod[i..prod.len().min(i + 4000)];
+        assert!(
+            w.contains("find_tall_building_along_segment")
+                && w.contains("compute_normal_radial_offset")
+                && w.contains("0.98")
+                && w.contains("KindOf::AircraftPathAround"),
+            "segmentIntersectsTallBuilding must Bresenham-find tall bldg + radial inserts"
+        );
+    }
+
+    #[test]
+    fn segment_intersects_no_building_false() {
+        let system = PathfindingSystem::new(32, 32);
+        let from = Coord3D::new(10.0, 10.0, 0.0);
+        let mut to = Coord3D::new(100.0, 10.0, 0.0);
+        let mut i1 = Coord3D::new(0.0, 0.0, 0.0);
+        let mut i2 = Coord3D::new(0.0, 0.0, 0.0);
+        let mut i3 = Coord3D::new(0.0, 0.0, 0.0);
+        assert!(!system.segment_intersects_tall_building(
+            &from, &mut to, INVALID_ID, &mut i1, &mut i2, &mut i3
+        ));
     }
 }
