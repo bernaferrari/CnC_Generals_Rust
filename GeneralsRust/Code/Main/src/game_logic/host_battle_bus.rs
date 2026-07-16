@@ -252,6 +252,7 @@ pub fn battle_bus_passenger_dummy_weapon() -> Weapon {
         can_target_ground: true,
         projectile_speed: 0.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -268,6 +269,7 @@ pub fn battle_bus_dummy_weapon() -> Weapon {
         can_target_ground: false,
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

@@ -4085,6 +4085,7 @@ impl SnapshotBuilder {
                     can_target_ground: false,
                     projectile_speed: 0.0,
                     pre_attack_delay: 0.0,
+                    splash_radius: 0.0,
                 });
                 weapons.push(secondary.clone());
             }
@@ -6088,6 +6089,7 @@ mod tests {
             can_target_ground: true,
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
+            splash_radius: 0.0,
         };
         let secondary = Weapon {
             damage: 80.0,
@@ -6100,6 +6102,7 @@ mod tests {
             can_target_ground: true,
             projectile_speed: 40.0,
             pre_attack_delay: 0.1,
+            splash_radius: 0.0,
         };
 
         {
@@ -6190,6 +6193,7 @@ mod tests {
             can_target_ground: true,
             projectile_speed: 100.0,
             pre_attack_delay: 0.0,
+            splash_radius: 0.0,
         };
         {
             let unit = source.find_object_mut(id).expect("unit");

@@ -273,6 +273,7 @@ pub fn usa_tank_gun_weapon_for_template(template_name: &str) -> Weapon {
         can_target_ground: true,
         projectile_speed,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

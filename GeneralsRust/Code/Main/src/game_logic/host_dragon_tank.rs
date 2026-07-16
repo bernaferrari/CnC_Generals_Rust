@@ -214,6 +214,7 @@ pub fn dragon_flame_weapon(upgraded: bool) -> Weapon {
         can_target_ground: true,
         projectile_speed: DRAGON_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

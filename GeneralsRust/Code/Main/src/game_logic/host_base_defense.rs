@@ -1754,6 +1754,7 @@ pub fn stinger_ground_weapon(has_ap_rockets: bool) -> Weapon {
         can_target_ground: true,
         projectile_speed: 750.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -1770,6 +1771,7 @@ pub fn stinger_air_weapon(has_ap_rockets: bool) -> Weapon {
         can_target_ground: false,
         projectile_speed: 600.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -1811,6 +1813,7 @@ pub fn patriot_ground_weapon_for_template(template_name: &str) -> Weapon {
         // Instant laser residual vs missile residual.
         projectile_speed: if laser { 999_999.0 } else { 600.0 },
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -1839,6 +1842,7 @@ pub fn patriot_air_weapon_for_template(template_name: &str) -> Weapon {
         can_target_ground: false,
         projectile_speed: if laser { 999_999.0 } else { 600.0 },
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -2033,6 +2037,7 @@ pub fn gattling_building_ground_weapon(level: GattlingFireLevel, has_chain_guns:
         can_target_ground: true,
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -2050,6 +2055,7 @@ pub fn gattling_building_air_weapon(level: GattlingFireLevel, has_chain_guns: bo
         can_target_ground: false,
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

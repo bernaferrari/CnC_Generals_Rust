@@ -219,6 +219,7 @@ impl ThingTemplate {
                 || !wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_VEHICLE),
             projectile_speed,
             pre_attack_delay,
+            splash_radius: wt.primary_damage_radius.max(0.0),
         })
     }
 

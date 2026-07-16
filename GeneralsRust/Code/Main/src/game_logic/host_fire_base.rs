@@ -157,6 +157,7 @@ pub fn fire_base_weapon() -> Weapon {
         can_target_ground: true,
         projectile_speed: FIRE_BASE_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

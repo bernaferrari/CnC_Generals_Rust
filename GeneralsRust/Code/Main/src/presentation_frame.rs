@@ -5273,6 +5273,7 @@ mod tests {
                 can_target_ground: true,
                 projectile_speed: 0.0,
                 pre_attack_delay: 0.0,
+                splash_radius: 0.0,
             });
             obj.force_attack = true;
             obj.show_health_bar = false;
