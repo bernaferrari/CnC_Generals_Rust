@@ -19,6 +19,8 @@ pub const WEAPON_LASER_LIFETIME_FRAMES: u32 = 6;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResidualWeaponLaser {
     pub laser_name: String,
+    /// C++ Weapon.ini LaserBoneName residual (muzzle/bone attach).
+    pub laser_bone_name: String,
     pub from_id: ObjectId,
     pub to_id: Option<ObjectId>,
     pub from_x: f32,
@@ -40,8 +42,21 @@ impl ResidualWeaponLaser {
         to: (f32, f32, f32),
         start_frame: u32,
     ) -> Self {
+        Self::with_bone(laser_name, "", from_id, to_id, from, to, start_frame)
+    }
+
+    pub fn with_bone(
+        laser_name: impl Into<String>,
+        laser_bone_name: impl Into<String>,
+        from_id: ObjectId,
+        to_id: Option<ObjectId>,
+        from: (f32, f32, f32),
+        to: (f32, f32, f32),
+        start_frame: u32,
+    ) -> Self {
         Self {
             laser_name: laser_name.into(),
+            laser_bone_name: laser_bone_name.into(),
             from_id,
             to_id,
             from_x: from.0,
@@ -92,6 +107,17 @@ mod tests {
             100,
         );
         assert_eq!(l.laser_name, "PointDefenseLaserBeam");
+        assert!(l.laser_bone_name.is_empty());
+        let l2 = ResidualWeaponLaser::with_bone(
+            "PointDefenseLaserBeam",
+            "LASER",
+            ObjectId(1),
+            Some(ObjectId(2)),
+            (0.0, 0.0, 0.0),
+            (10.0, 0.0, 0.0),
+            100,
+        );
+        assert_eq!(l2.laser_bone_name, "LASER");
         assert!(l.is_active_at(100));
         assert!(l.is_active_at(105));
         assert!(!l.is_active_at(106));
