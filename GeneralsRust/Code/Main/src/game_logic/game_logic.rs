@@ -7441,12 +7441,29 @@ impl GameLogic {
                     .and_then(|id| self.objects.get(&id).map(|t| t.get_position()))
                     .or(target_location);
                 let fire_frame = self.frame;
-                let _ = self.combat_particles.spawn_weapon_fire_fx(
+                let (fire_fx, det_fx) = {
+                    let a = self.objects.get(&attacker_id);
+                    let (tname, pwn, swn) = a
+                        .map(|o| {
+                            (
+                                o.template_name.as_str(),
+                                o.thing.template.primary_weapon_name.as_deref(),
+                                o.thing.template.secondary_weapon_name.as_deref(),
+                            )
+                        })
+                        .unwrap_or(("", None, None));
+                    crate::game_logic::weapon_bootstrap::host_weapon_fx_for_unit_slot(
+                        tname, pwn, swn, slot,
+                    )
+                };
+                let _ = self.combat_particles.spawn_weapon_fire_fx_named(
                     muzzle_pos,
                     impact_pos,
                     fire_frame,
                     attacker_id,
                     fire_target,
+                    &fire_fx,
+                    &det_fx,
                 );
 
                 // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest.
