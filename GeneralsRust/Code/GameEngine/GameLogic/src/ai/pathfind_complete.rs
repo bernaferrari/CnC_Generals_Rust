@@ -2217,6 +2217,170 @@ impl PathfindingSystem {
         true
     }
 
+    /// C++ `Pathfinder::checkForTarget` (AIPathfind.cpp:5409-5421).
+    ///
+    /// Valid destination cell that is within weapon attack range of the target.
+    pub fn check_for_target(
+        &self,
+        cell_x: i32,
+        cell_y: i32,
+        radius: i32,
+        center_in_cell: bool,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        in_range: impl Fn(&Coord3D) -> bool,
+        dest: &mut Coord3D,
+    ) -> bool {
+        let coord = GridCoord::new(cell_x, cell_y);
+        if !self.is_valid_coord(coord) {
+            return false;
+        }
+        if !self.is_destination_valid(
+            coord,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            ignore_obstacle_id,
+        ) {
+            return false;
+        }
+        let mut adjust_dest = Coord3D::new(0.0, 0.0, 0.0);
+        self.adjust_coord_to_cell(
+            cell_x,
+            cell_y,
+            center_in_cell,
+            &mut adjust_dest,
+            PathfindLayerEnum::Ground,
+        );
+        if !in_range(&adjust_dest) {
+            return false;
+        }
+        *dest = adjust_dest;
+        true
+    }
+
+    /// C++ `Pathfinder::adjustTargetDestination` (AIPathfind.cpp:5428-5487).
+    ///
+    /// Spiral-search an unoccupied spot that can fire at the victim.
+    /// `in_range(goal)` should implement weapon isGoalPosWithinAttackRange.
+    pub fn adjust_target_destination(
+        &self,
+        dest: &mut Coord3D,
+        unit_radius: f32,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        in_range: impl Fn(&Coord3D) -> bool,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let mut adjust_dest = *dest;
+        if !center_in_cell {
+            adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        let cell = GridCoord::from_world(&adjust_dest);
+        // C++ worldToCell returns true when outside bounds → fail.
+        if !self.is_valid_coord(cell) {
+            return false;
+        }
+
+        if self.check_for_target(
+            cell.x,
+            cell.y,
+            radius,
+            center_in_cell,
+            surfaces,
+            is_crusher,
+            ignore_obstacle_id,
+            &in_range,
+            dest,
+        ) {
+            return true;
+        }
+
+        const MAX_CELLS_TO_TRY: i32 = 400;
+        let mut limit = MAX_CELLS_TO_TRY;
+        let mut i = cell.x;
+        let mut j = cell.y;
+        let mut delta = 1;
+        while limit > 0 {
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    surfaces,
+                    is_crusher,
+                    ignore_obstacle_id,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    surfaces,
+                    is_crusher,
+                    ignore_obstacle_id,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    surfaces,
+                    is_crusher,
+                    ignore_obstacle_id,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                if self.check_for_target(
+                    i,
+                    j,
+                    radius,
+                    center_in_cell,
+                    surfaces,
+                    is_crusher,
+                    ignore_obstacle_id,
+                    &in_range,
+                    dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+        }
+        false
+    }
+
     /// C++ `Pathfinder::checkForLanding` (AIPathfind.cpp:5228-5247).
     fn check_for_landing(
         &self,
@@ -3420,5 +3584,57 @@ mod tests {
             assert_ne!(system.get_cell_type(&dest), Some(PathfindCellType::Water));
             assert_ne!(system.get_cell_type(&dest), Some(PathfindCellType::Cliff));
         }
+    }
+
+    #[test]
+    fn adjust_target_destination_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn adjust_target_destination")
+            .expect("adjustTargetDestination");
+        let w = &prod[i..prod.len().min(i + 4000)];
+        assert!(
+            w.contains("PATHFIND_CELL_SIZE_F * 0.5")
+                && w.contains("check_for_target")
+                && w.contains("MAX_CELLS_TO_TRY")
+                && w.contains("is_valid_coord(cell)"),
+            "adjustTargetDestination must half-cell spiral + bounds fail like C++"
+        );
+    }
+
+    #[test]
+    fn adjust_target_destination_finds_in_range_cell() {
+        let system = PathfindingSystem::new(32, 32);
+        let target = Coord3D::new(200.0, 200.0, 0.0);
+        let mut dest = Coord3D::new(200.0, 200.0, 0.0);
+        // Accept any cell within 50 of target.
+        let ok =
+            system.adjust_target_destination(&mut dest, 0.0, SURFACE_GROUND, false, None, |goal| {
+                let dx = goal.x - target.x;
+                let dy = goal.y - target.y;
+                dx * dx + dy * dy <= 50.0 * 50.0
+            });
+        assert!(ok);
+        let dx = dest.x - target.x;
+        let dy = dest.y - target.y;
+        assert!(dx * dx + dy * dy <= 50.0 * 50.0 + 1.0);
+    }
+
+    #[test]
+    fn adjust_target_destination_out_of_bounds_fails() {
+        let system = PathfindingSystem::new(8, 8);
+        let mut dest = Coord3D::new(50_000.0, 50_000.0, 0.0);
+        assert!(!system.adjust_target_destination(
+            &mut dest,
+            0.0,
+            SURFACE_GROUND,
+            false,
+            None,
+            |_| true
+        ));
     }
 }
