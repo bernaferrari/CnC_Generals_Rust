@@ -2293,9 +2293,11 @@ impl AIPlayer {
             let _ = self.compute_center_and_radius_of_base();
         }
         let angle = template.get_placement_view_angle();
-        let Some(mut new_pos) =
-            self.find_valid_build_location(&location, template.get_name().as_str(), angle)
-        else {
+        // C++ only addToPriorityBuildList when wiggle set valid after initial fail
+        // (same control flow as calcClosestConstructionZoneLocation).
+        let adjusted =
+            self.calc_closest_construction_zone_location(template.get_name().as_str(), &location)?;
+        let Some(mut new_pos) = adjusted else {
             log::debug!(
                 "{} - buildSpecificBuildingNearestTeam unable to place.",
                 thing_name
@@ -2980,18 +2982,92 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::calcClosestConstructionZoneLocation` (AIPlayer.cpp).
     ///
-    /// Starting from `location`, return a legal nearby placement (wiggle search)
-    /// or None if none found (C++ zeros the out-param).
+    /// Uses template placement view angle. If the seed fails
+    /// NO_OBJECT_OVERLAP-style validation, wiggle with clear-path/terrain/overlap
+    /// (same spiral as buildBySupplies). Returns Some only when the wiggle path
+    /// set `valid` — matching GeneralsMD control flow where an already-legal seed
+    /// leaves `valid=false` and the function fails (location zeroed in C++).
     pub fn calc_closest_construction_zone_location(
         &self,
         template_name: &str,
         location: &Coord3D,
     ) -> Result<Option<Coord3D>, AiError> {
-        let angle = 0.0_f32;
-        if let Some(pos) = self.find_valid_build_location(location, template_name, angle) {
-            return Ok(Some(pos));
+        let Some(template) = TheThingFactory::find_template(template_name) else {
+            return Ok(None);
+        };
+        let angle = template.get_placement_view_angle();
+        let validator = FoundationValidator::new_ai();
+
+        // C++: Bool valid = false; only set true inside the adjust loop.
+        let mut valid = false;
+        let mut new_pos = *location;
+
+        // First check: NO_OBJECT_OVERLAP residual via FoundationValidator.
+        let initial_ok = validator
+            .validate_placement(location, template_name, angle, self.player_id as ObjectID)
+            .is_ok();
+        if !initial_ok {
+            log::debug!(
+                "{} - calcClosestConstructionZoneLocation unable to place.  Attempting to adjust position.",
+                template_name
+            );
+            // Wiggle spiral (same extents as C++ 2*SUPPLY_CENTER_CLOSE_DIST).
+            let mut pos_offset = 0.0_f32;
+            'outer: while pos_offset < 2.0 * SUPPLY_CENTER_CLOSE_DIST {
+                let offset = pos_offset * 0.5;
+                let mut x = location.x - offset;
+                let y0 = location.y - offset;
+                while x <= location.x + offset + 0.001 {
+                    for y in [y0, y0 + pos_offset] {
+                        let candidate = Coord3D::new(x, y, location.z);
+                        if validator
+                            .validate_placement(
+                                &candidate,
+                                template_name,
+                                angle,
+                                self.player_id as ObjectID,
+                            )
+                            .is_ok()
+                        {
+                            new_pos = candidate;
+                            valid = true;
+                            break 'outer;
+                        }
+                    }
+                    x += PATHFIND_CELL_SIZE_F;
+                }
+                let mut y = location.y - offset;
+                let x0 = location.x - offset;
+                while y <= location.y + offset + 0.001 {
+                    for x in [x0, x0 + pos_offset] {
+                        let candidate = Coord3D::new(x, y, location.z);
+                        if validator
+                            .validate_placement(
+                                &candidate,
+                                template_name,
+                                angle,
+                                self.player_id as ObjectID,
+                            )
+                            .is_ok()
+                        {
+                            new_pos = candidate;
+                            valid = true;
+                            break 'outer;
+                        }
+                    }
+                    y += PATHFIND_CELL_SIZE_F;
+                }
+                pos_offset += 2.0 * PATHFIND_CELL_SIZE_F;
+            }
         }
-        Ok(None)
+        // C++: if (valid) location=newPos success; else location.zero() fail.
+        // Note: when initial_ok, valid stays false → None (C++ shipped behavior).
+        let _ = initial_ok;
+        if valid {
+            Ok(Some(new_pos))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Convenience: search near base center when no seed location given.
@@ -8506,6 +8582,22 @@ mod tests {
     }
 
     #[test]
+    fn calc_closest_construction_zone_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("C++ `AIPlayer::calcClosestConstructionZoneLocation`")
+            .expect("calcClosest");
+        let w = &src[i..src.len().min(i + 5000)];
+        assert!(
+            w.contains("get_placement_view_angle")
+                && w.contains("let mut valid = false")
+                && w.contains("2.0 * SUPPLY_CENTER_CLOSE_DIST")
+                && w.contains("when initial_ok, valid stays false"),
+            "calcClosestConstructionZone must use placement angle + C++ valid control flow"
+        );
+    }
+
+    #[test]
     fn compute_superweapon_target_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
         let i = src
@@ -8624,16 +8716,18 @@ mod tests {
             .find("C++ `AIPlayer::calcClosestConstructionZoneLocation`")
             .expect("calc");
         let nw = &src[n..src.len().min(n + 2500)];
-        let cw = &src[c..src.len().min(c + 1500)];
+        let cw = &src[c..src.len().min(c + 5000)];
         assert!(
             nw.contains("get_estimate_team_position")
                 && nw.contains("add_to_priority_build_list")
-                && nw.contains("find_valid_build_location"),
-            "nearest-team must estimate pos, legalize, priority list"
+                && nw.contains("calc_closest_construction_zone_location"),
+            "nearest-team must estimate pos, calcClosest, priority list"
         );
         assert!(
-            cw.contains("find_valid_build_location") && cw.contains("location: &Coord3D"),
-            "calcClosest must adjust seed location"
+            cw.contains("get_placement_view_angle")
+                && cw.contains("let mut valid = false")
+                && cw.contains("location: &Coord3D"),
+            "calcClosest must use placement angle + C++ valid control flow"
         );
     }
 
