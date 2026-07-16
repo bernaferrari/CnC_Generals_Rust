@@ -2536,6 +2536,82 @@ impl Object {
                     .or_else(|| self.weapon_slot(slot).map(|w| w.min_range))
                     .unwrap_or(0.0)
                 },
+                historic_weapon_key: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.unwrap_or("").to_string()
+                },
+                historic_bonus_time_frames: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
+                            .time_frames
+                    })
+                    .unwrap_or(0)
+                },
+                historic_bonus_count: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
+                            .count
+                    })
+                    .unwrap_or(0)
+                },
+                historic_bonus_radius: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
+                            .radius
+                    })
+                    .unwrap_or(0.0)
+                },
+                historic_bonus_weapon: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
+                            .bonus_weapon
+                    })
+                    .unwrap_or_default()
+                },
             });
             // C++ fireWeaponTemplate LeechRange activate residual.
             self.activate_leech_range_for_slot(slot);

@@ -467,6 +467,108 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini HistoricBonus residual peels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostHistoricBonusPeel {
+    /// Frames window (HistoricBonusTime msec → frames @ 30 FPS).
+    pub time_frames: u32,
+    pub count: i32,
+    pub radius: f32,
+    /// Bonus weapon template name (FirestormSmallCreationWeapon residual).
+    pub bonus_weapon: String,
+}
+
+impl Default for HostHistoricBonusPeel {
+    fn default() -> Self {
+        Self {
+            time_frames: 0,
+            count: 0,
+            radius: 0.0,
+            bonus_weapon: String::new(),
+        }
+    }
+}
+
+impl HostHistoricBonusPeel {
+    pub fn is_active(&self) -> bool {
+        self.count > 0 && self.time_frames > 0 && !self.bonus_weapon.is_empty()
+    }
+
+    pub fn is_black_napalm_bonus(&self) -> bool {
+        let n = self.bonus_weapon.to_ascii_lowercase();
+        n.contains("black")
+    }
+}
+
+/// Resolve HistoricBonus peels from Weapon.ini store / seeds.
+pub fn host_historic_bonus_for_weapon_name(name: &str) -> HostHistoricBonusPeel {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).map(|wt| {
+            let weapon_name = wt
+                .historic_bonus_weapon
+                .as_ref()
+                .and_then(|w| w.upgrade())
+                .map(|arc| arc.name.clone())
+                .unwrap_or_default();
+            // Store may keep name via other path — if Weak dead, seed by weapon.
+            HostHistoricBonusPeel {
+                time_frames: wt.historic_bonus_time,
+                count: wt.historic_bonus_count,
+                radius: wt.historic_bonus_radius.max(0.0),
+                bonus_weapon: weapon_name,
+            }
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(mut p) = from_store {
+        if p.count > 0 && p.time_frames > 0 {
+            if p.bonus_weapon.is_empty() {
+                // Weak may not resolve; seed bonus name from parent weapon.
+                p.bonus_weapon = seed_historic_bonus_weapon_for(name);
+            }
+            if p.is_active() {
+                return p;
+            }
+        }
+    }
+    seed_historic_bonus_for(name)
+}
+
+fn seed_historic_bonus_weapon_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    if n.contains("upgraded") || n.contains("black") {
+        "BlackNapalmFirestormSmallCreationWeapon".into()
+    } else {
+        "FirestormSmallCreationWeapon".into()
+    }
+}
+
+fn seed_historic_bonus_for(name: &str) -> HostHistoricBonusPeel {
+    let n = name.to_ascii_lowercase();
+    // InfernoCannonGun: Time 3000ms→90f, Count 3, Radius 20
+    if n.contains("infernocannon") {
+        return HostHistoricBonusPeel {
+            time_frames: 90,
+            count: 3,
+            radius: 20.0,
+            bonus_weapon: seed_historic_bonus_weapon_for(name),
+        };
+    }
+    // MiG NapalmMissile: Count 8, Radius 100, Time 3000ms
+    if n.contains("napalmmissile") || (n.contains("mig") && n.contains("napalm")) {
+        return HostHistoricBonusPeel {
+            time_frames: 90,
+            count: 8,
+            radius: 100.0,
+            bonus_weapon: seed_historic_bonus_weapon_for(name),
+        };
+    }
+    HostHistoricBonusPeel::default()
+}
+
 /// C++ Weapon.ini LeechRangeWeapon residual peel.
 ///
 /// Once a leech weapon has entered pre-attack / fired once at proper range,
@@ -4523,5 +4625,19 @@ mod tests {
         assert!(seed_leech_range_weapon_for("ColonelBurtonKnifeAttack"));
         assert!(!seed_leech_range_weapon_for("AmericaTankCrusaderGun"));
         assert!(!seed_leech_range_weapon_for("PaladinPointDefenseLaser"));
+    }
+
+    #[test]
+    fn historic_bonus_seed_inferno_residual() {
+        let p = seed_historic_bonus_for("InfernoCannonGun");
+        assert!(p.is_active());
+        assert_eq!(p.count, 3);
+        assert_eq!(p.time_frames, 90);
+        assert!((p.radius - 20.0).abs() < 1e-3);
+        assert!(p.bonus_weapon.contains("Firestorm"));
+        let u = seed_historic_bonus_for("InfernoCannonGunUpgraded");
+        assert!(u.is_black_napalm_bonus());
+        let none = seed_historic_bonus_for("AmericaTankCrusaderGun");
+        assert!(!none.is_active());
     }
 }
