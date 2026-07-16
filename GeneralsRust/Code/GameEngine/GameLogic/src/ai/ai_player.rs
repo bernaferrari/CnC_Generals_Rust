@@ -6481,11 +6481,21 @@ impl AIPlayer {
     }
 
     /// After starting a structure: C++ sets ready=false and structureTimer with wealth mods.
-    /// Retail StructureSeconds=0 → timer 0 (immediately eligible next doBaseBuilding).
+    ///
+    /// C++ always re-reads `TheAI->getAiData()->m_structureSeconds` (not a player
+    /// field). Retail StructureSeconds=0 → timer 0 (immediately eligible next
+    /// doBaseBuilding).
     fn arm_structure_timer_after_build(&mut self) -> Result<(), AiError> {
         self.ready_to_build_structure = false;
-        // C++: m_structureTimer = m_structureSeconds * LOGICFRAMES_PER_SECOND (0 is valid).
-        let mut timer = (self.structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
+        // Live AIData structureSeconds (0.0 is valid retail). Keep field snapshot
+        // in sync for xfer/tests that set structure_seconds directly.
+        let structure_seconds = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.structure_seconds))
+            .unwrap_or(self.structure_seconds);
+        self.structure_seconds = structure_seconds;
+        let mut timer = (structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
 
         let money = player_list()
             .read()
@@ -8095,18 +8105,50 @@ mod tests {
 
     #[test]
     fn arm_structure_timer_applies_wealth_mods_like_cpp() {
-        let mut ai = AIPlayer::new(1);
-        ai.structure_seconds = 10.0; // 300 frames base
-        ai.ready_to_build_structure = true;
-        ai.arm_structure_timer_after_build().expect("arm");
-        assert!(!ai.ready_to_build_structure);
+        // C++: m_structureTimer = TheAI->getAiData()->m_structureSeconds * FPS
+        // (live AIData, not a per-player field). Snapshot and restore AIData.
+        let prev_seconds = {
+            let ai_g = THE_AI.write().expect("ai");
+            let data_arc = ai_g.get_ai_data().clone();
+            drop(ai_g);
+            let mut data = data_arc.write().expect("data");
+            let prev = data.structure_seconds;
+            data.structure_seconds = 10.0; // 300 frames base
+            prev
+        };
+        let mut player_ai = AIPlayer::new(1);
+        player_ai.ready_to_build_structure = true;
+        player_ai.arm_structure_timer_after_build().expect("arm");
+        assert!(!player_ai.ready_to_build_structure);
         // No player money → 0 < Poor(2000) → divide by StructuresPoorRate 0.6.
         // C++ Real (f32) truncation: (300f32 / 0.6) as u32 == 499.
         assert_eq!(
-            ai.structure_timer,
+            player_ai.structure_timer,
             (300f32 / STRUCTURES_POOR_MODIFIER) as u32
         );
-        assert_eq!(ai.structure_timer, 499);
+        assert_eq!(player_ai.structure_timer, 499);
+        {
+            let ai_g = THE_AI.write().expect("ai restore");
+            let data_arc = ai_g.get_ai_data().clone();
+            drop(ai_g);
+            let mut data = data_arc.write().expect("data restore");
+            data.structure_seconds = prev_seconds;
+        }
+    }
+
+    #[test]
+    fn arm_structure_timer_reads_live_aidata_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn arm_structure_timer_after_build")
+            .expect("arm_structure");
+        let w = &src[i..src.len().min(i + 1200)];
+        assert!(
+            w.contains("get_ai_data()")
+                && w.contains("structure_seconds")
+                && w.contains("Live AIData"),
+            "arm structure timer must re-read AIData.structureSeconds like C++"
+        );
     }
 
     #[test]
