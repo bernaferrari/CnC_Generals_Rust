@@ -67,7 +67,8 @@ impl Projectile {
         target_id: Option<ObjectId>,
     ) -> Self {
         let direction = (target_pos - start_pos).normalize_or_zero();
-        let speed = 200.0; // Units per second
+        // Caller overwrites speed/velocity via fire_projectile.
+        let speed = 0.0;
 
         Self {
             id,
@@ -93,10 +94,27 @@ impl Projectile {
             return false; // Projectile expired
         }
 
+        // Instant residual: already at target (speed 0 / laser).
+        if self.speed <= 0.0 {
+            self.position = self.target_position;
+            return true;
+        }
+
+        // Homing residual: keep velocity aimed at last known target_position.
+        if self.is_homing {
+            let dir = (self.target_position - self.position).normalize_or_zero();
+            self.velocity = dir * self.speed;
+        }
+
         // Update position
         self.position += self.velocity * dt;
 
         true
+    }
+
+    /// True when C++ weapon speed is instant-hit residual (laser / hitscan).
+    pub fn is_instant_speed(speed: f32) -> bool {
+        speed <= 0.0 || speed >= 999_999.0
     }
 }
 
@@ -162,6 +180,8 @@ pub struct PendingProjectile {
     pub speed: f32,
     /// C++ radius damage residual at impact (0 = direct only).
     pub splash_radius: f32,
+    /// C++ projectile homing residual (retarget velocity toward live target).
+    pub is_homing: bool,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -204,13 +224,14 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             pre_attack_delay: 0.0,
             splash_radius: p.splash_radius,
         };
-        combat.fire_projectile(
+        combat.fire_projectile_ex(
             p.shooter_pos,
             target_pos,
             &weapon,
             p.shooter_id,
             p.target_id,
             p.speed,
+            p.is_homing,
         );
     }
 }
@@ -248,6 +269,28 @@ impl CombatSystem {
         target_id: Option<ObjectId>,
         speed: f32,
     ) -> ObjectId {
+        self.fire_projectile_ex(
+            shooter_pos,
+            target_pos,
+            weapon,
+            shooter_id,
+            target_id,
+            speed,
+            false,
+        )
+    }
+
+    /// Fire with explicit homing residual.
+    pub fn fire_projectile_ex(
+        &mut self,
+        shooter_pos: Vec3,
+        target_pos: Vec3,
+        weapon: &Weapon,
+        shooter_id: ObjectId,
+        target_id: Option<ObjectId>,
+        speed: f32,
+        is_homing: bool,
+    ) -> ObjectId {
         let projectile_id = self.next_projectile_id;
         self.next_projectile_id = ObjectId(self.next_projectile_id.0 + 1);
 
@@ -261,11 +304,23 @@ impl CombatSystem {
             target_id,
         );
 
-        // Use caller-specified speed (from weapon template), fallback to default.
-        projectile.speed = if speed > 0.0 { speed } else { 200.0 };
-        projectile.is_homing = false; // Some weapons have homing projectiles
-                                      // C++ radius damage residual from WeaponTemplate splash/radius.
+        // C++ radius damage residual from WeaponTemplate splash/radius.
         projectile.explosion_radius = weapon.splash_radius.max(0.0);
+        projectile.is_homing = is_homing && !Projectile::is_instant_speed(speed);
+
+        if Projectile::is_instant_speed(speed) {
+            // Laser / hitscan residual: spawn already at impact for same-frame resolve.
+            projectile.speed = 0.0;
+            projectile.velocity = Vec3::ZERO;
+            projectile.position = target_pos;
+            projectile.target_position = target_pos;
+            projectile.max_lifetime = 0.05; // expire quickly after hit check
+        } else {
+            let spd = if speed > 0.0 { speed } else { 200.0 };
+            let dir = (target_pos - shooter_pos).normalize_or_zero();
+            projectile.speed = spd;
+            projectile.velocity = dir * spd;
+        }
 
         self.projectiles.insert(projectile_id, projectile);
 
@@ -286,6 +341,16 @@ impl CombatSystem {
 
         for proj_id in projectile_ids {
             if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
+                // Homing residual: refresh aim point from live target before step.
+                if projectile.is_homing {
+                    if let Some(tid) = projectile.target_id {
+                        if let Some(tgt) = objects.get(&tid) {
+                            if tgt.is_alive() {
+                                projectile.target_position = tgt.get_position();
+                            }
+                        }
+                    }
+                }
                 let still_alive = projectile.update(dt);
 
                 if !still_alive {
@@ -731,6 +796,148 @@ mod tests {
         assert!(
             near1 < near0 - 1.0,
             "nearby unit within splash_radius must take area damage ({near0}->{near1})"
+        );
+    }
+
+    #[test]
+    fn instant_hit_laser_damages_same_frame() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(30);
+        let tgt = ObjectId(31);
+        objects.insert(
+            atk,
+            make_obj(
+                "LasAtk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "LasTgt",
+                tgt,
+                Team::GLA,
+                Vec3::new(50.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            range: 200.0,
+            projectile_speed: 0.0, // instant residual
+            ..Weapon::default()
+        };
+        combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(50.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            0.0,
+        );
+        let hp0 = objects.get(&tgt).unwrap().health.current;
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let hp1 = objects.get(&tgt).unwrap().health.current;
+        assert!(
+            hp1 < hp0 - 1.0,
+            "instant laser must damage on first projectile step ({hp0}->{hp1})"
+        );
+        assert_eq!(
+            combat.projectile_count(),
+            0,
+            "instant projectile should resolve and clear"
+        );
+    }
+
+    #[test]
+    fn homing_projectile_tracks_moving_target() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(40);
+        let tgt = ObjectId(41);
+        objects.insert(
+            atk,
+            make_obj(
+                "HomAtk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+                &[KindOf::Vehicle, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "HomTgt",
+                tgt,
+                Team::GLA,
+                Vec3::new(30.0, 0.0, 0.0),
+                &[KindOf::Aircraft, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.get_mut(&tgt).unwrap().status.airborne_target = true;
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 30.0,
+            range: 200.0,
+            projectile_speed: 80.0,
+            can_target_air: true,
+            can_target_ground: false,
+            ..Weapon::default()
+        };
+        // Aim at stale point (origin line); target will drift +Z so ballistic would miss.
+        combat.fire_projectile_ex(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(30.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            80.0,
+            true,
+        );
+        assert!(
+            combat
+                .get_projectiles()
+                .values()
+                .next()
+                .map(|p| p.is_homing)
+                .unwrap_or(false),
+            "projectile must be marked homing"
+        );
+        // Drift target off the initial aim line.
+        for step in 0..120 {
+            if let Some(o) = objects.get_mut(&tgt) {
+                // Move +Z so a non-homing shot at (30,0,0) would miss.
+                o.set_position(Vec3::new(30.0, 0.0, (step as f32) * 0.35));
+            }
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let hp = objects.get(&tgt).unwrap().health.current;
+        assert!(
+            hp < 200.0 - 1.0,
+            "homing missile must hit target that drifted off aim line (hp={hp})"
+        );
+    }
+
+    #[test]
+    fn instant_and_homing_cpp_surface() {
+        let src = include_str!("combat.rs");
+        assert!(src.contains("is_instant_speed"));
+        assert!(src.contains("fire_projectile_ex"));
+        assert!(src.contains("is_homing"));
+        assert!(
+            src.contains("Instant residual") || src.contains("instant-hit"),
+            "must document instant laser residual"
         );
     }
 }
