@@ -2076,6 +2076,19 @@ impl Pathfinder {
             .find_safe_path(request, repulsor_pos1, repulsor_pos2, repulsor_radius)
     }
 
+    /// C++ Pathfinder::adjustToPossibleDestination — spiral search for a reachable cell.
+    pub fn adjust_to_possible_destination(
+        &self,
+        start: &Coord3D,
+        dest: &mut Coord3D,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+    ) -> bool {
+        self.inner
+            .adjust_to_possible_destination(start, dest, surfaces, is_crusher, unit_radius)
+    }
+
     pub fn client_safe_quick_does_path_exist(
         &self,
         locomotor_set: &crate::locomotor::LocomotorSet,
