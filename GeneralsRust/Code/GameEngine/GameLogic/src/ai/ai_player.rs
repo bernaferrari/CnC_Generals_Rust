@@ -4385,17 +4385,9 @@ impl AIPlayer {
             return Ok(());
         }
 
-        // C++ early-out: no science points → return before side-info walk.
-        let purchase_points_early = self
-            .get_player()
-            .and_then(|p| p.read().ok().map(|g| g.get_science_purchase_points()))
-            .unwrap_or(0);
-        if purchase_points_early <= 0 {
-            return Ok(());
-        }
-
         // Find the AiSideInfo for our player's side
-        // C++ AIPlayer.cpp:2917-2926
+        // C++ AIPlayer.cpp:2917-2926 — skillset is chosen even when science
+        // points are still 0 (purchase gated later).
         let player_side = {
             let Some(player_arc) = self.get_player() else {
                 return Ok(());
@@ -4421,7 +4413,7 @@ impl AIPlayer {
         };
 
         // Skillset selection: pick randomly among defined skillsets
-        // C++ AIPlayer.cpp:2928-2948
+        // C++ AIPlayer.cpp:2928-2948 (before science-points gate).
         if self.skillset_selector == INVALID_SKILLSET_SELECTION {
             let mut limit: u32 = 0;
             // Pick randomly among the skillsets that have skills.
@@ -4438,11 +4430,8 @@ impl AIPlayer {
                     }
                 }
             }
-            let is_skirmish = self
-                .get_player()
-                .and_then(|p| p.read().ok().map(|g| g.is_skirmish_ai()))
-                .unwrap_or(false);
-            if is_skirmish {
+            // C++ AIPlayer::isSkirmishAI() — false on base AIPlayer, true on skirmish.
+            if self.is_skirmish_ai_player() {
                 self.skillset_selector = game_logic_random_value(0, limit) as i32;
             } else {
                 // Non-skirmish default to 0
@@ -8010,6 +7999,38 @@ mod tests {
         assert!((TEAMS_WEALTHY_MODIFIER - 2.0).abs() < 1e-5);
         assert_eq!(REBUILD_DELAY_SECONDS, 30);
         assert!((SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 150.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn skillset_selected_before_science_points_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub(crate) fn do_upgrades_and_skills")
+            .expect("do_upgrades_and_skills");
+        let end = src[i..]
+            .find(
+                "
+    pub(crate) fn update_bridge_repair",
+            )
+            .map(|o| i + o)
+            .unwrap_or(src.len().min(i + 6000));
+        let w = &src[i..end];
+        let skillset_idx = w
+            .find("skillset_selector == INVALID_SKILLSET_SELECTION")
+            .expect("skillset pick");
+        let purchase_idx = w
+            .find("get_science_purchase_points")
+            .expect("purchase points");
+        assert!(
+            skillset_idx < purchase_idx,
+            "C++ selects skillset before science-points gate; Rust must match order"
+        );
+        // No early purchase-points return before side_info / skillset.
+        let early = &w[..skillset_idx];
+        assert!(
+            !early.contains("purchase_points_early") && !early.contains("if purchase_points <= 0"),
+            "must not early-out on science points before skillset selection"
+        );
     }
 
     #[test]
