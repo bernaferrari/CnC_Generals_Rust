@@ -1131,13 +1131,22 @@ impl AIPlayer {
                         // set_target logs host_attack_log for shadow session.
                         unit.set_target(Some(focus));
                     }
+                }
+                // Pathfind toward enemy base like player AttackMove — bare move_to
+                // straight-lined through buildings and stranded AI armies.
+                let mobile = game_logic
+                    .find_object(unit_id)
+                    .map(|u| u.is_mobile() && u.is_alive())
+                    .unwrap_or(false);
+                if !mobile {
+                    continue;
+                }
+                if game_logic.assign_unit_path(unit_id, enemy_base, &[]) {
                     if let Some(unit) = game_logic.find_object_mut(unit_id) {
-                        if unit.is_mobile() {
-                            unit.move_to(enemy_base);
-                            unit.ai_state = AIState::AttackMoving;
-                        }
+                        unit.ai_state = AIState::AttackMoving;
                     }
                 } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                    // Fallback residual when A* fails (blocked goal).
                     unit.move_to(enemy_base);
                     unit.ai_state = AIState::AttackMoving;
                 }
@@ -1826,15 +1835,46 @@ mod cpp_parity_tests {
         }
         ai.launch_attack(&mut logic, 1000.0);
         let logged = host_attack_log::drain();
-        let has_target = logic
+        let unit = logic
             .get_objects()
             .get(&usa_unit)
-            .map(|o| o.target.is_some())
-            .unwrap_or(false);
+            .expect("usa unit after launch");
+        let has_target = unit.target.is_some();
         assert!(
             has_target && !logged.is_empty(),
             "launch_attack must set_target and host_attack_log (got target={has_target} log={})",
             logged.len()
+        );
+        assert_eq!(
+            unit.ai_state,
+            AIState::AttackMoving,
+            "launch_attack must leave AttackMoving after path assign"
+        );
+        assert!(
+            !unit.movement.path.is_empty() || unit.movement.target_position.is_some(),
+            "launch_attack must pathfind (or fallback destination), not idle in place"
+        );
+    }
+
+    #[test]
+    fn launch_attack_uses_assign_unit_path_surface() {
+        let src = include_str!("ai.rs");
+        // Do not split on cfg(test) — nested test modules can appear earlier.
+        let i = src
+            .find("fn launch_attack(&mut self, game_logic")
+            .expect("launch_attack");
+        let w = &src[i..i + 4500.min(src.len() - i)];
+        assert!(
+            w.contains("assign_unit_path") && w.contains("AIState::AttackMoving"),
+            "AI launch_attack must pathfind then restore AttackMoving"
+        );
+        // Fallback may call move_to after assign_unit_path fails; primary path
+        // must call assign_unit_path first.
+        let path_i = w.find("assign_unit_path").expect("path");
+        let move_i = w.find("move_to(enemy_base)");
+        assert!(
+            move_i.is_none() || move_i.unwrap() > path_i,
+            "move_to fallback must come after assign_unit_path"
         );
     }
 }
