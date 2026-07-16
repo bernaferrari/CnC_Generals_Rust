@@ -4820,6 +4820,7 @@ impl GameLogic {
         // Weapon fire and damage application as part of the object update pass.
         self.update_combat(&object_ids, dt);
         self.tick_out_of_ammo_jet_damage();
+        self.tick_airfield_parking_heal();
 
         // Projectiles: drain global fire queue into host CombatSystem and step.
         // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
@@ -5698,7 +5699,7 @@ impl GameLogic {
     /// a friendly airfield (FSAirfield / name residual). Fail-closed vs full
     /// ParkingPlace reserve / taxi matrix.
     /// C++ JetOrHeliCirclingDeadAirfieldState residual for all empty RTB jets.
-    fn tick_out_of_ammo_jet_damage(&mut self) {
+    pub(crate) fn tick_out_of_ammo_jet_damage(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -5719,7 +5720,40 @@ impl GameLogic {
         }
     }
 
-    fn try_return_to_base_rearm(&mut self, jet_id: ObjectId) -> bool {
+    /// C++ ParkingPlaceBehavior / JetAIUpdate airfield residual helper.
+    pub(crate) fn is_friendly_airfield(obj: &Object, jet_team: Team) -> bool {
+        if !obj.is_alive() || obj.team != jet_team || obj.status.under_construction {
+            return false;
+        }
+        obj.is_kind_of(KindOf::FSAirfield)
+            || (obj.is_kind_of(KindOf::Structure) && {
+                let n = obj.template_name.to_ascii_lowercase();
+                n.contains("airfield") || n.contains("airbase") || n.contains("hangar")
+            })
+    }
+
+    /// Retail airfield parking capacity residual (NumRows 2 × NumCols 2 = 4).
+    pub(crate) fn airfield_parking_capacity() -> usize {
+        use crate::game_logic::host_dock_contain_exit_heal_residual::{
+            PARKING_PLACE_AIRFIELD_NUM_COLS, PARKING_PLACE_AIRFIELD_NUM_ROWS,
+        };
+        (PARKING_PLACE_AIRFIELD_NUM_ROWS.max(0) as usize)
+            * (PARKING_PLACE_AIRFIELD_NUM_COLS.max(0) as usize)
+    }
+
+    /// Count jets currently docked at this airfield (contained_by residual).
+    pub(crate) fn airfield_parked_count(&self, airfield_id: ObjectId) -> usize {
+        self.objects
+            .values()
+            .filter(|o| {
+                o.is_alive()
+                    && o.contained_by == Some(airfield_id)
+                    && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
+            })
+            .count()
+    }
+
+    pub(crate) fn try_return_to_base_rearm(&mut self, jet_id: ObjectId) -> bool {
         let (needs, jet_team, jet_pos) = {
             let Some(jet) = self.objects.get(&jet_id) else {
                 return false;
@@ -5733,35 +5767,105 @@ impl GameLogic {
             return false;
         }
         const REARM_RANGE: f32 = 120.0;
-        let mut near_airfield = false;
+        let mut best: Option<(ObjectId, f32, glam::Vec3)> = None;
         for obj in self.objects.values() {
-            if obj.id == jet_id || !obj.is_alive() {
+            if obj.id == jet_id {
                 continue;
             }
-            if obj.team != jet_team {
-                continue;
-            }
-            let is_af = obj.is_kind_of(KindOf::FSAirfield)
-                || (obj.is_kind_of(KindOf::Structure) && {
-                    let n = obj.template_name.to_ascii_lowercase();
-                    n.contains("airfield") || n.contains("airbase") || n.contains("hangar")
-                });
-            if !is_af || obj.status.under_construction {
+            if !Self::is_friendly_airfield(obj, jet_team) {
                 continue;
             }
             let d = obj.get_position().distance(jet_pos);
             if d <= REARM_RANGE {
-                near_airfield = true;
-                break;
+                let better = best.map(|(_, bd, _)| d < bd).unwrap_or(true);
+                if better {
+                    best = Some((obj.id, d, obj.get_position()));
+                }
             }
         }
-        if !near_airfield {
+        let Some((af_id, _, af_pos)) = best else {
             return false;
+        };
+        // Capacity residual: refuse dock if parking places full (unless already parked here).
+        let already = self
+            .objects
+            .get(&jet_id)
+            .map(|j| j.contained_by == Some(af_id))
+            .unwrap_or(false);
+        if !already {
+            let parked = self.airfield_parked_count(af_id);
+            if parked >= Self::airfield_parking_capacity() {
+                return false;
+            }
         }
         if let Some(jet) = self.objects.get_mut(&jet_id) {
-            jet.rearm_return_to_base_weapons()
+            if !jet.rearm_return_to_base_weapons() {
+                return false;
+            }
+            // C++ setProducer + park residual: dock at airfield hangar.
+            jet.contained_by = Some(af_id);
+            jet.ai_state = AIState::Docked;
+            jet.status.moving = false;
+            jet.status.airborne_target = false;
+            jet.movement.path.clear();
+            jet.movement.current_path_index = 0;
+            jet.movement.target_position = None;
+            // Snap to airfield pad residual (hangar park).
+            let mut pad = af_pos;
+            pad.y = af_pos.y;
+            jet.set_position(pad);
+            true
         } else {
             false
+        }
+    }
+
+    /// C++ ParkingPlaceBehavior heal residual for docked aircraft at airfields.
+    ///
+    /// Retail AmericaAirfield HealAmountPerSecond **10** → **10/30** HP per frame.
+    pub(crate) fn tick_airfield_parking_heal(&mut self) {
+        use crate::game_logic::host_dock_contain_exit_heal_residual::{
+            parking_place_heal_per_frame, PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC,
+        };
+        let heal = parking_place_heal_per_frame(PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC);
+        if heal <= 0.0 {
+            return;
+        }
+        let jet_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
+                    && o.ai_state == AIState::Docked
+                    && o.contained_by.is_some()
+                    && o.health.current + 1e-3 < o.health.maximum
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for jid in jet_ids {
+            let af_ok = {
+                let Some(jet) = self.objects.get(&jid) else {
+                    continue;
+                };
+                let Some(af_id) = jet.contained_by else {
+                    continue;
+                };
+                self.objects
+                    .get(&af_id)
+                    .map(|af| Self::is_friendly_airfield(af, jet.team))
+                    .unwrap_or(false)
+            };
+            if !af_ok {
+                continue;
+            }
+            if let Some(jet) = self.objects.get_mut(&jid) {
+                // Also top-up RTB ammo while parked (continuous rearm residual).
+                if jet.needs_return_to_base_rearm() {
+                    let _ = jet.rearm_return_to_base_weapons();
+                }
+                jet.heal(heal);
+            }
         }
     }
 
@@ -69753,5 +69857,127 @@ mod tests {
             w.contains("attack_view_blocked"),
             "update_combat must gate fire on attack_view_blocked"
         );
+    }
+
+    #[test]
+    fn airfield_parking_rearm_docks_and_heals() {
+        use crate::game_logic::host_dock_contain_exit_heal_residual::{
+            parking_place_heal_per_frame, PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+
+        let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
+        af_tmpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaAirfield".into(), af_tmpl);
+
+        let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
+        jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        jet_tmpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic.templates.insert("AmericaJetRaptor".into(), jet_tmpl);
+
+        let af_id = logic
+            .create_object("AmericaAirfield", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("af");
+        let jet_id = logic
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(50.0, 40.0, 0.0))
+            .expect("jet");
+
+        {
+            let jet = logic.objects.get_mut(&jet_id).unwrap();
+            jet.weapon = Some(Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ammo: Some(0),
+                clip_size: 4,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Weapon::default()
+            });
+            jet.health.current = 40.0;
+            jet.status.airborne_target = true;
+        }
+
+        assert!(logic.try_return_to_base_rearm(jet_id));
+        {
+            let jet = logic.objects.get(&jet_id).unwrap();
+            assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(4));
+            assert_eq!(jet.ai_state, AIState::Docked);
+            assert_eq!(jet.contained_by, Some(af_id));
+            assert!(!jet.needs_return_to_base_rearm());
+        }
+
+        let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
+        logic.tick_airfield_parking_heal();
+        let hp_after = logic.objects.get(&jet_id).unwrap().health.current;
+        let expected = parking_place_heal_per_frame(PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC);
+        assert!(
+            (hp_after - hp_before - expected).abs() < 1e-3,
+            "heal {hp_before} -> {hp_after}, want +{expected}"
+        );
+    }
+
+    #[test]
+    fn airfield_parking_capacity_blocks_fifth_jet() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
+        af_tmpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaAirfield".into(), af_tmpl);
+        let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
+        jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        jet_tmpl.add_kind_of(KindOf::Aircraft).set_health(100.0);
+        logic.templates.insert("AmericaJetRaptor".into(), jet_tmpl);
+
+        let _af = logic
+            .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let mut jet_ids = Vec::new();
+        for i in 0..5 {
+            let id = logic
+                .create_object(
+                    "AmericaJetRaptor",
+                    Team::USA,
+                    Vec3::new(10.0 + i as f32, 20.0, 0.0),
+                )
+                .unwrap();
+            if let Some(jet) = logic.objects.get_mut(&id) {
+                jet.weapon = Some(Weapon {
+                    damage: 10.0,
+                    range: 100.0,
+                    reload_time: 0.0,
+                    last_fire_time: -100.0,
+                    ammo: Some(0),
+                    clip_size: 2,
+                    ..Weapon::default()
+                });
+            }
+            jet_ids.push(id);
+        }
+        // First 4 dock; 5th capacity-blocked (NumRows*NumCols=4).
+        for (i, &id) in jet_ids.iter().enumerate() {
+            let ok = logic.try_return_to_base_rearm(id);
+            if i < 4 {
+                assert!(ok, "jet {i} should dock");
+            } else {
+                assert!(!ok, "5th jet must hit parking capacity");
+            }
+        }
     }
 }
