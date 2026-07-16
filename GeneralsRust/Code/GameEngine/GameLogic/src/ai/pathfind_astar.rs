@@ -549,6 +549,37 @@ impl AStarPathfinder {
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
     ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_ex3(
+            start,
+            goal,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            downhill_only,
+            ground_height,
+            None,
+        )
+    }
+
+    /// Like find_path_ex2 plus optional neighbor override for tunneling/dozer.
+    /// `force_passable(cell)` → treat as passable even if map says not (tunneling/dozer).
+    pub fn find_path_ex3(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+    ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = BinaryHeap::new();
@@ -559,11 +590,27 @@ impl AStarPathfinder {
         let mut best_coord = start;
         let mut best_dist = start.diagonal_distance(&goal);
 
-        // Validate start and goal
-        if !self.is_passable_with_ignore(start, surfaces, is_crusher, ignore_cells)
-            || !self.is_passable_with_ignore(goal, surfaces, is_crusher, ignore_cells)
-        {
-            return None;
+        // Validate start and goal (tunneling may force start passable).
+        let pass = |c: GridCoord| -> bool {
+            if self.is_passable_with_ignore(c, surfaces, is_crusher, ignore_cells) {
+                return true;
+            }
+            force_passable.map(|f| f(c)).unwrap_or(false)
+        };
+        if !pass(start) || !pass(goal) {
+            // Goal may still be obstacle when ignore obstacle / tunneling into building.
+            if !pass(start) {
+                return None;
+            }
+            if !pass(goal) && force_passable.is_none() {
+                return None;
+            }
+            if !pass(goal) {
+                // Allow goal when force_passable says so, else fail.
+                if !force_passable.map(|f| f(goal)).unwrap_or(false) {
+                    return None;
+                }
+            }
         }
 
         // Initialize start node
@@ -630,20 +677,18 @@ impl AStarPathfinder {
                     let step_y = neighbor_coord.y - current.coord.y;
                     let ortho_a = GridCoord::new(current.coord.x + step_x, current.coord.y);
                     let ortho_b = GridCoord::new(current.coord.x, current.coord.y + step_y);
-                    if !self.is_passable_with_ignore(ortho_a, surfaces, is_crusher, ignore_cells)
-                        || !self.is_passable_with_ignore(
-                            ortho_b,
-                            surfaces,
-                            is_crusher,
-                            ignore_cells,
-                        )
-                    {
+                    let ortho_ok = |c: GridCoord| {
+                        self.is_passable_with_ignore(c, surfaces, is_crusher, ignore_cells)
+                            || force_passable.map(|f| f(c)).unwrap_or(false)
+                    };
+                    if !ortho_ok(ortho_a) || !ortho_ok(ortho_b) {
                         continue;
                     }
                 }
 
-                // Check if passable
+                // Check if passable (or force_passable for tunneling / dozer).
                 if !self.is_passable_with_ignore(neighbor_coord, surfaces, is_crusher, ignore_cells)
+                    && !force_passable.map(|f| f(neighbor_coord)).unwrap_or(false)
                 {
                     continue;
                 }
