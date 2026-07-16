@@ -5571,12 +5571,13 @@ impl AIPlayer {
     }
 
     /// After auto team select: C++ sets ready=false and teamTimer with wealth mods.
+    ///
+    /// Retail TeamSeconds=0 → timer 0 (like structureSeconds). C++ does not clamp
+    /// to 1; next doTeamBuilding frame decrements and re-arms ready.
     fn arm_team_timer_after_build(&mut self) -> Result<(), AiError> {
         self.ready_to_build_team = false;
+        // C++: m_teamTimer = m_teamSeconds * LOGICFRAMES_PER_SECOND (0 is valid).
         let mut timer = (self.team_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
-        if timer == 0 {
-            timer = 1;
-        }
 
         let money = player_list()
             .read()
@@ -5588,6 +5589,7 @@ impl AIPlayer {
         let (poor, wealthy, poor_mod, wealthy_mod) = Self::team_wealth_params();
 
         // C++: timer = timer / mod when mod applies (mod 0 → skip).
+        // Integer divide of 0 stays 0 (immediate re-ready next doTeamBuilding).
         if money < poor && poor_mod > 0.0 {
             timer = (timer as f32 / poor_mod) as u32;
         } else if money > wealthy && wealthy_mod > 0.0 {
@@ -8189,6 +8191,21 @@ mod tests {
         // money=0 → poor TeamsPoorRate 0.6 (f32 truncation like C++ Real).
         assert_eq!(ai.team_timer, (300f32 / TEAMS_POOR_MODIFIER) as u32);
         assert_eq!(ai.team_timer, 499);
+    }
+
+    #[test]
+    fn arm_team_timer_zero_seconds_stays_zero_like_cpp() {
+        let mut ai = AIPlayer::new(1);
+        ai.team_seconds = 0.0;
+        ai.ready_to_build_team = true;
+        ai.arm_team_timer_after_build().expect("arm");
+        assert!(!ai.ready_to_build_team);
+        // C++ allows teamTimer 0 when TeamSeconds is 0 (no clamp to 1).
+        assert_eq!(ai.team_timer, 0);
+        // Next doTeamBuilding: timer==0 → ready true (same one-frame lag as C++).
+        ai.do_team_building().expect("tick");
+        assert!(ai.ready_to_build_team);
+        assert_eq!(ai.team_timer, 0);
     }
 
     #[test]
