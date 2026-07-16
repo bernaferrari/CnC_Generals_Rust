@@ -5948,6 +5948,31 @@ impl GameLogic {
                         }
                         continue;
                     }
+
+                    // C++ AIStates AcceptableAimDelta residual: do not fire until facing
+                    // is within aim delta; turn in place toward the target instead.
+                    {
+                        let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            attacker.ai_state = AIState::Attacking;
+                            attacker.status.attacking = true;
+                            attacker.target = Some(target_id);
+                            // Stationary / can-turn-in-place residual: complete the yaw
+                            // this frame (fail-closed vs loco turn-rate matrix). Moving
+                            // attackers use a bounded step so chase still turns gradually.
+                            let max_step = if attacker.status.moving && attacker.can_move() {
+                                0.2
+                            } else {
+                                std::f32::consts::PI
+                            };
+                            attacker.turn_toward_position(target_position, slot, max_step)
+                        } else {
+                            true
+                        };
+                        if !aim_ok {
+                            continue;
+                        }
+                    }
+
                     // GLA car-bomb residual: firing the SuicideCarBomb weapon detonates
                     // at self (DamageDealtAtSelfPosition) and destroys the car bomb.
                     let is_carbomb = self
@@ -7229,6 +7254,23 @@ impl GameLogic {
                 };
 
                 if can_fire_at_location {
+                    // AcceptableAimDelta residual for force-attack-ground.
+                    let ground_slot: u8 = if rocket_pod_ground { 1 } else { 0 };
+                    let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                        attacker.ai_state = AIState::AttackingGround;
+                        attacker.status.attacking = true;
+                        let max_step = if attacker.status.moving && attacker.can_move() {
+                            0.2
+                        } else {
+                            std::f32::consts::PI
+                        };
+                        attacker.turn_toward_position(target_location, ground_slot, max_step)
+                    } else {
+                        true
+                    };
+                    if !aim_ok {
+                        continue;
+                    }
                     let mut weapon_damage = if rocket_pod_ground {
                         self.objects
                             .get(&attacker_id)

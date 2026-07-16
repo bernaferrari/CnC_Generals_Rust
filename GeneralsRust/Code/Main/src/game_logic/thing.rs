@@ -499,8 +499,10 @@ impl Thing {
         let translation = self.transform.w_axis.truncate();
         self.cached_position = translation;
 
-        // Extract rotation angle (assuming rotation around Y axis)
-        let forward = self.transform.z_axis.truncate();
+        // Extract yaw from the facing basis. Host movement / aim residual uses
+        // forward = (cos θ, 0, -sin θ), which is the X column of from_rotation_y(θ).
+        // (Previously used Z column, which shifted θ by -π/2 and broke aim checks.)
+        let forward = self.transform.x_axis.truncate();
         self.cached_angle = (-forward.z).atan2(forward.x);
 
         // Calculate direction vector

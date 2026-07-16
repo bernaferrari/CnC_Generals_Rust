@@ -2174,6 +2174,62 @@ impl Object {
         }
     }
 
+    /// C++ PartitionManager::getRelativeAngle2D residual to a world position.
+    pub fn relative_angle_2d_to(&self, target_pos: Vec3) -> f32 {
+        crate::game_logic::weapon_bootstrap::relative_angle_2d(
+            self.get_position(),
+            self.get_orientation(),
+            target_pos,
+        )
+    }
+
+    /// Resolve AcceptableAimDelta for the active/named weapon slot (radians).
+    pub fn aim_delta_for_slot(&self, slot: u8) -> f32 {
+        let name = if slot == 1 {
+            self.thing.template.secondary_weapon_name.as_deref().or(self
+                .thing
+                .template
+                .primary_weapon_name
+                .as_deref())
+        } else {
+            self.thing.template.primary_weapon_name.as_deref()
+        };
+        name.map(crate::game_logic::weapon_bootstrap::host_aim_delta_for_weapon_name)
+            .unwrap_or(crate::game_logic::weapon_bootstrap::AIM_DELTA_REL_THRESH_RAD)
+    }
+
+    /// C++ AIStates aim gate: facing within AcceptableAimDelta of target.
+    pub fn is_aimed_at_position(&self, target_pos: Vec3, slot: u8) -> bool {
+        let aim = self.aim_delta_for_slot(slot);
+        // Omni-fire residual (~180°): always aimed.
+        if aim >= std::f32::consts::PI - 1e-3 {
+            return true;
+        }
+        let rel = self.relative_angle_2d_to(target_pos);
+        crate::game_logic::weapon_bootstrap::is_within_aim_delta(rel, aim)
+    }
+
+    /// C++ setLocomotorGoalOrientation residual: rotate toward target (in-place turn).
+    ///
+    /// `max_step_rad` caps per-call turn (default generous for host residual).
+    /// Returns true when already within aim delta after the step.
+    pub fn turn_toward_position(&mut self, target_pos: Vec3, slot: u8, max_step_rad: f32) -> bool {
+        let aim = self.aim_delta_for_slot(slot);
+        if aim >= std::f32::consts::PI - 1e-3 {
+            return true;
+        }
+        let rel = self.relative_angle_2d_to(target_pos);
+        if crate::game_logic::weapon_bootstrap::is_within_aim_delta(rel, aim) {
+            return true;
+        }
+        let step = max_step_rad.max(0.0);
+        let turn = rel.clamp(-step, step);
+        let new_ori = self.get_orientation() + turn;
+        self.set_orientation(new_ori);
+        let rel2 = self.relative_angle_2d_to(target_pos);
+        crate::game_logic::weapon_bootstrap::is_within_aim_delta(rel2, aim)
+    }
+
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
         // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
         if self.status.weapons_jammed || self.is_disabled() {
@@ -3972,5 +4028,53 @@ mod tests {
         atk.stop_attack();
         assert!(!atk.leech_range_active_primary);
         assert!(!atk.can_target_with_slot(&tgt, atk.weapon.as_ref().unwrap(), Some(0)));
+    }
+
+    #[test]
+    fn acceptable_aim_delta_blocks_then_allows_after_turn() {
+        let mut tmpl = ThingTemplate::new("AmericaTankCrusader");
+        tmpl.primary_weapon_name = Some("AmericaTankCrusaderGun".into());
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        atk.set_position(glam::Vec3::ZERO);
+        atk.set_orientation(0.0); // face +X residual (movement convention)
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+        let target = glam::Vec3::new(0.0, 0.0, 50.0); // off to +Z (~90°)
+        let aim = atk.aim_delta_for_slot(0);
+        let rel = atk.relative_angle_2d_to(target);
+        // 20° aim residual should NOT be aimed at 90° offset.
+        assert!(
+            !atk.is_aimed_at_position(target, 0),
+            "unexpectedly aimed: aim_delta={aim} rel={rel} ori={}",
+            atk.get_orientation()
+        );
+        // Turn in steps until aimed.
+        let mut aimed = false;
+        for _ in 0..20 {
+            if atk.turn_toward_position(target, 0, 0.2) {
+                aimed = true;
+                break;
+            }
+        }
+        assert!(
+            aimed,
+            "should aim after turns, ori={}",
+            atk.get_orientation()
+        );
+        assert!(atk.is_aimed_at_position(target, 0));
+    }
+
+    #[test]
+    fn omni_aim_delta_always_aimed() {
+        let mut tmpl = ThingTemplate::new("AmericaSentryDrone");
+        tmpl.primary_weapon_name = Some("AmericaSentryDroneGun".into());
+        let mut atk = Object::new(tmpl, ObjectId(3), Team::USA);
+        atk.set_position(glam::Vec3::ZERO);
+        atk.set_orientation(0.0);
+        let target = glam::Vec3::new(-40.0, 0.0, 10.0);
+        assert!(atk.is_aimed_at_position(target, 0));
     }
 }
