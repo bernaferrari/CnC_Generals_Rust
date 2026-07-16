@@ -1095,6 +1095,61 @@ fn weapon_ini_candidate_paths() -> Vec<PathBuf> {
 ///
 /// Values match retail Weapon.ini entries used by those units (damage/range).
 /// Delay is stored in logic frames (30 FPS) after msec conversion.
+
+fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::damage::DamageType {
+    use gamelogic::damage::DamageType as D;
+    let n = name.to_ascii_lowercase();
+    if n.contains("laser") || n.contains("point_defense") || n.contains("pointdefense") {
+        return D::Laser;
+    }
+    if n.contains("flame")
+        || n.contains("dragon")
+        || n.contains("napalm")
+        || n.contains("inferno")
+        || n.contains("fire")
+    {
+        return D::Flame;
+    }
+    if n.contains("toxin") || n.contains("anthrax") || n.contains("poison") {
+        return D::Poison;
+    }
+    if n.contains("neutron") || n.contains("nuke") || n.contains("radiation") {
+        return D::Radiation;
+    }
+    if n.contains("emp") || n.contains("microwave") {
+        return D::Microwave;
+    }
+    if n.contains("sniper") || n.contains("jarmen") {
+        return D::Sniper;
+    }
+    if n.contains("gattling") || n.contains("gatling") {
+        return D::Gattling;
+    }
+    if n.contains("bomb")
+        || n.contains("scud")
+        || n.contains("missile")
+        || n.contains("rocket")
+        || n.contains("tomahawk")
+        || n.contains("aurora")
+        || n.contains("grenade")
+        || n.contains("demo")
+    {
+        return D::Explosion;
+    }
+    // Instant-hit residual without laser name still often lasers (Paladin PDL speed).
+    if weapon_speed >= 999_000.0 || weapon_speed <= 0.0 {
+        if n.contains("gun") || n.contains("rifle") || n.contains("machine") {
+            return D::SmallArms;
+        }
+        // many instant hits are small arms hitscan residual in host seeds
+        return D::SmallArms;
+    }
+    if n.contains("tankgun") || n.contains("tank_gun") || n.contains("cannon") {
+        return D::ArmorPiercing;
+    }
+    D::SmallArms
+}
+
 fn seed_known_host_weapons() -> usize {
     let seeds = [
         // AmericaInfantryRanger PRIMARY — PrimaryDamage 5, AttackRange 100,
@@ -1943,6 +1998,7 @@ fn seed_known_host_weapons() -> usize {
         t.max_delay_between_shots = seed.delay_frames;
         t.clip_size = seed.clip_size;
         t.weapon_speed = seed.weapon_speed;
+        t.damage_type = seed_damage_type_for(seed.name, seed.weapon_speed);
         t.anti_mask.insert(WeaponAntiMask::GROUND);
         // Min-range residual for long-range GLA artillery / rockets.
         if seed.name == BUGGY_ROCKET_WEAPON || seed.name == BUGGY_ROCKET_WEAPON_UPGRADED {

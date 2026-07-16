@@ -2139,13 +2139,36 @@ impl Object {
             let shooter_pos = self.get_position();
             self.target = Some(target_id);
 
-            // Coarse host damage-class residual from weapon shape (not full INI DamageType).
-            let weapon_dtype = if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
-                super::combat::DamageType::Laser
-            } else if weapon_splash > 0.0 {
-                super::combat::DamageType::Explosive
-            } else {
-                super::combat::DamageType::Bullet
+            // Prefer Weapon.ini DamageType via store name; shape residual if store empty.
+            let weapon_dtype = {
+                let slot = self.active_weapon_slot;
+                let name = if slot == 1 {
+                    self.thing.template.secondary_weapon_name.as_deref().or(self
+                        .thing
+                        .template
+                        .primary_weapon_name
+                        .as_deref())
+                } else {
+                    self.thing.template.primary_weapon_name.as_deref()
+                };
+                if let Some(n) = name {
+                    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+                    if crate::game_logic::thing::ThingTemplate::weapon_from_store(n).is_some() {
+                        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(n)
+                    } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
+                        super::combat::DamageType::Laser
+                    } else if weapon_splash > 0.0 {
+                        super::combat::DamageType::Explosive
+                    } else {
+                        super::combat::DamageType::Bullet
+                    }
+                } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
+                    super::combat::DamageType::Laser
+                } else if weapon_splash > 0.0 {
+                    super::combat::DamageType::Explosive
+                } else {
+                    super::combat::DamageType::Bullet
+                }
             };
             super::combat::queue_projectile(super::combat::PendingProjectile {
                 shooter_id,

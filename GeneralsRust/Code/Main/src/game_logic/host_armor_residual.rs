@@ -983,6 +983,64 @@ pub fn apply_residual_armor(
     armor.adjust_damage(dt, amount).max(0.0)
 }
 
+/// Map gamelogic / Weapon.ini DamageType → host combat damage class residual.
+pub fn map_store_damage_type(
+    dt: gamelogic::damage::DamageType,
+) -> crate::game_logic::combat::DamageType {
+    use crate::game_logic::combat::DamageType as H;
+    use gamelogic::damage::DamageType as G;
+    match dt {
+        G::Explosion | G::LandMine | G::AuroraBomb | G::MolotovCocktail => H::Explosive,
+        G::Flame => H::Flame,
+        G::Laser | G::ParticleBeam => H::Laser,
+        G::Poison => H::Toxin,
+        G::Radiation => H::Radiation,
+        G::Microwave => H::EMP,
+        G::Unresistable
+        | G::Healing
+        | G::Status
+        | G::Hack
+        | G::Surrender
+        | G::Deploy
+        | G::Disarm
+        | G::Penalty
+        | G::Falling
+        | G::Toppling
+        | G::KillPilot
+        | G::KillGarrisoned
+        | G::SubdualMissile
+        | G::SubdualVehicle
+        | G::SubdualBuilding
+        | G::SubdualUnresistable
+        | G::Water
+        | G::HazardCleanup => H::Unresistable,
+        G::SmallArms
+        | G::ComancheVulcan
+        | G::Melee
+        | G::Crush
+        | G::ArmorPiercing
+        | G::InfantryMissile
+        | G::JetMissiles
+        | G::StealthJetMissiles
+        | G::Gattling
+        | G::Sniper => H::Bullet,
+        _ => H::Bullet,
+    }
+}
+
+/// Look up Weapon.ini DamageType residual by weapon template name.
+pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat::DamageType {
+    use gamelogic::weapon::with_weapon_store;
+    let dt = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| map_store_damage_type(wt.damage_type))
+    })
+    .ok()
+    .flatten();
+    dt.unwrap_or(crate::game_logic::combat::DamageType::Bullet)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1031,5 +1089,33 @@ mod tests {
         assert!((hazmat.adjust_damage(DamageType::Poison, 100.0)).abs() < 0.01);
         let tough = build_structure_armor_tough_residual();
         assert!((tough.adjust_damage(DamageType::Explosion, 100.0) - 80.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn store_damage_type_maps_explosion_and_laser() {
+        use gamelogic::damage::DamageType as G;
+        assert_eq!(
+            map_store_damage_type(G::Explosion),
+            crate::game_logic::combat::DamageType::Explosive
+        );
+        assert_eq!(
+            map_store_damage_type(G::Laser),
+            crate::game_logic::combat::DamageType::Laser
+        );
+        assert_eq!(
+            map_store_damage_type(G::SmallArms),
+            crate::game_logic::combat::DamageType::Bullet
+        );
+    }
+
+    #[test]
+    fn host_weapon_name_damage_type_uses_seeded_store() {
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        let laser = host_damage_type_for_weapon_name("PaladinPointDefenseLaser");
+        assert_eq!(laser, crate::game_logic::combat::DamageType::Laser);
+        let rifle = host_damage_type_for_weapon_name("RangerAdvancedCombatRifle");
+        assert_eq!(rifle, crate::game_logic::combat::DamageType::Bullet);
+        let bomb = host_damage_type_for_weapon_name("AuroraBombWeapon");
+        assert_eq!(bomb, crate::game_logic::combat::DamageType::Explosive);
     }
 }
