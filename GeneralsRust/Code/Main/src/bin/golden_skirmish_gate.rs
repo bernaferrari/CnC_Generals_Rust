@@ -30,17 +30,18 @@ fn main() {
     let result = run_golden_skirmish(map.as_deref(), frames);
     println!("{}", format_golden_report(&result));
     // Full vertical-slice gate: config, frames, all gameplay steps, victory, save/load.
-    // Map present: main combat on map armies — synthetic_combat=false, playable_claim=true.
-    // Map absent: synthetic host soup — synthetic_combat=true, playable_claim=false.
+    // Map present: main combat on map armies — synthetic_combat=false,
+    // map_host_playable_ok=true, playable_claim always false.
+    // Map absent: synthetic host soup — synthetic_combat=true, map_host_ok=false.
     let map_same_world_ok = !result.map_loaded
         || (result.map_combat_ok
             && result.same_world_production_ok
             && result.same_world_victory_ok
             && result.players_preserved_on_load);
     let combat_claim_ok = if result.map_loaded {
-        !result.synthetic_combat && result.playable_claim
+        !result.synthetic_combat && result.map_host_playable_ok && !result.playable_claim
     } else {
-        result.synthetic_combat && !result.playable_claim
+        result.synthetic_combat && !result.map_host_playable_ok && !result.playable_claim
     };
     // Map path: also require pure-march combat honesty (no teleport pull residual).
     let map_combat_honesty_ok =
@@ -63,10 +64,11 @@ fn main() {
         && map_combat_honesty_ok;
     if pass {
         println!(
-            "golden_skirmish_gate: PASS (AI on; map_loaded={} synthetic_combat={} playable_claim={}; ai_templates_retained=true; map_same_world_prod={} map_same_world_victory={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={})",
+            "golden_skirmish_gate: PASS (AI on; map_loaded={} synthetic_combat={} playable_claim={} map_host_ok={}; ai_templates_retained=true; map_same_world_prod={} map_same_world_victory={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={})",
             result.map_loaded,
             result.synthetic_combat,
             result.playable_claim,
+            result.map_host_playable_ok,
             result.same_world_production_ok,
             result.same_world_victory_ok,
             result.retail_production_chain_ok,
@@ -94,13 +96,14 @@ fn main() {
         std::process::exit(0);
     }
     eprintln!(
-        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} synthetic={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={} map_loaded={}",
+        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} synthetic={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={} map_loaded={}",
         result.victory,
         result.save_load_ok,
         result.status,
         result.ai_disabled_for_slice,
         result.synthetic_combat,
         result.playable_claim,
+        result.map_host_playable_ok,
         result.ai_structure_templates_retained,
         result.map_combat_ok,
         result.same_world_production_ok,
