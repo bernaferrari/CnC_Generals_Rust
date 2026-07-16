@@ -4103,12 +4103,12 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// C++ `AIUpdateInterface::joinTeam` residual for reinforcement activation.
+    /// C++ `AIUpdateInterface::joinTeam` for reinforcement activation.
     fn join_team_reinforcement(
         &self,
         obj_id: ObjectID,
-        team: Option<Arc<RwLock<crate::team::Team>>>,
-        team_name: Option<&str>,
+        _team: Option<Arc<RwLock<crate::team::Team>>>,
+        _team_name: Option<&str>,
     ) {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return;
@@ -4116,56 +4116,12 @@ impl AIPlayer {
         let Ok(obj) = obj_arc.read() else {
             return;
         };
-        if !obj.is_mobile() {
-            return;
-        }
+        // C++ joinTeam uses obj->getTeam(); team handle args are unused.
         let Some(ai) = obj.get_ai_update_interface() else {
             return;
         };
-        if ai.is_ai_in_dead_state() {
-            return;
-        }
-        ai.choose_locomotor_set(LocomotorSetType::Normal);
-
-        // Find another non-held teammate to catch up to (prefer m_team handle).
-        let members: Vec<ObjectID> = team
-            .or_else(|| {
-                team_name.and_then(|name| {
-                    get_team_factory()
-                        .lock()
-                        .ok()
-                        .and_then(|f| f.find_team_instances(name).into_iter().next())
-                })
-            })
-            .and_then(|team_arc| team_arc.read().ok().map(|t| t.get_members().to_vec()))
-            .unwrap_or_default();
-
-        let mut other_pos = None;
-        for mid in members {
-            if mid == obj_id {
-                continue;
-            }
-            let Some(oarc) = OBJECT_REGISTRY.get_object(mid) else {
-                continue;
-            };
-            let Ok(og) = oarc.read() else {
-                continue;
-            };
-            if og.is_disabled_by_type(crate::common::types::DisabledType::Held) {
-                continue;
-            }
-            if og.get_ai_update_interface().is_none() {
-                continue;
-            }
-            other_pos = Some(*og.get_position());
-            break;
-        }
-
-        if let Some(pos) = other_pos {
-            // C++: aiMoveToPosition when teammate idle; else match goal/state.
-            // Residual: always move toward teammate position (state-match deferred).
-            ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
-        }
+        drop(obj);
+        ai.join_team();
     }
 
     fn is_skirmish_ai_player(&self) -> bool {
@@ -8471,6 +8427,34 @@ mod tests {
                 && window.contains("build_structure_now_at")
                 && window.contains("increment_num_rebuilds"),
             "newMap must add factories, compute base, inst-build initiallyBuilt"
+        );
+    }
+
+    #[test]
+    fn join_team_reinforcement_calls_join_team_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn join_team_reinforcement")
+            .expect("join_team_reinforcement");
+        let w = &src[i..src.len().min(i + 1200)];
+        assert!(
+            w.contains("ai.join_team()") && !w.contains("Residual: always move toward teammate"),
+            "reinforcement must call full joinTeam, not residual move-only"
+        );
+        let unit = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/object/unit.rs"));
+        let j = unit
+            .find("fn join_team(&mut self)")
+            .expect("UnitAI join_team");
+        let uw = &unit[j..unit.len().min(j + 3500)];
+        assert!(
+            uw.contains("choose_locomotor_set")
+                && uw.contains("set_goal_waypoint(None)")
+                && uw.contains("clear()")
+                && uw.contains("other_idle")
+                && uw.contains("INVALID_STATE_ID")
+                && uw.contains("set_goal_object")
+                && uw.contains("set_goal_position"),
+            "joinTeam must clear, copy goal, and setState(INVALID→default) like C++"
         );
     }
 
