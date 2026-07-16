@@ -258,8 +258,10 @@ pub struct AStarPathfinder {
     obstacle_owners: HashMap<(i32, i32), u32>,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
     obstacle_fence: HashSet<(i32, i32)>,
-    /// C++ PathfindZoneManager block passable — only false entries stored; missing = true.
-    /// Used for hierarchical setPassable / isPassable neighbor cost penalty.
+    /// C++ PathfindCellInfo::m_obstacleIsTransparent (KINDOF_CAN_SEE_THROUGH).
+    obstacle_transparent: HashSet<(i32, i32)>,
+    /// C++ PathfindZoneManager block passable (blockX, blockY).
+    /// Only false entries stored; missing = true (default passable).
     zone_impassable_blocks: HashSet<(i32, i32)>,
 }
 
@@ -272,6 +274,7 @@ impl AStarPathfinder {
             height,
             obstacle_owners: HashMap::new(),
             obstacle_fence: HashSet::new(),
+            obstacle_transparent: HashSet::new(),
             zone_impassable_blocks: HashSet::new(),
         }
     }
@@ -284,6 +287,7 @@ impl AStarPathfinder {
         }
         self.obstacle_owners.clear();
         self.obstacle_fence.clear();
+        self.obstacle_transparent.clear();
         self.zone_impassable_blocks.clear();
     }
 
@@ -751,7 +755,13 @@ impl AStarPathfinder {
         self.obstacle_owners.get(&(coord.x, coord.y)).copied()
     }
 
-    pub fn set_cell_obstacle_id(&mut self, coord: GridCoord, obj_id: u32, is_fence: bool) {
+    pub fn set_cell_obstacle_id(
+        &mut self,
+        coord: GridCoord,
+        obj_id: u32,
+        is_fence: bool,
+        is_transparent: bool,
+    ) {
         if let Some(cell) = self.get_cell_mut(coord) {
             cell.set_type(PathfindCellType::Obstacle);
         }
@@ -761,6 +771,16 @@ impl AStarPathfinder {
         } else {
             self.obstacle_fence.remove(&(coord.x, coord.y));
         }
+        if is_transparent {
+            self.obstacle_transparent.insert((coord.x, coord.y));
+        } else {
+            self.obstacle_transparent.remove(&(coord.x, coord.y));
+        }
+    }
+
+    /// C++ PathfindCell::isObstacleTransparent.
+    pub fn is_obstacle_transparent(&self, coord: GridCoord) -> bool {
+        self.obstacle_transparent.contains(&(coord.x, coord.y))
     }
 
     pub fn is_obstacle_fence(&self, coord: GridCoord) -> bool {
@@ -774,6 +794,7 @@ impl AStarPathfinder {
             Some(owner) if owner == obj_id => {
                 self.obstacle_owners.remove(&key);
                 self.obstacle_fence.remove(&key);
+                self.obstacle_transparent.remove(&key);
                 if let Some(cell) = self.get_cell_mut(coord) {
                     cell.set_type(PathfindCellType::Clear);
                 }
