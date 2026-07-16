@@ -467,6 +467,75 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini PreAttackType residual (WeaponPrefireType).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostPrefireType {
+    /// Delay before every shot.
+    PerShot,
+    /// Delay once per engagement / new target.
+    PerAttack,
+    /// Delay once at the start of each clip.
+    PerClip,
+}
+
+impl HostPrefireType {
+    pub fn from_ini(s: &str) -> Self {
+        match s.trim().to_ascii_uppercase().as_str() {
+            "PER_SHOT" => Self::PerShot,
+            "PER_CLIP" => Self::PerClip,
+            "PER_ATTACK" => Self::PerAttack,
+            _ => Self::PerShot, // C++ default PrefirePerShot
+        }
+    }
+}
+
+/// Resolve PreAttackType for a weapon name.
+pub fn host_prefire_type_for_weapon_name(name: &str) -> HostPrefireType {
+    use gamelogic::weapon::{with_weapon_store, WeaponPrefireType};
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| match wt.prefire_type {
+                WeaponPrefireType::PrefirePerShot => HostPrefireType::PerShot,
+                WeaponPrefireType::PrefirePerAttack => HostPrefireType::PerAttack,
+                WeaponPrefireType::PrefirePerClip => HostPrefireType::PerClip,
+            })
+    })
+    .ok()
+    .flatten();
+    if let Some(t) = from_store {
+        return t;
+    }
+    seed_prefire_type_for(name)
+}
+
+fn seed_prefire_type_for(name: &str) -> HostPrefireType {
+    let n = name.to_ascii_lowercase();
+    // Gattling / continuous-fire residual often PER_SHOT with short delay.
+    if n.contains("gattling") || n.contains("minigun") || n.contains("vulcan") {
+        return HostPrefireType::PerShot;
+    }
+    // Scud / artillery clip residual.
+    if n.contains("scudstorm") || (n.contains("howitzer") && n.contains("spectre")) {
+        return HostPrefireType::PerClip;
+    }
+    // Melee / knife / sniper residual: once per attack.
+    if n.contains("knife")
+        || n.contains("melee")
+        || n.contains("burton")
+        || n.contains("sniper")
+        || n.contains("jarmen")
+        || n.contains("pathfinder")
+        || n.contains("ranger")
+        || n.contains("tunneldefender")
+    {
+        return HostPrefireType::PerAttack;
+    }
+    // C++ default is PER_SHOT.
+    HostPrefireType::PerShot
+}
+
 /// C++ Weapon.ini AcceptableAimDelta residual (radians).
 ///
 /// C++ `INI::parseAngleReal` stores radians. Host peels convert degree-like
@@ -4781,5 +4850,29 @@ mod tests {
         assert!(rel.abs() > 1.0, "rel={rel}");
         assert!(is_within_aim_delta(0.01, AIM_DELTA_REL_THRESH_RAD));
         assert!(!is_within_aim_delta(1.0, 20f32.to_radians()));
+    }
+
+    #[test]
+    fn prefire_type_seed_residual() {
+        assert_eq!(
+            seed_prefire_type_for("AmericaGattlingTankGun"),
+            HostPrefireType::PerShot
+        );
+        assert_eq!(
+            seed_prefire_type_for("ColonelBurtonKnifeAttack"),
+            HostPrefireType::PerAttack
+        );
+        assert_eq!(
+            seed_prefire_type_for("ScudStormWeapon"),
+            HostPrefireType::PerClip
+        );
+        assert_eq!(
+            HostPrefireType::from_ini("PER_CLIP"),
+            HostPrefireType::PerClip
+        );
+        assert_eq!(
+            HostPrefireType::from_ini("per_attack"),
+            HostPrefireType::PerAttack
+        );
     }
 }

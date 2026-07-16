@@ -5973,6 +5973,62 @@ impl GameLogic {
                         }
                     }
 
+                    // C++ PreAttackType residual: wind-up before first discharge of
+                    // shot / attack / clip. Shared Object helpers match fire_at.
+                    {
+                        let pre_blocked = if let Some(attacker) = self.objects.get_mut(&attacker_id)
+                        {
+                            // Mirror Object::fire_at pre-attack gate without spawning.
+                            let pre_delay = attacker
+                                .weapon_slot(slot)
+                                .map(|w| w.pre_attack_delay.max(0.0))
+                                .unwrap_or(0.0);
+                            let prefire = {
+                                let name =
+                                    if slot == 1 {
+                                        attacker.thing.template.secondary_weapon_name.as_deref().or(
+                                            attacker.thing.template.primary_weapon_name.as_deref(),
+                                        )
+                                    } else {
+                                        attacker.thing.template.primary_weapon_name.as_deref()
+                                    };
+                                name.map(
+                                    crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name,
+                                )
+                                .unwrap_or(
+                                    crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot,
+                                )
+                            };
+                            let apply = attacker
+                                .pre_attack_delay_applies(slot, target_id, prefire, pre_delay);
+                            if apply {
+                                let needs_arm = attacker.pre_attack_target != Some(target_id)
+                                    || attacker.pre_attack_ready_at <= 0.0;
+                                if needs_arm {
+                                    attacker.pre_attack_target = Some(target_id);
+                                    attacker.pre_attack_ready_at = current_time + pre_delay;
+                                    attacker.activate_leech_range_for_slot(slot);
+                                }
+                                if current_time + 1e-6 < attacker.pre_attack_ready_at {
+                                    attacker.target = Some(target_id);
+                                    attacker.ai_state = AIState::Attacking;
+                                    attacker.status.attacking = true;
+                                    true
+                                } else {
+                                    false
+                                }
+                            } else {
+                                attacker.pre_attack_target = Some(target_id);
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if pre_blocked {
+                            continue;
+                        }
+                    }
+
                     // GLA car-bomb residual: firing the SuicideCarBomb weapon detonates
                     // at self (DamageDealtAtSelfPosition) and destroys the car bomb.
                     let is_carbomb = self
@@ -7636,7 +7692,11 @@ impl GameLogic {
 
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(weapon) = attacker.weapon_slot_mut(slot) {
-                        weapon.last_fire_time = current_time;
+                        // Clip residual: consume round (also stamps last_fire_time).
+                        Object::consume_ammo_on_fire(weapon, current_time);
+                    }
+                    if let Some(tid) = attacker.target {
+                        attacker.record_shot_at_target(tid);
                     }
                     // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.
                     if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
