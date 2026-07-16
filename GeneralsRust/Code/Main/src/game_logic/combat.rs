@@ -79,6 +79,12 @@ pub struct Projectile {
     pub radius_damage_affects: u32,
     /// C++ ProjectileCollidesWith residual mask.
     pub projectile_collides: u32,
+    /// C++ HistoricBonus weapon-template key (empty = none).
+    pub historic_weapon_key: String,
+    pub historic_bonus_time_frames: u32,
+    pub historic_bonus_count: i32,
+    pub historic_bonus_radius: f32,
+    pub historic_bonus_weapon: String,
 }
 
 impl Projectile {
@@ -122,6 +128,11 @@ impl Projectile {
             radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
         }
     }
 
@@ -285,6 +296,12 @@ pub struct PendingProjectile {
     pub attack_range: f32,
     /// C++ MinimumAttackRange residual for ScaleWeaponSpeed ratio.
     pub min_attack_range: f32,
+    /// C++ HistoricBonus residual peels (stamped at fire).
+    pub historic_weapon_key: String,
+    pub historic_bonus_time_frames: u32,
+    pub historic_bonus_count: i32,
+    pub historic_bonus_radius: f32,
+    pub historic_bonus_weapon: String,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -385,6 +402,11 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.shock_wave_radius = p.shock_wave_radius;
             proj.shock_wave_taper_off = p.shock_wave_taper_off;
             proj.radius_damage_affects = p.radius_damage_affects;
+            proj.historic_weapon_key = p.historic_weapon_key.clone();
+            proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
+            proj.historic_bonus_count = p.historic_bonus_count;
+            proj.historic_bonus_radius = p.historic_bonus_radius;
+            proj.historic_bonus_weapon = p.historic_bonus_weapon.clone();
             proj.projectile_collides = p.projectile_collides;
         }
     }
@@ -492,6 +514,42 @@ impl CombatSystem {
     }
 
     /// Update all projectiles
+
+    fn maybe_record_historic_bonus(
+        projectile: &Projectile,
+        impact_pos: Vec3,
+        objects: &HashMap<ObjectId, Object>,
+    ) {
+        if projectile.historic_bonus_count <= 0 {
+            return;
+        }
+        let peel = crate::game_logic::weapon_bootstrap::HostHistoricBonusPeel {
+            time_frames: projectile.historic_bonus_time_frames,
+            count: projectile.historic_bonus_count,
+            radius: projectile.historic_bonus_radius,
+            bonus_weapon: projectile.historic_bonus_weapon.clone(),
+        };
+        if !peel.is_active() {
+            return;
+        }
+        let team = objects
+            .get(&projectile.shooter_id)
+            .map(|o| o.team)
+            .unwrap_or(crate::game_logic::Team::Neutral);
+        let key = if projectile.historic_weapon_key.is_empty() {
+            "weapon"
+        } else {
+            projectile.historic_weapon_key.as_str()
+        };
+        let _ = crate::game_logic::host_historic_bonus::record_impact(
+            key,
+            &peel,
+            impact_pos,
+            projectile.shooter_id,
+            team,
+        );
+    }
+
     pub fn update_projectiles(
         &mut self,
         dt: f32,
@@ -567,6 +625,7 @@ impl CombatSystem {
                 }
                 if let Some(sid) = hit_structure {
                     let impact = projectile.position;
+                    Self::maybe_record_historic_bonus(projectile, impact, objects);
                     if projectile.explosion_radius > 0.0 {
                         damage_events.push(DamageEvent::Area {
                             position: impact,
@@ -620,6 +679,7 @@ impl CombatSystem {
                         let distance = projectile.position.distance(target.get_position());
                         if distance <= 5.0 {
                             let impact = projectile.position;
+                            Self::maybe_record_historic_bonus(projectile, impact, objects);
                             if projectile.explosion_radius > 0.0 {
                                 // Splash residual: quadratic falloff includes full damage at center.
                                 damage_events.push(DamageEvent::Area {
@@ -672,6 +732,7 @@ impl CombatSystem {
                     let distance = projectile.position.distance(projectile.target_position);
                     if distance <= 2.0 {
                         let impact = projectile.target_position;
+                        Self::maybe_record_historic_bonus(projectile, impact, objects);
                         if projectile.explosion_radius > 0.0 {
                             damage_events.push(DamageEvent::Area {
                                 position: impact,
@@ -1368,6 +1429,11 @@ mod tests {
             scale_weapon_speed: false,
             attack_range: 0.0,
             min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
@@ -1686,6 +1752,11 @@ mod tests {
             scale_weapon_speed: false,
             attack_range: 0.0,
             min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
         });
         drain_pending_projectiles(&mut combat, &objects);
         let snaps: Vec<_> = combat.projectiles_snapshot();
@@ -1745,6 +1816,11 @@ mod tests {
             scale_weapon_speed: true,
             attack_range: 375.0,
             min_attack_range: 50.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
         });
         drain_pending_projectiles(&mut combat, &objects);
         let snaps: Vec<_> = combat.projectiles_snapshot();
@@ -1786,6 +1862,11 @@ mod tests {
             scale_weapon_speed: true,
             attack_range: 375.0,
             min_attack_range: 50.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
         });
         drain_pending_projectiles(&mut combat2, &objects);
         let snaps2: Vec<_> = combat2.projectiles_snapshot();

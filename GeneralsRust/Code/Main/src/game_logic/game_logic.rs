@@ -4826,8 +4826,11 @@ impl GameLogic {
             let objects = &self.objects;
             // drain needs &HashMap - self.objects is that
             crate::game_logic::combat::drain_pending_projectiles(&mut self.combat_system, objects);
+            crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         }
         let projectile_hits = self.combat_system.update_projectiles(dt, &mut self.objects);
+        self.drain_historic_bonus_firestorms();
+
         if !projectile_hits.is_empty() {
             // Presentation/audio residual: WeaponFire already queued on shot;
             // hit SFX is fail-closed via presentation audio events when present.
@@ -9864,6 +9867,11 @@ impl GameLogic {
             scale_weapon_speed: false,
             attack_range: 0.0,
             min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
         });
                     }
                 }
@@ -29095,6 +29103,23 @@ impl GameLogic {
     // -----------------------------------------------------------------------
 
     /// Host Helix Napalm residual registry.
+    /// C++ HistoricBonus → FirestormSmallCreationWeapon residual drain.
+    fn drain_historic_bonus_firestorms(&mut self) {
+        let pending = crate::game_logic::host_historic_bonus::drain_pending_firestorms();
+        for p in pending {
+            // Reuse Helix firestorm DoT residual zones (same OCL FirestormSmall numbers).
+            let _ = self.helix_napalm.record_drop_and_spawn_firestorm(
+                p.source_id,
+                p.source_team,
+                p.position,
+                self.frame,
+                p.black_napalm,
+                0,
+                0.0,
+            );
+        }
+    }
+
     pub fn helix_napalm(&self) -> &crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry {
         &self.helix_napalm
     }
@@ -48629,6 +48654,11 @@ mod tests {
             scale_weapon_speed: false,
             attack_range: 0.0,
             min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
         });
 
         // One fixed step runs drain + projectile update.
