@@ -492,7 +492,17 @@ impl AISkirmishPlayer {
     }
 
     /// Recruit specific AI team
+    /// C++ `AISkirmishPlayer::recruitSpecificAITeam` (AISkirmishPlayer.cpp).
+    ///
+    /// Same recruit path as AIPlayer, but always warns when the team has no home
+    /// (C++ skirmish override does not gate the message on isSkirmishAI).
     pub fn recruit_specific_ai_team(&mut self, team_proto: &TeamPrototype, recruit_radius: f32) {
+        if !team_proto.has_home_location() {
+            log::debug!(
+                "Error : team '{}' has no Home Position (or Origin).",
+                team_proto.get_name()
+            );
+        }
         let _ = self
             .base
             .recruit_specific_ai_team(team_proto.get_name().as_str(), recruit_radius);
@@ -2712,6 +2722,24 @@ mod tests {
     use super::*;
     use game_engine::system::xfer_save::XferSave;
     use std::io::Cursor;
+
+    #[test]
+    fn recruit_specific_ai_team_skirmish_home_warn_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("C++ `AISkirmishPlayer::recruitSpecificAITeam`")
+            .expect("skirmish recruit");
+        let w = &src[i..src.len().min(i + 800)];
+        assert!(
+            w.contains("has_home_location")
+                && w.contains("no Home Position")
+                && w.contains("recruit_specific_ai_team(team_proto.get_name()"),
+            "skirmish recruit must warn missing home then delegate"
+        );
+    }
 
     #[test]
     fn skirmish_crc_is_empty_like_cpp() {
