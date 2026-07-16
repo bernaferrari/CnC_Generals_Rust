@@ -1530,13 +1530,12 @@ impl AIPlayer {
         let Ok(structure_guard) = structure_arc.read() else {
             return Ok(());
         };
-        // C++ findUpdateModule("SupplyCenterDockUpdate")
-        let is_supply = structure_guard
+        // C++: findUpdateModule(NAMEKEY("SupplyCenterDockUpdate")) only —
+        // KindOf alone is not sufficient (matches GeneralsMD AIPlayer.cpp).
+        if structure_guard
             .find_update_module("SupplyCenterDockUpdate")
-            .is_some()
-            || structure_guard.is_kind_of(KindOf::FSSupplyCenter)
-            || structure_guard.is_kind_of(KindOf::SupplySource);
-        if !is_supply {
+            .is_none()
+        {
             return Ok(());
         }
 
@@ -8762,6 +8761,22 @@ mod tests {
                 && !window.contains("ready_to_build_team")
                 && !window.contains("xfer_bool"),
             "AIPlayer::crc must be empty like C++"
+        );
+    }
+
+    #[test]
+    fn check_for_supply_center_module_only_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("pub fn check_for_supply_center")
+            .expect("check_for_supply_center");
+        let w = &src[i..src.len().min(i + 900)];
+        assert!(
+            w.contains("SupplyCenterDockUpdate")
+                && w.contains("find_update_module")
+                && !w.contains("FSSupplyCenter")
+                && !w.contains("SupplySource"),
+            "checkForSupplyCenter must key only on SupplyCenterDockUpdate like C++"
         );
     }
 
