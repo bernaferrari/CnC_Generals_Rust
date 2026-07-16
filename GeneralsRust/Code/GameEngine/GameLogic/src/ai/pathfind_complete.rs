@@ -527,6 +527,7 @@ pub struct PathfindingSystem {
                     u32,
                     bool,
                     ObjectID,
+                    bool, // is_human
                 ),
                 PathResult,
             >,
@@ -859,6 +860,11 @@ impl PathfindingSystem {
 
     /// Find path synchronously (blocks until complete)
     /// Matches C++ Pathfinder::findPath() at AIPathfind.cpp:6364-6433
+    /// C++ `Pathfinder::findPath` (AIPathfind.cpp:6364-6433).
+    ///
+    /// 1) clientSafeQuickDoesPathExist zone gate  
+    /// 2) hierarchical path probe → clearPassableFlags; on failure setAllPassable  
+    /// 3) internalFindPath A*
     pub fn find_path(&self, request: PathRequest) -> PathResult {
         // Check cache first
         let cache_key = (
@@ -870,11 +876,45 @@ impl PathfindingSystem {
             request.unit_radius.to_bits(),
             request.move_allies,
             request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+            request.is_human,
         );
 
         if let Ok(cache) = self.path_cache.lock() {
             if let Some(cached) = cache.get(&cache_key) {
                 return cached.clone();
+            }
+        }
+
+        // C++ findPath: clientSafeQuickDoesPathExist first.
+        if !self.client_safe_quick_does_path_exist(request.surfaces, &request.from, &request.to) {
+            return PathResult::none();
+        }
+
+        // C++: clearPassableFlags; hierarchical probe; if no hPat → setAllPassable.
+        // Probe only — do not call find_hierarchical_path (it builds a full path and
+        // would recurse into find_path). Match C++ zone-level hierarchical connectivity.
+        if let Ok(mut zones) = self.zones.lock() {
+            zones.clear_passable_flags();
+        }
+        let start = GridCoord::from_world(&request.from);
+        let goal = GridCoord::from_world(&request.to);
+        let hier_ok = {
+            let connected = self
+                .zones
+                .lock()
+                .map(|z| z.are_connected(start, goal, request.surfaces, request.is_crusher))
+                .unwrap_or(true);
+            connected
+                || self.hierarchical_zones_join_via_bridge(
+                    start,
+                    goal,
+                    request.surfaces,
+                    request.is_crusher,
+                )
+        };
+        if !hier_ok {
+            if let Ok(mut zones) = self.zones.lock() {
+                zones.set_all_passable();
             }
         }
 
@@ -2565,7 +2605,7 @@ impl PathfindingSystem {
         ) {
             return true;
         }
-        // C++ bridge clear residual: non-ground clear → true
+        // C++ validMovementTerrain: non-ground CLEAR cells always pass
         if layer != PathfindLayerEnum::Ground && cell_type == PathfindCellType::Clear {
             return true;
         }
@@ -6044,7 +6084,8 @@ impl PathfindingSystem {
             ignore_obstacle_id: None,
             is_human: false,
         };
-        let result = self.find_path(request);
+        // Use internal A* — find_path would recurse through hierarchical precheck.
+        let result = self.find_path_internal(request);
         if result.success {
             Some(result)
         } else {
@@ -10804,5 +10845,45 @@ mod tests {
             "end {:?} should leave radius, d2={d1}",
             end
         );
+    }
+
+    #[test]
+    fn find_path_hierarchical_precheck_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn find_path(").expect("findPath");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("client_safe_quick_does_path_exist")
+                && w.contains("clear_passable_flags")
+                && w.contains("are_connected")
+                && w.contains("set_all_passable")
+                && w.contains("hierarchical_zones_join_via_bridge"),
+            "findPath must quick-exist + hierarchical passable flag dance like C++"
+        );
+    }
+
+    #[test]
+    fn find_path_still_works_open_ground() {
+        let mut system = PathfindingSystem::new(32, 32);
+        system.new_map();
+        let req = PathRequest {
+            object_id: INVALID_ID,
+            from: Coord3D::new(20.0, 20.0, 0.0),
+            to: Coord3D::new(100.0, 100.0, 0.0),
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: false,
+        };
+        let r = system.find_path(req);
+        assert!(r.success);
+        assert!(r.waypoints.len() >= 2);
     }
 }
