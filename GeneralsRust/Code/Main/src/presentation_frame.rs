@@ -1761,10 +1761,16 @@ pub struct PresentationProjectile {
     pub is_homing: bool,
     /// C++ ProjectileObject residual (W3D mesh key / template name).
     pub projectile_object_name: String,
+    /// Resolved W3D model key residual from ProjectileObject (empty = trail-only).
+    pub model_key: String,
 }
 
 impl PresentationProjectile {
     pub fn from_combat(p: &crate::game_logic::combat::Projectile) -> Self {
+        let projectile_object_name = p.projectile_object_name.clone();
+        let model_key = crate::assets::mesh_asset_resolve::model_key_from_projectile_object(
+            &projectile_object_name,
+        );
         Self {
             id: p.id,
             position: p.position,
@@ -1776,7 +1782,8 @@ impl PresentationProjectile {
             lifetime: p.lifetime,
             max_lifetime: p.max_lifetime,
             is_homing: p.is_homing,
-            projectile_object_name: p.projectile_object_name.clone(),
+            projectile_object_name,
+            model_key,
         }
     }
 }

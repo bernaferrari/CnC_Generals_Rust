@@ -541,6 +541,57 @@ pub fn honesty_body_damage_model_key_residual_ok() -> bool {
         && explicit_body_damage_model_aliases().len() >= 5
 }
 
+/// C++ ProjectileObject → W3D model key residual for presentation trails/meshes.
+///
+/// Fail-closed: not full ThingTemplate lookup for projectile draw modules.
+/// Maps known residual ProjectileObject names to archive basenames used by
+/// host peels; unknown names pass through alias remap for asset resolve.
+pub fn model_key_from_projectile_object(projectile_object_name: &str) -> String {
+    let raw = projectile_object_name.trim();
+    if raw.is_empty() || raw.eq_ignore_ascii_case("NONE") {
+        return String::new();
+    }
+    let lower = raw.to_ascii_lowercase();
+    if let Some((_, key)) = projectile_object_model_keys()
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(&lower))
+    {
+        return remap_model_key_alias(key);
+    }
+    // Generic residual: ProjectileObject names often match W3D basenames.
+    remap_model_key_alias(raw)
+}
+
+/// Host residual map: ProjectileObject template name → W3D model key.
+pub fn projectile_object_model_keys() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("GenericTankShell", "pmgntankshell"),
+        ("GenericMissile", "pmgenericmissile"),
+        ("JetMissile", "pmjetmissile"),
+        ("TomahawkMissile", "pmtomahawk"),
+        ("ScudMissile", "pmscud"),
+        ("PatriotMissile", "pmpatriot"),
+        ("RocketBuggyMissile", "pmbuggymissile"),
+        ("NukeCannonShell", "pmnukeshell"),
+        ("AuroraBomb", "pmaurorabomb"),
+        ("FlashBangGrenade", "pmflashbang"),
+        ("TunnelDefenderMissile", "pmgntankshell"),
+        ("StingerMissile", "pmpatriot"),
+    ]
+}
+
+/// Honesty: projectile object → model key residual surface.
+pub fn honesty_projectile_object_model_key_residual_ok() -> bool {
+    model_key_from_projectile_object("").is_empty()
+        && model_key_from_projectile_object("NONE").is_empty()
+        && model_key_from_projectile_object("GenericTankShell")
+            .eq_ignore_ascii_case("pmgntankshell")
+        && model_key_from_projectile_object("TomahawkMissile").eq_ignore_ascii_case("pmtomahawk")
+        && model_key_from_projectile_object("UnknownProjectileXYZ")
+            == remap_model_key_alias("UnknownProjectileXYZ")
+        && projectile_object_model_keys().len() >= 8
+}
+
 pub fn model_key_from_template(template: &ThingTemplate) -> String {
     let raw = template.get_model_name();
     let remapped = remap_model_key_alias(raw);
@@ -1347,6 +1398,15 @@ mod tests {
         assert_eq!(
             model_key_with_body_damage("missingunitxyz", 2, false),
             remap_model_key_alias("missingunitxyz")
+        );
+    }
+
+    #[test]
+    fn projectile_object_model_key_residual() {
+        assert!(honesty_projectile_object_model_key_residual_ok());
+        assert_eq!(
+            model_key_from_projectile_object("JetMissile").to_ascii_lowercase(),
+            "pmjetmissile"
         );
     }
 }
