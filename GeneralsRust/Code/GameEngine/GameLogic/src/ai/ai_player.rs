@@ -6472,7 +6472,7 @@ impl AIPlayer {
     /// C++ always re-reads `TheAI->getAiData()->m_structureSeconds` (not a player
     /// field). Retail StructureSeconds=0 → timer 0 (immediately eligible next
     /// doBaseBuilding).
-    fn arm_structure_timer_after_build(&mut self) -> Result<(), AiError> {
+    pub(crate) fn arm_structure_timer_after_build(&mut self) -> Result<(), AiError> {
         self.ready_to_build_structure = false;
         // Live AIData structureSeconds (0.0 is valid retail). Keep field snapshot
         // in sync for xfer/tests that set structure_seconds directly.
