@@ -307,13 +307,19 @@ impl TeamInQueue {
     /// Uses team prototype `initial_idle_frames` as the build-time budget.
     /// `< 1` means unlimited (never expires).
     pub fn is_build_time_expired(&self) -> bool {
-        let Some(team_name) = self.team_name.as_deref() else {
+        // C++ uses m_team->getPrototype()->m_initialIdleFrames.
+        let team_name = self
+            .team
+            .as_ref()
+            .and_then(|arc| arc.read().ok().map(|tg| tg.get_name().to_string()))
+            .or_else(|| self.team_name.clone());
+        let Some(team_name) = team_name else {
             return false;
         };
         let Ok(factory) = get_team_factory().lock() else {
             return false;
         };
-        let Some(prototype) = factory.find_team_prototype(team_name) else {
+        let Some(prototype) = factory.find_team_prototype(&team_name) else {
             return false;
         };
         let idle_frames = prototype.get_initial_idle_frames();
@@ -1654,9 +1660,12 @@ impl AIPlayer {
         false
     }
 
+    /// C++ `AIPlayer::buildSpecificAITeam` (AIPlayer.cpp).
+    ///
     /// Gates: canBuildUnits, singleton+priority, isPossibleToBuildTeam (money-
-    /// only still queues). Work orders: optional (max-min) then required (min),
-    /// createInactiveTeam, priority prepend vs normal append, teamDelay=0.
+    /// only still queues). Work orders: optional (max-min) then required (min,
+    /// even minUnits==0). createInactiveTeam, executeActions, priority prepend
+    /// vs normal append, teamDelay=0.
     pub fn build_specific_ai_team(
         &mut self,
         team_name: &str,
@@ -1726,6 +1735,7 @@ impl AIPlayer {
 
         // Optional units first (max-min), then required (min) — C++ prepend order
         // so required ends up first in list after both prepends.
+        // C++ still creates required WorkOrders when minUnits==0 (numRequired=0).
         let mut orders: Vec<WorkOrder> = Vec::new();
         // Optional
         for (name, min_u, max_u) in &units {
@@ -1741,15 +1751,12 @@ impl AIPlayer {
             order.required = false;
             orders.insert(0, order); // prepend
         }
-        // Required
+        // Required — always when template exists (even minUnits==0).
         for (name, min_u, _max_u) in &units {
-            let count = (*min_u).max(0);
-            if count <= 0 {
-                continue;
-            }
             if TheThingFactory::find_template(name).is_none() {
                 continue;
             }
+            let count = (*min_u).max(0);
             let mut order = WorkOrder::new(name.clone());
             order.num_required = count;
             order.required = true;
@@ -1774,13 +1781,30 @@ impl AIPlayer {
             tg.set_controlling_player_id(Some(self.player_id as UnsignedInt));
         }
 
-        // executeActions residual: production condition script actions.
+        // C++: if executeActions, friend_executeAction(productionCondition action, team).
         if proto.get_execute_actions_on_create() {
-            // Script engine friend_executeAction residual.
-            log::debug!(
-                "Team '{}' executeActions on create residual (production condition).",
-                team_name
-            );
+            let cond = proto.get_production_condition().to_string();
+            if !cond.is_empty() {
+                let script_engine = get_script_engine();
+                let action = script_engine
+                    .read()
+                    .ok()
+                    .and_then(|eng| {
+                        eng.as_ref()
+                            .and_then(|e| e.find_script_clone_by_name(&cond))
+                    })
+                    .and_then(|script| script.get_action().cloned());
+                if let Some(action) = action {
+                    let evaluator = ScriptEvaluator::new(script_engine);
+                    if let Err(err) = evaluator.execute_action_sequence(&action) {
+                        log::warn!(
+                            "AIPlayer buildSpecificAITeam executeActions '{}': {}",
+                            cond,
+                            err
+                        );
+                    }
+                }
+            }
         }
 
         let mut team = TeamInQueue::new();
@@ -8507,7 +8531,7 @@ mod tests {
         let i = src
             .find("C++ `AIPlayer::buildSpecificAITeam`")
             .expect("buildSpecificAITeam");
-        let w = &src[i..src.len().min(i + 5500)];
+        let w = &src[i..src.len().min(i + 7000)];
         assert!(
             w.contains("get_can_build_units")
                 && w.contains("is_singleton")
@@ -8515,8 +8539,10 @@ mod tests {
                 && w.contains("need_money")
                 && w.contains("create_inactive_team")
                 && w.contains("order.required = true")
-                && w.contains("team_delay = 0"),
-            "buildSpecificAITeam must gate units/singleton/possible and create inactive team"
+                && w.contains("self.team_delay = 0")
+                && w.contains("even minUnits==0")
+                && w.contains("execute_action_sequence"),
+            "buildSpecificAITeam must queue min=0 required orders and run executeActions"
         );
     }
 
