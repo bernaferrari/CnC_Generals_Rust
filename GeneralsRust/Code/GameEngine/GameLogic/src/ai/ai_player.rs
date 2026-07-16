@@ -2762,6 +2762,7 @@ impl AIPlayer {
             }
 
             // C++: if team has homeLocation → aiFollowExitProductionPath(goal, home).
+            // path[0] = *ai->getGoalPosition() (not path destination).
             let (home, has_home) =
                 self.queue_units_home_for_team(team_arc.as_ref(), team_name.as_str());
             // has_home is true only for prototype homeLocation (not base-center fallback).
@@ -2769,7 +2770,7 @@ impl AIPlayer {
                 if let Ok(unit_g) = unit_arc.read() {
                     if let Some(ai) = unit_g.get_ai_update_interface() {
                         let start = ai
-                            .get_path_destination()
+                            .get_goal_position()
                             .unwrap_or_else(|| *unit_g.get_position());
                         let path = [start, home];
                         ai.ai_follow_exit_production_path(&path, None, CommandSourceType::FromAi);
@@ -8288,6 +8289,8 @@ mod tests {
                 && window.contains("structure_timer = 1")
                 && window.contains("set_force_wanting_state")
                 && window.contains("ai_follow_exit_production_path")
+                && window.contains("get_goal_position")
+                && !window.contains("get_path_destination")
                 && window.contains("take_supply_gatherer_slot")
                 && window.contains("ai_dock")
                 && window.contains("FromPlayer")
