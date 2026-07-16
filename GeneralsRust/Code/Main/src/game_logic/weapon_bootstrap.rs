@@ -467,6 +467,44 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini LeechRangeWeapon residual peel.
+///
+/// Once a leech weapon has entered pre-attack / fired once at proper range,
+/// max-range is waived for the remainder of the attack cycle (AI chase residual).
+pub fn host_leech_range_weapon_for_weapon_name(name: &str) -> bool {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.leech_range_weapon)
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        return v;
+    }
+    seed_leech_range_weapon_for(name)
+}
+
+fn seed_leech_range_weapon_for(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    // Suicide / melee / knife residual weapons.
+    if n.contains("terrorist")
+        || n.contains("carbomb")
+        || n.contains("demotrap")
+        || n.contains("suicide")
+        || n.contains("knife")
+        || n.contains("melee")
+        || n.contains("burton")
+        || n.contains("rangerflash")
+        || n.contains("stinger")
+    {
+        return true;
+    }
+    false
+}
+
 /// C++ Weapon.ini ScaleWeaponSpeed / MinWeaponSpeed residual peels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostWeaponSpeedPeel {
@@ -4477,5 +4515,13 @@ mod tests {
         let fb = seed_weapon_speed_peel_for("AmericaFireBaseHowitzer");
         assert!(fb.scale_weapon_speed);
         assert_eq!(fb.min_weapon_speed, 75.0);
+    }
+
+    #[test]
+    fn leech_range_weapon_seed_residual() {
+        assert!(seed_leech_range_weapon_for("GLAInfantryTerrorist"));
+        assert!(seed_leech_range_weapon_for("ColonelBurtonKnifeAttack"));
+        assert!(!seed_leech_range_weapon_for("AmericaTankCrusaderGun"));
+        assert!(!seed_leech_range_weapon_for("PaladinPointDefenseLaser"));
     }
 }
