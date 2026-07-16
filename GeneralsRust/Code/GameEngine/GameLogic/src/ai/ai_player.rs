@@ -4625,24 +4625,32 @@ impl AIPlayer {
                     self.dozer_is_repairing = false;
                     if self.structures_in_queue == 0 {
                         // Go home to base center or origin.
+                        // C++: pathfinder->adjustToPossibleDestination(dozer, locoSet, &pos)
+                        // then aiMoveToPosition(&pos, CMD_FROM_AI).
                         let mut pos = if self.base_center_set {
                             self.base_center
                         } else {
                             self.repair_dozer_origin
                         };
                         if let Ok(dg) = dozer_arc.read() {
+                            let start = *dg.get_position();
                             if let Some(ai) = dg.get_ai_update_interface() {
-                                if let Ok(mut ai_lock) = ai.lock() {
-                                    let mut params = AiCommandParams::new(
-                                        AiCommandType::MoveToPosition,
-                                        CommandSourceType::FromAi,
-                                    );
-                                    params.pos = pos;
-                                    let _ = ai_lock.execute_command(&params);
+                                // Adjust destination onto a reachable cell with dozer loco set.
+                                if let Some(loco_set) = ai.get_locomotor_set_clone() {
+                                    if let Ok(ai_sys) = THE_AI.read() {
+                                        if let Some(pf_arc) = ai_sys.pathfinder() {
+                                            if let Ok(pf) = pf_arc.read() {
+                                                let surfaces = loco_set.get_valid_surfaces();
+                                                let _ = pf.adjust_to_possible_destination(
+                                                    &start, &mut pos, surfaces, false, 0.0,
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
+                                ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
                             }
                         }
-                        let _ = pos;
                         return Ok(());
                     }
                 }
@@ -9008,7 +9016,8 @@ mod tests {
                 && bw.contains("dozer_queued_for_repair")
                 && bw.contains("AiCommandType::Repair")
                 && bw.contains("is_any_task_pending")
-                && bw.contains("MoveToPosition")
+                && bw.contains("ai_move_to_position")
+                && bw.contains("adjust_to_possible_destination")
                 && bw.find("saturating_sub(1)").unwrap()
                     < bw.find("if self.bridge_timer > 0").unwrap(),
             "updateBridgeRepair must decrement timer first, assign dozer, complete+home"
