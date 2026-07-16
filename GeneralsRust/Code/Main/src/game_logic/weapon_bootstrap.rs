@@ -574,6 +574,53 @@ fn seed_attack_range_for_contact(name: &str) -> f32 {
 ///
 /// Contact weapons approach the target position itself. Non-contact weapons
 /// stand off at `attackRange * 0.9` along the source→target line.
+/// C++ PATHFIND undersize fudge used with MinimumAttackRange residual.
+pub const MIN_ATTACK_RANGE_CELL_FUDGE: f32 = PATHFIND_CELL_SIZE * 0.25;
+
+/// Effective minimum attack range residual (template min + optional cell fudge).
+pub fn effective_minimum_attack_range(min_range: f32) -> f32 {
+    if min_range <= 0.0 {
+        return 0.0;
+    }
+    // C++ isWithinAttackRange uses min with small pathfind undersize in places;
+    // host residual keeps the raw min for the "too close" gate and backs up to
+    // min + 10% so the next frame is clearly legal.
+    min_range * 1.10
+}
+
+/// When inside MinimumAttackRange, compute a backup point outside the dead zone.
+///
+/// Places the unit on the line from target through source at `desired` distance
+/// from the target (2D XZ). Y kept from source.
+pub fn compute_min_range_backup_pos(
+    source_pos: glam::Vec3,
+    target_pos: glam::Vec3,
+    min_range: f32,
+) -> glam::Vec3 {
+    let desired = effective_minimum_attack_range(min_range);
+    if desired <= 0.0 {
+        return source_pos;
+    }
+    let dx = source_pos.x - target_pos.x;
+    let dz = source_pos.z - target_pos.z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    if dist < 1e-3 {
+        // Stacked on target: step along +X residual.
+        return glam::Vec3::new(target_pos.x + desired, source_pos.y, target_pos.z);
+    }
+    let scale = desired / dist;
+    glam::Vec3::new(
+        target_pos.x + dx * scale,
+        source_pos.y,
+        target_pos.z + dz * scale,
+    )
+}
+
+/// True when horizontal distance is inside the MinimumAttackRange dead zone.
+pub fn is_inside_minimum_attack_range(distance: f32, min_range: f32) -> bool {
+    min_range > 0.0 && distance + 1e-4 < min_range
+}
+
 pub fn compute_approach_target_pos(
     source_pos: glam::Vec3,
     target_pos: glam::Vec3,
@@ -5287,5 +5334,21 @@ mod tests {
             "non-contact standoff x={}",
             stand.x
         );
+    }
+
+    #[test]
+    fn minimum_attack_range_backup_residual() {
+        assert!(is_inside_minimum_attack_range(30.0, 50.0));
+        assert!(!is_inside_minimum_attack_range(50.0, 50.0));
+        assert!(!is_inside_minimum_attack_range(80.0, 50.0));
+        let src = glam::Vec3::new(10.0, 0.0, 0.0);
+        let tgt = glam::Vec3::new(0.0, 0.0, 0.0);
+        let back = compute_min_range_backup_pos(src, tgt, 50.0);
+        let d = ((back.x - tgt.x).powi(2) + (back.z - tgt.z).powi(2)).sqrt();
+        assert!(
+            (d - effective_minimum_attack_range(50.0)).abs() < 0.5,
+            "backup dist={d}"
+        );
+        assert!(back.x > src.x - 1e-3, "backs away along outward radial");
     }
 }
