@@ -979,18 +979,10 @@ impl AISkirmishPlayer {
                 .build_structure_with_dozer(name.as_str(), loc, selected_angle)
             {
                 Ok(Some(_bldg_id)) => {
-                    let delay_seconds = THE_AI
-                        .read()
-                        .ok()
-                        .and_then(|ai| {
-                            ai.get_ai_data()
-                                .read()
-                                .ok()
-                                .map(|data| data.structure_seconds as i32)
-                        })
-                        .unwrap_or(10);
-                    self.base.start_structure_timer_seconds(delay_seconds);
-                    self.adjust_build_timer_for_wealth();
+                    // C++: ready=false; structureTimer = structureSeconds*FPS / wealth mods.
+                    if let Err(err) = self.base.arm_structure_timer_after_build() {
+                        log::debug!("arm_structure_timer_after_build: {err}");
+                    }
                     self.base
                         .set_frame_last_building_built(TheGameLogic::get_frame());
                 }
@@ -1073,7 +1065,7 @@ impl AISkirmishPlayer {
         };
 
         if new_timer != current_timer {
-            self.base.set_structure_timer_frames(new_timer.max(1));
+            self.base.set_structure_timer_frames(new_timer);
         }
     }
 
@@ -1150,7 +1142,7 @@ impl AISkirmishPlayer {
         };
 
         if new_timer != current_timer {
-            self.base.set_team_timer_frames(new_timer.max(1));
+            self.base.set_team_timer_frames(new_timer);
         }
     }
 
@@ -2966,6 +2958,42 @@ mod tests {
                 && w.contains("is_under_powered")
                 && w.contains("power_plan"),
             "skirmish processBaseBuilding must pick power inline from build list like C++"
+        );
+    }
+
+    #[test]
+    fn skirmish_structure_timer_allows_zero_after_wealth_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("fn adjust_build_timer_for_wealth(&mut self)")
+            .expect("adjust_build_timer");
+        let end = src[i..]
+            .find(
+                "
+    /// Process team building",
+            )
+            .map(|o| i + o)
+            .unwrap_or(src.len().min(i + 4000));
+        let w = &src[i..end];
+        assert!(
+            w.contains("set_structure_timer_frames(new_timer)") && !w.contains(".max(1)"),
+            "C++ Int/Real wealth divide may leave structureTimer 0; do not clamp to 1"
+        );
+        let j = src
+            .find("fn process_base_building(&mut self)")
+            .expect("process_base_building");
+        let end = src[j..]
+            .find("fn adjust_build_timer_for_wealth")
+            .map(|o| j + o)
+            .unwrap_or(src.len().min(j + 8000));
+        let ww = &src[j..end];
+        assert!(
+            ww.contains("arm_structure_timer_after_build")
+                && !ww.contains("start_structure_timer_seconds"),
+            "skirmish processBaseBuilding success must arm via arm_structure_timer_after_build"
         );
     }
 
