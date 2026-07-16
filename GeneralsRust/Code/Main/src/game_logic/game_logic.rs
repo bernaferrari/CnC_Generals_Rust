@@ -5693,8 +5693,59 @@ impl GameLogic {
     /// Not full C++ AutoChoose / PreferredAgainst matrices.
     ///
     /// `pub(crate)` so residual/unit tests can exercise the fire path directly.
+    /// C++ JetAIUpdate RETURN_TO_BASE residual: rearm empty jet weapons near
+    /// a friendly airfield (FSAirfield / name residual). Fail-closed vs full
+    /// ParkingPlace reserve / taxi matrix.
+    fn try_return_to_base_rearm(&mut self, jet_id: ObjectId) -> bool {
+        let (needs, jet_team, jet_pos) = {
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return false;
+            };
+            if !jet.needs_return_to_base_rearm() {
+                return false;
+            }
+            (true, jet.team, jet.get_position())
+        };
+        if !needs {
+            return false;
+        }
+        const REARM_RANGE: f32 = 120.0;
+        let mut near_airfield = false;
+        for obj in self.objects.values() {
+            if obj.id == jet_id || !obj.is_alive() {
+                continue;
+            }
+            if obj.team != jet_team {
+                continue;
+            }
+            let is_af = obj.is_kind_of(KindOf::FSAirfield)
+                || (obj.is_kind_of(KindOf::Structure) && {
+                    let n = obj.template_name.to_ascii_lowercase();
+                    n.contains("airfield") || n.contains("airbase") || n.contains("hangar")
+                });
+            if !is_af || obj.status.under_construction {
+                continue;
+            }
+            let d = obj.get_position().distance(jet_pos);
+            if d <= REARM_RANGE {
+                near_airfield = true;
+                break;
+            }
+        }
+        if !near_airfield {
+            return false;
+        }
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.rearm_return_to_base_weapons()
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {
         for &attacker_id in object_ids {
+            // RETURN_TO_BASE residual: attempt airfield rearm before fire checks.
+            let _ = self.try_return_to_base_rearm(attacker_id);
             let Some(attacker) = self.objects.get(&attacker_id) else {
                 continue;
             };
@@ -7690,10 +7741,25 @@ impl GameLogic {
                         .with_priority(160),
                 );
 
+                // Capture weapon name before mut borrow for RETURN_TO_BASE peels.
+                let fire_wname = self.objects.get(&attacker_id).and_then(|a| {
+                    if slot == 1 {
+                        a.thing
+                            .template
+                            .secondary_weapon_name
+                            .clone()
+                            .or_else(|| a.thing.template.primary_weapon_name.clone())
+                    } else {
+                        a.thing.template.primary_weapon_name.clone()
+                    }
+                });
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(weapon) = attacker.weapon_slot_mut(slot) {
-                        // Clip residual: consume round (also stamps last_fire_time).
-                        Object::consume_ammo_on_fire(weapon, current_time);
+                        Object::consume_ammo_on_fire_named(
+                            weapon,
+                            current_time,
+                            fire_wname.as_deref(),
+                        );
                     }
                     if let Some(tid) = attacker.target {
                         attacker.record_shot_at_target(tid);
@@ -69361,7 +69427,6 @@ mod tests {
         let _ = wall;
     }
 
-    #[test]
     #[test]
     fn host_attack_los_allows_fire_in_open() {
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
