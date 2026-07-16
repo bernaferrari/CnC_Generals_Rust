@@ -266,18 +266,23 @@ impl PathfindingGrid {
     ///
     /// Start/goal are clamped into the grid. If the goal cell is blocked (building
     /// footprint etc.), the nearest open cell is used so infantry can still approach.
+    ///
+    /// Parity notes vs C++ examineNeighboringCells (host simplified grid):
+    /// - static blocks hard-reject; dynamic unit occupancy is a soft cost (allyFixed-like)
+    /// - diagonal steps require both orthogonal legs open (no corner cut)
     pub fn find_path(&self, start: GridPos, goal: GridPos) -> Option<Vec<Vec3>> {
         if self.width <= 0 || self.height <= 0 {
             return None;
         }
 
         let start = self.clamp_pos(start);
+        // Prefer static-open goal; dynamic occupancy near goal is soft-costed below.
         let goal = self
-            .nearest_open(self.clamp_pos(goal), 8)
+            .nearest_static_open(self.clamp_pos(goal), 8)
             .unwrap_or_else(|| self.clamp_pos(goal));
 
-        // Goal still blocked and no open neighbor — cannot plan.
-        if self.is_blocked(goal) {
+        // Goal still static-blocked and no open neighbor — cannot plan.
+        if self.is_static_blocked(goal) {
             return None;
         }
 
@@ -306,21 +311,36 @@ impl PathfindingGrid {
             }
 
             for neighbor in current.pos.neighbors() {
-                if !self.is_valid_pos(neighbor) || self.is_blocked(neighbor) {
+                if !self.is_valid_pos(neighbor) || self.is_static_blocked(neighbor) {
                     continue;
                 }
                 if closed.contains(&neighbor) {
                     continue;
                 }
 
-                // Calculate movement cost (diagonal moves cost more)
-                let movement_cost = if (neighbor.x - current.pos.x).abs() == 1
-                    && (neighbor.y - current.pos.y).abs() == 1
-                {
-                    1.414_213_5 // sqrt(2) for diagonal movement
-                } else {
-                    1.0
-                };
+                let dx = neighbor.x - current.pos.x;
+                let dy = neighbor.y - current.pos.y;
+                let is_diag = dx.abs() == 1 && dy.abs() == 1;
+
+                // C++ diagonal corner-cut: both orthogonal legs must be open.
+                if is_diag {
+                    let ortho_a = GridPos::new(current.pos.x + dx, current.pos.y);
+                    let ortho_b = GridPos::new(current.pos.x, current.pos.y + dy);
+                    if !self.is_valid_pos(ortho_a)
+                        || !self.is_valid_pos(ortho_b)
+                        || self.is_static_blocked(ortho_a)
+                        || self.is_static_blocked(ortho_b)
+                    {
+                        continue;
+                    }
+                }
+
+                // Base ortho/diag cost (COST_ORTHOGONAL=1, COST_DIAGONAL≈1.414).
+                let mut movement_cost = if is_diag { 1.414_213_5 } else { 1.0 };
+                // C++ allyFixedCount soft cost: standing units prefer detour (~3*diag).
+                if self.dynamic_blocked.contains(&neighbor) {
+                    movement_cost += 3.0 * 1.414_213_5;
+                }
 
                 let tentative_g_score = current.g_cost + movement_cost;
 
@@ -339,6 +359,27 @@ impl PathfindingGrid {
         }
 
         None // No path found
+    }
+
+    /// Like nearest_open but only considers static blocks (dynamic is soft in A*).
+    fn nearest_static_open(&self, origin: GridPos, max_radius: i32) -> Option<GridPos> {
+        if self.is_valid_pos(origin) && !self.is_static_blocked(origin) {
+            return Some(origin);
+        }
+        for r in 1..=max_radius {
+            for dx in -r..=r {
+                for dy in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let candidate = GridPos::new(origin.x + dx, origin.y + dy);
+                    if self.is_valid_pos(candidate) && !self.is_static_blocked(candidate) {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn reconstruct_path(
@@ -698,5 +739,63 @@ impl PathfindingSystem {
         }
 
         results
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_grid(w: i32, h: i32) -> PathfindingGrid {
+        PathfindingGrid::new(w as f32 * 10.0, h as f32 * 10.0, 10.0)
+    }
+
+    #[test]
+    fn host_astar_rejects_diagonal_corner_cut() {
+        let mut g = open_grid(8, 8);
+        // Block both ortho legs between (2,2) and (3,3)
+        g.set_blocked(GridPos::new(3, 2), true);
+        g.set_blocked(GridPos::new(2, 3), true);
+        // Path from (2,2) to (3,3) cannot go diagonal through blocked legs.
+        let path = g.find_path(GridPos::new(2, 2), GridPos::new(4, 4));
+        assert!(path.is_some());
+        // Ensure path does not step from (2,2) directly to (3,3)
+        let cells: Vec<_> = path
+            .unwrap()
+            .into_iter()
+            .map(|p| g.world_to_grid(p))
+            .collect();
+        for w in cells.windows(2) {
+            let dx = (w[1].x - w[0].x).abs();
+            let dy = (w[1].y - w[0].y).abs();
+            if dx == 1 && dy == 1 {
+                let ortho_a = GridPos::new(w[0].x + (w[1].x - w[0].x), w[0].y);
+                let ortho_b = GridPos::new(w[0].x, w[0].y + (w[1].y - w[0].y));
+                assert!(!g.is_static_blocked(ortho_a) && !g.is_static_blocked(ortho_b));
+            }
+        }
+    }
+
+    #[test]
+    fn host_astar_soft_cost_dynamic_occupancy() {
+        let mut g = open_grid(12, 12);
+        // Wall of dynamic occupancy across middle — still pathable with surcharge.
+        for y in 0..12 {
+            g.set_dynamic_blocked(GridPos::new(5, y), true);
+        }
+        let path = g.find_path(GridPos::new(1, 5), GridPos::new(10, 5));
+        assert!(path.is_some(), "dynamic occupancy must not hard-block path");
+        assert!(path.unwrap().len() >= 2);
+    }
+
+    #[test]
+    fn host_astar_static_block_still_hard() {
+        let mut g = open_grid(12, 12);
+        for y in 0..12 {
+            g.set_blocked(GridPos::new(5, y), true);
+        }
+        // Completely sealed — no path.
+        let path = g.find_path(GridPos::new(1, 5), GridPos::new(10, 5));
+        assert!(path.is_none());
     }
 }
