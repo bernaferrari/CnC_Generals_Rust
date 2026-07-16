@@ -2732,13 +2732,23 @@ impl GameLogic {
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
         #[cfg(feature = "game_client")]
         {
-            self.terrain.as_ref().map(|t| t.height_at_world(world_pos))
+            if let Some(h) = self.terrain.as_ref().map(|t| t.height_at_world(world_pos)) {
+                return Some(h);
+            }
         }
-        #[cfg(not(feature = "game_client"))]
-        {
-            let _ = world_pos;
-            None
+        // Coarse pathfinding height cache residual (save/load + synthetic maps).
+        let cache = self.pathfinding_height_samples.as_ref()?;
+        let width = self.pathfinding_system.grid.width().max(0) as u32;
+        let height = self.pathfinding_system.grid.height().max(0) as u32;
+        if cache.width != width || cache.height != height || width == 0 || height == 0 {
+            return None;
         }
+        let cell = self.pathfinding_system.grid.world_to_grid(world_pos);
+        if cell.x < 0 || cell.y < 0 || cell.x >= width as i32 || cell.y >= height as i32 {
+            return None;
+        }
+        let idx = (cell.y as u32 * width + cell.x as u32) as usize;
+        cache.values.get(idx).copied()
     }
 
     #[cfg(feature = "game_client")]
@@ -3165,12 +3175,31 @@ impl GameLogic {
             return false;
         }
         // Snapshot objects for dynamic occupancy during search.
-        let path = self.pathfinding_system.find_attack_firing_position(
+        let mut path = self.pathfinding_system.find_attack_firing_position(
             from,
             target_pos,
             range,
             &self.objects,
         );
+        // LOS_TERRAIN residual: reject firing cell if terrain occludes eye-line.
+        if let Some(ref full_path) = path {
+            if let Some(&goal) = full_path.last() {
+                let eye_r = self
+                    .objects
+                    .get(&unit_id)
+                    .map(|o| o.selection_radius.max(5.0) * 0.5)
+                    .unwrap_or(5.0);
+                let eye_to = target_id
+                    .and_then(|tid| self.objects.get(&tid))
+                    .map(|o| o.selection_radius.max(5.0) * 0.5)
+                    .unwrap_or(5.0);
+                let a_eye = Vec3::new(goal.x, goal.y + eye_r, goal.z);
+                let b_eye = Vec3::new(target_pos.x, target_pos.y + eye_to, target_pos.z);
+                if !self.is_clear_line_of_sight_terrain(a_eye, b_eye) {
+                    path = None;
+                }
+            }
+        }
         if let Some(full_path) = path {
             if full_path.len() >= 2 {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -3203,6 +3232,43 @@ impl GameLogic {
             return true;
         }
         false
+    }
+
+    /// C++ TerrainLogic/PartitionManager isClearLineOfSightTerrain residual.
+    /// Samples ground height along the XZ segment; blocked when terrain rises above
+    /// the eye-line + clearance. Uses `terrain_height_at` / pathfinding height cache.
+    /// Fail-closed: returns true (clear) when no height data is available.
+    pub fn is_clear_line_of_sight_terrain(&self, from: Vec3, to: Vec3) -> bool {
+        let dx = to.x - from.x;
+        let dz = to.z - from.z;
+        let dist_xz = (dx * dx + dz * dz).sqrt();
+        if dist_xz <= 0.001 {
+            return true;
+        }
+        // Eye height residual: geometry top ~ selection_radius*0.5 fallback + 5.
+        // Callers should pass elevated from/to; default add small eye fudge here.
+        let from_y = from.y;
+        let to_y = to.y;
+        let step_len = 10.0_f32;
+        let steps = (dist_xz / step_len).ceil().clamp(2.0, 512.0) as u32;
+        const CLEARANCE: f32 = 5.0;
+        let mut any_sample = false;
+        for i in 1..steps {
+            let tfrac = i as f32 / steps as f32;
+            let x = from.x + dx * tfrac;
+            let z = from.z + dz * tfrac;
+            let expected_y = from_y + (to_y - from_y) * tfrac;
+            let Some(ground) = self.terrain_height_at(Vec3::new(x, 0.0, z)) else {
+                continue;
+            };
+            any_sample = true;
+            if ground > expected_y + CLEARANCE {
+                return false;
+            }
+        }
+        // No height data along segment → fail-open clear (flat/synthetic maps).
+        let _ = any_sample;
+        true
     }
 
     pub fn attack_view_blocked(
@@ -3239,6 +3305,27 @@ impl GameLogic {
         if (dx * dx + dz * dz).sqrt() < 15.0 {
             return false;
         }
+        // LOS_TERRAIN residual (C++ Weapon::isClearGoalFiringLineOfSightTerrain):
+        // immobile attackers skip terrain LOS (cannot path around).
+        let immobile =
+            attacker.is_kind_of(KindOf::Immobile) || attacker.is_kind_of(KindOf::Structure);
+        if !immobile {
+            // Eye-line: lift by geometry height residual (selection_radius as proxy).
+            let eye_from = from.y + attacker.selection_radius.max(5.0) * 0.5;
+            let eye_to = {
+                let th = target_id
+                    .and_then(|tid| self.objects.get(&tid))
+                    .map(|t| t.selection_radius.max(5.0) * 0.5)
+                    .unwrap_or(5.0);
+                target_pos.y + th
+            };
+            let from_eye = Vec3::new(from.x, eye_from, from.z);
+            let to_eye = Vec3::new(target_pos.x, eye_to, target_pos.z);
+            if !self.is_clear_line_of_sight_terrain(from_eye, to_eye) {
+                return true;
+            }
+        }
+        // Structure/static obstacle Bresenham residual.
         self.pathfinding_system
             .is_attack_view_blocked(from, target_pos)
     }
@@ -69147,6 +69234,51 @@ mod tests {
             src.contains("block_structure_object_path(id)")
                 || src.contains("block_structure_object_path(completed_id)"),
             "create/complete must block structure footprints"
+        );
+    }
+
+    #[test]
+    fn terrain_los_blocks_ridge_between_units() {
+        let mut logic = GameLogic::new();
+        // Install coarse height cache: flat 0 with a tall ridge at mid X cells.
+        let w = logic.pathfinding_system.grid.width().max(8) as u32;
+        let h = logic.pathfinding_system.grid.height().max(8) as u32;
+        let mut heights = vec![0.0f32; (w * h) as usize];
+        let mid = w / 2;
+        for y in 0..h {
+            for x in mid.saturating_sub(1)..=(mid + 1).min(w - 1) {
+                heights[(y * w + x) as usize] = 80.0;
+            }
+        }
+        assert!(
+            logic.restore_terrain_heights_from_grid(w, h, &heights),
+            "height cache install"
+        );
+        let from = glam::Vec3::new(0.0, 10.0, 0.0);
+        let to = glam::Vec3::new(80.0, 10.0, 0.0);
+        assert!(
+            !logic.is_clear_line_of_sight_terrain(from, to),
+            "ridge must block eye-line between low endpoints"
+        );
+        // Open sky above ridge still clear.
+        let high_from = glam::Vec3::new(0.0, 100.0, 0.0);
+        let high_to = glam::Vec3::new(80.0, 100.0, 0.0);
+        assert!(
+            logic.is_clear_line_of_sight_terrain(high_from, high_to),
+            "high eye-line over ridge must stay clear"
+        );
+    }
+
+    #[test]
+    fn attack_view_blocked_uses_terrain_los_surface() {
+        let src = include_str!("game_logic.rs");
+        assert!(src.contains("fn is_clear_line_of_sight_terrain"));
+        assert!(src.contains("LOS_TERRAIN residual"));
+        let i = src.find("pub fn attack_view_blocked").expect("avb");
+        let w = &src[i..i + 2500.min(src.len() - i)];
+        assert!(
+            w.contains("is_clear_line_of_sight_terrain"),
+            "attack_view_blocked must call terrain LOS"
         );
     }
 
