@@ -2176,9 +2176,10 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::buildBySupplies` (AIPlayer.cpp).
     ///
-    /// Place `thingName` near a supply warehouse (or current warehouse for
-    /// non-cash buildings), offset toward base/enemy, legalize placement, then
-    /// `Player::addToPriorityBuildList`.
+    /// findSupplyCenter, then non-cash may override with m_curWarehouseID.
+    /// Offset toward base (cash) or enemy bounds (defense), legalize/wiggle,
+    /// always addToPriorityBuildList (even if placement stays at seed), stamp
+    /// m_curWarehouseID. Uses m_baseCenter as-is (no auto recompute).
     pub fn build_by_supplies(
         &mut self,
         minimum_cash: i32,
@@ -2192,26 +2193,21 @@ impl AIPlayer {
             return Ok(());
         };
 
-        if !self.base_center_set {
-            let _ = self.compute_center_and_radius_of_base();
-        }
-        let base_center = self
-            .get_base_center()
-            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+        // C++ uses m_baseCenter even when m_baseCenterSet is false.
+        let base_center = self.base_center;
 
         let is_cash_generator = template.is_kind_of(KindOf::CashGenerator);
-        let mut best_supply = None;
 
-        // Non-cash (defense): prefer current warehouse.
+        // C++: always findSupplyCenter first.
+        let mut best_supply = self.find_supply_center(minimum_cash);
+
+        // Non-cash: live m_curWarehouseID overrides find result when present.
         if !is_cash_generator {
             if let Some(warehouse_id) = self.current_warehouse_id {
                 if let Some(warehouse_arc) = OBJECT_REGISTRY.get_object(warehouse_id) {
                     best_supply = Some(warehouse_arc);
                 }
             }
-        }
-        if best_supply.is_none() {
-            best_supply = self.find_supply_center(minimum_cash);
         }
 
         let Some(warehouse_arc) = best_supply else {
@@ -2224,6 +2220,7 @@ impl AIPlayer {
 
         let mut offset_x = location.x - base_center.x;
         let mut offset_y = location.y - base_center.y;
+        let mut radius = 3.0 * PATHFIND_CELL_SIZE_F;
         if !is_cash_generator {
             // Defensive structure — face toward enemy base center.
             let enemy_ndx = self.get_skirmish_enemy_player_index();
@@ -2231,24 +2228,21 @@ impl AIPlayer {
                 offset_x = location.x - (lo.x + hi.x) * 0.5;
                 offset_y = location.y - (lo.y + hi.y) * 0.5;
             }
+            radius = warehouse_guard
+                .get_geometry_info()
+                .get_bounding_circle_radius();
         }
         let len = (offset_x * offset_x + offset_y * offset_y).sqrt();
         if len > 0.0001 {
             offset_x /= len;
             offset_y /= len;
         }
-
-        let radius = if is_cash_generator {
-            3.0 * PATHFIND_CELL_SIZE_F
-        } else {
-            warehouse_guard
-                .get_geometry_info()
-                .get_bounding_circle_radius()
-        };
         location.x -= offset_x * radius;
         location.y -= offset_y * radius;
 
         let angle = template.get_placement_view_angle();
+        // C++: if seed illegal, wiggle; if wiggle succeeds use newPos; else keep seed.
+        // Always priority-build regardless of legalize success.
         let placement = self
             .find_valid_build_location(&location, template.get_name().as_str(), angle)
             .unwrap_or(location);
@@ -2280,13 +2274,7 @@ impl AIPlayer {
             return Ok(());
         };
 
-        if !self.base_center_set {
-            let _ = self.compute_center_and_radius_of_base();
-        }
-        let _base_center = self
-            .get_base_center()
-            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
-
+        // C++ near-location path does not recompute base center.
         let angle = template.get_placement_view_angle();
         let mut build_location = location;
         if let Some(valid) =
@@ -2335,9 +2323,7 @@ impl AIPlayer {
         };
         drop(team_g);
 
-        if !self.base_center_set {
-            let _ = self.compute_center_and_radius_of_base();
-        }
+        // C++ does not recompute base center here (offset toward base is unused).
         let angle = template.get_placement_view_angle();
         // C++ only addToPriorityBuildList when wiggle set valid after initial fail
         // (same control flow as calcClosestConstructionZoneLocation).
@@ -9216,17 +9202,34 @@ mod tests {
     #[test]
     fn build_by_supplies_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
-        let i = src
-            .find("C++ `AIPlayer::buildBySupplies`")
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
+            .find("pub fn build_by_supplies(")
             .expect("buildBySupplies");
-        let w = &src[i..src.len().min(i + 3500)];
+        let end = prod[i..]
+            .find("pub fn build_specific_building_near_location")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 4000));
+        let w = &prod[i..end];
         assert!(
             w.contains("find_supply_center")
                 && w.contains("add_to_priority_build_list")
                 && w.contains("CashGenerator")
                 && w.contains("current_warehouse_id")
-                && w.contains("3.0 * PATHFIND_CELL_SIZE_F"),
-            "buildBySupplies must offset, legalize, priority-build list"
+                && w.contains("3.0 * PATHFIND_CELL_SIZE_F")
+                && w.contains("self.base_center")
+                && !w.contains("compute_center_and_radius_of_base"),
+            "buildBySupplies must find then maybe override warehouse; use m_baseCenter as-is"
+        );
+        // find first, then non-cash current override.
+        let find = w.find("find_supply_center(minimum_cash)").expect("find");
+        let override_cur = w.find("!is_cash_generator").expect("non-cash");
+        assert!(
+            find < override_cur,
+            "C++ finds supply center before non-cash curWarehouse override"
         );
     }
 
