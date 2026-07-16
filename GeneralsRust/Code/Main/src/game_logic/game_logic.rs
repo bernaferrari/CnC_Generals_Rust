@@ -9853,6 +9853,9 @@ impl GameLogic {
                             ),
             secondary_damage: 0.0,
             secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
         });
                     }
                 }
@@ -48607,6 +48610,9 @@ mod tests {
             exhaust_name: String::new(),
             secondary_damage: 0.0,
             secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
         });
 
         // One fixed step runs drain + projectile update.

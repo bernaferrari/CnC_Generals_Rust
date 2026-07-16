@@ -69,6 +69,12 @@ pub struct Projectile {
     pub secondary_damage: f32,
     /// C++ SecondaryDamageRadius residual.
     pub secondary_damage_radius: f32,
+    /// C++ ShockWaveAmount residual.
+    pub shock_wave_amount: f32,
+    /// C++ ShockWaveRadius residual.
+    pub shock_wave_radius: f32,
+    /// C++ ShockWaveTaperOff residual.
+    pub shock_wave_taper_off: f32,
 }
 
 impl Projectile {
@@ -106,6 +112,9 @@ impl Projectile {
             exhaust_name: String::new(),
             secondary_damage: 0.0,
             secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
         }
     }
 
@@ -180,6 +189,10 @@ pub enum DamageEvent {
         /// Outer-ring SecondaryDamage residual (0 = single-ring quadratic).
         secondary_damage: f32,
         secondary_radius: f32,
+        /// C++ ShockWave residual (0 amount = no push).
+        shock_wave_amount: f32,
+        shock_wave_radius: f32,
+        shock_wave_taper_off: f32,
     },
 }
 
@@ -239,6 +252,12 @@ pub struct PendingProjectile {
     pub secondary_damage: f32,
     /// C++ SecondaryDamageRadius residual.
     pub secondary_damage_radius: f32,
+    /// C++ ShockWaveAmount residual.
+    pub shock_wave_amount: f32,
+    /// C++ ShockWaveRadius residual.
+    pub shock_wave_radius: f32,
+    /// C++ ShockWaveTaperOff residual.
+    pub shock_wave_taper_off: f32,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -301,6 +320,9 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.exhaust_name = p.exhaust_name.clone();
             proj.secondary_damage = p.secondary_damage;
             proj.secondary_damage_radius = p.secondary_damage_radius;
+            proj.shock_wave_amount = p.shock_wave_amount;
+            proj.shock_wave_radius = p.shock_wave_radius;
+            proj.shock_wave_taper_off = p.shock_wave_taper_off;
         }
     }
 }
@@ -488,6 +510,9 @@ impl CombatSystem {
                             shooter_id: projectile.shooter_id,
                             secondary_damage: projectile.secondary_damage,
                             secondary_radius: projectile.secondary_damage_radius,
+                            shock_wave_amount: projectile.shock_wave_amount,
+                            shock_wave_radius: projectile.shock_wave_radius,
+                            shock_wave_taper_off: projectile.shock_wave_taper_off,
                         });
                     } else {
                         damage_events.push(DamageEvent::Direct {
@@ -530,6 +555,9 @@ impl CombatSystem {
                                     shooter_id: projectile.shooter_id,
                                     secondary_damage: projectile.secondary_damage,
                                     secondary_radius: projectile.secondary_damage_radius,
+                                    shock_wave_amount: projectile.shock_wave_amount,
+                                    shock_wave_radius: projectile.shock_wave_radius,
+                                    shock_wave_taper_off: projectile.shock_wave_taper_off,
                                 });
                             } else {
                                 damage_events.push(DamageEvent::Direct {
@@ -569,6 +597,9 @@ impl CombatSystem {
                                 shooter_id: projectile.shooter_id,
                                 secondary_damage: projectile.secondary_damage,
                                 secondary_radius: projectile.secondary_damage_radius,
+                                shock_wave_amount: projectile.shock_wave_amount,
+                                shock_wave_radius: projectile.shock_wave_radius,
+                                shock_wave_taper_off: projectile.shock_wave_taper_off,
                             });
                         }
                         if !projectile.detonation_fx_name.is_empty()
@@ -623,6 +654,9 @@ impl CombatSystem {
                     radius,
                     secondary_damage,
                     secondary_radius,
+                    shock_wave_amount,
+                    shock_wave_radius,
+                    shock_wave_taper_off,
                     ..
                 } => {
                     // C++ dealDamageInternal residual:
@@ -633,30 +667,69 @@ impl CombatSystem {
                     let secondary_r = (*secondary_radius).max(0.0);
                     let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
                     let outer = if dual { secondary_r } else { primary_r };
+                    let shock_r = (*shock_wave_radius).max(0.0);
+                    let shock_amt = (*shock_wave_amount).max(0.0);
+                    let shock_taper = (*shock_wave_taper_off).clamp(0.0, 1.0);
+                    let push_outer = if shock_amt > 0.0 && shock_r > 0.0 {
+                        outer.max(shock_r)
+                    } else {
+                        outer
+                    };
                     for (_id, obj) in objects.iter_mut() {
-                        let dist = obj.get_position().distance(*position);
-                        if dist > outer {
+                        let op = obj.get_position();
+                        let dist = op.distance(*position);
+                        if dist > push_outer {
                             continue;
                         }
-                        let area_damage = if dual {
-                            if dist <= primary_r {
-                                *damage
+                        if dist <= outer {
+                            let area_damage = if dual {
+                                if dist <= primary_r {
+                                    *damage
+                                } else {
+                                    *secondary_damage
+                                }
+                            } else if primary_r > 0.0 {
+                                let falloff = 1.0 - (dist / primary_r).powi(2);
+                                damage * falloff
                             } else {
-                                *secondary_damage
+                                0.0
+                            };
+                            if area_damage > 0.0 {
+                                obj.take_damage_from_typed_death(
+                                    area_damage,
+                                    None,
+                                    *damage_type,
+                                    *death_type,
+                                );
                             }
-                        } else if primary_r > 0.0 {
-                            let falloff = 1.0 - (dist / primary_r).powi(2);
-                            damage * falloff
-                        } else {
-                            0.0
-                        };
-                        if area_damage > 0.0 {
-                            obj.take_damage_from_typed_death(
-                                area_damage,
-                                None,
-                                *damage_type,
-                                *death_type,
-                            );
+                        }
+                        // C++ ShockWave residual: push mobile units outward from blast.
+                        // Fail-closed: not full PhysicsBehavior / ground friction matrix.
+                        // Mobile residual: can_move OR non-structure alive (simple objects
+                        // may not flag is_mobile yet). Structures never push.
+                        let pushable = obj.is_alive()
+                            && !obj.is_kind_of(KindOf::Structure)
+                            && (obj.can_move()
+                                || obj.is_kind_of(KindOf::Infantry)
+                                || obj.is_kind_of(KindOf::Vehicle));
+                        if shock_amt > 0.0 && shock_r > 0.0 && dist <= shock_r && pushable {
+                            let mut dir = op - *position;
+                            dir.y = 0.0;
+                            if dir.length_squared() < 1e-8 {
+                                // Degenerate center hit: push along +X residual.
+                                dir = Vec3::X;
+                            } else {
+                                dir = dir.normalize();
+                            }
+                            let t = (dist / shock_r).clamp(0.0, 1.0);
+                            // Strength falls from amount at center toward amount*taper at edge.
+                            let strength = shock_amt * (1.0 - t * (1.0 - shock_taper));
+                            // Convert residual amount into a one-frame position nudge.
+                            let nudge = (strength * 0.02).min(12.0);
+                            let new_pos = op + dir * nudge;
+                            obj.set_position(new_pos);
+                            // Kick residual velocity so movement/update observes push.
+                            obj.movement.velocity += dir * (strength * 0.15).min(40.0);
                         }
                     }
                 }
@@ -1169,6 +1242,9 @@ mod tests {
             exhaust_name: "MissileExhaust".into(),
             secondary_damage: 0.0,
             secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
@@ -1242,6 +1318,55 @@ mod tests {
         assert!(
             far1 <= far0 - 24.0 && far1 > far0 - 99.0,
             "outer ring must take secondary only ({far0}->{far1})"
+        );
+    }
+
+    #[test]
+    fn shock_wave_pushes_mobile_units_outward() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(50);
+        let tgt = ObjectId(51);
+        let mut unit = make_obj(
+            "GLARebel",
+            tgt,
+            Team::GLA,
+            Vec3::new(5.0, 0.0, 0.0),
+            &[KindOf::Infantry, KindOf::Attackable],
+            5.0,
+        );
+        objects.insert(tgt, unit);
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 5.0,
+            splash_radius: 20.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(5.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 20.0;
+            p.shock_wave_amount = 50.0;
+            p.shock_wave_radius = 30.0;
+            p.shock_wave_taper_off = 0.5;
+        }
+        let pos0 = objects.get(&tgt).unwrap().get_position();
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let pos1 = objects.get(&tgt).unwrap().get_position();
+        // Pushed away from blast origin.
+        let d0 = pos0.length();
+        let d1 = pos1.length();
+        assert!(
+            d1 > d0 + 0.1 || (pos1 - pos0).length() > 0.1,
+            "shockwave must push unit outward ({pos0:?} -> {pos1:?})"
         );
     }
 }

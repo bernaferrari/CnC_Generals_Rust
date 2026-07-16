@@ -2335,6 +2335,51 @@ impl Object {
                     )
                     .unwrap_or(0.0)
                 },
+                shock_wave_amount: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_shock_wave_amount_for_weapon_name,
+                    )
+                    .unwrap_or(0.0)
+                },
+                shock_wave_radius: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_shock_wave_radius_for_weapon_name,
+                    )
+                    .unwrap_or(0.0)
+                },
+                shock_wave_taper_off: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_shock_wave_taper_for_weapon_name,
+                    )
+                    .unwrap_or(0.0)
+                },
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
