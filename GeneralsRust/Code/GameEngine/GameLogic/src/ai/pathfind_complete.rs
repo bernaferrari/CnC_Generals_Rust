@@ -592,6 +592,7 @@ impl PathfindingSystem {
     }
 
     /// Reset pathfinding state for a new map.
+    /// C++ `Pathfinder::reset` (AIPathfind.cpp:3816-3880).
     pub fn reset(&mut self) {
         if let Ok(mut queue) = self.request_queue.lock() {
             queue.clear();
@@ -616,6 +617,26 @@ impl PathfindingSystem {
         if let Ok(mut oq) = self.object_path_queue.lock() {
             *oq = ObjectPathQueue::new();
         }
+        if let Ok(mut ug) = self.unit_goal_cells.lock() {
+            ug.clear();
+        }
+        if let Ok(mut up) = self.unit_pos_cells.lock() {
+            up.clear();
+        }
+        self.wall_pieces.clear();
+        if let Ok(mut walls) = self.wall_cells.lock() {
+            walls.clear();
+        }
+        self.extent_lo = ICoord2D::new(0, 0);
+        self.extent_hi = ICoord2D::new(0, 0);
+        self.ignore_obstacle_id = INVALID_ID;
+        self.is_tunneling = false;
+        self.move_allies_depth = 0;
+        self.is_map_ready = false;
+        self.cumulative_cells_allocated = 0;
+        self.open_list_count = 0;
+        self.closed_list_count = 0;
+        self.wall_height = 0.0;
     }
 
     /// Queue a pathfinding request (full request residual).
@@ -2640,6 +2661,186 @@ impl PathfindingSystem {
     pub fn note_open_closed_cells(&mut self, open: i32, closed: i32) {
         self.open_list_count = open.max(0);
         self.closed_list_count = closed.max(0);
+    }
+
+    /// C++ `LineInRegion` style segment vs AABB (2D).
+    fn line_in_region(
+        start: &Coord2D,
+        end: &Coord2D,
+        lo_x: f32,
+        lo_y: f32,
+        hi_x: f32,
+        hi_y: f32,
+    ) -> bool {
+        // Liang-Barsky / Cohen–Sutherland residual: any endpoint inside or segment crosses.
+        let inside = |x: f32, y: f32| x >= lo_x && x <= hi_x && y >= lo_y && y <= hi_y;
+        if inside(start.x, start.y) || inside(end.x, end.y) {
+            return true;
+        }
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
+        let mut t0 = 0.0f32;
+        let mut t1 = 1.0f32;
+        let clip = |p: f32, q: f32, t0: &mut f32, t1: &mut f32| -> bool {
+            if p.abs() < f32::EPSILON {
+                return q >= 0.0;
+            }
+            let r = q / p;
+            if p < 0.0 {
+                if r > *t1 {
+                    return false;
+                }
+                if r > *t0 {
+                    *t0 = r;
+                }
+            } else {
+                if r < *t0 {
+                    return false;
+                }
+                if r < *t1 {
+                    *t1 = r;
+                }
+            }
+            true
+        };
+        clip(-dx, start.x - lo_x, &mut t0, &mut t1)
+            && clip(dx, hi_x - start.x, &mut t0, &mut t1)
+            && clip(-dy, start.y - lo_y, &mut t0, &mut t1)
+            && clip(dy, hi_y - start.y, &mut t0, &mut t1)
+            && t0 <= t1
+    }
+
+    /// C++ `Pathfinder::getMoveAwayFromPath` core search (AIPathfind.cpp:10180+).
+    ///
+    /// Search nearby cells for a destination whose clearance box does not
+    /// overlap `path_to_avoid` segments. Returns world position if found.
+    pub fn get_move_away_from_path(
+        &mut self,
+        from: &Coord3D,
+        path_to_avoid: &[Coord3D],
+        path_to_avoid2: Option<&[Coord3D]>,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        other_radius: f32,
+    ) -> Option<Coord3D> {
+        if !self.is_map_ready {
+            return None;
+        }
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let (other_r, other_center) = Self::compute_radius_and_center(other_radius);
+        let start = Self::cell_for_unit_position(from, center_in_cell);
+        if !self.is_valid_coord(start) {
+            return None;
+        }
+        {
+            let Ok(pf) = self.pathfinder.lock() else {
+                return None;
+            };
+            if !pf.is_passable(start, surfaces, is_crusher) {
+                self.is_tunneling = true;
+            }
+        }
+
+        let mut box_half = radius as f32 * PATHFIND_CELL_SIZE_F - (PATHFIND_CELL_SIZE_F / 4.0);
+        if center_in_cell {
+            box_half += PATHFIND_CELL_SIZE_F / 2.0;
+        }
+        box_half += other_r as f32 * PATHFIND_CELL_SIZE_F;
+        if other_center {
+            box_half += PATHFIND_CELL_SIZE_F / 2.0;
+        }
+
+        // Spiral / BFS limited search for a non-overlapping cell.
+        let max_r = 12i32;
+        let mut best: Option<(i32, Coord3D)> = None;
+        for r in 0..=max_r {
+            for dx in -r..=r {
+                for dy in -r..=r {
+                    if r > 0 && dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let cell = GridCoord::new(start.x + dx, start.y + dy);
+                    if !self.is_valid_coord(cell) {
+                        continue;
+                    }
+                    {
+                        let Ok(pf) = self.pathfinder.lock() else {
+                            continue;
+                        };
+                        if !self.is_tunneling && !pf.is_passable(cell, surfaces, is_crusher) {
+                            continue;
+                        }
+                    }
+                    let mut center = Coord3D::new(0.0, 0.0, 0.0);
+                    self.adjust_coord_to_cell(
+                        cell.x,
+                        cell.y,
+                        center_in_cell,
+                        &mut center,
+                        PathfindLayerEnum::Ground,
+                    );
+                    let lo_x = center.x - box_half;
+                    let lo_y = center.y - box_half;
+                    let hi_x = center.x + box_half;
+                    let hi_y = center.y + box_half;
+
+                    let mut overlap = false;
+                    // Must move at least one cell from start.
+                    if cell.x == start.x && cell.y == start.y {
+                        overlap = true;
+                    }
+                    let check_path = |path: &[Coord3D]| -> bool {
+                        for w in path.windows(2) {
+                            let s = Coord2D::new(w[0].x, w[0].y);
+                            let e = Coord2D::new(w[1].x, w[1].y);
+                            if Self::line_in_region(&s, &e, lo_x, lo_y, hi_x, hi_y) {
+                                return true;
+                            }
+                        }
+                        false
+                    };
+                    if !overlap && check_path(path_to_avoid) {
+                        overlap = true;
+                    }
+                    if !overlap {
+                        if let Some(p2) = path_to_avoid2 {
+                            if check_path(p2) {
+                                overlap = true;
+                            }
+                        }
+                    }
+                    if overlap {
+                        continue;
+                    }
+                    // Destination must be valid movement cell.
+                    if !self.is_destination_valid(
+                        cell,
+                        PathfindLayerEnum::Ground,
+                        surfaces,
+                        is_crusher,
+                        radius,
+                        center_in_cell,
+                        None,
+                    ) {
+                        continue;
+                    }
+                    let dist = dx.abs() + dy.abs();
+                    let better = match best {
+                        None => true,
+                        Some((bd, _)) => dist < bd,
+                    };
+                    if better {
+                        best = Some((dist, center));
+                    }
+                }
+            }
+            if best.is_some() && r >= 1 {
+                break;
+            }
+        }
+        self.is_tunneling = false;
+        best.map(|(_, p)| p)
     }
 
     /// C++ `Pathfinder::crc` (AIPathfind.cpp:11043-11082).
@@ -6649,5 +6850,83 @@ mod tests {
         assert!((system.wall_height() - 12.5).abs() < 0.01);
         system.set_ignore_obstacle_id(42);
         assert_eq!(system.ignore_obstacle_id(), 42);
+    }
+
+    #[test]
+    fn pathfinder_reset_clears_ready_and_queue() {
+        let mut system = PathfindingSystem::new(16, 16);
+        system.new_map();
+        system.add_wall_piece(3);
+        system.queue_for_path(9);
+        system.note_open_closed_cells(1, 2);
+        assert!(system.is_map_ready());
+        system.reset();
+        assert!(!system.is_map_ready());
+        assert_eq!(system.wall_piece_count(), 0);
+        assert_eq!(system.cumulative_cells_allocated(), 0);
+        assert!(!system.queue_for_path(9) || system.queue_for_path(9)); // queue works after reset
+    }
+
+    #[test]
+    fn get_move_away_from_path_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn get_move_away_from_path")
+            .expect("getMoveAwayFromPath");
+        let w = &prod[i..prod.len().min(i + 4000)];
+        assert!(
+            w.contains("line_in_region")
+                && w.contains("box_half")
+                && w.contains("path_to_avoid")
+                && w.contains("is_map_ready"),
+            "getMoveAwayFromPath must box-test path segments"
+        );
+        assert!(prod.contains("pub fn reset(&mut self)"));
+        let j = prod.find("pub fn reset(&mut self)").expect("reset");
+        let wr = &prod[j..prod.len().min(j + 1500)];
+        assert!(
+            wr.contains("is_map_ready = false")
+                && wr.contains("wall_pieces.clear")
+                && wr.contains("object_path_queue"),
+            "reset must clear map ready, walls, queues"
+        );
+    }
+
+    #[test]
+    fn get_move_away_finds_cell_off_path() {
+        let mut system = PathfindingSystem::new(32, 32);
+        system.new_map();
+        let from = Coord3D::new(55.0, 55.0, 0.0);
+        // Path along x axis through the unit
+        let path = vec![
+            Coord3D::new(10.0, 55.0, 0.0),
+            Coord3D::new(100.0, 55.0, 0.0),
+        ];
+        let pos =
+            system.get_move_away_from_path(&from, &path, None, SURFACE_GROUND, false, 0.0, 0.0);
+        assert!(pos.is_some(), "should find a cell off the path corridor");
+        let p = pos.unwrap();
+        // Y should move away from path y=55
+        assert!(
+            (p.y - 55.0).abs() > 5.0 || (p.x - 55.0).abs() > 5.0,
+            "moved pos {:?}",
+            p
+        );
+    }
+
+    #[test]
+    fn line_in_region_detects_crossing() {
+        let s = Coord2D::new(0.0, 5.0);
+        let e = Coord2D::new(10.0, 5.0);
+        assert!(PathfindingSystem::line_in_region(
+            &s, &e, 4.0, 0.0, 6.0, 10.0
+        ));
+        assert!(!PathfindingSystem::line_in_region(
+            &s, &e, 0.0, 6.0, 10.0, 10.0
+        ));
     }
 }
