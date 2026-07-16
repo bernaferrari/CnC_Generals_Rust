@@ -19,6 +19,7 @@ use crate::player::{player_list, GameDifficulty, Player};
 use crate::player::{PlayerType, ThePlayerList};
 use crate::team::{get_team_factory, TeamPrototype};
 use crate::terrain::get_terrain_logic;
+use game_engine::common::system::build_assistant::LocalLegalToBuildOptions;
 
 use std::sync::{Arc, RwLock, Weak};
 
@@ -418,7 +419,11 @@ impl AISkirmishPlayer {
             }
 
             let place_angle = template.get_placement_view_angle();
-            let validator = FoundationValidator::new_ai();
+            // C++: TERRAIN_RESTRICTIONS | NO_OBJECT_OVERLAP (builder NULL).
+            let validator = FoundationValidator::from_build_options(
+                LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
+                    | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP,
+            );
             if validator
                 .validate_placement(&build_pos, thing_name, place_angle, player_id)
                 .is_err()
@@ -2246,6 +2251,26 @@ mod tests {
                 && src.contains("build_structure_now_at_public")
                 && src.contains("compute_center_and_radius_of_base"),
             "skirmish base defense + newMap C++ paths required"
+        );
+    }
+
+    #[test]
+    fn build_ai_base_defense_structure_build_assistant_flags_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn build_ai_base_defense_structure")
+            .or_else(|| prod.find("fn build_ai_base_defense_structure"))
+            .expect("buildAIBaseDefenseStructure");
+        let w = &prod[i..prod.len().min(i + 8000)];
+        assert!(
+            w.contains("LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS")
+                && w.contains("LocalLegalToBuildOptions::NO_OBJECT_OVERLAP")
+                && !w.contains("FoundationValidator::new_ai()"),
+            "buildAIBaseDefenseStructure must use TERRAIN|NO_OBJECT_OVERLAP like C++"
         );
     }
 

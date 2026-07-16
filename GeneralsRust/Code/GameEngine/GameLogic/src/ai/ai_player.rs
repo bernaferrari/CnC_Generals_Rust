@@ -3774,7 +3774,12 @@ impl AIPlayer {
             position.z = terrain.get_ground_height(position.x, position.y, None);
         }
 
-        let validator = FoundationValidator::new_ai();
+        // Host residual helper (C++ solo AI has no buildAIBaseDefenseStructure).
+        // Use same legalize flags as skirmish base defense when validating.
+        let validator = FoundationValidator::from_build_options(
+            LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
+                | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP,
+        );
         if validator
             .validate_placement(
                 &position,
