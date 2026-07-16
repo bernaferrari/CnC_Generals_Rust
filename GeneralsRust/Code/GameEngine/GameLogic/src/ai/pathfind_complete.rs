@@ -1072,6 +1072,14 @@ impl PathfindingSystem {
         };
         // Seed line when not tunneling and not downhill-only (C++ guards).
         let seed_line = !tunneling && !downhill_only;
+        let is_human = request.is_human;
+        let cell_allowed = |cell: GridCoord| -> bool {
+            // C++ computer players may path outside logical map; humans may not.
+            if is_human {
+                return self.in_logical_extent(cell);
+            }
+            true
+        };
         let grid_path = pathfinder.find_path_ex5(
             start,
             goal,
@@ -1087,6 +1095,7 @@ impl PathfindingSystem {
             Some(&line_ok as &dyn Fn(GridCoord) -> bool),
             seed_line,
             tunneling,
+            Some(&cell_allowed as &dyn Fn(GridCoord) -> bool),
         );
 
         drop(pathfinder); // Release lock
@@ -12103,6 +12112,77 @@ mod tests {
                 && w.contains("attack_dist")
                 && w.contains("is_vehicle"),
             "findAttackPath must A*-expand with attackDistance + allyGoal costs"
+        );
+    }
+
+    #[test]
+    fn human_logical_extent_astar_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(
+            src.contains("cell_allowed") && src.contains("logical extent"),
+            "A* must accept cell_allowed for human logical extent clamp"
+        );
+        let complete = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = complete.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("fn find_path_internal").expect("internal");
+        let w = &prod[i..prod.len().min(i + 12000)];
+        assert!(
+            w.contains("cell_allowed") && w.contains("in_logical_extent") && w.contains("is_human"),
+            "internalFindPath must clamp human A* neighbors to logical extent"
+        );
+    }
+
+    #[test]
+    fn human_logical_extent_blocks_out_of_map_neighbor() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        // Full grid clear
+        if let Ok(mut pf) = system.pathfinder.lock() {
+            for x in 0..20 {
+                for y in 0..20 {
+                    pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
+                }
+            }
+        }
+        // Logical map is only left half
+        system.set_logical_extent(ICoord2D::new(0, 0), ICoord2D::new(9, 19));
+        let from = Coord3D::new(5.0 * PATHFIND_CELL_SIZE_F, 10.0 * PATHFIND_CELL_SIZE_F, 0.0);
+        let to = Coord3D::new(
+            15.0 * PATHFIND_CELL_SIZE_F,
+            10.0 * PATHFIND_CELL_SIZE_F,
+            0.0,
+        );
+        let human = PathRequest {
+            object_id: INVALID_ID,
+            from,
+            to,
+            surfaces: 0xFFFF,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: true,
+        };
+        // Start/goal outside clamp of goal → rejected at entry
+        let r = system.find_path(human.clone());
+        assert!(!r.success, "human path to outside logical extent must fail");
+
+        let computer = PathRequest {
+            is_human: false,
+            ..human
+        };
+        let r2 = system.find_path(computer);
+        assert!(
+            r2.success,
+            "computer may path outside logical extent: {:?}",
+            r2.waypoints.len()
         );
     }
 }
