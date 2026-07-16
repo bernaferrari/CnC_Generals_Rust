@@ -959,10 +959,11 @@ impl PathfindingSystem {
             }
         }
 
-        // C++ examineNeighboringCells: allyFixedCount → +3*COST_DIAGONAL.
+        // C++ examineNeighboringCells: allyFixedCount → +3*COST_DIAGONAL;
+        // allyMoving && dx<10 && dy<10 → +3*COST_DIAGONAL.
         let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
         let obj_id = request.object_id;
-        let can_path_through = request.move_allies;
+        let start_cell = start;
         let ally_extra = |cell: GridCoord| -> u32 {
             if obj_id == INVALID_ID {
                 return 0;
@@ -981,13 +982,17 @@ impl PathfindingSystem {
             }
             if info.ally_fixed_count > 0 {
                 // C++ 3*COST_DIAGONAL regardless of canPathThroughUnits.
-                3 * COST_DIAGONAL
-            } else if info.ally_moving && !can_path_through {
-                // C++ allyMoving nearby soft penalty.
-                3 * COST_DIAGONAL
-            } else {
-                0
+                return 3 * COST_DIAGONAL;
             }
+            // C++: if (info.allyMoving && dx<10 && dy<10) newCost += 3*COST_DIAGONAL
+            if info.ally_moving {
+                let dx = (cell.x - start_cell.x).abs();
+                let dy = (cell.y - start_cell.y).abs();
+                if dx < 10 && dy < 10 {
+                    return 3 * COST_DIAGONAL;
+                }
+            }
+            0
         };
 
         // Run A* pathfinding
@@ -1029,8 +1034,13 @@ impl PathfindingSystem {
         if built.success {
             let mut result = built;
             result.total_cost = self.calculate_path_cost(&grid_path);
-            // Still run optimizer on built path.
-            let optimized = self.optimize_path(&result.waypoints, &result.layers, &request);
+            // C++ path->optimize(obj, surfaces, blocked) after prependCells.
+            let optimized = self.optimize_path_blocked(
+                &result.waypoints,
+                &result.layers,
+                &request,
+                result.blocked_by_ally,
+            );
             let opt_len = optimized.0.len();
             return PathResult {
                 success: true,
@@ -1744,18 +1754,34 @@ impl PathfindingSystem {
         layers: &[PathfindLayerEnum],
         request: &PathRequest,
     ) -> (Vec<Coord3D>, Vec<PathfindLayerEnum>) {
-        let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
+        self.optimize_path_blocked(waypoints, layers, request, false)
+    }
 
-        // Line passability checker
+    /// C++ `Path::optimize(obj, surfaces, blocked)`.
+    fn optimize_path_blocked(
+        &self,
+        waypoints: &[Coord3D],
+        layers: &[PathfindLayerEnum],
+        request: &PathRequest,
+        blocked: bool,
+    ) -> (Vec<Coord3D>, Vec<PathfindLayerEnum>) {
+        let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
+        let obj_id = request.object_id;
+
+        // Line passability checker — C++ isLinePassable(..., blocked, false).
         let passability = |from: &Coord3D, to: &Coord3D, layer: PathfindLayerEnum| {
-            self.is_line_passable(
+            self.is_line_passable_for_object_inner(
+                obj_id,
                 from,
                 to,
                 request.surfaces,
                 request.is_crusher,
                 layer,
                 ignore_cells.as_ref(),
-                false,
+                false,   // allow_pinched
+                blocked, // consider_transient / blocked ally handling
+                0,
+                true,
             )
         };
 
@@ -11556,6 +11582,37 @@ mod tests {
         assert!(
             w.contains("ally_fixed_count") && w.contains("find_path_ex"),
             "internalFindPath must feed allyFixedCount into A* costs"
+        );
+    }
+
+    #[test]
+    fn optimize_path_blocked_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("fn optimize_path_blocked"));
+        let i = prod.find("fn find_path_internal").expect("internal");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("optimize_path_blocked") && w.contains("result.blocked_by_ally"),
+            "internalFindPath must optimize with blockedByAlly flag like C++"
+        );
+    }
+
+    #[test]
+    fn ally_moving_cost_requires_near_start_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("fn find_path_internal").expect("internal");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("dx < 10") && w.contains("ally_moving"),
+            "allyMoving cost must require dx,dy < 10 from start like C++"
         );
     }
 }
