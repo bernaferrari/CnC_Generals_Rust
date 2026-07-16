@@ -3102,6 +3102,47 @@ impl GameLogic {
     }
 
     /// Pathfind to goal then set AI state. Falls back to set_destination if A* fails.
+    /// C++ Pathfinder::isAttackViewBlockedByObstacle residual for host combat.
+    /// Units with AttackNeedsLineOfSight cannot fire through static obstacles.
+    /// Aircraft / non-LOS kinds always clear. Fail-closed: not full weapon terrain LOS.
+    pub fn attack_view_blocked(
+        &self,
+        attacker_id: ObjectId,
+        target_id: Option<ObjectId>,
+        target_pos: Vec3,
+    ) -> bool {
+        let Some(attacker) = self.objects.get(&attacker_id) else {
+            return false;
+        };
+        // C++ KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT gate.
+        // Host residual: Infantry/Vehicle default-need LOS unless Immobile structure.
+        let needs_los = attacker.is_kind_of(KindOf::AttackNeedsLineOfSight)
+            || ((attacker.is_kind_of(KindOf::Infantry) || attacker.is_kind_of(KindOf::Vehicle))
+                && !attacker.is_kind_of(KindOf::Immobile)
+                && !attacker.is_kind_of(KindOf::Structure)
+                && !attacker.is_kind_of(KindOf::Aircraft));
+        if !needs_los {
+            return false;
+        }
+        // Flying victim residual: significantly above terrain → not blocked.
+        if let Some(tid) = target_id {
+            if let Some(t) = self.objects.get(&tid) {
+                if t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target {
+                    return false;
+                }
+            }
+        }
+        let from = attacker.get_position();
+        // Tiny range residual (C++ AIStates close-range skip).
+        let dx = from.x - target_pos.x;
+        let dz = from.z - target_pos.z;
+        if (dx * dx + dz * dz).sqrt() < 15.0 {
+            return false;
+        }
+        self.pathfinding_system
+            .is_attack_view_blocked(from, target_pos)
+    }
+
     fn path_approach_with_state(&mut self, object_id: ObjectId, goal: Vec3, state: AIState) {
         if self.assign_unit_path(object_id, goal, &[]) {
             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5628,6 +5669,37 @@ impl GameLogic {
                 }
 
                 if let Some(slot) = selected_slot {
+                    // C++ isAttackViewBlockedByObstacle residual: do not fire through
+                    // buildings; chase instead (falls through to OOR chase when we
+                    // clear selected fire by treating as out-of-LOS).
+                    if self.attack_view_blocked(attacker_id, Some(target_id), target_position) {
+                        // Ready but LOS blocked → pathfind chase like OOR.
+                        let combat_chase_ok = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|attacker| {
+                                attacker.can_move()
+                                    && matches!(
+                                        attacker.ai_state,
+                                        AIState::Idle
+                                            | AIState::Moving
+                                            | AIState::Attacking
+                                            | AIState::AttackMoving
+                                            | AIState::Patrolling
+                                            | AIState::AttackingGround
+                                    )
+                            })
+                            .unwrap_or(false);
+                        if combat_chase_ok {
+                            if self.assign_unit_path(attacker_id, target_position, &[]) {
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    attacker.ai_state = AIState::Attacking;
+                                    attacker.status.attacking = true;
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     // GLA car-bomb residual: firing the SuicideCarBomb weapon detonates
                     // at self (DamageDealtAtSelfPosition) and destroys the car bomb.
                     let is_carbomb = self
@@ -68604,6 +68676,182 @@ mod tests {
         assert!(
             prod.matches("path_approach_with_state").count() >= 10,
             "support states should route OOR approaches through path_approach_with_state"
+        );
+    }
+
+    #[test]
+    fn host_attack_los_gates_fire_through_building() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        for (name, kinds) in [
+            (
+                "LosAtk",
+                vec![
+                    KindOf::Infantry,
+                    KindOf::Attackable,
+                    KindOf::AttackNeedsLineOfSight,
+                ],
+            ),
+            ("LosTgt", vec![KindOf::Infantry, KindOf::Attackable]),
+            ("LosWall", vec![KindOf::Structure]),
+        ] {
+            if !logic.templates.contains_key(name) {
+                let mut tmpl = ThingTemplate::new(name);
+                tmpl.set_health(200.0);
+                for k in kinds {
+                    tmpl.add_kind_of(k);
+                }
+                logic.templates.insert(name.into(), tmpl);
+            }
+        }
+        let atk = logic
+            .create_object("LosAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("atk");
+        let wall = logic
+            .create_object("LosWall", Team::Neutral, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("wall");
+        let tgt = logic
+            .create_object("LosTgt", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("tgt");
+        // Block every cell on the Bresenham line between attacker and target.
+        let from = glam::Vec3::new(0.0, 0.0, 0.0);
+        let to = glam::Vec3::new(80.0, 0.0, 0.0);
+        let start = logic.pathfinding_system.grid.world_to_grid(from);
+        let goal = logic.pathfinding_system.grid.world_to_grid(to);
+        let mut x0 = start.x;
+        let mut y0 = start.y;
+        let x1 = goal.x;
+        let y1 = goal.y;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        // Skip start; block intermediate cells only.
+        loop {
+            let e2 = 2 * err;
+            if e2 >= dy {
+                if x0 == x1 {
+                    break;
+                }
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                if y0 == y1 {
+                    break;
+                }
+                err += dx;
+                y0 += sy;
+            }
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+            logic.set_pathfinding_static_block(x0, y0, true);
+        }
+        assert!(
+            logic.pathfinding_system.is_attack_view_blocked(from, to),
+            "static wall must block attack view start={start:?} goal={goal:?}"
+        );
+        if let Some(o) = logic.objects.get_mut(&atk) {
+            o.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        let hp_before = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        logic.update_combat(&[atk, tgt, wall], 1.0 / 30.0);
+        let hp_after = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (hp_after - hp_before).abs() < 0.01,
+            "LOS-blocked attacker must not damage target through static obstacle (hp {hp_before} -> {hp_after})"
+        );
+        let _ = wall;
+    }
+
+    #[test]
+    #[test]
+    fn host_attack_los_allows_fire_in_open() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        for (name, kinds) in [
+            (
+                "LosAtk2",
+                vec![
+                    KindOf::Infantry,
+                    KindOf::Attackable,
+                    KindOf::AttackNeedsLineOfSight,
+                ],
+            ),
+            ("LosTgt2", vec![KindOf::Infantry, KindOf::Attackable]),
+        ] {
+            if !logic.templates.contains_key(name) {
+                let mut tmpl = ThingTemplate::new(name);
+                tmpl.set_health(200.0);
+                for k in kinds {
+                    tmpl.add_kind_of(k);
+                }
+                logic.templates.insert(name.into(), tmpl);
+            }
+        }
+        let atk = logic
+            .create_object("LosAtk2", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("atk");
+        let tgt = logic
+            .create_object("LosTgt2", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .expect("tgt");
+        if let Some(o) = logic.objects.get_mut(&atk) {
+            o.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+            o.target = Some(tgt);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+        }
+        let hp_before = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        logic.update_combat(&[atk, tgt], 1.0 / 30.0);
+        let hp_after = logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before - 1.0,
+            "open-field LOS must still allow fire (hp {hp_before} -> {hp_after})"
+        );
+    }
+
+    fn attack_view_blocked_cpp_surface() {
+        let src = include_str!("game_logic.rs");
+        assert!(src.contains("fn attack_view_blocked"));
+        assert!(src.contains("is_attack_view_blocked"));
+        let i = src.find("if let Some(slot) = selected_slot").expect("slot");
+        let w = &src[i..i + 900];
+        assert!(
+            w.contains("attack_view_blocked"),
+            "update_combat must gate fire on attack_view_blocked"
         );
     }
 }
