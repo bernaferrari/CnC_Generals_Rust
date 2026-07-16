@@ -7,6 +7,7 @@ use crate::common::xfer::{Xfer, XferExt};
 use crate::common::Snapshot;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory};
+use crate::modules::AIUpdateInterfaceExt;
 use crate::object::production::construction::FoundationValidator;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::SpecialPowerTemplate;
@@ -523,34 +524,66 @@ impl AISkirmishPlayer {
     /// Check bridges for pathfinding
     /// C++ `AISkirmishPlayer::checkBridges` (AISkirmishPlayer.cpp).
     ///
-    /// If path to waypoint exists, OK. Else find a broken bridge on the route and
-    /// queue it for repair via AIPlayer::repairStructure.
+    /// Walk the waypoint path: if `clientSafeQuickDoesPathExist` for the unit's
+    /// locomotor set, that hop is fine. Otherwise residual findBrokenBridge —
+    /// scan destroyed bridges on the unit→waypoint segment and `repairStructure`.
     pub fn check_bridges(&mut self, unit: &Arc<RwLock<Object>>, waypoint: &Waypoint) -> bool {
-        let unit_pos = {
+        let (unit_pos, loco_set) = {
             let Ok(unit_guard) = unit.try_read() else {
                 return false;
             };
             // C++: if (!ai) return false;
-            if unit_guard.get_ai_update_interface().is_none() {
+            let Some(ai) = unit_guard.get_ai_update_interface() else {
                 return false;
-            }
-            *unit_guard.get_position()
+            };
+            let loco = ai.get_locomotor_set_clone();
+            (*unit_guard.get_position(), loco)
         };
 
-        let target = waypoint.position;
+        // C++: for (curWay = way; curWay; curWay = curWay->getNext())
+        // Rust Waypoint uses link IDs; walk this waypoint then linked targets.
+        let mut hop_targets: Vec<Coord3D> = vec![waypoint.position];
+        if let Ok(terrain_guard) = get_terrain_logic().read() {
+            for link_id in &waypoint.links {
+                if let Some(linked) = terrain_guard.get_waypoint_by_id(*link_id) {
+                    hop_targets.push(*linked.get_location());
+                }
+            }
+        }
 
-        // C++: if (pathfinder->clientSafeQuickDoesPathExist(...)) continue;
-        // Full locomotor-set path exists is residual until AI exposes loco set;
-        // always scan for broken bridges on the segment (safe over-repair).
-        let _ = THE_AI.read().ok().and_then(|ai| ai.pathfinder());
+        for target in hop_targets {
+            // C++: if path exists, continue (no bridge problem on this hop).
+            let path_ok = if let Some(ref loco_set) = loco_set {
+                THE_AI
+                    .read()
+                    .ok()
+                    .and_then(|ai| ai.pathfinder())
+                    .and_then(|pf| {
+                        pf.read().ok().map(|g| {
+                            g.client_safe_quick_does_path_exist(loco_set, &unit_pos, &target)
+                        })
+                    })
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            if path_ok {
+                continue;
+            }
 
-        // Residual findBrokenBridge: scan terrain bridges for a destroyed one
-        // intersecting the unit→waypoint segment, then repairStructure.
-        let delta = Coord3D::new(
-            target.x - unit_pos.x,
-            target.y - unit_pos.y,
-            target.z - unit_pos.z,
-        );
+            // Residual findBrokenBridge: destroyed bridge on unit→waypoint segment.
+            if self.find_and_queue_broken_bridge_on_segment(&unit_pos, &target) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Residual for C++ `Pathfinder::findBrokenBridge` until zone/layer path is ported:
+    /// scan terrain bridges for rubble/destroyed objects intersecting the segment.
+    fn find_and_queue_broken_bridge_on_segment(&mut self, from: &Coord3D, to: &Coord3D) -> bool {
+        let delta = Coord3D::new(to.x - from.x, to.y - from.y, to.z - from.z);
         let dist_sq = delta.x * delta.x + delta.y * delta.y;
         if dist_sq < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
             return false;
@@ -593,11 +626,12 @@ impl AISkirmishPlayer {
             for i in 0..=steps {
                 let t = i as f32 / steps as f32;
                 let sample = Coord3D::new(
-                    unit_pos.x + delta.x * t,
-                    unit_pos.y + delta.y * t,
-                    unit_pos.z + delta.z * t,
+                    from.x + delta.x * t,
+                    from.y + delta.y * t,
+                    from.z + delta.z * t,
                 );
                 if bridge.is_point_on_bridge(&sample) {
+                    drop(terrain_guard);
                     let _ = self.base.repair_structure(bridge_id);
                     return true;
                 }
@@ -2792,11 +2826,13 @@ mod tests {
         let window = &src[i..src.len().min(i + 4500)];
         assert!(
             window.contains("get_ai_update_interface")
-                && window.contains("pathfinder")
+                && window.contains("get_locomotor_set_clone")
+                && window.contains("client_safe_quick_does_path_exist")
+                && window.contains("find_and_queue_broken_bridge_on_segment")
                 && window.contains("repair_structure")
                 && window.contains("is_point_on_bridge")
                 && window.contains("findBrokenBridge"),
-            "checkBridges must require AI, scan broken bridges, repairStructure"
+            "checkBridges must path-exist hop first, then residual broken-bridge repair"
         );
     }
 
