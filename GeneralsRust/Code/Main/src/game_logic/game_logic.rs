@@ -9851,7 +9851,9 @@ impl GameLogic {
                                 attacker.thing.template.secondary_weapon_name.as_deref(),
                                 0,
                             ),
-                        });
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+        });
                     }
                 }
                 if let Some(attacker) = self.objects.get_mut(&object_id) {
@@ -48603,6 +48605,8 @@ mod tests {
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
         });
 
         // One fixed step runs drain + projectile update.

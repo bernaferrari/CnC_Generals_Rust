@@ -467,6 +467,93 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini SecondaryDamage residual amount (Regular).
+///
+/// Fail-closed: name peel / store lookup only — applied as outer splash ring
+/// on projectile impact (not full Affects mask / shockwave matrix).
+pub fn host_secondary_damage_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.secondary_damage.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_secondary_damage_for(name)
+}
+
+/// C++ Weapon.ini SecondaryDamageRadius residual (Regular).
+pub fn host_secondary_damage_radius_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.secondary_damage_radius.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_secondary_damage_radius_for(name)
+}
+
+fn seed_secondary_damage_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    if n.contains("scudstorm") || (n.contains("scud") && n.contains("damage")) {
+        return if n.contains("upgrade") { 200.0 } else { 150.0 };
+    }
+    if n.contains("demotrap") || n.contains("terrorist") || n.contains("suicide") {
+        return 50.0;
+    }
+    if n.contains("napalm") && n.contains("bomb") {
+        return 25.0;
+    }
+    if n.contains("inferno") {
+        return 10.0;
+    }
+    if n.contains("scorpion") {
+        return 25.0;
+    }
+    if n.contains("strategycenter") {
+        return 10.0;
+    }
+    0.0
+}
+
+fn seed_secondary_damage_radius_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    if n.contains("scudstorm") || (n.contains("scud") && n.contains("damage")) {
+        return 200.0;
+    }
+    if n.contains("demotrap") || n.contains("terrorist") || n.contains("suicide") {
+        return 25.0;
+    }
+    if n.contains("napalm") && n.contains("bomb") {
+        return 30.0;
+    }
+    if n.contains("inferno") {
+        return 20.0;
+    }
+    if n.contains("scorpion") {
+        return 20.0;
+    }
+    if n.contains("strategycenter") {
+        return 15.0;
+    }
+    0.0
+}
+
 /// C++ Weapon.ini LaserBoneName residual — muzzle/bone attach name for laser start.
 ///
 /// Fail-closed: name residual only; not full drawable bone matrix lookup.
@@ -3740,5 +3827,20 @@ mod tests {
         );
         assert_eq!(b, "LASER");
         assert!(host_laser_bone_name_for_weapon_name("UnknownWeaponXYZ").is_empty());
+    }
+
+    #[test]
+    fn secondary_damage_for_seeded_weapons_residual() {
+        assert_eq!(seed_secondary_damage_for("ScudStormDamageWeapon"), 150.0);
+        assert_eq!(
+            seed_secondary_damage_radius_for("ScudStormDamageWeapon"),
+            200.0
+        );
+        assert_eq!(seed_secondary_damage_for("SuicideDynamitePack"), 50.0);
+        assert_eq!(seed_secondary_damage_for("AmericaTankCrusaderGun"), 0.0);
+        assert_eq!(
+            host_secondary_damage_for_weapon_name("UnknownWeaponXYZ"),
+            0.0
+        );
     }
 }
