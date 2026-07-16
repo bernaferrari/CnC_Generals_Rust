@@ -2316,6 +2316,35 @@ impl Pathfinder {
         )
     }
 
+    /// C++ `Pathfinder::validMovementTerrain`.
+    pub fn valid_movement_terrain(
+        &self,
+        layer: crate::ai::pathfind_astar::PathfindLayerEnum,
+        locomotor_set: &crate::locomotor::LocomotorSet,
+        pos: &Coord3D,
+    ) -> bool {
+        let surfaces = locomotor_set.get_valid_surfaces();
+        self.inner.valid_movement_terrain(layer, surfaces, pos)
+    }
+
+    /// C++ `Pathfinder::tightenPath`.
+    pub fn tighten_path(
+        &self,
+        obj: &Object,
+        locomotor_set: &crate::locomotor::LocomotorSet,
+        from: &mut Coord3D,
+        to: &Coord3D,
+    ) {
+        let surfaces = locomotor_set.get_valid_surfaces();
+        let is_crusher = obj.get_crusher_level() > 0;
+        let unit_radius = obj
+            .get_geometry_info()
+            .get_bounding_circle_radius()
+            .max(0.0);
+        self.inner
+            .tighten_path(from, to, surfaces, is_crusher, unit_radius, None);
+    }
+
     pub fn valid_movement_position(
         &self,
         locomotor_set: &crate::locomotor::LocomotorSet,
