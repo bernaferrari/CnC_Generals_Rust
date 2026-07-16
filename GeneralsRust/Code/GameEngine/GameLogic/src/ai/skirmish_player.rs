@@ -310,6 +310,10 @@ impl AISkirmishPlayer {
     }
 
     /// Build AI base defense with skirmish-specific logic
+    /// C++ `AISkirmishPlayer::buildAIBaseDefense` (AISkirmishPlayer.cpp).
+    ///
+    /// Resolve side `m_baseDefenseStructure1` and place via
+    /// `buildAIBaseDefenseStructure`. No host residual fallbacks.
     pub fn build_ai_base_defense(&mut self, flank: bool) {
         let Some(player_arc) = self.base.get_player() else {
             return;
@@ -318,27 +322,18 @@ impl AISkirmishPlayer {
             Ok(guard) => guard.get_side().clone(),
             Err(_) => return,
         };
-        let mut defense_name = None;
-        if let Ok(ai_guard) = THE_AI.read() {
-            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
-                for side_info in &ai_data.side_info {
-                    if side_info.side == player_side {
-                        if !side_info.base_defense_structure_1.is_empty() {
-                            defense_name = Some(side_info.base_defense_structure_1.clone());
-                        }
-                        break;
-                    }
-                }
-            }
-        }
+        // C++ walks m_sideInfo until side match, then calls with that entry's
+        // m_baseDefenseStructure1 (even if empty — template lookup fails fast).
+        let defense_name = THE_AI.read().ok().and_then(|ai| {
+            ai.get_ai_data().read().ok().and_then(|data| {
+                data.side_info
+                    .iter()
+                    .find(|info| info.side == player_side)
+                    .map(|info| info.base_defense_structure_1.clone())
+            })
+        });
         if let Some(name) = defense_name {
             self.build_ai_base_defense_structure(&name, flank);
-            return;
-        }
-        if flank {
-            self.build_flank_defense();
-        } else {
-            self.build_front_defense();
         }
     }
 
@@ -1169,19 +1164,16 @@ impl AISkirmishPlayer {
         }
         drop(player_guard);
 
-        // structureTimer → readyToBuildStructure
-        if !self.base.can_build_structure_now() || self.base.get_structure_timer() > 0 {
-            // ready is false when timer running; mirror C++ path via base fields.
-        }
-        // Use base timers through helpers.
-        let mut structure_timer = self.base.get_structure_timer();
-        let ready = self.base.can_build_structure_now() || structure_timer == 0;
-        // More faithful: always tick structure timer when not ready.
+        // C++ AISkirmishPlayer::doBaseBuilding:
+        // if !ready: structureTimer--; <=0 → ready + buildDelay=0; clamp >3s.
+        // buildDelay--; if <1: processBaseBuilding if ready; if still <1 → 2s.
         if !self.base.is_ready_to_build_structure() {
+            let mut structure_timer = self.base.get_structure_timer();
+            // C++ always decrements (may go below 0 as signed); we stop at 0.
             if structure_timer > 0 {
                 structure_timer -= 1;
-                self.base.set_structure_timer_frames(structure_timer);
             }
+            self.base.set_structure_timer_frames(structure_timer);
             if structure_timer == 0 {
                 self.base.set_ready_to_build_structure(true);
                 self.base.set_build_delay_frames(0);
@@ -1205,7 +1197,6 @@ impl AISkirmishPlayer {
                 self.base.set_build_delay_frames(2 * LOGICFRAMES_PER_SECOND);
             }
         }
-        let _ = ready;
     }
 
     /// C++ `AISkirmishPlayer::doTeamBuilding`.
@@ -1738,128 +1729,6 @@ impl AISkirmishPlayer {
             }
         } else {
             me_guard.set_current_enemy_player_index(None);
-        }
-    }
-
-    /// Build flank defense.
-    /// Matches C++ AISkirmishPlayer::buildAIBaseDefense(flank=true)
-    /// which delegates to buildAIBaseDefenseStructure with the
-    /// side-specific defense structure name.
-    fn build_flank_defense(&mut self) {
-        let Some(player_arc) = self.base.get_player() else {
-            return;
-        };
-        let player_side = match player_arc.read() {
-            Ok(guard) => guard.get_side().clone(),
-            Err(_) => return,
-        };
-
-        let defense_name = if let Ok(ai_guard) = THE_AI.read() {
-            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
-                ai_data
-                    .side_info
-                    .iter()
-                    .find(|info| info.side == player_side)
-                    .filter(|info| !info.base_defense_structure_1.is_empty())
-                    .map(|info| info.base_defense_structure_1.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        self.cur_flank_base_defense += 1;
-        self.update_flank_defense_angles();
-
-        if let Some(name) = defense_name {
-            self.build_ai_base_defense_structure(&name, true);
-        }
-    }
-
-    /// Build front defense.
-    /// Matches C++ AISkirmishPlayer::buildAIBaseDefense(flank=false)
-    /// which places defenses along the center approach path to the base.
-    fn build_front_defense(&mut self) {
-        let Some(player_arc) = self.base.get_player() else {
-            return;
-        };
-        let player_side = match player_arc.read() {
-            Ok(guard) => guard.get_side().clone(),
-            Err(_) => return,
-        };
-
-        let defense_name = if let Ok(ai_guard) = THE_AI.read() {
-            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
-                ai_data
-                    .side_info
-                    .iter()
-                    .find(|info| info.side == player_side)
-                    .filter(|info| !info.base_defense_structure_1.is_empty())
-                    .map(|info| info.base_defense_structure_1.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        self.cur_front_base_defense += 1;
-        self.update_front_defense_angles();
-
-        if let Some(name) = defense_name {
-            self.build_ai_base_defense_structure(&name, false);
-        }
-    }
-
-    /// Update flank defense angles
-    fn update_flank_defense_angles(&mut self) {
-        // Implementation would calculate optimal angles for flank defenses
-        // based on base geometry and enemy approach vectors
-
-        if let Some(base_center) = self.base.get_base_center() {
-            // Calculate angles relative to base center and enemy positions
-            if let Some(enemy) = self.get_ai_enemy() {
-                if let Ok(enemy_player) = enemy.try_read() {
-                    if let Some(enemy_base) = self.get_enemy_base_center(&enemy_player) {
-                        let to_enemy = enemy_base - base_center;
-                        let enemy_angle = to_enemy.y.atan2(to_enemy.x);
-
-                        // Set flank angles perpendicular to enemy direction
-                        self.cur_left_flank_left_defense_angle =
-                            enemy_angle + std::f32::consts::PI / 2.0;
-                        self.cur_left_flank_right_defense_angle =
-                            enemy_angle + std::f32::consts::PI / 4.0;
-                        self.cur_right_flank_left_defense_angle =
-                            enemy_angle - std::f32::consts::PI / 4.0;
-                        self.cur_right_flank_right_defense_angle =
-                            enemy_angle - std::f32::consts::PI / 2.0;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Update front defense angles
-    fn update_front_defense_angles(&mut self) {
-        // Implementation would calculate optimal angles for front defenses
-        // based on base geometry and enemy approach vectors
-
-        if let Some(base_center) = self.base.get_base_center() {
-            if let Some(enemy) = self.get_ai_enemy() {
-                if let Ok(enemy_player) = enemy.try_read() {
-                    if let Some(enemy_base) = self.get_enemy_base_center(&enemy_player) {
-                        let to_enemy = enemy_base - base_center;
-                        let enemy_angle = to_enemy.y.atan2(to_enemy.x);
-
-                        // Set front angles facing enemy direction
-                        self.cur_front_left_defense_angle =
-                            enemy_angle + std::f32::consts::PI / 6.0;
-                        self.cur_front_right_defense_angle =
-                            enemy_angle - std::f32::consts::PI / 6.0;
-                    }
-                }
-            }
         }
     }
 
@@ -2852,6 +2721,42 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn build_ai_base_defense_no_host_residual_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        // Production body only — stop before tests so this surface check
+        // does not match its own string literals.
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
+            .find("pub fn build_ai_base_defense(&mut self, flank: bool)")
+            .expect("build_ai_base_defense");
+        let end = prod[i..]
+            .find("pub fn build_ai_base_defense_structure")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 2000));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("base_defense_structure_1")
+                && w.contains("build_ai_base_defense_structure")
+                && !w.contains("build_flank_defense")
+                && !w.contains("build_front_defense"),
+            "buildAIBaseDefense must only resolve side defense + place structure"
+        );
+        assert!(
+            !prod.contains("fn build_flank_defense")
+                && !prod.contains("fn build_front_defense")
+                && !prod.contains("fn update_flank_defense_angles")
+                && !prod.contains("fn update_front_defense_angles"),
+            "host residual defense angle helpers must be removed"
+        );
+    }
+
     fn skirmish_base_defense_and_new_map_cpp_surface() {
         let src = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
