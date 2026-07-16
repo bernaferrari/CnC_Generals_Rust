@@ -1096,6 +1096,44 @@ fn weapon_ini_candidate_paths() -> Vec<PathBuf> {
 /// Values match retail Weapon.ini entries used by those units (damage/range).
 /// Delay is stored in logic frames (30 FPS) after msec conversion.
 
+fn seed_death_type_for(
+    name: &str,
+    damage_type: gamelogic::damage::DamageType,
+) -> gamelogic::damage::DeathType {
+    use gamelogic::damage::{DamageType as Dmg, DeathType as Dth};
+    let n = name.to_ascii_lowercase();
+    if n.contains("terrorist") || n.contains("suicide") || n.contains("demo_trap") {
+        return Dth::Suicided;
+    }
+    if n.contains("laser") {
+        return Dth::Lasered;
+    }
+    if n.contains("toxin") || n.contains("anthrax") || n.contains("poison") {
+        return Dth::Poisoned;
+    }
+    if n.contains("flame") || n.contains("dragon") || n.contains("napalm") || n.contains("inferno")
+    {
+        return Dth::Burned;
+    }
+    if n.contains("bomb")
+        || n.contains("scud")
+        || n.contains("missile")
+        || n.contains("rocket")
+        || n.contains("aurora")
+        || n.contains("grenade")
+    {
+        return Dth::Exploded;
+    }
+    match damage_type {
+        Dmg::Flame => Dth::Burned,
+        Dmg::Laser => Dth::Lasered,
+        Dmg::Poison => Dth::Poisoned,
+        Dmg::Explosion | Dmg::AuroraBomb | Dmg::LandMine | Dmg::MolotovCocktail => Dth::Exploded,
+        Dmg::Radiation => Dth::Detonated,
+        _ => Dth::Normal,
+    }
+}
+
 fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::damage::DamageType {
     use gamelogic::damage::DamageType as D;
     let n = name.to_ascii_lowercase();
@@ -1999,6 +2037,7 @@ fn seed_known_host_weapons() -> usize {
         t.clip_size = seed.clip_size;
         t.weapon_speed = seed.weapon_speed;
         t.damage_type = seed_damage_type_for(seed.name, seed.weapon_speed);
+        t.death_type = seed_death_type_for(seed.name, t.damage_type);
         t.anti_mask.insert(WeaponAntiMask::GROUND);
         // Min-range residual for long-range GLA artillery / rockets.
         if seed.name == BUGGY_ROCKET_WEAPON || seed.name == BUGGY_ROCKET_WEAPON_UPGRADED {

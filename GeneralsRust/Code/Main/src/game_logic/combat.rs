@@ -55,6 +55,8 @@ pub struct Projectile {
     pub max_lifetime: f32,
     pub is_homing: bool,
     pub explosion_radius: f32,
+    /// C++ DeathType residual carried to kill application.
+    pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
 impl Projectile {
@@ -85,6 +87,7 @@ impl Projectile {
             max_lifetime: 10.0,
             is_homing: false,
             explosion_radius: 0.0,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
         }
     }
 
@@ -127,11 +130,13 @@ pub enum ProjectileHit {
         position: Vec3,
         damage: f32,
         damage_type: DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     },
     Area {
         position: Vec3,
         damage: f32,
         damage_type: DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         radius: f32,
         shooter_id: ObjectId,
     },
@@ -145,11 +150,13 @@ pub enum DamageEvent {
         position: Vec3,
         damage: f32,
         damage_type: DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     },
     Area {
         position: Vec3,
         damage: f32,
         damage_type: DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         radius: f32,
         shooter_id: ObjectId,
     },
@@ -185,6 +192,8 @@ pub struct PendingProjectile {
     pub is_homing: bool,
     /// Host combat damage class residual for Armor.ini coefficients.
     pub damage_type: DamageType,
+    /// C++ Weapon.ini DeathType residual applied on killing blow.
+    pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -240,6 +249,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         );
         if let Some(proj) = combat.projectile_mut(pid) {
             proj.damage_type = p.damage_type;
+            proj.death_type = p.death_type;
         }
     }
 }
@@ -416,6 +426,7 @@ impl CombatSystem {
                             position: impact,
                             damage: projectile.damage,
                             damage_type: projectile.damage_type,
+                            death_type: projectile.death_type,
                             radius: projectile.explosion_radius,
                             shooter_id: projectile.shooter_id,
                         });
@@ -425,6 +436,7 @@ impl CombatSystem {
                             position: impact,
                             damage: projectile.damage,
                             damage_type: projectile.damage_type,
+                            death_type: projectile.death_type,
                         });
                     }
                     projectiles_to_remove.push(proj_id);
@@ -443,6 +455,7 @@ impl CombatSystem {
                                     position: impact,
                                     damage: projectile.damage,
                                     damage_type: projectile.damage_type,
+                                    death_type: projectile.death_type,
                                     radius: projectile.explosion_radius,
                                     shooter_id: projectile.shooter_id,
                                 });
@@ -452,6 +465,7 @@ impl CombatSystem {
                                     position: impact,
                                     damage: projectile.damage,
                                     damage_type: projectile.damage_type,
+                                    death_type: projectile.death_type,
                                 });
                             }
                             projectiles_to_remove.push(proj_id);
@@ -466,6 +480,7 @@ impl CombatSystem {
                                 position: projectile.target_position,
                                 damage: projectile.damage,
                                 damage_type: projectile.damage_type,
+                                death_type: projectile.death_type,
                                 radius: projectile.explosion_radius,
                                 shooter_id: projectile.shooter_id,
                             });
@@ -483,10 +498,16 @@ impl CombatSystem {
                     target_id,
                     damage,
                     damage_type,
+                    death_type,
                     ..
                 } => {
                     if let Some(target) = objects.get_mut(target_id) {
-                        let destroyed = target.take_damage_from_typed(*damage, None, *damage_type);
+                        let destroyed = target.take_damage_from_typed_death(
+                            *damage,
+                            None,
+                            *damage_type,
+                            *death_type,
+                        );
                         if destroyed {
                             log::debug!(
                                 "Projectile destroyed object {} (damage: {:.1}, type: {:?})",
@@ -501,6 +522,7 @@ impl CombatSystem {
                     position,
                     damage,
                     damage_type,
+                    death_type,
                     radius,
                     ..
                 } => {
@@ -512,7 +534,12 @@ impl CombatSystem {
                             let falloff = 1.0 - (dist / radius).powi(2);
                             let area_damage = damage * falloff;
                             if area_damage > 0.0 {
-                                obj.take_damage_from_typed(area_damage, None, *damage_type);
+                                obj.take_damage_from_typed_death(
+                                    area_damage,
+                                    None,
+                                    *damage_type,
+                                    *death_type,
+                                );
                             }
                         }
                     }
@@ -544,6 +571,7 @@ impl CombatSystem {
                         position: projectile.position,
                         damage: projectile.damage,
                         damage_type: projectile.damage_type,
+                        death_type: projectile.death_type,
                     });
                 }
             }
@@ -556,6 +584,7 @@ impl CombatSystem {
                 position: projectile.target_position,
                 damage: projectile.damage,
                 damage_type: projectile.damage_type,
+                death_type: projectile.death_type,
                 radius: projectile.explosion_radius,
                 shooter_id: projectile.shooter_id,
             });
