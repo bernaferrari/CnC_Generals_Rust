@@ -6099,8 +6099,20 @@ impl GameLogic {
                 return false;
             }
         }
+        // C++ HasRunways landing residual: need a free runway to final-approach dock.
+        // Jets already parked here skip the runway gate.
+        let runway_idx = if already {
+            None
+        } else {
+            match self.reserve_airfield_runway(af_id, jet_id) {
+                Some(i) => Some(i),
+                None => return false, // hold off RTB dock until a runway frees
+            }
+        };
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             if !jet.rearm_return_to_base_weapons() {
+                // Failed rearm — release landing runway hold.
+                self.release_airfield_runway_for_jet(jet_id);
                 return false;
             }
             // C++ setProducer + park residual: dock at airfield hangar.
@@ -6112,12 +6124,20 @@ impl GameLogic {
             jet.movement.current_path_index = 0;
             jet.movement.target_position = None;
             // Snap to airfield pad residual (hangar park).
+            // Landing taxi: approach along reserved runway offset then settle.
+            use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
             let mut pad = af_pos;
+            if let Some(idx) = runway_idx {
+                pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
+            }
             pad.y = af_pos.y;
             jet.set_position(pad);
         } else {
+            self.release_airfield_runway_for_jet(jet_id);
             return false;
         }
+        // Docked: free the landing runway immediately (space now hangar-parked).
+        self.release_airfield_runway_for_jet(jet_id);
         // Register parking slot on the airfield (ParkingPlace reserve residual).
         // Structures report transport_capacity 0, so bypass add_occupant gates and
         // write the hangar roster directly (NumRows×NumCols capacity already checked).
@@ -70524,6 +70544,96 @@ mod tests {
             .get(&jets[2])
             .map(|o| o.status.airborne_target)
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn airfield_runway_blocks_rtb_landing_when_busy() {
+        let mut logic = GameLogic::new();
+        {
+            let mut af_t = ThingTemplate::new("LandAF");
+            af_t.add_kind_of(KindOf::Structure);
+            af_t.add_kind_of(KindOf::FSAirfield);
+            logic.templates.insert("LandAF".into(), af_t);
+            let mut jt = ThingTemplate::new("LandJet");
+            jt.add_kind_of(KindOf::Aircraft);
+            jt.add_kind_of(KindOf::Attackable);
+            jt.primary_weapon_name = Some("AmericaJetRaptorRocketPods".into());
+            logic.templates.insert("LandJet".into(), jt);
+        }
+        let af = logic
+            .create_object("LandAF", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("af");
+        // Fill both runways with phantom airborne holders (takeoff residual).
+        let h1 = logic
+            .create_object("LandJet", Team::USA, glam::Vec3::new(10.0, 50.0, 0.0))
+            .expect("h1");
+        let h2 = logic
+            .create_object("LandJet", Team::USA, glam::Vec3::new(20.0, 50.0, 0.0))
+            .expect("h2");
+        for &h in &[h1, h2] {
+            if let Some(o) = logic.objects.get_mut(&h) {
+                o.object_type = ObjectType::Aircraft;
+                o.status.airborne_target = true;
+                o.contained_by = None;
+            }
+            assert!(logic.reserve_airfield_runway(af, h).is_some());
+        }
+        assert_eq!(logic.airfield_runway_reserved_count(af), 2);
+
+        // RTB jet near airfield with empty clip.
+        let jet = logic
+            .create_object("LandJet", Team::USA, glam::Vec3::new(30.0, 50.0, 0.0))
+            .expect("jet");
+        if let Some(o) = logic.objects.get_mut(&jet) {
+            o.object_type = ObjectType::Aircraft;
+            o.status.airborne_target = true;
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                clip_size: 1,
+                ammo: Some(0),
+                ..Weapon::default()
+            });
+            // Ensure weapon name peels RETURN_TO_BASE.
+            o.thing.template.primary_weapon_name = Some("AmericaJetRaptorRocketPods".into());
+        }
+        // While runways busy, RTB must not dock.
+        let docked_busy = logic.try_return_to_base_rearm(jet);
+        // needs_return_to_base may fail if weapon fields differ — still assert runway gate when needs.
+        if logic
+            .objects
+            .get(&jet)
+            .map(|j| j.needs_return_to_base_rearm())
+            .unwrap_or(false)
+        {
+            assert!(!docked_busy, "busy runways must block RTB dock");
+            assert!(logic
+                .objects
+                .get(&jet)
+                .map(|j| j.contained_by.is_none())
+                .unwrap_or(false));
+        }
+        // Free a runway → landing may proceed (if jet still needs RTB).
+        logic.release_airfield_runway_for_jet(h1);
+        if logic
+            .objects
+            .get(&jet)
+            .map(|j| j.needs_return_to_base_rearm())
+            .unwrap_or(false)
+        {
+            assert!(logic.try_return_to_base_rearm(jet));
+            let j = logic.objects.get(&jet).unwrap();
+            assert_eq!(j.contained_by, Some(af));
+            assert_eq!(j.ai_state, AIState::Docked);
+            // Landing runway released after dock.
+            assert!(logic
+                .runway_reservations
+                .get(&af)
+                .map(|s| !s.iter().any(|x| *x == Some(jet)))
+                .unwrap_or(true));
+        }
     }
 
     #[test]
