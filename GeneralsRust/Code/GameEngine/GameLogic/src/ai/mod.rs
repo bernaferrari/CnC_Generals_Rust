@@ -2500,6 +2500,19 @@ impl Pathfinder {
     }
 
     /// C++ `Pathfinder::updateGoal`.
+
+    /// C++ `Pathfinder::updateAircraftGoal`.
+    pub fn update_aircraft_goal(
+        &self,
+        goal_pos: &Coord3D,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        self.inner
+            .update_aircraft_goal(goal_pos, unit_id, radius, center_in_cell);
+    }
+
     pub fn update_goal_cells(
         &self,
         cell: pathfind_astar::GridCoord,
