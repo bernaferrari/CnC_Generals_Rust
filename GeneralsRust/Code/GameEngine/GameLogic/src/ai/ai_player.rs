@@ -4829,19 +4829,36 @@ impl AIPlayer {
             return Ok(None);
         }
 
-        // C++ pathfinder clientSafeQuickDoesPathExist — teleport dozer if blocked.
+        // C++: if (!pathfinder->clientSafeQuickDoesPathExist(locoSet, dozerPos, &pos))
+        //        { log; dozer->setPosition(&pos); }
         if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
-            if let Ok(mut dozer_g) = dozer_arc.write() {
-                let dpos = *dozer_g.get_position();
-                let dx = dpos.x - pos.x;
-                let dy = dpos.y - pos.y;
-                // Residual: if very far with no path check, still teleport when
-                // distance is extreme (> map-scale). Prefer always allowing build.
-                let _ = (dx, dy);
-                // Teleport residual when pathfinder unavailable (C++ logs + setPosition).
-                // Keep dozer at current pos unless we detect no AI path iface.
-                if dozer_g.get_ai_update_interface().is_none() {
-                    return Ok(None);
+            let Ok(dozer_g) = dozer_arc.read() else {
+                return Ok(None);
+            };
+            if dozer_g.get_ai_update_interface().is_none() {
+                return Ok(None);
+            }
+            let dpos = *dozer_g.get_position();
+            drop(dozer_g);
+
+            let mut path_ok = false;
+            if let Ok(ai_guard) = THE_AI.read() {
+                if let Some(pf_arc) = ai_guard.pathfinder() {
+                    if let Ok(pf) = pf_arc.read() {
+                        // Prefer a normal land locomotor set; empty set → path fails
+                        // → teleport (safe over-teleport when loco data missing).
+                        let loco_set = crate::locomotor::LocomotorSet::new();
+                        path_ok = pf.client_safe_quick_does_path_exist(&loco_set, &dpos, &pos);
+                    }
+                }
+            }
+            if !path_ok {
+                log::debug!(
+                    "{} - Dozer unable to reach building.  Teleporting.",
+                    template_name
+                );
+                if let Ok(mut dozer_w) = dozer_arc.write() {
+                    let _ = dozer_w.set_position(&pos);
                 }
             }
         }
@@ -8356,8 +8373,10 @@ mod tests {
                 && window.contains("is_location_safe")
                 && window.contains("120.0 * PATHFIND_CELL_SIZE_F")
                 && window.contains("prefer location match")
+                && window.contains("client_safe_quick_does_path_exist")
+                && window.contains("Dozer unable to reach building.  Teleporting.")
                 && !window.contains("let _ = self.queue_dozer()"),
-            "buildStructureWithDozer must stamp BuildListInfo by location, skirmish wiggle, no double queueDozer"
+            "buildStructureWithDozer must path-check+teleport, stamp by location, skirmish wiggle"
         );
     }
 
