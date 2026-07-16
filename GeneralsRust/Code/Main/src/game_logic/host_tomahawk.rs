@@ -201,6 +201,8 @@ pub fn tomahawk_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(TOMAHAWK_RELOAD_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(TOMAHAWK_CLIP_SIZE),
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: TOMAHAWK_PROJECTILE_SPEED,

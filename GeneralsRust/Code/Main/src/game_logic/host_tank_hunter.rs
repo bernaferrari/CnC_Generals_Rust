@@ -221,6 +221,8 @@ pub fn tank_hunter_weapon(in_horde: bool, has_nationalism: bool) -> Weapon {
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: true,
         can_target_ground: true,
         projectile_speed: speed,

@@ -269,6 +269,8 @@ pub fn usa_tank_gun_weapon_for_template(template_name: &str) -> Weapon {
         reload_time: delay_frames as f32 / USA_TANKS_LOGIC_FPS,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed,
