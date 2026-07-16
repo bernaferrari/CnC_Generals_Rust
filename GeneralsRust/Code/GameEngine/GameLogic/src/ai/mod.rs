@@ -2189,6 +2189,34 @@ impl Pathfinder {
     /// C++ `Pathfinder::findAttackPath` with simple range circle.
 
     /// C++ `Pathfinder::getAircraftPath`.
+
+    /// C++ `Pathfinder::buildGroundPath`.
+    pub fn build_ground_path(
+        &self,
+        from: &Coord3D,
+        grid_path: &[pathfind_astar::GridCoord],
+        is_crusher: bool,
+        center: bool,
+        path_diameter: i32,
+    ) -> crate::ai::pathfind_complete::PathResult {
+        self.inner
+            .build_ground_path(from, grid_path, is_crusher, center, path_diameter)
+    }
+
+    /// C++ `Pathfinder::buildHierachicalPath`.
+    pub fn build_hierarchical_path(
+        &self,
+        from: &Coord3D,
+        grid_path: &[pathfind_astar::GridCoord],
+    ) -> crate::ai::pathfind_complete::PathResult {
+        self.inner.build_hierarchical_path(from, grid_path)
+    }
+
+    /// C++ `Pathfinder::setDebugPath`.
+    pub fn set_debug_path(&mut self, path: Option<crate::ai::pathfind_complete::PathResult>) {
+        self.inner.set_debug_path(path);
+    }
+
     pub fn get_aircraft_path(
         &self,
         from: &Coord3D,
