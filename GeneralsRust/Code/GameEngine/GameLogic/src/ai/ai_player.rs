@@ -2847,6 +2847,9 @@ impl AIPlayer {
         };
 
         // Pass 1: exact objectID match on build list.
+        // Do NOT call check_for_supply_center while holding player write —
+        // it re-acquires the same lock (would deadlock on std::sync::RwLock).
+        // C++ order: map props → clear UC → upgrades → script cache → supply.
         let mut matched = false;
         let mut script_name = String::new();
         {
@@ -2890,8 +2893,6 @@ impl AIPlayer {
                             sg.update_upgrade_modules_from_player();
                         }
 
-                        // C++ checkForSupplyCenter(info, bldg)
-                        let _ = self.check_for_supply_center(structure_id);
                         matched = true;
                         break;
                     }
@@ -2909,6 +2910,8 @@ impl AIPlayer {
                     }
                 }
             }
+            // C++ checkForSupplyCenter(info, bldg) after script — outside player write.
+            let _ = self.check_for_supply_center(structure_id);
             return Ok(());
         }
 
@@ -8413,8 +8416,10 @@ mod tests {
                 && window.contains("check_for_supply_center")
                 && window.contains("get_reconstructed_building_id")
                 && window.contains("saw_rhbi && is_this_spawn")
-                && !window.contains("frame_last_building_built = TheGameLogic::get_frame()"),
-            "onStructureProduced must apply Dict map props + exact hole rebuild ID, no frame stamp"
+                && !window.contains("frame_last_building_built = TheGameLogic::get_frame()")
+                && window.find("run_object_script") < window.find("self.check_for_supply_center")
+                && window.contains("Do NOT call check_for_supply_center while holding"),
+            "onStructureProduced: script then supply outside player write; no frame stamp"
         );
     }
 
