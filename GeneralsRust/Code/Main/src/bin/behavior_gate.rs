@@ -45,8 +45,14 @@ fn main() {
             golden.status, golden.victory, golden.save_load_ok, golden.fought
         ));
     }
-    // Map present: main combat on map armies => !synthetic_combat && playable_claim.
-    // Map absent: synthetic host soup => synthetic_combat && !playable_claim.
+    // Map present: !synthetic_combat && map_host_playable_ok; playable_claim always false.
+    // Map absent: synthetic_combat && !map_host_playable_ok; playable_claim always false.
+    if golden.playable_claim {
+        failed.push(format!(
+            "golden playable_claim={} (must stay false; headless is not retail playthrough)",
+            golden.playable_claim
+        ));
+    }
     if golden.map_loaded {
         if golden.synthetic_combat {
             failed.push(format!(
@@ -54,10 +60,10 @@ fn main() {
                 golden.synthetic_combat
             ));
         }
-        if !golden.playable_claim {
+        if !golden.map_host_playable_ok {
             failed.push(format!(
-                "golden playable_claim={} (expected true when map-world victory proven)",
-                golden.playable_claim
+                "golden map_host_playable_ok={} (expected true when map-world victory proven)",
+                golden.map_host_playable_ok
             ));
         }
         if !(golden.map_combat_ok
@@ -80,10 +86,10 @@ fn main() {
                 golden.synthetic_combat
             ));
         }
-        if golden.playable_claim {
+        if golden.map_host_playable_ok {
             failed.push(format!(
-                "golden playable_claim={} (must be false while synthetic_combat / map absent)",
-                golden.playable_claim
+                "golden map_host_playable_ok={} (must be false while synthetic_combat / map absent)",
+                golden.map_host_playable_ok
             ));
         }
     }
@@ -247,10 +253,11 @@ fn main() {
         // retail_* / combat_no_teleport / combat_realistic_* are residual honesty only.
         // Campaign retail_campaign_map_loaded fail-closed when full MD_*/GC_* load hangs.
         println!(
-            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={}; campaign_playable_claim={} retail_campaign_map_loaded={}; executable_host_ok={} executable_status={})",
+            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} map_host_ok={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={}; campaign_playable_claim={} retail_campaign_map_loaded={}; executable_host_ok={} executable_status={})",
             golden.map_loaded,
             golden.synthetic_combat,
             golden.playable_claim,
+            golden.map_host_playable_ok,
             golden.retail_production_chain_ok,
             golden.retail_gather_ok,
             golden.combat_no_teleport_ok,
@@ -266,10 +273,11 @@ fn main() {
         std::process::exit(0);
     }
     eprintln!(
-        "behavior_gate: FAIL golden_map={} synthetic={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={} shell_claim={} shell_host_playable_ok={}",
+        "behavior_gate: FAIL golden_map={} synthetic={} playable_claim={} map_host_ok={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={} shell_claim={} shell_host_playable_ok={}",
         golden.map_loaded,
         golden.synthetic_combat,
         golden.playable_claim,
+        golden.map_host_playable_ok,
         golden.retail_production_chain_ok,
         golden.retail_gather_ok,
         golden.combat_no_teleport_ok,

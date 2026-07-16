@@ -4,11 +4,17 @@
 //! Two combat worlds:
 //! - **Map world** (retail map present): load_map on the main logic, build/produce/fight
 //!   against map-spawned enemy structures. When victory is proven: synthetic_combat=false
-//!   and playable_claim=true (fail-closed otherwise).
+//!   and `map_host_playable_ok=true` (fail-closed otherwise).
 //! - **Synthetic host** (no retail map): GoldenCC/GoldenEnemyCC host soup.
-//!   synthetic_combat=true, playable_claim=false.
+//!   synthetic_combat=true, map_host_playable_ok=false.
 //!
-//! Combat honesty residuals (gate `playable_claim` on map path):
+//! Claim flags (do not conflate):
+//! - `playable_claim` — **always false**. Headless host vertical slice is not a
+//!   retail windowed WND/GPU match playthrough (same honesty as shell_smoke).
+//! - `map_host_playable_ok` — limited honesty: map-loaded same-world build/produce/
+//!   combat/victory without synthetic soup when residuals stay green.
+//!
+//! Combat honesty residuals (gate `map_host_playable_ok` on map path):
 //! - `combat_no_teleport_ok`: pure `assign_unit_path` / Move into range + AttackObject;
 //!   no `set_position` range pull. Teleport pull is opt-in via `GOLDEN_ALLOW_TELEPORT_PULL=1`.
 //! - `combat_realistic_speed_ok`: march speed ≤ retail BasicHumanLocomotor (20 u/s).
@@ -56,8 +62,10 @@ pub struct GoldenSkirmishResult {
     pub synthetic_combat: bool,
     /// True only if opponent AI was left disabled for the whole slice.
     pub ai_disabled_for_slice: bool,
-    /// True only when map-loaded main combat/victory is proven without synthetic soup.
+    /// Always false — headless golden is not retail windowed playthrough.
     pub playable_claim: bool,
+    /// Map-host vertical slice honesty (not full retail playability).
+    pub map_host_playable_ok: bool,
     /// True when AI faction structure templates remain in the host catalog through
     /// the success path (no mid-scenario `templates.remove` residual).
     pub ai_structure_templates_retained: bool,
@@ -1880,7 +1888,8 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && outcome.same_world_production_ok
         && outcome.same_world_victory_ok);
 
-    let playable_claim = map_loaded
+    // Limited map-host slice claim (not retail WND/GPU playthrough).
+    let map_host_playable_ok = map_loaded
         && !synthetic_combat
         && outcome.victory
         && outcome.fought
@@ -1893,6 +1902,8 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         // Fail-closed combat residuals: no set_position range pull, retail-ish march speed.
         && outcome.combat_no_teleport_ok
         && outcome.combat_realistic_speed_ok;
+    // Always fail-closed for full playability (shell_smoke parity).
+    let playable_claim = false;
 
     let map_combat_required_ok = !map_loaded || outcome.map_combat_ok;
     let map_players_required_ok = !map_loaded || players_preserved_on_load;
@@ -1944,6 +1955,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         synthetic_combat,
         ai_disabled_for_slice,
         playable_claim,
+        map_host_playable_ok,
         ai_structure_templates_retained,
         map_combat_ok: outcome.map_combat_ok,
         same_world_production_ok: outcome.same_world_production_ok,
@@ -1964,7 +1976,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -1986,6 +1998,7 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.synthetic_combat,
         r.ai_disabled_for_slice,
         r.playable_claim,
+        r.map_host_playable_ok,
         r.ai_structure_templates_retained,
         r.map_combat_ok,
         r.same_world_production_ok,
@@ -2039,8 +2052,13 @@ mod tests {
                 format_golden_report(&result)
             );
             assert!(
-                result.playable_claim,
-                "map-loaded proven victory must set playable_claim: {}",
+                !result.playable_claim,
+                "playable_claim must stay false (not retail playthrough): {}",
+                format_golden_report(&result)
+            );
+            assert!(
+                result.map_host_playable_ok,
+                "map-loaded proven victory must set map_host_playable_ok: {}",
                 format_golden_report(&result)
             );
             assert!(
@@ -2143,7 +2161,10 @@ mod tests {
             result.map_identity
         );
         assert!(
-            result.victory && result.playable_claim && !result.synthetic_combat,
+            result.victory
+                && result.map_host_playable_ok
+                && !result.playable_claim
+                && !result.synthetic_combat,
             "map-world victory without synthetic combat: {}",
             format_golden_report(&result)
         );
