@@ -2882,21 +2882,22 @@ impl AIPlayer {
                         if let Some(hole_arc) = OBJECT_REGISTRY.get_object(list_id) {
                             if let Ok(hole_g) = hole_arc.read() {
                                 if hole_g.is_kind_of(KindOf::RebuildHole) {
-                                    // Prefer reconstructed building ID match when available.
-                                    let mut is_this_spawn = true;
+                                    // C++: only if bldg->getID() == rhbi->getReconstructedBuildingID().
+                                    let mut is_this_spawn = false;
+                                    let mut saw_rhbi = false;
                                     for behavior in hole_g.get_behavior_modules() {
                                         if let Ok(mut bg) = behavior.lock() {
                                             if let Some(rhbi) =
                                                 bg.get_rebuild_hole_behavior_interface()
                                             {
+                                                saw_rhbi = true;
                                                 let rebuilt = rhbi.get_reconstructed_building_id();
-                                                is_this_spawn = rebuilt == structure_id
-                                                    || rebuilt == INVALID_ID;
+                                                is_this_spawn = rebuilt == structure_id;
                                                 break;
                                             }
                                         }
                                     }
-                                    if is_this_spawn {
+                                    if saw_rhbi && is_this_spawn {
                                         log::debug!("AI got rebuilt {}", name);
                                         node.set_object_id(structure_id);
                                         matched = true;
@@ -8199,15 +8200,17 @@ mod tests {
         let i = src
             .find("pub fn on_structure_produced")
             .expect("onStructure");
-        let window = &src[i..src.len().min(i + 4500)];
+        let window = &src[i..src.len().min(i + 8000)];
         assert!(
             window.contains("update_obj_values_from_map_properties")
                 && window.contains("key_object_initial_health")
                 && window.contains("add_object_to_cache")
                 && window.contains("run_object_script")
                 && window.contains("check_for_supply_center")
+                && window.contains("get_reconstructed_building_id")
+                && window.contains("saw_rhbi && is_this_spawn")
                 && !window.contains("frame_last_building_built = TheGameLogic::get_frame()"),
-            "onStructureProduced must apply Dict map props + script + supply, no frame stamp"
+            "onStructureProduced must apply Dict map props + exact hole rebuild ID, no frame stamp"
         );
     }
 
