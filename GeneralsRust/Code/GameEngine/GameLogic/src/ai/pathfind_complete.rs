@@ -1056,7 +1056,31 @@ impl PathfindingSystem {
             }
             false
         };
-        let grid_path = pathfinder.find_path_ex3(
+        // C++ examineCellsCallback: abort line on enemyFixed / allyFixedCount.
+        let line_ok = |cell: GridCoord| -> bool {
+            if obj_id == INVALID_ID {
+                return true;
+            }
+            let mut info = CheckMovementInfo {
+                cell,
+                layer: PathfindLayerEnum::Ground,
+                center_in_cell,
+                radius,
+                consider_transient: false,
+                acceptable_surfaces: request.surfaces,
+                ..Default::default()
+            };
+            if !self.check_for_movement(obj_id, &mut info) {
+                return false;
+            }
+            if info.enemy_fixed || info.ally_fixed_count > 0 {
+                return false;
+            }
+            true
+        };
+        // Seed line when not tunneling and not downhill-only (C++ guards).
+        let seed_line = !tunneling && !downhill_only;
+        let grid_path = pathfinder.find_path_ex4(
             start,
             goal,
             request.surfaces,
@@ -1068,6 +1092,8 @@ impl PathfindingSystem {
             downhill_only,
             Some(&ground_h as &dyn Fn(GridCoord) -> f32),
             Some(&force_pass as &dyn Fn(GridCoord) -> bool),
+            Some(&line_ok as &dyn Fn(GridCoord) -> bool),
+            seed_line,
         );
 
         drop(pathfinder); // Release lock
@@ -10053,7 +10079,7 @@ mod tests {
         ));
         let prod = src.split("#[cfg(test)]").next().expect("production");
         let i = prod.find("pub fn patch_path").expect("patchPath");
-        let w = &prod[i..prod.len().min(i + 8000)];
+        let w = &prod[i..prod.len().min(i + 12000)];
         assert!(
             w.contains("check_for_movement")
                 && w.contains("CELL_LIMIT")
@@ -10953,7 +10979,7 @@ mod tests {
         let i = prod
             .find("pub fn check_for_movement")
             .expect("checkForMovement");
-        let w = &prod[i..prod.len().min(i + 8000)];
+        let w = &prod[i..prod.len().min(i + 12000)];
         assert!(
             w.contains("can_crush_or_squish")
                 && w.contains("CrushSquishTestType::TestCrushOrSquish"),
@@ -11585,7 +11611,7 @@ mod tests {
         let i = prod
             .find("pub fn internal_find_hierarchical_path")
             .expect("internal_findHierarchicalPath");
-        let w = &prod[i..prod.len().min(i + 9000)];
+        let w = &prod[i..prod.len().min(i + 12000)];
         assert!(
             w.contains("process_hierarchical_cell")
                 && w.contains("hierarchical_bridge_jumps")
@@ -11677,7 +11703,7 @@ mod tests {
         let i = prod
             .find("fn find_path_internal")
             .expect("internalFindPath");
-        let w = &prod[i..prod.len().min(i + 9000)];
+        let w = &prod[i..prod.len().min(i + 12000)];
         assert!(
             w.contains("ally_fixed_count")
                 && (w.contains("find_path_ex") || w.contains("find_path_ex3")),
@@ -11694,7 +11720,7 @@ mod tests {
         let prod = src.split("#[cfg(test)]").next().expect("production");
         assert!(prod.contains("fn optimize_path_blocked"));
         let i = prod.find("fn find_path_internal").expect("internal");
-        let w = &prod[i..prod.len().min(i + 9000)];
+        let w = &prod[i..prod.len().min(i + 12000)];
         assert!(
             w.contains("optimize_path_blocked") && w.contains("result.blocked_by_ally"),
             "internalFindPath must optimize with blockedByAlly flag like C++"
@@ -11709,7 +11735,7 @@ mod tests {
         ));
         let prod = src.split("#[cfg(test)]").next().expect("production");
         let i = prod.find("fn find_path_internal").expect("internal");
-        let w = &prod[i..prod.len().min(i + 8000)];
+        let w = &prod[i..prod.len().min(i + 12000)];
         assert!(
             w.contains("dx < 10") && w.contains("ally_moving"),
             "allyMoving cost must require dx,dy < 10 from start like C++"
@@ -11733,7 +11759,9 @@ mod tests {
         let prod = complete.split("#[cfg(test)]").next().expect("production");
         assert!(
             prod.contains("object_is_downhill_only")
-                && (prod.contains("find_path_ex2") || prod.contains("find_path_ex3")),
+                && (prod.contains("find_path_ex2")
+                    || prod.contains("find_path_ex3")
+                    || prod.contains("find_path_ex4")),
             "internalFindPath must pass downhill_only into A*"
         );
     }
@@ -11753,8 +11781,33 @@ mod tests {
         assert!(
             prod.contains("start_is_obstacle")
                 && prod.contains("object_is_dozer")
-                && prod.contains("find_path_ex3"),
+                && (prod.contains("find_path_ex3") || prod.contains("find_path_ex4")),
             "internalFindPath must set tunneling from obstacle start and dozer force-pass"
+        );
+    }
+
+    #[test]
+    fn examine_cells_line_seed_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(
+            src.contains("examine_cells_toward_goal")
+                && src.contains("COST_ORTHOGONAL / 2")
+                && src.contains("find_path_ex4"),
+            "A* must seed line-to-goal cells at half orthogonal cost"
+        );
+        let complete = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = complete.split("#[cfg(test)]").next().expect("production");
+        assert!(
+            prod.contains("seed_line")
+                && prod.contains("find_path_ex4")
+                && prod.contains("line_ok"),
+            "internalFindPath must enable examineCellsCallback line seed"
         );
     }
 }
