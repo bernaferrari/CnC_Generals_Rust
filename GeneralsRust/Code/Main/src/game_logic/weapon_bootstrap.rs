@@ -467,6 +467,78 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ ProjectileCollideMask residual bits (Weapon.cpp TheWeaponCollideMaskNames).
+pub const PROJECTILE_COLLIDE_ALLIES: u32 = 0x0001;
+pub const PROJECTILE_COLLIDE_ENEMIES: u32 = 0x0002;
+pub const PROJECTILE_COLLIDE_STRUCTURES: u32 = 0x0004;
+pub const PROJECTILE_COLLIDE_SHRUBBERY: u32 = 0x0008;
+pub const PROJECTILE_COLLIDE_PROJECTILES: u32 = 0x0010;
+pub const PROJECTILE_COLLIDE_WALLS: u32 = 0x0020;
+pub const PROJECTILE_COLLIDE_SMALL_MISSILES: u32 = 0x0040;
+pub const PROJECTILE_COLLIDE_BALLISTIC_MISSILES: u32 = 0x0080;
+
+/// Default ballistic residual: structures + walls (most tank/missile shells).
+pub const PROJECTILE_COLLIDE_DEFAULT: u32 =
+    PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS;
+
+/// C++ Weapon.ini ProjectileCollidesWith residual mask (Regular).
+///
+/// Fail-closed: gates intervening-structure intercept only — not full shrubbery /
+/// projectile-vs-projectile collide matrix.
+pub fn host_projectile_collides_for_weapon_name(name: &str) -> u32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).map(|wt| {
+            // collide_mask bits are public u32 storage on WeaponCollideMask.
+            wt.collide_mask.bits()
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(bits) = from_store {
+        if bits != 0 {
+            return bits;
+        }
+    }
+    seed_projectile_collides_for(name)
+}
+
+fn seed_projectile_collides_for(name: &str) -> u32 {
+    let n = name.to_ascii_lowercase();
+    // Hitscan / laser residual: no projectile collide (instant).
+    if n.contains("laser")
+        || n.contains("machinegun")
+        || n.contains("minigun")
+        || n.contains("gattling")
+        || n.contains("flashbang")
+        || n.contains("combatrifle")
+    {
+        return 0;
+    }
+    // AA missiles residual: often STRUCTURES only (no walls peel).
+    if n.contains("stinger") || n.contains("patriot") && n.contains("air") {
+        return PROJECTILE_COLLIDE_STRUCTURES;
+    }
+    // Scud / aurora / howitzer residual: STRUCTURES (retail).
+    if n.contains("scud") || n.contains("aurora") || n.contains("howitzer") {
+        return PROJECTILE_COLLIDE_STRUCTURES;
+    }
+    // Avenger / some air weapons include ENEMIES.
+    if n.contains("avenger") {
+        return PROJECTILE_COLLIDE_ENEMIES
+            | PROJECTILE_COLLIDE_STRUCTURES
+            | PROJECTILE_COLLIDE_WALLS
+            | PROJECTILE_COLLIDE_SHRUBBERY;
+    }
+    PROJECTILE_COLLIDE_DEFAULT
+}
+
+/// Whether intervening structure intercept is enabled for this collide mask.
+pub fn projectile_collides_structures(mask: u32) -> bool {
+    (mask & (PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS)) != 0
+}
+
 /// C++ Weapon.ini RadiusDamageAffects residual mask (Regular).
 ///
 /// Bits match `host_ai_path_combat_residual_wave105` WeaponAffectsMaskType.
@@ -4117,5 +4189,20 @@ mod tests {
             false,
             false,
         ));
+    }
+
+    #[test]
+    fn projectile_collides_for_seeded_weapons_residual() {
+        assert_eq!(
+            seed_projectile_collides_for("AmericaTankCrusaderGun") & PROJECTILE_COLLIDE_STRUCTURES,
+            PROJECTILE_COLLIDE_STRUCTURES
+        );
+        assert_eq!(seed_projectile_collides_for("PaladinPointDefenseLaser"), 0);
+        assert!(projectile_collides_structures(PROJECTILE_COLLIDE_DEFAULT));
+        assert!(!projectile_collides_structures(0));
+        assert_eq!(
+            seed_projectile_collides_for("ScudStormDamageWeapon"),
+            PROJECTILE_COLLIDE_STRUCTURES
+        );
     }
 }
