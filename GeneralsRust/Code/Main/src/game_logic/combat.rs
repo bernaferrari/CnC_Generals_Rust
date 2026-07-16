@@ -61,6 +61,8 @@ pub struct Projectile {
     pub projectile_object_name: String,
     /// C++ Weapon.ini ProjectileDetonationFX residual (spawned at impact).
     pub detonation_fx_name: String,
+    /// C++ Weapon.ini ProjectileDetonationOCL residual name (spawned at impact).
+    pub detonation_ocl_name: String,
 }
 
 impl Projectile {
@@ -94,6 +96,7 @@ impl Projectile {
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: String::new(),
             detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
         }
     }
 
@@ -175,6 +178,7 @@ pub struct ProjectileImpactFx {
     pub shooter_id: ObjectId,
     pub target_id: Option<ObjectId>,
     pub detonation_fx_name: String,
+    pub detonation_ocl_name: String,
 }
 
 /// Combat system manager
@@ -215,6 +219,8 @@ pub struct PendingProjectile {
     pub projectile_object_name: String,
     /// C++ Weapon.ini ProjectileDetonationFX residual (empty = no impact FX name).
     pub detonation_fx_name: String,
+    /// C++ Weapon.ini ProjectileDetonationOCL residual (empty = no impact OCL name).
+    pub detonation_ocl_name: String,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -273,6 +279,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.death_type = p.death_type;
             proj.projectile_object_name = p.projectile_object_name.clone();
             proj.detonation_fx_name = p.detonation_fx_name.clone();
+            proj.detonation_ocl_name = p.detonation_ocl_name.clone();
         }
     }
 }
@@ -468,12 +475,15 @@ impl CombatSystem {
                             death_type: projectile.death_type,
                         });
                     }
-                    if !projectile.detonation_fx_name.is_empty() {
+                    if !projectile.detonation_fx_name.is_empty()
+                        || !projectile.detonation_ocl_name.is_empty()
+                    {
                         self.impact_fx.push(ProjectileImpactFx {
                             position: impact,
                             shooter_id: projectile.shooter_id,
                             target_id: Some(sid),
                             detonation_fx_name: projectile.detonation_fx_name.clone(),
+                            detonation_ocl_name: projectile.detonation_ocl_name.clone(),
                         });
                     }
                     projectiles_to_remove.push(proj_id);
@@ -505,12 +515,15 @@ impl CombatSystem {
                                     death_type: projectile.death_type,
                                 });
                             }
-                            if !projectile.detonation_fx_name.is_empty() {
+                            if !projectile.detonation_fx_name.is_empty()
+                                || !projectile.detonation_ocl_name.is_empty()
+                            {
                                 self.impact_fx.push(ProjectileImpactFx {
                                     position: impact,
                                     shooter_id: projectile.shooter_id,
                                     target_id: Some(target_id),
                                     detonation_fx_name: projectile.detonation_fx_name.clone(),
+                                    detonation_ocl_name: projectile.detonation_ocl_name.clone(),
                                 });
                             }
                             projectiles_to_remove.push(proj_id);
@@ -531,12 +544,15 @@ impl CombatSystem {
                                 shooter_id: projectile.shooter_id,
                             });
                         }
-                        if !projectile.detonation_fx_name.is_empty() {
+                        if !projectile.detonation_fx_name.is_empty()
+                            || !projectile.detonation_ocl_name.is_empty()
+                        {
                             self.impact_fx.push(ProjectileImpactFx {
                                 position: impact,
                                 shooter_id: projectile.shooter_id,
                                 target_id: None,
                                 detonation_fx_name: projectile.detonation_fx_name.clone(),
+                                detonation_ocl_name: projectile.detonation_ocl_name.clone(),
                             });
                         }
                         projectiles_to_remove.push(proj_id);
@@ -1076,11 +1092,13 @@ mod tests {
         );
         if let Some(p) = combat.projectile_mut(pid) {
             p.detonation_fx_name = "FX_GenericTankShellDetonation".into();
+            p.detonation_ocl_name = "OCL_FireFieldSmall".into();
         }
         let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
         let fx = combat.take_impact_fx();
         assert_eq!(fx.len(), 1, "impact must queue detonation fx");
         assert_eq!(fx[0].detonation_fx_name, "FX_GenericTankShellDetonation");
+        assert_eq!(fx[0].detonation_ocl_name, "OCL_FireFieldSmall");
         assert_eq!(fx[0].target_id, Some(target));
     }
 }
