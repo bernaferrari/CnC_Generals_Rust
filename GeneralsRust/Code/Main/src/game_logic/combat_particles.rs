@@ -61,6 +61,9 @@ pub struct CombatParticleSystemEntry {
     pub active: bool,
     /// Optional mirror id in GameClient ParticleSystemManager (when bridged).
     pub client_system_id: Option<u32>,
+    /// C++ Weapon.ini FireFX / DetonationFX residual name (empty = preset only).
+    #[serde(default)]
+    pub fx_list_name: String,
 }
 
 /// Lightweight host particle system registry for combat/build feedback.
@@ -193,6 +196,7 @@ impl CombatParticleRegistry {
             spawned_frame: frame,
             active: true,
             client_system_id,
+            fx_list_name: String::new(),
         };
         self.systems.insert(id, entry);
         self.spawned_this_frame.push(id);
@@ -353,22 +357,55 @@ impl CombatParticleRegistry {
         shooter: ObjectId,
         target: Option<ObjectId>,
     ) -> Vec<u32> {
+        self.spawn_weapon_fire_fx_named(muzzle_pos, impact_pos, frame, shooter, target, "", "")
+    }
+
+    /// Weapon fire FX residual with optional Weapon.ini FireFX / DetonationFX names.
+    ///
+    /// Preset particle kinds still spawn (MuzzleFlash / BulletImpact). When a
+    /// FireFX name is provided it is stamped on the muzzle entry for
+    /// presentation/client FXList residual (fail-closed vs full FXList doFX).
+    pub fn spawn_weapon_fire_fx_named(
+        &mut self,
+        muzzle_pos: Vec3,
+        impact_pos: Option<Vec3>,
+        frame: u32,
+        shooter: ObjectId,
+        target: Option<ObjectId>,
+        fire_fx_name: &str,
+        detonation_fx_name: &str,
+    ) -> Vec<u32> {
         let mut ids = Vec::with_capacity(2);
-        ids.push(self.spawn(
+        let muzzle_id = self.spawn(
             CombatParticleKind::WeaponMuzzleFlash,
             muzzle_pos,
             frame,
             Some(shooter),
             target,
-        ));
+        );
+        if !fire_fx_name.is_empty() {
+            if let Some(e) = self.systems.get_mut(&muzzle_id) {
+                e.fx_list_name = fire_fx_name.to_string();
+                // Prefer retail FireFX name as template residual when non-empty.
+                e.template_name = fire_fx_name.to_string();
+            }
+        }
+        ids.push(muzzle_id);
         if let Some(impact) = impact_pos {
-            ids.push(self.spawn(
+            let impact_id = self.spawn(
                 CombatParticleKind::WeaponImpact,
                 impact,
                 frame,
                 Some(shooter),
                 target,
-            ));
+            );
+            if !detonation_fx_name.is_empty() {
+                if let Some(e) = self.systems.get_mut(&impact_id) {
+                    e.fx_list_name = detonation_fx_name.to_string();
+                    e.template_name = detonation_fx_name.to_string();
+                }
+            }
+            ids.push(impact_id);
         }
         ids
     }
@@ -552,5 +589,26 @@ mod tests {
             CombatParticleRegistry::death_audio_event_name(true, HostDeathType::Burned),
             "BuildingDie"
         );
+    }
+
+    #[test]
+    fn fire_fx_name_stamped_on_muzzle_and_impact() {
+        use glam::Vec3;
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named(
+            Vec3::ZERO,
+            Some(Vec3::new(1.0, 0.0, 0.0)),
+            3,
+            ObjectId(9),
+            Some(ObjectId(10)),
+            "WeaponFX_GenericTankGunNoTracer",
+            "WeaponFX_JetMissileDetonation",
+        );
+        assert_eq!(ids.len(), 2);
+        let muzzle = reg.get(ids[0]).expect("muzzle");
+        assert_eq!(muzzle.fx_list_name, "WeaponFX_GenericTankGunNoTracer");
+        assert_eq!(muzzle.template_name, "WeaponFX_GenericTankGunNoTracer");
+        let impact = reg.get(ids[1]).expect("impact");
+        assert_eq!(impact.fx_list_name, "WeaponFX_JetMissileDetonation");
     }
 }

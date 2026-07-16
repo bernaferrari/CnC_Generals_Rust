@@ -3745,6 +3745,8 @@ impl XferData for CombatParticleSystemEntry {
         } else {
             self.client_system_id = None;
         }
+        xfer.xfer_marker_label("FxListName")?;
+        xfer.xfer_string(&mut self.fx_list_name)?;
         Ok(())
     }
 }
@@ -3768,6 +3770,7 @@ impl XferData for CombatParticleRegistrySnapshot {
                 spawned_frame: 0,
                 active: false,
                 client_system_id: None,
+                fx_list_name: String::new(),
             },
         )?;
         Ok(())
