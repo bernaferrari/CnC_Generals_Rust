@@ -206,6 +206,8 @@ pub fn overlord_gun_weapon(has_uranium: bool) -> Weapon {
         last_fire_time: 0.0,
         // ClipSize honesty residual (not full dual-shot cadence).
         ammo: Some(OVERLORD_CLIP_SIZE),
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: OVERLORD_PROJECTILE_SPEED,

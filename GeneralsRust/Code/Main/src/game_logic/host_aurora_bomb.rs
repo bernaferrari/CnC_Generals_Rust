@@ -672,6 +672,8 @@ pub fn aurora_bomb_weapon(kind: HostAuroraBombKind) -> super::Weapon {
         reload_time: (AURORA_BOMB_CLIP_RELOAD_MS as f32) / 1000.0, // ClipReloadTime 5000 ms residual
         last_fire_time: -100.0,
         ammo: Some(AURORA_BOMB_CLIP_SIZE),
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: AURORA_BOMB_WEAPON_SPEED,

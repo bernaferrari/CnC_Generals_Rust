@@ -299,6 +299,8 @@ pub fn raptor_weapon(is_king: bool, has_laser_missiles: bool) -> Weapon {
         can_target_ground: true,
         projectile_speed: RAPTOR_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         splash_radius: 0.0,
     }
 }

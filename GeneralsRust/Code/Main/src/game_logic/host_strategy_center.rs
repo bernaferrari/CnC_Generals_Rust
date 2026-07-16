@@ -761,6 +761,8 @@ pub fn strategy_center_gun_weapon() -> Weapon {
         reload_time: strategy_center_gun_reload_secs(),
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: STRATEGY_CENTER_GUN_PROJECTILE_SPEED,

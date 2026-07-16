@@ -239,6 +239,8 @@ pub fn technical_weapon_for_tier(tier: TechnicalWeaponTier) -> Weapon {
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: if matches!(tier, TechnicalWeaponTier::Two) {

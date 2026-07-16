@@ -218,6 +218,8 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             reload_time: 1.0,
             last_fire_time: 0.0,
             ammo: None,
+            clip_size: 0,
+            clip_reload_time: 0.0,
             can_target_air: true,
             can_target_ground: true,
             projectile_speed: p.speed,

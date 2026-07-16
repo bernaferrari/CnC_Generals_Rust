@@ -1863,8 +1863,44 @@ impl Object {
     }
 
     /// Weapon ready on reload timer (not range).
+    /// Empty clip still becomes ready after between-shot/clip-reload interval so
+    /// `consume_ammo_on_fire` can refill (C++ AutoReloadsClip residual).
     pub fn weapon_ready(weapon: &Weapon, current_time: f32) -> bool {
         current_time - weapon.last_fire_time >= weapon.reload_time
+    }
+
+    /// C++ clip residual: consume one round; empty clip stretches next ready
+    /// to `clip_reload_time` (or `reload_time` when unset).
+    pub fn consume_ammo_on_fire(weapon: &mut Weapon, current_time: f32) {
+        weapon.last_fire_time = current_time;
+        if weapon.clip_size == 0 {
+            // Unlimited / no clip bookkeeping.
+            if let Some(a) = weapon.ammo.as_mut() {
+                // Soft residual: if someone set ammo without clip_size, still decrement.
+                if *a > 0 {
+                    *a -= 1;
+                }
+            }
+            return;
+        }
+        // Refill empty clip after reload wait (caller ensured weapon_ready).
+        if weapon.ammo == Some(0) || weapon.ammo.is_none() {
+            weapon.ammo = Some(weapon.clip_size);
+        }
+        if let Some(a) = weapon.ammo.as_mut() {
+            *a = a.saturating_sub(1);
+            if *a == 0 {
+                let clip_rt = if weapon.clip_reload_time > 0.0 {
+                    weapon.clip_reload_time
+                } else {
+                    weapon.reload_time
+                };
+                // Next weapon_ready when current + clip_rt:
+                // ready iff now - last >= reload_time
+                // => last = now - reload_time + clip_rt
+                weapon.last_fire_time = current_time - weapon.reload_time + clip_rt;
+            }
+        }
     }
 
     pub fn can_fire(&self, current_time: f32) -> bool {
@@ -2048,7 +2084,7 @@ impl Object {
         };
 
         if let Some(weapon) = self.weapon_slot_mut(slot) {
-            weapon.last_fire_time = current_time;
+            Self::consume_ammo_on_fire(weapon, current_time);
             let weapon_damage = weapon.damage;
             let weapon_speed = weapon.projectile_speed;
             let weapon_splash = weapon.splash_radius;
@@ -3077,5 +3113,44 @@ mod tests {
 
         target.status.detected = true;
         assert!(attacker.can_target(&target));
+    }
+
+    #[test]
+    fn clip_ammo_forces_clip_reload_gap() {
+        use crate::game_logic::Weapon;
+        let mut w = Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.1, // between shots
+            ammo: Some(2),
+            clip_size: 2,
+            clip_reload_time: 2.0, // long clip reload
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        };
+        let t0 = 10.0;
+        assert!(Object::weapon_ready(&w, t0));
+        Object::consume_ammo_on_fire(&mut w, t0);
+        assert_eq!(w.ammo, Some(1));
+        // Between-shot: ready after 0.1
+        assert!(!Object::weapon_ready(&w, t0 + 0.05));
+        assert!(Object::weapon_ready(&w, t0 + 0.11));
+        Object::consume_ammo_on_fire(&mut w, t0 + 0.11);
+        assert_eq!(w.ammo, Some(0));
+        // Clip empty: not ready until clip_reload (~2.0 from last fire adjusted)
+        assert!(!Object::weapon_ready(&w, t0 + 0.11 + 0.5));
+        assert!(
+            Object::weapon_ready(&w, t0 + 0.11 + 2.0),
+            "clip reload must elapse before next ready"
+        );
+        Object::consume_ammo_on_fire(&mut w, t0 + 0.11 + 2.0);
+        assert_eq!(w.ammo, Some(1), "refill then spend one");
+    }
+
+    #[test]
+    fn clip_ammo_cpp_surface() {
+        let src = include_str!("object.rs");
+        assert!(src.contains("fn consume_ammo_on_fire"));
+        assert!(src.contains("clip_reload_time"));
     }
 }

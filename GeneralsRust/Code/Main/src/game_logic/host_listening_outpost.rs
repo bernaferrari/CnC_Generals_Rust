@@ -324,6 +324,8 @@ pub fn tank_hunter_missile_weapon() -> Weapon {
         reload_time: TANK_HUNTER_DELAY_FRAMES as f32 / 30.0,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: true,
         can_target_ground: true,
         projectile_speed: 600.0,
