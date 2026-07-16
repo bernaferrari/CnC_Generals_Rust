@@ -995,9 +995,21 @@ impl PathfindingSystem {
             0
         };
 
+        // Downhill-only locomotors (C++ isDownhillOnly) — reject uphill A* steps.
+        let downhill_only = Self::object_is_downhill_only(request.object_id);
+        let ground_h = |cell: GridCoord| -> f32 {
+            let wx = (cell.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            let wy = (cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            if let Some(terrain) = TheTerrainLogic::get() {
+                terrain.get_layer_height(wx, wy, CommonPathfindLayerEnum::Ground)
+            } else {
+                0.0
+            }
+        };
+
         // Run A* pathfinding
         let pathfinder = self.pathfinder.lock().unwrap();
-        let grid_path = pathfinder.find_path_ex(
+        let grid_path = pathfinder.find_path_ex2(
             start,
             goal,
             request.surfaces,
@@ -1006,6 +1018,8 @@ impl PathfindingSystem {
             request.allow_partial,
             ignore_cells.as_ref(),
             Some(&ally_extra as &dyn Fn(GridCoord) -> u32),
+            downhill_only,
+            Some(&ground_h as &dyn Fn(GridCoord) -> f32),
         );
 
         drop(pathfinder); // Release lock
@@ -3249,6 +3263,29 @@ impl PathfindingSystem {
     ///
     /// Takes a list of grid coordinates and produces a `Path` with world-space
     /// waypoints, terrain layers, and path optimization applied.
+    /// C++ locomotorSet.isDownhillOnly() for pathing object.
+    fn object_is_downhill_only(object_id: ObjectID) -> bool {
+        if object_id == INVALID_ID {
+            return false;
+        }
+        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return false;
+        };
+        let Ok(g) = arc.read() else {
+            return false;
+        };
+        if let Some(ai) = g.get_ai_update_interface() {
+            if let Ok(ai_g) = ai.lock() {
+                if let Some(loco) = ai_g.get_cur_locomotor() {
+                    if let Ok(loco_g) = loco.lock() {
+                        return loco_g.template.downhill_only;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// True when a standing ally occupies `cell` (C++ PathfindCell::isBlockedByAlly stamp).
     fn cell_blocked_by_ally(
         &self,
@@ -11613,6 +11650,27 @@ mod tests {
         assert!(
             w.contains("dx < 10") && w.contains("ally_moving"),
             "allyMoving cost must require dx,dy < 10 from start like C++"
+        );
+    }
+
+    #[test]
+    fn downhill_only_astar_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_astar.rs"
+        ));
+        assert!(
+            src.contains("downhill_only") && src.contains("find_path_ex2"),
+            "A* must support downhill-only step rejection"
+        );
+        let complete = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = complete.split("#[cfg(test)]").next().expect("production");
+        assert!(
+            prod.contains("object_is_downhill_only") && prod.contains("find_path_ex2"),
+            "internalFindPath must pass downhill_only into A*"
         );
     }
 }
