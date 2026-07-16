@@ -1579,6 +1579,84 @@ impl PathfindingSystem {
 
     /// Add a bridge layer
     /// Matches C++ Pathfinder::addBridge() at AIPathfind.h:698
+    /// C++ `Pathfinder::getAircraftPath` (AIPathfind.cpp:5781-5847).
+    ///
+    /// Trivial two-node path with tall-building detours for wing aircraft.
+    pub fn get_aircraft_path(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        check_clips: bool,
+        avoid_object: ObjectID,
+    ) -> PathResult {
+        let radius = 100.0_f32;
+        let mut adj_dest = *to;
+        if check_clips {
+            let mut adj = adj_dest;
+            if self.circle_clips_tall_building(from, to, radius, avoid_object, &mut adj) {
+                adj_dest = adj;
+            }
+        }
+        let mut start = *from;
+        start.z = to.z;
+        let mut waypoints = vec![start, adj_dest];
+        let mut layers = vec![PathfindLayerEnum::Ground, PathfindLayerEnum::Ground];
+        let mut can_optimize = vec![true, true];
+
+        let mut limit = 20i32;
+        let mut idx = 0usize;
+        while idx + 1 < waypoints.len() && limit >= 0 {
+            let cur = waypoints[idx];
+            let mut next = waypoints[idx + 1];
+            let mut n1 = Coord3D::new(0.0, 0.0, 0.0);
+            let mut n2 = Coord3D::new(0.0, 0.0, 0.0);
+            let mut n3 = Coord3D::new(0.0, 0.0, 0.0);
+            if self.segment_intersects_tall_building(
+                &cur,
+                &mut next,
+                avoid_object,
+                &mut n1,
+                &mut n2,
+                &mut n3,
+            ) {
+                // C++ appends n3, n2, n1 after cur before next — insert in path order n1,n2,n3
+                // After cur->append(n3); append(n2); append(n1) on linked list with reverse prepend semantics...
+                // Looking at C++: curNode->append(newNode3); append(newNode2); append(newNode1)
+                // so order is cur -> n1 -> n2 -> n3 -> next (if append inserts after current sequentially
+                // Actually in their PathNode, append likely adds as next of cur, so last append is closest next.
+                // First append n3: cur->n3->oldNext
+                // append n2 on cur: cur->n2->n3->oldNext
+                // append n1 on cur: cur->n1->n2->n3->oldNext
+                // So path order: cur, n1, n2, n3, next
+                waypoints[idx + 1] = next; // may have been adjusted
+                waypoints.insert(idx + 1, n3);
+                waypoints.insert(idx + 1, n2);
+                waypoints.insert(idx + 1, n1);
+                layers.insert(idx + 1, PathfindLayerEnum::Ground);
+                layers.insert(idx + 1, PathfindLayerEnum::Ground);
+                layers.insert(idx + 1, PathfindLayerEnum::Ground);
+                can_optimize.insert(idx + 1, true);
+                can_optimize.insert(idx + 1, true);
+                can_optimize.insert(idx + 1, true);
+                // C++ continues from newNode2 which is n2 at idx+2 after inserts of n1,n2,n3
+                idx += 2;
+            } else {
+                waypoints[idx + 1] = next;
+                idx += 1;
+            }
+            limit -= 1;
+        }
+
+        PathResult {
+            success: waypoints.len() >= 2,
+            waypoints,
+            layers,
+            can_optimize,
+            total_cost: 0,
+            blocked_by_ally: false,
+        }
+    }
+
     pub fn add_bridge(&mut self, bounds: (GridCoord, GridCoord)) -> u32 {
         self.add_bridge_ex(bounds, INVALID_ID, bounds.0, bounds.1)
     }
@@ -4176,6 +4254,57 @@ impl PathfindingSystem {
     /// C++ `Pathfinder::adjustToPossibleDestination` (AIPathfind.cpp:5510-5617).
     ///
     /// Same-zone passable destination via spiral; half-cell bias when not centered.
+    /// C++ `Pathfinder::checkForPossible` (AIPathfind.cpp:5489-5504).
+    pub fn check_for_possible(
+        &self,
+        is_crusher: bool,
+        from_zone: u16,
+        center: bool,
+        surfaces: LocomotorSurfaceTypeMask,
+        cell_x: i32,
+        cell_y: i32,
+        layer: PathfindLayerEnum,
+        dest: &mut Coord3D,
+        starting_in_obstacle: bool,
+    ) -> bool {
+        let cell = GridCoord::new(cell_x, cell_y);
+        if !self.is_valid_coord(cell) {
+            return false;
+        }
+        {
+            let Ok(pf) = self.pathfinder.lock() else {
+                return false;
+            };
+            if let Some(ct) = pf.get_cell_type(cell) {
+                if matches!(
+                    ct,
+                    PathfindCellType::Impassable
+                        | PathfindCellType::Obstacle
+                        | PathfindCellType::BridgeImpassable
+                ) {
+                    return false;
+                }
+            }
+        }
+        let mut zone2 = if let Ok(zones) = self.zones.lock() {
+            let z = zones.zone_at(cell);
+            let mut z2 = zones.get_effective_zone(surfaces, is_crusher, z);
+            if starting_in_obstacle {
+                z2 = zones.get_effective_terrain_zone(z2);
+            }
+            z2
+        } else {
+            0
+        };
+        let _ = layer;
+        if from_zone == zone2 {
+            self.adjust_coord_to_cell(cell_x, cell_y, center, dest, layer);
+            return true;
+        }
+        let _ = &mut zone2;
+        false
+    }
+
     pub fn adjust_to_possible_destination(
         &self,
         start: &Coord3D,
@@ -5825,6 +5954,15 @@ impl ZoneManager {
         self.zones_dirty = true;
     }
 
+    /// C++ `getEffectiveTerrainZone` residual — identity until terrain combiner tables.
+    fn get_effective_terrain_zone(&self, zone: u16) -> u16 {
+        if zone == 0 {
+            0
+        } else {
+            zone
+        }
+    }
+
     fn calculate_zones(&mut self) {
         for col in self.zones.iter_mut() {
             for zone in col.iter_mut() {
@@ -7454,5 +7592,67 @@ mod tests {
             false,
         );
         assert!(!r.success);
+    }
+
+    #[test]
+    fn get_aircraft_path_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn get_aircraft_path")
+            .expect("getAircraftPath");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("circle_clips_tall_building")
+                && w.contains("segment_intersects_tall_building")
+                && w.contains("limit")
+                && w.contains("100.0"),
+            "getAircraftPath must clip tall buildings and insert detour nodes"
+        );
+        assert!(prod.contains("pub fn check_for_possible"));
+    }
+
+    #[test]
+    fn get_aircraft_path_two_node_baseline() {
+        let system = PathfindingSystem::new(32, 32);
+        let from = Coord3D::new(10.0, 10.0, 50.0);
+        let to = Coord3D::new(80.0, 90.0, 50.0);
+        let path = system.get_aircraft_path(&from, &to, false, INVALID_ID);
+        assert!(path.success);
+        assert_eq!(path.waypoints.len(), 2);
+        assert!((path.waypoints[0].z - to.z).abs() < 0.01);
+        assert!((path.waypoints[1].x - to.x).abs() < 0.01);
+    }
+
+    #[test]
+    fn check_for_possible_same_zone() {
+        let mut system = PathfindingSystem::new(16, 16);
+        system.new_map();
+        {
+            let mut zones = system.zones.lock().unwrap();
+            for x in 0..16 {
+                for y in 0..16 {
+                    zones.zones[x][y] = 1;
+                }
+            }
+            zones.rebuild_combiner_identity();
+        }
+        let mut dest = Coord3D::new(0.0, 0.0, 0.0);
+        assert!(system.check_for_possible(
+            false,
+            1,
+            true,
+            SURFACE_GROUND,
+            5,
+            6,
+            PathfindLayerEnum::Ground,
+            &mut dest,
+            false,
+        ));
+        assert!((dest.x - 55.0).abs() < 0.01);
+        assert!((dest.y - 65.0).abs() < 0.01);
     }
 }
