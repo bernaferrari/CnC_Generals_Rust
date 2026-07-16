@@ -1050,73 +1050,255 @@ impl PathfindingSystem {
 
     /// Find closest reachable path (for blocked destinations)
     /// Matches C++ Pathfinder::findClosestPath() at AIPathfind.cpp:8739-8926
+    /// C++ `Pathfinder::findClosestPath` (AIPathfind.cpp:8739+).
+    ///
+    /// Hierarchical passable dance, then A* from start tracking the closest
+    /// valid destination cell to the goal (screen distance + cost factor).
+    /// Exact goal success returns buildActualPath; else path to closest cell.
     pub fn find_closest_path(&self, mut request: PathRequest) -> PathResult {
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+        // C++ COST_TO_DISTANCE_FACTOR = 1/10 → SQR = 1/100.
+        const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
+        const MAX_EXPAND: i32 = 4000;
+
+        if !self.is_map_ready {
+            return PathResult::none();
+        }
+
         let goal_grid = GridCoord::from_world(&request.to);
-        let (unit_radius_cells, center_in_cell) =
-            Self::compute_radius_and_center(request.unit_radius);
+        let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
         let aircraft_goal_only = Self::object_uses_aircraft_goal_reservations(request.object_id);
 
         if aircraft_goal_only {
             let goal_layer = self.get_layer_for_coord(goal_grid);
-            if self.check_destination(
-                &request,
-                goal_grid,
-                goal_layer,
-                unit_radius_cells,
-                center_in_cell,
-            ) {
+            if self.check_destination(&request, goal_grid, goal_layer, radius, center_in_cell) {
                 let adjusted = self.world_pos_for_coord(goal_grid, goal_layer);
                 return Self::destination_only_result(request.from, adjusted, goal_layer);
             }
-        } else {
-            // First try exact path.
-            let exact_result = self.find_path(request.clone());
-            if exact_result.success {
-                return exact_result;
-            }
+            // Aircraft without exact goal: fall through to closest-cell A*.
         }
 
-        // Try to find closest reachable point.
-        // Matches C++ adjustDestination() logic at AIPathfind.cpp:5331-5407
-        let max_search_radius = 20; // Grid cells
-
-        for radius in 1..=max_search_radius {
-            // Try cells in expanding square
-            for dx in -radius..=radius {
-                for dy in -radius..=radius {
-                    if (dx as i32).abs() < radius && (dy as i32).abs() < radius {
-                        continue; // Only check perimeter
-                    }
-
-                    let test_coord = GridCoord::new(goal_grid.x + dx, goal_grid.y + dy);
-                    if !self.is_valid_coord(test_coord) {
-                        continue;
-                    }
-
-                    let layer = self.get_layer_for_coord(test_coord);
-                    if !self.check_destination(
-                        &request,
-                        test_coord,
-                        layer,
-                        unit_radius_cells,
-                        center_in_cell,
-                    ) {
-                        continue;
-                    }
-                    let adjusted = self.world_pos_for_coord(test_coord, layer);
-                    if aircraft_goal_only {
-                        return Self::destination_only_result(request.from, adjusted, layer);
-                    }
-                    request.to = adjusted;
-                    let result = self.find_path(request.clone());
-                    if result.success {
-                        return result;
-                    }
+        // C++ hierarchical passable flags (unless tunneling).
+        let started_stuck = self.is_tunneling;
+        if self.is_tunneling {
+            if let Ok(mut zones) = self.zones.lock() {
+                zones.set_all_passable();
+            }
+        } else {
+            if let Ok(mut zones) = self.zones.lock() {
+                zones.clear_passable_flags();
+            }
+            let start_c = GridCoord::from_world(&request.from);
+            let hier_ok = self
+                .zones
+                .lock()
+                .map(|z| z.are_connected(start_c, goal_grid, request.surfaces, request.is_crusher))
+                .unwrap_or(true)
+                || self.hierarchical_zones_join_via_bridge(
+                    start_c,
+                    goal_grid,
+                    request.surfaces,
+                    request.is_crusher,
+                );
+            if !hier_ok {
+                if let Ok(mut zones) = self.zones.lock() {
+                    zones.set_all_passable();
                 }
             }
         }
 
-        PathResult::none()
+        let start = Self::cell_for_unit_position(&request.from, center_in_cell);
+        if !self.is_valid_coord(start) || !self.is_valid_coord(goal_grid) {
+            return PathResult::none();
+        }
+        if request.is_human
+            && (!self.in_logical_extent(start) || !self.in_logical_extent(goal_grid))
+        {
+            // Computer can leave logical map; humans cannot start outside.
+            if request.is_human && !self.in_logical_extent(start) {
+                return PathResult::none();
+            }
+        }
+
+        let surfaces = request.surfaces;
+        let is_crusher = request.is_crusher;
+        let is_human = request.is_human;
+        let can_path_through_units = request.move_allies; // C++ canPathThroughUnits loosely
+        let path_cost_multiplier = 1.0f32;
+
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        let heuristic = |c: GridCoord| -> i32 {
+            let dx = (goal_grid.x - c.x).abs();
+            let dy = (goal_grid.y - c.y).abs();
+            let dmin = dx.min(dy);
+            let dmax = dx.max(dy);
+            COST_DIAG * dmin + COST_ORTHO * (dmax - dmin)
+        };
+
+        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
+            std::collections::BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let h0 = heuristic(start);
+        open.push(std::cmp::Reverse((h0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
+
+        let mut closest_cell: Option<(GridCoord, f32)> = None;
+        let mut closest_screen_sqr = f32::MAX;
+        let mut found_goal_cell = false;
+        let mut expanded = 0i32;
+
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            expanded += 1;
+            if expanded > MAX_EXPAND {
+                break;
+            }
+            let cell = GridCoord::new(cx, cy);
+            let layer = self.get_layer_for_coord(cell);
+
+            if cx == goal_grid.x && cy == goal_grid.y {
+                // C++: if goal invalid destination and we have closer, keep scanning.
+                let goal_ok = can_path_through_units
+                    || self.is_destination_valid(
+                        cell,
+                        layer,
+                        surfaces,
+                        is_crusher,
+                        radius,
+                        center_in_cell,
+                        request.ignore_obstacle_id,
+                    );
+                if goal_ok || closest_cell.is_none() {
+                    found_goal_cell = true;
+                    closest_cell = Some((cell, 0.0));
+                    break;
+                } else {
+                    found_goal_cell = true;
+                    // continue scanning for closer valid cell
+                }
+            } else if !self.is_tunneling
+                && self.is_destination_valid(
+                    cell,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    request.ignore_obstacle_id,
+                )
+            {
+                // C++: if (!startedStuck || validMovementPosition(...))
+                let movement_ok = !started_stuck
+                    || self.valid_movement_cell(
+                        surfaces,
+                        is_crusher,
+                        cell,
+                        request.ignore_obstacle_id,
+                    );
+                if movement_ok {
+                    let dx = (goal_grid.x - cx).abs() as f32;
+                    let dy = (goal_grid.y - cy).abs() as f32;
+                    let dist_screen = dx * dx + dy * dy;
+                    if dist_screen < closest_screen_sqr {
+                        closest_screen_sqr = dist_screen;
+                    }
+                    let cost_term = (g as f32)
+                        * (g as f32)
+                        * COST_TO_DISTANCE_FACTOR_SQR
+                        * path_cost_multiplier;
+                    let dist_sqr = dist_screen + cost_term;
+                    let better = match closest_cell {
+                        None => true,
+                        Some((_, best)) => dist_sqr < best,
+                    };
+                    if better {
+                        closest_cell = Some((cell, dist_sqr));
+                    }
+                }
+            }
+
+            let _ = self.check_change_layers(cell);
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                if i >= 4 {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !self.is_tunneling {
+                        if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
+                            || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
+                        {
+                            continue;
+                        }
+                    }
+                }
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridCoord::new(nx, ny);
+                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                if is_human && !self.in_logical_extent(nc) {
+                    continue;
+                }
+                {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !self.is_tunneling && !pf.is_passable(nc, surfaces, is_crusher) {
+                        continue;
+                    }
+                }
+                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                let f = ng + heuristic(nc);
+                open.push(std::cmp::Reverse((f, ng, nx, ny)));
+            }
+        }
+
+        let Some((best_cell, _)) = closest_cell else {
+            return PathResult::none();
+        };
+
+        // Path to exact goal or closest valid cell.
+        let to_pos = if found_goal_cell && best_cell.x == goal_grid.x && best_cell.y == goal_grid.y
+        {
+            request.to
+        } else {
+            let layer = self.get_layer_for_coord(best_cell);
+            let mut p = Coord3D::new(0.0, 0.0, 0.0);
+            self.adjust_coord_to_cell(best_cell.x, best_cell.y, center_in_cell, &mut p, layer);
+            p
+        };
+        let from = request.from;
+        request.to = to_pos;
+        // Use internal path to avoid hierarchical precheck doubling work.
+        let result = self.find_path_internal(request);
+        if result.success {
+            result
+        } else if aircraft_goal_only {
+            Self::destination_only_result(from, to_pos, self.get_layer_for_coord(best_cell))
+        } else {
+            PathResult::none()
+        }
     }
 
     /// C++ `Pathfinder::findAttackPath` (AIPathfind.cpp:10530+).
@@ -10883,6 +11065,48 @@ mod tests {
             is_human: false,
         };
         let r = system.find_path(req);
+        assert!(r.success);
+        assert!(r.waypoints.len() >= 2);
+    }
+
+    #[test]
+    fn find_closest_path_astar_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn find_closest_path")
+            .expect("findClosestPath");
+        let w = &prod[i..prod.len().min(i + 6000)];
+        assert!(
+            w.contains("BinaryHeap")
+                && w.contains("closest_cell")
+                && w.contains("COST_TO_DISTANCE_FACTOR_SQR")
+                && w.contains("clear_passable_flags"),
+            "findClosestPath must A* track closest valid cell like C++"
+        );
+        assert!(!w.contains("max_search_radius = 20"));
+    }
+
+    #[test]
+    fn find_closest_path_open_ground_reaches_goal() {
+        let mut system = PathfindingSystem::new(32, 32);
+        system.new_map();
+        let req = PathRequest {
+            object_id: INVALID_ID,
+            from: Coord3D::new(20.0, 20.0, 0.0),
+            to: Coord3D::new(100.0, 80.0, 0.0),
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: true,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: false,
+        };
+        let r = system.find_closest_path(req);
         assert!(r.success);
         assert!(r.waypoints.len() >= 2);
     }
