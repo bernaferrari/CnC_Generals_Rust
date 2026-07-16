@@ -4866,12 +4866,64 @@ impl AIPlayer {
             pos.z = terrain.get_ground_height(pos.x, pos.y, None);
         }
 
+        // Capture BuildListInfo map props before/while stamping (C++ Dict).
+        let mut map_building_name = String::new();
+        let mut map_script = String::new();
+        let mut map_health: i32 = 100;
+        let mut map_unsellable = false;
+        let mut stamped = false;
+
+        // Prefer matching build-list entry props first (before object exists fully).
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(pg) = player_arc.read() {
+                    let mut cur = pg.get_build_list();
+                    while let Some(node) = cur {
+                        let name_match = node.get_template_name().as_str() == template_name;
+                        let slot_match = stamp_object_id_slot
+                            .map(|id| node.get_object_id() == id)
+                            .unwrap_or(false)
+                            || (name_match && node.get_object_id() == INVALID_ID);
+                        if slot_match && name_match {
+                            map_building_name = node.get_building_name().to_string();
+                            map_script = node.get_script().to_string();
+                            map_health = node.get_health();
+                            map_unsellable = node.get_unsellable();
+                            break;
+                        }
+                        cur = node.get_next();
+                    }
+                }
+            }
+        }
+
         let bldg_id = {
             let Ok(mut guard) = new_object.write() else {
                 return Ok(None);
             };
             let _ = guard.set_position(&pos);
             let _ = guard.set_orientation(angle);
+
+            // C++ updateObjValuesFromMapProperties(Dict)
+            let mut props = crate::common::Dict::new();
+            props.set_ascii_string(
+                crate::common::well_known_keys::key_object_name(),
+                map_building_name.as_str(),
+            );
+            props.set_ascii_string(
+                crate::common::well_known_keys::key_object_script_attachment(),
+                map_script.as_str(),
+            );
+            props.set_int(
+                crate::common::well_known_keys::key_object_initial_health(),
+                map_health,
+            );
+            props.set_bool(
+                crate::common::well_known_keys::key_object_unsellable(),
+                map_unsellable,
+            );
+            guard.update_obj_values_from_map_properties(&props);
+
             // C++ clear UnderConstruction + Reconstructing (instant complete).
             let mask = ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction)
                 | ObjectStatusMaskType::from_status(ObjectStatusTypes::Reconstructing);
@@ -4900,11 +4952,23 @@ impl AIPlayer {
                                     TheGameLogic::get_frame().saturating_add(1),
                                 );
                                 node.set_under_construction(false);
+                                stamped = true;
                                 break;
                             }
                             cur = node.get_next_mut();
                         }
                     }
+                }
+            }
+        }
+        let _ = stamped;
+
+        // C++ TheScriptEngine->addObjectToCache + runObjectScript
+        if let Ok(mut eng) = get_script_engine().write() {
+            if let Some(e) = eng.as_mut() {
+                e.add_object_to_cache(bldg_id);
+                if !map_script.is_empty() {
+                    e.run_object_script(&map_script, bldg_id);
                 }
             }
         }
@@ -8020,14 +8084,16 @@ mod tests {
         let i = src
             .find("C++ `AIPlayer::buildStructureNow` (AIPlayer.cpp)")
             .expect("buildStructureNow");
-        let window = &src[i..src.len().min(i + 5000)];
+        let window = &src[i..src.len().min(i + 8000)];
         assert!(
-            window.contains("clear_status")
-                && window.contains("UnderConstruction")
+            window.contains("update_obj_values_from_map_properties")
+                && window.contains("key_object_initial_health")
+                && window.contains("clear_status")
                 && window.contains("update_upgrade_modules_from_player")
-                && window.contains("check_for_supply_center")
-                && window.contains("set_construction_percent(100.0)"),
-            "buildStructureNow must inst-complete, clear UC, supply-center check"
+                && window.contains("add_object_to_cache")
+                && window.contains("run_object_script")
+                && window.contains("check_for_supply_center"),
+            "buildStructureNow must apply map props, clear UC, script cache/run, supply check"
         );
     }
 
