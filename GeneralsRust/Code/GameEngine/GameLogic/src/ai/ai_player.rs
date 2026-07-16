@@ -2460,19 +2460,29 @@ impl AIPlayer {
         None
     }
 
+    /// Legalize helper for buildBySupplies / near-team placement.
+    /// C++ seed: NO_OBJECT_OVERLAP; wiggle: CLEAR_PATH|TERRAIN|NO_OBJECT_OVERLAP.
     fn find_valid_build_location(
         &self,
         location: &Coord3D,
         template_name: &str,
         angle: Real,
     ) -> Option<Coord3D> {
-        let validator = FoundationValidator::new_ai();
-        if validator
+        let seed_validator =
+            FoundationValidator::from_build_options(LocalLegalToBuildOptions::NO_OBJECT_OVERLAP);
+        if seed_validator
             .validate_placement(location, template_name, angle, self.player_id as ObjectID)
             .is_ok()
         {
+            // C++ keeps seed when NO_OBJECT_OVERLAP already passes.
             return Some(*location);
         }
+
+        let wiggle_validator = FoundationValidator::from_build_options(
+            LocalLegalToBuildOptions::CLEAR_PATH
+                | LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
+                | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP,
+        );
 
         let mut pos_offset = 0.0;
         while pos_offset < 2.0 * SUPPLY_CENTER_CLOSE_DIST {
@@ -2482,7 +2492,7 @@ impl AIPlayer {
 
             while x <= location.x + offset {
                 let mut candidate = Coord3D::new(x, y, location.z);
-                if validator
+                if wiggle_validator
                     .validate_placement(
                         &candidate,
                         template_name,
@@ -2494,7 +2504,7 @@ impl AIPlayer {
                     return Some(candidate);
                 }
                 candidate.y = y + pos_offset;
-                if validator
+                if wiggle_validator
                     .validate_placement(
                         &candidate,
                         template_name,
@@ -2512,7 +2522,7 @@ impl AIPlayer {
             let x_pos = location.x - offset;
             while y_pos <= location.y + offset {
                 let mut candidate = Coord3D::new(x_pos, y_pos, location.z);
-                if validator
+                if wiggle_validator
                     .validate_placement(
                         &candidate,
                         template_name,
@@ -2524,7 +2534,7 @@ impl AIPlayer {
                     return Some(candidate);
                 }
                 candidate.x = x_pos + pos_offset;
-                if validator
+                if wiggle_validator
                     .validate_placement(
                         &candidate,
                         template_name,
@@ -2540,7 +2550,6 @@ impl AIPlayer {
 
             pos_offset += 2.0 * PATHFIND_CELL_SIZE_F;
         }
-
         None
     }
 
@@ -3019,11 +3028,10 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::calcClosestConstructionZoneLocation` (AIPlayer.cpp).
     ///
-    /// Uses template placement view angle. If the seed fails
-    /// NO_OBJECT_OVERLAP-style validation, wiggle with clear-path/terrain/overlap
-    /// (same spiral as buildBySupplies). Returns Some only when the wiggle path
-    /// set `valid` — matching GeneralsMD control flow where an already-legal seed
-    /// leaves `valid=false` and the function fails (location zeroed in C++).
+    /// Seed check: NO_OBJECT_OVERLAP only. If illegal, wiggle with
+    /// CLEAR_PATH | TERRAIN_RESTRICTIONS | NO_OBJECT_OVERLAP.
+    /// Returns Some only when the wiggle path set `valid` — matching GeneralsMD
+    /// where an already-legal seed leaves `valid=false` and fails (location zeroed).
     pub fn calc_closest_construction_zone_location(
         &self,
         template_name: &str,
@@ -3033,14 +3041,21 @@ impl AIPlayer {
             return Ok(None);
         };
         let angle = template.get_placement_view_angle();
-        let validator = FoundationValidator::new_ai();
+        // C++ first gate: NO_OBJECT_OVERLAP only (builder NULL).
+        let seed_validator =
+            FoundationValidator::from_build_options(LocalLegalToBuildOptions::NO_OBJECT_OVERLAP);
+        // C++ wiggle options: CLEAR_PATH | TERRAIN_RESTRICTIONS | NO_OBJECT_OVERLAP.
+        let wiggle_validator = FoundationValidator::from_build_options(
+            LocalLegalToBuildOptions::CLEAR_PATH
+                | LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
+                | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP,
+        );
 
         // C++: Bool valid = false; only set true inside the adjust loop.
         let mut valid = false;
         let mut new_pos = *location;
 
-        // First check: NO_OBJECT_OVERLAP residual via FoundationValidator.
-        let initial_ok = validator
+        let initial_ok = seed_validator
             .validate_placement(location, template_name, angle, self.player_id as ObjectID)
             .is_ok();
         if !initial_ok {
@@ -3057,7 +3072,7 @@ impl AIPlayer {
                 while x <= location.x + offset + 0.001 {
                     for y in [y0, y0 + pos_offset] {
                         let candidate = Coord3D::new(x, y, location.z);
-                        if validator
+                        if wiggle_validator
                             .validate_placement(
                                 &candidate,
                                 template_name,
@@ -3078,7 +3093,7 @@ impl AIPlayer {
                 while y <= location.y + offset + 0.001 {
                     for x in [x0, x0 + pos_offset] {
                         let candidate = Coord3D::new(x, y, location.z);
-                        if validator
+                        if wiggle_validator
                             .validate_placement(
                                 &candidate,
                                 template_name,
@@ -8669,6 +8684,44 @@ mod tests {
                 && window.contains("Dozer unable to reach building.  Teleporting.")
                 && !window.contains("let _ = self.queue_dozer()"),
             "buildStructureWithDozer must path-check+teleport, stamp by location, skirmish wiggle"
+        );
+    }
+
+    #[test]
+    fn calc_closest_construction_zone_location_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn calc_closest_construction_zone_location")
+            .expect("calcClosestConstructionZoneLocation");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("LocalLegalToBuildOptions::NO_OBJECT_OVERLAP")
+                && w.contains("LocalLegalToBuildOptions::CLEAR_PATH")
+                && w.contains("LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS")
+                && w.contains("seed_validator")
+                && w.contains("wiggle_validator")
+                && !w.contains("FoundationValidator::new_ai()"),
+            "calcClosestConstructionZoneLocation must split seed/wiggle BuildAssistant flags"
+        );
+    }
+
+    #[test]
+    fn find_valid_build_location_cpp_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("fn find_valid_build_location(")
+            .expect("find_valid_build_location");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("LocalLegalToBuildOptions::NO_OBJECT_OVERLAP")
+                && w.contains("LocalLegalToBuildOptions::CLEAR_PATH")
+                && w.contains("LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS")
+                && w.contains("seed_validator")
+                && w.contains("wiggle_validator")
+                && !w.contains("FoundationValidator::new_ai()"),
+            "find_valid_build_location must match buildBySupplies BuildAssistant flags"
         );
     }
 
