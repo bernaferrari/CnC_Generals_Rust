@@ -2154,6 +2154,44 @@ impl Object {
         any
     }
 
+    /// C++ JetAIUpdate `OutOfAmmoDamagePerSecond` residual (fraction of max HP / sec).
+    /// Retail JetAIUpdate OutOfAmmoDamagePerSecond = **10%**.
+    pub const OUT_OF_AMMO_DAMAGE_PER_SECOND: f32 = 0.10;
+
+    /// Apply one logic-frame of out-of-ammo damage while RTB weapons are empty.
+    ///
+    /// C++ JetOrHeliCirclingDeadAirfieldState:
+    /// `damageRate = pct * SECONDS_PER_LOGICFRAME * maxHealth`, DAMAGE_UNRESISTABLE.
+    /// Returns damage applied (0 if not eligible).
+    pub fn apply_out_of_ammo_damage_frame(&mut self) -> f32 {
+        if !self.is_alive() {
+            return 0.0;
+        }
+        // Aircraft / jet residual only.
+        if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
+            return 0.0;
+        }
+        if !self.needs_return_to_base_rearm() {
+            return 0.0;
+        }
+        // No damage while docked at airfield / garrisoned.
+        if matches!(
+            self.ai_state,
+            AIState::Docked | AIState::Garrisoned | AIState::Entering | AIState::Docking
+        ) {
+            return 0.0;
+        }
+
+        const LOGIC_DT: f32 = 1.0 / 30.0;
+        let max_hp = self.health.maximum.max(1.0);
+        let dmg = Self::OUT_OF_AMMO_DAMAGE_PER_SECOND * LOGIC_DT * max_hp;
+        if dmg <= 0.0 {
+            return 0.0;
+        }
+        self.take_damage(dmg);
+        dmg
+    }
+
     pub fn can_fire(&self, current_time: f32) -> bool {
         // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
         if self.status.weapons_jammed || self.is_disabled() {
@@ -4451,5 +4489,44 @@ mod tests {
         );
         Object::consume_ammo_on_fire(&mut w, t0 + 1.05);
         assert_eq!(w.ammo, Some(1)); // refilled to 2, spent 1
+    }
+
+    #[test]
+    fn out_of_ammo_damage_ticks_empty_rtb_jet() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+        tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        tmpl.add_kind_of(KindOf::Aircraft);
+        tmpl.add_kind_of(KindOf::Attackable);
+        tmpl.set_health(100.0);
+        let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
+        jet.set_position(Vec3::new(0.0, 50.0, 0.0));
+        jet.status.airborne_target = true;
+        jet.weapon = Some(Weapon {
+            damage: 100.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 2,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        assert!(jet.needs_return_to_base_rearm());
+        let hp0 = jet.health.current;
+        let dmg = jet.apply_out_of_ammo_damage_frame();
+        // 10% / sec * 1/30 * 100 = 10/30 ≈ 0.333
+        assert!((dmg - (0.10 / 30.0) * 100.0).abs() < 1e-3, "dmg={dmg}");
+        assert!((hp0 - jet.health.current - dmg).abs() < 1e-3);
+        // Docked: no damage.
+        jet.health.current = 100.0;
+        jet.ai_state = AIState::Docked;
+        assert_eq!(jet.apply_out_of_ammo_damage_frame(), 0.0);
+        // Rearmed: no damage.
+        jet.ai_state = AIState::Idle;
+        jet.rearm_return_to_base_weapons();
+        assert_eq!(jet.apply_out_of_ammo_damage_frame(), 0.0);
     }
 }
