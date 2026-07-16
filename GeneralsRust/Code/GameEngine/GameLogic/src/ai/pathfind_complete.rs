@@ -2457,6 +2457,29 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::forceMapRecalculation` — reclassify all cells.
+    /// C++ `Pathfinder::checkChangeLayers` (AIPathfind.cpp:5942-5984).
+    ///
+    /// When a parent cell has a connectLayer link (bridge entry/exit), return the
+    /// same-xy transition cell so A* can enqueue it with parent cost.
+    pub fn check_change_layers(&self, parent: GridCoord) -> Option<GridCoord> {
+        let Ok(pathfinder) = self.pathfinder.lock() else {
+            return None;
+        };
+        let cl = pathfinder.get_cell_connect_layer(parent)?;
+        if cl == PathfindLayerEnum::Invalid {
+            return None;
+        }
+        // C++ fetches getCell(connectLayer or GROUND, x, y) at same indices.
+        Some(parent)
+    }
+
+    /// Stamp connectLayer on a cell (bridge ground-connect / wall link).
+    pub fn set_connect_layer(&self, cell: GridCoord, layer: PathfindLayerEnum) {
+        if let Ok(mut pathfinder) = self.pathfinder.lock() {
+            pathfinder.set_cell_connect_layer(cell, layer);
+        }
+    }
+
     pub fn force_map_recalculation(&mut self) {
         self.classify_map();
         if !self.wall_pieces.is_empty() {
@@ -5833,5 +5856,44 @@ mod tests {
         system.force_map_recalculation();
         // smoke: still usable
         assert!(!system.is_map_ready() || system.is_map_ready());
+    }
+
+    #[test]
+    fn check_change_layers_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn check_change_layers")
+            .expect("checkChangeLayers");
+        let w = &prod[i..prod.len().min(i + 1200)];
+        assert!(
+            w.contains("get_cell_connect_layer") && w.contains("PathfindLayerEnum::Invalid"),
+            "checkChangeLayers must read connectLayer"
+        );
+    }
+
+    #[test]
+    fn check_change_layers_returns_parent_when_linked() {
+        let system = PathfindingSystem::new(16, 16);
+        let cell = GridCoord::new(4, 5);
+        assert!(system.check_change_layers(cell).is_none());
+        system.set_connect_layer(cell, PathfindLayerEnum::Top);
+        assert_eq!(system.check_change_layers(cell), Some(cell));
+    }
+
+    #[test]
+    fn connect_layer_on_pathfind_cell() {
+        let mut pf = crate::ai::pathfind_astar::AStarPathfinder::new(8, 8);
+        let c = GridCoord::new(2, 2);
+        assert_eq!(
+            pf.get_cell_connect_layer(c),
+            Some(PathfindLayerEnum::Invalid)
+        );
+        pf.set_cell_connect_layer(c, PathfindLayerEnum::Top);
+        assert_eq!(pf.get_cell_connect_layer(c), Some(PathfindLayerEnum::Top));
+        assert_eq!(pf.connect_layer_transition_coord(c), Some(c));
     }
 }

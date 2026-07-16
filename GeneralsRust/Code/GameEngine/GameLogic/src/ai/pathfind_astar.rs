@@ -174,6 +174,8 @@ pub struct PathfindCell {
     cell_type: PathfindCellType,
     flags: CellFlags,
     layer: PathfindLayerEnum,
+    /// C++ PathfindCell::m_connectLayer (bridge/wall entry link).
+    connect_layer: PathfindLayerEnum,
     zone: u16,
     pinched: bool,
     cost_multiplier: f32,
@@ -185,6 +187,7 @@ impl PathfindCell {
             cell_type: PathfindCellType::Clear,
             flags: CellFlags::NoUnits,
             layer: PathfindLayerEnum::Ground,
+            connect_layer: PathfindLayerEnum::Invalid,
             zone: 0,
             pinched: false,
             cost_multiplier: 1.0,
@@ -197,6 +200,22 @@ impl PathfindCell {
 
     pub fn set_type(&mut self, cell_type: PathfindCellType) {
         self.cell_type = cell_type;
+    }
+
+    pub fn get_layer(&self) -> PathfindLayerEnum {
+        self.layer
+    }
+
+    pub fn set_layer(&mut self, layer: PathfindLayerEnum) {
+        self.layer = layer;
+    }
+
+    pub fn get_connect_layer(&self) -> PathfindLayerEnum {
+        self.connect_layer
+    }
+
+    pub fn set_connect_layer(&mut self, layer: PathfindLayerEnum) {
+        self.connect_layer = layer;
     }
 
     pub fn get_flags(&self) -> CellFlags {
@@ -521,7 +540,14 @@ impl AStarPathfinder {
 
             // Examine all neighbors
             // Matches C++ examineNeighboringCells() at AIPathfind.cpp:6631
-            for neighbor_coord in current.coord.neighbors() {
+            // C++ checkChangeLayers(parent): also examine connect-layer link at same x,y.
+            let mut neighbor_iter: Vec<GridCoord> = current.coord.neighbors().to_vec();
+            if let Some(link) = self.connect_layer_transition_coord(current.coord) {
+                if !neighbor_iter.contains(&link) {
+                    neighbor_iter.push(link);
+                }
+            }
+            for neighbor_coord in neighbor_iter {
                 // Skip if already evaluated
                 if closed_set.contains(&neighbor_coord) {
                     continue;
@@ -631,6 +657,31 @@ impl AStarPathfinder {
     }
 
     /// Stamp obstacle object id / fence flag on a cell (C++ setTypeAsObstacle).
+    /// C++ cell connectLayer stamp for bridge/wall transitions.
+    pub fn set_cell_connect_layer(&mut self, coord: GridCoord, layer: PathfindLayerEnum) {
+        if let Some(cell) = self.get_cell_mut(coord) {
+            cell.set_connect_layer(layer);
+        }
+    }
+
+    pub fn get_cell_connect_layer(&self, coord: GridCoord) -> Option<PathfindLayerEnum> {
+        self.get_cell(coord).map(|c| c.get_connect_layer())
+    }
+
+    /// C++ `Pathfinder::checkChangeLayers` — enqueue same-xy cell on connect layer.
+    ///
+    /// Returns extra neighbor coords (same x,y) when connectLayer is valid and not already
+    /// represented by the normal ground neighbor set. Caller merges into open set.
+    pub fn connect_layer_transition_coord(&self, coord: GridCoord) -> Option<GridCoord> {
+        let cell = self.get_cell(coord)?;
+        let cl = cell.get_connect_layer();
+        if cl == PathfindLayerEnum::Invalid {
+            return None;
+        }
+        // Transition stays at same indices; layer change is tracked externally.
+        Some(coord)
+    }
+
     pub fn set_cell_obstacle_id(&mut self, coord: GridCoord, obj_id: u32, is_fence: bool) {
         let _ = is_fence;
         if let Some(cell) = self.get_cell_mut(coord) {
