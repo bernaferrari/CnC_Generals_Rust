@@ -580,6 +580,45 @@ impl AStarPathfinder {
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
     ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_ex4(
+            start,
+            goal,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            None,
+            false,
+        )
+    }
+
+    /// Like find_path_ex3 plus C++ examineCellsCallback line-to-goal seeding.
+    ///
+    /// When `seed_line_to_goal` and not downhill-only / not tunneling, each expanded
+    /// parent walks Bresenham cells toward the goal and inserts clear cells at
+    /// `costSoFar + 0.5*COST_ORTHOGONAL` (AIPathfind.cpp:5996-6093, 6120).
+    /// `line_cell_ok(cell)` returns false to abort the line (enemyFixed/allyFixed/etc).
+    pub fn find_path_ex4(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        seed_line_to_goal: bool,
+    ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = BinaryHeap::new();
@@ -655,6 +694,29 @@ impl AStarPathfinder {
             // Move current to closed set
             // Matches C++ at AIPathfind.cpp:6626
             closed_set.insert(current.coord);
+
+            // C++ examineNeighboringCells: examineCellsCallback along parent→goal
+            // when NO_ATTACK && !tunneling && !downhillOnly && goalCell.
+            let tunneling_now = force_passable.is_some()
+                && force_passable.map(|f| f(current.coord)).unwrap_or(false)
+                && !self.is_passable_with_ignore(current.coord, surfaces, is_crusher, ignore_cells);
+            // Prefer explicit seed flag; skip when downhill-only (C++ guard).
+            if seed_line_to_goal && !downhill_only && !tunneling_now {
+                self.examine_cells_toward_goal(
+                    current.coord,
+                    current.g_score,
+                    goal,
+                    surfaces,
+                    is_crusher,
+                    ignore_cells,
+                    force_passable,
+                    line_cell_ok,
+                    &mut open_set,
+                    &mut closed_set,
+                    &mut came_from,
+                    &mut g_scores,
+                );
+            }
 
             // Examine all neighbors
             // Matches C++ examineNeighboringCells() at AIPathfind.cpp:6631
@@ -778,6 +840,135 @@ impl AStarPathfinder {
             Some((self.reconstruct_path(&came_from, best_coord), iterations))
         } else {
             None
+        }
+    }
+
+    /// C++ Pathfinder::examineCellsCallback line seed (AIPathfind.cpp:5996-6093).
+    /// Walks Bresenham from parent toward goal; inserts clear cells at half ortho cost.
+    fn examine_cells_toward_goal(
+        &self,
+        parent: GridCoord,
+        parent_g: u32,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        open_set: &mut BinaryHeap<AStarNode>,
+        closed_set: &mut HashSet<GridCoord>,
+        came_from: &mut HashMap<GridCoord, GridCoord>,
+        g_scores: &mut HashMap<GridCoord, u32>,
+    ) {
+        if parent == goal {
+            return;
+        }
+        // Bresenham cell walk parent → goal (same topology as iterateCellsAlongLine).
+        let delta_x = (goal.x - parent.x).abs();
+        let delta_y = (goal.y - parent.y).abs();
+        let mut x = parent.x;
+        let mut y = parent.y;
+        let (mut xinc1, mut xinc2) = if goal.x >= parent.x {
+            (1i32, 1i32)
+        } else {
+            (-1, -1)
+        };
+        let (mut yinc1, mut yinc2) = if goal.y >= parent.y {
+            (1i32, 1i32)
+        } else {
+            (-1, -1)
+        };
+        let (den, mut num, numadd, numpixels);
+        if delta_x >= delta_y {
+            xinc1 = 0;
+            yinc2 = 0;
+            den = delta_x;
+            num = delta_x / 2;
+            numadd = delta_y;
+            numpixels = delta_x;
+        } else {
+            xinc2 = 0;
+            yinc1 = 0;
+            den = delta_y;
+            num = delta_y / 2;
+            numadd = delta_x;
+            numpixels = delta_y;
+        }
+
+        let mut from = parent;
+        let mut from_g = parent_g;
+        // Skip the parent cell itself; process subsequent cells on the line.
+        for _ in 0..=numpixels {
+            num += numadd;
+            if num >= den {
+                num -= den;
+                x += xinc1;
+                y += yinc1;
+            }
+            x += xinc2;
+            y += yinc2;
+            let to = GridCoord::new(x, y);
+            if to == parent {
+                continue;
+            }
+            if self.get_cell(to).is_none() {
+                break;
+            }
+
+            // Abort line (return 1) conditions from examineCellsCallback.
+            if !self.is_passable_with_ignore(to, surfaces, is_crusher, ignore_cells)
+                && !force_passable.map(|f| f(to)).unwrap_or(false)
+            {
+                break;
+            }
+            if !self.is_zone_passable(to) {
+                break;
+            }
+            if self.is_pinched(to).unwrap_or(false) {
+                break;
+            }
+            if let Some(cell) = self.get_cell(to) {
+                if cell.get_type() == PathfindCellType::Cliff {
+                    break;
+                }
+            }
+            if let Some(ok) = line_cell_ok {
+                if !ok(to) {
+                    break;
+                }
+            }
+
+            // newCostSoFar = from->getCostSoFar() + 0.5f*COST_ORTHOGONAL
+            let new_g = from_g.saturating_add(COST_ORTHOGONAL / 2);
+            if let Some(&existing_g) = g_scores.get(&to) {
+                if existing_g <= new_g {
+                    // Keep going along the line without updating.
+                    from = to;
+                    from_g = existing_g;
+                    if to == goal {
+                        break;
+                    }
+                    continue;
+                }
+            }
+
+            // Better path — reopen if closed.
+            closed_set.remove(&to);
+            came_from.insert(to, from);
+            g_scores.insert(to, new_g);
+            let h_score = to.diagonal_distance(&goal);
+            open_set.push(AStarNode {
+                coord: to,
+                g_score: new_g,
+                f_score: new_g.saturating_add(h_score),
+                parent: Some(from),
+            });
+
+            from = to;
+            from_g = new_g;
+            if to == goal {
+                break;
+            }
         }
     }
 
@@ -1215,5 +1406,30 @@ mod tests {
         assert!(cells2 >= 1);
         assert!(!pf.clip_is_zone_passable(-1, 0));
         assert!(!pf.clip_is_zone_passable(0, 1000));
+    }
+
+    #[test]
+    fn examine_cells_line_seed_half_ortho_cost() {
+        let mut pf = AStarPathfinder::new(20, 20);
+        for x in 0..20 {
+            for y in 0..20 {
+                pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
+            }
+        }
+        let start = GridCoord::new(2, 2);
+        let goal = GridCoord::new(10, 2);
+        let path = pf
+            .find_path_ex4(
+                start, goal, 0xFFFF, false, 5000, false, None, None, false, None, None, None, true,
+            )
+            .expect("path");
+        assert!(path.0.len() >= 2);
+        assert_eq!(*path.0.first().unwrap(), start);
+        assert_eq!(*path.0.last().unwrap(), goal);
+        assert!(
+            path.0.iter().all(|c| c.y == 2),
+            "line seed should prefer straight y=2: {:?}",
+            path.0
+        );
     }
 }
