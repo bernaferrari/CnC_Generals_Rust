@@ -886,17 +886,43 @@ impl PathfindingSystem {
         to: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
-        _layer: PathfindLayerEnum,
+        layer: PathfindLayerEnum,
         ignore_cells: Option<&HashSet<GridCoord>>,
         allow_pinched: bool,
     ) -> bool {
-        let pathfinder = self.pathfinder.lock().unwrap();
+        self.is_line_passable_for_object_inner(
+            INVALID_ID,
+            from,
+            to,
+            surfaces,
+            is_crusher,
+            layer,
+            ignore_cells,
+            allow_pinched,
+            false,
+            0,
+            true,
+        )
+    }
 
-        // Sample along the line (Bresenham residual via dense samples).
+    /// C++ `isLinePassable` / `linePassableCallback` with optional object occupancy.
+    fn is_line_passable_for_object_inner(
+        &self,
+        obj_id: ObjectID,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        layer: PathfindLayerEnum,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        allow_pinched: bool,
+        consider_transient: bool,
+        footprint_radius: i32,
+        center_in_cell: bool,
+    ) -> bool {
         let dx = to.x - from.x;
         let dy = to.y - from.y;
         let distance = (dx * dx + dy * dy).sqrt();
-
         if distance < 0.1 {
             return true;
         }
@@ -907,14 +933,36 @@ impl PathfindingSystem {
         for i in 0..=steps {
             let t = i as f32 / steps as f32;
             let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, 0.0);
-
             let coord = GridCoord::from_world(&sample);
-            // C++: if (!allowPinched && to->getPinched()) bail.
-            if !allow_pinched && pathfinder.is_pinched(coord) == Some(true) {
-                return false;
+
+            {
+                let pathfinder = self.pathfinder.lock().unwrap();
+                // C++: if (!allowPinched && to->getPinched()) bail.
+                if !allow_pinched && pathfinder.is_pinched(coord) == Some(true) {
+                    return false;
+                }
+                if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells) {
+                    return false;
+                }
             }
-            if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells) {
-                return false;
+
+            // C++ checkForMovement; bail on allyFixedCount || enemyFixed.
+            if obj_id != INVALID_ID {
+                let mut info = CheckMovementInfo {
+                    cell: coord,
+                    layer,
+                    center_in_cell,
+                    radius: footprint_radius,
+                    consider_transient,
+                    acceptable_surfaces: surfaces,
+                    ..Default::default()
+                };
+                if !self.check_for_movement(obj_id, &mut info) {
+                    return false;
+                }
+                if info.ally_fixed_count > 0 || info.enemy_fixed {
+                    return false;
+                }
             }
         }
 
@@ -1556,6 +1604,36 @@ impl PathfindingSystem {
             PathfindLayerEnum::Ground,
             ignore_cells.as_ref(),
             allow_pinched,
+        )
+    }
+
+    /// C++ `Pathfinder::isLinePassable` with object footprint occupancy.
+    pub fn is_line_passable_for_object(
+        &self,
+        obj_id: ObjectID,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        allow_pinched: bool,
+        blocked: bool,
+        unit_radius: f32,
+    ) -> bool {
+        let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        self.is_line_passable_for_object_inner(
+            obj_id,
+            from,
+            to,
+            surfaces,
+            is_crusher,
+            PathfindLayerEnum::Ground,
+            ignore_cells.as_ref(),
+            allow_pinched,
+            blocked,
+            radius,
+            center_in_cell,
         )
     }
 
@@ -3844,11 +3922,18 @@ mod tests {
             "/src/ai/pathfind_complete.rs"
         ));
         let prod = src.split("#[cfg(test)]").next().expect("production");
-        let i = prod.find("fn is_line_passable(").expect("is_line_passable");
-        let w = &prod[i..prod.len().min(i + 1500)];
+        let i = prod
+            .find("fn is_line_passable_for_object_inner(")
+            .expect("is_line_passable_for_object_inner");
+        let w = &prod[i..prod.len().min(i + 2500)];
         assert!(
-            w.contains("allow_pinched") && w.contains("is_crusher") && w.contains("is_pinched"),
-            "is_line_passable core must take crusher + allowPinched"
+            w.contains("allow_pinched")
+                && w.contains("is_crusher")
+                && w.contains("is_pinched")
+                && w.contains("check_for_movement")
+                && w.contains("ally_fixed_count")
+                && w.contains("enemy_fixed"),
+            "linePassableCallback must pinch-gate + checkForMovement occupancy like C++"
         );
     }
 
