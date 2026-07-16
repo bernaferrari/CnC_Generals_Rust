@@ -5792,6 +5792,140 @@ impl GameLogic {
     /// C++ ScatterRadius residual for instant update_combat hits.
     ///
     /// Returns true when the shot misses the intended target after scatter offset.
+
+    /// Resolve ScatterRadius for an instant shot: (misses_intended, impact_pos, splash_r).
+    pub(crate) fn resolve_instant_scatter_shot(
+        &self,
+        attacker_id: ObjectId,
+        target_id: ObjectId,
+        slot: u8,
+        target_pos: glam::Vec3,
+    ) -> (bool, glam::Vec3, f32) {
+        use crate::game_logic::weapon_bootstrap::{
+            host_effective_scatter_radius, host_primary_damage_radius_for_weapon_name,
+            host_secondary_damage_radius_for_weapon_name, scatter_impact_offset,
+            scatter_misses_intended_target, scatter_seed_for_shot, DEFAULT_SCATTER_HIT_RADIUS,
+        };
+        let (wname, tgt_inf, hit_r, weapon_splash) = {
+            let attacker = match self.objects.get(&attacker_id) {
+                Some(a) => a,
+                None => return (false, target_pos, 0.0),
+            };
+            let target = match self.objects.get(&target_id) {
+                Some(t) => t,
+                None => return (false, target_pos, 0.0),
+            };
+            let wname = if slot == 1 {
+                attacker
+                    .thing
+                    .template
+                    .secondary_weapon_name
+                    .clone()
+                    .or_else(|| attacker.thing.template.primary_weapon_name.clone())
+            } else {
+                attacker.thing.template.primary_weapon_name.clone()
+            };
+            let hit_r = if target.selection_radius > 0.0 {
+                target.selection_radius
+            } else {
+                DEFAULT_SCATTER_HIT_RADIUS
+            };
+            let splash = attacker
+                .weapon_slot(slot)
+                .map(|w| w.splash_radius.max(0.0))
+                .unwrap_or(0.0);
+            (wname, target.is_kind_of(KindOf::Infantry), hit_r, splash)
+        };
+        let Some(name) = wname else {
+            return (false, target_pos, weapon_splash);
+        };
+        let scatter = host_effective_scatter_radius(&name, tgt_inf);
+        let primary_r = host_primary_damage_radius_for_weapon_name(&name);
+        let secondary_r = host_secondary_damage_radius_for_weapon_name(&name);
+        let splash_r = weapon_splash.max(primary_r).max(secondary_r);
+        if scatter <= 0.0 {
+            return (false, target_pos, splash_r);
+        }
+        let seed = scatter_seed_for_shot(attacker_id.0, target_id.0, self.frame);
+        let offset = scatter_impact_offset(seed, scatter);
+        let impact = target_pos + offset;
+        let misses = scatter_misses_intended_target(scatter, seed, hit_r);
+        (misses, impact, splash_r)
+    }
+
+    /// Apply residual area damage at a scatter impact point (missed intended target).
+    ///
+    /// Deals full `weapon_damage` within primary splash radius and half in the
+    /// outer ring to secondary radius. Respects team vs RadiusDamageAffects ENEMIES
+    /// residual (host default: enemies + neutrals).
+    pub(crate) fn apply_scatter_miss_splash_at(
+        &mut self,
+        impact: glam::Vec3,
+        weapon_damage: f32,
+        splash_radius: f32,
+        attacker_id: ObjectId,
+        attacker_team: Team,
+        skip_id: ObjectId,
+    ) -> u32 {
+        if weapon_damage <= 0.0 || splash_radius <= 0.0 {
+            return 0;
+        }
+        let primary_r = splash_radius;
+        let secondary_r = splash_radius * 1.5; // outer residual taper ring
+        let primary_sq = primary_r * primary_r;
+        let secondary_sq = secondary_r * secondary_r;
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if *id == attacker_id || *id == skip_id {
+                    return None;
+                }
+                if !obj.is_alive() {
+                    return None;
+                }
+                // Enemies + neutrals residual (not allies).
+                if obj.team == attacker_team {
+                    return None;
+                }
+                if obj.is_eject_invulnerable() {
+                    return None;
+                }
+                let p = obj.get_position();
+                let dx = p.x - impact.x;
+                let dz = p.z - impact.z;
+                let d2 = dx * dx + dz * dz;
+                if d2 > secondary_sq {
+                    return None;
+                }
+                Some((*id, d2.sqrt()))
+            })
+            .collect();
+        let mut hits = 0u32;
+        let mut destroy: Vec<ObjectId> = Vec::new();
+        for (id, dist) in candidates {
+            let dmg = if dist * dist <= primary_sq {
+                weapon_damage
+            } else {
+                weapon_damage * 0.5
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let dead = obj.take_damage_from(dmg, Some(attacker_id));
+                hits = hits.saturating_add(1);
+                if dead {
+                    destroy.push(id);
+                }
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, Some(attacker_team));
+        }
+        hits
+    }
+
     pub(crate) fn instant_scatter_misses_shot(
         &self,
         attacker_id: ObjectId,
@@ -7879,14 +8013,39 @@ impl GameLogic {
                                             attacker.gain_experience((kills as f32) * 15.0);
                                         }
                                     }
-                                } else if self.instant_scatter_misses_shot(
-                                    attacker_id,
-                                    target_id,
-                                    slot,
-                                ) {
-                                    // C++ ScatterRadius residual: aim offset misses intended
-                                    // target (instant-hit path has no projectile flight).
-                                    // Shot still consumes ammo / FX via fired_slot below.
+                                } else if {
+                                    let (sc_miss, sc_impact, sc_splash) = self
+                                        .resolve_instant_scatter_shot(
+                                            attacker_id,
+                                            target_id,
+                                            slot,
+                                            target_position,
+                                        );
+                                    if sc_miss {
+                                        // C++ ScatterRadius residual: miss intended; splash at offset.
+                                        if sc_splash > 0.0 {
+                                            let hits = self.apply_scatter_miss_splash_at(
+                                                sc_impact,
+                                                weapon_damage,
+                                                sc_splash,
+                                                attacker_id,
+                                                attacker_team,
+                                                target_id,
+                                            );
+                                            if hits > 0 {
+                                                if let Some(attacker) =
+                                                    self.objects.get_mut(&attacker_id)
+                                                {
+                                                    attacker.gain_experience((hits as f32) * 5.0);
+                                                }
+                                            }
+                                        }
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } {
+                                    // Miss path handled above (splash optional).
                                 } else if let Some(target) = self.objects.get_mut(&target_id) {
                                     let destroyed =
                                         target.take_damage_from(weapon_damage, Some(attacker_id));
@@ -70675,6 +70834,75 @@ mod tests {
         }
     }
 
+    #[test]
+    fn scatter_miss_applies_splash_at_offset() {
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("ArtySc");
+            // Firebase howitzer often has splash; force peel via weapon fields.
+            t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("ArtySc".into(), t);
+            let mut ti = ThingTemplate::new("InfSc");
+            ti.add_kind_of(KindOf::Infantry);
+            ti.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("InfSc".into(), ti);
+            let mut tv = ThingTemplate::new("NearSc");
+            tv.add_kind_of(KindOf::Vehicle);
+            tv.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("NearSc".into(), tv);
+        }
+        let arty = logic
+            .create_object("ArtySc", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let intended = logic
+            .create_object("InfSc", Team::China, glam::Vec3::new(100.0, 0.0, 0.0))
+            .unwrap();
+        let neighbor = logic
+            .create_object("NearSc", Team::China, glam::Vec3::new(105.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.objects.get_mut(&arty) {
+            o.weapon = Some(Weapon {
+                damage: 80.0,
+                range: 300.0,
+                min_range: 0.0,
+                splash_radius: 30.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                ..Weapon::default()
+            });
+        }
+        if let Some(o) = logic.objects.get_mut(&intended) {
+            o.health.current = 500.0;
+            o.health.maximum = 500.0;
+            o.selection_radius = 1.0; // easy miss
+        }
+        if let Some(o) = logic.objects.get_mut(&neighbor) {
+            o.health.current = 200.0;
+            o.health.maximum = 200.0;
+        }
+        // Force a miss frame if possible and apply splash helper at known impact.
+        let impact = glam::Vec3::new(105.0, 0.0, 0.0);
+        let hits =
+            logic.apply_scatter_miss_splash_at(impact, 80.0, 30.0, arty, Team::USA, intended);
+        assert!(hits >= 1, "neighbor in splash must be hit");
+        let nh = logic
+            .objects
+            .get(&neighbor)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(nh < 200.0 - 1.0, "neighbor took splash damage nh={nh}");
+        // Intended skipped by skip_id.
+        let ih = logic
+            .objects
+            .get(&intended)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!((ih - 500.0).abs() < 0.01, "intended skipped on miss splash");
+    }
     #[test]
     fn instant_combat_scatter_can_miss_intended_target() {
         use crate::game_logic::weapon_bootstrap::{
