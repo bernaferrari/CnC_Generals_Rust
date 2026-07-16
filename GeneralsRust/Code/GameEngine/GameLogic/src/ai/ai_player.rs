@@ -408,7 +408,10 @@ impl TeamInQueue {
         if !(*team_guard).is_singleton() {
             team_guard.delete_team(false);
         }
+        drop(team_guard);
 
+        // C++ m_team = NULL after disband so ~TeamInQueue will not setActive.
+        self.team = None;
         self.work_orders.clear();
         Ok(())
     }
@@ -490,6 +493,18 @@ impl TeamInQueue {
 
     pub fn crc(&self, xfer: &mut dyn Xfer) {
         let _ = xfer;
+    }
+}
+
+/// C++ `~TeamInQueue`: if m_team remains, activate it (empty active teams are
+/// cleaned up by Team). `disband` nulls the handle so Drop will not re-activate.
+impl Drop for TeamInQueue {
+    fn drop(&mut self) {
+        if let Some(team_arc) = self.team.take() {
+            if let Ok(mut tg) = team_arc.write() {
+                tg.set_active();
+            }
+        }
     }
 }
 
@@ -7716,6 +7731,24 @@ mod tests {
                 && window.contains("Relationship::Enemies")
                 && window.contains("is_effectively_dead"),
             "isLocationSafe must apply C++ partition filters"
+        );
+    }
+
+    #[test]
+    fn team_in_queue_drop_activates_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        assert!(
+            src.contains("impl Drop for TeamInQueue")
+                && src.contains("tg.set_active()")
+                && src.contains("self.team = None"),
+            "TeamInQueue Drop must setActive; disband must null m_team"
+        );
+        // disband path nulls team before Drop
+        let i = src.find("pub fn disband(&mut self)").expect("disband");
+        let w = &src[i..src.len().min(i + 3500)];
+        assert!(
+            w.contains("self.team = None"),
+            "disband must clear team handle like C++ m_team = NULL"
         );
     }
 
