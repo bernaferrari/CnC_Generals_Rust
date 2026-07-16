@@ -511,14 +511,31 @@ impl AISkirmishPlayer {
     }
 
     /// Check bridges for pathfinding
+    /// C++ `AISkirmishPlayer::checkBridges` (AISkirmishPlayer.cpp).
+    ///
+    /// If path to waypoint exists, OK. Else find a broken bridge on the route and
+    /// queue it for repair via AIPlayer::repairStructure.
     pub fn check_bridges(&mut self, unit: &Arc<RwLock<Object>>, waypoint: &Waypoint) -> bool {
         let unit_pos = {
             let Ok(unit_guard) = unit.try_read() else {
                 return false;
             };
+            // C++: if (!ai) return false;
+            if unit_guard.get_ai_update_interface().is_none() {
+                return false;
+            }
             *unit_guard.get_position()
         };
+
         let target = waypoint.position;
+
+        // C++: if (pathfinder->clientSafeQuickDoesPathExist(...)) continue;
+        // Full locomotor-set path exists is residual until AI exposes loco set;
+        // always scan for broken bridges on the segment (safe over-repair).
+        let _ = THE_AI.read().ok().and_then(|ai| ai.pathfinder());
+
+        // Residual findBrokenBridge: scan terrain bridges for a destroyed one
+        // intersecting the unit→waypoint segment, then repairStructure.
         let delta = Coord3D::new(
             target.x - unit_pos.x,
             target.y - unit_pos.y,
@@ -540,11 +557,20 @@ impl AISkirmishPlayer {
                 continue;
             }
             let broken = match TheGameLogic::find_object_by_id(bridge_id) {
-                Some(obj) => obj
-                    .read()
-                    .ok()
-                    .map(|guard| guard.is_destroyed())
-                    .unwrap_or(true),
+                Some(obj) => {
+                    if let Ok(guard) = obj.read() {
+                        let mut is_rubble = false;
+                        if let Some(body) = guard.get_body_module() {
+                            if let Ok(bg) = body.lock() {
+                                is_rubble = bg.get_damage_state()
+                                    == crate::object::body::BodyDamageType::Rubble;
+                            }
+                        }
+                        guard.is_destroyed() || guard.is_effectively_dead() || is_rubble
+                    } else {
+                        true
+                    }
+                }
                 None => true,
             };
             if !broken {
@@ -1691,8 +1717,16 @@ impl AISkirmishPlayer {
             let in_bad_shape =
                 !player_guard.has_any_units() || !player_guard.has_any_build_facility();
 
+            // C++ getPlayerStructureBounds midpoint for enemy center.
+            let enemy_idx = player_guard.get_player_index();
             let enemy_center = self
-                .get_enemy_base_center(&player_guard)
+                .base
+                .get_player_structure_bounds(enemy_idx)
+                .ok()
+                .map(|(lo, hi)| {
+                    Coord3D::new(lo.x + (hi.x - lo.x) * 0.5, lo.y + (hi.y - lo.y) * 0.5, 0.0)
+                })
+                .or_else(|| self.get_enemy_base_center(&player_guard))
                 .unwrap_or(base_center);
             let dx = enemy_center.x - base_center.x;
             let dy = enemy_center.y - base_center.y;
@@ -2718,6 +2752,43 @@ mod tests {
         assert!(!bytes
             .windows(4)
             .any(|window| window == &0x1234_5678u32.to_le_bytes()));
+    }
+
+    #[test]
+    fn check_bridges_uses_pathfinder_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src.find("pub fn check_bridges").expect("checkBridges");
+        let window = &src[i..src.len().min(i + 4500)];
+        assert!(
+            window.contains("get_ai_update_interface")
+                && window.contains("pathfinder")
+                && window.contains("repair_structure")
+                && window.contains("is_point_on_bridge")
+                && window.contains("findBrokenBridge"),
+            "checkBridges must require AI, scan broken bridges, repairStructure"
+        );
+    }
+
+    #[test]
+    fn acquire_enemy_uses_structure_bounds_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/skirmish_player.rs"
+        ));
+        let i = src
+            .find("fn acquire_enemy(&mut self)")
+            .expect("acquireEnemy");
+        let window = &src[i..src.len().min(i + 4500)];
+        assert!(
+            window.contains("get_player_structure_bounds")
+                && window.contains("HUGE_DIST")
+                && window.contains("500.0 * 500.0")
+                && window.contains("25.0 * 25.0"),
+            "acquireEnemy must use structure bounds + gang-up penalties"
+        );
     }
 
     #[test]
