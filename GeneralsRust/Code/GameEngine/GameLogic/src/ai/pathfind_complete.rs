@@ -6069,6 +6069,7 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
+        interacts_with_bridge_end: bool,
     ) {
         let new_cell = ICoord2D::new(cell.x, cell.y);
         if let Ok(goals) = self.unit_goal_cells.lock() {
@@ -6082,17 +6083,17 @@ impl PathfindingSystem {
         if let Ok(mut goals) = self.unit_goal_cells.lock() {
             goals.insert(unit_id, new_cell);
         }
-        let do_ground = layer == PathfindLayerEnum::Ground;
+        // C++ updateGoal: LAYER_GROUND → doGround; else doLayer, and also doGround
+        // when TheTerrainLogic->objectInteractsWithBridgeEnd.
         let do_layer = layer != PathfindLayerEnum::Ground;
-        // Bridge-end residual: ground+layer both true when interacts — default layer-only
-        // when elevated; ground always when ground layer.
+        let do_ground = layer == PathfindLayerEnum::Ground || interacts_with_bridge_end;
         self.set_goal_cells(
             unit_id,
             new_cell,
             radius,
             center_in_cell,
             layer,
-            do_ground || !do_layer,
+            do_ground,
             do_layer,
         );
     }
@@ -6143,6 +6144,7 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
+        interacts_with_bridge_end: bool,
     ) {
         if !self.is_map_ready {
             return;
@@ -6159,16 +6161,16 @@ impl PathfindingSystem {
         if let Ok(mut pos) = self.unit_pos_cells.lock() {
             pos.insert(unit_id, new_cell);
         }
-        // Position occupancy reuses goal-cell stamps for residual occupancy checks.
-        let do_ground = layer == PathfindLayerEnum::Ground;
+        // C++ updatePos: bridge end stamps both layer and ground occupancy.
         let do_layer = layer != PathfindLayerEnum::Ground;
+        let do_ground = layer == PathfindLayerEnum::Ground || interacts_with_bridge_end;
         self.set_goal_cells(
             unit_id,
             new_cell,
             radius,
             center_in_cell,
             layer,
-            do_ground || !do_layer,
+            do_ground,
             do_layer,
         );
     }
@@ -8220,7 +8222,7 @@ mod tests {
     fn update_pos_requires_map_ready_and_dedupes() {
         let system = PathfindingSystem::new(16, 16);
         let cell = GridCoord::new(3, 4);
-        system.update_pos(cell, 42, PathfindLayerEnum::Ground, 0, true);
+        system.update_pos(cell, 42, PathfindLayerEnum::Ground, 0, true, false);
         // not ready → no pos recorded
         assert!(system.unit_pos_cells.lock().unwrap().get(&42).is_none());
         // make ready and update
@@ -8232,7 +8234,7 @@ mod tests {
         let mut system = PathfindingSystem::new(16, 16);
         system.new_map();
         let cell = GridCoord::new(5, 6);
-        system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true);
+        system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true, false);
         assert_eq!(
             system
                 .unit_goal_cells
@@ -8243,7 +8245,7 @@ mod tests {
             Some((5, 6))
         );
         // same cell no-op still present
-        system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true);
+        system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true, false);
         assert_eq!(
             system
                 .unit_goal_cells
@@ -8425,7 +8427,14 @@ mod tests {
     fn goal_position_from_tracked_cell() {
         let mut system = PathfindingSystem::new(16, 16);
         system.new_map();
-        system.update_goal(GridCoord::new(3, 4), 55, PathfindLayerEnum::Ground, 0, true);
+        system.update_goal(
+            GridCoord::new(3, 4),
+            55,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            false,
+        );
         let mut out = Coord3D::new(0.0, 0.0, 0.0);
         assert!(system.goal_position(55, 0.0, &mut out));
         // center of cell (3,4) at cell size 10 → (35, 45)
@@ -9583,5 +9592,47 @@ mod tests {
             "checkForMovement must call canCrushOrSquish like C++"
         );
         assert!(!w.contains("Prefer real canCrush"));
+    }
+
+    #[test]
+    fn update_goal_bridge_end_stamps_ground() {
+        let mut system = PathfindingSystem::new(20, 20);
+        system.new_map();
+        let cell = GridCoord::new(5, 5);
+        // Elevated layer without bridge-end: layer only.
+        system.update_goal(cell, 42, PathfindLayerEnum::Top, 0, true, false);
+        let goals = system.goal_cells.lock().unwrap();
+        let gc = goals[5][5];
+        assert_eq!(gc.get_goal_unit(PathfindLayerEnum::Top), 42);
+        // Ground should not be stamped without bridge-end.
+        // (may be INVALID if never set)
+        drop(goals);
+        system.remove_goal(42, 0, true, PathfindLayerEnum::Top);
+        // With bridge-end both layers.
+        system.update_goal(cell, 43, PathfindLayerEnum::Top, 0, true, true);
+        let goals = system.goal_cells.lock().unwrap();
+        let gc = goals[5][5];
+        assert_eq!(gc.get_goal_unit(PathfindLayerEnum::Top), 43);
+        assert_eq!(
+            gc.get_goal_unit(PathfindLayerEnum::Ground),
+            43,
+            "bridge-end must also stamp ground goal cells"
+        );
+    }
+
+    #[test]
+    fn update_goal_bridge_end_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn update_goal").expect("updateGoal");
+        let w = &prod[i..prod.len().min(i + 1200)];
+        assert!(
+            w.contains("interacts_with_bridge_end"),
+            "updateGoal must take objectInteractsWithBridgeEnd flag"
+        );
+        assert!(!w.contains("Bridge-end residual"));
     }
 }
