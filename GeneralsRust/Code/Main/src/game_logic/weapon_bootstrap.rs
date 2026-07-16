@@ -467,6 +467,128 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini MinTargetPitch / MaxTargetPitch residual (radians).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostTargetPitchLimits {
+    pub min_pitch: f32,
+    pub max_pitch: f32,
+}
+
+impl Default for HostTargetPitchLimits {
+    fn default() -> Self {
+        Self {
+            min_pitch: -std::f32::consts::PI,
+            max_pitch: std::f32::consts::PI,
+        }
+    }
+}
+
+impl HostTargetPitchLimits {
+    /// True when the peel is the full-sphere default (no pitch limit).
+    pub fn is_unlimited(&self) -> bool {
+        self.min_pitch <= -std::f32::consts::PI + 1e-3
+            && self.max_pitch >= std::f32::consts::PI - 1e-3
+    }
+}
+
+/// Normalize pitch peel: store may hold degrees (e.g. 15/45/80) or radians.
+pub fn normalize_pitch_radians(raw: f32) -> f32 {
+    if raw.abs() > std::f32::consts::PI + 0.01 {
+        raw.to_radians()
+    } else {
+        raw
+    }
+}
+
+/// Resolve Min/MaxTargetPitch for a weapon name.
+pub fn host_target_pitch_limits_for_weapon_name(name: &str) -> HostTargetPitchLimits {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| HostTargetPitchLimits {
+                min_pitch: normalize_pitch_radians(wt.min_target_pitch),
+                max_pitch: normalize_pitch_radians(wt.max_target_pitch),
+            })
+    })
+    .ok()
+    .flatten();
+    if let Some(lim) = from_store {
+        // Prefer store when not the pure default, or when seed has no special case.
+        if !lim.is_unlimited() {
+            return lim;
+        }
+    }
+    seed_target_pitch_limits_for(name)
+}
+
+pub fn seed_target_pitch_limits_for(name: &str) -> HostTargetPitchLimits {
+    let n = name.to_ascii_lowercase();
+    // Strategy Center artillery: steep loft residual (45°–80°).
+    if n.contains("strategycenter") || (n.contains("artillery") && n.contains("center")) {
+        return HostTargetPitchLimits {
+            min_pitch: 45f32.to_radians(),
+            max_pitch: 80f32.to_radians(),
+        };
+    }
+    // Fire base / howitzer lob residual often -15..79 or similar.
+    if n.contains("firebase") || n.contains("howitzer") || n.contains("inferno") {
+        return HostTargetPitchLimits {
+            min_pitch: (-15f32).to_radians(),
+            max_pitch: 79f32.to_radians(),
+        };
+    }
+    // Common tank guns residual ±15°.
+    if n.contains("tankgun")
+        || n.contains("tankshell")
+        || n.contains("crusader")
+        || n.contains("paladin")
+        || n.contains("battlemaster")
+        || n.contains("scorpion")
+        || n.contains("marauder")
+        || n.contains("overlord")
+        || n.contains("tomahawk")
+    {
+        return HostTargetPitchLimits {
+            min_pitch: (-15f32).to_radians(),
+            max_pitch: 15f32.to_radians(),
+        };
+    }
+    HostTargetPitchLimits::default()
+}
+
+/// C++ Weapon pitch check residual (center-to-center simplified geometry).
+///
+/// Pitch is elevation angle from source to target in the vertical plane:
+/// `atan2(dy, horizontal_xz)`. Unlimited peels always pass.
+pub fn is_pitch_within_limits(
+    source_pos: glam::Vec3,
+    target_pos: glam::Vec3,
+    limits: &HostTargetPitchLimits,
+) -> bool {
+    if limits.is_unlimited() {
+        return true;
+    }
+    let dx = target_pos.x - source_pos.x;
+    let dy = target_pos.y - source_pos.y;
+    let dz = target_pos.z - source_pos.z;
+    let horiz = (dx * dx + dz * dz).sqrt();
+    // Near-vertical residual: if almost on top, use sign of dy.
+    let pitch = if horiz < 1e-3 {
+        if dy >= 0.0 {
+            std::f32::consts::FRAC_PI_2
+        } else {
+            -std::f32::consts::FRAC_PI_2
+        }
+    } else {
+        dy.atan2(horiz)
+    };
+    // C++ allows if any of min/max geometry pitches overlap the window.
+    // Host residual: single center pitch must lie in [min, max].
+    pitch >= limits.min_pitch - 1e-4 && pitch <= limits.max_pitch + 1e-4
+}
+
 /// C++ AutoReloadsClip residual (not stored on host Weapon to avoid mass literal churn).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostReloadType {
@@ -4937,5 +5059,44 @@ mod tests {
             seed_reload_type_for("GLAInfantryTerrorist"),
             HostReloadType::Manual
         );
+    }
+
+    #[test]
+    fn target_pitch_limits_seed_and_gate() {
+        let sc = seed_target_pitch_limits_for("AmericaStrategyCenterArtillery");
+        assert!(!sc.is_unlimited());
+        assert!((sc.min_pitch - 45f32.to_radians()).abs() < 1e-3);
+        // Same height: pitch ~0 — out of strategy center loft window.
+        assert!(!is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(100.0, 0.0, 0.0),
+            &sc
+        ));
+        // Steep loft into window.
+        let dy = (100.0_f32) * 45f32.to_radians().tan() + 5.0;
+        assert!(is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(100.0, dy, 0.0),
+            &sc
+        ));
+        let tank = seed_target_pitch_limits_for("AmericaTankCrusaderGun");
+        assert!(is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(50.0, 0.0, 0.0),
+            &tank
+        ));
+        // Too steep for tank ±15°.
+        assert!(!is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(10.0, 50.0, 0.0),
+            &tank
+        ));
+        let open = HostTargetPitchLimits::default();
+        assert!(open.is_unlimited());
+        assert!(is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(1.0, 100.0, 0.0),
+            &open
+        ));
     }
 }
