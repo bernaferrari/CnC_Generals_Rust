@@ -442,9 +442,15 @@ impl BuildingBehavior {
 
         if let Some((team, template_name, spawn_pos, rally_point)) = completion {
             if let Some(new_id) = game_logic.create_object(&template_name, team, spawn_pos) {
-                if let Some(unit) = game_logic.find_object_mut(new_id) {
-                    if let Some(rally) = rally_point {
-                        unit.set_destination(rally);
+                if let Some(rally) = rally_point {
+                    // Residual BuildingBehavior path — host update_production already
+                    // path_approach_with_state; keep pathfind parity here too.
+                    if !game_logic.assign_unit_path(new_id, rally, &[]) {
+                        if let Some(unit) = game_logic.find_object_mut(new_id) {
+                            unit.set_destination(rally);
+                            unit.ai_state = AIState::Moving;
+                        }
+                    } else if let Some(unit) = game_logic.find_object_mut(new_id) {
                         unit.ai_state = AIState::Moving;
                     }
                 }
