@@ -275,6 +275,8 @@ pub struct PendingProjectile {
     pub radius_damage_affects: u32,
     /// C++ ProjectileCollidesWith residual mask.
     pub projectile_collides: u32,
+    /// C++ effective ScatterRadius residual at fire time (0 = no scatter).
+    pub scatter_radius: f32,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -300,9 +302,25 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             .map(|obj| obj.get_position())
             .or(p.target_pos);
 
-        let Some(target_pos) = actual_target_pos else {
+        let Some(mut target_pos) = actual_target_pos else {
             continue;
         };
+
+        // C++ Weapon.ini ScatterRadius residual: offset aim point and clear
+        // direct target lock when scatter > 0 (miss / near-miss residual).
+        let mut fire_target_id = p.target_id;
+        if p.scatter_radius > 0.0 {
+            let seed = p.shooter_id.0.wrapping_mul(0x9E37_79B9).wrapping_add(
+                p.target_id
+                    .map(|t| t.0)
+                    .unwrap_or(0)
+                    .wrapping_mul(0x85EB_CA6B),
+            );
+            let offset =
+                crate::game_logic::weapon_bootstrap::scatter_aim_offset(seed, p.scatter_radius);
+            target_pos += offset;
+            fire_target_id = None;
+        }
 
         let weapon = Weapon {
             damage: p.damage,
@@ -324,7 +342,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             target_pos,
             &weapon,
             p.shooter_id,
-            p.target_id,
+            fire_target_id,
             p.speed,
             p.is_homing,
         );
@@ -1319,6 +1337,7 @@ mod tests {
             radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
+            scatter_radius: 0.0,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
@@ -1589,5 +1608,59 @@ mod tests {
             tgt1 < tgt0 - 1.0,
             "projectile must reach target when collides mask empty"
         );
+    }
+
+    #[test]
+    fn scatter_radius_offsets_aim_and_clears_target() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(80);
+        let tgt = ObjectId(81);
+        objects.insert(
+            tgt,
+            make_obj(
+                "GLARebel",
+                tgt,
+                Team::GLA,
+                Vec3::new(50.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        queue_projectile(PendingProjectile {
+            shooter_id: atk,
+            shooter_pos: Vec3::ZERO,
+            target_id: Some(tgt),
+            target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
+            damage: 10.0,
+            speed: 200.0,
+            splash_radius: 0.0,
+            is_homing: false,
+            damage_type: DamageType::Bullet,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            projectile_object_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects:
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
+            scatter_radius: 10.0,
+        });
+        drain_pending_projectiles(&mut combat, &objects);
+        let snaps: Vec<_> = combat.projectiles_snapshot();
+        assert_eq!(snaps.len(), 1);
+        // Target cleared when scatter applied.
+        assert!(snaps[0].target_id.is_none());
+        // Aim point moved off exact target.
+        let aim = snaps[0].target_position;
+        let d = (aim - Vec3::new(50.0, 0.0, 0.0)).length();
+        assert!(d > 0.01 && d <= 10.0 + 1e-2, "scatter offset length {d}");
     }
 }

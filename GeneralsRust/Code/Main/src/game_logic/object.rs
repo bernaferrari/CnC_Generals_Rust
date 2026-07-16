@@ -2413,6 +2413,28 @@ impl Object {
                     )
                     .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT)
                 },
+                // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
+                // fire_at cannot query peer KindOf; apply VsInfantry peel whenever a
+                // target id is set (infantry-common residual). Ground attacks use base only.
+                scatter_radius: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    let assume_infantry = self.target.is_some();
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
+                            n,
+                            assume_infantry,
+                        )
+                    })
+                    .unwrap_or(0.0)
+                },
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
