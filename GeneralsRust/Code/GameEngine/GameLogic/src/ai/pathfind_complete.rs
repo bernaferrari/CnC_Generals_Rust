@@ -1088,6 +1088,57 @@ impl PathfindingSystem {
         pathfinder.get_cell_type(coord)
     }
 
+    /// Pure zone connectivity (C++ zone1 == zone2 / UNINITIALIZED → true).
+    pub fn zones_connected_for_surfaces(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+    ) -> bool {
+        let from_c = GridCoord::from_world(from);
+        let to_c = GridCoord::from_world(to);
+        let Ok(zones) = self.zones.lock() else {
+            return true;
+        };
+        zones.are_connected(from_c, to_c, surfaces, false)
+    }
+
+    /// C++ `Pathfinder::clientSafeQuickDoesPathExist` (AIPathfind.cpp).
+    ///
+    /// Zone connectivity only — not a full A* path. False = impossible terrain;
+    /// true = terrain-possible (units may still block).
+    pub fn client_safe_quick_does_path_exist(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+    ) -> bool {
+        // C++ validMovementPosition(false, destLayer, locoSet, to)
+        if !self.valid_movement_position(surfaces, false, to, None) {
+            return false;
+        }
+        // C++: no goals on cliffs
+        if self.get_cell_type(to) == Some(PathfindCellType::Cliff) {
+            return false;
+        }
+        self.zones_connected_for_surfaces(surfaces, from, to)
+    }
+
+    /// C++ `Pathfinder::clientSafeQuickDoesPathExistForUI`.
+    ///
+    /// Ignores structure obstacles for UI feedback (terrain zones only).
+    pub fn client_safe_quick_does_path_exist_for_ui(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+    ) -> bool {
+        if self.get_cell_type(to) == Some(PathfindCellType::Cliff) {
+            return false;
+        }
+        self.zones_connected_for_surfaces(surfaces, from, to)
+    }
+
     /// Quick validity check for a locomotor position (C++ validMovementPosition usage).
     pub fn valid_movement_position(
         &self,
@@ -2539,5 +2590,72 @@ mod tests {
         );
         assert_eq!(pathfinder.is_pinched(GridCoord::new(1, 1)), Some(true));
         assert_eq!(pathfinder.is_pinched(GridCoord::new(5, 5)), Some(true));
+    }
+
+    #[test]
+    fn client_safe_quick_does_path_exist_rejects_cliff_like_cpp() {
+        let system = PathfindingSystem::new(16, 16);
+        let from = Coord3D::new(16.0, 16.0, 0.0);
+        let to = Coord3D::new(48.0, 48.0, 0.0);
+        system.set_cell_type(&to, PathfindCellType::Cliff);
+        assert!(
+            !system.client_safe_quick_does_path_exist(SURFACE_GROUND, &from, &to),
+            "C++ rejects cliff goals"
+        );
+        assert!(
+            !system.client_safe_quick_does_path_exist_for_ui(SURFACE_GROUND, &from, &to),
+            "UI quick path also rejects cliffs"
+        );
+    }
+
+    #[test]
+    fn client_safe_quick_does_path_exist_uses_zones_not_astar() {
+        let system = PathfindingSystem::new(16, 16);
+        let from = Coord3D::new(16.0, 16.0, 0.0);
+        let to = Coord3D::new(48.0, 48.0, 0.0);
+        // Uninitialized zones (0) → C++ false-positive true.
+        assert!(system.client_safe_quick_does_path_exist(SURFACE_GROUND, &from, &to));
+
+        // Force different zones → false.
+        {
+            let mut zones = system.zones.lock().unwrap();
+            let a = GridCoord::from_world(&from);
+            let b = GridCoord::from_world(&to);
+            zones.zones[a.x as usize][a.y as usize] = 1;
+            zones.zones[b.x as usize][b.y as usize] = 2;
+        }
+        assert!(
+            !system.client_safe_quick_does_path_exist(SURFACE_GROUND, &from, &to),
+            "different zones must fail quick path"
+        );
+
+        // Same zone → true.
+        {
+            let mut zones = system.zones.lock().unwrap();
+            let b = GridCoord::from_world(&to);
+            zones.zones[b.x as usize][b.y as usize] = 1;
+        }
+        assert!(system.client_safe_quick_does_path_exist(SURFACE_GROUND, &from, &to));
+    }
+
+    #[test]
+    fn client_safe_quick_cpp_surface_no_find_path() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn client_safe_quick_does_path_exist(")
+            .expect("clientSafeQuickDoesPathExist");
+        // window covering the three quick-path entry points
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("zones_connected_for_surfaces")
+                || w.contains("client_safe_quick_does_path_exist(surfaces")
+                || w.contains("client_safe_quick_does_path_exist_for_ui(surfaces"),
+            "must delegate to zone-based ClassicPathfinder helpers"
+        );
+        assert!(
+            !w.contains("find_path(request)") && !w.contains("ClassicPathRequest"),
+            "clientSafeQuickDoesPathExist must not run full A*"
+        );
     }
 }
