@@ -4325,6 +4325,164 @@ impl PathfindingSystem {
         out
     }
 
+    /// C++ `Pathfinder::goalPosition` (AIPathfind.cpp:5162-5174).
+    ///
+    /// Returns world position for a unit's tracked pathfind goal cell.
+    pub fn goal_position(&self, unit_id: ObjectID, unit_radius: f32, out: &mut Coord3D) -> bool {
+        let cell = {
+            let Ok(goals) = self.unit_goal_cells.lock() else {
+                return false;
+            };
+            match goals.get(&unit_id).copied() {
+                Some(c) if c.x >= 0 && c.y >= 0 => c,
+                _ => return false,
+            }
+        };
+        let (_radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        out.x = 0.0;
+        out.y = 0.0;
+        out.z = 0.0;
+        self.adjust_coord_to_cell(
+            cell.x,
+            cell.y,
+            center_in_cell,
+            out,
+            PathfindLayerEnum::Ground,
+        );
+        true
+    }
+
+    /// C++ `Pathfinder::pathDestination` (AIPathfind.cpp:8154+).
+    ///
+    /// Limited open-list search from `dest` toward `group_dest`, keeping the
+    /// closest cell that passes checkForAdjust. Writes result into `dest`.
+    pub fn path_destination(
+        &self,
+        dest: &mut Coord3D,
+        group_dest: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        is_human: bool,
+    ) -> bool {
+        const MAX_CELL_COUNT: i32 = 500;
+        if !self.is_map_ready {
+            return false;
+        }
+        // C++ rejects 0,0 as group dest in hierarchical; pathDestination uses groupDest as goal.
+        let _ = is_human;
+
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let start = GridCoord::from_world(dest);
+        let goal = GridCoord::from_world(group_dest);
+        if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
+            return false;
+        }
+
+        // Start must be valid movement.
+        {
+            let Ok(pf) = self.pathfinder.lock() else {
+                return false;
+            };
+            if !pf.is_passable(start, surfaces, is_crusher) {
+                return false;
+            }
+        }
+
+        // BFS/A* lite: expand orthogonal+diagonal like C++, budget MAX_CELL_COUNT.
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        let mut open: std::collections::VecDeque<GridCoord> = std::collections::VecDeque::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        open.push_back(start);
+        closed.insert((start.x, start.y));
+
+        let mut closest: Option<(GridCoord, Coord3D, i32)> = None;
+        let mut cell_count: i32 = 0;
+
+        while let Some(parent) = open.pop_front() {
+            // checkForAdjust at this cell
+            let mut pos = parent.to_world(PathfindLayerEnum::Ground);
+            self.adjust_coord_to_cell(
+                parent.x,
+                parent.y,
+                center_in_cell,
+                &mut pos,
+                PathfindLayerEnum::Ground,
+            );
+            let mut adjust_pos = pos;
+            if self.check_for_adjust(&mut adjust_pos, surfaces, is_crusher, unit_radius, None) {
+                let dx = (goal.x - parent.x).abs();
+                let dy = (goal.y - parent.y).abs();
+                let dist = dx * dx + dy * dy;
+                let better = match closest {
+                    None => true,
+                    Some((_, _, best)) => dist < best,
+                };
+                if better {
+                    closest = Some((parent, adjust_pos, dist));
+                }
+            }
+
+            if cell_count > MAX_CELL_COUNT {
+                continue;
+            }
+            // C++ checkChangeLayers(parent)
+            let _ = self.check_change_layers(parent);
+
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                // Diagonal corner cut residual: require orthogonal neighbors open when diagonal.
+                if i >= 4 {
+                    let ox = parent.x + dx;
+                    let oy = parent.y;
+                    let ox2 = parent.x;
+                    let oy2 = parent.y + dy;
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(GridCoord::new(ox, oy), surfaces, is_crusher)
+                        || !pf.is_passable(GridCoord::new(ox2, oy2), surfaces, is_crusher)
+                    {
+                        continue;
+                    }
+                }
+                let nx = parent.x + dx;
+                let ny = parent.y + dy;
+                let nc = GridCoord::new(nx, ny);
+                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(nc, surfaces, is_crusher) {
+                        continue;
+                    }
+                }
+                closed.insert((nx, ny));
+                open.push_back(nc);
+                cell_count += 1;
+            }
+        }
+
+        if let Some((_, pos, _)) = closest {
+            *dest = pos;
+            let _ = (radius, center_in_cell);
+            true
+        } else {
+            false
+        }
+    }
+
     /// C++ `Pathfinder::updateAircraftGoal` (AIPathfind.cpp:9803-9854).
     ///
     /// Clears prior goal, stamps goalAircraft on ground cells for hover/wings aircraft.
@@ -5895,5 +6053,62 @@ mod tests {
         pf.set_cell_connect_layer(c, PathfindLayerEnum::Top);
         assert_eq!(pf.get_cell_connect_layer(c), Some(PathfindLayerEnum::Top));
         assert_eq!(pf.connect_layer_transition_coord(c), Some(c));
+    }
+
+    #[test]
+    fn goal_position_and_path_destination_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn goal_position").expect("goalPosition");
+        let w = &prod[i..prod.len().min(i + 1200)];
+        assert!(
+            w.contains("unit_goal_cells") && w.contains("adjust_coord_to_cell"),
+            "goalPosition must read tracked goal cell"
+        );
+        let j = prod
+            .find("pub fn path_destination")
+            .expect("pathDestination");
+        let w2 = &prod[j..prod.len().min(j + 3500)];
+        assert!(
+            w2.contains("MAX_CELL_COUNT")
+                && w2.contains("check_for_adjust")
+                && w2.contains("check_change_layers")
+                && w2.contains("is_map_ready"),
+            "pathDestination must budget search + checkForAdjust"
+        );
+    }
+
+    #[test]
+    fn goal_position_from_tracked_cell() {
+        let mut system = PathfindingSystem::new(16, 16);
+        system.new_map();
+        system.update_goal(GridCoord::new(3, 4), 55, PathfindLayerEnum::Ground, 0, true);
+        let mut out = Coord3D::new(0.0, 0.0, 0.0);
+        assert!(system.goal_position(55, 0.0, &mut out));
+        // center of cell (3,4) at cell size 10 → (35, 45)
+        assert!((out.x - 35.0).abs() < 0.01, "x={}", out.x);
+        assert!((out.y - 45.0).abs() < 0.01, "y={}", out.y);
+        assert!(!system.goal_position(999, 0.0, &mut out));
+    }
+
+    #[test]
+    fn path_destination_requires_map_ready() {
+        let system = PathfindingSystem::new(16, 16);
+        let mut dest = Coord3D::new(15.0, 15.0, 0.0);
+        let group = Coord3D::new(85.0, 85.0, 0.0);
+        assert!(!system.path_destination(&mut dest, &group, SURFACE_GROUND, false, 0.0, true));
+    }
+
+    #[test]
+    fn path_destination_finds_adjustable_cell() {
+        let mut system = PathfindingSystem::new(32, 32);
+        system.new_map();
+        let mut dest = Coord3D::new(15.0, 15.0, 0.0);
+        let group = Coord3D::new(85.0, 85.0, 0.0);
+        let ok = system.path_destination(&mut dest, &group, SURFACE_GROUND, false, 0.0, true);
+        assert!(ok, "open map should find adjustable destination");
     }
 }

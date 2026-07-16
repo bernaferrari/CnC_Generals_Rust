@@ -2519,6 +2519,37 @@ impl Pathfinder {
     /// C++ `Pathfinder::updateGoal`.
 
     /// C++ `Pathfinder::updateAircraftGoal`.
+
+    /// C++ `Pathfinder::goalPosition`.
+    pub fn goal_position_for_unit(
+        &self,
+        unit_id: ObjectID,
+        unit_radius: f32,
+        out: &mut Coord3D,
+    ) -> bool {
+        self.inner.goal_position(unit_id, unit_radius, out)
+    }
+
+    /// C++ `Pathfinder::pathDestination`.
+    pub fn path_destination(
+        &self,
+        dest: &mut Coord3D,
+        group_dest: &Coord3D,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        is_human: bool,
+    ) -> bool {
+        self.inner.path_destination(
+            dest,
+            group_dest,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            is_human,
+        )
+    }
+
     pub fn update_aircraft_goal(
         &self,
         goal_pos: &Coord3D,
