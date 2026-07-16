@@ -3174,7 +3174,7 @@ impl GameLogic {
         target_id: Option<ObjectId>,
         target_pos: Vec3,
     ) -> bool {
-        let (from, range, can_move) = match self.objects.get(&unit_id) {
+        let (from, range, can_move, contact) = match self.objects.get(&unit_id) {
             Some(u) => {
                 let range = u
                     .weapon
@@ -3183,18 +3183,37 @@ impl GameLogic {
                     .or_else(|| u.secondary_weapon.as_ref().map(|w| w.range))
                     .unwrap_or(50.0)
                     * u.battle_plan_range_multiplier();
-                (u.get_position(), range, u.can_move() && u.is_alive())
+                let wname = u.thing.template.primary_weapon_name.as_deref().or(u
+                    .thing
+                    .template
+                    .secondary_weapon_name
+                    .as_deref());
+                let contact = wname
+                    .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
+                    .unwrap_or(false)
+                    || crate::game_logic::weapon_bootstrap::is_contact_weapon_range(range);
+                (
+                    u.get_position(),
+                    range,
+                    u.can_move() && u.is_alive(),
+                    contact,
+                )
             }
             None => return false,
         };
         if !can_move {
             return false;
         }
+        // Contact residual: path onto the target cell (C++ approach = victim pos).
+        // Non-contact: path to in-range firing cell via find_attack_firing_position.
+        // Callers should pass approach-adjusted goal for non-contact when known.
+        let path_range = if contact { range.max(1.0) } else { range };
+        let _ = contact;
         // Snapshot objects for dynamic occupancy during search.
         let mut path = self.pathfinding_system.find_attack_firing_position(
             from,
             target_pos,
-            range,
+            path_range,
             &self.objects,
         );
         // LOS_TERRAIN residual: reject firing cell if terrain occludes eye-line.
@@ -5763,6 +5782,34 @@ impl GameLogic {
     /// When a kill lands and the firing weapon has ContinueAttackRange > 0,
     /// retarget the nearest living same-team-as-victim object within that
     /// radius of the original victim position (mine-clear chain residual).
+
+    /// C++ Weapon computeApproachTarget residual for host attack moves.
+    pub(crate) fn approach_pos_for_attack(
+        &self,
+        attacker_id: ObjectId,
+        target_pos: glam::Vec3,
+        weapon_range: f32,
+        weapon_name: Option<&str>,
+    ) -> glam::Vec3 {
+        let contact = weapon_name
+            .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
+            .unwrap_or(false)
+            || crate::game_logic::weapon_bootstrap::is_contact_weapon_range(weapon_range);
+        if contact {
+            return target_pos;
+        }
+        let src = self
+            .objects
+            .get(&attacker_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target_pos);
+        crate::game_logic::weapon_bootstrap::compute_approach_target_pos(
+            src,
+            target_pos,
+            weapon_range,
+        )
+    }
+
     pub(crate) fn try_continue_attack_after_kill(
         &mut self,
         attacker_id: ObjectId,
@@ -7828,19 +7875,39 @@ impl GameLogic {
                         .unwrap_or(false);
                     if combat_chase_ok {
                         // findAttackPath residual: path to in-range LOS cell, not target cell.
-                        if !self.assign_unit_attack_path(
+                        // Contact weapons path to the target; others stand off at range*0.9.
+                        let (wrange, wname) =
+                            self.objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    let r = a
+                                        .weapon
+                                        .as_ref()
+                                        .map(|w| w.range)
+                                        .or_else(|| a.secondary_weapon.as_ref().map(|w| w.range))
+                                        .unwrap_or(50.0);
+                                    let n =
+                                        a.thing.template.primary_weapon_name.clone().or_else(
+                                            || a.thing.template.secondary_weapon_name.clone(),
+                                        );
+                                    (r, n)
+                                })
+                                .unwrap_or((50.0, None));
+                        let approach = self.approach_pos_for_attack(
                             attacker_id,
-                            Some(target_id),
                             target_position,
-                        ) {
+                            wrange,
+                            wname.as_deref(),
+                        );
+                        if !self.assign_unit_attack_path(attacker_id, Some(target_id), approach) {
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                 // Fallback: direct march if A* / attack-path fails.
                                 attacker.movement.path.clear();
                                 attacker.movement.current_path_index = 0;
-                                attacker.movement.target_position = Some(target_position);
+                                attacker.movement.target_position = Some(approach);
                                 crate::game_logic::host_move_log::record(
                                     attacker_id,
-                                    Some([target_position.x, target_position.y, target_position.z]),
+                                    Some([approach.x, approach.y, approach.z]),
                                 );
                                 attacker.status.moving = true;
                                 attacker.ai_state = AIState::Attacking;
@@ -70457,6 +70524,68 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
+        use crate::game_logic::weapon_bootstrap::{
+            compute_approach_target_pos, is_contact_weapon_range,
+        };
+        assert!(is_contact_weapon_range(5.0));
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("ContactAtk");
+            t.primary_weapon_name = Some("DozerMineDisarmingWeapon".into());
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("ContactAtk".into(), t);
+            let mut t2 = ThingTemplate::new("GunAtk");
+            t2.primary_weapon_name = Some("AmericaTankCrusaderGun".into());
+            t2.add_kind_of(KindOf::Vehicle);
+            t2.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("GunAtk".into(), t2);
+            let mut tg = ThingTemplate::new("ApproachTgt");
+            tg.add_kind_of(KindOf::Vehicle);
+            tg.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("ApproachTgt".into(), tg);
+        }
+        let contact = logic
+            .create_object("ContactAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let gun = logic
+            .create_object("GunAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 20.0))
+            .unwrap();
+        let tgt_pos = glam::Vec3::new(100.0, 0.0, 0.0);
+        if let Some(o) = logic.objects.get_mut(&contact) {
+            o.weapon = Some(Weapon {
+                damage: 1.0,
+                range: 5.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+        }
+        if let Some(o) = logic.objects.get_mut(&gun) {
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 50.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+        }
+        let c_app =
+            logic.approach_pos_for_attack(contact, tgt_pos, 5.0, Some("DozerMineDisarmingWeapon"));
+        assert!((c_app - tgt_pos).length() < 1e-2, "contact → target");
+        let g_app =
+            logic.approach_pos_for_attack(gun, tgt_pos, 50.0, Some("AmericaTankCrusaderGun"));
+        let expected = compute_approach_target_pos(glam::Vec3::new(0.0, 0.0, 20.0), tgt_pos, 50.0);
+        assert!(
+            (g_app - expected).length() < 1.0,
+            "gun standoff g={g_app:?} e={expected:?}"
+        );
+        // Gun should not march onto the target cell.
+        assert!((g_app - tgt_pos).length() > 10.0);
     }
 
     #[test]
