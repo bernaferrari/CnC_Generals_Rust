@@ -356,12 +356,25 @@ impl<'a> CommandExecutor<'a> {
     fn execute_attack_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
         let goals = self.group_move_destinations(units, destination);
         for (unit_id, goal) in goals {
+            // Capability check first (borrow ends before assign_unit_path).
+            let ok = match self.game_logic.get_object(unit_id) {
+                Some(unit) => unit.can_move() && unit.can_attack(),
+                None => return CommandResult::InvalidTarget,
+            };
+            if !ok {
+                continue;
+            }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if unit.can_move() && unit.can_attack() {
-                    unit.stop_attack();
-                    unit.set_destination(goal);
-                    unit.set_ai_state(AIState::AttackMoving);
-                }
+                unit.stop_attack();
+            }
+            // Path through host A* like Move — straight-line set_destination skipped
+            // obstacles and left AttackMoving units stuck behind buildings.
+            if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
+                return CommandResult::InvalidCommand;
+            }
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // assign_unit_path leaves AIState::Moving; restore attack-move mode.
+                unit.set_ai_state(AIState::AttackMoving);
             }
         }
         CommandResult::Success
@@ -370,11 +383,18 @@ impl<'a> CommandExecutor<'a> {
     fn execute_force_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
         let goals = self.group_move_destinations(units, destination);
         for (unit_id, goal) in goals {
+            if self.game_logic.get_object(unit_id).is_none() {
+                return CommandResult::InvalidTarget;
+            }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
-                unit.set_destination(goal);
+            }
+            // Force move still pathfinds; threat ignore is AI-state residual, not LOS.
+            if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
+                return CommandResult::InvalidCommand;
+            }
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.set_ai_state(AIState::Moving);
-                // Force move ignores threats
             }
         }
         CommandResult::Success
@@ -3297,6 +3317,26 @@ mod group_move_tests {
             w.contains("group_move_destinations")
                 && !w.contains("assign_unit_path(unit_id, destination, &[])"),
             "execute_move must path to per-unit goals"
+        );
+    }
+
+    #[test]
+    fn attack_move_uses_assign_unit_path() {
+        let src = include_str!("command_executor.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let i = prod.find("fn execute_attack_move").expect("attack_move");
+        let w = &prod[i..prod.len().min(i + 1500)];
+        assert!(
+            w.contains("assign_unit_path")
+                && w.contains("AIState::AttackMoving")
+                && !w.contains("set_destination(goal)"),
+            "attack-move must pathfind then restore AttackMoving"
+        );
+        let j = prod.find("fn execute_force_move").expect("force_move");
+        let w2 = &prod[j..prod.len().min(j + 1200)];
+        assert!(
+            w2.contains("assign_unit_path") && !w2.contains("set_destination(goal)"),
+            "force-move must pathfind like Move"
         );
     }
 }
