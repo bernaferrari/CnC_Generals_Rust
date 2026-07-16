@@ -185,10 +185,8 @@ impl BridgeLayer {
         if !self.destroyed {
             return false;
         }
-        if zone1 == 0 || zone2 == 0 {
-            // Unzoned map residual: treat destroyed layer as a candidate.
-            return true;
-        }
+        // C++ only sets found flags when groundCell zone equals zone1/zone2
+        // (no special-case true when zone is 0/uninitialized).
         let z_start = zone_at(self.start_cell);
         let z_end = zone_at(self.end_cell);
         let mut found1 = false;
@@ -1027,11 +1025,19 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::findBrokenBridge` layer pass (m_layers isDestroyed + connectsZones).
+    /// C++ `Pathfinder::findBrokenBridge` layer scan body.
+    ///
+    /// zone1/zone2 from ground cells at from/to; if equal, no broken bridge.
+    /// Else first destroyed layer with connectsZones(zone1,zone2) and a bridge id.
     pub fn find_broken_bridge_layer(&self, from: &Coord3D, to: &Coord3D) -> Option<ObjectID> {
         let from_c = GridCoord::from_world(from);
         let to_c = GridCoord::from_world(to);
         let zone1 = self.zone_at_cell(from_c);
         let zone2 = self.zone_at_cell(to_c);
+        // C++: if (zone1 == zone2) return false;
+        if zone1 == zone2 {
+            return None;
+        }
         for bridge in &self.bridges {
             if !bridge.destroyed {
                 continue;
