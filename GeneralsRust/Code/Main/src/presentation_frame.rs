@@ -617,6 +617,12 @@ pub struct PresentationParticleSystem {
     pub spawned_frame: u32,
     pub active: bool,
     pub client_system_id: Option<u32>,
+    /// C++ Weapon.ini FireFX / DetonationFX residual (empty = preset only).
+    #[serde(default)]
+    pub fx_list_name: String,
+    /// C++ Weapon.ini FireOCL / ProjectileDetonationOCL residual (empty = none).
+    #[serde(default)]
+    pub ocl_list_name: String,
 }
 
 impl PresentationParticleSystem {
@@ -631,6 +637,8 @@ impl PresentationParticleSystem {
             spawned_frame: entry.spawned_frame,
             active: entry.active,
             client_system_id: entry.client_system_id,
+            fx_list_name: entry.fx_list_name.clone(),
+            ocl_list_name: entry.ocl_list_name.clone(),
         }
     }
 }
