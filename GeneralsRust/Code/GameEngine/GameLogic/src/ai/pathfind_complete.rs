@@ -8,11 +8,12 @@ pub use super::pathfind_astar::{
     AStarPathfinder, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
     COST_ORTHOGONAL, PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F,
 };
+use crate::common::KindOf;
 use crate::common::{
     Coord2D, Coord3D, ICoord2D, ObjectID, PathfindLayerEnum as CommonPathfindLayerEnum,
     Relationship, INVALID_ID,
 };
-use crate::helpers::TheTerrainLogic;
+use crate::helpers::{ThePartitionManager, TheTerrainLogic};
 use crate::object::registry::OBJECT_REGISTRY;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1347,6 +1348,137 @@ impl PathfindingSystem {
             return false;
         }
         self.zones_connected_for_surfaces(surfaces, from, to)
+    }
+
+    /// C++ `computeNormalRadialOffset` helper (AIPathfind.cpp:9433-9458).
+    pub fn compute_normal_radial_offset(
+        from: &Coord3D,
+        insert: &mut Coord3D,
+        to: &Coord3D,
+        obj_pos: &Coord3D,
+        radius: f32,
+    ) {
+        let dx = to.x - from.x;
+        let dy = to.y - from.y;
+        let obj_dx = obj_pos.x - from.x;
+        let obj_dy = obj_pos.y - from.y;
+        let cross = dx * obj_dy - dy * obj_dx;
+        let mut nx;
+        let mut ny;
+        if cross > 0.0 {
+            nx = dy;
+            ny = -dx;
+        } else {
+            nx = -dy;
+            ny = dx;
+        }
+        let len = (nx * nx + ny * ny).sqrt();
+        if len > 0.0001 {
+            nx /= len;
+            ny /= len;
+        } else {
+            nx = 1.0;
+            ny = 0.0;
+        }
+        insert.x = obj_pos.x + nx * radius;
+        insert.y = obj_pos.y + ny * radius;
+        insert.z = obj_pos.z;
+    }
+
+    /// C++ `Pathfinder::circleClipsTallBuilding` (AIPathfind.cpp:9522-9539).
+    ///
+    /// If a KINDOF_AIRCRAFT_PATH_AROUND building is within circleRadius of `to`,
+    /// offset `adjust_to` around it. Optionally adjust for a second nearby tall building.
+    pub fn circle_clips_tall_building(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        circle_radius: f32,
+        ignore_building: ObjectID,
+        adjust_to: &mut Coord3D,
+    ) -> bool {
+        let Some(partition) = ThePartitionManager::get() else {
+            return false;
+        };
+        let mut tall_id = None;
+        let mut tall_pos = Coord3D::new(0.0, 0.0, 0.0);
+        let mut tall_radius = 0.0_f32;
+        let mut best_dist = f32::MAX;
+        for oid in partition.get_objects_in_range(to, circle_radius) {
+            if oid == ignore_building || oid == INVALID_ID {
+                continue;
+            }
+            let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
+                continue;
+            };
+            let Ok(g) = arc.read() else {
+                continue;
+            };
+            if !g.is_kind_of(KindOf::AircraftPathAround) {
+                continue;
+            }
+            let p = *g.get_position();
+            let dx = p.x - to.x;
+            let dy = p.y - to.y;
+            let d = (dx * dx + dy * dy).sqrt();
+            if d < best_dist {
+                best_dist = d;
+                tall_id = Some(oid);
+                tall_pos = p;
+                tall_radius =
+                    g.get_geometry_info().get_bounding_circle_radius() + 2.0 * PATHFIND_CELL_SIZE_F;
+            }
+        }
+        let Some(tall_id) = tall_id else {
+            return false;
+        };
+        Self::compute_normal_radial_offset(
+            from,
+            adjust_to,
+            to,
+            &tall_pos,
+            circle_radius + tall_radius,
+        );
+
+        // Second tall building near adjust_to.
+        let mut other_pos = None;
+        let mut other_radius = 0.0_f32;
+        best_dist = f32::MAX;
+        for oid in partition.get_objects_in_range(adjust_to, circle_radius) {
+            if oid == ignore_building || oid == tall_id || oid == INVALID_ID {
+                continue;
+            }
+            let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
+                continue;
+            };
+            let Ok(g) = arc.read() else {
+                continue;
+            };
+            if !g.is_kind_of(KindOf::AircraftPathAround) {
+                continue;
+            }
+            let p = *g.get_position();
+            let dx = p.x - adjust_to.x;
+            let dy = p.y - adjust_to.y;
+            let d = (dx * dx + dy * dy).sqrt();
+            if d < best_dist {
+                best_dist = d;
+                other_pos = Some(p);
+                other_radius =
+                    g.get_geometry_info().get_bounding_circle_radius() + 2.0 * PATHFIND_CELL_SIZE_F;
+            }
+        }
+        if let Some(op) = other_pos {
+            let tmp = *adjust_to;
+            Self::compute_normal_radial_offset(
+                from,
+                adjust_to,
+                &tmp,
+                &op,
+                circle_radius + other_radius,
+            );
+        }
+        true
     }
 
     /// C++ `Pathfinder::clearCellForDiameter` (AIPathfind.cpp:6700-6759).
@@ -4539,6 +4671,39 @@ mod tests {
         assert!(
             w.contains("delta_x") && w.contains("numpixels") && w.contains("numadd"),
             "iterateCellsAlongLine must use Bresenham like C++"
+        );
+    }
+
+    #[test]
+    fn compute_normal_radial_offset_perpendicular() {
+        let from = Coord3D::new(0.0, 0.0, 0.0);
+        let to = Coord3D::new(10.0, 0.0, 0.0);
+        let obj = Coord3D::new(5.0, 2.0, 0.0);
+        let mut insert = Coord3D::new(0.0, 0.0, 0.0);
+        PathfindingSystem::compute_normal_radial_offset(&from, &mut insert, &to, &obj, 3.0);
+        // cross > 0 → normal (0,-1) wait: dx=10 dy=0, objDy=2 → cross=20>0 → (dy,-dx)=(0,-10)
+        // normalized (0,-1) * 3 from obj → (5, -1)
+        assert!((insert.x - 5.0).abs() < 0.01);
+        assert!((insert.y - (-1.0)).abs() < 0.01 || (insert.y - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn circle_clips_tall_building_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn circle_clips_tall_building")
+            .expect("circleClipsTallBuilding");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("KindOf::AircraftPathAround")
+                && w.contains("compute_normal_radial_offset")
+                && w.contains("2.0 * PATHFIND_CELL_SIZE_F")
+                && w.contains("get_objects_in_range"),
+            "circleClipsTallBuilding must path around AIRCRAFT_PATH_AROUND like C++"
         );
     }
 }
