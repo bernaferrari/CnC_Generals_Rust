@@ -562,6 +562,24 @@ pub const PARKING_PLACE_AIRFIELD_NUM_COLS: i32 = 2;
 pub const PARKING_PLACE_AIRFIELD_HAS_RUNWAYS: bool = true;
 /// Retail AmericaAirfield ApproachHeight residual.
 pub const PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT: f32 = 50.0;
+
+/// Retail airfield runway count residual (HasRunways ? NumCols : 0).
+pub fn airfield_runway_count(has_runways: bool, num_cols: i32) -> usize {
+    if !has_runways {
+        return 0;
+    }
+    num_cols.max(0) as usize
+}
+
+/// C++ ParkingPlaceBehavior APPROACH_DIST residual (runway length scalar past end).
+pub const PARKING_PLACE_RUNWAY_APPROACH_DIST: f32 = 0.75;
+
+/// Runway prep offset residual along +X from airfield center (host simplified bone).
+pub const PARKING_PLACE_RUNWAY_PREP_SPACING: f32 = 40.0;
+
+/// Host runway takeoff clear distance residual (release reservation past this 2D range).
+pub const PARKING_PLACE_RUNWAY_CLEAR_DIST: f32 = 120.0;
+
 /// Helix-style ParkingPlace HealAmountPerSecond residual sample (**20**).
 pub const PARKING_PLACE_HELIX_HEAL_AMOUNT_PER_SEC: f32 = 20.0;
 
