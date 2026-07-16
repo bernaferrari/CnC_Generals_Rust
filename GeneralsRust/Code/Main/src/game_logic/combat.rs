@@ -65,6 +65,10 @@ pub struct Projectile {
     pub detonation_ocl_name: String,
     /// C++ Weapon.ini ProjectileExhaust residual PSys name (in-flight trail).
     pub exhaust_name: String,
+    /// C++ SecondaryDamage residual (outer splash ring amount).
+    pub secondary_damage: f32,
+    /// C++ SecondaryDamageRadius residual.
+    pub secondary_damage_radius: f32,
 }
 
 impl Projectile {
@@ -100,6 +104,8 @@ impl Projectile {
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
         }
     }
 
@@ -171,6 +177,9 @@ pub enum DamageEvent {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         radius: f32,
         shooter_id: ObjectId,
+        /// Outer-ring SecondaryDamage residual (0 = single-ring quadratic).
+        secondary_damage: f32,
+        secondary_radius: f32,
     },
 }
 
@@ -226,6 +235,10 @@ pub struct PendingProjectile {
     pub detonation_ocl_name: String,
     /// C++ Weapon.ini ProjectileExhaust residual (empty = no in-flight trail name).
     pub exhaust_name: String,
+    /// C++ SecondaryDamage residual.
+    pub secondary_damage: f32,
+    /// C++ SecondaryDamageRadius residual.
+    pub secondary_damage_radius: f32,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -286,6 +299,8 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.detonation_fx_name = p.detonation_fx_name.clone();
             proj.detonation_ocl_name = p.detonation_ocl_name.clone();
             proj.exhaust_name = p.exhaust_name.clone();
+            proj.secondary_damage = p.secondary_damage;
+            proj.secondary_damage_radius = p.secondary_damage_radius;
         }
     }
 }
@@ -471,6 +486,8 @@ impl CombatSystem {
                             death_type: projectile.death_type,
                             radius: projectile.explosion_radius,
                             shooter_id: projectile.shooter_id,
+                            secondary_damage: projectile.secondary_damage,
+                            secondary_radius: projectile.secondary_damage_radius,
                         });
                     } else {
                         damage_events.push(DamageEvent::Direct {
@@ -511,6 +528,8 @@ impl CombatSystem {
                                     death_type: projectile.death_type,
                                     radius: projectile.explosion_radius,
                                     shooter_id: projectile.shooter_id,
+                                    secondary_damage: projectile.secondary_damage,
+                                    secondary_radius: projectile.secondary_damage_radius,
                                 });
                             } else {
                                 damage_events.push(DamageEvent::Direct {
@@ -548,6 +567,8 @@ impl CombatSystem {
                                 death_type: projectile.death_type,
                                 radius: projectile.explosion_radius,
                                 shooter_id: projectile.shooter_id,
+                                secondary_damage: projectile.secondary_damage,
+                                secondary_radius: projectile.secondary_damage_radius,
                             });
                         }
                         if !projectile.detonation_fx_name.is_empty()
@@ -600,23 +621,42 @@ impl CombatSystem {
                     damage_type,
                     death_type,
                     radius,
+                    secondary_damage,
+                    secondary_radius,
                     ..
                 } => {
-                    // Apply area damage to all objects within radius
+                    // C++ dealDamageInternal residual:
+                    //   dist <= primaryRadius → primaryDamage
+                    //   else within secondaryRadius → secondaryDamage
+                    // When secondary_radius is 0, keep quadratic single-ring residual.
+                    let primary_r = *radius;
+                    let secondary_r = (*secondary_radius).max(0.0);
+                    let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
+                    let outer = if dual { secondary_r } else { primary_r };
                     for (_id, obj) in objects.iter_mut() {
                         let dist = obj.get_position().distance(*position);
-                        if dist <= *radius {
-                            // Quadratic falloff: full damage at center, zero at edge
-                            let falloff = 1.0 - (dist / radius).powi(2);
-                            let area_damage = damage * falloff;
-                            if area_damage > 0.0 {
-                                obj.take_damage_from_typed_death(
-                                    area_damage,
-                                    None,
-                                    *damage_type,
-                                    *death_type,
-                                );
+                        if dist > outer {
+                            continue;
+                        }
+                        let area_damage = if dual {
+                            if dist <= primary_r {
+                                *damage
+                            } else {
+                                *secondary_damage
                             }
+                        } else if primary_r > 0.0 {
+                            let falloff = 1.0 - (dist / primary_r).powi(2);
+                            damage * falloff
+                        } else {
+                            0.0
+                        };
+                        if area_damage > 0.0 {
+                            obj.take_damage_from_typed_death(
+                                area_damage,
+                                None,
+                                *damage_type,
+                                *death_type,
+                            );
                         }
                     }
                 }
@@ -1127,11 +1167,81 @@ mod tests {
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: "MissileExhaust".into(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
         let snaps: Vec<_> = combat.projectiles_snapshot();
         assert_eq!(snaps.len(), 1);
         assert_eq!(snaps[0].exhaust_name, "MissileExhaust");
+    }
+
+    #[test]
+    fn dual_ring_secondary_damage_residual() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(40);
+        let near = ObjectId(41);
+        let far = ObjectId(42);
+        objects.insert(
+            near,
+            Object::new_simple(
+                near,
+                crate::game_logic::ObjectType::Infantry,
+                "GLARebel".into(),
+            ),
+        );
+        objects.insert(
+            far,
+            Object::new_simple(
+                far,
+                crate::game_logic::ObjectType::Infantry,
+                "GLARebel".into(),
+            ),
+        );
+        objects
+            .get_mut(&near)
+            .unwrap()
+            .set_position(Vec3::new(5.0, 0.0, 0.0));
+        objects
+            .get_mut(&far)
+            .unwrap()
+            .set_position(Vec3::new(18.0, 0.0, 0.0));
+        let near0 = objects.get(&near).unwrap().health.current;
+        let far0 = objects.get(&far).unwrap().health.current;
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 100.0,
+            splash_radius: 10.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(5.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(near),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.secondary_damage = 25.0;
+            p.secondary_damage_radius = 25.0;
+            // Primary ring uses explosion_radius from splash_radius.
+            p.explosion_radius = 10.0;
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let near1 = objects.get(&near).unwrap().health.current;
+        let far1 = objects.get(&far).unwrap().health.current;
+        assert!(
+            near1 <= near0 - 99.0,
+            "inner ring must take primary damage ({near0}->{near1})"
+        );
+        assert!(
+            far1 <= far0 - 24.0 && far1 > far0 - 99.0,
+            "outer ring must take secondary only ({far0}->{far1})"
+        );
     }
 }
