@@ -1443,6 +1443,19 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         let _ = obj;
     }
 
+    /// Goal position from the AI state machine (matches C++ getGoalPosition).
+    fn get_goal_position(&self) -> Option<Coord3D> {
+        None
+    }
+
+    /// Set goal position on the AI state machine (matches C++ setGoalPosition).
+    fn set_goal_position(&mut self, pos: Option<Coord3D>) {
+        let _ = pos;
+    }
+
+    /// C++ `AIUpdateInterface::joinTeam` — catch up to a live teammate.
+    fn join_team(&mut self) {}
+
     /// Check if any path exists to a destination (matches AIUpdateInterface::isPathAvailable).
     fn is_path_available(&self, _destination: &Coord3D) -> bool {
         false
@@ -2119,6 +2132,8 @@ pub trait AIUpdateInterfaceExt {
     fn get_preferred_height(&self) -> Option<Real>;
     fn ai_go_prone(&self, damage_info: &DamageInfo, cmd_source: CommandSourceType);
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>>;
+    fn get_goal_position(&self) -> Option<Coord3D>;
+    fn join_team(&self);
     fn choose_locomotor_set(&self, set: LocomotorSetType);
     fn set_allow_invalid_position(&self, allow: bool);
     fn set_ultra_accurate(&self, ultra: bool);
@@ -2663,6 +2678,20 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             guard.get_goal_object()
         } else {
             None
+        }
+    }
+
+    fn get_goal_position(&self) -> Option<Coord3D> {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_goal_position()
+        } else {
+            None
+        }
+    }
+
+    fn join_team(&self) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.join_team();
         }
     }
 
