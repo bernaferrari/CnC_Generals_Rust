@@ -153,6 +153,8 @@ pub fn fire_base_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(FIRE_BASE_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: FIRE_BASE_PROJECTILE_SPEED,

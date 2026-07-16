@@ -283,6 +283,8 @@ pub fn listening_outpost_upgraded_dummy_weapon() -> Weapon {
         reload_time: LISTENING_OUTPOST_DUMMY_RELOAD_SEC,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         // Retail AntiAirborneVehicle = Yes on ListeningOutpostUpgradedDummyWeapon.
         can_target_air: true,
         can_target_ground: true,
@@ -301,6 +303,8 @@ pub fn combat_chinook_pdl_weapon() -> Weapon {
         reload_time: (COMBAT_CHINOOK_PDL_DELAY_FRAMES.max(1) as f32) / 30.0,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         // AntiSmallMissile residual honesty — air/missile residual target.
         can_target_air: true,
         can_target_ground: false,

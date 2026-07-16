@@ -257,6 +257,8 @@ pub fn avenger_designator_weapon() -> Weapon {
         reload_time: AVENGER_DESIGNATOR_DELAY_FRAMES as f32 / 30.0,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: true, // can paint air targets residual
         can_target_ground: true,
         projectile_speed: 999_999.0,
@@ -274,6 +276,8 @@ pub fn avenger_air_laser_weapon() -> Weapon {
         reload_time: AVENGER_AIR_LASER_DELAY_FRAMES as f32 / 30.0,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: true,
         can_target_ground: false,
         projectile_speed: 999_999.0,

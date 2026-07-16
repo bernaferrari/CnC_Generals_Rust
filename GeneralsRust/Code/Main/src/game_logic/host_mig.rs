@@ -339,6 +339,8 @@ pub fn mig_weapon(loadout: MigLoadout) -> Weapon {
         reload_time: delay_frames_to_reload_secs(MIG_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(MIG_CLIP_SIZE),
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: true,
         can_target_ground: true,
         projectile_speed: MIG_PROJECTILE_SPEED,

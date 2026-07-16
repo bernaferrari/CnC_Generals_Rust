@@ -1115,6 +1115,12 @@ pub struct Weapon {
     pub reload_time: f32,
     pub last_fire_time: f32,
     pub ammo: Option<u32>,
+    /// C++ ClipSize residual. 0 = unlimited (ammo ignored for readiness).
+    #[serde(default)]
+    pub clip_size: u32,
+    /// C++ clip reload residual (seconds) when clip empties. 0 = use `reload_time`.
+    #[serde(default)]
+    pub clip_reload_time: f32,
     pub can_target_air: bool,
     pub can_target_ground: bool,
     /// C++ parity (WeaponTemplate::m_weaponSpeed): projectile travel speed.
@@ -1138,6 +1144,8 @@ impl Default for Weapon {
             reload_time: 1.0,
             last_fire_time: 0.0,
             ammo: None,
+            clip_size: 0,
+            clip_reload_time: 0.0,
             can_target_air: true,
             can_target_ground: true,
             projectile_speed: 200.0,

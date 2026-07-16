@@ -423,6 +423,8 @@ pub fn battle_drone_weapon() -> Weapon {
         reload_time: (BATTLE_DRONE_GUN_DELAY_FRAMES.max(1) as f32) / 30.0,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 999_999.0,

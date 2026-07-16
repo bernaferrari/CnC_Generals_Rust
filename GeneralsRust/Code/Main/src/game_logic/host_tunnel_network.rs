@@ -280,6 +280,8 @@ pub fn tunnel_network_gun_weapon() -> Weapon {
         reload_time: TUNNEL_NETWORK_GUN_DELAY_FRAMES as f32 / TUNNEL_NETWORK_LOGIC_FPS,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: TUNNEL_NETWORK_GUN_WEAPON_SPEED,

@@ -102,6 +102,8 @@ pub fn helix_minigun_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(HELIX_MINIGUN_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         // AntiAirborneInfantry = Yes, AntiAirborneVehicle = No residual honesty.
         can_target_air: true,
         can_target_ground: true,

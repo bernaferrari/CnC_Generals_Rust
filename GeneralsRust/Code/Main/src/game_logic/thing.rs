@@ -187,10 +187,18 @@ impl ThingTemplate {
         if wt.primary_damage <= 0.0 || wt.attack_range <= 0.0 {
             return None;
         }
-        let delay_frames = wt
-            .min_delay_between_shots
-            .max(wt.max_delay_between_shots)
-            .max(0) as f32;
+        let between_frames = wt.min_delay_between_shots.max(0) as f32;
+        let clip_frames = wt.max_delay_between_shots.max(0) as f32;
+        let delay_frames = if wt.clip_size > 0 {
+            // Within-clip cadence residual (C++ DelayBetweenShots).
+            if between_frames > 0.0 {
+                between_frames
+            } else {
+                clip_frames
+            }
+        } else {
+            between_frames.max(clip_frames)
+        };
         let reload_time = if delay_frames > 0.0 {
             delay_frames / FPS
         } else {
@@ -212,6 +220,13 @@ impl ThingTemplate {
                 Some(wt.clip_size as u32)
             } else {
                 None
+            },
+            clip_size: wt.clip_size.max(0) as u32,
+            // Clip reload residual: store often encodes clip reload as max delay.
+            clip_reload_time: if wt.clip_size > 0 {
+                (wt.max_delay_between_shots.max(0) as f32) / 30.0
+            } else {
+                0.0
             },
             can_target_air: wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_VEHICLE)
                 || wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_INFANTRY),

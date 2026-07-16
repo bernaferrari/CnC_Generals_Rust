@@ -154,6 +154,8 @@ pub fn suicide_car_bomb_weapon() -> Weapon {
         reload_time: 0.0,
         last_fire_time: 0.0,
         ammo: Some(1),
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 0.0,

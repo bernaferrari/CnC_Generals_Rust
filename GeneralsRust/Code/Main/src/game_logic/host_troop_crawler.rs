@@ -253,6 +253,8 @@ pub fn troop_crawler_assault_weapon() -> Weapon {
         reload_time: (TROOP_CRAWLER_ASSAULT_DELAY_FRAMES as f32) / 30.0,
         last_fire_time: 0.0,
         ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
         can_target_air: false,
         can_target_ground: true,
         // Instant residual "deploy pulse" (WeaponSpeed 0 in retail).

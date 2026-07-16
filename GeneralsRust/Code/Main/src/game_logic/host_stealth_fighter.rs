@@ -221,6 +221,8 @@ pub fn stealth_fighter_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(STEALTH_FIGHTER_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(STEALTH_FIGHTER_CLIP_SIZE),
+        clip_size: 0,
+        clip_reload_time: 0.0,
         // Retail AntiAirborneVehicle/Infantry = No — ground residual only.
         can_target_air: false,
         can_target_ground: true,
