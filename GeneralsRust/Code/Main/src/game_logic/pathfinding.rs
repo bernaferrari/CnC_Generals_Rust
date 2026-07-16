@@ -633,6 +633,99 @@ impl PathfindingSystem {
         self.grid.is_attack_view_blocked_static(from, to)
     }
 
+    /// C++ Pathfinder::findAttackPath residual (simplified).
+    ///
+    /// Finds a passable cell within `weapon_range` of `victim` that has clear
+    /// static attack LOS to the victim, preferring cells closer to `from`.
+    /// Returns a path from `from` to that firing cell (not into the victim cell).
+    /// Fail-closed: not full hierarchical zones / human extent / tall-building insert.
+    pub fn find_attack_firing_position(
+        &mut self,
+        from: Vec3,
+        victim: Vec3,
+        weapon_range: f32,
+        objects: &HashMap<ObjectId, Object>,
+    ) -> Option<Vec<Vec3>> {
+        self.grid.update_dynamic_obstacles(objects);
+        let range = weapon_range.max(self.grid.grid_size());
+        let cell_size = self.grid.grid_size();
+        let start = self.grid.world_to_grid(from);
+        let victim_cell = self.grid.world_to_grid(victim);
+
+        // Quick steps toward victim (C++ i=1..10 residual).
+        {
+            let mut delta = Vec3::new(victim.x - from.x, 0.0, victim.z - from.z);
+            let len = (delta.x * delta.x + delta.z * delta.z).sqrt();
+            if len > f32::EPSILON {
+                delta = delta / len * cell_size;
+                for i in 1..10 {
+                    let test = from + delta * (i as f32 * 0.5);
+                    let cell = self.grid.world_to_grid(test);
+                    if !self.grid.is_valid_pos(cell) || self.grid.is_static_blocked(cell) {
+                        break;
+                    }
+                    let dist = {
+                        let dx = test.x - victim.x;
+                        let dz = test.z - victim.z;
+                        (dx * dx + dz * dz).sqrt()
+                    };
+                    if dist <= range && !self.grid.is_attack_view_blocked_static(test, victim) {
+                        // Already have a near-step firing spot — path via A* (or direct).
+                        return self
+                            .find_path(from, test, objects)
+                            .or_else(|| Some(vec![from, test]));
+                    }
+                }
+            }
+        }
+
+        // Spiral / ring of cells around victim within range (+3 cells budget like C++).
+        let max_cells = ((range / cell_size).ceil() as i32) + 3;
+        let mut best: Option<(f32, GridPos, Vec3)> = None;
+        for dy in -max_cells..=max_cells {
+            for dx in -max_cells..=max_cells {
+                let cell = GridPos::new(victim_cell.x + dx, victim_cell.y + dy);
+                if cell == start {
+                    continue;
+                }
+                if !self.grid.is_valid_pos(cell) || self.grid.is_static_blocked(cell) {
+                    continue;
+                }
+                // Soft-skip dynamic occupancy of other units at candidate.
+                if self.grid.is_blocked(cell) && cell != start {
+                    // Still allow if only dynamic — static already filtered.
+                    // Prefer empty; skip hard dynamic to reduce stacking.
+                    continue;
+                }
+                let world = self.grid.grid_to_world(cell);
+                let dist_v = {
+                    let ddx = world.x - victim.x;
+                    let ddz = world.z - victim.z;
+                    (ddx * ddx + ddz * ddz).sqrt()
+                };
+                if dist_v > range {
+                    continue;
+                }
+                if self.grid.is_attack_view_blocked_static(world, victim) {
+                    continue;
+                }
+                let dist_a = {
+                    let ddx = world.x - from.x;
+                    let ddz = world.z - from.z;
+                    (ddx * ddx + ddz * ddz).sqrt()
+                };
+                match best {
+                    Some((best_d, _, _)) if dist_a >= best_d => {}
+                    _ => best = Some((dist_a, cell, world)),
+                }
+            }
+        }
+
+        let goal = best.map(|(_, _, w)| w)?;
+        self.find_path(from, goal, objects)
+            .or_else(|| Some(vec![from, goal]))
+    }
+
     pub fn find_path(
         &mut self,
         start: Vec3,
