@@ -1988,6 +1988,11 @@ impl Pathfinder {
         self.inner.queue_path_request(request)
     }
 
+    /// C++ `Pathfinder::queueForPath(ObjectID)`.
+    pub fn queue_for_path(&self, object_id: ObjectID) -> bool {
+        self.inner.queue_for_path(object_id)
+    }
+
     pub fn find_path(
         &self,
         from: &Coord3D,
