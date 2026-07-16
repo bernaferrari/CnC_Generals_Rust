@@ -2088,6 +2088,34 @@ impl Pathfinder {
             .find_safe_path(request, repulsor_pos1, repulsor_pos2, repulsor_radius)
     }
 
+    /// C++ `Pathfinder::adjustDestination` — spiral snap with path-existence gate.
+    pub fn adjust_destination(
+        &self,
+        obj: &Object,
+        locomotor_set: &crate::locomotor::LocomotorSet,
+        dest: &mut Coord3D,
+    ) -> bool {
+        // C++ projectiles skip adjust.
+        if obj.is_kind_of(KindOf::Projectile) {
+            return true;
+        }
+        let surfaces = locomotor_set.get_valid_surfaces();
+        let is_crusher = obj.get_crusher_level() > 0;
+        let unit_radius = obj
+            .get_geometry_info()
+            .get_bounding_circle_radius()
+            .max(0.0);
+        let from = *obj.get_position();
+        self.inner.adjust_destination_from(
+            Some(&from),
+            surfaces,
+            is_crusher,
+            dest,
+            unit_radius,
+            None,
+        )
+    }
+
     /// C++ Pathfinder::adjustToPossibleDestination — spiral search for a reachable cell.
     pub fn adjust_to_possible_destination(
         &self,

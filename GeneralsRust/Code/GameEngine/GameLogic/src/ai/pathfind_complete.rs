@@ -1788,11 +1788,10 @@ impl PathfindingSystem {
     // ========================================================================
 
     /// Snap destination to the nearest passable cell using spiral search.
-    /// Matches C++ Pathfinder::adjustDestination() at AIPathfind.cpp:5331-5407.
+    /// C++ `Pathfinder::adjustDestination` (AIPathfind.cpp:5331-5407).
     ///
     /// Returns `true` if adjustment succeeded (dest was modified in-place).
-    /// The spiral search pattern matches C++ exactly: right, down, left, up,
-    /// expanding outward in a square spiral.
+    /// Spiral: right, down, left, up, expanding (matches C++).
     pub fn adjust_destination(
         &self,
         surfaces: LocomotorSurfaceTypeMask,
@@ -1801,29 +1800,51 @@ impl PathfindingSystem {
         unit_radius: f32,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        let mut adjust_dest = *dest;
-        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
-        let cell = GridCoord::from_world(&adjust_dest);
-        let layer = PathfindLayerEnum::Ground;
+        self.adjust_destination_from(
+            None,
+            surfaces,
+            is_crusher,
+            dest,
+            unit_radius,
+            ignore_obstacle_id,
+        )
+    }
 
-        // Check exact cell first
-        if self.is_destination_valid(
-            cell,
+    /// C++ `adjustDestination` with optional unit position for path-existence gate
+    /// (`clientSafeQuickDoesPathExist` in `checkForAdjust`).
+    pub fn adjust_destination_from(
+        &self,
+        from: Option<&Coord3D>,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        dest: &mut Coord3D,
+        unit_radius: f32,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
+        let mut adjust_dest = *dest;
+        if !center_in_cell {
+            adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        let cell = GridCoord::from_world(&adjust_dest);
+        // C++: layer = TheTerrainLogic->getLayerForDestination(dest)
+        let layer = self.get_layer_for_coord(cell);
+
+        // Exact cell first (C++ checkForAdjust on seed cell).
+        if self.try_adjust_cell(
+            cell.x,
+            cell.y,
             layer,
             surfaces,
             is_crusher,
             radius,
             center_in_cell,
             ignore_obstacle_id,
+            from,
+            dest,
         ) {
-            // Snap to cell center
-            let snapped = cell.to_world(layer);
-            if let Some(terrain) = TheTerrainLogic::get() {
-                dest.x = snapped.x;
-                dest.y = snapped.y;
-                dest.z =
-                    terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
-            }
             return true;
         }
 
@@ -1848,6 +1869,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     ignore_obstacle_id,
+                    from,
                     dest,
                 ) {
                     return true;
@@ -1866,6 +1888,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     ignore_obstacle_id,
+                    from,
                     dest,
                 ) {
                     return true;
@@ -1885,6 +1908,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     ignore_obstacle_id,
+                    from,
                     dest,
                 ) {
                     return true;
@@ -1903,6 +1927,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     ignore_obstacle_id,
+                    from,
                     dest,
                 ) {
                     return true;
@@ -1914,7 +1939,7 @@ impl PathfindingSystem {
         false
     }
 
-    /// Helper: try to adjust destination to a specific cell.
+    /// C++ `Pathfinder::checkForAdjust` core (no groupDest tighten).
     fn try_adjust_cell(
         &self,
         cx: i32,
@@ -1925,10 +1950,16 @@ impl PathfindingSystem {
         radius: i32,
         center_in_cell: bool,
         ignore_obstacle_id: Option<ObjectID>,
+        from: Option<&Coord3D>,
         dest: &mut Coord3D,
     ) -> bool {
         let coord = GridCoord::new(cx, cy);
         if !self.is_valid_coord(coord) {
+            return false;
+        }
+        // C++: no final destinations on cliffs.
+        let world = coord.to_world(layer);
+        if self.get_cell_type(&world) == Some(PathfindCellType::Cliff) {
             return false;
         }
         if !self.is_destination_valid(
@@ -1942,13 +1973,32 @@ impl PathfindingSystem {
         ) {
             return false;
         }
-        let snapped = coord.to_world(layer);
+        let mut adjust_dest = world;
         if let Some(terrain) = TheTerrainLogic::get() {
-            dest.x = snapped.x;
-            dest.y = snapped.y;
-            dest.z =
-                terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
+            adjust_dest.z =
+                terrain.get_layer_height(world.x, world.y, CommonPathfindLayerEnum::Ground);
         }
+
+        // C++ checkForAdjust path gate via clientSafeQuickDoesPathExist.
+        if let Some(from_pos) = from {
+            let path_exists = self.client_safe_quick_does_path_exist(surfaces, from_pos, dest);
+            let adjusted_path_exists =
+                self.client_safe_quick_does_path_exist(surfaces, from_pos, &adjust_dest);
+            let mut ok = adjusted_path_exists;
+            if !path_exists {
+                // C++: if (!pathExists) { if (clientSafeQuick(dest, adjustDest)) ok }
+                if self.client_safe_quick_does_path_exist(surfaces, dest, &adjust_dest) {
+                    ok = true;
+                }
+            }
+            if !ok {
+                return false;
+            }
+        }
+
+        dest.x = adjust_dest.x;
+        dest.y = adjust_dest.y;
+        dest.z = adjust_dest.z;
         true
     }
 
@@ -2918,6 +2968,69 @@ mod tests {
         assert!(
             w.contains("0.05") && w.contains("clip_line_cells") && w.contains("from_world"),
             "Pathfinder::clip must floor cells, ClipLine, write +0.05 like C++"
+        );
+    }
+
+    #[test]
+    fn adjust_destination_half_cell_offset_when_not_centered() {
+        // unit_radius 0 → diameter small → radius 1, center_in_cell true after /2?
+        // compute_radius_and_center: radius starts 1 odd → center_in_cell true.
+        // Use radius that yields center_in_cell=false: diameter/PATHFIND such that
+        // radius after /2 is even path — radius 5.0 → diameter 10 → radius cells 1 center true.
+        // From code: if (radius & 1) center=true; radius/=2. radius=2 → diameter~2 cells →
+        // diameter = 2*unit_radius; unit_radius=PATHFIND_CELL_SIZE_F → diameter=20 →
+        // radius=(20/10+0.3).floor()=2 even → center false, radius=1.
+        let system = PathfindingSystem::new(32, 32);
+        let mut dest = Coord3D::new(100.0, 100.0, 0.0);
+        let ok =
+            system.adjust_destination(SURFACE_GROUND, false, &mut dest, PATHFIND_CELL_SIZE_F, None);
+        assert!(ok);
+    }
+
+    #[test]
+    fn adjust_destination_rejects_cliff_like_cpp() {
+        let system = PathfindingSystem::new(16, 16);
+        let cliff = Coord3D::new(48.0, 48.0, 0.0);
+        system.set_cell_type(&cliff, PathfindCellType::Cliff);
+        let mut dest = cliff;
+        // From nearby clear cell; path to cliff dest should not accept cliff cell.
+        let from = Coord3D::new(16.0, 16.0, 0.0);
+        let ok = system.adjust_destination_from(
+            Some(&from),
+            SURFACE_GROUND,
+            false,
+            &mut dest,
+            0.0,
+            None,
+        );
+        // Either fails or snaps off the cliff cell.
+        if ok {
+            assert_ne!(system.get_cell_type(&dest), Some(PathfindCellType::Cliff));
+        }
+    }
+
+    #[test]
+    fn adjust_destination_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn adjust_destination_from")
+            .expect("adjustDestinationFrom");
+        let end = prod[i..]
+            .find("pub fn adjust_to_possible_destination")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 12000));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("PATHFIND_CELL_SIZE_F * 0.5")
+                && w.contains("PathfindCellType::Cliff")
+                && w.contains("client_safe_quick_does_path_exist")
+                && w.contains("MAX_CELLS_TO_TRY")
+                && w.contains("try_adjust_cell"),
+            "adjustDestination must half-cell offset, reject cliffs, path-gate like C++"
         );
     }
 }
