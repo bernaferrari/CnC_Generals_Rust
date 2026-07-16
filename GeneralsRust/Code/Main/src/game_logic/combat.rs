@@ -289,6 +289,56 @@ impl CombatSystem {
                     continue;
                 }
 
+                // Intervening structure residual: ballistic shells impact the first
+                // constructed building whose footprint contains the projectile.
+                // C++-ish: cannot fly through buildings even if target is beyond.
+                // Skip intended target (handled below) and shooter.
+                let mut hit_structure: Option<ObjectId> = None;
+                {
+                    let shooter = projectile.shooter_id;
+                    let intended = projectile.target_id;
+                    let pos = projectile.position;
+                    for (&oid, obj) in objects.iter() {
+                        if oid == shooter || Some(oid) == intended {
+                            continue;
+                        }
+                        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+                            continue;
+                        }
+                        if obj.status.under_construction {
+                            continue;
+                        }
+                        // Aircraft/airborne projectiles residual: skip structure block
+                        // when intended target is airborne (AA fire).
+                        if let Some(tid) = intended {
+                            if let Some(t) = objects.get(&tid) {
+                                if t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target {
+                                    continue;
+                                }
+                            }
+                        }
+                        let radius = obj.selection_radius.max(8.0);
+                        // Horizontal (XZ) distance — tall buildings block regardless of Y.
+                        let op = obj.get_position();
+                        let dx = pos.x - op.x;
+                        let dz = pos.z - op.z;
+                        if (dx * dx + dz * dz).sqrt() <= radius {
+                            hit_structure = Some(oid);
+                            break;
+                        }
+                    }
+                }
+                if let Some(sid) = hit_structure {
+                    damage_events.push(DamageEvent::Direct {
+                        target_id: sid,
+                        position: projectile.position,
+                        damage: projectile.damage,
+                        damage_type: projectile.damage_type,
+                    });
+                    projectiles_to_remove.push(proj_id);
+                    continue;
+                }
+
                 // Check for hits
                 if let Some(target_id) = projectile.target_id {
                     if let Some(target) = objects.get(&target_id) {
@@ -418,5 +468,170 @@ impl CombatSystem {
     /// Clear all projectiles
     pub fn clear(&mut self) {
         self.projectiles.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{KindOf, Object, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    fn make_obj(
+        name: &str,
+        id: ObjectId,
+        team: Team,
+        pos: Vec3,
+        kinds: &[KindOf],
+        radius: f32,
+    ) -> Object {
+        let mut tmpl = ThingTemplate::new(name);
+        tmpl.set_health(200.0);
+        for k in kinds {
+            tmpl.add_kind_of(*k);
+        }
+        let mut obj = Object::new(tmpl, id, team);
+        obj.set_position(pos);
+        obj.selection_radius = radius;
+        obj
+    }
+
+    #[test]
+    fn projectile_hits_intervening_structure() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(1);
+        let wall = ObjectId(2);
+        let tgt = ObjectId(3);
+        objects.insert(
+            atk,
+            make_obj(
+                "PrAtk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            wall,
+            make_obj(
+                "PrWall",
+                wall,
+                Team::Neutral,
+                Vec3::new(40.0, 0.0, 0.0),
+                &[KindOf::Structure],
+                20.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "PrTgt",
+                tgt,
+                Team::GLA,
+                Vec3::new(80.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            range: 200.0,
+            projectile_speed: 40.0,
+            ..Weapon::default()
+        };
+        combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(80.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            40.0,
+        );
+        let wall_hp0 = objects.get(&wall).unwrap().health.current;
+        let tgt_hp0 = objects.get(&tgt).unwrap().health.current;
+        for _ in 0..120 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let wall_hp1 = objects.get(&wall).unwrap().health.current;
+        let tgt_hp1 = objects.get(&tgt).unwrap().health.current;
+        assert!(
+            wall_hp1 < wall_hp0 - 1.0,
+            "intervening structure must take projectile damage (wall {wall_hp0}->{wall_hp1})"
+        );
+        assert!(
+            (tgt_hp1 - tgt_hp0).abs() < 0.01,
+            "target behind wall must not be hit (tgt {tgt_hp0}->{tgt_hp1})"
+        );
+    }
+
+    #[test]
+    fn projectile_structure_intercept_cpp_surface() {
+        let src = include_str!("combat.rs");
+        assert!(
+            src.contains("Intervening structure residual") && src.contains("KindOf::Structure"),
+            "update_projectiles must intercept structure footprints"
+        );
+    }
+
+    #[test]
+    fn projectile_reaches_target_without_wall() {
+        let mut objects = HashMap::new();
+        let atk = ObjectId(10);
+        let tgt = ObjectId(11);
+        objects.insert(
+            atk,
+            make_obj(
+                "PrAtk2",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "PrTgt2",
+                tgt,
+                Team::GLA,
+                Vec3::new(30.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            range: 200.0,
+            projectile_speed: 200.0,
+            ..Weapon::default()
+        };
+        combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(30.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            200.0,
+        );
+        let tgt_hp0 = objects.get(&tgt).unwrap().health.current;
+        for _ in 0..60 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let tgt_hp1 = objects.get(&tgt).unwrap().health.current;
+        assert!(
+            tgt_hp1 < tgt_hp0 - 1.0,
+            "open-field projectile must still hit target ({tgt_hp0}->{tgt_hp1})"
+        );
     }
 }
