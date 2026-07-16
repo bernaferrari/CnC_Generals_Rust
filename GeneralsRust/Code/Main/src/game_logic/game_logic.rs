@@ -3101,6 +3101,18 @@ impl GameLogic {
         true
     }
 
+    /// Pathfind to goal then set AI state. Falls back to set_destination if A* fails.
+    fn path_approach_with_state(&mut self, object_id: ObjectId, goal: Vec3, state: AIState) {
+        if self.assign_unit_path(object_id, goal, &[]) {
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.ai_state = state;
+            }
+        } else if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.set_destination(goal);
+            obj.ai_state = state;
+        }
+    }
+
     pub fn append_unit_waypoint(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
         let (unit_pos, current_path, can_move) = match self.objects.get(&unit_id) {
             Some(unit) => (
@@ -4903,11 +4915,9 @@ impl GameLogic {
                 }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
                     unit.set_position(spawn_pos);
-                    if let Some(rally_point) = rally {
-                        // Mirror C++: set destination toward rally and kick movement state.
-                        unit.set_destination(rally_point);
-                        unit.ai_state = AIState::Moving;
-                    }
+                }
+                if let Some(rally_point) = rally {
+                    self.path_approach_with_state(new_id, rally_point, AIState::Moving);
                 }
             }
         }
@@ -7630,10 +7640,7 @@ impl GameLogic {
                     }
 
                     if can_move && position.distance(anchor) > radius * 0.6 {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(anchor);
-                            obj.ai_state = AIState::GuardingArea;
-                        }
+                        self.path_approach_with_state(object_id, anchor, AIState::GuardingArea);
                     }
                 }
                 AIState::GuardingObject => {
@@ -7679,10 +7686,11 @@ impl GameLogic {
                     }
 
                     if can_move && position.distance(guard_anchor) > radius * 0.6 {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(guard_anchor);
-                            obj.ai_state = AIState::GuardingObject;
-                        }
+                        self.path_approach_with_state(
+                            object_id,
+                            guard_anchor,
+                            AIState::GuardingObject,
+                        );
                     }
                 }
                 AIState::Repairing => {
@@ -7740,10 +7748,11 @@ impl GameLogic {
                     }
 
                     if can_move && position.distance(repair_target_pos) > INTERACT_RANGE {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(repair_target_pos);
-                            obj.ai_state = AIState::Repairing;
-                        }
+                        self.path_approach_with_state(
+                            object_id,
+                            repair_target_pos,
+                            AIState::Repairing,
+                        );
                         continue;
                     }
 
@@ -7858,10 +7867,7 @@ impl GameLogic {
                     }
 
                     if can_move && position.distance(support_target_pos) > INTERACT_RANGE {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(support_target_pos);
-                            obj.ai_state = state.clone();
-                        }
+                        self.path_approach_with_state(object_id, support_target_pos, state.clone());
                         continue;
                     }
 
@@ -7970,10 +7976,11 @@ impl GameLogic {
                             ) {
                                 let enter_range = pilot_radius + vehicle_radius + 4.0;
                                 if pilot_can_move && pilot_pos.distance(vehicle_pos) > enter_range {
-                                    if let Some(obj) = self.objects.get_mut(&object_id) {
-                                        obj.set_destination(vehicle_pos);
-                                        obj.ai_state = AIState::Entering;
-                                    }
+                                    self.path_approach_with_state(
+                                        object_id,
+                                        vehicle_pos,
+                                        AIState::Entering,
+                                    );
                                     continue;
                                 }
                                 let transferred = self
@@ -8135,10 +8142,7 @@ impl GameLogic {
                         && can_move
                         && position.distance(container_pos) > enter_range
                     {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(container_pos);
-                            obj.ai_state = state;
-                        }
+                        self.path_approach_with_state(object_id, container_pos, state);
                         continue;
                     }
 
@@ -8648,10 +8652,11 @@ impl GameLogic {
                         && can_move
                         && position.distance(target_position) > interact_range
                     {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(target_position);
-                            obj.ai_state = AIState::SpecialAbility;
-                        }
+                        self.path_approach_with_state(
+                            object_id,
+                            target_position,
+                            AIState::SpecialAbility,
+                        );
                         continue;
                     }
 
@@ -9132,10 +9137,7 @@ impl GameLogic {
                     }
 
                     if can_move && position.distance(source_pos) > INTERACT_RANGE {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(source_pos);
-                            obj.ai_state = AIState::Gathering;
-                        }
+                        self.path_approach_with_state(object_id, source_pos, AIState::Gathering);
                         continue;
                     }
 
@@ -9176,10 +9178,11 @@ impl GameLogic {
                             .find_nearest_supply_center(team, position)
                             .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
                         if let Some(dest) = refinery_dest {
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_destination(dest);
-                                obj.set_ai_state(AIState::ReturningResources);
-                            }
+                            self.path_approach_with_state(
+                                object_id,
+                                dest,
+                                AIState::ReturningResources,
+                            );
                         }
                     }
                 }
@@ -9279,18 +9282,16 @@ impl GameLogic {
                                     .map(|s| s.get_position())
                             });
                             if let Some(dest) = source_dest {
-                                if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.set_destination(dest);
-                                    obj.set_ai_state(AIState::Gathering);
-                                }
+                                self.path_approach_with_state(object_id, dest, AIState::Gathering);
                             }
                         }
                     } else if can_move {
                         // Still heading to refinery.
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(refinery_pos);
-                            obj.ai_state = AIState::ReturningResources;
-                        }
+                        self.path_approach_with_state(
+                            object_id,
+                            refinery_pos,
+                            AIState::ReturningResources,
+                        );
                     }
                 }
                 AIState::Docked | AIState::Garrisoned => {
@@ -27560,13 +27561,11 @@ impl GameLogic {
             // C++ clears m_didMoveToBase when a vehicle target is found.
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                 pilot.set_target(Some(vehicle_id));
-                pilot.set_destination(vehicle_pos);
-                pilot.ai_state = AIState::Entering;
                 pilot.status.pilot_did_move_to_base = false;
-                // Keep selection radius residual for enter-range calc in process_ai_behavior.
                 let _ = pilot_radius;
                 let _ = pilot_team;
             }
+            self.path_approach_with_state(pilot_id, vehicle_pos, AIState::Entering);
             self.usa_pilot.record_find_vehicle_order();
             return;
         }
@@ -27592,10 +27591,9 @@ impl GameLogic {
         };
         if let Some(pilot) = self.objects.get_mut(&pilot_id) {
             pilot.set_target(None);
-            pilot.set_destination(base_pos);
-            pilot.ai_state = AIState::Moving;
             pilot.status.pilot_did_move_to_base = true;
         }
+        self.path_approach_with_state(pilot_id, base_pos, AIState::Moving);
         self.usa_pilot.record_base_center_move();
     }
 
@@ -27787,9 +27785,8 @@ impl GameLogic {
 
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.set_target(Some(pad_id));
-            unit.set_destination(pad_pos);
-            unit.ai_state = AIState::SeekingHealing;
         }
+        self.path_approach_with_state(unit_id, pad_pos, AIState::SeekingHealing);
         if is_pilot {
             self.usa_pilot.record_auto_heal_order();
         } else {
@@ -68596,6 +68593,17 @@ mod tests {
             w.contains("do not stop_attack merely for distance")
                 || !w.contains("Target out of range or invalid, stop attacking"),
             "update_object_ai must not abort attack solely for OOR"
+        );
+    }
+
+    #[test]
+    fn support_states_path_approach_cpp_surface() {
+        let src = include_str!("game_logic.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert!(prod.contains("fn path_approach_with_state"));
+        assert!(
+            prod.matches("path_approach_with_state").count() >= 10,
+            "support states should route OOR approaches through path_approach_with_state"
         );
     }
 }
