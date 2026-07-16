@@ -1349,6 +1349,189 @@ impl PathfindingSystem {
         self.zones_connected_for_surfaces(surfaces, from, to)
     }
 
+    /// C++ `Pathfinder::clearCellForDiameter` (AIPathfind.cpp:6700-6759).
+    ///
+    /// Returns clear diameter (even) if the footprint is clear; 0 if blocked;
+    /// recursively tries pathDiameter-2 when blocked and diameter >= 2.
+    pub fn clear_cell_for_diameter(
+        &self,
+        crusher: bool,
+        cell_x: i32,
+        cell_y: i32,
+        layer: PathfindLayerEnum,
+        path_diameter: i32,
+    ) -> i32 {
+        if path_diameter <= 0 {
+            return 0;
+        }
+        let radius = path_diameter / 2;
+        let mut num_cells_above = radius;
+        if radius == 0 {
+            num_cells_above += 1;
+        }
+        let cut_corners = radius > 1;
+        let mut clear = true;
+
+        let goals = self.goal_cells.lock().ok();
+
+        'outer: for i in (cell_x - radius)..(cell_x + num_cells_above) {
+            let x_min_or_max = i == cell_x - radius || i == cell_x + num_cells_above - 1;
+            for j in (cell_y - radius)..(cell_y + num_cells_above) {
+                let y_min_or_max = j == cell_y - radius || j == cell_y + num_cells_above - 1;
+                if x_min_or_max && y_min_or_max && cut_corners {
+                    continue; // outside corner cut
+                }
+                let coord = GridCoord::new(i, j);
+                if !self.is_valid_coord(coord) {
+                    return 0; // off the map
+                }
+                let world = coord.to_world(layer);
+                let Some(ctype) = self.get_cell_type(&world) else {
+                    return 0;
+                };
+                if ctype != PathfindCellType::Clear {
+                    if ctype == PathfindCellType::Obstacle {
+                        // Fence residual: non-crusher blocked; treat all obstacles as block for non-crusher.
+                        if !crusher {
+                            clear = false;
+                        }
+                        // Crushers can pass obstacles (fence residual true).
+                    } else {
+                        clear = false;
+                    }
+                }
+                // UNIT_PRESENT_FIXED residual via goal occupancy when diameter >= 2.
+                if path_diameter >= 2 {
+                    if let Some(ref goals) = goals {
+                        if let Some(row) = goals.get(coord.x as usize) {
+                            if let Some(gc) = row.get(coord.y as usize) {
+                                let pos_unit = gc.get_goal_unit(layer);
+                                if pos_unit != INVALID_ID {
+                                    if let Some(obj_arc) = OBJECT_REGISTRY.get_object(pos_unit) {
+                                        if let Ok(og) = obj_arc.read() {
+                                            let crushable = og.get_crushable_level();
+                                            if crusher {
+                                                if crushable > 1 {
+                                                    clear = false;
+                                                }
+                                            } else if crushable > 0 {
+                                                clear = false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !clear {
+                    break 'outer;
+                }
+            }
+        }
+        drop(goals);
+
+        if clear {
+            if radius == 0 {
+                return 1;
+            }
+            return 2 * radius;
+        }
+        if path_diameter < 2 {
+            return 0;
+        }
+        self.clear_cell_for_diameter(crusher, cell_x, cell_y, layer, path_diameter - 2)
+    }
+
+    /// C++ `Pathfinder::iterateCellsAlongLine` Bresenham (AIPathfind.cpp:9092-9200).
+    ///
+    /// Calls `proc(from_cell, to_cell, x, y)` for each cell. Returns first non-zero
+    /// proc result, or 0 if the line completed.
+    pub fn iterate_cells_along_line<F>(
+        &self,
+        start: GridCoord,
+        end: GridCoord,
+        _layer: PathfindLayerEnum,
+        mut proc: F,
+    ) -> i32
+    where
+        F: FnMut(Option<GridCoord>, GridCoord, i32, i32) -> i32,
+    {
+        let delta_x = (end.x - start.x).abs();
+        let delta_y = (end.y - start.y).abs();
+        let mut x = start.x;
+        let mut y = start.y;
+
+        let (mut xinc1, mut xinc2) = if end.x >= start.x { (1, 1) } else { (-1, -1) };
+        let (mut yinc1, mut yinc2) = if end.y >= start.y { (1, 1) } else { (-1, -1) };
+
+        let (den, mut num, numadd, numpixels);
+        if delta_x >= delta_y {
+            xinc1 = 0;
+            yinc2 = 0;
+            den = delta_x;
+            num = delta_x / 2;
+            numadd = delta_y;
+            numpixels = delta_x;
+        } else {
+            xinc2 = 0;
+            yinc1 = 0;
+            den = delta_y;
+            num = delta_y / 2;
+            numadd = delta_x;
+            numpixels = delta_y;
+        }
+
+        let mut from: Option<GridCoord> = None;
+        for _ in 0..=numpixels {
+            let to = GridCoord::new(x, y);
+            if !self.is_valid_coord(to) {
+                return 0;
+            }
+            let ret = proc(from, to, x, y);
+            if ret != 0 {
+                return ret;
+            }
+            num += numadd;
+            if num >= den {
+                num -= den;
+                x += xinc1;
+                y += yinc1;
+                from = Some(to);
+                let to2 = GridCoord::new(x, y);
+                if !self.is_valid_coord(to2) {
+                    return 0;
+                }
+                let ret = proc(from, to2, x, y);
+                if ret != 0 {
+                    return ret;
+                }
+                from = Some(to2);
+            } else {
+                from = Some(to);
+            }
+            x += xinc2;
+            y += yinc2;
+        }
+        0
+    }
+
+    /// World-space entry for `iterateCellsAlongLine`.
+    pub fn iterate_cells_along_line_world<F>(
+        &self,
+        start_world: &Coord3D,
+        end_world: &Coord3D,
+        layer: PathfindLayerEnum,
+        proc: F,
+    ) -> i32
+    where
+        F: FnMut(Option<GridCoord>, GridCoord, i32, i32) -> i32,
+    {
+        let start = GridCoord::from_world(start_world);
+        let end = GridCoord::from_world(end_world);
+        self.iterate_cells_along_line(start, end, layer, proc)
+    }
+
     /// C++ `Pathfinder::validLocomotorSurfacesForCellType` (AIPathfind.cpp:4734-4758).
     pub fn valid_locomotor_surfaces_for_cell_type(
         cell_type: PathfindCellType,
@@ -4304,5 +4487,83 @@ mod tests {
         let to = Coord3D::new(100.0, 10.0, 0.0);
         let nudged = system.move_allies_away_from_destination(INVALID_ID, &from, &to);
         assert!(nudged.is_empty());
+    }
+
+    #[test]
+    fn clear_cell_for_diameter_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn clear_cell_for_diameter")
+            .expect("clearCellForDiameter");
+        let end = prod[i..]
+            .find("pub fn iterate_cells_along_line")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 6000));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("cut_corners")
+                && w.contains("path_diameter - 2")
+                && w.contains("PathfindCellType::Obstacle")
+                && w.contains("get_crushable_level"),
+            "clearCellForDiameter must cut corners, recurse diameter-2, check obstacles"
+        );
+    }
+
+    #[test]
+    fn clear_cell_for_diameter_open_returns_diameter() {
+        let system = PathfindingSystem::new(32, 32);
+        let d = system.clear_cell_for_diameter(false, 10, 10, PathfindLayerEnum::Ground, 4);
+        assert_eq!(d, 4);
+        let d1 = system.clear_cell_for_diameter(false, 10, 10, PathfindLayerEnum::Ground, 1);
+        assert_eq!(d1, 1);
+    }
+
+    #[test]
+    fn clear_cell_for_diameter_blocked_by_cliff() {
+        let system = PathfindingSystem::new(32, 32);
+        system.set_cell_type(&Coord3D::new(100.0, 100.0, 0.0), PathfindCellType::Cliff);
+        let cell = GridCoord::from_world(&Coord3D::new(100.0, 100.0, 0.0));
+        let d = system.clear_cell_for_diameter(false, cell.x, cell.y, PathfindLayerEnum::Ground, 2);
+        assert_eq!(d, 0);
+    }
+
+    #[test]
+    fn iterate_cells_along_line_bresenham_visits_endpoints() {
+        let system = PathfindingSystem::new(32, 32);
+        let mut cells = Vec::new();
+        let ret = system.iterate_cells_along_line(
+            GridCoord::new(2, 2),
+            GridCoord::new(6, 4),
+            PathfindLayerEnum::Ground,
+            |_from, to, _x, _y| {
+                cells.push(to);
+                0
+            },
+        );
+        assert_eq!(ret, 0);
+        assert!(!cells.is_empty());
+        assert_eq!(cells[0], GridCoord::new(2, 2));
+        assert!(cells.iter().any(|c| *c == GridCoord::new(6, 4)));
+    }
+
+    #[test]
+    fn iterate_cells_along_line_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn iterate_cells_along_line<")
+            .expect("iterateCellsAlongLine");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("delta_x") && w.contains("numpixels") && w.contains("numadd"),
+            "iterateCellsAlongLine must use Bresenham like C++"
+        );
     }
 }
