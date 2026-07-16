@@ -2499,6 +2499,44 @@ impl Pathfinder {
         self.inner.snap_position(pos)
     }
 
+    /// C++ `Pathfinder::updateGoal`.
+    pub fn update_goal_cells(
+        &self,
+        cell: pathfind_astar::GridCoord,
+        unit_id: ObjectID,
+        layer: pathfind_astar::PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        self.inner
+            .update_goal(cell, unit_id, layer, radius, center_in_cell);
+    }
+
+    /// C++ `Pathfinder::updatePos`.
+    pub fn update_pos_cells(
+        &self,
+        cell: pathfind_astar::GridCoord,
+        unit_id: ObjectID,
+        layer: pathfind_astar::PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        self.inner
+            .update_pos(cell, unit_id, layer, radius, center_in_cell);
+    }
+
+    /// C++ `Pathfinder::removeUnitFromPathfindMap`.
+    pub fn remove_unit_from_pathfind_map(
+        &self,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+        layer: pathfind_astar::PathfindLayerEnum,
+    ) {
+        self.inner
+            .remove_unit_from_pathfind_map(unit_id, radius, center_in_cell, layer);
+    }
+
     pub fn set_goal_cells(
         &mut self,
         unit_id: ObjectID,
