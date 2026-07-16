@@ -187,6 +187,10 @@ impl PathfindingGrid {
         let sy = if y0 < y1 { 1 } else { -1 };
         let mut err = dx + dy;
         // Skip first cell (attacker).
+        // Target footprint residual: structure path blocks mark a disk around the
+        // victim. C++ LOS does not treat the victim itself as intervening obstacle —
+        // ignore static blocks within this chebyshev radius of the goal cell.
+        const GOAL_IGNORE_CHEBYSHEV: i32 = 4;
         loop {
             let e2 = 2 * err;
             if e2 >= dy {
@@ -206,6 +210,11 @@ impl PathfindingGrid {
             let cell = GridPos::new(x0, y0);
             if cell == goal {
                 break;
+            }
+            let near_goal = (cell.x - goal.x).abs() <= GOAL_IGNORE_CHEBYSHEV
+                && (cell.y - goal.y).abs() <= GOAL_IGNORE_CHEBYSHEV;
+            if near_goal {
+                continue;
             }
             if self.is_valid_pos(cell) && self.is_static_blocked(cell) {
                 return true;
