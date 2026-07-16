@@ -1296,6 +1296,10 @@ impl PathfindingSystem {
         )
     }
 
+    /// C++ `Pathfinder::findSafePath` (AIPathfind.cpp:10885-11040).
+    ///
+    /// A* from unit feet until a destination is outside both repulsor radii
+    /// (or budget exhausted with farthest cell). Builds path via find_path.
     pub fn find_safe_path(
         &self,
         request: PathRequest,
@@ -1303,92 +1307,177 @@ impl PathfindingSystem {
         repulsor_pos2: &Coord3D,
         repulsor_radius: f32,
     ) -> PathResult {
-        const MAX_CELLS: usize = 2000;
+        const MAX_CELLS: i32 = 2000;
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
 
-        let start = GridCoord::from_world(&request.from);
+        if !self.is_map_ready {
+            return PathResult::none();
+        }
+        if let Ok(mut zones) = self.zones.lock() {
+            zones.set_all_passable();
+        }
+
+        let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
+        let start = Self::cell_for_unit_position(&request.from, center_in_cell);
         if !self.is_valid_coord(start) {
             return PathResult::none();
         }
-
-        let (unit_radius_cells, center_in_cell) =
-            Self::compute_radius_and_center(request.unit_radius);
+        let is_human = request.is_human;
+        let surfaces = request.surfaces;
+        let is_crusher = request.is_crusher;
         let repulsor_radius_sqr = repulsor_radius * repulsor_radius;
-        let mut checked_cells = 0usize;
-        let mut farthest_candidate: Option<(GridCoord, f32)> = None;
 
-        for search_radius in 0i32..=64 {
-            for dx in -search_radius..=search_radius {
-                for dy in -search_radius..=search_radius {
-                    if search_radius > 0 && dx.abs() != search_radius && dy.abs() != search_radius {
-                        continue;
-                    }
+        let deltas: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
 
-                    let candidate = GridCoord::new(start.x + dx, start.y + dy);
-                    if !self.is_valid_coord(candidate) {
-                        continue;
-                    }
+        // Dijkstra open list (C++ startPathfind(NULL) — no goal heuristic).
+        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
+            std::collections::BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
+        g_score.insert((start.x, start.y), 0);
 
-                    checked_cells += 1;
-                    let layer = self.get_layer_for_coord(candidate);
-                    let candidate_pos = self.world_pos_for_coord(candidate, layer);
-                    let dist1 = (candidate_pos.x - repulsor_pos1.x)
-                        * (candidate_pos.x - repulsor_pos1.x)
-                        + (candidate_pos.y - repulsor_pos1.y) * (candidate_pos.y - repulsor_pos1.y);
-                    let dist2 = (candidate_pos.x - repulsor_pos2.x)
-                        * (candidate_pos.x - repulsor_pos2.x)
-                        + (candidate_pos.y - repulsor_pos2.y) * (candidate_pos.y - repulsor_pos2.y);
-                    let nearest_repulsor_dist = dist1.min(dist2);
+        let mut farthest: Option<(GridCoord, f32)> = None;
+        let mut cell_count = 0i32;
+        let mut found: Option<(GridCoord, Coord3D)> = None;
 
-                    if farthest_candidate
-                        .map(|(_, dist)| nearest_repulsor_dist > dist)
-                        .unwrap_or(true)
-                    {
-                        farthest_candidate = Some((candidate, nearest_repulsor_dist));
-                    }
+        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
+            if closed.contains(&(cx, cy)) {
+                continue;
+            }
+            closed.insert((cx, cy));
+            let cell = GridCoord::new(cx, cy);
+            let layer = self.get_layer_for_coord(cell);
+            let mut center = Coord3D::new(0.0, 0.0, 0.0);
+            self.adjust_coord_to_cell(cx, cy, center_in_cell, &mut center, layer);
 
-                    if nearest_repulsor_dist > repulsor_radius_sqr
-                        && self.check_destination(
-                            &request,
-                            candidate,
-                            layer,
-                            unit_radius_cells,
-                            center_in_cell,
-                        )
-                    {
-                        let mut candidate_request = request.clone();
-                        candidate_request.to = candidate_pos;
-                        return self.find_path(candidate_request);
-                    }
+            let d1 = (center.x - repulsor_pos1.x) * (center.x - repulsor_pos1.x)
+                + (center.y - repulsor_pos1.y) * (center.y - repulsor_pos1.y);
+            let d2 = (center.x - repulsor_pos2.x) * (center.x - repulsor_pos2.x)
+                + (center.y - repulsor_pos2.y) * (center.y - repulsor_pos2.y);
+            let nearest = d1.min(d2);
 
-                    if checked_cells > MAX_CELLS {
-                        break;
-                    }
+            let mut ok = nearest > repulsor_radius_sqr;
+            // C++: exhausted open list after expanding → take last cell.
+            if open.is_empty() && cell_count > 0 {
+                ok = true;
+            }
+            if farthest.map(|(_, d)| nearest > d).unwrap_or(true) {
+                farthest = Some((cell, nearest));
+                // C++: if already big search and this is farthest, accept early.
+                if cell_count > MAX_CELLS {
+                    ok = true;
                 }
-                if checked_cells > MAX_CELLS {
+            }
+
+            if ok
+                && self.is_destination_valid(
+                    cell,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    request.ignore_obstacle_id,
+                )
+            {
+                if !(is_human && !self.in_logical_extent(cell)) {
+                    found = Some((cell, center));
                     break;
                 }
             }
-            if checked_cells > MAX_CELLS {
-                break;
+
+            // put on closed and expand neighbors
+            let _ = self.check_change_layers(cell);
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
+                if i >= 4 {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
+                        || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
+                    {
+                        continue;
+                    }
+                }
+                let nx = cx + dx;
+                let ny = cy + dy;
+                let nc = GridCoord::new(nx, ny);
+                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                if is_human && !self.in_logical_extent(nc) {
+                    continue;
+                }
+                {
+                    let Ok(pf) = self.pathfinder.lock() else {
+                        continue;
+                    };
+                    if !pf.is_passable(nc, surfaces, is_crusher) {
+                        continue;
+                    }
+                }
+                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let ng = g + step;
+                let key = (nx, ny);
+                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                    continue;
+                }
+                g_score.insert(key, ng);
+                open.push(std::cmp::Reverse((ng, ng, nx, ny)));
+                cell_count += 1;
             }
         }
 
-        if let Some((candidate, _)) = farthest_candidate {
-            let layer = self.get_layer_for_coord(candidate);
-            if self.check_destination(
-                &request,
-                candidate,
+        let goal_pos = if let Some((_, pos)) = found {
+            pos
+        } else if let Some((cell, _)) = farthest {
+            let layer = self.get_layer_for_coord(cell);
+            if !self.is_destination_valid(
+                cell,
                 layer,
-                unit_radius_cells,
+                surfaces,
+                is_crusher,
+                radius,
                 center_in_cell,
+                request.ignore_obstacle_id,
             ) {
-                let mut candidate_request = request;
-                candidate_request.to = self.world_pos_for_coord(candidate, layer);
-                return self.find_path(candidate_request);
+                return PathResult::none();
+            }
+            let mut center = Coord3D::new(0.0, 0.0, 0.0);
+            self.adjust_coord_to_cell(cell.x, cell.y, center_in_cell, &mut center, layer);
+            center
+        } else {
+            return PathResult::none();
+        };
+
+        // C++ buildActualPath from unit position to chosen cell.
+        let from = request.from;
+        let mut req = request;
+        req.to = goal_pos;
+        let result = self.find_path(req);
+        if result.success {
+            result
+        } else {
+            PathResult {
+                success: true,
+                waypoints: vec![from, goal_pos],
+                layers: vec![PathfindLayerEnum::Ground, PathfindLayerEnum::Ground],
+                can_optimize: vec![true, true],
+                total_cost: 0,
+                blocked_by_ally: false,
             }
         }
-
-        PathResult::none()
     }
 
     /// Optimize path using line-of-sight checks
@@ -10665,6 +10754,55 @@ mod tests {
         assert!(
             w.contains("do_pathfind"),
             "processPathfindQueue must call AIUpdateInterface::doPathfind"
+        );
+    }
+
+    #[test]
+    fn find_safe_path_astar_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod.find("pub fn find_safe_path").expect("findSafePath");
+        let w = &prod[i..prod.len().min(i + 5000)];
+        assert!(
+            w.contains("BinaryHeap")
+                && w.contains("set_all_passable")
+                && w.contains("repulsor_radius_sqr")
+                && w.contains("MAX_CELLS"),
+            "findSafePath must A* expand with repulsor radius and setAllPassable"
+        );
+        assert!(!w.contains("for search_radius in 0i32..=64"));
+    }
+
+    #[test]
+    fn find_safe_path_moves_outside_repulsor() {
+        let mut system = PathfindingSystem::new(48, 48);
+        system.new_map();
+        let from = Coord3D::new(100.0, 100.0, 0.0);
+        let r1 = Coord3D::new(100.0, 100.0, 0.0);
+        let r2 = Coord3D::new(105.0, 100.0, 0.0);
+        let req = PathRequest {
+            object_id: INVALID_ID,
+            from,
+            to: from,
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: true,
+        };
+        let path = system.find_safe_path(req, &r1, &r2, 40.0);
+        assert!(path.success, "should find safe cell");
+        let end = path.waypoints.last().unwrap();
+        let d1 = (end.x - r1.x) * (end.x - r1.x) + (end.y - r1.y) * (end.y - r1.y);
+        assert!(
+            d1 > 40.0 * 40.0 * 0.9,
+            "end {:?} should leave radius, d2={d1}",
+            end
         );
     }
 }
