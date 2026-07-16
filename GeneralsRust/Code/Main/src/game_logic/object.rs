@@ -2476,7 +2476,18 @@ impl Object {
         self.pre_attack_ready_at = 0.0;
     }
 
+    /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
+        self.fire_at_ex(target_id, current_time, false)
+    }
+
+    /// Fire at target with KindOf-aware scatter residual.
+    pub fn fire_at_ex(
+        &mut self,
+        target_id: ObjectId,
+        current_time: f32,
+        target_is_infantry: bool,
+    ) -> bool {
         // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
         if self.status.weapons_jammed || self.is_disabled() {
             return false;
@@ -2783,11 +2794,11 @@ impl Object {
                     } else {
                         self.thing.template.primary_weapon_name.as_deref()
                     };
-                    let assume_infantry = self.target.is_some();
+                    // C++: base ScatterRadius + ScatterRadiusVsInfantry only vs infantry.
                     name.map(|n| {
                         crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
                             n,
-                            assume_infantry,
+                            target_is_infantry,
                         )
                     })
                     .unwrap_or(0.0)
@@ -4619,5 +4630,23 @@ mod tests {
         assert!(jet.contained_by.is_none());
         assert!(jet.status.airborne_target || jet.ai_state != AIState::Docked);
         assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
+    }
+
+    #[test]
+    fn fire_at_scatter_vs_infantry_only_when_flagged() {
+        use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+        // Crusader gun: base 0 + ScatterRadiusVsInfantry 10.
+        let vs_inf = host_effective_scatter_radius("AmericaTankCrusaderGun", true);
+        let vs_veh = host_effective_scatter_radius("AmericaTankCrusaderGun", false);
+        assert!(vs_inf >= 10.0 - 1e-3, "vs infantry {vs_inf}");
+        assert!(vs_veh < 1e-3, "vs vehicle base {vs_veh}");
+        // fire_at_ex is the KindOf-aware entry; fire_at defaults infantry=false (base only).
+        let src = include_str!("object.rs");
+        assert!(src.contains("fn fire_at_ex"));
+        assert!(src.contains("target_is_infantry"));
+        assert!(
+            src.contains("host_effective_scatter_radius"),
+            "fire path must peel scatter"
+        );
     }
 }
