@@ -467,6 +467,114 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
     seed_detonation_fx_for(name)
 }
 
+/// C++ Weapon.ini ScaleWeaponSpeed / MinWeaponSpeed residual peels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostWeaponSpeedPeel {
+    pub weapon_speed: f32,
+    pub min_weapon_speed: f32,
+    pub scale_weapon_speed: bool,
+    pub attack_range: f32,
+    pub min_attack_range: f32,
+}
+
+impl Default for HostWeaponSpeedPeel {
+    fn default() -> Self {
+        Self {
+            weapon_speed: 0.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
+        }
+    }
+}
+
+/// Resolve WeaponSpeed / MinWeaponSpeed / ScaleWeaponSpeed / ranges from store.
+pub fn host_weapon_speed_peel_for_weapon_name(name: &str) -> HostWeaponSpeedPeel {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).map(|wt| {
+            let weapon_speed = if wt.weapon_speed >= 999_999.0 {
+                0.0
+            } else {
+                wt.weapon_speed.max(0.0)
+            };
+            let min_weapon_speed = if wt.min_weapon_speed >= 999_999.0 {
+                weapon_speed
+            } else {
+                wt.min_weapon_speed.max(0.0)
+            };
+            HostWeaponSpeedPeel {
+                weapon_speed,
+                min_weapon_speed,
+                scale_weapon_speed: wt.is_scale_weapon_speed,
+                attack_range: wt.attack_range.max(0.0),
+                min_attack_range: wt.minimum_attack_range.max(0.0),
+            }
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(p) = from_store {
+        // Prefer store when it has meaningful speed or scale flag.
+        if p.weapon_speed > 0.0 || p.scale_weapon_speed {
+            return p;
+        }
+    }
+    seed_weapon_speed_peel_for(name)
+}
+
+fn seed_weapon_speed_peel_for(name: &str) -> HostWeaponSpeedPeel {
+    let n = name.to_ascii_lowercase();
+    // AmericaFireBaseHowitzer / StrategyCenter artillery lob residual.
+    if n.contains("firebase") || n.contains("howitzer") {
+        return HostWeaponSpeedPeel {
+            weapon_speed: 300.0,
+            min_weapon_speed: 75.0,
+            scale_weapon_speed: true,
+            attack_range: 375.0,
+            min_attack_range: 50.0,
+        };
+    }
+    if n.contains("artillery") || n.contains("strategycenter") {
+        return HostWeaponSpeedPeel {
+            weapon_speed: 300.0,
+            min_weapon_speed: 75.0,
+            scale_weapon_speed: true,
+            attack_range: 400.0,
+            min_attack_range: 50.0,
+        };
+    }
+    if n.contains("scud") && n.contains("weapon") && !n.contains("damage") {
+        return HostWeaponSpeedPeel {
+            weapon_speed: 150.0,
+            min_weapon_speed: 75.0,
+            scale_weapon_speed: true,
+            attack_range: 250.0,
+            min_attack_range: 0.0,
+        };
+    }
+    HostWeaponSpeedPeel::default()
+}
+
+/// C++ DumbProjectileBehavior ScaleWeaponSpeed residual:
+/// `speed = min + ratio * (max - min)` where
+/// `ratio = (range2d - minRange) / (maxRange - minRange)`.
+pub fn host_scaled_weapon_speed(peel: &HostWeaponSpeedPeel, range_2d: f32) -> f32 {
+    if !peel.scale_weapon_speed {
+        return peel.weapon_speed;
+    }
+    let max_r = peel.attack_range;
+    let min_r = peel.min_attack_range;
+    let span = max_r - min_r;
+    if span <= 1e-6 {
+        return peel.weapon_speed;
+    }
+    let ratio = (range_2d - min_r) / span;
+    peel.min_weapon_speed + ratio * (peel.weapon_speed - peel.min_weapon_speed)
+}
+
 /// C++ Weapon.ini ScatterRadius residual (base).
 pub fn host_scatter_radius_for_weapon_name(name: &str) -> f32 {
     use gamelogic::weapon::with_weapon_store;
@@ -4336,5 +4444,38 @@ mod tests {
         // Stable re-query.
         let o2 = scatter_aim_offset(42, 10.0);
         assert_eq!(o, o2);
+    }
+
+    #[test]
+    fn scale_weapon_speed_lob_residual() {
+        let peel = HostWeaponSpeedPeel {
+            weapon_speed: 300.0,
+            min_weapon_speed: 75.0,
+            scale_weapon_speed: true,
+            attack_range: 375.0,
+            min_attack_range: 50.0,
+        };
+        // At min range → min speed.
+        let s_min = host_scaled_weapon_speed(&peel, 50.0);
+        assert!((s_min - 75.0).abs() < 1e-3, "min {s_min}");
+        // At max range → max speed.
+        let s_max = host_scaled_weapon_speed(&peel, 375.0);
+        assert!((s_max - 300.0).abs() < 1e-3, "max {s_max}");
+        // Midpoint.
+        let s_mid = host_scaled_weapon_speed(&peel, 212.5);
+        assert!((s_mid - 187.5).abs() < 1e-2, "mid {s_mid}");
+        // No scale → constant.
+        let flat = HostWeaponSpeedPeel {
+            weapon_speed: 200.0,
+            min_weapon_speed: 50.0,
+            scale_weapon_speed: false,
+            attack_range: 300.0,
+            min_attack_range: 0.0,
+        };
+        assert_eq!(host_scaled_weapon_speed(&flat, 10.0), 200.0);
+        // Seed peel for firebase.
+        let fb = seed_weapon_speed_peel_for("AmericaFireBaseHowitzer");
+        assert!(fb.scale_weapon_speed);
+        assert_eq!(fb.min_weapon_speed, 75.0);
     }
 }

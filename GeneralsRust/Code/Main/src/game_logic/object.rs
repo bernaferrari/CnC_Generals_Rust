@@ -2435,6 +2435,80 @@ impl Object {
                     })
                     .unwrap_or(0.0)
                 },
+                min_weapon_speed: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
+                            n,
+                        )
+                        .min_weapon_speed
+                    })
+                    .unwrap_or(0.0)
+                },
+                scale_weapon_speed: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
+                            n,
+                        )
+                        .scale_weapon_speed
+                    })
+                    .unwrap_or(false)
+                },
+                attack_range: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
+                            n,
+                        )
+                        .attack_range
+                    })
+                    .or_else(|| self.weapon_slot(slot).map(|w| w.range))
+                    .unwrap_or(0.0)
+                },
+                min_attack_range: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(|n| {
+                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
+                            n,
+                        )
+                        .min_attack_range
+                    })
+                    .or_else(|| self.weapon_slot(slot).map(|w| w.min_range))
+                    .unwrap_or(0.0)
+                },
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
