@@ -2868,8 +2868,8 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::moveAlliesAwayFromDestination` (AIPathfind.cpp:6911-6922).
     ///
-    /// Walk cells from unit to destination; for each allied idle unit occupying
-    /// a cell, issue `aiMoveAwayFromUnit` (via callback). Returns ids nudged.
+    /// Bresenham walk from unit to destination; for each allied idle unit
+    /// occupying a cell, issue `aiMoveAwayFromUnit`. Returns ids nudged.
     pub fn move_allies_away_from_destination(
         &self,
         obj_id: ObjectID,
@@ -2895,76 +2895,63 @@ impl PathfindingSystem {
             }
             id
         };
-
-        let dx = destination.x - from.x;
-        let dy = destination.y - from.y;
-        let distance = (dx * dx + dy * dy).sqrt();
-        if distance < 0.1 {
-            return nudged;
-        }
-        let steps = (distance / PATHFIND_CELL_SIZE_F).ceil() as i32;
-        let steps = steps.max(1);
-
-        let Ok(goals) = self.goal_cells.lock() else {
-            return nudged;
-        };
-
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32;
-            let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, from.z);
-            let coord = GridCoord::from_world(&sample);
-            if !self.is_valid_coord(coord) {
-                continue;
-            }
-            let layer = self.get_layer_for_coord(coord);
-            let Some(row) = goals.get(coord.x as usize) else {
-                continue;
-            };
-            let Some(gc) = row.get(coord.y as usize) else {
-                continue;
-            };
-            let pos_unit = gc.get_goal_unit(layer);
-            // C++ MAD callback residual using goal occupancy.
-            if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
-                continue;
-            }
-            let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
-                continue;
-            };
-            let Ok(other_guard) = other_arc.read() else {
-                continue;
-            };
-            if obj_guard.relationship_to(&other_guard) != Relationship::Allies {
-                continue;
-            }
-            // C++: only move allies that are not moving / not busy ability.
-            let Some(other_ai) = other_guard.get_ai_update_interface() else {
-                continue;
-            };
-            {
-                let Ok(other_ai_g) = other_ai.lock() else {
-                    continue;
+        let layer = self.get_layer_for_coord(GridCoord::from_world(from));
+        let _ = self.iterate_cells_along_line_world(
+            from,
+            destination,
+            layer,
+            |_from_c, to_c, _x, _y| {
+                let Ok(goals) = self.goal_cells.lock() else {
+                    return 0;
                 };
-                if !other_ai_g.is_idle() {
-                    // Patch 1.01: skip busy / using ability residual via !is_idle.
-                    continue;
+                let Some(row) = goals.get(to_c.x as usize) else {
+                    return 0;
+                };
+                let Some(gc) = row.get(to_c.y as usize) else {
+                    return 0;
+                };
+                let cell_layer = self.get_layer_for_coord(to_c);
+                let pos_unit = gc.get_goal_unit(cell_layer);
+                drop(goals);
+                if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
+                    return 0;
                 }
-            }
-            drop(other_guard);
-            // Issue move-away (AIUpdateInterfaceExt on Arc).
-            use crate::modules::AIUpdateInterfaceExt;
-            other_ai.ai_move_away_from_unit(obj_id, crate::common::CommandSourceType::FromAi);
-            if !nudged.contains(&pos_unit) {
-                nudged.push(pos_unit);
-            }
-        }
+                let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
+                    return 0;
+                };
+                let Ok(other_guard) = other_arc.read() else {
+                    return 0;
+                };
+                if obj_guard.relationship_to(&other_guard) != Relationship::Allies {
+                    return 0;
+                }
+                let Some(other_ai) = other_guard.get_ai_update_interface() else {
+                    return 0;
+                };
+                {
+                    let Ok(other_ai_g) = other_ai.lock() else {
+                        return 0;
+                    };
+                    if !other_ai_g.is_idle() {
+                        return 0;
+                    }
+                }
+                drop(other_guard);
+                use crate::modules::AIUpdateInterfaceExt;
+                other_ai.ai_move_away_from_unit(obj_id, crate::common::CommandSourceType::FromAi);
+                if !nudged.contains(&pos_unit) {
+                    nudged.push(pos_unit);
+                }
+                0 // keep going
+            },
+        );
         nudged
     }
 
     /// C++ `Pathfinder::tightenPath` (AIPathfind.cpp:8414-8421).
     ///
-    /// Walk cells from `from` toward `to`; advance `from` to the last position
-    /// that still passes destination adjust (checkForAdjust residual).
+    /// Walk cells from `from` toward `to` via Bresenham; advance `from` to the
+    /// last position that still passes destination adjust (checkForAdjust).
     pub fn tighten_path(
         &self,
         from: &mut Coord3D,
@@ -2976,48 +2963,35 @@ impl PathfindingSystem {
     ) {
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         let layer = self.get_layer_for_coord(GridCoord::from_world(from));
-        let dx = to.x - from.x;
-        let dy = to.y - from.y;
-        let distance = (dx * dx + dy * dy).sqrt();
-        if distance < 0.1 {
-            return;
-        }
-        let steps = (distance / PATHFIND_CELL_SIZE_F).ceil() as i32;
-        let steps = steps.max(1);
+        let start = *from;
         let mut found = false;
-        let mut dest_pos = *from;
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32;
-            let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, from.z);
-            let cell = GridCoord::from_world(&sample);
-            if !self.is_valid_coord(cell) {
-                break;
+        let mut dest_pos = start;
+        let _ = self.iterate_cells_along_line_world(&start, to, layer, |_from_c, to_c, cx, cy| {
+            // C++ layer change aborts (callback returns 0 without update when layer differs —
+            // residual: stop if layer mismatch).
+            if self.get_layer_for_coord(to_c) != layer {
+                return 1;
             }
-            // C++ layer change aborts further advances (callback returns keep-going
-            // without updating; residual: stop advancing on layer mismatch).
-            if self.get_layer_for_coord(cell) != layer {
-                break;
-            }
-            let mut adjust = sample;
+            let mut adjust = to_c.to_world(layer);
             if self.try_adjust_cell(
-                cell.x,
-                cell.y,
+                cx,
+                cy,
                 layer,
                 surfaces,
                 is_crusher,
                 radius,
                 center_in_cell,
                 ignore_obstacle_id,
-                Some(from),
+                Some(&start),
                 &mut adjust,
             ) {
                 found = true;
                 dest_pos = adjust;
+                0 // keep going (C++ keeps walking while adjust succeeds)
             } else {
-                // C++ bail early on failed adjust — stop walking.
-                break;
+                1 // bail early
             }
-        }
+        });
         if found {
             *from = dest_pos;
         }
@@ -4442,9 +4416,9 @@ mod tests {
         let w = &prod[i..prod.len().min(i + 2500)];
         assert!(
             w.contains("try_adjust_cell")
-                && w.contains("PATHFIND_CELL_SIZE_F")
+                && w.contains("iterate_cells_along_line_world")
                 && w.contains("found"),
-            "tightenPath must walk line with checkForAdjust residual"
+            "tightenPath must Bresenham-walk with checkForAdjust residual"
         );
     }
 
@@ -4475,8 +4449,9 @@ mod tests {
                 && w.contains("Relationship::Allies")
                 && w.contains("ai_move_away_from_unit")
                 && w.contains("is_idle")
+                && w.contains("iterate_cells_along_line_world")
                 && w.contains("CommandSourceType::FromAi"),
-            "moveAlliesAwayFromDestination must nudge idle allies along line like C++"
+            "moveAlliesAwayFromDestination must Bresenham-nudge idle allies like C++"
         );
     }
 
