@@ -4830,6 +4830,23 @@ impl GameLogic {
             // hit SFX is fail-closed via presentation audio events when present.
             let _ = projectile_hits;
         }
+        // C++ Weapon.ini ProjectileDetonationFX residual at real impact
+        // (not fire-time). Fail-closed vs full FXList doFXPos / OCL spawn.
+        let impact_fx = self.combat_system.take_impact_fx();
+        for impact in impact_fx {
+            if impact.detonation_fx_name.is_empty() {
+                continue;
+            }
+            let _ = self.combat_particles.spawn_weapon_fire_fx_named(
+                impact.position,
+                Some(impact.position),
+                self.frame,
+                impact.shooter_id,
+                impact.target_id,
+                "",
+                &impact.detonation_fx_name,
+            );
+        }
 
         // -----------------------------------------------------------------------
         // Phase 7b: Building Body Damage State Checks (C++ BodyModule update)
@@ -9723,6 +9740,15 @@ impl GameLogic {
                             damage_type: crate::game_logic::combat::DamageType::Bullet,
                             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                             projectile_object_name: String::new(),
+                            detonation_fx_name: attacker
+                                .thing
+                                .template
+                                .primary_weapon_name
+                                .as_deref()
+                                .map(
+                                    crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name,
+                                )
+                                .unwrap_or_default(),
                         });
                     }
                 }
@@ -48453,6 +48479,7 @@ mod tests {
             damage_type: crate::game_logic::combat::DamageType::Bullet,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: String::new(),
+            detonation_fx_name: String::new(),
         });
 
         // One fixed step runs drain + projectile update.
