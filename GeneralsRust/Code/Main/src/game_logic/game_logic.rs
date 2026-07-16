@@ -9689,6 +9689,7 @@ impl GameLogic {
                                 .map(|w| w.splash_radius)
                                 .unwrap_or(0.0),
                             is_homing: false,
+                            damage_type: crate::game_logic::combat::DamageType::Bullet,
                         });
                     }
                 }
@@ -48415,6 +48416,7 @@ mod tests {
             speed: 1000.0,
             splash_radius: 0.0,
             is_homing: false,
+            damage_type: crate::game_logic::combat::DamageType::Bullet,
         });
 
         // One fixed step runs drain + projectile update.

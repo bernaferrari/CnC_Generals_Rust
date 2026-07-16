@@ -1598,6 +1598,20 @@ impl Object {
     /// Passive AI mood (WaitForAttack) uses `last_damage_source` for idle
     /// mood-target retaliate residual.
     pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
+        self.take_damage_from_typed(
+            damage,
+            source,
+            crate::game_logic::combat::DamageType::Unresistable,
+        )
+    }
+
+    /// Apply damage with host combat DamageType for Armor.ini residual coefficients.
+    pub fn take_damage_from_typed(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+    ) -> bool {
         if self.status.destroyed {
             return false;
         }
@@ -1616,11 +1630,14 @@ impl Object {
             self.last_damage_source = Some(src);
         }
 
-        // Apply armor reduction
+        // Armor.ini residual coefficient (by object kind + damage type), then
+        // legacy scalar armor + HoldTheLine plan residual.
+        let typed =
+            crate::game_logic::host_armor_residual::apply_residual_armor(self, damage_type, damage);
         let armor_factor = 1.0 - (self.thing.template.armor / (self.thing.template.armor + 100.0));
         // HoldTheLine residual: HoldTheLinePlanArmorDamageScalar 0.9 (LESS is better).
         let battle_plan_armor = self.battle_plan_armor_damage_scalar();
-        let actual_damage = damage * armor_factor * battle_plan_armor;
+        let actual_damage = typed * armor_factor * battle_plan_armor;
 
         self.health.damage(actual_damage);
 
@@ -2122,6 +2139,14 @@ impl Object {
             let shooter_pos = self.get_position();
             self.target = Some(target_id);
 
+            // Coarse host damage-class residual from weapon shape (not full INI DamageType).
+            let weapon_dtype = if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
+                super::combat::DamageType::Laser
+            } else if weapon_splash > 0.0 {
+                super::combat::DamageType::Explosive
+            } else {
+                super::combat::DamageType::Bullet
+            };
             super::combat::queue_projectile(super::combat::PendingProjectile {
                 shooter_id,
                 shooter_pos,
@@ -2131,6 +2156,7 @@ impl Object {
                 speed: weapon_speed,
                 splash_radius: weapon_splash,
                 is_homing: weapon_homing,
+                damage_type: weapon_dtype,
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
@@ -3255,5 +3281,43 @@ mod tests {
         assert!(src.contains("PRE_ATTACK residual"));
         assert!(src.contains("pre_attack_ready_at"));
         assert!(src.contains("pre_attack_delay"));
+    }
+
+    #[test]
+    fn small_arms_reduced_on_tank_armor_residual() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut tmpl = ThingTemplate::new("ArmorTank");
+        tmpl.set_health(1000.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut tank = Object::new(tmpl, ObjectId(70), Team::USA);
+        let hp0 = tank.health.current;
+        // TankArmor SmallArms residual is 0.25 → 100 * 0.25 = 25
+        tank.take_damage_from_typed(100.0, None, DamageType::Bullet);
+        let dealt = hp0 - tank.health.current;
+        assert!(
+            (dealt - 25.0).abs() < 1.0,
+            "expected ~25 small-arms on tank, got {dealt}"
+        );
+    }
+
+    #[test]
+    fn laser_half_on_human_armor_residual() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut tmpl = ThingTemplate::new("ArmorInf");
+        tmpl.set_health(500.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut inf = Object::new(tmpl, ObjectId(71), Team::GLA);
+        let hp0 = inf.health.current;
+        // HumanArmor Laser residual 0.5 → 100 * 0.5 = 50
+        inf.take_damage_from_typed(100.0, None, DamageType::Laser);
+        let dealt = hp0 - inf.health.current;
+        assert!(
+            (dealt - 50.0).abs() < 1.0,
+            "expected ~50 laser on infantry, got {dealt}"
+        );
     }
 }
