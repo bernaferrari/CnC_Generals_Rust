@@ -4214,6 +4214,37 @@ impl PathfindingSystem {
         out
     }
 
+    /// C++ `Pathfinder::updateAircraftGoal` (AIPathfind.cpp:9803-9854).
+    ///
+    /// Clears prior goal, stamps goalAircraft on ground cells for hover/wings aircraft.
+    pub fn update_aircraft_goal(
+        &self,
+        goal_pos: &Coord3D,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        let new_cell = Self::cell_for_unit_position(goal_pos, center_in_cell);
+        if let Ok(goals) = self.unit_goal_cells.lock() {
+            if let Some(prev) = goals.get(&unit_id) {
+                if prev.x == new_cell.x && prev.y == new_cell.y {
+                    return;
+                }
+            }
+        }
+        // C++ removeGoal first (clears both unit + aircraft stamps for prior cell).
+        self.remove_goal(unit_id, radius, center_in_cell, PathfindLayerEnum::Ground);
+        if let Ok(mut goals) = self.unit_goal_cells.lock() {
+            goals.insert(unit_id, ICoord2D::new(new_cell.x, new_cell.y));
+        }
+        self.set_aircraft_goal_cells(
+            unit_id,
+            ICoord2D::new(new_cell.x, new_cell.y),
+            radius,
+            center_in_cell,
+        );
+    }
+
     /// C++ `Pathfinder::updateGoal` (AIPathfind.cpp:9701+).
     pub fn update_goal(
         &self,
@@ -4284,6 +4315,8 @@ impl PathfindingSystem {
             true,
             layer != PathfindLayerEnum::Ground,
         );
+        // C++ also clears goalAircraft on ground cells.
+        self.clear_aircraft_goal_cells(unit_id, goal_cell, radius, center_in_cell);
     }
 
     /// C++ `Pathfinder::updatePos` (AIPathfind.cpp:9921+).
@@ -5623,5 +5656,36 @@ mod tests {
         let c2 = PathfindingSystem::cell_for_unit_position(&pos, false);
         // floor(0.5 + 15/10)=floor(2.0)=2, floor(0.5+2.5)=floor(3.0)=3
         assert_eq!((c2.x, c2.y), (2, 3));
+    }
+
+    #[test]
+    fn update_aircraft_goal_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn update_aircraft_goal")
+            .expect("updateAircraftGoal");
+        let w = &prod[i..prod.len().min(i + 2000)];
+        assert!(
+            w.contains("remove_goal")
+                && w.contains("set_aircraft_goal_cells")
+                && w.contains("cell_for_unit_position"),
+            "updateAircraftGoal must removeGoal then stamp goalAircraft"
+        );
+    }
+
+    #[test]
+    fn update_aircraft_goal_stamps_and_clears() {
+        let mut system = PathfindingSystem::new(16, 16);
+        system.new_map();
+        let pos = Coord3D::new(55.0, 65.0, 0.0);
+        system.update_aircraft_goal(&pos, 99, 0, true);
+        let cell = PathfindingSystem::cell_for_unit_position(&pos, true);
+        assert_eq!(system.get_goal_aircraft(cell), 99);
+        system.remove_goal(99, 0, true, PathfindLayerEnum::Ground);
+        assert_eq!(system.get_goal_aircraft(cell), INVALID_ID);
     }
 }
