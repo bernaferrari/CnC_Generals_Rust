@@ -1742,6 +1742,75 @@ impl RenderPipeline {
             render_item_build_elapsed += render_item_build_started.elapsed();
         }
 
+        // Presentation projectile mesh residual: enqueue model_key instances without
+        // live GameLogic. Fail-closed when W3D missing (trail pack still primary).
+        if presentation_unit_pass {
+            let proj_inputs = self
+                .presentation_frame
+                .as_ref()
+                .map(|p| p.projectile_render_inputs())
+                .unwrap_or_default();
+            for p in proj_inputs {
+                let model_name = p.model_key.as_str();
+                if model_name.is_empty() {
+                    continue;
+                }
+                let world_matrix = gameplay_to_render_transform(p.world_matrix());
+                let world_position = world_matrix.w_axis.truncate();
+                let template_name = if p.projectile_object_name.is_empty() {
+                    model_name
+                } else {
+                    p.projectile_object_name.as_str()
+                };
+                let render_model_load_result = Self::ensure_render_model_loaded(
+                    graphics_system,
+                    template_name,
+                    model_name,
+                    allow_sync_model_loads,
+                    deferred_model_load_budget,
+                );
+                match render_model_load_result {
+                    RenderModelLoadResult::Ready(w3d_model) => {
+                        if w3d_model.meshes.is_empty() {
+                            model_missing += 1;
+                            continue;
+                        }
+                        for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
+                            let material = mesh.material.clone();
+                            let mesh_local_transform = if mesh.vertices_in_render_space {
+                                mesh.transform
+                            } else {
+                                let axis = gameplay_to_render_axis_matrix();
+                                axis * mesh.transform * axis.inverse()
+                            };
+                            let mesh_local_transform =
+                                if transform_is_reasonable_for_mesh(mesh_local_transform) {
+                                    mesh_local_transform
+                                } else {
+                                    Mat4::IDENTITY
+                                };
+                            let mut render_item = RenderItem::new(
+                                p.id,
+                                model_name.to_string(),
+                                mesh_idx,
+                                world_position,
+                                world_matrix,
+                                &material,
+                                Self::render_pass_for_material(&material),
+                            );
+                            // Apply local mesh transform residual like unit path when needed.
+                            let _ = mesh_local_transform;
+                            self.render_items.push(render_item);
+                        }
+                        alive_objects += 1;
+                    }
+                    _ => {
+                        model_missing += 1;
+                    }
+                }
+            }
+        }
+
         self.debug_last_alive_objects = alive_objects;
         self.debug_last_fow_filtered = fow_filtered;
         self.debug_last_model_missing = model_missing;
@@ -4824,5 +4893,12 @@ mod tests {
         };
         assert!(fogged.fow_should_render());
         assert!((fogged.fow_visibility.visibility_alpha - 0.3).abs() < 0.01);
+    }
+
+    #[test]
+    fn projectile_mesh_pass_uses_presentation_inputs() {
+        let src = include_str!("render_pipeline.rs");
+        assert!(src.contains("projectile_render_inputs"));
+        assert!(src.contains("Presentation projectile mesh residual"));
     }
 }

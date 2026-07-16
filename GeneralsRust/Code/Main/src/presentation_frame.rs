@@ -458,6 +458,75 @@ impl UnitRenderInput {
     }
 }
 
+/// Presentation-owned projectile mesh pass input (no live GameLogic).
+///
+/// Fail-closed: not full W3D projectile drawable / trail GPU instance parity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectileRenderInput {
+    pub id: ObjectId,
+    pub projectile_object_name: String,
+    pub model_key: String,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub target_position: Vec3,
+    pub is_homing: bool,
+    pub mesh_scale: f32,
+}
+
+impl ProjectileRenderInput {
+    pub fn from_presentation(p: &PresentationProjectile) -> Option<Self> {
+        let model_key = if p.model_key.is_empty() {
+            crate::assets::mesh_asset_resolve::model_key_from_projectile_object(
+                &p.projectile_object_name,
+            )
+        } else {
+            p.model_key.clone()
+        };
+        if model_key.is_empty() {
+            return None;
+        }
+        Some(Self {
+            id: p.id,
+            projectile_object_name: p.projectile_object_name.clone(),
+            model_key,
+            position: p.position,
+            velocity: p.velocity,
+            target_position: p.target_position,
+            is_homing: p.is_homing,
+            mesh_scale: 1.0,
+        })
+    }
+
+    /// Orient projectile mesh along velocity (fallback toward target).
+    pub fn world_matrix(&self) -> glam::Mat4 {
+        let dir = if self.velocity.length_squared() > 1e-6 {
+            self.velocity.normalize()
+        } else {
+            let d = self.target_position - self.position;
+            if d.length_squared() > 1e-6 {
+                d.normalize()
+            } else {
+                glam::Vec3::Z
+            }
+        };
+        // Y-up world: yaw from XZ, pitch from Y.
+        let yaw = dir.x.atan2(dir.z);
+        let pitch = -dir
+            .y
+            .asin()
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let scale = if self.mesh_scale.is_finite() && self.mesh_scale > 0.0 {
+            self.mesh_scale
+        } else {
+            1.0
+        };
+        glam::Mat4::from_translation(self.position)
+            * glam::Mat4::from_rotation_y(yaw)
+            * glam::Mat4::from_rotation_x(pitch)
+            * glam::Mat4::from_scale(glam::Vec3::splat(scale))
+    }
+}
+
 /// Ordered gameplay event for audio/FX/UI (presentation side only).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PresentationEvent {
@@ -2837,6 +2906,18 @@ impl PresentationFrame {
             .filter(|o| !o.destroyed && !o.engine_bridged)
             .map(UnitRenderInput::from_renderable)
             .collect()
+    }
+
+    /// Projectile mesh pass inputs from frozen in-flight projectiles (model_key residual).
+    pub fn projectile_render_inputs(&self) -> Vec<ProjectileRenderInput> {
+        let mut out = Vec::new();
+        for p in &self.projectiles {
+            if let Some(input) = ProjectileRenderInput::from_presentation(p) {
+                out.push(input);
+            }
+        }
+        out.sort_by_key(|p| p.id.0);
+        out
     }
 
     /// Structures with a non-empty production queue (ControlBar residual feed).
@@ -8962,6 +9043,48 @@ mod tests {
             frame.particle_systems.len() as u32
         );
         assert!(frame.dual_tick.honesty_apply_ok());
+    }
+
+    #[test]
+    fn projectile_render_input_from_tank_shell() {
+        let p = PresentationProjectile {
+            id: ObjectId(7),
+            position: Vec3::new(1.0, 2.0, 3.0),
+            velocity: Vec3::new(10.0, 0.0, 0.0),
+            target_position: Vec3::new(20.0, 2.0, 3.0),
+            shooter_id: ObjectId(1),
+            target_id: None,
+            damage: 5.0,
+            lifetime: 0.1,
+            max_lifetime: 2.0,
+            is_homing: false,
+            projectile_object_name: "GenericTankShell".into(),
+            model_key: String::new(),
+        };
+        let input = ProjectileRenderInput::from_presentation(&p).expect("mesh key");
+        assert_eq!(input.model_key.to_ascii_lowercase(), "pmgntankshell");
+        let m = input.world_matrix();
+        let t = m.w_axis.truncate();
+        assert!((t - p.position).length() < 1e-3);
+    }
+
+    #[test]
+    fn hitscan_projectile_has_no_mesh_input() {
+        let p = PresentationProjectile {
+            id: ObjectId(8),
+            position: Vec3::ZERO,
+            velocity: Vec3::ZERO,
+            target_position: Vec3::X,
+            shooter_id: ObjectId(1),
+            target_id: None,
+            damage: 1.0,
+            lifetime: 0.0,
+            max_lifetime: 1.0,
+            is_homing: false,
+            projectile_object_name: String::new(),
+            model_key: String::new(),
+        };
+        assert!(ProjectileRenderInput::from_presentation(&p).is_none());
     }
 }
 
