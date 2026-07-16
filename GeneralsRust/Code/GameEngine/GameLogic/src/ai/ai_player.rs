@@ -7091,10 +7091,35 @@ impl AIPlayer {
         Ok(())
     }
 
+    /// C++ `TheScriptEngine->getSkirmishEnemyPlayer()->getPlayerIndex()`.
+    /// Prefer this player's current enemy, then first human, then any non-neutral.
     fn get_skirmish_enemy_player_index(&self) -> i32 {
-        // Residual: first non-self non-neutral player.
         if let Ok(list) = player_list().read() {
-            for i in 0..16 {
+            if let Some(me) = list.get_player(self.player_id as i32) {
+                if let Ok(mg) = me.read() {
+                    if let Some(enemy_index) = mg.get_current_enemy_player_index() {
+                        if let Some(enemy) = list.get_player(enemy_index) {
+                            if let Ok(eg) = enemy.read() {
+                                if eg.get_player_type() != PlayerType::Neutral {
+                                    return enemy_index;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // C++ ScriptEngine residual: first human player.
+            for i in 0..list.get_player_count() {
+                if let Some(p) = list.get_player(i as i32) {
+                    if let Ok(pg) = p.read() {
+                        if pg.get_player_type() == PlayerType::Human {
+                            return i as i32;
+                        }
+                    }
+                }
+            }
+            for i in 0..list.get_player_count() {
+                let i = i as i32;
                 if i == self.player_id as i32 {
                     continue;
                 }
@@ -8684,6 +8709,21 @@ mod tests {
         assert!(
             w2.contains("get_placement_view_angle()"),
             "buildSpecificBuildingNearLocation must use placement view angle"
+        );
+    }
+
+    #[test]
+    fn get_skirmish_enemy_player_index_prefers_current_enemy_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn get_skirmish_enemy_player_index")
+            .expect("skirmish enemy");
+        let w = &src[i..src.len().min(i + 1800)];
+        assert!(
+            w.contains("get_current_enemy_player_index")
+                && w.contains("PlayerType::Human")
+                && w.contains("PlayerType::Neutral"),
+            "skirmish enemy index must prefer current enemy then human"
         );
     }
 
