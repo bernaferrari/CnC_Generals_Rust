@@ -6804,21 +6804,34 @@ impl GameLogic {
                     }
                 } else if enemy_or_forced {
                     // Ready weapons but out of range / cannot hit: chase.
-                    // (Matches prior host residual: chase whenever engagement is legal
-                    // but no ready weapon is currently in range.)
+                    // Pathfind toward target (not straight-line through buildings).
                     // Do not clobber interaction orders that also set `target`
                     // (CaptureBuilding, SpecialAbility, Repair, Enter, etc.).
-                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        let combat_chase_ok = matches!(
-                            attacker.ai_state,
-                            AIState::Idle
-                                | AIState::Moving
-                                | AIState::Attacking
-                                | AIState::AttackMoving
-                                | AIState::Patrolling
-                                | AIState::AttackingGround
-                        );
-                        if attacker.can_move() && combat_chase_ok {
+                    let combat_chase_ok = self
+                        .objects
+                        .get(&attacker_id)
+                        .map(|attacker| {
+                            attacker.can_move()
+                                && matches!(
+                                    attacker.ai_state,
+                                    AIState::Idle
+                                        | AIState::Moving
+                                        | AIState::Attacking
+                                        | AIState::AttackMoving
+                                        | AIState::Patrolling
+                                        | AIState::AttackingGround
+                                )
+                        })
+                        .unwrap_or(false);
+                    if combat_chase_ok {
+                        // assign_unit_path needs &mut self + objects free of active borrow.
+                        if self.assign_unit_path(attacker_id, target_position, &[]) {
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                attacker.ai_state = AIState::Attacking;
+                                attacker.status.attacking = true;
+                            }
+                        } else if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            // Fallback: direct march if A* fails (open field residual).
                             attacker.movement.path.clear();
                             attacker.movement.current_path_index = 0;
                             attacker.movement.target_position = Some(target_position);
@@ -8309,7 +8322,11 @@ impl GameLogic {
                         selection_radius + target_radius + CAPTURE_RANGE_PADDING
                     };
                     if can_move && position.distance(target_position) > capture_range {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                        if self.assign_unit_path(object_id, target_position, &[]) {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.ai_state = AIState::Capturing;
+                            }
+                        } else if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_destination(target_position);
                             obj.ai_state = AIState::Capturing;
                         }
@@ -9339,23 +9356,24 @@ impl GameLogic {
 
         if ai_state == AIState::Attacking {
             if let Some(target_id) = target_id {
-                // Check if target still exists and is in range
+                // Check if target still exists; fire when in range.
+                // Out-of-range chase is owned by update_combat (assign_unit_path) —
+                // do not stop_attack merely for distance (that aborted chases).
                 if let Some(target) = self.objects.get(&target_id) {
-                    if let Some(attacker) = self.objects.get(&object_id) {
+                    if !target.is_alive() {
+                        if let Some(attacker) = self.objects.get_mut(&object_id) {
+                            attacker.stop_attack();
+                        }
+                    } else if let Some(attacker) = self.objects.get(&object_id) {
                         if attacker.can_target(target) {
-                            // Try to fire
                             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
                             if let Some(attacker) = self.objects.get_mut(&object_id) {
                                 if attacker.can_fire(current_time) {
                                     attacker.fire_at(target_id, current_time);
                                 }
                             }
-                        } else {
-                            // Target out of range or invalid, stop attacking
-                            if let Some(attacker) = self.objects.get_mut(&object_id) {
-                                attacker.stop_attack();
-                            }
                         }
+                        // else: OOR or weapon rules — combat chase / wait residual
                     }
                 } else {
                     // Target no longer exists
@@ -68554,6 +68572,30 @@ mod tests {
         assert!(
             game_logic.demo_suicide_bomb().suicided_detonations >= 1,
             "PlusFire detonation counter"
+        );
+    }
+
+    #[test]
+    fn combat_chase_pathfinds_cpp_surface() {
+        let src = include_str!("game_logic.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert!(
+            prod.contains("Ready weapons but out of range")
+                && prod.contains("assign_unit_path(attacker_id, target_position"),
+            "OOR combat chase must assign_unit_path"
+        );
+        assert!(
+            prod.contains("assign_unit_path(object_id, target_position")
+                && prod.contains("AIState::Capturing"),
+            "capture approach must pathfind when OOR"
+        );
+        // OOR must not stop_attack in update_object_ai
+        let i = prod.find("fn update_object_ai").expect("update_object_ai");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("do not stop_attack merely for distance")
+                || !w.contains("Target out of range or invalid, stop attacking"),
+            "update_object_ai must not abort attack solely for OOR"
         );
     }
 }
