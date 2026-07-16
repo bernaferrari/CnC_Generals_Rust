@@ -889,8 +889,34 @@ impl PathfindingSystem {
             .cumulative_cells_allocated
             .fetch_add(cells_examined as i32, Ordering::Relaxed);
 
-        // Convert grid path to world coordinates
+        // Convert grid path via buildActualPath (centerInCell from unit radius).
         // Matches C++ buildActualPath() at AIPathfind.cpp:8954-9071
+        let (_radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
+        let built = self.build_actual_path(
+            &grid_path,
+            &request.from,
+            &request.to,
+            request.surfaces,
+            request.is_crusher,
+            false,
+            center_in_cell,
+        );
+        if built.success {
+            let mut result = built;
+            result.total_cost = self.calculate_path_cost(&grid_path);
+            // Still run optimizer on built path.
+            let optimized = self.optimize_path(&result.waypoints, &result.layers, &request);
+            let opt_len = optimized.0.len();
+            return PathResult {
+                success: true,
+                waypoints: optimized.0,
+                layers: optimized.1,
+                can_optimize: vec![true; opt_len],
+                total_cost: result.total_cost,
+                blocked_by_ally: result.blocked_by_ally,
+            };
+        }
+        // Fallback manual conversion if build_actual_path failed.
         let mut waypoints = Vec::new();
         let mut layers = Vec::new();
 
@@ -901,7 +927,9 @@ impl PathfindingSystem {
             } else if idx + 1 == grid_path.len() {
                 request.to
             } else {
-                self.world_pos_for_coord(*coord, layer)
+                let mut p = Coord3D::new(0.0, 0.0, 0.0);
+                self.adjust_coord_to_cell(coord.x, coord.y, center_in_cell, &mut p, layer);
+                p
             };
             if let Some(terrain) = TheTerrainLogic::get() {
                 let common_layer = match layer {
@@ -2751,6 +2779,7 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
         blocked: bool,
+        center_in_cell: bool,
     ) -> PathResult {
         let _ = (surfaces, is_crusher);
         if grid_path.is_empty() {
@@ -2758,7 +2787,8 @@ impl PathfindingSystem {
         }
 
         // grid_path is start→goal; prependCells walks goal→start.
-        let center = true; // residual: callers pass centerInCell; default true.
+        // C++ buildActualPath(..., centerInCell, blocked).
+        let center = center_in_cell;
         let mut waypoints: Vec<Coord3D> = Vec::with_capacity(grid_path.len() + 1);
         let mut layers: Vec<PathfindLayerEnum> = Vec::with_capacity(grid_path.len() + 1);
         let mut can_optimize: Vec<bool> = Vec::with_capacity(grid_path.len() + 1);
@@ -2821,14 +2851,12 @@ impl PathfindingSystem {
             }
 
             let mut pos = if idx + 1 == grid_path.len() {
-                // first reverse step is goal cell
+                // first reverse step is goal cell — keep requested goal world pos.
                 *to_world
             } else {
-                let mut p = coord.to_world(layer);
-                // center-in-cell adjust
-                if center {
-                    // already cell center from to_world
-                }
+                // C++ adjustCoordToCell(cellX, cellY, centerInCell, pos, layer).
+                let mut p = Coord3D::new(0.0, 0.0, 0.0);
+                self.adjust_coord_to_cell(coord.x, coord.y, center, &mut p, layer);
                 p
             };
             if let Some(terrain) = TheTerrainLogic::get() {
@@ -2894,7 +2922,6 @@ impl PathfindingSystem {
         center: bool,
         path_diameter: i32,
     ) -> PathResult {
-        let _ = center;
         if grid_path.is_empty() {
             return PathResult::none();
         }
@@ -2902,7 +2929,15 @@ impl PathfindingSystem {
             .last()
             .map(|c| c.to_world(PathfindLayerEnum::Ground))
             .unwrap_or(*from);
-        let built = self.build_actual_path(grid_path, from, &to, SURFACE_GROUND, is_crusher, false);
+        let built = self.build_actual_path(
+            grid_path,
+            from,
+            &to,
+            SURFACE_GROUND,
+            is_crusher,
+            false,
+            center,
+        );
         if !built.success {
             return built;
         }
@@ -2936,7 +2971,8 @@ impl PathfindingSystem {
             .last()
             .map(|c| c.to_world(PathfindLayerEnum::Ground))
             .unwrap_or(*from);
-        let built = self.build_actual_path(grid_path, from, &to, SURFACE_GROUND, false, false);
+        let built =
+            self.build_actual_path(grid_path, from, &to, SURFACE_GROUND, false, false, true);
         if !built.success || built.waypoints.is_empty() {
             return built;
         }
@@ -7526,7 +7562,7 @@ mod tests {
         let i = prod
             .find("pub fn snap_closest_goal_position")
             .expect("snapClosestGoalPosition");
-        let w = &prod[i..prod.len().min(i + 3500)];
+        let w = &prod[i..prod.len().min(i + 4500)];
         assert!(
             w.contains("PATHFIND_CELL_SIZE_F * 0.5")
                 && w.contains("adjust_coord_to_cell")
@@ -8091,7 +8127,8 @@ mod tests {
             GridCoord::new(5, 5),
             GridCoord::from_world(&to),
         ];
-        let result = system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false);
+        let result =
+            system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, true);
         assert!(result.success);
         assert!(!result.waypoints.is_empty());
         assert_eq!(result.waypoints.len(), result.can_optimize.len());
@@ -9470,5 +9507,62 @@ mod tests {
         );
         let (far, _fz, _) = jumps[0];
         assert_eq!(far, GridCoord::new(25, 15));
+    }
+
+    #[test]
+    fn build_actual_path_center_in_cell_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn build_actual_path")
+            .expect("buildActualPath");
+        // Full function body (~5k) includes adjust_coord_to_cell call.
+        let w = &prod[i..prod.len().min(i + 6000)];
+        assert!(
+            w.contains("center_in_cell") && w.contains("adjust_coord_to_cell"),
+            "buildActualPath must take centerInCell and call adjustCoordToCell"
+        );
+        assert!(!w.contains("residual: callers pass centerInCell"));
+    }
+
+    #[test]
+    fn build_actual_path_respects_center_flag() {
+        let system = PathfindingSystem::new(30, 30);
+        let from = Coord3D::new(15.0, 15.0, 0.0);
+        let to = Coord3D::new(85.0, 15.0, 0.0);
+        let grid = vec![
+            GridCoord::new(1, 1),
+            GridCoord::new(4, 1),
+            GridCoord::new(8, 1),
+        ];
+        let centered =
+            system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, true);
+        let cornered =
+            system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, false);
+        assert!(centered.success && cornered.success);
+        // Intermediate waypoint (not from/to) should differ for center vs corner.
+        // Find a mid waypoint that is not from/to.
+        let mid_c = centered
+            .waypoints
+            .iter()
+            .find(|p| (p.x - from.x).abs() > 1.0 && (p.x - to.x).abs() > 1.0);
+        let mid_k = cornered
+            .waypoints
+            .iter()
+            .find(|p| (p.x - from.x).abs() > 1.0 && (p.x - to.x).abs() > 1.0);
+        if let (Some(a), Some(b)) = (mid_c, mid_k) {
+            // center is +0.5 cell; corner is cell origin — x or y should differ by ~5.
+            let dx = (a.x - b.x).abs();
+            let dy = (a.y - b.y).abs();
+            assert!(
+                dx > 0.1 || dy > 0.1,
+                "centerInCell must change intermediate cell snap (c={:?} k={:?})",
+                a,
+                b
+            );
+        }
     }
 }
