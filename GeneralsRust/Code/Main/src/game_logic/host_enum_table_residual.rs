@@ -177,6 +177,71 @@ pub fn honesty_death_type_enum_table_wave82() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Host body-damage → model-condition residual (C++ ActiveBody + Drawable)
+// ---------------------------------------------------------------------------
+
+/// C++ BodyDamageType residual for host Object visual condition.
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub enum HostBodyDamageType {
+    #[default]
+    Pristine,
+    Damaged,
+    ReallyDamaged,
+    Rubble,
+}
+
+/// C++ GlobalData unitDamagedThresh / unitReallyDamagedThresh defaults.
+pub const HOST_UNIT_DAMAGED_THRESH: f32 = 0.5;
+pub const HOST_UNIT_REALLY_DAMAGED_THRESH: f32 = 0.25;
+
+/// ModelCondition bit indices residual (ALLOW_SURRENDER off list).
+pub const MC_BIT_DAMAGED: u32 = 3;
+pub const MC_BIT_REALLYDAMAGED: u32 = 4;
+pub const MC_BIT_RUBBLE: u32 = 5;
+pub const MC_BIT_ATTACKING: u32 = 34;
+pub const MC_BIT_MOVING: u32 = 49;
+pub const MC_BIT_DYING: u32 = 50;
+
+/// C++ ActiveBody::calcDamageState residual (default thresholds).
+pub fn host_calc_body_damage_state(health: f32, max_health: f32) -> HostBodyDamageType {
+    if max_health <= 0.0 {
+        return HostBodyDamageType::Pristine;
+    }
+    let ratio = health / max_health;
+    if ratio > HOST_UNIT_DAMAGED_THRESH {
+        HostBodyDamageType::Pristine
+    } else if ratio > HOST_UNIT_REALLY_DAMAGED_THRESH {
+        HostBodyDamageType::Damaged
+    } else if ratio > 0.0 {
+        HostBodyDamageType::ReallyDamaged
+    } else {
+        HostBodyDamageType::Rubble
+    }
+}
+
+/// Clear DAMAGED/REALLYDAMAGED/RUBBLE and set the bit for `state` (C++ reactToBodyDamageStateChange).
+pub fn host_apply_body_damage_model_bits(bits: u128, state: HostBodyDamageType) -> u128 {
+    let mut b = bits;
+    b &= !(1u128 << MC_BIT_DAMAGED);
+    b &= !(1u128 << MC_BIT_REALLYDAMAGED);
+    b &= !(1u128 << MC_BIT_RUBBLE);
+    match state {
+        HostBodyDamageType::Pristine => {}
+        HostBodyDamageType::Damaged => b |= 1u128 << MC_BIT_DAMAGED,
+        HostBodyDamageType::ReallyDamaged => b |= 1u128 << MC_BIT_REALLYDAMAGED,
+        HostBodyDamageType::Rubble => b |= 1u128 << MC_BIT_RUBBLE,
+    }
+    b
+}
+
+pub fn host_model_condition_has(bits: u128, bit: u32) -> bool {
+    (bits & (1u128 << bit)) != 0
+}
+
 // ModelCondition residual table (BitFlags.cpp; ALLOW_SURRENDER off)
 // ---------------------------------------------------------------------------
 
