@@ -16,6 +16,7 @@ use crate::common::{
 };
 use crate::helpers::{ThePartitionManager, TheTerrainLogic};
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::CrushSquishTestType;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -4579,10 +4580,9 @@ impl PathfindingSystem {
                         }
                     }
                 } else {
-                    // Enemy: crush check residual — if cannot crush, enemyFixed.
-                    let can_crush =
-                        obj_guard.get_crusher_level() > 0 && unit_guard.get_crusher_level() == 0;
-                    // Prefer real canCrush if available later; crusher level residual.
+                    // C++ obj->canCrushOrSquish(unit, TEST_CRUSH_OR_SQUISH).
+                    let can_crush = obj_guard
+                        .can_crush_or_squish(&unit_guard, CrushSquishTestType::TestCrushOrSquish);
                     if !can_crush {
                         info.enemy_fixed = true;
                     }
@@ -9564,5 +9564,24 @@ mod tests {
                 b
             );
         }
+    }
+
+    #[test]
+    fn check_for_movement_can_crush_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn check_for_movement")
+            .expect("checkForMovement");
+        let w = &prod[i..prod.len().min(i + 4500)];
+        assert!(
+            w.contains("can_crush_or_squish")
+                && w.contains("CrushSquishTestType::TestCrushOrSquish"),
+            "checkForMovement must call canCrushOrSquish like C++"
+        );
+        assert!(!w.contains("Prefer real canCrush"));
     }
 }
