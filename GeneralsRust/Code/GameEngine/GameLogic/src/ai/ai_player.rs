@@ -2370,9 +2370,26 @@ impl AIPlayer {
             .get_base_center()
             .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
+        // C++: Player *enemy = getAiEnemy(); structure bounds midpoint.
+        // Prefer latched current-enemy index (skirmish acquireEnemy), then human.
         let mut enemy_center = Coord3D::new(0.0, 0.0, 0.0);
         let mut has_enemy = false;
-        if let Ok(Some((_, enemy_index))) = self.select_current_enemy_player() {
+        let enemy_index = {
+            let mut idx = None;
+            if let Ok(list) = player_list().read() {
+                if let Some(me) = list.get_player(self.player_id as i32) {
+                    if let Ok(mg) = me.read() {
+                        idx = mg.get_current_enemy_player_index();
+                    }
+                }
+            }
+            idx.or_else(|| {
+                self.select_current_enemy_player()
+                    .ok()
+                    .and_then(|o| o.map(|(_, i)| i))
+            })
+        };
+        if let Some(enemy_index) = enemy_index {
             if let Ok((lo, hi)) = self.get_player_structure_bounds(enemy_index) {
                 enemy_center = Coord3D::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, 0.0);
                 has_enemy = true;
@@ -2465,10 +2482,13 @@ impl AIPlayer {
             if let Some((_, warehouse)) = best {
                 return Some(warehouse);
             }
+            // C++: minimumCash /= 2; while (minimumCash > 100)
+            // After a failed pass, halve then stop once floor is ≤100 — do not
+            // attempt another pass at the halved ≤100 value.
+            cash_floor /= 2;
             if cash_floor <= 100 {
                 break;
             }
-            cash_floor /= 2;
         }
         None
     }
@@ -9007,18 +9027,36 @@ mod tests {
     #[test]
     fn find_supply_center_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
-        let i = src
-            .find("C++ `AIPlayer::findSupplyCenter`")
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
+            .find("fn find_supply_center(&self, minimum_cash: i32)")
             .expect("findSupplyCenter");
-        let w = &src[i..src.len().min(i + 7000)];
+        let end = prod[i..]
+            .find("fn find_valid_build_location")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 6000));
+        let w = &prod[i..end];
         assert!(
-            w.contains("cash_floor")
-                && w.contains("CashGenerator")
+            w.contains("KindOf::SupplySource")
+                && w.contains("SupplyWarehouseDockUpdate")
+                && w.contains("BASE_VALUE_PER_SUPPLY_BOX")
+                && w.contains("KindOf::CashGenerator")
                 && w.contains("SUPPLY_CENTER_CLOSE_DIST")
                 && w.contains("dist_sqr * 0.4")
                 && w.contains("enemy_dist_sqr * 0.6")
-                && w.contains("cash_floor /= 2"),
-            "findSupplyCenter must filter owned depots, enemy 60/40, halve cash"
+                && w.contains("cash_floor /= 2")
+                && w.contains("if cash_floor <= 100"),
+            "findSupplyCenter must filter warehouse cash, own supply center, enemy 60/40"
+        );
+        // Halve-then-stop: divide happens before the ≤100 break (C++ do/while).
+        let div = w.find("cash_floor /= 2").expect("div");
+        let stop = w.find("if cash_floor <= 100").expect("stop");
+        assert!(
+            div < stop,
+            "C++ halves minimumCash before while(minimumCash>100); no extra ≤100 pass"
         );
     }
 
