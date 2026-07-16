@@ -9690,6 +9690,7 @@ impl GameLogic {
                                 .unwrap_or(0.0),
                             is_homing: false,
                             damage_type: crate::game_logic::combat::DamageType::Bullet,
+                            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                         });
                     }
                 }
@@ -48417,6 +48418,7 @@ mod tests {
             splash_radius: 0.0,
             is_homing: false,
             damage_type: crate::game_logic::combat::DamageType::Bullet,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
         });
 
         // One fixed step runs drain + projectile update.

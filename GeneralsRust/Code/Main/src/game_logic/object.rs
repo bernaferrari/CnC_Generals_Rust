@@ -1612,6 +1612,22 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
     ) -> bool {
+        self.take_damage_from_typed_death(
+            damage,
+            source,
+            damage_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+        )
+    }
+
+    /// Apply damage with Armor.ini type residual and Weapon.ini DeathType on kill.
+    pub fn take_damage_from_typed_death(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
         if self.status.destroyed {
             return false;
         }
@@ -1644,6 +1660,7 @@ impl Object {
         // Check if object is destroyed
         let destroyed = if !self.health.is_alive() {
             self.status.destroyed = true;
+            self.status.death_type = death_type;
             self.ai_state = AIState::Idle;
             self.target = None;
             true // Object was destroyed
@@ -2180,6 +2197,22 @@ impl Object {
                 splash_radius: weapon_splash,
                 is_homing: weapon_homing,
                 damage_type: weapon_dtype,
+                death_type: {
+                    let slot = self.active_weapon_slot;
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    crate::game_logic::host_armor_residual::resolve_host_death_type(
+                        name,
+                        weapon_dtype,
+                    )
+                },
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
@@ -3341,6 +3374,40 @@ mod tests {
         assert!(
             (dealt - 50.0).abs() < 1.0,
             "expected ~50 laser on infantry, got {dealt}"
+        );
+    }
+
+    #[test]
+    fn flame_kill_sets_burned_death_type() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut tmpl = ThingTemplate::new("BurnMe");
+        tmpl.set_health(50.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(tmpl, ObjectId(80), Team::GLA);
+        let dead =
+            o.take_damage_from_typed_death(999.0, None, DamageType::Flame, HostDeathType::Burned);
+        assert!(dead);
+        assert_eq!(o.status.death_type, HostDeathType::Burned);
+    }
+
+    #[test]
+    fn resolve_death_type_from_damage_class() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_armor_residual::resolve_host_death_type;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        assert_eq!(
+            resolve_host_death_type(None, DamageType::Explosive),
+            HostDeathType::Exploded
+        );
+        assert_eq!(
+            resolve_host_death_type(None, DamageType::Laser),
+            HostDeathType::Lasered
+        );
+        assert_eq!(
+            resolve_host_death_type(None, DamageType::Toxin),
+            HostDeathType::Poisoned
         );
     }
 }
