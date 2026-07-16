@@ -353,6 +353,18 @@ impl<'a> CommandExecutor<'a> {
         out
     }
 
+    /// Pathfind to `goal` then set AI state. Returns false if path assign fails.
+    /// Used by Guard/Scatter/Gather/Enter/Construct so units navigate obstacles.
+    fn path_to_goal_with_state(&mut self, unit_id: ObjectId, goal: Vec3, state: AIState) -> bool {
+        if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
+            return false;
+        }
+        if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+            unit.set_ai_state(state);
+        }
+        true
+    }
+
     fn execute_attack_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
         let goals = self.group_move_destinations(units, destination);
         for (unit_id, goal) in goals {
@@ -525,20 +537,30 @@ impl<'a> CommandExecutor<'a> {
                 }
             };
 
+            // Set guard anchors first (short borrow).
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.guard_radius = unit.selection_radius * 2.0;
                 match target {
                     GuardTarget::Position(pos) => {
                         unit.set_guard_position(Some(*pos));
-                        unit.set_ai_state(AIState::GuardingArea);
-                        unit.set_destination(*pos);
                     }
                     GuardTarget::Object(target_id) => {
                         unit.set_guard_target(Some(*target_id));
+                    }
+                }
+            } else {
+                continue;
+            }
+            // Path to guard anchor / object, then restore guard AI mode.
+            match target {
+                GuardTarget::Position(pos) => {
+                    let _ = self.path_to_goal_with_state(unit_id, *pos, AIState::GuardingArea);
+                }
+                GuardTarget::Object(_) => {
+                    if let Some(pos) = target_pos {
+                        let _ = self.path_to_goal_with_state(unit_id, pos, AIState::GuardingObject);
+                    } else if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                         unit.set_ai_state(AIState::GuardingObject);
-                        if let Some(pos) = target_pos {
-                            unit.set_destination(pos);
-                        }
                     }
                 }
             }
@@ -562,9 +584,7 @@ impl<'a> CommandExecutor<'a> {
                 let radius = base_radius + (unit.selection_radius * 0.5);
                 let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
                 let dest = unit.position + offset;
-                if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
-                    unit_mut.set_destination(dest);
-                    unit_mut.set_ai_state(AIState::Moving);
+                if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
                     any = true;
                 }
             }
@@ -643,8 +663,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::Gathering);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Gathering) {
                 any = true;
             }
         }
@@ -731,10 +751,7 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidCommand;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_destination(location);
-                unit.set_ai_state(AIState::Constructing);
-            }
+            let _ = self.path_to_goal_with_state(unit_id, location, AIState::Constructing);
 
             debug!(
                 "Unit {} building {} at {:?}",
@@ -1248,8 +1265,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.target = Some(target_id);
                 unit.target_location = None;
                 unit.force_attack = false;
-                unit.set_destination(target_pos);
-                unit.set_ai_state(AIState::Entering);
+            }
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering) {
                 issued = true;
             }
         }
@@ -3338,5 +3355,35 @@ mod group_move_tests {
             w2.contains("assign_unit_path") && !w2.contains("set_destination(goal)"),
             "force-move must pathfind like Move"
         );
+    }
+
+    #[test]
+    fn path_to_goal_with_state_used_by_guard_scatter_gather() {
+        let src = include_str!("command_executor.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert!(prod.contains("fn path_to_goal_with_state"));
+        for name in [
+            "fn execute_guard",
+            "fn execute_scatter",
+            "fn execute_gather",
+            "fn execute_build",
+        ] {
+            let i = prod.find(name).unwrap_or_else(|| panic!("missing {name}"));
+            let w = &prod[i..prod.len().min(i + 2500)];
+            assert!(
+                w.contains("path_to_goal_with_state") || w.contains("assign_unit_path"),
+                "{name} must pathfind, not bare set_destination"
+            );
+            // Guard/scatter/gather should not use bare set_destination(goal)
+            if name != "fn execute_build" {
+                assert!(
+                    !w.contains("set_destination(*pos)")
+                        && !w.contains("set_destination(pos)")
+                        && !w.contains("set_destination(dest)")
+                        && !w.contains("set_destination(target_pos)"),
+                    "{name} still has bare set_destination"
+                );
+            }
+        }
     }
 }
