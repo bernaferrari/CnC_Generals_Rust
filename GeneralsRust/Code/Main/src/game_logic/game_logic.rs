@@ -5863,6 +5863,65 @@ impl GameLogic {
     ///
     /// Intended target is already damaged; splash hits others in primary/secondary
     /// rings using PrimaryDamage / SecondaryDamage peels and RadiusDamageAffects.
+
+    /// C++ shockwave residual around an impact (hit or miss splash).
+    pub(crate) fn apply_shock_wave_at_impact(
+        &mut self,
+        impact: glam::Vec3,
+        weapon_name: Option<&str>,
+        skip_id: Option<ObjectId>,
+    ) -> u32 {
+        use crate::game_logic::weapon_bootstrap::{
+            compute_shock_wave_force, host_shock_wave_amount_for_weapon_name,
+            host_shock_wave_radius_for_weapon_name, host_shock_wave_taper_for_weapon_name,
+        };
+        let Some(name) = weapon_name else {
+            return 0;
+        };
+        let amount = host_shock_wave_amount_for_weapon_name(name);
+        let radius = host_shock_wave_radius_for_weapon_name(name);
+        let taper = host_shock_wave_taper_for_weapon_name(name);
+        if amount <= 0.0 || radius <= 0.0 {
+            return 0;
+        }
+        let r2 = radius * radius;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if skip_id == Some(*id) {
+                    return None;
+                }
+                if !obj.is_alive() {
+                    return None;
+                }
+                let p = obj.get_position();
+                let dx = p.x - impact.x;
+                let dz = p.z - impact.z;
+                if dx * dx + dz * dz > r2 {
+                    return None;
+                }
+                Some(*id)
+            })
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            let pos = match self.objects.get(&id) {
+                Some(o) => o.get_position(),
+                None => continue,
+            };
+            let Some(force) = compute_shock_wave_force(impact, pos, amount, radius, taper) else {
+                continue;
+            };
+            if let Some(o) = self.objects.get_mut(&id) {
+                if o.apply_shock_wave_impulse(force) {
+                    n = n.saturating_add(1);
+                }
+            }
+        }
+        n
+    }
+
     pub(crate) fn apply_instant_hit_splash_at(
         &mut self,
         impact: glam::Vec3,
@@ -5956,6 +6015,7 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
+        let _ = self.apply_shock_wave_at_impact(impact, weapon_name, None);
         hits
     }
 
@@ -6052,6 +6112,7 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
+        let _ = self.apply_shock_wave_at_impact(impact, weapon_name, Some(skip_id));
         hits
     }
 
@@ -71053,6 +71114,56 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn shock_wave_impulse_applies_on_splash_impact() {
+        use crate::game_logic::weapon_bootstrap::{
+            compute_shock_wave_force, host_shock_wave_amount_for_weapon_name,
+        };
+        assert!(host_shock_wave_amount_for_weapon_name("MOABDetonationWeapon") >= 250.0 - 1e-3);
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("SwVic");
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("SwVic".into(), t);
+        }
+        let v1 = logic
+            .create_object("SwVic", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let v2 = logic
+            .create_object("SwVic", Team::China, glam::Vec3::new(500.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.objects.get_mut(&v1) {
+            o.movement.velocity = glam::Vec3::ZERO;
+        }
+        if let Some(o) = logic.objects.get_mut(&v2) {
+            o.movement.velocity = glam::Vec3::ZERO;
+        }
+        let n =
+            logic.apply_shock_wave_at_impact(glam::Vec3::ZERO, Some("MOABDetonationWeapon"), None);
+        assert!(n >= 1, "near victim shocked n={n}");
+        let s1 = logic
+            .objects
+            .get(&v1)
+            .map(|o| o.movement.velocity.length())
+            .unwrap_or(0.0);
+        let s2 = logic
+            .objects
+            .get(&v2)
+            .map(|o| o.movement.velocity.length())
+            .unwrap_or(0.0);
+        assert!(s1 > 0.0, "near velocity {s1}");
+        assert!(s2 < s1 * 0.1, "far much weaker {s2} near {s1}");
+        assert!(s2 < 1e-2, "far essentially unshocked {s2}");
+        let _ = compute_shock_wave_force(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+            100.0,
+            50.0,
+            0.75,
+        );
     }
 
     #[test]

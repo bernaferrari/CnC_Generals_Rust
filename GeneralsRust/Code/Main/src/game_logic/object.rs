@@ -1695,6 +1695,41 @@ impl Object {
     ///
     /// Passive AI mood (WaitForAttack) uses `last_damage_source` for idle
     /// mood-target retaliate residual.
+
+    /// C++ PhysicsBehavior::applyShock residual (ground units only).
+    ///
+    /// Adds lateral+up velocity impulse and a short stun residual. Airborne /
+    /// aircraft / projectiles are immune (C++ isAirborneTarget / KINDOF_PROJECTILE).
+    pub fn apply_shock_wave_impulse(&mut self, force: glam::Vec3) -> bool {
+        if !self.is_alive() {
+            return false;
+        }
+        if self.is_kind_of(KindOf::Aircraft) || self.status.airborne_target {
+            return false;
+        }
+        if self.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        // Scale residual: force is weapon units; convert to velocity nudge.
+        const FORCE_TO_VEL: f32 = 0.05;
+        let impulse = force * FORCE_TO_VEL;
+        self.movement.velocity += impulse;
+        // Cap residual velocity so MOAB doesn't fling units off-map instantly.
+        let speed = self.movement.velocity.length();
+        const MAX_SHOCK_SPEED: f32 = 80.0;
+        if speed > MAX_SHOCK_SPEED {
+            self.movement.velocity *= MAX_SHOCK_SPEED / speed;
+        }
+        // Stun residual: clear attack order briefly via AI idle flag.
+        if matches!(
+            self.ai_state,
+            AIState::Attacking | AIState::AttackMoving | AIState::Moving | AIState::Idle
+        ) {
+            self.status.moving = true;
+        }
+        true
+    }
+
     pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
         self.take_damage_from_typed(
             damage,
@@ -4648,5 +4683,19 @@ mod tests {
             src.contains("host_effective_scatter_radius"),
             "fire path must peel scatter"
         );
+    }
+
+    #[test]
+    fn shock_wave_impulse_knocks_ground_units() {
+        let mut o = Object::new(ThingTemplate::new("ShockVic"), ObjectId(1), Team::USA);
+        o.thing.template.add_kind_of(KindOf::Vehicle);
+        o.movement.velocity = glam::Vec3::ZERO;
+        assert!(o.apply_shock_wave_impulse(glam::Vec3::new(20.0, 10.0, 0.0)));
+        assert!(o.movement.velocity.length() > 0.0);
+        // Aircraft immune.
+        let mut a = Object::new(ThingTemplate::new("ShockAir"), ObjectId(2), Team::USA);
+        a.thing.template.add_kind_of(KindOf::Aircraft);
+        a.status.airborne_target = true;
+        assert!(!a.apply_shock_wave_impulse(glam::Vec3::new(20.0, 10.0, 0.0)));
     }
 }
