@@ -2298,6 +2298,13 @@ impl Object {
                     )
                     .unwrap_or_default()
                 },
+                exhaust_name:
+                    crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_unit_slot(
+                        self.template_name.as_str(),
+                        self.thing.template.primary_weapon_name.as_deref(),
+                        self.thing.template.secondary_weapon_name.as_deref(),
+                        slot,
+                    ),
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
@@ -3581,6 +3588,8 @@ mod tests {
         assert!(src.contains("host_detonation_fx_for_weapon_name"));
         assert!(src.contains("detonation_ocl_name"));
         assert!(src.contains("host_detonation_ocl_for_weapon_name"));
+        assert!(src.contains("exhaust_name"));
+        assert!(src.contains("host_projectile_exhaust_for_unit_slot"));
         let csrc = include_str!("combat.rs");
         assert!(csrc.contains("take_impact_fx"));
         assert!(csrc.contains("ProjectileImpactFx"));

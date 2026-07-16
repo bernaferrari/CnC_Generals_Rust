@@ -4849,6 +4849,28 @@ impl GameLogic {
                 &impact.detonation_ocl_name,
             );
         }
+        // C++ ProjectileExhaust residual: stamp in-flight trail PSys names on host
+        // combat particles (position follows projectile snapshot). Fail-closed vs
+        // full client attach-to-drawable exhaust matrix.
+        {
+            let frame = self.frame;
+            let exhausts: Vec<_> = self
+                .combat_system
+                .projectiles_snapshot()
+                .into_iter()
+                .filter(|p| !p.exhaust_name.is_empty())
+                .map(|p| (p.position, p.shooter_id, p.id, p.exhaust_name.clone()))
+                .collect();
+            for (pos, shooter, pid, name) in exhausts {
+                let _ = self.combat_particles.spawn_projectile_exhaust(
+                    pos,
+                    frame,
+                    shooter,
+                    Some(pid),
+                    &name,
+                );
+            }
+        }
 
         // -----------------------------------------------------------------------
         // Phase 7b: Building Body Damage State Checks (C++ BodyModule update)
@@ -9779,6 +9801,12 @@ impl GameLogic {
                                     crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name,
                                 )
                                 .unwrap_or_default(),
+                            exhaust_name: crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_unit_slot(
+                                attacker.template_name.as_str(),
+                                attacker.thing.template.primary_weapon_name.as_deref(),
+                                attacker.thing.template.secondary_weapon_name.as_deref(),
+                                0,
+                            ),
                         });
                     }
                 }
@@ -48511,6 +48539,7 @@ mod tests {
             projectile_object_name: String::new(),
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
         });
 
         // One fixed step runs drain + projectile update.
