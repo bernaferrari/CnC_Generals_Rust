@@ -206,6 +206,12 @@ pub struct Object {
     /// Absolute sim time when pre-attack delay elapses (ready to discharge).
     #[serde(default)]
     pub pre_attack_ready_at: f32,
+    /// C++ Weapon::m_leechWeaponRangeActive residual (primary).
+    #[serde(default)]
+    pub leech_range_active_primary: bool,
+    /// C++ Weapon::m_leechWeaponRangeActive residual (secondary).
+    #[serde(default)]
+    pub leech_range_active_secondary: bool,
 
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,
@@ -583,6 +589,8 @@ impl Object {
             active_weapon_slot: 0,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
+            leech_range_active_primary: false,
+            leech_range_active_secondary: false,
             guard_radius: 0.0,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -718,6 +726,8 @@ impl Object {
             active_weapon_slot: 0,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
+            leech_range_active_primary: false,
+            leech_range_active_secondary: false,
             guard_radius: 0.0,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -1900,6 +1910,11 @@ impl Object {
 
     /// Whether `weapon` can legally hit `target` (air/ground + range + stealth).
     pub fn can_target_with(&self, target: &Object, weapon: &Weapon) -> bool {
+        self.can_target_with_slot(target, weapon, None)
+    }
+
+    /// Slot-aware can_target (LeechRange uses per-slot active residual).
+    pub fn can_target_with_slot(&self, target: &Object, weapon: &Weapon, slot: Option<u8>) -> bool {
         // C++ WeaponSet: stealthed + undetected cannot be attacked
         // (including force-fire against pure stealth; disguise exception not residual).
         if target.is_effectively_stealthed() && target.team != self.team {
@@ -1932,6 +1947,16 @@ impl Object {
         if weapon.min_range > 0.0 && distance < weapon.min_range {
             return false;
         }
+        // C++ Weapon::hasLeechRange residual: once activated, max range waived
+        // for the remainder of the attack cycle.
+        let leech = match slot {
+            Some(1) => self.leech_range_active_secondary,
+            Some(_) => self.leech_range_active_primary,
+            None => self.leech_range_active_primary || self.leech_range_active_secondary,
+        };
+        if leech {
+            return true;
+        }
         // SearchAndDestroy residual: BATTLEPLAN_SEARCHANDDESTROY RANGE 120%.
         let max_range = weapon.range * self.battle_plan_range_multiplier();
         distance <= max_range
@@ -1943,12 +1968,12 @@ impl Object {
             return false;
         }
         if let Some(weapon) = &self.weapon {
-            if self.can_target_with(target, weapon) {
+            if self.can_target_with_slot(target, weapon, Some(0)) {
                 return true;
             }
         }
         if let Some(weapon) = &self.secondary_weapon {
-            if self.can_target_with(target, weapon) {
+            if self.can_target_with_slot(target, weapon, Some(1)) {
                 return true;
             }
         }
@@ -2184,6 +2209,8 @@ impl Object {
         if self.pre_attack_target != Some(target_id) {
             self.pre_attack_target = Some(target_id);
             self.pre_attack_ready_at = current_time + pre_delay;
+            // C++ Weapon::preFireWeapon LeechRange activate residual.
+            self.activate_leech_range_for_slot(slot);
         }
         if current_time + 1e-6 < self.pre_attack_ready_at {
             // Still winding up — do not consume ammo / fire.
@@ -2510,6 +2537,8 @@ impl Object {
                     .unwrap_or(0.0)
                 },
             });
+            // C++ fireWeaponTemplate LeechRange activate residual.
+            self.activate_leech_range_for_slot(slot);
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
             // firing breaks stealth (default host residual).
@@ -2566,12 +2595,43 @@ impl Object {
         }
     }
 
+    /// C++ Weapon::setLeechRangeActive residual for a weapon slot.
+    pub fn activate_leech_range_for_slot(&mut self, slot: u8) {
+        let name = if slot == 1 {
+            self.thing.template.secondary_weapon_name.as_deref().or(self
+                .thing
+                .template
+                .primary_weapon_name
+                .as_deref())
+        } else {
+            self.thing.template.primary_weapon_name.as_deref()
+        };
+        let is_leech = name
+            .map(crate::game_logic::weapon_bootstrap::host_leech_range_weapon_for_weapon_name)
+            .unwrap_or(false);
+        if !is_leech {
+            return;
+        }
+        if slot == 1 {
+            self.leech_range_active_secondary = true;
+        } else {
+            self.leech_range_active_primary = true;
+        }
+    }
+
+    /// C++ Object::clearLeechRangeModeForAllWeapons residual.
+    pub fn clear_leech_range_mode_for_all_weapons(&mut self) {
+        self.leech_range_active_primary = false;
+        self.leech_range_active_secondary = false;
+    }
+
     pub fn stop_attack(&mut self) {
         self.target = None;
         self.target_location = None;
         self.force_attack = false;
         self.pre_attack_target = None;
         self.pre_attack_ready_at = 0.0;
+        self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
         crate::game_logic::host_attack_log::record(self.id, None);
         // C++ parity: guard units return to their guard state after a kill
@@ -3797,5 +3857,44 @@ mod tests {
         let csrc = include_str!("combat.rs");
         assert!(csrc.contains("take_impact_fx"));
         assert!(csrc.contains("ProjectileImpactFx"));
+    }
+
+    #[test]
+    fn leech_range_waives_max_range_after_activate() {
+        let mut tmpl = ThingTemplate::new("GLAInfantryTerrorist");
+        tmpl.primary_weapon_name = Some("GLAInfantryTerrorist".into());
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::GLA);
+        atk.set_position(glam::Vec3::ZERO);
+        atk.weapon = Some(Weapon {
+            damage: 100.0,
+            range: 20.0,
+            min_range: 0.0,
+            can_target_air: false,
+            can_target_ground: true,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        });
+
+        let mut tgt = Object::new(
+            ThingTemplate::new("AmericaTankCrusader"),
+            ObjectId(2),
+            Team::USA,
+        );
+        tgt.set_position(glam::Vec3::new(100.0, 0.0, 0.0)); // out of 20 range
+        tgt.thing.template.add_kind_of(KindOf::Vehicle);
+        tgt.thing.template.add_kind_of(KindOf::Attackable);
+
+        // Before leech: out of range.
+        assert!(!atk.can_target_with_slot(&tgt, atk.weapon.as_ref().unwrap(), Some(0)));
+
+        // Activate leech (as if pre-fire / fire occurred in range).
+        atk.activate_leech_range_for_slot(0);
+        assert!(atk.leech_range_active_primary);
+        assert!(atk.can_target_with_slot(&tgt, atk.weapon.as_ref().unwrap(), Some(0)));
+
+        // stop_attack clears.
+        atk.stop_attack();
+        assert!(!atk.leech_range_active_primary);
+        assert!(!atk.can_target_with_slot(&tgt, atk.weapon.as_ref().unwrap(), Some(0)));
     }
 }
