@@ -2052,6 +2052,8 @@ impl Object {
             let weapon_damage = weapon.damage;
             let weapon_speed = weapon.projectile_speed;
             let weapon_splash = weapon.splash_radius;
+            // AA residual: air-only weapons home on live target (missile track).
+            let weapon_homing = weapon.can_target_air && !weapon.can_target_ground;
             let shooter_id = self.id;
             let shooter_pos = self.get_position();
             self.target = Some(target_id);
@@ -2064,6 +2066,7 @@ impl Object {
                 damage: weapon_damage,
                 speed: weapon_speed,
                 splash_radius: weapon_splash,
+                is_homing: weapon_homing,
             });
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
