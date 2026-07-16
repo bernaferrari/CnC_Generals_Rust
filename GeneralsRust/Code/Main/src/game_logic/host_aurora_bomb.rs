@@ -676,6 +676,7 @@ pub fn aurora_bomb_weapon(kind: HostAuroraBombKind) -> super::Weapon {
         can_target_ground: true,
         projectile_speed: AURORA_BOMB_WEAPON_SPEED,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

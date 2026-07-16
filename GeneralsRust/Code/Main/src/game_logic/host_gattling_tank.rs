@@ -230,6 +230,7 @@ pub fn gattling_ground_weapon(level: GattlingFireLevel, has_chain_guns: bool) ->
         can_target_ground: true,
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -247,6 +248,7 @@ pub fn gattling_air_weapon(level: GattlingFireLevel, has_chain_guns: bool) -> We
         can_target_ground: false,
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

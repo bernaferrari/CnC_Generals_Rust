@@ -261,6 +261,7 @@ pub fn avenger_designator_weapon() -> Weapon {
         can_target_ground: true,
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 
@@ -277,6 +278,7 @@ pub fn avenger_air_laser_weapon() -> Weapon {
         can_target_ground: false,
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

@@ -226,6 +226,7 @@ pub fn stealth_fighter_weapon() -> Weapon {
         can_target_ground: true,
         projectile_speed: STEALTH_FIGHTER_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
+        splash_radius: 0.0,
     }
 }
 

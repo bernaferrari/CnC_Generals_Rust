@@ -9674,6 +9674,11 @@ impl GameLogic {
                             target_pos: Some(target_loc),
                             damage: weapon_damage,
                             speed: 200.0,
+                            splash_radius: attacker
+                                .weapon
+                                .as_ref()
+                                .map(|w| w.splash_radius)
+                                .unwrap_or(0.0),
                         });
                     }
                 }
@@ -11858,6 +11863,7 @@ impl GameLogic {
                         can_target_ground: true,
                         projectile_speed: 600.0,
                         pre_attack_delay: 0.0,
+                        splash_radius: 0.0,
                     });
                 }
             }
@@ -48395,6 +48401,7 @@ mod tests {
             target_pos: Some(glam::Vec3::new(5.0, 0.0, 0.0)),
             damage: 25.0,
             speed: 1000.0,
+            splash_radius: 0.0,
         });
 
         // One fixed step runs drain + projectile update.
@@ -54894,6 +54901,7 @@ mod tests {
                 can_target_ground: true,
                 projectile_speed: 300.0,
                 pre_attack_delay: 0.0,
+                splash_radius: 0.0,
             });
         }
 
@@ -55205,6 +55213,7 @@ mod tests {
                     can_target_ground: true,
                     projectile_speed: 200.0,
                     pre_attack_delay: 0.0,
+                    splash_radius: 0.0,
                 });
             }
             // Place cannon within residual range of targets.
