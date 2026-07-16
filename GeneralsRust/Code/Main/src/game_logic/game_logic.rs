@@ -5753,6 +5753,42 @@ impl GameLogic {
             .count()
     }
 
+    /// C++ JetAIUpdate leave ParkingPlace residual (clear hangar slot + takeoff).
+    pub(crate) fn release_jet_from_airfield_parking(&mut self, jet_id: ObjectId) -> bool {
+        let (team, af_hint) = {
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return false;
+            };
+            (jet.team, jet.contained_by)
+        };
+        let af_hint = af_hint.or_else(|| {
+            self.objects.iter().find_map(|(id, o)| {
+                if Self::is_friendly_airfield(o, team) && o.contained_units().contains(&jet_id) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+        });
+        let took_off = {
+            let Some(jet) = self.objects.get_mut(&jet_id) else {
+                return false;
+            };
+            let was_parked = jet.is_parked_at_airfield() || jet.contained_by.is_some();
+            let af = jet.takeoff_from_airfield_parking();
+            jet.contained_by = None;
+            was_parked || af.is_some()
+        };
+        let mut freed = false;
+        if let Some(af_id) = af_hint {
+            if let Some(af) = self.objects.get_mut(&af_id) {
+                freed = af.remove_occupant(jet_id);
+            }
+        }
+        // Success if we launched, or cleaned a lingering parking slot, or jet is free.
+        took_off || freed || af_hint.is_some()
+    }
+
     pub(crate) fn try_return_to_base_rearm(&mut self, jet_id: ObjectId) -> bool {
         let (needs, jet_team, jet_pos) = {
             let Some(jet) = self.objects.get(&jet_id) else {
@@ -5814,10 +5850,22 @@ impl GameLogic {
             let mut pad = af_pos;
             pad.y = af_pos.y;
             jet.set_position(pad);
-            true
         } else {
-            false
+            return false;
         }
+        // Register parking slot on the airfield (ParkingPlace reserve residual).
+        // Structures report transport_capacity 0, so bypass add_occupant gates and
+        // write the hangar roster directly (NumRows×NumCols capacity already checked).
+        if let Some(af) = self.objects.get_mut(&af_id) {
+            if let Some(building) = af.building_data.as_mut() {
+                if !building.garrisoned_units.contains(&jet_id) {
+                    building.garrisoned_units.push(jet_id);
+                }
+            } else if !af.occupants.contains(&jet_id) {
+                af.occupants.push(jet_id);
+            }
+        }
+        true
     }
 
     /// C++ ParkingPlaceBehavior heal residual for docked aircraft at airfields.
@@ -5874,47 +5922,56 @@ impl GameLogic {
             // RETURN_TO_BASE residual: attempt airfield rearm before fire checks.
             // Out-of-ammo HP drip is applied once per frame in tick_out_of_ammo_jet_damage.
             let _ = self.try_return_to_base_rearm(attacker_id);
-            let Some(attacker) = self.objects.get(&attacker_id) else {
-                continue;
+            // Early gates + docked/garrisoned flags in one immutable scope.
+            let (docked_sortie, docked_passenger, garrisoned) = {
+                let Some(attacker) = self.objects.get(&attacker_id) else {
+                    continue;
+                };
+                // Need at least one weapon slot bound.
+                if attacker.weapon.is_none() && attacker.secondary_weapon.is_none() {
+                    continue;
+                }
+                // ECM jam residual: C++ canFireWeapon DISABLED_SUBDUED — no fire while jammed.
+                if attacker.status.weapons_jammed || attacker.is_disabled() {
+                    continue;
+                }
+                // Interaction orders set `target` without being attacks.
+                if matches!(
+                    attacker.ai_state,
+                    AIState::Capturing
+                        | AIState::SpecialAbility
+                        | AIState::Repairing
+                        | AIState::Entering
+                        | AIState::Docking
+                        | AIState::Constructing
+                        | AIState::Gathering
+                        | AIState::ReturningResources
+                        | AIState::SeekingRepair
+                        | AIState::SeekingHealing
+                ) {
+                    continue;
+                }
+                let is_ac = attacker.is_kind_of(KindOf::Aircraft)
+                    || attacker.object_type == ObjectType::Aircraft;
+                let docked_sortie =
+                    attacker.ai_state == AIState::Docked && is_ac && attacker.target.is_some();
+                let docked_passenger = attacker.ai_state == AIState::Docked && !docked_sortie;
+                let garrisoned = attacker.ai_state == AIState::Garrisoned;
+                (docked_sortie, docked_passenger, garrisoned)
             };
-            // Need at least one weapon slot bound.
-            if attacker.weapon.is_none() && attacker.secondary_weapon.is_none() {
-                continue;
-            }
-            // ECM jam residual: C++ canFireWeapon DISABLED_SUBDUED — no fire while jammed.
-            // Chase is also suppressed so jammed units do not re-acquire via combat path.
-            if attacker.status.weapons_jammed || attacker.is_disabled() {
-                continue;
-            }
-            // Interaction orders set `target` without being attacks. Skip combat
-            // (fire + chase) so CaptureBuilding / SpecialAbility / Repair / Enter
-            // are not converted into weapon fire or Attacking chase.
-            // Garrisoned: residual fire-from-garrison path (no chase, container origin).
-            // Docked: residual fire-from-transport when container allows passengers to fire
-            // (Battle Bus / Combat Chinook / Humvee PassengersAllowedToFire residual).
-            if matches!(
-                attacker.ai_state,
-                AIState::Capturing
-                    | AIState::SpecialAbility
-                    | AIState::Repairing
-                    | AIState::Entering
-                    | AIState::Docking
-                    | AIState::Constructing
-                    | AIState::Gathering
-                    | AIState::ReturningResources
-                    | AIState::SeekingRepair
-                    | AIState::SeekingHealing
-            ) {
-                continue;
-            }
-            if attacker.ai_state == AIState::Docked {
+            if docked_sortie {
+                self.release_jet_from_airfield_parking(attacker_id);
+            } else if docked_passenger {
                 self.try_transport_passenger_residual_fire(attacker_id);
                 continue;
             }
-            if attacker.ai_state == AIState::Garrisoned {
+            if garrisoned {
                 self.try_garrison_residual_fire(attacker_id);
                 continue;
             }
+            let Some(attacker) = self.objects.get(&attacker_id) else {
+                continue;
+            };
             // Base-defense residual: Patriot / Gattling (and FSBaseDefense) auto-acquire
             // and fire at nearby enemies without a manual AttackObject order.
             // Respect skirmish AI pause so golden clear is not structure-counterfired.
@@ -10003,6 +10060,22 @@ impl GameLogic {
                     }
                 }
                 AIState::Docked | AIState::Garrisoned => {
+                    // Aircraft parking: leave hangar when given a move/attack residual.
+                    let wants_sortie = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| {
+                            (o.is_kind_of(KindOf::Aircraft)
+                                || o.object_type == ObjectType::Aircraft)
+                                && (o.movement.target_position.is_some()
+                                    || o.target.is_some()
+                                    || o.target_location.is_some())
+                        })
+                        .unwrap_or(false);
+                    if wants_sortie {
+                        self.release_jet_from_airfield_parking(object_id);
+                        continue;
+                    }
                     // Prefer contained_by (authoritative residual link) over target.
                     let container_id = self
                         .objects
@@ -69917,6 +69990,15 @@ mod tests {
             assert_eq!(jet.contained_by, Some(af_id));
             assert!(!jet.needs_return_to_base_rearm());
         }
+        assert!(
+            logic
+                .objects
+                .get(&af_id)
+                .unwrap()
+                .contained_units()
+                .contains(&jet_id),
+            "airfield must list parked jet"
+        );
 
         let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
         logic.tick_airfield_parking_heal();
@@ -69979,5 +70061,83 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn airfield_takeoff_releases_parking_slot() {
+        use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
+        af_tmpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaAirfield".into(), af_tmpl);
+        let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
+        jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        jet_tmpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic.templates.insert("AmericaJetRaptor".into(), jet_tmpl);
+
+        let af_id = logic
+            .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let jet_id = logic
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let jet = logic.objects.get_mut(&jet_id).unwrap();
+            jet.weapon = Some(Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ammo: Some(0),
+                clip_size: 4,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Weapon::default()
+            });
+        }
+        assert!(logic.try_return_to_base_rearm(jet_id));
+        assert_eq!(logic.airfield_parked_count(af_id), 1);
+
+        // Order attack → takeoff residual (Object takeoff + host release frees slot).
+        {
+            let jet = logic.objects.get_mut(&jet_id).unwrap();
+            jet.attack_target(ObjectId(777));
+        }
+        assert!(logic.release_jet_from_airfield_parking(jet_id));
+        {
+            let jet = logic.objects.get(&jet_id).unwrap();
+            assert!(jet.contained_by.is_none());
+            assert_ne!(jet.ai_state, AIState::Docked);
+            assert!(jet.status.airborne_target);
+            assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
+            assert_eq!(jet.target, Some(ObjectId(777)));
+        }
+        assert_eq!(logic.airfield_parked_count(af_id), 0);
+        // Slot freed — another empty jet can dock.
+        let jet2 = logic
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let j = logic.objects.get_mut(&jet2).unwrap();
+            j.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ammo: Some(0),
+                clip_size: 2,
+                ..Weapon::default()
+            });
+        }
+        assert!(logic.try_return_to_base_rearm(jet2));
     }
 }
