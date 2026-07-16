@@ -1601,45 +1601,12 @@ impl AIPlayer {
         self.select_team_to_build().unwrap_or(false)
     }
 
-    /// Set AI difficulty level
-    /// Matches C++ AIPlayer.cpp - affects build speed, reaction time, aggression
+    /// C++ `AIPlayer::setAIDifficulty` — assign `m_difficulty` only.
+    ///
+    /// Does not rewrite TeamSeconds or host strategy factors (those are not in
+    /// GeneralsMD AIPlayer::setAIDifficulty).
     pub fn set_ai_difficulty(&mut self, difficulty: GameDifficulty) {
         self.difficulty = difficulty;
-
-        // Update difficulty handler with new difficulty
-        // Note: Faction should be determined from player's side/faction when available
-        let faction = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|player| player.read().ok().map(|guard| guard.get_side().to_string()))
-            .unwrap_or_else(|| "USA".to_string());
-        self.difficulty_handler
-            .set_difficulty(to_ai_difficulty(difficulty), &faction);
-
-        // Apply difficulty-specific behavior modifiers
-        match difficulty {
-            GameDifficulty::Easy => {
-                // Easy AI: Slower, less aggressive, weaker economy
-                self.team_seconds = 3.0;
-                self.strategic_decision_maker.difficulty_factor = 0.7;
-            }
-            GameDifficulty::Normal => {
-                // Normal AI: Standard behavior
-                self.team_seconds = 2.0;
-                self.strategic_decision_maker.difficulty_factor = 1.0;
-            }
-            GameDifficulty::Hard => {
-                // Hard AI: Faster, more aggressive, better economy
-                self.team_seconds = 1.5;
-                self.strategic_decision_maker.difficulty_factor = 1.3;
-            }
-            GameDifficulty::Brutal => {
-                // Brutal AI: Maximum aggression and speed
-                self.team_seconds = 1.0;
-                self.strategic_decision_maker.difficulty_factor = 1.5;
-            }
-        }
     }
 
     /// C++ `AIPlayer::selectSkillset` — assign skillset; warn if already chosen.
@@ -8159,6 +8126,30 @@ mod tests {
                 && w.contains("is_all_built")
                 && w.contains("get_execute_actions_on_create"),
             "checkQueuedTeams must keep expire/all-built/executeActions phases"
+        );
+    }
+
+    #[test]
+    fn set_ai_difficulty_only_sets_field_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
+            .find("pub fn set_ai_difficulty(&mut self, difficulty: GameDifficulty)")
+            .expect("setAIDifficulty");
+        let end = prod[i..]
+            .find("pub fn select_skillset")
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 400));
+        let w = &prod[i..end];
+        assert!(
+            w.contains("self.difficulty = difficulty")
+                && !w.contains("team_seconds")
+                && !w.contains("difficulty_factor")
+                && !w.contains("difficulty_handler"),
+            "setAIDifficulty must only assign m_difficulty like C++"
         );
     }
 
