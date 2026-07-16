@@ -1399,6 +1399,12 @@ pub fn scatter_seed_for_shot(shooter: u32, target: u32, frame: u32) -> u32 {
         .wrapping_add(target.wrapping_mul(0x85EB_CA6B))
         .wrapping_add(frame.wrapping_mul(0xC2B2_AE35))
 }
+/// 2D scatter aim offset residual (Y cleared — ground-plane miss).
+pub fn scatter_impact_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
+    let mut o = scatter_aim_offset(seed, scatter_radius);
+    o.y = 0.0;
+    o
+}
 
 pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
     use crate::game_logic::host_rng_residual::pure_logic_random_real;
@@ -1726,6 +1732,39 @@ pub fn host_secondary_damage_for_weapon_name(name: &str) -> f32 {
 }
 
 /// C++ Weapon.ini SecondaryDamageRadius residual (Regular).
+/// C++ Weapon.ini PrimaryDamageRadius residual.
+pub fn host_primary_damage_radius_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.primary_damage_radius.max(0.0))
+    })
+    .ok()
+    .flatten();
+    if let Some(v) = from_store {
+        if v > 0.0 {
+            return v;
+        }
+    }
+    seed_primary_damage_radius_for(name)
+}
+
+fn seed_primary_damage_radius_for(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    if n.contains("howitzer") || n.contains("firebase") || n.contains("artillery") {
+        return 25.0;
+    }
+    if n.contains("scud") || n.contains("nuke") || n.contains("tomahawk") {
+        return 30.0;
+    }
+    if n.contains("bomb") || n.contains("demo") {
+        return 20.0;
+    }
+    0.0
+}
+
 pub fn host_secondary_damage_radius_for_weapon_name(name: &str) -> f32 {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
