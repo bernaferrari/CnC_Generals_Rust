@@ -1233,20 +1233,38 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::newMap` (AIPlayer.cpp).
     ///
-    /// Add placed factories to build list, compute base center/radius, inst-build
-    /// initiallyBuilt entries via buildStructureNow (else incrementNumRebuilds).
+    /// 1. Snapshot pre-existing build-list entries (C++ saves head before prepends)
+    /// 2. Prepend placed factories via addToBuildList
+    /// 3. computeCenterAndRadiusOfBase (includes new factories)
+    /// 4. Walk *original* entries only: initiallyBuilt → buildStructureNow else
+    ///    incrementNumRebuilds
     pub fn new_map(&mut self) {
-        self.base_center_set = false;
-        self.base_radius = 0.0;
-        self.team_build_queue.clear();
-        self.team_ready_queue.clear();
-        self.structures_to_repair = [None; MAX_STRUCTURES_TO_REPAIR];
-        self.repair_dozer = None;
-        self.dozer_queued_for_repair = false;
-        self.dozer_is_repairing = false;
-        self.frame_last_building_built = TheGameLogic::get_frame();
+        // C++ does not clear queues/timers here — only factory scan + initial builds.
+
+        // Snapshot original build list BEFORE factory prepends (C++ keeps old head ptr).
+        let mut original_entries: Vec<(String, Coord3D, Real, bool)> = Vec::new();
+        if let Ok(list) = player_list().read() {
+            if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                if let Ok(pg) = player_arc.read() {
+                    let mut cur = pg.get_build_list();
+                    while let Some(node) = cur {
+                        let name = node.get_template_name().to_string();
+                        if !name.is_empty() {
+                            original_entries.push((
+                                name,
+                                *node.get_location(),
+                                node.get_angle(),
+                                node.is_initially_built(),
+                            ));
+                        }
+                        cur = node.get_next();
+                    }
+                }
+            }
+        }
 
         // Add any factories placed to the build list (C++ ProductionUpdateInterface).
+        // C++ addToBuildList prepends — new entries are NOT in original_entries.
         if let Ok(list) = player_list().read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 let owned: Vec<ObjectID> = player_arc
@@ -1273,7 +1291,6 @@ impl AIPlayer {
                         }
                     }
                     if !is_factory {
-                        // Also check production control modules.
                         for mh in obj_g.behavior_modules() {
                             let matched = mh.with_module(|module| {
                                 module.get_production_control_interface().is_some()
@@ -1309,42 +1326,38 @@ impl AIPlayer {
 
         let _ = self.compute_center_and_radius_of_base();
 
-        // Build any with the initially built flag (C++ buildStructureNow / increment rebuilds).
-        // Collect first to avoid holding player lock across builds.
+        // Walk original (pre-factory) entries only — matches C++ head pointer walk.
         let mut initial: Vec<(String, Coord3D, Real)> = Vec::new();
-        let mut rebuild_names: Vec<String> = Vec::new();
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(mut pg) = player_arc.write() {
-                    if let Some(info) = pg.get_build_list_mut() {
-                        let mut cur = Some(&mut *info);
-                        while let Some(node) = cur {
-                            let name = node.get_template_name().to_string();
-                            if name.is_empty() {
-                                cur = node.get_next_mut();
-                                continue;
+        for (name, loc, ang, initially) in original_entries {
+            if TheThingFactory::find_template(&name).is_none() {
+                log::debug!("*** ERROR - Build list building '{}' doesn't exist.", name);
+                continue;
+            }
+            if initially {
+                initial.push((name, loc, ang));
+            } else {
+                // C++ info->incrementNumRebuilds on the live node.
+                if let Ok(list) = player_list().read() {
+                    if let Some(player_arc) = list.get_player(self.player_id as i32) {
+                        if let Ok(mut pg) = player_arc.write() {
+                            if let Some(info) = pg.get_build_list_mut() {
+                                let mut cur = Some(&mut *info);
+                                while let Some(node) = cur {
+                                    if node.get_template_name() == name
+                                        && (node.get_location().x - loc.x).abs() < 0.01
+                                        && (node.get_location().y - loc.y).abs() < 0.01
+                                    {
+                                        node.increment_num_rebuilds();
+                                        break;
+                                    }
+                                    cur = node.get_next_mut();
+                                }
                             }
-                            if TheThingFactory::find_template(&name).is_none() {
-                                log::debug!(
-                                    "*** ERROR - Build list building '{}' doesn't exist.",
-                                    name
-                                );
-                                cur = node.get_next_mut();
-                                continue;
-                            }
-                            if node.is_initially_built() {
-                                initial.push((name, *node.get_location(), node.get_angle()));
-                            } else {
-                                node.increment_num_rebuilds();
-                                rebuild_names.push(name);
-                            }
-                            cur = node.get_next_mut();
                         }
                     }
                 }
             }
         }
-        let _ = rebuild_names;
         for (name, loc, ang) in initial {
             if let Err(err) = self.build_structure_now_at(&name, loc, ang, None) {
                 log::debug!("newMap buildStructureNow('{}') failed: {err}", name);
@@ -8737,15 +8750,35 @@ mod tests {
     #[test]
     fn new_map_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
-        let i = src.find("C++ `AIPlayer::newMap`").expect("newMap");
-        let window = &src[i..src.len().min(i + 5500)];
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod.find("pub fn new_map(&mut self)").expect("newMap");
+        let end = prod[i..]
+            .find("/// Start training for a work order")
+            .or_else(|| prod[i..].find("pub(crate) fn start_training"))
+            .or_else(|| prod[i..].find("fn start_training_internal"))
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 8000));
+        let w = &prod[i..end];
         assert!(
-            window.contains("add_to_build_list")
-                && window.contains("compute_center_and_radius_of_base")
-                && window.contains("is_initially_built")
-                && window.contains("build_structure_now_at")
-                && window.contains("increment_num_rebuilds"),
-            "newMap must add factories, compute base, inst-build initiallyBuilt"
+            w.contains("original_entries")
+                && w.contains("add_to_build_list")
+                && w.contains("compute_center_and_radius_of_base")
+                && w.contains("is_initially_built")
+                && w.contains("increment_num_rebuilds")
+                && w.contains("build_structure_now_at")
+                && !w.contains("team_build_queue.clear()")
+                && !w.contains("structures_to_repair = [None"),
+            "newMap must snapshot pre-factory list, prepend factories, center, then original initials"
+        );
+        let snap = w.find("original_entries").expect("snap");
+        let add = w.find("add_to_build_list").expect("add");
+        let center = w.find("compute_center_and_radius_of_base").expect("center");
+        assert!(
+            snap < add && add < center,
+            "C++ order: capture head, add factories, compute center, walk original"
         );
     }
 
