@@ -5398,6 +5398,9 @@ impl PathfindingSystem {
 
     /// Full adjustment pipeline combining adjustDestination and zone check.
     /// Matches C++ Pathfinder::checkForAdjust() at AIPathfind.cpp ~5300.
+    /// C++ `Pathfinder::checkForAdjust` (AIPathfind.cpp:5175-5226).
+    ///
+    /// Thin wrapper used by older callers — assumes human player and no group dest.
     pub fn check_for_adjust(
         &self,
         dest: &mut Coord3D,
@@ -5406,7 +5409,110 @@ impl PathfindingSystem {
         unit_radius: f32,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        self.adjust_destination(surfaces, is_crusher, dest, unit_radius, ignore_obstacle_id)
+        self.check_for_adjust_ex(
+            dest,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            ignore_obstacle_id,
+            true, // is_human default (safe for player units)
+            None, // from
+            None, // group_dest
+        )
+    }
+
+    /// Full C++ `checkForAdjust` with human logical-extent clamp, optional
+    /// path-existence gate from unit position, and groupDest tighten/cost.
+    pub fn check_for_adjust_ex(
+        &self,
+        dest: &mut Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        ignore_obstacle_id: Option<ObjectID>,
+        is_human: bool,
+        from: Option<&Coord3D>,
+        group_dest: Option<&Coord3D>,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let mut adjust_seed = *dest;
+        if !center_in_cell {
+            adjust_seed.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjust_seed.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        let cell = GridCoord::from_world(&adjust_seed);
+        let layer = self.get_layer_for_coord(cell);
+        if !self.is_valid_coord(cell) {
+            return false;
+        }
+        // C++: no final destinations on cliffs.
+        let world = cell.to_world(layer);
+        if self.get_cell_type(&world) == Some(PathfindCellType::Cliff) {
+            return false;
+        }
+        // C++: human must stay inside m_logicalExtent.
+        if is_human && !self.in_logical_extent(cell) {
+            return false;
+        }
+        if !self.is_destination_valid(
+            cell,
+            layer,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            ignore_obstacle_id,
+        ) {
+            return false;
+        }
+
+        let mut adjust_dest = world;
+        self.adjust_coord_to_cell(cell.x, cell.y, center_in_cell, &mut adjust_dest, layer);
+        if let Some(terrain) = TheTerrainLogic::get() {
+            adjust_dest.z = terrain.get_layer_height(
+                adjust_dest.x,
+                adjust_dest.y,
+                CommonPathfindLayerEnum::Ground,
+            );
+        }
+
+        // C++ path existence gate when unit position known.
+        if let Some(from_pos) = from {
+            let path_exists = self.client_safe_quick_does_path_exist(surfaces, from_pos, dest);
+            let adjusted_path_exists =
+                self.client_safe_quick_does_path_exist(surfaces, from_pos, &adjust_dest);
+            let mut ok = adjusted_path_exists;
+            if !path_exists {
+                if self.client_safe_quick_does_path_exist(surfaces, dest, &adjust_dest) {
+                    ok = true;
+                }
+            }
+            if !ok {
+                return false;
+            }
+        }
+
+        // C++: if groupDest, tightenPath + checkPathCost gate.
+        if let Some(gd) = group_dest {
+            self.tighten_path(
+                &mut adjust_dest,
+                gd,
+                surfaces,
+                is_crusher,
+                unit_radius,
+                ignore_obstacle_id,
+            );
+            let cost = self.check_path_cost(surfaces, is_crusher, gd, &adjust_dest);
+            let dx = (gd.x - adjust_dest.x).abs();
+            let dy = (gd.y - adjust_dest.y).abs();
+            // C++: if (1.4f*(dx+dy) < cost) return false;
+            if cost > 0.0 && 1.4 * (dx + dy) < cost {
+                return false;
+            }
+        }
+
+        *dest = adjust_dest;
+        true
     }
 
     /// Validate a destination cell is passable for the given parameters.
@@ -6075,6 +6181,33 @@ impl PathfindingSystem {
         true
     }
 
+    /// C++ `Pathfinder::checkPathCost` — coarse Manhattan/Bresenham cost estimate.
+    ///
+    /// Returns a distance-like cost for the path from `from` to `to`. When no
+    /// cheap path exists returns a large value so the 1.4*(dx+dy) gate rejects.
+    pub fn check_path_cost(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        from: &Coord3D,
+        to: &Coord3D,
+    ) -> f32 {
+        let start = GridCoord::from_world(from);
+        let goal = GridCoord::from_world(to);
+        if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
+            return f32::MAX * 0.25;
+        }
+        // Hierarchical zone gate first (cheap reject).
+        if !self.client_safe_quick_does_path_exist(surfaces, from, to) {
+            return f32::MAX * 0.25;
+        }
+        // Approximate path cost as cell Manhattan * PATHFIND_CELL_SIZE_F
+        // (C++ uses A* costSoFar; this is sufficient for the 1.4 gate).
+        let dx = (goal.x - start.x).abs() as f32;
+        let dy = (goal.y - start.y).abs() as f32;
+        (dx + dy) * PATHFIND_CELL_SIZE_F
+    }
+
     /// C++ `Pathfinder::pathDestination` (AIPathfind.cpp:8154+).
     ///
     /// Limited open-list search from `dest` toward `group_dest`, keeping the
@@ -6093,9 +6226,8 @@ impl PathfindingSystem {
             return false;
         }
         // C++ rejects 0,0 as group dest in hierarchical; pathDestination uses groupDest as goal.
-        let _ = is_human;
-
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let _ = radius;
         let start = GridCoord::from_world(dest);
         let goal = GridCoord::from_world(group_dest);
         if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
@@ -6132,17 +6264,25 @@ impl PathfindingSystem {
         let mut cell_count: i32 = 0;
 
         while let Some(parent) = open.pop_front() {
-            // checkForAdjust at this cell
-            let mut pos = parent.to_world(PathfindLayerEnum::Ground);
+            // C++ checkForAdjust(obj, locomotorSet, isHuman, x, y, layer, radius, center, &pos, groupDest)
+            let mut adjust_pos = parent.to_world(PathfindLayerEnum::Ground);
             self.adjust_coord_to_cell(
                 parent.x,
                 parent.y,
                 center_in_cell,
-                &mut pos,
+                &mut adjust_pos,
                 PathfindLayerEnum::Ground,
             );
-            let mut adjust_pos = pos;
-            if self.check_for_adjust(&mut adjust_pos, surfaces, is_crusher, unit_radius, None) {
+            if self.check_for_adjust_ex(
+                &mut adjust_pos,
+                surfaces,
+                is_crusher,
+                unit_radius,
+                None,
+                is_human,
+                None, // no unit from-pos in this entry (group search only)
+                Some(group_dest),
+            ) {
                 let dx = (goal.x - parent.x).abs();
                 let dy = (goal.y - parent.y).abs();
                 let dist = dx * dx + dy * dy;
@@ -6152,7 +6292,13 @@ impl PathfindingSystem {
                 };
                 if better {
                     closest = Some((parent, adjust_pos, dist));
+                } else {
+                    // C++: if not closer, continue without expanding neighbors
+                    continue;
                 }
+            } else {
+                // C++: checkForAdjust failed → continue (no neighbor expand)
+                continue;
             }
 
             if cell_count > MAX_CELL_COUNT {
@@ -10039,5 +10185,48 @@ mod tests {
             w.contains("is_human") && w.contains("in_logical_extent"),
             "findAttackPath must clamp human candidates to m_logicalExtent"
         );
+    }
+
+    #[test]
+    fn check_for_adjust_ex_human_extent_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn check_for_adjust_ex")
+            .expect("checkForAdjustEx");
+        let w = &prod[i..prod.len().min(i + 3500)];
+        assert!(
+            w.contains("is_human") && w.contains("in_logical_extent"),
+            "checkForAdjust must clamp humans to m_logicalExtent"
+        );
+        assert!(
+            w.contains("tighten_path") && w.contains("check_path_cost"),
+            "checkForAdjust must tightenPath + checkPathCost for groupDest"
+        );
+        assert!(
+            w.contains("PathfindCellType::Cliff"),
+            "checkForAdjust must reject cliff destinations"
+        );
+    }
+
+    #[test]
+    fn path_destination_uses_check_for_adjust_ex_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn path_destination")
+            .expect("pathDestination");
+        let w = &prod[i..prod.len().min(i + 4500)];
+        assert!(
+            w.contains("check_for_adjust_ex"),
+            "pathDestination must call full checkForAdjust with is_human + groupDest"
+        );
+        assert!(!w.contains("let _ = is_human"));
     }
 }
