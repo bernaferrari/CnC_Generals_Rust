@@ -2675,17 +2675,27 @@ mod tests {
     #[test]
     fn find_broken_bridge_on_pathfinder_cpp_surface() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
-        let i = src
+        let prod = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production before tests");
+        let i = prod
             .find("pub fn find_broken_bridge")
             .expect("find_broken_bridge");
-        let w = &src[i..src.len().min(i + 3500)];
+        let end = prod[i..]
+            .find(
+                "
+    pub fn ",
+            )
+            .map(|o| i + o)
+            .unwrap_or(prod.len().min(i + 2500));
+        let w = &prod[i..end];
         assert!(
-            w.contains("client_safe_quick_does_path_exist")
-                && w.contains("find_broken_bridge_layer")
-                && w.contains("get_first_bridge")
-                && w.contains("is_point_on_bridge")
-                && w.contains("BodyDamageType::Rubble"),
-            "findBrokenBridge must zone-connect, then destroyed layers, then terrain residual"
+            w.contains("find_broken_bridge_layer")
+                && !w.contains("get_first_bridge")
+                && !w.contains("is_point_on_bridge")
+                && !w.contains("client_safe_quick_does_path_exist"),
+            "findBrokenBridge must use destroyed pathfind layers only like C++"
         );
     }
 
