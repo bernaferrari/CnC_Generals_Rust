@@ -1585,6 +1585,41 @@ pub fn radius_damage_affects_victim(
 ///
 /// Fail-closed: impulse residual on splash victims only — not full PhysicsBehavior
 /// / ground-scrape matrix.
+/// C++ Object::attemptDamage shockwave force residual.
+///
+/// `vector` is impact→victim; amount/radius/taper from Weapon.ini.
+/// Returns None when no impulse (amount/radius empty or out of radius).
+pub fn compute_shock_wave_force(
+    impact: glam::Vec3,
+    victim_pos: glam::Vec3,
+    amount: f32,
+    radius: f32,
+    taper_off: f32,
+) -> Option<glam::Vec3> {
+    if amount <= 0.0 || radius <= 0.0 {
+        return None;
+    }
+    let mut v = victim_pos - impact;
+    v.y = 0.0; // ground-plane residual
+    let dist = (v.x * v.x + v.z * v.z).sqrt();
+    if dist > radius + 1e-3 {
+        return None;
+    }
+    if dist < 1e-4 {
+        // On top of epicenter: pure up residual.
+        return Some(glam::Vec3::new(0.0, amount, 0.0));
+    }
+    let distance_from_center = (dist / radius).min(1.0);
+    let taper = taper_off.clamp(0.0, 1.0);
+    let distance_taper = distance_from_center * (1.0 - taper);
+    let shock_taper_mult = 1.0 - distance_taper;
+    let dir = glam::Vec3::new(v.x / dist, 0.0, v.z / dist);
+    let mut force = dir * (amount * shock_taper_mult);
+    // C++: z = length of lateral force for dramatic lift.
+    force.y = force.length();
+    Some(force)
+}
+
 pub fn host_shock_wave_amount_for_weapon_name(name: &str) -> f32 {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
@@ -5436,5 +5471,27 @@ mod tests {
         );
         // Zero hit radius floor is 1.0; still can hit if offset tiny.
         let _ = scatter_seed_for_shot(1, 2, 3);
+    }
+
+    #[test]
+    fn shock_wave_force_tapers_with_distance() {
+        let impact = glam::Vec3::ZERO;
+        let near =
+            compute_shock_wave_force(impact, glam::Vec3::new(10.0, 0.0, 0.0), 100.0, 100.0, 0.75)
+                .expect("near");
+        let far =
+            compute_shock_wave_force(impact, glam::Vec3::new(90.0, 0.0, 0.0), 100.0, 100.0, 0.75)
+                .expect("far");
+        assert!(near.length() > far.length(), "near {near:?} far {far:?}");
+        assert!(near.x > 0.0);
+        assert!(near.y > 0.0, "up force");
+        assert!(compute_shock_wave_force(
+            impact,
+            glam::Vec3::new(200.0, 0.0, 0.0),
+            100.0,
+            100.0,
+            0.75,
+        )
+        .is_none());
     }
 }
