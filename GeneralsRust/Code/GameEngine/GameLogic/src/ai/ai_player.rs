@@ -1555,8 +1555,15 @@ impl AIPlayer {
         }
     }
 
-    /// Select skill set for this AI
+    /// C++ `AIPlayer::selectSkillset` — assign skillset; warn if already chosen.
     pub fn select_skillset(&mut self, skillset: i32) {
+        if self.skillset_selector != INVALID_SKILLSET_SELECTION {
+            log::debug!(
+                "Selecting a skill set ({}) after one has already been chosen ({}) means some points have been incorrectly spent.",
+                skillset + 1,
+                self.skillset_selector + 1
+            );
+        }
         self.skillset_selector = skillset;
     }
 
@@ -5944,7 +5951,10 @@ impl AIPlayer {
         let player_index = player_guard.get_player_index() as u32;
 
         // Collect first actionable missing buildable entry (name, location, angle).
+        // Also collect under-construction buildings needing dozer resume (C++).
         let mut to_build: Option<(String, Coord3D, Real)> = None;
+        let mut resume_jobs: Vec<(ObjectID, ObjectID, Coord3D)> = Vec::new();
+        // (bldg_id, builder_id_or_INVALID, bldg_pos)
         let mut info_opt = player_guard.get_build_list_mut();
         while let Some(info) = info_opt {
             let name = info.get_template_name();
@@ -5959,7 +5969,17 @@ impl AIPlayer {
                     Some(obj_arc) => {
                         if let Ok(obj_guard) = obj_arc.read() {
                             if obj_guard.get_controlling_player_id() == Some(player_index) {
-                                // Existing owned building — C++ dozer resume residual later.
+                                // Owned: if under construction, ensure dozer resumes (C++).
+                                let under = obj_guard
+                                    .test_status(ObjectStatusTypes::UnderConstruction)
+                                    || obj_guard.is_under_construction();
+                                if under {
+                                    resume_jobs.push((
+                                        obj_id,
+                                        obj_guard.get_builder_id(),
+                                        *obj_guard.get_position(),
+                                    ));
+                                }
                                 info_opt = info.get_next_mut();
                                 continue;
                             }
@@ -6051,6 +6071,51 @@ impl AIPlayer {
             info_opt = info.get_next_mut();
         }
         drop(player_guard);
+
+        // C++: for each UC building, aiResumeConstruction on builder or findDozer.
+        for (bldg_id, builder_id, bldg_pos) in resume_jobs {
+            let mut dozer_id = builder_id;
+            let mut builder_ok = false;
+            if dozer_id != INVALID_ID {
+                if let Some(darc) = OBJECT_REGISTRY.get_object(dozer_id) {
+                    if let Ok(dg) = darc.read() {
+                        if dg.get_controlling_player_id() == Some(player_index)
+                            && dg.get_ai_update_interface().is_some()
+                        {
+                            builder_ok = true;
+                        }
+                    }
+                }
+            }
+            if !builder_ok {
+                log::debug!("AI's Dozer got killed.  Find another dozer.");
+                // C++ solo does not queueDozer here (skirmish does).
+                dozer_id = self.find_dozer(&bldg_pos)?.unwrap_or(INVALID_ID);
+                if dozer_id == INVALID_ID {
+                    continue;
+                }
+                // Clear dead builder on building.
+                if let Some(barc) = OBJECT_REGISTRY.get_object(bldg_id) {
+                    if let Ok(mut bg) = barc.write() {
+                        bg.set_builder(None);
+                    }
+                }
+            }
+            if let Some(darc) = OBJECT_REGISTRY.get_object(dozer_id) {
+                if let Ok(dg) = darc.read() {
+                    if let Some(ai) = dg.get_ai_update_interface() {
+                        if let Ok(mut ai_g) = ai.lock() {
+                            let mut params = crate::ai::AiCommandParams::new(
+                                crate::ai::AiCommandType::ResumeConstruction,
+                                CommandSourceType::FromAi,
+                            );
+                            params.obj = Some(bldg_id);
+                            let _ = ai_g.execute_command(&params);
+                        }
+                    }
+                }
+            }
+        }
 
         if let Some((name, location, angle)) = to_build {
             // C++ USE_DOZER: buildStructureWithDozer; NULL → no timer arm.
@@ -7736,15 +7801,18 @@ mod tests {
     #[test]
     fn process_base_building_source_has_cpp_rebuild_and_timer_arm() {
         let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
-        let i = src.find("fn process_base_building").expect("pbb");
-        let window = &src[i..src.len().min(i + 6500)];
+        let i = src
+            .find("fn process_base_building(&mut self) -> Result<(), AiError>")
+            .expect("pbb");
+        let window = &src[i..src.len().min(i + 16000)];
         assert!(
             window.contains("rebuild_delay_frames")
                 && window.contains("set_object_timestamp")
                 && window.contains("arm_structure_timer_after_build")
                 && window.contains("build_structure_with_dozer")
-                && window.contains("only one building per delay loop"),
-            "process_base_building must port C++ rebuild delay + dozer build + timer arm"
+                && window.contains("only one building per delay loop")
+                && window.contains("ResumeConstruction"),
+            "process_base_building must port C++ rebuild delay + dozer resume + timer arm"
         );
     }
 
@@ -8012,6 +8080,21 @@ mod tests {
                 && window.contains("120.0 * PATHFIND_CELL_SIZE_F")
                 && !window.contains("let _ = self.queue_dozer()"),
             "buildStructureWithDozer must validate placement, skirmish wiggle, no double queueDozer"
+        );
+    }
+
+    #[test]
+    fn process_base_building_resumes_dozer_like_cpp() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let i = src
+            .find("fn process_base_building(&mut self)")
+            .expect("pbb");
+        let window = &src[i..src.len().min(i + 14000)];
+        assert!(
+            window.contains("ResumeConstruction")
+                && window.contains("resume_jobs")
+                && window.contains("AI's Dozer got killed"),
+            "solo processBaseBuilding must resume construction on UC buildings"
         );
     }
 
