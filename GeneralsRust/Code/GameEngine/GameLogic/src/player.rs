@@ -2175,6 +2175,14 @@ impl Player {
         let _ = producer; // Mark as used for future implementation
     }
 
+    /// Called when a structure is undone (e.g. AI rebuild clears old CC).
+    /// Matches C++ Player::onStructureUndone — scoreKeeper.removeObjectBuilt only.
+    pub fn on_structure_undone(&mut self, structure: &Arc<RwLock<Object>>) {
+        if let Ok(guard) = structure.read() {
+            self.score_keeper.remove_object_built_obj(&*guard);
+        }
+    }
+
     /// Called when a structure under construction is completed.
     /// Matches C++ Player::onStructureConstructionComplete.
     pub fn on_structure_construction_complete(
