@@ -27,6 +27,8 @@ use std::sync::{Arc, Mutex};
 pub const PATHFIND_QUEUE_LEN: usize = 512;
 
 /// C++ PATHFIND_CELLS_PER_FRAME — max cells examined per processPathfindQueue call.
+/// C++ LAYER_Z_CLOSE_ENOUGH_F (AIPathfind.h).
+pub const LAYER_Z_CLOSE_ENOUGH_F: f32 = 10.0;
 pub const PATHFIND_CELLS_PER_FRAME: usize = 500;
 /// C++ MAX_WALL_PIECES (AIPathfind.h).
 pub const MAX_WALL_PIECES: usize = 128;
@@ -2153,10 +2155,12 @@ impl PathfindingSystem {
         let layer_id = self.bridges.len() as u32 + 2; // Start from 2 (Ground=1)
         let mut layer =
             BridgeLayer::with_meta(layer_id, bounds, bridge_object_id, start_cell, end_cell);
-        // Approximate classifyCells entry points: cells on the bridge end rows
-        // (lo.y and hi.y spans) — C++ marks isCellEntryPoint at bridge ends.
+        // C++ classifyCells entry points: bridge ends + edge spans (isCellEntryPoint).
         layer.set_ground_connect_cells(Self::bridge_entry_cells(bounds, start_cell, end_cell));
         self.bridges.push(layer);
+        let idx = self.bridges.len() - 1;
+        self.classify_bridge_cells(idx);
+        // Soften residual comment: entry cells now from bridge_entry_cells + classify.
         layer_id
     }
 
@@ -3738,7 +3742,7 @@ impl PathfindingSystem {
         hi_x: f32,
         hi_y: f32,
     ) -> bool {
-        // Liang-Barsky / Cohen–Sutherland residual: any endpoint inside or segment crosses.
+        // Liang-Barsky clip: any endpoint inside or segment crosses AABB.
         let inside = |x: f32, y: f32| x >= lo_x && x <= hi_x && y >= lo_y && y <= hi_y;
         if inside(start.x, start.y) || inside(end.x, end.y) {
             return true;
@@ -7308,45 +7312,104 @@ impl PathfindingSystem {
         }
     }
 
+    /// C++ PathfindLayer::classifyMapCell bridge clearance (AIPathfind.cpp:3711+).
+    ///
+    /// For each cell in bridge bounds: if ground height + LAYER_Z_CLOSE_ENOUGH_F
+    /// exceeds bridge deck height, mark ground cell BridgeImpassable (unless
+    /// already Obstacle). Entry-point cells keep Clear + connect-layer stamps.
+    pub fn classify_bridge_cells(&self, bridge_idx: usize) {
+        let Some(bridge) = self.bridges.get(bridge_idx) else {
+            return;
+        };
+        if bridge.destroyed {
+            return;
+        }
+        let lo = bridge.bounds.0;
+        let hi = bridge.bounds.1;
+        let deck_z = {
+            let sx = (bridge.start_cell.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            let sy = (bridge.start_cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            let ex = (bridge.end_cell.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            let ey = (bridge.end_cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            if let Some(terrain) = TheTerrainLogic::get() {
+                let zs = terrain.get_layer_height(sx, sy, CommonPathfindLayerEnum::Ground);
+                let ze = terrain.get_layer_height(ex, ey, CommonPathfindLayerEnum::Ground);
+                zs.max(ze) + PATHFIND_CELL_SIZE_F
+            } else {
+                PATHFIND_CELL_SIZE_F * 2.0
+            }
+        };
+
+        let Ok(mut pathfinder) = self.pathfinder.lock() else {
+            return;
+        };
+        for bx in lo.x..=hi.x {
+            for by in lo.y..=hi.y {
+                let coord = GridCoord::new(bx, by);
+                if !self.is_valid_coord(coord) {
+                    continue;
+                }
+                let is_entry = bridge
+                    .ground_connect_cells
+                    .iter()
+                    .any(|c| c.x == bx && c.y == by)
+                    || (bridge.start_cell.x == bx && bridge.start_cell.y == by)
+                    || (bridge.end_cell.x == bx && bridge.end_cell.y == by);
+                if is_entry {
+                    if pathfinder.get_cell_type(coord) != Some(PathfindCellType::Obstacle) {
+                        pathfinder.set_cell_type(coord, PathfindCellType::Clear);
+                    }
+                    continue;
+                }
+                let cx = (bx as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+                let cy = (by as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+                let ground_z = if let Some(terrain) = TheTerrainLogic::get() {
+                    terrain.get_layer_height(cx, cy, CommonPathfindLayerEnum::Ground)
+                } else {
+                    0.0
+                };
+                if ground_z + LAYER_Z_CLOSE_ENOUGH_F > deck_z {
+                    if pathfinder.get_cell_type(coord) != Some(PathfindCellType::Obstacle) {
+                        pathfinder.set_cell_type(coord, PathfindCellType::BridgeImpassable);
+                    }
+                }
+            }
+        }
+    }
+
     /// Change bridge state on the pathfind map.
     /// Matches C++ PathfindLayer::setDestroyed() at AIPathfind.cpp:3589-3597.
     ///
     /// When destroyed, all bridge cells become BridgeImpassable and the
     /// ground layer is disconnected from the bridge layer.
     pub fn change_bridge_state(&mut self, x: i32, y: i32, destroyed: bool) {
-        // Find a bridge that contains this cell
         let coord = GridCoord::new(x, y);
-        for bridge in &mut self.bridges {
-            if bridge.contains(coord) {
-                bridge.destroyed = destroyed;
-                // Re-classify cells within bridge bounds
-                let lo = bridge.bounds.0;
-                let hi = bridge.bounds.1;
-                if destroyed {
-                    // Mark bridge cells as impassable
-                    if let Ok(mut pathfinder) = self.pathfinder.lock() {
-                        for bx in lo.x..=hi.x {
-                            for by in lo.y..=hi.y {
-                                pathfinder.set_cell_type(
-                                    GridCoord::new(bx, by),
-                                    PathfindCellType::BridgeImpassable,
-                                );
-                            }
-                        }
-                    }
-                } else {
-                    // Restore bridge cells based on terrain classification
-                    for bx in lo.x..=hi.x {
-                        for by in lo.y..=hi.y {
-                            self.classify_map_cell(bx, by);
-                        }
+        let Some(idx) = self.bridges.iter().position(|b| b.contains(coord)) else {
+            return;
+        };
+        self.bridges[idx].destroyed = destroyed;
+        let lo = self.bridges[idx].bounds.0;
+        let hi = self.bridges[idx].bounds.1;
+        if destroyed {
+            if let Ok(mut pathfinder) = self.pathfinder.lock() {
+                for bx in lo.x..=hi.x {
+                    for by in lo.y..=hi.y {
+                        pathfinder.set_cell_type(
+                            GridCoord::new(bx, by),
+                            PathfindCellType::BridgeImpassable,
+                        );
                     }
                 }
-                // Invalidate cache since map changed
-                self.clear_cache();
-                break;
             }
+        } else {
+            for bx in lo.x..=hi.x {
+                for by in lo.y..=hi.y {
+                    self.classify_map_cell(bx, by);
+                }
+            }
+            self.classify_bridge_cells(idx);
         }
+        self.clear_cache();
     }
 
     /// Get the width of the pathfinding grid.
@@ -11320,5 +11383,38 @@ mod tests {
         assert!(r.is_some(), "hierarchical should connect open ground");
         let path = r.unwrap();
         assert!(path.success && path.waypoints.len() >= 2);
+    }
+
+    #[test]
+    fn classify_bridge_cells_cpp_surface() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(prod.contains("LAYER_Z_CLOSE_ENOUGH_F"));
+        let i = prod
+            .find("pub fn classify_bridge_cells")
+            .expect("classify_bridge_cells");
+        let w = &prod[i..prod.len().min(i + 2500)];
+        assert!(
+            w.contains("BridgeImpassable")
+                && w.contains("LAYER_Z_CLOSE_ENOUGH_F")
+                && w.contains("ground_connect_cells"),
+            "bridge classify must apply clearance + entry Clear"
+        );
+    }
+
+    #[test]
+    fn add_bridge_runs_classify_clearance() {
+        let mut system = PathfindingSystem::new(32, 32);
+        system.new_map();
+        let lo = GridCoord::new(5, 5);
+        let hi = GridCoord::new(10, 8);
+        let _id = system.add_bridge_ex((lo, hi), INVALID_ID, lo, hi);
+        // Without terrain, deck_z = 2*cell; ground 0 → 0+10 > 20? false, so no impassable.
+        // Entry cells should be Clear.
+        let pf = system.pathfinder.lock().unwrap();
+        assert_eq!(pf.get_cell_type(lo), Some(PathfindCellType::Clear));
     }
 }
