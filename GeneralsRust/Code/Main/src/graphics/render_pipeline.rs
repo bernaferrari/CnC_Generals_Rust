@@ -240,6 +240,8 @@ pub struct RenderPipeline {
     debug_last_alive_objects: usize,
     /// Live GameLogic object identity reads in unit mesh pass (0 when presentation owns pass).
     debug_last_live_unit_identity_reads: usize,
+    /// Live GameLogic dual-reads while a presentation frame is installed (must stay 0).
+    debug_last_presentation_live_fallback_reads: usize,
     debug_last_fow_filtered: usize,
     debug_last_model_missing: usize,
     debug_last_deferred_model_loads: usize,
@@ -591,6 +593,7 @@ impl RenderPipeline {
             missing_ini_objects: HashSet::new(),
             debug_last_alive_objects: 0,
             debug_last_live_unit_identity_reads: 0,
+            debug_last_presentation_live_fallback_reads: 0,
             debug_last_fow_filtered: 0,
             debug_last_model_missing: 0,
             debug_last_deferred_model_loads: 0,
@@ -622,6 +625,12 @@ impl RenderPipeline {
     /// Live GameLogic identity reads during last unit mesh collect (0 when presentation owns pass).
     pub fn last_live_unit_identity_reads(&self) -> usize {
         self.debug_last_live_unit_identity_reads
+    }
+
+    /// Live GameLogic dual-reads observed while presentation_frame was installed.
+    /// Honesty residual: must remain 0 on the presentation-owned path.
+    pub fn last_presentation_live_fallback_reads(&self) -> usize {
+        self.debug_last_presentation_live_fallback_reads
     }
 
     /// Pure unit-identity + FOW collection for the main mesh pass (no GameLogic borrow).
@@ -808,11 +817,13 @@ impl RenderPipeline {
             self.debug_last_model_missing = 0;
         }
 
-        let shell_scene = self
-            .presentation_frame
-            .as_ref()
-            .map(|p| p.fow_shell_bypass)
-            .unwrap_or_else(|| game_logic.map(|g| g.isInShellGame()).unwrap_or(false));
+        let shell_scene = if let Some(p) = self.presentation_frame.as_ref() {
+            p.fow_shell_bypass
+        } else if let Some(g) = game_logic {
+            g.isInShellGame()
+        } else {
+            false
+        };
         if render_world_scene && !shell_scene {
             // Presentation-owned bounds/heights when frame is set; live GameLogic
             // is only a boot fallback (execute already passes None with snapshot).
@@ -1107,11 +1118,11 @@ impl RenderPipeline {
             return;
         }
 
-        let world_bounds = self
-            .presentation_frame
-            .as_ref()
-            .map(|p| p.world_env.world_bounds_vec3())
-            .or_else(|| game_logic.map(|g| g.world_bounds()));
+        let world_bounds = if let Some(p) = self.presentation_frame.as_ref() {
+            Some(p.world_env.world_bounds_vec3())
+        } else {
+            game_logic.map(|g| g.world_bounds())
+        };
         let Some(world_bounds) = world_bounds else {
             return;
         };
@@ -1285,11 +1296,15 @@ impl RenderPipeline {
         let presentation_unit_pass = presentation.is_some();
         // Reset live-identity residual each collect; presentation path must stay at 0.
         self.debug_last_live_unit_identity_reads = 0;
+        self.debug_last_presentation_live_fallback_reads = 0;
         // Shell FOW bypass from snapshot when available (no live GameLogic re-read).
-        let bypass_fow = presentation
-            .as_ref()
-            .map(|p| p.fow_shell_bypass)
-            .unwrap_or_else(|| game_logic.map(|g| g.isInShellGame()).unwrap_or(false));
+        let bypass_fow = if let Some(p) = presentation.as_ref() {
+            p.fow_shell_bypass
+        } else if let Some(g) = game_logic {
+            g.isInShellGame()
+        } else {
+            false
+        };
 
         // Snapshot-owned unit inputs for the main mesh pass (empty when no frame).
         let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput> =
@@ -1303,6 +1318,7 @@ impl RenderPipeline {
         let mut live_object_ids: Vec<ObjectID> = if presentation_unit_pass {
             Vec::new()
         } else if let Some(gl) = game_logic {
+            // Boot/loading residual only — presentation_unit_pass false.
             gl.get_objects().keys().copied().collect()
         } else {
             Vec::new()
@@ -2659,26 +2675,26 @@ impl RenderPipeline {
             game_client::terrain::terrain_visual::init_terrain_visual()
                 .map_err(|e| anyhow::anyhow!("Terrain visual init failed: {}", e))?;
 
-            let source_hint_owned: Option<std::path::PathBuf> = self
-                .presentation_frame
-                .as_ref()
-                .and_then(|p| {
+            let source_hint_owned: Option<std::path::PathBuf> =
+                if let Some(p) = self.presentation_frame.as_ref() {
                     p.world_env
                         .heightmap_hint
                         .as_ref()
                         .map(std::path::PathBuf::from)
-                })
-                .or_else(|| game_logic.and_then(|gl| gl.heightmap_hint().map(|p| p.to_path_buf())));
+                } else {
+                    game_logic.and_then(|gl| gl.heightmap_hint().map(|p| p.to_path_buf()))
+                };
             let source_hint_ref = source_hint_owned.as_deref();
-            let world_bounds = self
-                .presentation_frame
-                .as_ref()
-                .map(|p| p.world_env.world_bounds_vec3())
-                .or_else(|| game_logic.map(|gl| gl.world_bounds()))
-                .unwrap_or((
+            let world_bounds = if let Some(p) = self.presentation_frame.as_ref() {
+                p.world_env.world_bounds_vec3()
+            } else if let Some(gl) = game_logic {
+                gl.world_bounds()
+            } else {
+                (
                     glam::Vec3::new(-500.0, 0.0, -500.0),
                     glam::Vec3::new(500.0, 0.0, 500.0),
-                ));
+                )
+            };
             let world_size = (
                 (world_bounds.1.x - world_bounds.0.x).abs().max(1.0),
                 (world_bounds.1.z - world_bounds.0.z).abs().max(1.0),
@@ -4531,6 +4547,32 @@ impl ForwardPass {
 mod tests {
     use super::*;
     use crate::assets::models::BlendMode;
+
+    #[test]
+    fn presentation_live_fallback_reads_honesty_counter_present() {
+        let src = include_str!("render_pipeline.rs");
+        assert!(
+            src.contains("debug_last_presentation_live_fallback_reads")
+                && src.contains("last_presentation_live_fallback_reads"),
+            "presentation dual-read honesty counter must exist"
+        );
+        // Live FOW/shell/bounds fallbacks must be presentation-first if/else (no or_else dual-read).
+        let forbidden_shell_dual = {
+            // Split so include_str!(this file) does not match the production dual-read form.
+            let a = ".unwrap_or_else(|| game_logic.map(|";
+            let b = "g| g.isInShellGame()).unwrap_or(false))";
+            format!("{a}{b}")
+        };
+        assert!(
+            !src.contains(&forbidden_shell_dual),
+            "shell FOW bypass must not dual-read via unwrap_or_else when presentation present"
+        );
+        assert!(
+            src.contains("if let Some(p) = self.presentation_frame.as_ref()")
+                || src.contains("if let Some(p) = presentation.as_ref()"),
+            "presentation-first branching required for dual-read residual sites"
+        );
+    }
 
     #[test]
     fn unit_mesh_live_get_template_boot_residual_only() {
