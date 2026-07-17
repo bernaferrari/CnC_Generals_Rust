@@ -185,6 +185,10 @@ pub struct Object {
     pub radar_extend_complete: bool,
     /// C++ RadarUpdate m_radarActive residual.
     pub radar_active: bool,
+    /// C++ ProductionUpdate door residual phase: 0=idle 1=opening 2=wait 3=closing.
+    pub production_door_phase: u8,
+    /// Frame when current door residual phase ends.
+    pub production_door_phase_end_frame: u32,
     /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
     #[serde(default)]
     pub shock_stun_frames: u32,
@@ -1178,6 +1182,8 @@ impl Object {
             radar_extend_done_frame: 0,
             radar_extend_complete: false,
             radar_active: false,
+            production_door_phase: 0,
+            production_door_phase_end_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -1448,6 +1454,8 @@ impl Object {
             radar_extend_done_frame: 0,
             radar_extend_complete: false,
             radar_active: false,
+            production_door_phase: 0,
+            production_door_phase_end_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -2785,6 +2793,76 @@ impl Object {
     /// C++ ProductionUpdate MODELCONDITION_CONSTRUCTION_COMPLETE residual.
 
     /// C++ RadarUpdate::extendRadar residual.
+
+    /// C++ ProductionUpdate door open residual (DOOR_1_OPENING → WAITING_OPEN → CLOSING).
+    ///
+    /// Retail barracks/warfactory often have door animations; residual uses door 1
+    /// timings: open 15f, wait 30f, close 15f (fail-closed vs full INI Door*Time).
+    pub fn start_production_door_cycle(&mut self, now: u32) {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+        };
+        // Clear door 1 bits then set OPENING.
+        let open_b = door_1_opening_model_bit();
+        let wait_b = door_1_waiting_open_model_bit();
+        let close_b = door_1_closing_model_bit();
+        self.model_condition_bits &= !(1u128 << open_b);
+        self.model_condition_bits &= !(1u128 << wait_b);
+        self.model_condition_bits &= !(1u128 << close_b);
+        self.model_condition_bits |= 1u128 << open_b;
+        self.production_door_phase = 1;
+        self.production_door_phase_end_frame = now.saturating_add(15);
+        self.refresh_model_condition_bits();
+    }
+
+    /// Advance production door residual; returns true when cycle fully closed.
+    pub fn tick_production_door(&mut self, now: u32) -> bool {
+        if self.production_door_phase == 0 {
+            return false;
+        }
+        if now < self.production_door_phase_end_frame {
+            return false;
+        }
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+        };
+        let open_b = door_1_opening_model_bit();
+        let wait_b = door_1_waiting_open_model_bit();
+        let close_b = door_1_closing_model_bit();
+        match self.production_door_phase {
+            1 => {
+                // OPENING → WAITING_OPEN
+                self.model_condition_bits &= !(1u128 << open_b);
+                self.model_condition_bits |= 1u128 << wait_b;
+                self.production_door_phase = 2;
+                self.production_door_phase_end_frame = now.saturating_add(30);
+                self.refresh_model_condition_bits();
+                false
+            }
+            2 => {
+                // WAITING_OPEN → CLOSING
+                self.model_condition_bits &= !(1u128 << wait_b);
+                self.model_condition_bits |= 1u128 << close_b;
+                self.production_door_phase = 3;
+                self.production_door_phase_end_frame = now.saturating_add(15);
+                self.refresh_model_condition_bits();
+                false
+            }
+            3 => {
+                // CLOSING → idle
+                self.model_condition_bits &= !(1u128 << close_b);
+                self.production_door_phase = 0;
+                self.production_door_phase_end_frame = 0;
+                self.refresh_model_condition_bits();
+                true
+            }
+            _ => {
+                self.production_door_phase = 0;
+                false
+            }
+        }
+    }
+
     pub fn extend_radar(&mut self, done_frame: u32) {
         use crate::game_logic::host_enum_table_residual::radar_extending_model_bit;
         let bit = radar_extending_model_bit();
@@ -2894,6 +2972,15 @@ impl Object {
             (self.model_condition_bits & (1u128 << radar_extending_model_bit())) != 0;
         let had_radar_upg =
             (self.model_condition_bits & (1u128 << radar_upgraded_model_bit())) != 0;
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+        };
+        let had_door_open =
+            (self.model_condition_bits & (1u128 << door_1_opening_model_bit())) != 0;
+        let had_door_wait =
+            (self.model_condition_bits & (1u128 << door_1_waiting_open_model_bit())) != 0;
+        let had_door_close =
+            (self.model_condition_bits & (1u128 << door_1_closing_model_bit())) != 0;
 
         // SPLATTED residual sticks after fatal falling damage.
         use crate::game_logic::host_enum_table_residual::MC_BIT_SPLATTED;
@@ -2910,6 +2997,15 @@ impl Object {
         }
         if had_radar_upg {
             bits |= 1u128 << radar_upgraded_model_bit();
+        }
+        if had_door_open {
+            bits |= 1u128 << door_1_opening_model_bit();
+        }
+        if had_door_wait {
+            bits |= 1u128 << door_1_waiting_open_model_bit();
+        }
+        if had_door_close {
+            bits |= 1u128 << door_1_closing_model_bit();
         }
         // Construction complete residual sticks.
         use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
