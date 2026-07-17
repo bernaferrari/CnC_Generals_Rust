@@ -196,6 +196,8 @@ pub struct Object {
     pub sole_healing_benefactor: Option<ObjectId>,
     /// C++ Object::m_soleHealingBenefactorExpirationFrame residual.
     pub sole_healing_benefactor_expiration_frame: u32,
+    /// C++ DozerPrimaryIdleState m_idleTooLongTimestamp residual.
+    pub idle_since_frame: u32,
     /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
     #[serde(default)]
     pub shock_stun_frames: u32,
@@ -1194,6 +1196,7 @@ impl Object {
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
+            idle_since_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -1469,6 +1472,7 @@ impl Object {
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
+            idle_since_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
