@@ -727,6 +727,16 @@ impl<'a> CommandExecutor<'a> {
                 None => continue,
             };
 
+            // C++ BuildAssistant CLEAR_PATH residual before charging resources.
+            if !self.game_logic.is_location_legal_to_build_for_builder(
+                team,
+                location,
+                template_name,
+                Some(unit_id),
+            ) {
+                return CommandResult::InvalidLocation;
+            }
+
             {
                 let Some(player) = self.game_logic.get_player_mut_by_team(team) else {
                     continue;

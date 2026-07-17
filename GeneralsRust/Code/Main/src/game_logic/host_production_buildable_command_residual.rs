@@ -430,6 +430,27 @@ pub fn legal_build_code_from_checks_complete_residual(
     too_close_to_supplies: bool,
     too_close_to_map_edge: bool,
 ) -> u32 {
+    legal_build_code_from_checks_with_path_residual(
+        in_world_bounds,
+        shrouded,
+        not_flat_enough,
+        objects_in_the_way,
+        too_close_to_supplies,
+        too_close_to_map_edge,
+        false,
+    )
+}
+
+/// Complete residual mapper including CLEAR_PATH / LBC_NO_CLEAR_PATH.
+pub fn legal_build_code_from_checks_with_path_residual(
+    in_world_bounds: bool,
+    shrouded: bool,
+    not_flat_enough: bool,
+    objects_in_the_way: bool,
+    too_close_to_supplies: bool,
+    too_close_to_map_edge: bool,
+    no_clear_path: bool,
+) -> u32 {
     if !in_world_bounds {
         // C++ off-map → LBC_RESTRICTED_TERRAIN.
         return LBC_RESTRICTED_TERRAIN;
@@ -452,7 +473,16 @@ pub fn legal_build_code_from_checks_complete_residual(
     if too_close_to_supplies {
         return LBC_TOO_CLOSE_TO_SUPPLIES;
     }
+    // C++ CLEAR_PATH + isQuickPathAvailable residual.
+    if no_clear_path {
+        return LBC_NO_CLEAR_PATH;
+    }
     LBC_OK
+}
+
+/// True when builder has no AI / is immobile residual (skip CLEAR_PATH).
+pub fn builder_skips_clear_path_residual(is_immobile_or_missing: bool) -> bool {
+    is_immobile_or_missing
 }
 
 /// Sample residual footprint corners for height variation (simplified vs full iterateFootprint).
@@ -531,6 +561,11 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
             == LBC_NOT_FLAT_ENOUGH
         && (footprint_height_delta_residual(&[0.0, 5.0, 10.0]) - 10.0).abs() < 0.01
         && footprint_height_delta_residual(&[]) == 0.0
+        && legal_build_code_from_checks_with_path_residual(
+            true, false, false, false, false, false, true,
+        ) == LBC_NO_CLEAR_PATH
+        && builder_skips_clear_path_residual(true)
+        && !builder_skips_clear_path_residual(false)
         && min_dist_from_map_edge_residual((0.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 100.0
         && min_dist_from_map_edge_residual((90.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 10.0
         && legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(5.0, 0.0, 5.0)], 20.0)
