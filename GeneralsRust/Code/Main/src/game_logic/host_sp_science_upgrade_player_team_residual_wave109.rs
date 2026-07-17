@@ -550,8 +550,81 @@ pub const SCIENCE_STORE_TABLE_WAVE109: &[ScienceStoreResidualRowWave109] = &[
 ///
 /// Returns `None` when unknown (caller may default to 1 for SCIENCE_* names).
 /// Cost **0** means not purchasable (C++ residual).
+
+/// Normalize host/UI science tokens to retail SCIENCE_* residual names when known.
+pub fn normalize_science_name_residual(science_name: &str) -> String {
+    let raw = science_name.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    // Already a SCIENCE_ / faction-prefix science token.
+    let lower = raw.to_ascii_lowercase().replace('-', "_");
+    if lower.starts_with("science_")
+        || lower.starts_with("airf_science_")
+        || lower.starts_with("nuke_science_")
+        || lower.starts_with("early_science_")
+        || lower.starts_with("supw_science_")
+        || lower.starts_with("chem_science_")
+        || lower.starts_with("slth_science_")
+        || lower.starts_with("infa_science_")
+        || lower.starts_with("tank_science_")
+    {
+        // Preserve original casing style for SCIENCE_ tokens.
+        if raw.starts_with("SCIENCE_") || raw.contains("_SCIENCE_") {
+            return raw.to_string();
+        }
+        // Rebuild SCIENCE_ prefix from lower form when possible.
+        if lower.starts_with("science_") {
+            return format!(
+                "SCIENCE_{}",
+                &raw[raw.find('_').map(|i| i + 1).unwrap_or(0)..]
+            );
+        }
+        return raw.to_string();
+    }
+    // Compact command tokens residual (ControlBar / test aliases).
+    match lower.as_str() {
+        "a10strike1" | "a10_strike_1" | "a10thunderboltmissilestrike1" => {
+            "SCIENCE_A10ThunderboltMissileStrike1".into()
+        }
+        "a10strike2" | "a10_strike_2" => "SCIENCE_A10ThunderboltMissileStrike2".into(),
+        "a10strike3" | "a10_strike_3" => "SCIENCE_A10ThunderboltMissileStrike3".into(),
+        "daisycutter" | "daisy_cutter" => "SCIENCE_DaisyCutter".into(),
+        "spydrone" | "spy_drone" => "SCIENCE_SpyDrone".into(),
+        "cashbounty1" | "cash_bounty_1" | "cashbounty" => "SCIENCE_CashBounty1".into(),
+        "cashbounty2" | "cash_bounty_2" => "SCIENCE_CashBounty2".into(),
+        "cashbounty3" | "cash_bounty_3" => "SCIENCE_CashBounty3".into(),
+        "paladintank" | "paladin_tank" => "SCIENCE_PaladinTank".into(),
+        "clustermines" | "cluster_mines" => "SCIENCE_ClusterMines".into(),
+        "emergencyrepair1" | "emergency_repair_1" | "emergencyrepair" => {
+            "SCIENCE_EmergencyRepair1".into()
+        }
+        "paradrop1" | "paradrop" => "SCIENCE_Paradrop1".into(),
+        "spectregunship" | "spectre_gunship" => "SCIENCE_SpectreGunshipSolo".into(),
+        "fuelairbomb" | "fuel_air_bomb" | "moab" => "SCIENCE_DaisyCutter".into(), // MOAB upgrade path
+        other => {
+            // Title-case SCIENCE_Other residual.
+            let mut out = String::from("SCIENCE_");
+            let mut cap = true;
+            for ch in other.chars() {
+                if ch == '_' {
+                    out.push('_');
+                    cap = true;
+                } else if cap {
+                    out.extend(ch.to_uppercase());
+                    cap = false;
+                } else {
+                    out.push(ch);
+                }
+            }
+            out
+        }
+    }
+}
+
 pub fn science_purchase_point_cost_residual(science_name: &str) -> Option<i32> {
-    let name = science_name.trim();
+    let name_owned = normalize_science_name_residual(science_name);
+    let name = name_owned.as_str();
     if name.is_empty() {
         return None;
     }
@@ -600,6 +673,8 @@ pub fn science_prereqs_met_residual(
     unlocked: &std::collections::HashSet<String>,
     science_name: &str,
 ) -> bool {
+    let science_name = normalize_science_name_residual(science_name);
+    let science_name = science_name.as_str();
     let has = |req: &str| -> bool {
         if req.is_empty() {
             return true;
@@ -633,7 +708,8 @@ pub fn is_capable_of_purchasing_science_residual(
     science_purchase_points: i32,
     science_name: &str,
 ) -> bool {
-    let name = science_name.trim();
+    let name_owned = normalize_science_name_residual(science_name);
+    let name = name_owned.as_str();
     if name.is_empty() {
         return false;
     }
