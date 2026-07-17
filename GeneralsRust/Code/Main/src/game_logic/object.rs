@@ -138,6 +138,21 @@ pub struct Object {
     /// C++ AIUpdate m_ignoreCollisionsUntil frame residual (0 = inactive).
     #[serde(default)]
     pub ignore_collisions_until_frame: u32,
+    /// C++ AIUpdate m_isBlocked residual.
+    #[serde(default)]
+    pub is_blocked: bool,
+    /// C++ AIUpdate m_isBlockedAndStuck residual.
+    #[serde(default)]
+    pub is_blocked_and_stuck: bool,
+    /// C++ AIUpdate m_curMaxBlockedSpeed residual (world units / frame).
+    #[serde(default = "default_max_f32")]
+    pub cur_max_blocked_speed: f32,
+    /// C++ AIUpdate getNumFramesBlocked residual.
+    #[serde(default)]
+    pub num_frames_blocked: u32,
+    /// C++ AI panic state residual (AI_PANIC → bounce force allowed).
+    #[serde(default)]
+    pub is_panicking: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -594,6 +609,8 @@ pub const LOCO_SURFACE_WATER: u32 = 1 << 1;
 pub const LOCO_SURFACE_CLIFF: u32 = 1 << 2;
 pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
 pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
+/// C++ PATHFIND_CELL_SIZE_F residual (world units).
+pub const PATHFIND_CELL_SIZE_F_RESIDUAL: f32 = 10.0;
 /// C++ PhysicsBehavior isVerySmall3D residual threshold.
 pub const VERY_SMALL_VEL: f32 = 0.01;
 /// Host residual bounce-land AudioEventRTS name (fail-closed default).
@@ -613,6 +630,10 @@ fn default_crushable_level() -> u8 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_max_f32() -> f32 {
+    f32::MAX
 }
 
 /// C++ MuLaw residual used by doBounceSound volume adjust.
@@ -739,6 +760,11 @@ impl Object {
             allow_collide_force: true,
             can_path_through_units: false,
             ignore_collisions_until_frame: 0,
+            is_blocked: false,
+            is_blocked_and_stuck: false,
+            cur_max_blocked_speed: f32::MAX,
+            num_frames_blocked: 0,
+            is_panicking: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -907,6 +933,11 @@ impl Object {
             allow_collide_force: true,
             can_path_through_units: false,
             ignore_collisions_until_frame: 0,
+            is_blocked: false,
+            is_blocked_and_stuck: false,
+            cur_max_blocked_speed: f32::MAX,
+            num_frames_blocked: 0,
+            is_panicking: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2096,15 +2127,118 @@ impl Object {
 
     /// C++ PhysicsBehavior::setIgnoreCollisionsWith residual.
 
-    /// C++ AIUpdateInterface::processCollision residual (force-apply gate).
+    /// C++ Object::getUnitDirectionVector2D residual (XZ ground, glam x/z).
+    pub fn unit_direction_vector_2d(&self) -> glam::Vec2 {
+        // Match unit_direction_xz: orientation 0 faces +X (host XZ plane).
+        let (x, z) = self.unit_direction_xz();
+        glam::Vec2::new(x, z)
+    }
+
+    /// C++ AIUpdateInterface::blockedBy residual (simplified geometry).
     ///
-    /// Returns true if physics should apply bounce force. Fail-closed simplified:
-    /// no force while path-through, ignore-until active, or both ground-moving AI.
-    pub fn ai_process_collision_allows_force(&self, other: &Object, current_frame: u32) -> bool {
+    /// Fail-closed vs full pathfind goal cell / path priority matrix.
+    pub fn ai_blocked_by(&self, other: &Object) -> bool {
+        if self.can_crush_only(other, false) {
+            return false;
+        }
+        let other_ground =
+            other.can_move() && !other.status.airborne_target && !other.is_parachuting();
+        if !other_ground {
+            return false;
+        }
+        let us = self.get_position();
+        let them = other.get_position();
+        let dx = them.x - us.x;
+        let dz = them.z - us.z; // host XZ ground plane (C++ XY)
+        let dsqr = dx * dx + dz * dz;
+        // Same-cell residual: path priority by ObjectId.
+        if dsqr < PATHFIND_CELL_SIZE_F_RESIDUAL * PATHFIND_CELL_SIZE_F_RESIDUAL * 0.0001 {
+            return self.id.0 > other.id.0; // higher id = lower priority loses
+        }
+
+        let our_dir = self.unit_direction_vector_2d();
+        let their_dir = other.unit_direction_vector_2d();
+        let dir_dot = our_dir.x * their_dir.x + our_dir.y * their_dir.y;
+
+        // Infantry vs infantry: only block if same-ish heading.
+        if self.is_kind_of(crate::game_logic::KindOf::Infantry)
+            && other.is_kind_of(crate::game_logic::KindOf::Infantry)
+            && dir_dot <= 0.25
+        {
+            return false;
+        }
+
+        // Relative angle of other from us along our facing.
+        let collision_angle = self.relative_angle_2d_to(them);
+        let mut angle_limit = std::f32::consts::FRAC_PI_4; // 45 deg
+        let other_moving = other.movement.velocity.length_squared() > 0.01;
+        if !other_moving {
+            angle_limit *= 0.75;
+        }
+        if collision_angle > std::f32::consts::FRAC_PI_2
+            || collision_angle < -std::f32::consts::FRAC_PI_2
+        {
+            return false; // moving away
+        }
+        if collision_angle > angle_limit || collision_angle < -angle_limit {
+            if dir_dot <= 0.0 {
+                return false;
+            }
+            // Off-angle residual: not blocked unless head-on closing.
+            return false;
+        }
+
+        // Long blocked + opposite heading: pass through residual.
+        if self.num_frames_blocked > 30 && dir_dot <= 0.0 {
+            return false;
+        }
+
+        !other.status.destroyed && other.is_alive()
+    }
+
+    /// C++ AIUpdateInterface::calculateMaxBlockedSpeed residual.
+    pub fn calculate_max_blocked_speed(&self, other: &Object) -> f32 {
+        let us = self.get_position();
+        let them = other.get_position();
+        let mut vx = them.x - us.x;
+        let mut vz = them.z - us.z;
+        let len = (vx * vx + vz * vz).sqrt();
+        if len < 1.0e-4 {
+            return 0.0;
+        }
+        vx /= len;
+        vz /= len;
+        let other_dir = other.unit_direction_vector_2d();
+        let speed_factor = vx * other_dir.x + vz * other_dir.y;
+        if speed_factor < 0.0 {
+            return 0.0; // they run into us
+        }
+        let other_vel = other.movement.velocity;
+        let other_speed_2d = (other_vel.x * other_vel.x + other_vel.z * other_vel.z).sqrt();
+        let away_speed = other_speed_2d * speed_factor;
+        let our_dir = self.unit_direction_vector_2d();
+        let toward = vx * our_dir.x + vz * our_dir.y;
+        if toward <= 0.0 {
+            return self.cur_max_blocked_speed;
+        }
+        let max_speed = away_speed / toward;
+        // Formation crowd residual not wired — fail-closed skip 0.55 factor.
+        if max_speed > self.cur_max_blocked_speed {
+            return self.cur_max_blocked_speed;
+        }
+        max_speed
+    }
+
+    /// C++ AIUpdateInterface::processCollision residual (force-apply gate + blocked).
+    ///
+    /// Returns true if physics should apply bounce force. Sets is_blocked /
+    /// cur_max_blocked_speed when self is moving into other.
+    pub fn ai_process_collision(&mut self, other: &Object, current_frame: u32) -> bool {
         if !self.allow_collide_force {
             return false;
         }
         if self.can_path_through_units {
+            self.is_blocked = false;
             return false;
         }
         if self.ignore_collisions_until_frame > 0
@@ -2112,9 +2246,10 @@ impl Object {
         {
             return false;
         }
-        // Both need "AI" residual: host uses can_move as stand-in for AI unit.
+        // Other needs AI residual: can_move stand-in.
         if !other.can_move() {
-            return true; // immobile handled elsewhere; force ok if reached
+            // Immobile bounce handled outside AI processCollision.
+            return true;
         }
         let self_ground = self.can_move() && !self.status.airborne_target && !self.is_parachuting();
         let other_ground =
@@ -2122,15 +2257,61 @@ impl Object {
         if !self_ground || !other_ground {
             return false;
         }
+
         let self_moving = self.movement.velocity.length_squared() > 0.01;
-        // C++: if self moving and blocked path, typically no bounce force (steer instead).
-        // Host residual: mobile-mobile ground → no force (AI handles separation).
         if self_moving {
-            return false;
+            let blocked = self.ai_blocked_by(other);
+            if blocked {
+                // Panic infantry bounces residual.
+                if self.is_kind_of(crate::game_logic::KindOf::Infantry) && self.is_panicking {
+                    return true;
+                }
+                self.is_blocked = true;
+                let max_speed = self.calculate_max_blocked_speed(other);
+                if max_speed < self.cur_max_blocked_speed {
+                    self.cur_max_blocked_speed = max_speed;
+                }
+                // Vehicle into infantry: request move-away residual (flag only).
+                if other.is_kind_of(crate::game_logic::KindOf::Infantry)
+                    && !self.is_kind_of(crate::game_logic::KindOf::Infantry)
+                {
+                    // Fail-closed: no full aiMoveAwayFromUnit; mark other via last_collidee path.
+                }
+                return false;
+            }
         }
-        true
+        false
     }
 
+    /// Apply cur_max_blocked_speed cap residual (2D XZ).
+    pub fn apply_blocked_speed_cap(&mut self) {
+        if !self.is_blocked || !self.cur_max_blocked_speed.is_finite() {
+            return;
+        }
+        let v = self.movement.velocity;
+        let speed_2d = (v.x * v.x + v.z * v.z).sqrt();
+        if speed_2d > self.cur_max_blocked_speed && speed_2d > 1.0e-4 {
+            let s = self.cur_max_blocked_speed / speed_2d;
+            self.movement.velocity.x *= s;
+            self.movement.velocity.z *= s;
+        }
+    }
+
+    /// Clear per-frame blocked residual at start of AI/physics tick.
+    pub fn clear_blocked_frame_state(&mut self) {
+        if self.is_blocked {
+            self.num_frames_blocked = self.num_frames_blocked.saturating_add(1);
+            // Stuck residual: blocked for > 1 second (30 frames).
+            if self.num_frames_blocked > 30 {
+                self.is_blocked_and_stuck = true;
+            }
+        } else {
+            self.num_frames_blocked = 0;
+            self.is_blocked_and_stuck = false;
+        }
+        self.is_blocked = false;
+        self.cur_max_blocked_speed = f32::MAX;
+    }
     pub fn set_ignore_collisions_with(&mut self, id: Option<ObjectId>) {
         self.ignore_collisions_with = id;
     }
