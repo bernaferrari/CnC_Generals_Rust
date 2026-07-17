@@ -1987,6 +1987,22 @@ pub struct PresentationPopupMessage {
     pub pause_music: bool,
 }
 
+/// Frozen InGameUI PublicTimer superweapon countdown residual.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationSuperweaponTimer {
+    pub name: String,
+    pub template_name: String,
+    pub icon: String,
+    /// Full recharge duration seconds residual.
+    pub recharge_time: f32,
+    /// Seconds remaining (0 = ready).
+    pub remaining: f32,
+    /// Science/prereq unlocked residual.
+    pub unlocked: bool,
+    /// Ready residual (unlocked && remaining <= 0).
+    pub ready: bool,
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -2030,6 +2046,9 @@ pub struct PresentationFrame {
     pub local_rank_progress_percent: i32,
     /// Unlocked science names residual (capped).
     pub local_unlocked_sciences: Vec<String>,
+    /// InGameUI PublicTimer superweapon countdown residual (local player).
+    /// Fail-closed: not full font flash / multi-CC SW map / script hide.
+    pub superweapon_timers: Vec<PresentationSuperweaponTimer>,
     /// Queued upgrade template names residual (capped).
     pub local_queued_upgrades: Vec<String>,
     pub selected: Vec<ObjectId>,
@@ -2595,6 +2614,74 @@ impl PresentationFrame {
             })
             .unwrap_or_default();
         let _ = (&mut local_unlocked_sciences, &mut local_queued_upgrades);
+
+        // PublicTimer superweapon residual from player SharedSyncedTimer + sciences.
+        let mut superweapon_timers: Vec<PresentationSuperweaponTimer> = Vec::new();
+        if let Some(p) = local {
+            use crate::command_system::SpecialPowerType as P;
+            use crate::game_logic::host_special_power_enum_residual::{
+                special_power_has_public_timer, special_power_public_timer_display_name,
+                special_power_public_timer_icon, special_power_reload_seconds,
+                special_power_required_science,
+            };
+            const PUBLIC_POWERS: &[P] = &[
+                P::ParticleCannon,
+                P::NuclearMissile,
+                P::ScudStorm,
+                P::CarpetBomb,
+                P::CruiseMissile,
+                P::NapalmStrike,
+                P::BlackMarketNuke,
+                P::CrateDrop,
+                P::TerrorCell,
+                P::SuperweaponParticleCannon,
+                P::LaserCannon,
+                P::NukeNeutronMissile,
+                P::SuperweaponNeutronMissile,
+                P::BaikonurRocket,
+            ];
+            let mut seen = std::collections::HashSet::new();
+            for power in PUBLIC_POWERS {
+                if !special_power_has_public_timer(power) {
+                    continue;
+                }
+                let template = format!("{:?}", power);
+                if !seen.insert(template.clone()) {
+                    continue;
+                }
+                let unlocked = match special_power_required_science(power) {
+                    Some(req) => p.has_unlocked_science(req),
+                    // Structure SWs (PUC/Nuke/Scud): unlocked when player owns any living
+                    // structure that can fire them residual — fail-closed approximate:
+                    // treat as unlocked once player has Rank1 + faction science.
+                    None => {
+                        p.has_unlocked_science("SCIENCE_Rank1") || !p.unlocked_sciences.is_empty()
+                    }
+                };
+                let reload = special_power_reload_seconds(power).unwrap_or(0.0).max(0.0);
+                let remaining = p
+                    .shared_special_power_cooldowns
+                    .get(power)
+                    .copied()
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                // Prefer shared remaining; if zero but object aggregate cooling, skip
+                // (shared is authority for PublicTimer superweapons).
+                let ready = unlocked && remaining <= 0.0;
+                superweapon_timers.push(PresentationSuperweaponTimer {
+                    name: special_power_public_timer_display_name(power).to_string(),
+                    template_name: template,
+                    icon: special_power_public_timer_icon(power).to_string(),
+                    recharge_time: reload,
+                    remaining,
+                    unlocked,
+                    ready,
+                });
+            }
+            // Stable HUD order by name.
+            superweapon_timers.sort_by(|a, b| a.name.cmp(&b.name));
+            superweapon_timers.truncate(16);
+        }
         let selected = local
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -2809,6 +2896,7 @@ impl PresentationFrame {
             local_science_purchase_points,
             local_rank_progress_percent,
             local_unlocked_sciences,
+            superweapon_timers,
             local_queued_upgrades,
             selected,
             events,
@@ -3318,6 +3406,14 @@ impl PresentationFrame {
     /// ControlBar rank bar progress residual (0..100).
     pub fn local_rank_progress_percent(&self) -> i32 {
         self.local_rank_progress_percent
+    }
+
+    pub fn superweapon_timers(&self) -> &[PresentationSuperweaponTimer] {
+        &self.superweapon_timers
+    }
+
+    pub fn ready_public_superweapons(&self) -> impl Iterator<Item = &PresentationSuperweaponTimer> {
+        self.superweapon_timers.iter().filter(|t| t.ready)
     }
 
     /// Objects with a ready special power residual (UI / command button feed).
@@ -4786,6 +4882,19 @@ impl PresentationFrame {
         ui.skill_points = self.local_skill_points;
         ui.science_purchase_points = self.local_science_purchase_points;
         ui.rank_progress_percent = self.local_rank_progress_percent;
+        ui.superweapon_timers = self
+            .superweapon_timers
+            .iter()
+            .map(|t| crate::ui::hud_state::UiSuperweaponTimer {
+                name: t.name.clone(),
+                template_name: t.template_name.clone(),
+                icon: t.icon.clone(),
+                recharge_time: t.recharge_time,
+                remaining: t.remaining,
+                unlocked: t.unlocked,
+                ready: t.ready,
+            })
+            .collect();
         use crate::game_logic::victory::PlayerOutcome;
         use crate::ui::{color_for_player, BuildQueueEntry, MinimapDot};
 
@@ -5116,6 +5225,28 @@ impl PresentationFrame {
     /// Selection identity (IDs + health/name) is snapshot-owned so the production HUD
     /// does not re-read live GameLogic after a skirmish start / dual-tick.
     /// Also fills the ControlBar selection panel health strip via GameHUD.
+    /// Feed InGameUI PublicTimer residual into ConstructionPanel superweapon timers.
+    pub fn apply_superweapon_timers_to_panel(
+        &self,
+        panel: &mut crate::ui::construction_panel::ConstructionPanel,
+    ) {
+        use crate::ui::construction_panel::SuperweaponTimer;
+        for t in &self.superweapon_timers {
+            if !t.unlocked {
+                continue;
+            }
+            let mut timer = SuperweaponTimer::new(
+                t.name.clone(),
+                t.template_name.clone(),
+                t.icon.clone(),
+                t.recharge_time,
+            );
+            timer.remaining = t.remaining;
+            timer.unlocked = t.unlocked;
+            panel.add_superweapon_timer(timer);
+        }
+    }
+
     pub fn apply_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
         let (credits, power, max_power) = self.hud_resource_triple();
         hud.update_resources(credits, power, max_power);
@@ -6329,6 +6460,44 @@ mod tests {
 
     #[test]
     #[test]
+    #[test]
+    fn presentation_freezes_public_timer_superweapons() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{GameLogic, Player, Team};
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "USA", true);
+        p.apply_faction_intrinsic_sciences();
+        // Structure SW residual unlocked with Rank1.
+        p.shared_special_power_cooldowns
+            .insert(SpecialPowerType::ParticleCannon, 120.0);
+        p.shared_special_power_cooldowns
+            .insert(SpecialPowerType::NuclearMissile, 0.0);
+        logic.add_player(p);
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            !frame.superweapon_timers.is_empty(),
+            "expected public timer residual rows"
+        );
+        let puc = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.name.contains("Particle"))
+            .expect("PUC");
+        assert!(puc.unlocked);
+        assert!((puc.remaining - 120.0).abs() < 0.5);
+        assert!(!puc.ready);
+        let nuke = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.name.contains("Nuclear"))
+            .expect("nuke");
+        assert!(nuke.ready);
+        // Apply to construction panel residual.
+        let mut panel = crate::ui::construction_panel::ConstructionPanel::new(0, 0);
+        frame.apply_superweapon_timers_to_panel(&mut panel);
+        assert!(!panel.superweapon_timers().is_empty());
+    }
+
     fn presentation_freezes_local_rank_skill_residual() {
         use crate::game_logic::{GameLogic, Player, Team};
         let mut logic = GameLogic::new();
