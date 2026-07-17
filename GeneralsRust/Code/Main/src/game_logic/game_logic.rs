@@ -71549,6 +71549,68 @@ mod tests {
     }
 
     #[test]
+    fn calc_slow_down_dist_fudge() {
+        use crate::game_logic::calc_slow_down_dist;
+        assert_eq!(calc_slow_down_dist(10.0, 20.0, 5.0), 0.0);
+        let d = calc_slow_down_dist(20.0, 0.0, 10.0);
+        assert!((d - 21.0).abs() < 1e-3, "d={d}");
+    }
+
+    #[test]
+    fn pivot_offset_moves_center() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Piv");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(991), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.set_orientation(0.0);
+        o.selection_radius = 10.0;
+        o.turn_pivot_offset = -1.0;
+        let p0 = o.get_position();
+        let _ = o.rotate_obj_around_loco_pivot(Vec3::new(0.0, 0.0, 100.0), 0.2);
+        let p1 = o.get_position();
+        assert!((p1 - p0).length() > 1e-4, "pivot turn should move center");
+    }
+
+    #[test]
+    fn move_towards_angle_with_min_speed() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Ang");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(992), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.min_speed = 10.0;
+        o.movement.max_speed = 30.0;
+        o.movement.acceleration = 100.0;
+        o.loco_update_move_towards_angle(0.0, 1.0 / 30.0);
+        assert!(o.get_position().x > 0.0 || o.movement.velocity.x > 0.0);
+    }
+
+    #[test]
+    fn wander_offset_oscillates() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("Wan");
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(993), Team::USA);
+        o.wander_width_factor = 1.0;
+        o.wander_offset_increment = 0.1;
+        let mut saw_pos = false;
+        let mut saw_neg = false;
+        for _ in 0..200 {
+            let w = o.tick_wander_angle_offset(1.0);
+            if w > 0.05 {
+                saw_pos = true;
+            }
+            if w < -0.05 {
+                saw_neg = true;
+            }
+        }
+        assert!(saw_pos && saw_neg, "wander should oscillate both ways");
+    }
+
+    #[test]
     fn wings_maintain_circles() {
         use crate::game_logic::{
             KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
