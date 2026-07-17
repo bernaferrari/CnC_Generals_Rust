@@ -264,6 +264,10 @@ pub const EJECT_PARACHUTE_FREEFALL_PER_FRAME: f32 = 40.0;
 /// Host residual uses **100** (CINE / safe air-eject span). Retail base
 /// `AmericaParachute` INI is 25; fail-closed not dual-template OpenDist matrix.
 pub const PARACHUTE_OPEN_DIST: f32 = 100.0;
+/// Host residual horizontal speed (world units / logic frame) while open chute
+/// steers toward `m_landingOverride` (C++ aiMoveToPosition ultraAccurate).
+/// Fail-closed: not full locomotor path matrix.
+pub const PARACHUTE_LANDING_OVERRIDE_SPEED: f32 = 8.0;
 
 /// Retail base `AmericaParachute` ParachuteOpenDist residual (honesty dual-track).
 pub const PARACHUTE_OPEN_DIST_RETAIL_BASE: f32 = 25.0;
@@ -957,6 +961,30 @@ pub fn should_apply_parachute_free_fall_damage(
 ///
 /// Returns (new_height, landed). Open-chute residual rate (legacy helper).
 /// Fail-closed linear sink (not full parachute physics).
+
+/// Step open-chute XZ toward landingOverride residual.
+///
+/// Returns (new_x, new_z, moved). Y is driven separately by sink residual.
+pub fn step_parachute_landing_override(
+    current_x: f32,
+    current_z: f32,
+    target_x: f32,
+    target_z: f32,
+    speed: f32,
+) -> (f32, f32, bool) {
+    let dx = target_x - current_x;
+    let dz = target_z - current_z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    if dist <= 0.01 || speed <= 0.0 {
+        return (current_x, current_z, false);
+    }
+    if dist <= speed {
+        return (target_x, target_z, true);
+    }
+    let s = speed / dist;
+    (current_x + dx * s, current_z + dz * s, true)
+}
+
 pub fn tick_parachute_height(current_height: f32, ground_height: f32) -> (f32, bool) {
     tick_parachute_height_with_state(current_height, ground_height, true)
 }
@@ -1119,6 +1147,12 @@ pub struct HostUsaPilotRegistry {
     /// FreeFallDamage residual applications (chute destroyed mid-air).
     #[serde(default)]
     pub free_fall_damages: u32,
+    /// ParachuteContain landingOverride aims armed (DeliverPayload residual).
+    #[serde(default)]
+    pub landing_overrides: u32,
+    /// Open-chute horizontal steps toward landingOverride residual.
+    #[serde(default)]
+    pub landing_override_steps: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -1305,6 +1339,18 @@ impl HostUsaPilotRegistry {
 
     pub fn record_free_fall_damage(&mut self) {
         self.free_fall_damages = self.free_fall_damages.saturating_add(1);
+    }
+
+    pub fn record_landing_override(&mut self) {
+        self.landing_overrides = self.landing_overrides.saturating_add(1);
+    }
+
+    pub fn record_landing_override_step(&mut self) {
+        self.landing_override_steps = self.landing_override_steps.saturating_add(1);
+    }
+
+    pub fn honesty_landing_override_ok(&self) -> bool {
+        self.landing_overrides > 0 && self.landing_override_steps > 0
     }
 
     /// Residual honesty: low-altitude open fudge residual applied at least once.
