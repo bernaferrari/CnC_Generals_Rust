@@ -136,15 +136,26 @@ pub fn is_legal_disguise_target_template(template_name: &str) -> bool {
 }
 
 /// Runtime legal target residual (kind + status).
+///
+/// `is_already_disguised`: C++ disguiseAsObject may target a disguised unit
+/// (including bomb trucks) to copy their appearance — true template bomb-truck
+/// reject is waived when the target is already DISGUISED.
 pub fn is_legal_disguise_target(
     is_alive: bool,
     is_vehicle: bool,
     is_aircraft: bool,
     is_bomb_truck: bool,
     template_name: &str,
+    is_already_disguised: bool,
 ) -> bool {
-    if !is_alive || !is_vehicle || is_aircraft || is_bomb_truck {
+    if !is_alive || !is_vehicle || is_aircraft {
         return false;
+    }
+    if is_bomb_truck && !is_already_disguised {
+        return false;
+    }
+    if is_already_disguised && is_bomb_truck {
+        return true;
     }
     is_legal_disguise_target_template(template_name)
 }
@@ -198,6 +209,8 @@ pub fn is_auto_targetable_as_enemy(
 pub struct HostBombTruckDisguiseRegistry {
     /// Successful disguise applications.
     pub disguises: u32,
+    /// C++ disguiseAsObject copy from already-disguised target.
+    pub disguise_copies: u32,
     /// Successful disguise reveals (distance / attack residual).
     pub reveals: u32,
     /// Last disguised object id (residual observability).
@@ -219,6 +232,15 @@ impl HostBombTruckDisguiseRegistry {
         self.disguises = self.disguises.saturating_add(1);
         self.last_disguised_id = Some(object_id);
         self.last_disguise_template = Some(template_name.to_string());
+    }
+
+    pub fn record_disguise_copy(&mut self) {
+        self.disguise_copies = self.disguise_copies.saturating_add(1);
+    }
+
+    /// Residual honesty: copied disguise from an already-disguised target.
+    pub fn honesty_disguise_copy_ok(&self) -> bool {
+        self.disguise_copies > 0
     }
 
     pub fn record_reveal(&mut self) {
@@ -306,30 +328,43 @@ mod tests {
             true,
             false,
             false,
-            "AmericaTankCrusader"
+            "AmericaTankCrusader",
+            false
         ));
         assert!(!is_legal_disguise_target(
             true,
             true,
             false,
             true,
-            "GLAVehicleBombTruck"
+            "GLAVehicleBombTruck",
+            false
         ));
         assert!(!is_legal_disguise_target(
             true,
             true,
             true,
             false,
-            "AmericaJetRaptor"
+            "AmericaJetRaptor",
+            false
         ));
         assert!(!is_legal_disguise_target(
             false,
             true,
             false,
             false,
-            "AmericaTankCrusader"
+            "AmericaTankCrusader",
+            false
         ));
         assert!(!is_legal_disguise_target_template("CivilianTrainEngine"));
+        // Already-disguised bomb truck is a legal copy residual target.
+        assert!(is_legal_disguise_target(
+            true,
+            true,
+            false,
+            true,
+            "GLAVehicleBombTruck",
+            true
+        ));
     }
 
     #[test]

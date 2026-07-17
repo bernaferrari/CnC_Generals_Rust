@@ -2902,6 +2902,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_vehicle,
             target_is_airborne,
             target_is_bomb_truck,
+            target_disguised,
             target_template,
             target_pos,
         ) = match self.game_logic.get_object(target_id) {
@@ -2910,6 +2911,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Vehicle),
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
                 is_bomb_truck_template(&target.template_name),
+                target.status.disguised,
                 target.template_name.clone(),
                 target.get_position(),
             ),
@@ -2922,6 +2924,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_airborne,
             target_is_bomb_truck,
             &target_template,
+            target_disguised,
         ) {
             return CommandResult::InvalidTarget;
         }
