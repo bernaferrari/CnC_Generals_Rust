@@ -1011,7 +1011,9 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 }
             } else if let Some(pos) = target_position {
-                if *power_type == SpecialPowerType::ClusterMines {
+                if *power_type == SpecialPowerType::ClusterMines
+                    || *power_type == SpecialPowerType::NukeDrop
+                {
                     let team = self
                         .game_logic
                         .get_object(unit_id)
@@ -1118,7 +1120,9 @@ impl<'a> CommandExecutor<'a> {
                     ) {
                         continue;
                     }
-                } else if *power_type == SpecialPowerType::GpsScrambler {
+                } else if *power_type == SpecialPowerType::GpsScrambler
+                    || *power_type == SpecialPowerType::StealthGpsScrambler
+                {
                     if !self.game_logic.activate_gps_scrambler(
                         self.current_player_id,
                         pos,
