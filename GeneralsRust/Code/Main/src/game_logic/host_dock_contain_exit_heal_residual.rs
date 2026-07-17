@@ -588,6 +588,16 @@ pub const HEAL_DAMAGE_TYPE_NAME_RESIDUAL: &str = "HEALING";
 /// DeathType residual for heal attempt (DEATH_NONE).
 pub const HEAL_DEATH_TYPE_NAME_RESIDUAL: &str = "NONE";
 
+/// Retail AmericaAirfield hangar capacity residual (NumRows × NumCols = **4**).
+pub fn airfield_parking_place_capacity() -> u32 {
+    (PARKING_PLACE_AIRFIELD_NUM_ROWS.max(0) * PARKING_PLACE_AIRFIELD_NUM_COLS.max(0)) as u32
+}
+
+/// True when airfield parking is full for another aircraft residual.
+pub fn airfield_parking_places_full(occupied_or_queued: u32) -> bool {
+    occupied_or_queued >= airfield_parking_place_capacity()
+}
+
 /// Parking-place residual HP/sec → per-frame amount.
 pub fn parking_place_heal_per_frame(heal_amount_per_sec: f32) -> f32 {
     heal_amount_per_sec / DOCK_CONTAIN_EXIT_HEAL_LOGIC_FPS

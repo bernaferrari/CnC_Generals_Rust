@@ -44348,10 +44348,70 @@ impl GameLogic {
 
     /// Enqueue unit production on a building if permitted.
 
+    /// Hangar occupancy residual: docked aircraft at this airfield + queued aircraft.
+    pub fn airfield_parking_occupied_or_queued(&self, airfield_id: ObjectId) -> u32 {
+        let Some(af) = self.objects.get(&airfield_id) else {
+            return 0;
+        };
+        let mut n = 0u32;
+        // Docked hangar roster residual (garrisoned_units or occupants).
+        if let Some(building) = af.building_data.as_ref() {
+            n = n.saturating_add(building.garrisoned_units.len() as u32);
+            // Queued aircraft production residual.
+            for item in &building.production_queue {
+                if self
+                    .templates
+                    .get(&item.template_name)
+                    .map(|t| t.is_kind_of(KindOf::Aircraft))
+                    .unwrap_or_else(|| {
+                        item.template_name.to_ascii_lowercase().contains("aircraft")
+                            || item.template_name.to_ascii_lowercase().contains("jet")
+                            || item.template_name.to_ascii_lowercase().contains("raptor")
+                            || item.template_name.to_ascii_lowercase().contains("aurora")
+                            || item.template_name.to_ascii_lowercase().contains("comanche")
+                            || item.template_name.to_ascii_lowercase().contains("mig")
+                            || item
+                                .template_name
+                                .to_ascii_lowercase()
+                                .contains("helicopter")
+                    })
+                {
+                    n = n.saturating_add(1);
+                }
+            }
+        } else {
+            n = n.saturating_add(af.occupants.len() as u32);
+        }
+        // Also count living aircraft with producer_id == this airfield still airborne
+        // (space reserved until destroyed).
+        for obj in self.objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            if obj.producer_id != Some(airfield_id) {
+                continue;
+            }
+            if !(obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft) {
+                continue;
+            }
+            // Already counted if docked in garrison list.
+            let docked = obj.contained_by == Some(airfield_id)
+                || af
+                    .building_data
+                    .as_ref()
+                    .map(|b| b.garrisoned_units.contains(&obj.id))
+                    .unwrap_or(false);
+            if !docked {
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
     /// C++ BuildAssistant::canMakeUnit residual status for a producer + template.
     ///
     /// Fail-closed parking/maxed residual currently unused (always false) until
-    /// airfield hangar slots / MaxSimultaneous unit residual land.
+    /// MaxSimultaneous unit residual still deferred (parking hangar residual live).
     pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
         use crate::game_logic::host_production_buildable_command_residual::{
@@ -44377,6 +44437,24 @@ impl GameLogic {
             return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
         }
         let queue_full = building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT;
+        // C++ ParkingPlaceBehavior hangar capacity residual for aircraft at airfields.
+        let parking_full = {
+            use crate::game_logic::buildings::BuildingType;
+            use crate::game_logic::host_dock_contain_exit_heal_residual::airfield_parking_places_full;
+            let is_airfield = matches!(building.building_type, BuildingType::Airfield)
+                || producer.is_kind_of(KindOf::FSAirfield)
+                || producer
+                    .template_name
+                    .to_ascii_lowercase()
+                    .contains("airfield");
+            let is_aircraft = template.is_kind_of(KindOf::Aircraft);
+            if is_airfield && is_aircraft {
+                // Occupancy includes current queue aircraft; producing one more needs a free slot.
+                airfield_parking_places_full(self.airfield_parking_occupied_or_queued(producer_id))
+            } else {
+                false
+            }
+        };
         let has_prereq = self.team_satisfies_build_prerequisites(team, template_name)
             && self.can_start_superweapon_building(team, template_name);
         // Science residual (stealth fighter etc.) as prereq gate.
@@ -44411,7 +44489,7 @@ impl GameLogic {
             has_money,
             factory_disabled,
             queue_full,
-            false, // parking residual deferred
+            parking_full,
             false, // maxed residual deferred (unit MaxSimultaneous)
         )
     }
@@ -59336,6 +59414,72 @@ mod tests {
             .production_queue;
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].template_name, "USA_Humvee");
+    }
+
+    #[test]
+    fn can_make_aircraft_blocked_when_airfield_parking_full() {
+        use crate::game_logic::buildings::BuildingType;
+        use crate::game_logic::host_dock_contain_exit_heal_residual::{
+            airfield_parking_place_capacity, PARKING_PLACE_AIRFIELD_NUM_COLS,
+            PARKING_PLACE_AIRFIELD_NUM_ROWS,
+        };
+        use crate::game_logic::host_production_buildable_command_residual::{
+            CANMAKE_OK, CANMAKE_PARKING_PLACES_FULL,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(airfield_parking_place_capacity(), 4);
+        assert_eq!(PARKING_PLACE_AIRFIELD_NUM_ROWS, 2);
+        assert_eq!(PARKING_PLACE_AIRFIELD_NUM_COLS, 2);
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut af_t = ThingTemplate::new("TestAirfield");
+        af_t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(2000.0);
+        logic.templates.insert("TestAirfield".into(), af_t);
+        let mut jet_t = ThingTemplate::new("TestRaptor");
+        jet_t
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(200.0)
+            .set_cost(1000, 0);
+        logic.templates.insert("TestRaptor".into(), jet_t);
+
+        let af = logic
+            .create_object("TestAirfield", Team::USA, glam::Vec3::ZERO)
+            .expect("af");
+        // Force Airfield building type residual.
+        if let Some(o) = logic.get_object_mut(af) {
+            o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Airfield));
+        }
+        assert_eq!(logic.can_make_unit(af, "TestRaptor"), CANMAKE_OK);
+
+        // Fill 4 hangar slots with docked jets residual.
+        for i in 0..4 {
+            let j = logic
+                .create_object(
+                    "TestRaptor",
+                    Team::USA,
+                    glam::Vec3::new(10.0 * (i as f32 + 1.0), 0.0, 0.0),
+                )
+                .expect("jet");
+            if let Some(jet) = logic.get_object_mut(j) {
+                jet.contained_by = Some(af);
+                jet.ai_state = AIState::Docked;
+                jet.producer_id = Some(af);
+            }
+            if let Some(a) = logic.get_object_mut(af) {
+                if let Some(b) = a.building_data.as_mut() {
+                    b.garrisoned_units.push(j);
+                }
+            }
+        }
+        assert_eq!(logic.airfield_parking_occupied_or_queued(af), 4);
+        assert_eq!(
+            logic.can_make_unit(af, "TestRaptor"),
+            CANMAKE_PARKING_PLACES_FULL
+        );
+        assert!(!logic.enqueue_production(af, "TestRaptor".into()));
     }
 
     #[test]
