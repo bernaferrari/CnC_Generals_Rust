@@ -81492,6 +81492,77 @@ mod tests {
     }
 
     #[test]
+    fn demo_and_burton_charge_special_power_enum_residuals() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::DemoRebelTimedCharges),
+            Some("SPECIAL_TIMED_CHARGES")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::BattleBusDemoTrapRollout),
+            Some("SPECIAL_TIMED_CHARGES")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::DemoKellRemoteCharges),
+            Some("SPECIAL_REMOTE_CHARGES")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::BurtonRemoteCharges),
+            Some("SPECIAL_REMOTE_CHARGES")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::BurtonTimedCharges),
+            Some("SPECIAL_TIMED_CHARGES")
+        );
+        // Plant residual APIs remain available for special-power completion.
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        use crate::game_logic::{KindOf, ThingTemplate};
+        let mut unit = ThingTemplate::new("AmericaInfantryColonelBurton");
+        unit.add_kind_of(KindOf::Infantry).set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaInfantryColonelBurton".into(), unit);
+        let mut structure = ThingTemplate::new("GLATunnelNetwork");
+        structure.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), structure);
+        let src = logic
+            .create_object(
+                "AmericaInfantryColonelBurton",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("burton");
+        let tgt = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(5.0, 0.0, 0.0),
+            )
+            .expect("struct");
+        assert!(logic
+            .place_timed_demo_charge(
+                Team::USA,
+                glam::Vec3::new(5.0, 0.0, 0.0),
+                Some(src),
+                Some(tgt),
+                None,
+            )
+            .is_some());
+        assert!(logic
+            .place_remote_demo_charge(
+                Team::USA,
+                glam::Vec3::new(5.0, 0.0, 0.0),
+                Some(src),
+                Some(tgt),
+            )
+            .is_some());
+    }
+
+    #[test]
     fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_missile_defender::{
