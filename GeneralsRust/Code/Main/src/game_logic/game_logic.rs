@@ -5780,6 +5780,7 @@ impl GameLogic {
                 obj.tick_eject_invulnerable(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
+                obj.tick_repulsor_status(self.frame);
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
             self.tick_eject_parachute_residual(object_id);
@@ -6740,6 +6741,7 @@ impl GameLogic {
     /// C++ TAiData::m_enableRepulsors residual.
     pub fn set_enable_repulsors(&mut self, enabled: bool) {
         self.enable_repulsors = enabled;
+        crate::game_logic::host_repulsor_gate::set_enabled(enabled);
     }
 
     /// C++ Object::setStatus(OBJECT_STATUS_REPULSOR) residual.
@@ -74582,6 +74584,53 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn damaged_can_be_repulsed_sets_temporary_repulsor() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.set_enable_repulsors(true);
+        let mut t = ThingTemplate::new("CivDmg");
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::CanBeRepulsed);
+        let id = ObjectId(4301);
+        let mut o = Object::new(t, id, Team::Neutral);
+        o.health.current = 100.0;
+        o.health.maximum = 100.0;
+        logic.objects.insert(id, o);
+        let destroyed = logic.objects.get_mut(&id).unwrap().take_damage(10.0);
+        assert!(!destroyed);
+        {
+            let o = &logic.objects[&id];
+            assert!(o.status.repulsor, "damaged civ must flag REPULSOR");
+            assert_eq!(o.repulsor_until_frame, 60);
+        }
+        // Helper clear after 2 seconds residual (countdown).
+        if let Some(o) = logic.objects.get_mut(&id) {
+            for _ in 0..59 {
+                o.tick_repulsor_status(0);
+            }
+            assert!(o.status.repulsor);
+            assert_eq!(o.repulsor_until_frame, 1);
+            o.tick_repulsor_status(0);
+            assert!(!o.status.repulsor);
+            assert_eq!(o.repulsor_until_frame, 0);
+        }
+    }
+
+    #[test]
+    fn damaged_repulsor_disabled_when_enable_off() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        crate::game_logic::host_repulsor_gate::set_enabled(false);
+        let mut t = ThingTemplate::new("CivOff");
+        t.add_kind_of(KindOf::CanBeRepulsed);
+        let id = ObjectId(4302);
+        let mut o = Object::new(t, id, Team::Neutral);
+        o.health.current = 50.0;
+        o.health.maximum = 50.0;
+        let _ = o.take_damage(5.0);
+        assert!(!o.status.repulsor);
     }
 
     #[test]
