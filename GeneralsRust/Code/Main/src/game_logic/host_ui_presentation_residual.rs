@@ -191,6 +191,35 @@ pub fn help_box_can_make_status_message_residual(
     }
 }
 
+/// Map C++ CanMakeType ordinal residual → HelpBox status residual.
+pub fn can_make_type_to_help_box_status_residual(can_make: u32) -> HelpBoxCanMakeStatusResidual {
+    use crate::game_logic::host_production_buildable_command_residual::{
+        CANMAKE_FACTORY_IS_DISABLED, CANMAKE_MAXED_OUT_FOR_PLAYER, CANMAKE_NO_MONEY,
+        CANMAKE_NO_PREREQ, CANMAKE_OK, CANMAKE_PARKING_PLACES_FULL, CANMAKE_QUEUE_FULL,
+    };
+    match can_make {
+        x if x == CANMAKE_OK => HelpBoxCanMakeStatusResidual::Ok,
+        x if x == CANMAKE_NO_PREREQ => HelpBoxCanMakeStatusResidual::NoPrereq,
+        x if x == CANMAKE_NO_MONEY => HelpBoxCanMakeStatusResidual::NoMoney,
+        x if x == CANMAKE_FACTORY_IS_DISABLED => HelpBoxCanMakeStatusResidual::FactoryDisabled,
+        x if x == CANMAKE_QUEUE_FULL => HelpBoxCanMakeStatusResidual::QueueFull,
+        x if x == CANMAKE_PARKING_PLACES_FULL => HelpBoxCanMakeStatusResidual::ParkingPlacesFull,
+        x if x == CANMAKE_MAXED_OUT_FOR_PLAYER => HelpBoxCanMakeStatusResidual::MaxedOutForPlayer,
+        _ => HelpBoxCanMakeStatusResidual::NoPrereq,
+    }
+}
+
+/// Convenience: CanMake ordinal → optional HelpBox status string residual.
+pub fn can_make_type_help_box_message_residual(
+    can_make: u32,
+    is_structure: bool,
+) -> Option<&'static str> {
+    help_box_can_make_status_message_residual(
+        can_make_type_to_help_box_status_residual(can_make),
+        is_structure,
+    )
+}
+
 /// Wave 91 honesty: HelpBox residual peels pack.
 pub fn honesty_help_box_residual_pack_wave91() -> bool {
     HELP_BOX_LAYOUT_WND_RESIDUAL == "ControlBarPopupDescription.wnd"
@@ -223,6 +252,17 @@ pub fn honesty_help_box_residual_pack_wave91() -> bool {
         ) == Some(HELP_BOX_STATUS_MAXED_STRUCTURE_RESIDUAL)
         && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::NoPrereq, false)
             .is_none()
+        && can_make_type_to_help_box_status_residual(0) == HelpBoxCanMakeStatusResidual::Ok
+        && can_make_type_to_help_box_status_residual(2) == HelpBoxCanMakeStatusResidual::NoMoney
+        && can_make_type_to_help_box_status_residual(4) == HelpBoxCanMakeStatusResidual::QueueFull
+        && can_make_type_to_help_box_status_residual(5)
+            == HelpBoxCanMakeStatusResidual::ParkingPlacesFull
+        && can_make_type_to_help_box_status_residual(6)
+            == HelpBoxCanMakeStatusResidual::MaxedOutForPlayer
+        && can_make_type_help_box_message_residual(2, false)
+            == Some(HELP_BOX_STATUS_NO_MONEY_RESIDUAL)
+        && can_make_type_help_box_message_residual(6, false)
+            == Some(HELP_BOX_STATUS_MAXED_UNIT_RESIDUAL)
 }
 
 // ---------------------------------------------------------------------------

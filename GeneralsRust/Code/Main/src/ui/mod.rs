@@ -44,9 +44,9 @@ pub use faction_selection::{Faction, FactionSelectionScreen};
 pub use hud::{GameHUD, MiniMap, ResourceDisplay};
 pub use hud_state::{
     color_for_player, default_minimap_viewport, normalized_minimap_rect, BuildQueueEntry,
-    ControlBarSelectionPanelState, DiagnosticsOverlayStats, GameUIState, MinimapActionKind,
-    MinimapDot, MinimapInteraction, RadarMessageEntry, RadarPing, RadarPingKind, UiColor, UiPos2,
-    UiRect, UiTextureId, UiVec2, UnitDisplayInfo, VictoryOverlayAction,
+    CanMakeCameoUi, ControlBarSelectionPanelState, DiagnosticsOverlayStats, GameUIState,
+    MinimapActionKind, MinimapDot, MinimapInteraction, RadarMessageEntry, RadarPing, RadarPingKind,
+    UiColor, UiPos2, UiRect, UiTextureId, UiVec2, UnitDisplayInfo, VictoryOverlayAction,
 };
 pub use loading_screen::LoadingScreen;
 pub use main_menu::{MainMenu, MainMenuState};
