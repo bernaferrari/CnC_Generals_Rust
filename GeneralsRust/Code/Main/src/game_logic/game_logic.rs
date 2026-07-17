@@ -71549,6 +71549,67 @@ mod tests {
     }
 
     #[test]
+    fn wings_maintain_circles() {
+        use crate::game_logic::{
+            KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
+        };
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Wing");
+        t.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(t, ObjectId(981), Team::USA);
+        o.loco_appearance = LocomotorAppearance::Wings;
+        o.set_position(Vec3::new(100.0, 50.0, 0.0));
+        o.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
+        o.motive_frames_remaining = 5;
+        o.status.airborne_target = true;
+        o.min_speed = 20.0;
+        o.circling_radius = 40.0;
+        o.maintain_pos = Some(Vec3::new(0.0, 50.0, 0.0));
+        o.maintain_pos_valid = true;
+        let p0 = o.get_position();
+        o.maintain_position_wings(1.0 / 30.0);
+        let p1 = o.get_position();
+        // Should have moved (circling), not stayed put.
+        assert!(
+            (p1 - p0).length() > 1e-3,
+            "wings maintain should move along circle"
+        );
+    }
+
+    #[test]
+    fn fix_invalid_position_pushes_off_cliff() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Fix");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(982), Team::USA);
+        o.cell_is_cliff = true;
+        o.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+        o.set_orientation(0.0);
+        assert!(o.fix_invalid_position());
+        // Should have applied force (velocity changed or accel path ran).
+        assert!(o.motive_frames_remaining > 0 || o.movement.velocity.x < 5.0);
+    }
+
+    #[test]
+    fn thrust_moves_toward_goal() {
+        use crate::game_logic::{
+            KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
+        };
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Thr");
+        t.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(t, ObjectId(983), Team::USA);
+        o.loco_appearance = LocomotorAppearance::Thrust;
+        o.set_position(Vec3::ZERO);
+        o.movement.max_speed = 50.0;
+        o.movement.acceleration = 100.0;
+        o.min_speed = 5.0;
+        o.move_towards_thrust(Vec3::new(100.0, 20.0, 0.0), 100.0, 40.0, 1.0 / 30.0);
+        assert!(o.get_position().length() > 1e-3 || o.movement.velocity.length() > 1e-3);
+    }
+
+    #[test]
     fn wheels_cap_speed_while_turning() {
         use crate::game_logic::{
             KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
