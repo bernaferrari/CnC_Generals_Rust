@@ -276,6 +276,28 @@ impl HostAmbushRegistry {
         activate_frame: u32,
         unit_template: impl Into<String>,
     ) -> u32 {
+        self.queue_with_unit_count(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            activate_frame,
+            unit_template,
+            kind.unit_count(),
+        )
+    }
+
+    /// Queue with explicit science-tier residual unit count (Ambush1/2/3).
+    pub fn queue_with_unit_count(
+        &mut self,
+        kind: HostAmbushKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        target_position: Vec3,
+        activate_frame: u32,
+        unit_template: impl Into<String>,
+        unit_count: u32,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         let spawn_frame = activate_frame.saturating_add(kind.spawn_delay_frames());
@@ -289,7 +311,7 @@ impl HostAmbushRegistry {
             spawn_frame,
             phase: HostAmbushPhase::Queued,
             unit_template: unit_template.into(),
-            unit_count: kind.unit_count(),
+            unit_count: unit_count.max(1),
             spawned_unit_ids: Vec::new(),
         };
         self.missions.insert(id, mission);
@@ -391,6 +413,75 @@ pub const AMBUSH_OCL_AMBUSH1: &str = "SUPERWEAPON_RebelAmbush1";
 /// Retail Ambush2 / Ambush3 unit counts residual (science tiers; host uses Ambush1).
 pub const GLA_AMBUSH2_UNIT_COUNT: u32 = 8;
 pub const GLA_AMBUSH3_UNIT_COUNT: u32 = 16;
+
+/// Retail SCIENCE_RebelAmbush1 residual.
+pub const SCIENCE_AMBUSH1: &str = "SCIENCE_RebelAmbush1";
+/// Retail SCIENCE_RebelAmbush2 residual.
+pub const SCIENCE_AMBUSH2: &str = "SCIENCE_RebelAmbush2";
+/// Retail SCIENCE_RebelAmbush3 residual.
+pub const SCIENCE_AMBUSH3: &str = "SCIENCE_RebelAmbush3";
+
+/// Residual Ambush science tier (payload 4 / 8 / 16 Rebels).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum AmbushScienceTier {
+    #[default]
+    Level1,
+    Level2,
+    Level3,
+}
+
+impl AmbushScienceTier {
+    pub fn rebel_count(self) -> u32 {
+        match self {
+            AmbushScienceTier::Level1 => GLA_AMBUSH1_UNIT_COUNT,
+            AmbushScienceTier::Level2 => GLA_AMBUSH2_UNIT_COUNT,
+            AmbushScienceTier::Level3 => GLA_AMBUSH3_UNIT_COUNT,
+        }
+    }
+
+    pub fn science_name(self) -> &'static str {
+        match self {
+            AmbushScienceTier::Level1 => SCIENCE_AMBUSH1,
+            AmbushScienceTier::Level2 => SCIENCE_AMBUSH2,
+            AmbushScienceTier::Level3 => SCIENCE_AMBUSH3,
+        }
+    }
+
+    pub fn from_science_name(name: &str) -> Option<Self> {
+        let n = name.to_ascii_lowercase();
+        if n.contains("ambush3") || n.contains("rebelambush3") {
+            Some(AmbushScienceTier::Level3)
+        } else if n.contains("ambush2") || n.contains("rebelambush2") {
+            Some(AmbushScienceTier::Level2)
+        } else if n.contains("ambush1") || n.contains("rebelambush") || n.contains("ambush") {
+            Some(AmbushScienceTier::Level1)
+        } else {
+            None
+        }
+    }
+
+    pub fn highest_from_sciences<'a, I>(sciences: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut best = AmbushScienceTier::Level1;
+        for s in sciences {
+            if let Some(tier) = Self::from_science_name(s) {
+                best = match (best, tier) {
+                    (_, AmbushScienceTier::Level3) | (AmbushScienceTier::Level3, _) => {
+                        AmbushScienceTier::Level3
+                    }
+                    (_, AmbushScienceTier::Level2) | (AmbushScienceTier::Level2, _) => {
+                        AmbushScienceTier::Level2
+                    }
+                    _ => AmbushScienceTier::Level1,
+                };
+            }
+        }
+        best
+    }
+}
+
 /// Retail SpreadFormation MinDistanceA residual.
 pub const AMBUSH_MIN_DISTANCE_A: f32 = 20.0;
 /// Retail SpreadFormation MinDistanceB residual.
