@@ -1431,6 +1431,10 @@ pub struct GameLogic {
     sell_tunnel_last_ejects: u32,
     /// C++ ContainModule::onCapture kick residual events.
     capture_kick_outs: u32,
+    /// C++ Object::onCapture skirmish AI auto-sell residual events.
+    capture_ai_auto_sells: u32,
+    /// C++ deselectObject on capture residual events.
+    capture_deselections: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2695,6 +2699,8 @@ impl GameLogic {
             sell_parked_units_killed: 0,
             sell_tunnel_last_ejects: 0,
             capture_kick_outs: 0,
+            capture_ai_auto_sells: 0,
+            capture_deselections: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3096,6 +3102,8 @@ impl GameLogic {
         self.sell_parked_units_killed = 0;
         self.sell_tunnel_last_ejects = 0;
         self.capture_kick_outs = 0;
+        self.capture_ai_auto_sells = 0;
+        self.capture_deselections = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -14266,8 +14274,8 @@ impl GameLogic {
                     }
 
                     if did_capture {
-                        // C++ TransportContain/OpenContain::onCapture residual.
-                        self.on_capture_kick_passengers(capture_target_id, target_team, team);
+                        // C++ Object::onCapture residual (kick/idle/AI-sell/deselect).
+                        self.on_capture_object_residual(capture_target_id, target_team, team);
                         // C++ getAcademyStats()->recordBuildingCapture() residual.
                         if let Some(p) = self.get_player_mut_by_team(team) {
                             p.record_building_capture();
@@ -43190,6 +43198,65 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
+
+    /// C++ Object::onCapture residual (after ownership flip).
+    ///
+    /// - OpenContain/TransportContain: kick passengers (tunnels/caves skip)
+    /// - AIUpdateInterface::aiIdle when owner changes
+    /// - Skirmish AI sells captured faction structures
+    /// - Deselect from former owners' selection lists
+    pub fn on_capture_object_residual(
+        &mut self,
+        object_id: ObjectId,
+        old_team: Team,
+        new_team: Team,
+    ) {
+        if old_team == new_team {
+            return;
+        }
+        // Contain kick residual.
+        self.on_capture_kick_passengers(object_id, old_team, new_team);
+
+        // Deselect from all players (C++ TheGameLogic->deselectObject residual).
+        for player in self.players.values_mut() {
+            let before = player.selected_objects.len();
+            player.selected_objects.retain(|&id| id != object_id);
+            if player.selected_objects.len() != before {
+                self.capture_deselections = self.capture_deselections.saturating_add(1);
+            }
+        }
+
+        // aiIdle residual — stop orders on the captured object.
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.stop_moving();
+            obj.set_target(None);
+            obj.ai_state = AIState::Idle;
+            obj.status.moving = false;
+            obj.status.attacking = false;
+            // C++ clearScriptStatus(OBJECT_STATUS_SCRIPT_UNSELLABLE) residual.
+        }
+
+        // Skirmish AI sells captured faction structures (C++ isSkirmishAIPlayer residual).
+        let new_owner_is_ai = self
+            .players
+            .values()
+            .filter(|p| p.team == new_team && p.is_alive)
+            .any(|p| {
+                // C++ Player::isSkirmishAIPlayer residual: registered AI difficulty.
+                self.ai_manager.ai_difficulty(p.id).is_some()
+            });
+        let is_faction = self
+            .objects
+            .get(&object_id)
+            .map(|o| o.is_faction_structure())
+            .unwrap_or(false);
+        if new_owner_is_ai && is_faction {
+            // C++ TheBuildAssistant->sellObject(this)
+            if self.start_sell_object(object_id) {
+                self.capture_ai_auto_sells = self.capture_ai_auto_sells.saturating_add(1);
+            }
+        }
+    }
 
     /// C++ TransportContain/OpenContain::onCapture residual.
     ///
@@ -79775,6 +79842,59 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn capture_object_residual_idle_deselect_ai_sell() {
+        use crate::ai::AIDifficulty;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA AI", false));
+        logic.add_ai_opponent(1, Team::GLA, AIDifficulty::Medium);
+
+        let mut barracks = ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+
+        let id = logic
+            .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks");
+        if let Some(p) = logic.players.get_mut(&0) {
+            p.selected_objects.push(id);
+        }
+        // Flip ownership first (C++ order: setTeam then onCapture).
+        if let Some(obj) = logic.get_object_mut(id) {
+            obj.set_team(Team::GLA);
+            obj.ai_state = AIState::Attacking;
+            obj.status.attacking = true;
+        }
+
+        logic.on_capture_object_residual(id, Team::USA, Team::GLA);
+
+        let obj = logic.get_object(id).expect("barracks");
+        assert_eq!(obj.ai_state, AIState::Idle);
+        assert!(!obj.status.attacking);
+        assert!(
+            logic
+                .players
+                .get(&0)
+                .map(|p| !p.selected_objects.contains(&id))
+                .unwrap_or(false),
+            "must deselect from former owner"
+        );
+        assert!(logic.capture_deselections > 0);
+        assert!(
+            logic.capture_ai_auto_sells > 0 || logic.is_object_being_sold(id) || obj.status.sold,
+            "skirmish AI must auto-sell captured faction structure"
         );
     }
 
