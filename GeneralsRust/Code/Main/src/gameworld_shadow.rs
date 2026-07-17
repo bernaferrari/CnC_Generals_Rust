@@ -2716,6 +2716,8 @@ mod tests {
                         supplies: 300,
                         power: 0,
                     },
+                    quantity_total: 1,
+                    quantity_produced: 0,
                 },
                 ProductionItem {
                     template_name: "UnitB".into(),
@@ -2725,6 +2727,8 @@ mod tests {
                         supplies: 400,
                         power: 0,
                     },
+                    quantity_total: 1,
+                    quantity_produced: 0,
                 },
             ];
             obj.building_data = Some(bd);
@@ -3204,6 +3208,8 @@ mod tests {
                     supplies: 225,
                     power: 0,
                 },
+                quantity_total: 1,
+                quantity_produced: 0,
             });
             bd.rally_point = Some(glam::Vec3::new(20.0, 0.0, 20.0));
             bd.garrisoned_units = vec![crate::game_logic::ObjectId(99)];
