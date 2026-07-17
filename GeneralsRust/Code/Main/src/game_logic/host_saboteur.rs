@@ -175,6 +175,10 @@ pub struct HostSaboteurRegistry {
     pub fake_detonated: u32,
     /// Radar tryInfiltrationEvent residual fires.
     pub infiltration_events: u32,
+    /// EVA BuildingSabotaged residual fires.
+    pub eva_building_sabotaged: u32,
+    /// EVA CashStolen residual fires.
+    pub eva_cash_stolen: u32,
     /// Fake buildings destroyed.
     pub fakes_destroyed: u32,
     /// Saboteurs consumed on success.
@@ -254,6 +258,22 @@ impl HostSaboteurRegistry {
 
     pub fn honesty_infiltration_event_ok(&self) -> bool {
         self.infiltration_events > 0
+    }
+
+    pub fn record_eva_building_sabotaged(&mut self) {
+        self.eva_building_sabotaged = self.eva_building_sabotaged.saturating_add(1);
+    }
+
+    pub fn honesty_eva_building_sabotaged_ok(&self) -> bool {
+        self.eva_building_sabotaged > 0
+    }
+
+    pub fn record_eva_cash_stolen(&mut self) {
+        self.eva_cash_stolen = self.eva_cash_stolen.saturating_add(1);
+    }
+
+    pub fn honesty_eva_cash_stolen_ok(&self) -> bool {
+        self.eva_cash_stolen > 0
     }
 
     pub fn honesty_sabotage_ok(&self) -> bool {

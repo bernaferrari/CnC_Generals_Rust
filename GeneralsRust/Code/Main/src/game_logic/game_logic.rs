@@ -14288,6 +14288,13 @@ impl GameLogic {
                                     // C++ TheRadar->tryInfiltrationEvent(other) residual
                                     // (victim local player warning).
                                     self.try_infiltration_event(special_target_id);
+                                    // C++ TheEva->setShouldPlay residual when victim local.
+                                    // Supply center: CashStolen if cash taken, else BuildingSabotaged.
+                                    if kind.steals_cash() && cash_stolen > 0 {
+                                        self.try_eva_cash_stolen(special_target_id);
+                                    } else {
+                                        self.try_eva_building_sabotaged(special_target_id);
+                                    }
                                     let audio = if kind.steals_cash() {
                                         SABOTEUR_CASH_STEAL_AUDIO
                                     } else if kind.resets_special_power() {
@@ -42055,6 +42062,37 @@ impl GameLogic {
     /// Residual honesty: last radar message text (tests / presentation bridge).
     pub fn last_radar_message_text(&self) -> Option<&str> {
         self.last_radar_event.as_ref().map(|e| e.text.as_str())
+    }
+
+    /// C++ Object::isLocallyControlled residual for EVA/radar victim gates.
+    pub fn is_object_locally_controlled(&self, object_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return false;
+        };
+        self.players
+            .values()
+            .any(|p| p.team == obj.team && p.is_local && p.is_alive)
+    }
+
+    /// C++ TheEva->setShouldPlay(EVA_BuildingSabotaged) when victim is local.
+    pub fn try_eva_building_sabotaged(&mut self, victim_id: ObjectId) {
+        if !self.is_object_locally_controlled(victim_id) {
+            return;
+        }
+        let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::BuildingSabotaged,
+        );
+        self.saboteur.record_eva_building_sabotaged();
+    }
+
+    /// C++ TheEva->setShouldPlay(EVA_CashStolen) when local supply center is robbed.
+    pub fn try_eva_cash_stolen(&mut self, victim_id: ObjectId) {
+        if !self.is_object_locally_controlled(victim_id) {
+            return;
+        }
+        let _ =
+            gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::CashStolen);
+        self.saboteur.record_eva_cash_stolen();
     }
 
     pub fn try_infiltration_event(&mut self, victim_id: ObjectId) {
@@ -76466,6 +76504,98 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn sabotage_queues_eva_building_sabotaged_for_local_victim() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events(); // clear global queue
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::GLA, "EnemyGLA", false),
+        );
+        let mut st = ThingTemplate::new("AmericaWarFactory");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSWarFactory)
+            .set_health(800.0);
+        logic.templates.insert("AmericaWarFactory".into(), st);
+        let mut sab = ThingTemplate::new("GLAInfantryRebel");
+        sab.add_kind_of(KindOf::Infantry).set_health(100.0);
+        // host saboteur path uses special ability / saboteur residual — call EVA helper directly
+        // after a full military sabotage residual apply for honesty.
+        logic.templates.insert("GLAInfantryRebel".into(), sab);
+        let factory = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("factory");
+        assert!(logic.is_object_locally_controlled(factory));
+        logic.try_eva_building_sabotaged(factory);
+        assert!(
+            logic.saboteur.honesty_eva_building_sabotaged_ok(),
+            "EVA BuildingSabotaged honesty"
+        );
+        let events = TheEva::drain_events().expect("drain");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::BuildingSabotaged),
+            "TheEva queue must contain BuildingSabotaged, got {events:?}"
+        );
+        // Non-local victim must not fire EVA.
+        let enemy = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::GLA,
+                glam::Vec3::new(80.0, 0.0, 80.0),
+            )
+            .expect("enemy factory");
+        logic.try_eva_building_sabotaged(enemy);
+        let events2 = TheEva::drain_events().expect("drain2");
+        assert!(
+            events2.is_empty(),
+            "non-local victim must not queue EVA: {events2:?}"
+        );
+    }
+
+    #[test]
+    fn supply_center_cash_steal_queues_eva_cash_stolen() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
+        );
+        if let Some(p) = logic.players.get_mut(&0) {
+            p.resources.supplies = 5000;
+        }
+        let mut st = ThingTemplate::new("AmericaSupplyCenter");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::SupplyCenter)
+            .set_health(500.0);
+        logic.templates.insert("AmericaSupplyCenter".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(5.0, 0.0, 5.0),
+            )
+            .expect("sc");
+        logic.try_eva_cash_stolen(id);
+        assert!(logic.saboteur.honesty_eva_cash_stolen_ok());
+        let events = TheEva::drain_events().expect("drain");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::CashStolen),
+            "expected CashStolen: {events:?}"
+        );
     }
 
     #[test]
