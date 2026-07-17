@@ -333,6 +333,10 @@ pub enum SpecialPowerType {
     /// Temporarily reveals enemy units (vision-spied + FOW + DETECTED residual).
     /// Fail-closed: not full SpyVisionUpdate module / kindof filter / sabotage path.
     CiaIntelligence,
+    /// USA Communications Download residual (SPECIAL_COMMUNICATIONS_DOWNLOAD).
+    /// Host maps to CIA Intelligence SpyVision residual (shared activate audio).
+    /// Fail-closed vs full Pathfinder module duration matrix.
+    CommunicationsDownload,
     SpyDrone,
     SuperweaponCountermeasures,
     /// China Dragon Tank FireWall / Firestorm residual (FIRE_WEAPON secondary path).
