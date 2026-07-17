@@ -5891,6 +5891,56 @@ impl GameLogic {
     ///
     /// Fires temp crash weapon name residual (splash damage at vehicle) and
     /// destroys the vehicle when falling into a structure.
+
+    /// C++ PhysicsBehavior onCollide immobile bounce residual (stiffness / parachute).
+    ///
+    /// Returns true if bounce was applied. Vehicle crash path is separate
+    /// (`apply_vehicle_crash_into_immobile`).
+    pub fn apply_immobile_collide_bounce(
+        &mut self,
+        mover_id: ObjectId,
+        immobile_id: ObjectId,
+        us_radius: f32,
+    ) -> bool {
+        use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL;
+        let (mover_para, imm_center, imm_ok) = {
+            let Some(m) = self.objects.get(&mover_id) else {
+                return false;
+            };
+            let Some(imm) = self.objects.get(&immobile_id) else {
+                return false;
+            };
+            let imm_ok = imm.is_kind_of(crate::game_logic::KindOf::Structure)
+                || imm.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || !imm.can_move();
+            (m.is_parachuting(), imm.get_position(), imm_ok)
+        };
+        if !imm_ok {
+            return false;
+        }
+        let mut applied = false;
+        if let Some(m) = self.objects.get_mut(&mover_id) {
+            if mover_para {
+                m.apply_parachute_building_bounce_out(imm_center, us_radius);
+                return true;
+            }
+            if m.status.destroyed {
+                return false;
+            }
+            let _ = m.apply_structure_stiffness_bounce(
+                imm_center,
+                PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL,
+                crate::game_logic::Object::SHOCK_MASS,
+            );
+            applied = true;
+        }
+        if applied {
+            // After stiffness bounce, try vehicle crash residual if applicable.
+            let _ = self.apply_vehicle_crash_into_immobile(mover_id, immobile_id);
+        }
+        applied
+    }
+
     pub fn apply_vehicle_crash_into_immobile(
         &mut self,
         vehicle_id: ObjectId,
@@ -71237,6 +71287,52 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn apply_immobile_collide_bounce_scrubs_and_pushes() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut vt = ThingTemplate::new("BounceMov");
+        vt.add_kind_of(KindOf::Vehicle);
+        let mid = ObjectId(81);
+        let mut m = Object::new(vt, mid, Team::USA);
+        m.set_position(Vec3::new(0.0, 1.0, 0.0));
+        m.movement.velocity = Vec3::new(8.0, 0.0, 0.0);
+        logic.objects.insert(mid, m);
+
+        let mut st = ThingTemplate::new("BounceImm");
+        st.add_kind_of(KindOf::Structure);
+        st.add_kind_of(KindOf::Immobile);
+        let iid = ObjectId(82);
+        let mut s = Object::new(st, iid, Team::China);
+        s.set_position(Vec3::new(5.0, 1.0, 0.0));
+        logic.objects.insert(iid, s);
+
+        assert!(logic.apply_immobile_collide_bounce(mid, iid, 10.0));
+        let m = logic.objects.get(&mid).unwrap();
+        // Pushed back / velocity reversed residual along -X.
+        assert!(
+            m.movement.velocity.x <= 0.0,
+            "vel={:?}",
+            m.movement.velocity
+        );
+
+        // Parachute path scrubs lateral.
+        let mut pt = ThingTemplate::new("ParaMov");
+        pt.add_kind_of(KindOf::Infantry);
+        let pid = ObjectId(83);
+        let mut p = Object::new(pt, pid, Team::USA);
+        p.set_position(Vec3::new(0.0, 10.0, 0.0));
+        p.movement.velocity = Vec3::new(3.0, -1.0, 0.0);
+        p.status.parachuting = true;
+        logic.objects.insert(pid, p);
+        assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0));
+        let p = logic.objects.get(&pid).unwrap();
+        assert_eq!(p.movement.velocity.x, 0.0);
+        assert_eq!(p.movement.velocity.z, 0.0);
+        assert!(p.get_position().x < 0.0);
     }
 
     #[test]
