@@ -999,7 +999,32 @@ impl<'a> CommandExecutor<'a> {
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             // Missile Defender laser guided needs an object target (lock secondary + attack).
             // Hero/unit disable & capture specials → existing walk-to residual command paths.
-            if *power_type == SpecialPowerType::HackerDisableBuilding
+            if matches!(
+                *power_type,
+                SpecialPowerType::RangerCaptureBuilding
+                    | SpecialPowerType::RedGuardCaptureBuilding
+                    | SpecialPowerType::RebelCaptureBuilding
+            ) {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !matches!(
+                    self.execute_capture_building(&[unit_id], *tid),
+                    CommandResult::Success
+                ) {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::DisguiseAsVehiclePower {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !matches!(
+                    self.execute_disguise_as_vehicle(&[unit_id], *tid),
+                    CommandResult::Success
+                ) {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::HackerDisableBuilding
                 || *power_type == SpecialPowerType::MicrowaveDisableBuilding
             {
                 let PowerTarget::Object(tid) = target else {
