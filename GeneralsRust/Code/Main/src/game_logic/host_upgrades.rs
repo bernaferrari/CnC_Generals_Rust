@@ -63,6 +63,8 @@ pub const UPGRADE_CHINA_CHAIN_GUNS: &str = "Upgrade_ChinaChainGuns";
 pub const UPGRADE_CHINA_URANIUM_SHELLS: &str = "Upgrade_ChinaUraniumShells";
 /// China Black Napalm residual.
 pub const UPGRADE_CHINA_BLACK_NAPALM: &str = "Upgrade_ChinaBlackNapalm";
+/// GLA AP Bullets residual.
+pub const UPGRADE_GLA_AP_BULLETS: &str = "Upgrade_GLAAPBullets";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -145,6 +147,8 @@ pub enum HostUpgradeKind {
     UraniumShells,
     /// China Black Napalm fire-field residual.
     BlackNapalm,
+    /// GLA AP Bullets damage residual (Rebel/Jarmen/Technical/Quad).
+    ApBullets,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -205,6 +209,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::UraniumShells
         } else if n.contains("blacknapalm") {
             HostUpgradeKind::BlackNapalm
+        } else if n.contains("apbullets") || n.contains("apbullet") {
+            HostUpgradeKind::ApBullets
         } else {
             HostUpgradeKind::Other
         }
@@ -237,6 +243,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::ChainGuns => "ChainGuns",
             HostUpgradeKind::UraniumShells => "UraniumShells",
             HostUpgradeKind::BlackNapalm => "BlackNapalm",
+            HostUpgradeKind::ApBullets => "ApBullets",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -273,6 +280,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::ChainGuns
             | HostUpgradeKind::UraniumShells
             | HostUpgradeKind::BlackNapalm
+            | HostUpgradeKind::ApBullets
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -308,6 +316,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::ChainGuns => 1500,
             HostUpgradeKind::UraniumShells => 2000,
             HostUpgradeKind::BlackNapalm => 2000,
+            HostUpgradeKind::ApBullets => 1500,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -340,6 +349,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::ChainGuns => 40.0,
             HostUpgradeKind::UraniumShells => 60.0,
             HostUpgradeKind::BlackNapalm => 60.0,
+            HostUpgradeKind::ApBullets => 45.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -973,6 +983,18 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn ap_bullets_kind_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLAAPBullets"),
+            HostUpgradeKind::ApBullets
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name(UPGRADE_GLA_AP_BULLETS),
+            HostUpgradeKind::ApBullets
+        );
     }
 
     #[test]
