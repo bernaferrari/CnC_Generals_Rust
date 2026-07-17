@@ -6002,10 +6002,27 @@ impl GameLogic {
             Some(a) => a.ai_process_collision(&b_snap, frame),
             None => return false,
         };
-        if let Some(a) = self.objects.get_mut(&a_id) {
+        let (req_away, a_pos) = {
+            let Some(a) = self.objects.get_mut(&a_id) else {
+                return false;
+            };
             a.last_collidee = Some(b_id);
             if a.is_blocked {
                 a.apply_blocked_speed_cap();
+            }
+            let req = a.request_other_move_away.take();
+            (req, a.get_position())
+        };
+        if let Some(other_id) = req_away {
+            if let Some(other) = self.objects.get_mut(&other_id) {
+                other.ai_move_away_from_unit(a_id, a_pos);
+                // Absolute ignore-until frame (2 sec residual if already yielding later).
+                if other.ignore_collisions_until_frame > 0
+                    && other.ignore_collisions_until_frame < 100_000
+                {
+                    // relative sentinel → absolute
+                    other.ignore_collisions_until_frame = frame.saturating_add(60);
+                }
             }
         }
         if !allow_force {
@@ -6156,6 +6173,8 @@ impl GameLogic {
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         for o in self.objects.values_mut() {
             o.clear_blocked_frame_state();
+            o.tick_move_away_state();
+            o.integrate_physics_accel();
         }
         // Rebuild partition cells (C++ registerObject residual each update).
         // Keep FOW reveal residual; only re-register live objects.
@@ -71506,6 +71525,78 @@ mod tests {
     }
 
     #[test]
+    fn apply_physics_force_motive_lateral_only() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Mot");
+        t.add_kind_of(KindOf::Vehicle);
+        let id = ObjectId(801);
+        let mut o = Object::new(t, id, Team::USA);
+        o.set_orientation(0.0); // face +X
+        o.motive_frames_remaining = 10;
+        o.physics_mass = 2.0;
+        // Forward force should be rejected when motive; lateral accepted.
+        o.apply_physics_force(Vec3::new(10.0, 0.0, 0.0)); // along facing
+        assert!(
+            o.physics_accel.length() < 1e-4,
+            "forward force stripped when motive"
+        );
+        o.apply_physics_force(Vec3::new(0.0, 0.0, 10.0)); // lateral +Z
+                                                          // accel = force/mass lateral
+        assert!(o.physics_accel.z.abs() > 0.1, "lateral force kept");
+        o.integrate_physics_accel();
+        assert!(o.movement.velocity.z.abs() > 0.1);
+    }
+
+    #[test]
+    fn vehicle_requests_infantry_move_away() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut vt = ThingTemplate::new("VMove");
+        vt.add_kind_of(KindOf::Vehicle);
+        let vid = ObjectId(811);
+        let mut v = Object::new(vt, vid, Team::USA);
+        v.movement.velocity = Vec3::new(0.0, 0.0, 3.0);
+        v.set_position(Vec3::new(0.0, 0.0, 0.0));
+        // Face +Z: orientation = -PI/2 with (-dz).atan2(dx) convention.
+        v.set_orientation(-std::f32::consts::FRAC_PI_2);
+        v.selection_radius = 8.0;
+        // Explicitly cannot crush (and disable ensure defaults via high crushable).
+        v.crusher_level = 0;
+        logic.objects.insert(vid, v);
+
+        let mut it = ThingTemplate::new("IMove");
+        it.add_kind_of(KindOf::Infantry);
+        let iid = ObjectId(812);
+        let mut inf = Object::new(it, iid, Team::USA);
+        inf.set_position(Vec3::new(0.0, 0.0, 4.0));
+        inf.set_orientation(-std::f32::consts::FRAC_PI_2);
+        inf.selection_radius = 5.0;
+        // Not crushable by level-0 crusher; keep ensure from lowering.
+        inf.crushable_level = 10;
+        logic.objects.insert(iid, inf);
+
+        // Direct processCollision path: ensure blocked_by geometry works.
+        {
+            let other = logic.objects.get(&iid).unwrap().clone();
+            let v = logic.objects.get_mut(&vid).unwrap();
+            // Prevent ensure_crush_levels from promoting crusher during overlap.
+            let blocked = v.ai_blocked_by(&other);
+            assert!(blocked, "vehicle should be blocked by infantry ahead");
+            let force = v.ai_process_collision(&other, 0);
+            assert!(!force);
+            assert!(v.is_blocked);
+            assert_eq!(v.request_other_move_away, Some(iid));
+        }
+        assert!(logic.try_physics_collide(vid, iid, 8.0));
+        let inf = logic.objects.get(&iid).unwrap();
+        assert_eq!(inf.move_away_from, Some(vid));
+        assert!(inf.move_away_destination.is_some());
+        assert!(inf.move_away_frames > 0);
+    }
+
+    #[test]
     fn ai_blocked_sets_speed_cap() {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
         use glam::Vec3;
@@ -71514,10 +71605,9 @@ mod tests {
         at.add_kind_of(KindOf::Vehicle);
         let aid = ObjectId(701);
         let mut a = Object::new(at, aid, Team::USA);
-        a.movement.velocity = Vec3::new(0.0, 0.0, 4.0); // moving +Z
+        a.movement.velocity = Vec3::new(3.0, 0.0, 0.0); // moving +X
         a.set_position(Vec3::new(0.0, 0.0, 0.0));
-        // face +Z
-        a.set_orientation(0.0);
+        a.set_orientation(0.0); // face +X
         a.selection_radius = 8.0;
         a.crusher_level = 0;
         logic.objects.insert(aid, a);
@@ -71526,17 +71616,16 @@ mod tests {
         bt.add_kind_of(KindOf::Vehicle);
         let bid = ObjectId(702);
         let mut b = Object::new(bt, bid, Team::USA);
-        b.set_position(Vec3::new(0.0, 0.0, 5.0)); // in front
+        b.set_position(Vec3::new(5.0, 0.0, 0.0)); // in front +X
         b.set_orientation(0.0);
         b.selection_radius = 8.0;
         b.movement.velocity = Vec3::ZERO;
+        b.crushable_level = 10;
         logic.objects.insert(bid, b);
 
         assert!(logic.try_physics_collide(aid, bid, 8.0));
         let a = logic.objects.get(&aid).unwrap();
-        // Moving into stopped ally vehicle → blocked, no bounce force path still handled.
         assert!(a.is_blocked || a.last_collidee == Some(bid));
-        // Speed cap applied when blocked with low max speed.
         if a.is_blocked {
             assert!(a.movement.velocity.length() <= 4.0 + 1e-3);
         }
