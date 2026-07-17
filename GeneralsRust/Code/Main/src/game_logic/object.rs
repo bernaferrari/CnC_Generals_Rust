@@ -16,6 +16,18 @@ fn actual_speed_is_zero(o: &Object) -> bool {
     o.movement.velocity.x.abs() < 1e-4 && o.movement.velocity.z.abs() < 1e-4
 }
 
+/// C++ calcSlowDownDist residual (host units).
+pub fn calc_slow_down_dist(cur_speed: f32, desired_speed: f32, max_braking: f32) -> f32 {
+    let delta = cur_speed - desired_speed;
+    if delta <= 0.0 {
+        return 0.0;
+    }
+    let braking = max_braking.abs().max(1e-6);
+    let dist = (delta * delta / braking) * 0.5;
+    const FUDGE: f32 = 1.05;
+    dist * FUDGE
+}
+
 fn default_strategy_center_turret_angle() -> f32 {
     crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
 }
@@ -330,6 +342,21 @@ pub struct Object {
     /// Host residual: position is on invalid pathfind cell (set by world).
     #[serde(default)]
     pub on_invalid_movement_terrain: bool,
+    /// C++ m_turnPivotOffset residual (-1 rear, 0 center, 1 front).
+    #[serde(default)]
+    pub turn_pivot_offset: f32,
+    /// C++ m_wanderWidthFactor residual (0 = off).
+    #[serde(default)]
+    pub wander_width_factor: f32,
+    /// C++ m_angleOffset residual for wander.
+    #[serde(default)]
+    pub wander_angle_offset: f32,
+    /// C++ m_offsetIncrement residual.
+    #[serde(default)]
+    pub wander_offset_increment: f32,
+    /// C++ OFFSET_INCREASING flag residual.
+    #[serde(default)]
+    pub wander_offset_increasing: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -1012,6 +1039,11 @@ impl Object {
             precise_z_pos: false,
             is_dozer: false,
             on_invalid_movement_terrain: false,
+            turn_pivot_offset: 0.0,
+            wander_width_factor: 0.0,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            wander_offset_increasing: true,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1229,6 +1261,11 @@ impl Object {
             precise_z_pos: false,
             is_dozer: false,
             on_invalid_movement_terrain: false,
+            turn_pivot_offset: 0.0,
+            wander_width_factor: 0.0,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            wander_offset_increasing: true,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2623,48 +2660,135 @@ impl Object {
         self.physics_accel += mod_force * inv;
     }
 
-    /// C++ Locomotor::rotateTowardsPosition residual.
-    ///
-    /// Turns object toward goal on XZ; returns turning enum and optional rel angle.
+    /// C++ rotateObjAroundLocoPivot / rotateTowardsPosition residual.
     pub fn rotate_towards_position(
         &mut self,
         goal: glam::Vec3,
         dt: f32,
     ) -> (PhysicsTurningType, f32) {
-        let us = self.get_position();
-        let dx = goal.x - us.x;
-        let dz = goal.z - us.z;
-        if dx * dx + dz * dz < 1.0e-8 {
-            self.physics_turning = PhysicsTurningType::TurnNone;
-            return (PhysicsTurningType::TurnNone, 0.0);
-        }
-        let desired = (-dz).atan2(dx);
-        let current = self.get_orientation();
-        let mut rel = desired - current;
-        while rel > std::f32::consts::PI {
-            rel -= std::f32::consts::TAU;
-        }
-        while rel < -std::f32::consts::PI {
-            rel += std::f32::consts::TAU;
-        }
         let max_turn = self.movement.turn_rate * dt;
-        let applied = if rel.abs() <= max_turn {
-            self.set_orientation(desired);
-            rel
+        self.rotate_obj_around_loco_pivot(goal, max_turn)
+    }
+
+    /// C++ Locomotor::rotateObjAroundLocoPivot residual.
+    pub fn rotate_obj_around_loco_pivot(
+        &mut self,
+        goal: glam::Vec3,
+        max_turn_rate: f32,
+    ) -> (PhysicsTurningType, f32) {
+        let angle = self.get_orientation();
+        let mut offset = self.turn_pivot_offset;
+        if self.is_braking {
+            offset = 0.0;
+        }
+        let us = self.get_position();
+        let (dx, dz, turn_pos) = if offset.abs() > 1e-6 {
+            let radius = self.selection_radius.max(1.0);
+            let turn_point = offset * radius;
+            let dir = self.unit_direction_vector_2d();
+            let turn_pos =
+                glam::Vec3::new(us.x + dir.x * turn_point, us.y, us.z + dir.y * turn_point);
+            let dx = goal.x - turn_pos.x;
+            let dz = goal.z - turn_pos.z;
+            if dx.abs() < 0.1 && dz.abs() < 0.1 {
+                self.physics_turning = PhysicsTurningType::TurnNone;
+                return (PhysicsTurningType::TurnNone, 0.0);
+            }
+            (dx, dz, Some(turn_pos))
         } else {
-            let step = max_turn * rel.signum();
-            self.set_orientation(current + step);
-            step
+            let dx = goal.x - us.x;
+            let dz = goal.z - us.z;
+            if dx * dx + dz * dz < 1.0e-8 {
+                self.physics_turning = PhysicsTurningType::TurnNone;
+                return (PhysicsTurningType::TurnNone, 0.0);
+            }
+            (dx, dz, None)
         };
-        let turning = if applied > 1.0e-5 {
-            PhysicsTurningType::TurnPositive
-        } else if applied < -1.0e-5 {
-            PhysicsTurningType::TurnNegative
+        let desired = (-dz).atan2(dx);
+        let mut amount = desired - angle;
+        while amount > std::f32::consts::PI {
+            amount -= std::f32::consts::TAU;
+        }
+        while amount < -std::f32::consts::PI {
+            amount += std::f32::consts::TAU;
+        }
+        let rel = amount;
+        let (amount, turning) = if amount > max_turn_rate {
+            (max_turn_rate, PhysicsTurningType::TurnPositive)
+        } else if amount < -max_turn_rate {
+            (-max_turn_rate, PhysicsTurningType::TurnNegative)
         } else {
-            PhysicsTurningType::TurnNone
+            (amount, PhysicsTurningType::TurnNone)
         };
+        if let Some(tp) = turn_pos {
+            let cos_a = amount.cos();
+            let sin_a = amount.sin();
+            let rx = us.x - tp.x;
+            let rz = us.z - tp.z;
+            let nx = tp.x + rx * cos_a - rz * sin_a;
+            let nz = tp.z + rx * sin_a + rz * cos_a;
+            self.set_position(glam::Vec3::new(nx, us.y, nz));
+        }
+        self.set_orientation(angle + amount);
         self.physics_turning = turning;
         (turning, rel)
+    }
+
+    /// C++ Locomotor::locoUpdate_moveTowardsAngle residual.
+    pub fn loco_update_move_towards_angle(&mut self, goal_angle: f32, dt: f32) {
+        self.maintain_pos_valid = false;
+        if self.shock_stun_frames > 0 {
+            return;
+        }
+        let min_speed = self.min_speed;
+        if min_speed > 0.0 {
+            let us = self.get_position();
+            let desired = glam::Vec3::new(
+                us.x + goal_angle.cos() * min_speed * 2.0,
+                us.y,
+                us.z + (-goal_angle.sin()) * min_speed * 2.0,
+            );
+            let prev = self.movement.target_position;
+            self.movement.target_position = Some(desired);
+            let _ = self.rotate_towards_position(desired, dt);
+            self.apply_forward_speed_force(min_speed, dt);
+            let p = self.get_position() + self.movement.velocity * dt;
+            self.set_position(p);
+            let _ = self.handle_behavior_z(p.y, None);
+            self.movement.target_position = prev;
+        } else {
+            let us = self.get_position();
+            let desired = glam::Vec3::new(
+                us.x + goal_angle.cos() * 1000.0,
+                us.y,
+                us.z + (-goal_angle.sin()) * 1000.0,
+            );
+            let _ = self.rotate_towards_position(desired, dt);
+            let _ = self.handle_behavior_z(us.y, None);
+        }
+    }
+
+    /// Advance wander angle offset residual (legs).
+    pub fn tick_wander_angle_offset(&mut self, actual_speed: f32) -> f32 {
+        if self.wander_width_factor == 0.0 {
+            return 0.0;
+        }
+        if self.wander_offset_increment == 0.0 {
+            self.wander_offset_increment = std::f32::consts::PI / 40.0;
+        }
+        let angle_limit = std::f32::consts::PI / 8.0 * self.wander_width_factor;
+        if self.wander_offset_increasing {
+            self.wander_angle_offset += self.wander_offset_increment * actual_speed;
+            if self.wander_angle_offset > angle_limit {
+                self.wander_offset_increasing = false;
+            }
+        } else {
+            self.wander_angle_offset -= self.wander_offset_increment * actual_speed;
+            if self.wander_angle_offset < -angle_limit {
+                self.wander_offset_increasing = true;
+            }
+        }
+        self.wander_angle_offset
     }
 
     /// C++ Locomotor::handleBehaviorZ residual (fail-closed subset).
@@ -5921,8 +6045,26 @@ impl Object {
                 desired_speed = desired_speed.min(blocked_per_sec);
             }
 
+            // Legs wander residual: bias desired heading before rotate.
+            let mut rotate_goal = target_pos;
+            if matches!(
+                self.loco_appearance,
+                LocomotorAppearance::LegsTwo | LocomotorAppearance::Climber
+            ) && self.wander_width_factor != 0.0
+            {
+                let actual = self.forward_speed_2d().abs();
+                let wobble = self.tick_wander_angle_offset(actual);
+                let us = self.get_position();
+                let base = (-dz).atan2(dx) + wobble;
+                rotate_goal = glam::Vec3::new(
+                    us.x + base.cos() * 100.0,
+                    us.y,
+                    us.z + (-base.sin()) * 100.0,
+                );
+            }
+
             // C++ rotateTowardsPosition residual.
-            let (_turning, angle_diff) = self.rotate_towards_position(target_pos, dt);
+            let (_turning, angle_diff) = self.rotate_towards_position(rotate_goal, dt);
 
             // Appearance-specific speed residual (C++ moveTowardsPosition*).
             let quarter_pi = std::f32::consts::FRAC_PI_4;
@@ -5970,8 +6112,8 @@ impl Object {
             // Braking residual near destination (unless NO_SLOW_DOWN).
             let actual_speed = self.forward_speed_2d().abs();
             let braking = self.braking.max(1.0e-3);
-            let slow_down_time = actual_speed / braking;
-            let slow_down_dist = (actual_speed / 1.50) * slow_down_time;
+            let slow_down_dist =
+                calc_slow_down_dist(actual_speed, self.min_speed.max(0.0), braking);
             if !self.no_slow_down_as_approaching_dest {
                 if dist_2d < slow_down_dist && !self.is_braking {
                     self.is_braking = true;
