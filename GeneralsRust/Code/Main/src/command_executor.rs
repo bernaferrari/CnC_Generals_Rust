@@ -1060,13 +1060,18 @@ impl<'a> CommandExecutor<'a> {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::Frenzy {
-                    // Fail-closed residual default: FRENZY_ONE (SCIENCE_Frenzy1).
-                    // Full science tier upgrade matrix deferred.
+                    let level = {
+                        use crate::game_logic::host_frenzy::highest_frenzy_level_from_sciences;
+                        let sciences = self
+                            .game_logic
+                            .player_unlocked_sciences(self.current_player_id);
+                        highest_frenzy_level_from_sciences(sciences.iter().map(|s| s.as_str()))
+                    };
                     if !self.game_logic.activate_frenzy(
                         self.current_player_id,
                         pos,
                         Some(unit_id),
-                        crate::game_logic::host_frenzy::HostFrenzyLevel::One,
+                        level,
                     ) {
                         continue;
                     }
@@ -1092,13 +1097,20 @@ impl<'a> CommandExecutor<'a> {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::EmergencyRepair {
-                    // Fail-closed residual default: Level1 (SCIENCE_EmergencyRepair1).
-                    // Full science tier upgrade matrix deferred.
+                    let level = {
+                        use crate::game_logic::host_emergency_repair::highest_emergency_repair_level_from_sciences;
+                        let sciences = self
+                            .game_logic
+                            .player_unlocked_sciences(self.current_player_id);
+                        highest_emergency_repair_level_from_sciences(
+                            sciences.iter().map(|s| s.as_str()),
+                        )
+                    };
                     if !self.game_logic.activate_emergency_repair(
                         self.current_player_id,
                         pos,
                         Some(unit_id),
-                        crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel::One,
+                        level,
                     ) {
                         continue;
                     }

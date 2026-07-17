@@ -161,6 +161,24 @@ pub fn emergency_repair_level_from_science(science: &str) -> HostEmergencyRepair
     }
 }
 
+/// Select highest unlocked EmergencyRepair science tier (fail-closed → Level1).
+pub fn highest_emergency_repair_level_from_sciences<'a, I>(sciences: I) -> HostEmergencyRepairLevel
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut best = HostEmergencyRepairLevel::One;
+    for s in sciences {
+        let n = s.to_ascii_lowercase().replace('_', "").replace('-', "");
+        if n.contains("emergencyrepair3") {
+            return HostEmergencyRepairLevel::Three;
+        }
+        if n.contains("emergencyrepair2") {
+            best = HostEmergencyRepairLevel::Two;
+        }
+    }
+    best
+}
+
 /// Whether residual target can receive Emergency Repair heal burst.
 ///
 /// Retail AutoHealBehavior KindOf = VEHICLE, SingleBurst, StartsActive:
