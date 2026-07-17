@@ -31,6 +31,10 @@ pub struct HostCrateCreationEntry {
     pub is_veterancy: bool,
     pub veterancy_effect_range: f32,
     pub veterancy_levels: u8,
+    pub is_unit_crate: bool,
+    pub unit_crate_type: &'static str,
+    pub unit_crate_count: u32,
+    pub is_heal_crate: bool,
 }
 
 /// Host residual CrateTemplate subset.
@@ -50,6 +54,10 @@ static SALVAGE_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
     is_veterancy: false,
     veterancy_effect_range: 0.0,
     veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: false,
 }];
 
 static DOLLAR_1000_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -60,6 +68,10 @@ static DOLLAR_1000_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     is_veterancy: false,
     veterancy_effect_range: 0.0,
     veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: false,
 }];
 
 static DOLLAR_2500_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -70,6 +82,10 @@ static DOLLAR_2500_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     is_veterancy: false,
     veterancy_effect_range: 0.0,
     veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: false,
 }];
 
 static SUPPLY_DROP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -80,6 +96,10 @@ static SUPPLY_DROP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     is_veterancy: false,
     veterancy_effect_range: 0.0,
     veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: false,
 }];
 
 static SMALL_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -90,6 +110,10 @@ static SMALL_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationE
     is_veterancy: true,
     veterancy_effect_range: 100.0,
     veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: false,
 }];
 
 static MEDIUM_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -100,6 +124,38 @@ static MEDIUM_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreation
     is_veterancy: true,
     veterancy_effect_range: 250.0,
     veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: false,
+}];
+
+static FREE_CRUSADERS_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
+    crate_object_name: "2FreeCrusadersCrate",
+    crate_chance: 1.0,
+    money_provided: 0,
+    building_pickup: false,
+    is_veterancy: false,
+    veterancy_effect_range: 0.0,
+    veterancy_levels: 1,
+    is_unit_crate: true,
+    unit_crate_type: "AmericaTankCrusader",
+    unit_crate_count: 2,
+    is_heal_crate: false,
+}];
+
+static HEAL_CRATE_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
+    crate_object_name: "HealCrate",
+    crate_chance: 1.0,
+    money_provided: 0,
+    building_pickup: false,
+    is_veterancy: false,
+    veterancy_effect_range: 0.0,
+    veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: true,
 }];
 
 /// Built-in host crate templates (Crate.ini name residual keys).
@@ -138,6 +194,16 @@ pub static HOST_CRATE_TEMPLATES: &[HostCrateTemplate] = &[
         name: "MediumLevelUpCrateData",
         creation_chance: 1.0,
         possible: MEDIUM_LEVEL_UP_POSSIBLE,
+    },
+    HostCrateTemplate {
+        name: "2FreeCrusadersCrateData",
+        creation_chance: 1.0,
+        possible: FREE_CRUSADERS_POSSIBLE,
+    },
+    HostCrateTemplate {
+        name: "HealCrateData",
+        creation_chance: 1.0,
+        possible: HEAL_CRATE_POSSIBLE,
     },
 ];
 
@@ -201,6 +267,10 @@ pub struct HostCrateSpawnRequest {
     pub is_veterancy: bool,
     pub veterancy_effect_range: f32,
     pub veterancy_levels: u8,
+    pub is_unit_crate: bool,
+    pub unit_crate_type: String,
+    pub unit_crate_count: u32,
+    pub is_heal_crate: bool,
 }
 
 pub fn try_roll_crate_spawn(
@@ -221,6 +291,10 @@ pub fn try_roll_crate_spawn(
         is_veterancy: entry.is_veterancy,
         veterancy_effect_range: entry.veterancy_effect_range,
         veterancy_levels: entry.veterancy_levels,
+        is_unit_crate: entry.is_unit_crate,
+        unit_crate_type: entry.unit_crate_type.to_string(),
+        unit_crate_count: entry.unit_crate_count,
+        is_heal_crate: entry.is_heal_crate,
     })
 }
 
