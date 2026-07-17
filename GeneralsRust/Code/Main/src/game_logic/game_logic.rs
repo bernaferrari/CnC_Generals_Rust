@@ -1451,6 +1451,12 @@ pub struct GameLogic {
     unmanned_reclaims: u32,
     /// C++ car-bomb dead-man on DISABLED_UNMANNED residual events.
     carbomb_unmanned_detonations: u32,
+    /// C++ OverchargeBehavior toggle residual events.
+    overcharge_toggles: u32,
+    /// C++ OverchargeBehavior drain residual ticks.
+    overcharge_drain_ticks: u32,
+    /// C++ OverchargeBehavior exhausted auto-disable residual events.
+    overcharge_exhaustions: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2722,6 +2728,9 @@ impl GameLogic {
             capture_tech_model_updates: 0,
             unmanned_reclaims: 0,
             carbomb_unmanned_detonations: 0,
+            overcharge_toggles: 0,
+            overcharge_drain_ticks: 0,
+            overcharge_exhaustions: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3130,6 +3139,9 @@ impl GameLogic {
         self.capture_tech_model_updates = 0;
         self.unmanned_reclaims = 0;
         self.carbomb_unmanned_detonations = 0;
+        self.overcharge_toggles = 0;
+        self.overcharge_drain_ticks = 0;
+        self.overcharge_exhaustions = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -5261,6 +5273,7 @@ impl GameLogic {
         // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
         self.update_propaganda_tower_pulse(dt);
+        self.update_overcharge_drain(dt);
 
         // Host China Battlemaster HordeUpdate residual (ExactMatch allies Radius 75 / Count 5).
         // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
@@ -43279,6 +43292,112 @@ impl GameLogic {
         ok
     }
 
+    /// C++ OverchargeBehavior::enable / toggle residual for China power plants.
+    ///
+    /// Adjusts power_provided by EnergyBonus when toggling; auto-disable path
+    /// is handled by `update_overcharge_drain`.
+    pub fn toggle_overcharge_object(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_structure_economy_residual::{
+            is_power_plant_template, CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC,
+            CHINA_POWER_ENERGY_BONUS,
+        };
+        let _ = CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        if !is_power_plant_template(&obj.template_name)
+            && !obj.is_kind_of(KindOf::PowerPlant)
+            && !obj.is_kind_of(KindOf::FSPower)
+        {
+            return false;
+        }
+        // C++ NotAllowedWhenHealthBelowPercent residual (China  = typically 0.2?).
+        // Use 20% if enabling while critically damaged.
+        const NOT_ALLOWED_BELOW: f32 = 0.20;
+        let hp_frac = if obj.max_health > 0.0 {
+            obj.health.current / obj.max_health
+        } else {
+            0.0
+        };
+        if !obj.overcharge_enabled && hp_frac < NOT_ALLOWED_BELOW {
+            return false;
+        }
+        let bonus = CHINA_POWER_ENERGY_BONUS;
+        if obj.overcharge_enabled {
+            // Disable.
+            obj.overcharge_enabled = false;
+            obj.power_provided = (obj.power_provided - bonus).max(0);
+            // C++ PowerPlantUpdate::extendRods(FALSE) residual.
+            use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+            if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADED") {
+                obj.model_condition_bits &= !(1u128 << bit);
+            }
+        } else {
+            obj.overcharge_enabled = true;
+            obj.power_provided = obj.power_provided.saturating_add(bonus);
+            if let Some(bit) =
+                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                    "POWER_PLANT_UPGRADED",
+                )
+            {
+                obj.model_condition_bits |= 1u128 << bit;
+            }
+        }
+        self.overcharge_toggles = self.overcharge_toggles.saturating_add(1);
+        true
+    }
+
+    /// C++ OverchargeBehavior::update residual — drain HP while overcharge active.
+    pub fn update_overcharge_drain(&mut self, dt: f32) {
+        use crate::game_logic::host_structure_economy_residual::CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC;
+        if dt <= 0.0 {
+            return;
+        }
+        const NOT_ALLOWED_BELOW: f32 = 0.20;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.overcharge_enabled && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let max_hp = obj.max_health.max(1.0);
+            // C++ amount = (maxHealth * percentPerSec) / LOGICFRAMES_PER_SECOND per frame
+            // We receive dt seconds so: maxHealth * percentPerSec * dt
+            let dmg = max_hp * CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC * dt;
+            if dmg > 0.0 {
+                let _ = obj.take_damage(dmg);
+            }
+            self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);
+            let frac = obj.health.current / max_hp;
+            let dead = !obj.is_alive() || obj.health.current <= 0.0;
+            if dead || frac < NOT_ALLOWED_BELOW {
+                // Auto-disable residual (GUI:OverchargeExhausted).
+                let bonus =
+                    crate::game_logic::host_structure_economy_residual::CHINA_POWER_ENERGY_BONUS;
+                obj.overcharge_enabled = false;
+                obj.power_provided = (obj.power_provided - bonus).max(0);
+                if let Some(bit) =
+                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                        "POWER_PLANT_UPGRADED",
+                    )
+                {
+                    obj.model_condition_bits &= !(1u128 << bit);
+                }
+                self.overcharge_exhaustions = self.overcharge_exhaustions.saturating_add(1);
+                if dead {
+                    self.mark_object_for_destruction(id, None);
+                }
+            }
+        }
+    }
+
     /// C++ PhysicsUpdate infantry→unmanned vehicle pilot residual.
     ///
     /// Returns true when the pair was handled (vehicle recrewed, infantry destroyed).
@@ -80072,6 +80191,66 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn overcharge_drains_hp_and_auto_disables_below_threshold() {
+        use crate::game_logic::host_structure_economy_residual::{
+            CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC, CHINA_POWER_ENERGY_BONUS,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+
+        let mut plant = ThingTemplate::new("ChinaPowerPlant");
+        plant
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::PowerPlant)
+            .set_health(1000.0);
+        logic.templates.insert("ChinaPowerPlant".into(), plant);
+
+        let id = logic
+            .create_object(
+                "ChinaPowerPlant",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("plant");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.power_provided = 10;
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+        assert!(logic.toggle_overcharge_object(id));
+        assert!(logic.overcharge_toggles > 0);
+        let after_on = logic.get_object(id).unwrap();
+        assert!(after_on.overcharge_enabled);
+        assert_eq!(after_on.power_provided, 10 + CHINA_POWER_ENERGY_BONUS);
+
+        // Drain: 3%/sec * 1000 HP = 30 HP/sec. At 0.2 threshold need 800 damage → ~26.7s.
+        // Accelerate by setting HP just above threshold then one tick.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.health.current = 250.0; // 25% — above 20%
+        }
+        // One second of drain at 3% of 1000 = 30 → 220 HP (22%) still above.
+        logic.update_overcharge_drain(1.0);
+        assert!(logic.overcharge_drain_ticks > 0);
+        let mid = logic.get_object(id).unwrap();
+        assert!(mid.overcharge_enabled);
+        assert!(mid.health.current < 250.0);
+
+        // Drop below 20% via drain.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.health.current = 210.0; // 21%
+        }
+        logic.update_overcharge_drain(1.0); // -30 → 180 = 18%
+        let end = logic.get_object(id).unwrap();
+        assert!(!end.overcharge_enabled, "must auto-disable below threshold");
+        assert!(logic.overcharge_exhaustions > 0);
+        assert_eq!(end.power_provided, 10);
+        let _ = CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC;
     }
 
     #[test]

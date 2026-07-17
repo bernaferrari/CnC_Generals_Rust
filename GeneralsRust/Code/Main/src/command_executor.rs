@@ -2991,12 +2991,7 @@ impl<'a> CommandExecutor<'a> {
     fn execute_toggle_overcharge(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.overcharge_enabled = !unit.overcharge_enabled;
-                if unit.overcharge_enabled {
-                    unit.force_attack = true;
-                }
-                unit.set_ai_state(AIState::SpecialAbility);
+            if self.game_logic.toggle_overcharge_object(unit_id) {
                 any = true;
             }
         }
