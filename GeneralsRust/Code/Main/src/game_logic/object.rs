@@ -8,6 +8,10 @@ fn default_one_f32() -> f32 {
     1.0
 }
 
+fn default_braking() -> f32 {
+    50.0
+}
+
 fn default_strategy_center_turret_angle() -> f32 {
     crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
 }
@@ -216,6 +220,21 @@ pub struct Object {
     /// C++ m_pitchRollYawFactor residual (default 1.0).
     #[serde(default = "default_one_f32")]
     pub pitch_roll_yaw_factor: f32,
+    /// C++ Locomotor IS_BRAKING flag residual.
+    #[serde(default)]
+    pub is_braking: bool,
+    /// C++ Locomotor m_brakingFactor residual.
+    #[serde(default = "default_one_f32")]
+    pub braking_factor: f32,
+    /// C++ Locomotor braking deceleration residual (units/sec², host Movement space).
+    #[serde(default = "default_braking")]
+    pub braking: f32,
+    /// C++ Locomotor APPLY_2D_FRICTION_WHEN_AIRBORNE residual.
+    #[serde(default)]
+    pub loco_apply_2d_friction_airborne: bool,
+    /// C++ Locomotor extra2DFriction residual (added to physics extra_friction).
+    #[serde(default)]
+    pub loco_extra_2d_friction: f32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -875,6 +894,11 @@ impl Object {
             was_airborne_last_frame: false,
             center_of_mass_offset: 0.0,
             pitch_roll_yaw_factor: 1.0,
+            is_braking: false,
+            braking_factor: 1.0,
+            braking: 50.0,
+            loco_apply_2d_friction_airborne: false,
+            loco_extra_2d_friction: 0.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1069,6 +1093,11 @@ impl Object {
             was_airborne_last_frame: false,
             center_of_mass_offset: 0.0,
             pitch_roll_yaw_factor: 1.0,
+            is_braking: false,
+            braking_factor: 1.0,
+            braking: 50.0,
+            loco_apply_2d_friction_airborne: false,
+            loco_extra_2d_friction: 0.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2461,6 +2490,17 @@ impl Object {
         }
         let inv = 1.0 / self.physics_get_mass();
         self.physics_accel += mod_force * inv;
+    }
+
+    /// C++ Locomotor::setPhysicsOptions residual.
+    pub fn set_locomotor_physics_options(&mut self) {
+        // Ultra-accurate residual not fully ported — base extra friction only.
+        self.extra_friction = self.loco_extra_2d_friction;
+        self.apply_friction_2d_when_airborne = self.loco_apply_2d_friction_airborne;
+        // Walking units stick to ground residual.
+        if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
+            self.stick_to_ground = true;
+        }
     }
 
     /// C++ PhysicsBehavior::applyMotiveForce residual.
@@ -5323,68 +5363,134 @@ impl Object {
             return;
         }
 
+        // C++ Locomotor::setPhysicsOptions residual each move tick.
+        self.set_locomotor_physics_options();
+
+        // Stunned residual: no loco move while shock-stunned.
+        if self.shock_stun_frames > 0 {
+            return;
+        }
+
         if let Some(target_pos) = self.movement.target_position {
             let current_pos = self.get_position();
-            let direction = (target_pos - current_pos).normalize_or_zero();
+            let dx = target_pos.x - current_pos.x;
+            let dz = target_pos.z - current_pos.z;
+            let dist_2d = (dx * dx + dz * dz).sqrt();
 
-            if direction.length() > 0.0 {
-                // Update velocity
-                let target_velocity = direction * self.movement.max_speed;
-                let velocity_diff = target_velocity - self.movement.velocity;
-                let max_accel = self.movement.acceleration * dt;
-
-                if velocity_diff.length() <= max_accel {
-                    self.movement.velocity = target_velocity;
-                } else {
-                    self.movement.velocity += velocity_diff.normalize() * max_accel;
-                }
-
-                // Update position
-                let new_position = current_pos + self.movement.velocity * dt;
-                self.set_position(new_position);
-
-                // Update orientation to face movement direction
-                if self.movement.velocity.length() > 0.1 {
-                    let desired_angle = (-self.movement.velocity.z).atan2(self.movement.velocity.x);
-                    let current_angle = self.get_orientation();
-                    let angle_diff = desired_angle - current_angle;
-
-                    // Normalize angle difference
-                    let angle_diff = ((angle_diff + std::f32::consts::PI)
-                        % (2.0 * std::f32::consts::PI))
-                        - std::f32::consts::PI;
-
-                    let max_turn = self.movement.turn_rate * dt;
-                    let new_angle = if angle_diff.abs() <= max_turn {
-                        desired_angle
+            if dist_2d < 1.0e-4 {
+                // Advance path or stop.
+                let next_waypoint =
+                    if self.movement.current_path_index + 1 < self.movement.path.len() {
+                        self.movement.current_path_index += 1;
+                        Some(self.movement.path[self.movement.current_path_index])
                     } else {
-                        current_angle + max_turn * angle_diff.signum()
+                        None
                     };
-
-                    self.set_orientation(new_angle);
+                if let Some(waypoint) = next_waypoint {
+                    self.movement.target_position = Some(waypoint);
+                } else {
+                    self.stop_moving();
                 }
+                return;
+            }
 
-                // Check if we've reached the target
-                let distance_to_target = current_pos.distance(target_pos);
-                if distance_to_target < 2.0 {
-                    // C++ parity: advance to the next waypoint in the path if one
-                    // exists, otherwise stop moving.
-                    let next_waypoint =
-                        if self.movement.current_path_index + 1 < self.movement.path.len() {
-                            self.movement.current_path_index += 1;
-                            Some(self.movement.path[self.movement.current_path_index])
-                        } else {
-                            None
-                        };
+            // C++ locoUpdate_moveTowardsPosition residual (treads-like host default).
+            let max_speed = self.movement.max_speed.max(0.0);
+            let mut desired_speed = max_speed;
+            // Cap by blocked speed residual (convert frame→sec: blocked is per-frame).
+            if self.is_blocked && self.cur_max_blocked_speed.is_finite() {
+                let blocked_per_sec = self.cur_max_blocked_speed * 30.0;
+                desired_speed = desired_speed.min(blocked_per_sec);
+            }
 
-                    if let Some(waypoint) = next_waypoint {
-                        self.movement.target_position = Some(waypoint);
-                    } else {
-                        self.stop_moving();
-                    }
-                }
+            // Orient toward goal (host facing convention).
+            let desired_angle = (-dz).atan2(dx);
+            let current_angle = self.get_orientation();
+            let mut angle_diff = desired_angle - current_angle;
+            while angle_diff > std::f32::consts::PI {
+                angle_diff -= std::f32::consts::TAU;
+            }
+            while angle_diff < -std::f32::consts::PI {
+                angle_diff += std::f32::consts::TAU;
+            }
+            let max_turn = self.movement.turn_rate * dt;
+            let new_angle = if angle_diff.abs() <= max_turn {
+                desired_angle
             } else {
-                self.stop_moving();
+                current_angle + max_turn * angle_diff.signum()
+            };
+            self.set_orientation(new_angle);
+
+            // Treads-like: modulate speed by turn amount (C++ QUARTER_PI coeff).
+            let quarter_pi = std::f32::consts::FRAC_PI_4;
+            let mut angle_coeff = angle_diff.abs() / quarter_pi;
+            if angle_coeff > 1.0 {
+                angle_coeff = 1.0;
+            }
+            let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
+
+            // Braking residual near destination.
+            let actual_speed = self.forward_speed_2d().abs();
+            let braking = self.braking.max(1.0e-3);
+            let slow_down_time = actual_speed / braking;
+            let slow_down_dist = (actual_speed / 1.50) * slow_down_time;
+            if dist_2d < slow_down_dist && !self.is_braking {
+                self.is_braking = true;
+                self.braking_factor = 1.1;
+            }
+            if dist_2d > PATHFIND_CELL_SIZE_F_RESIDUAL && dist_2d > 2.0 * slow_down_dist {
+                self.is_braking = false;
+                self.braking_factor = 1.0;
+            }
+            if self.is_braking {
+                goal_speed = goal_speed.min(actual_speed * 0.85 / self.braking_factor.max(1.0));
+            }
+            if dist_2d < 2.0 * PATHFIND_CELL_SIZE_F_RESIDUAL && angle_coeff > 0.05 {
+                goal_speed = actual_speed * 0.6;
+            }
+
+            // Apply motive acceleration along facing (C++ applyMotiveForce residual).
+            // Host Movement is units/sec; force ≈ mass * accel for one frame then integrate
+            // is handled by velocity lerp below for host dt-seconds path (fail-closed).
+            let dir = self.unit_direction_vector_2d();
+            let target_vx = dir.x * goal_speed;
+            let target_vz = dir.y * goal_speed;
+            let target_velocity = Vec3::new(target_vx, self.movement.velocity.y, target_vz);
+            let velocity_diff = target_velocity - self.movement.velocity;
+            let max_accel = self.movement.acceleration * dt;
+            if velocity_diff.length() <= max_accel {
+                self.movement.velocity = target_velocity;
+            } else if velocity_diff.length() > 1.0e-6 {
+                self.movement.velocity += velocity_diff.normalize() * max_accel;
+            }
+            self.invalidate_velocity_magnitude();
+
+            // Arm motive window so collide forces stay lateral while driving.
+            if goal_speed > 0.1 {
+                self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
+            }
+
+            // Position integrate (host dt seconds).
+            let new_position = current_pos + self.movement.velocity * dt;
+            self.set_position(new_position);
+
+            // Arrival residual.
+            let distance_to_target = current_pos.distance(target_pos);
+            if distance_to_target < 2.0 {
+                let next_waypoint =
+                    if self.movement.current_path_index + 1 < self.movement.path.len() {
+                        self.movement.current_path_index += 1;
+                        Some(self.movement.path[self.movement.current_path_index])
+                    } else {
+                        None
+                    };
+                if let Some(waypoint) = next_waypoint {
+                    self.movement.target_position = Some(waypoint);
+                    self.is_braking = false;
+                } else {
+                    self.stop_moving();
+                    self.is_braking = false;
+                }
             }
         }
     }

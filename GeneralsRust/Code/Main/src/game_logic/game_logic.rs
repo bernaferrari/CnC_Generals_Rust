@@ -71549,6 +71549,49 @@ mod tests {
     }
 
     #[test]
+    fn loco_turn_modulates_speed() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("LocoTank");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(951), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.set_orientation(0.0); // face +X
+        o.movement.max_speed = 30.0;
+        o.movement.acceleration = 1000.0;
+        o.movement.turn_rate = 0.5; // slow turn
+                                    // Goal behind / to the side → large rel angle → reduced goal speed.
+        o.movement.target_position = Some(Vec3::new(0.0, 0.0, 100.0)); // +Z, 90 deg turn
+        let yaw0 = o.get_orientation();
+        o.update_movement(1.0 / 30.0);
+        // 90° goal: treads residual clamps goal_speed via angleCoeff → near-zero thrust
+        // while turning; orientation should advance toward +Z.
+        let spd = o.movement.velocity.length();
+        assert!(
+            spd < 5.0,
+            "hard turn should nearly zero goal_speed, spd={spd}"
+        );
+        assert!(
+            (o.get_orientation() - yaw0).abs() > 1e-4,
+            "should begin turning toward goal"
+        );
+    }
+
+    #[test]
+    fn loco_set_physics_options_sticks_infantry() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("LocoInf");
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(952), Team::USA);
+        o.loco_extra_2d_friction = 0.2;
+        o.loco_apply_2d_friction_airborne = true;
+        o.set_locomotor_physics_options();
+        assert!(o.stick_to_ground);
+        assert!((o.extra_friction - 0.2).abs() < 1e-6);
+        assert!(o.apply_friction_2d_when_airborne);
+    }
+
+    #[test]
     fn apply_motive_force_arms_lateral_window() {
         use crate::game_logic::{
             KindOf, Object, ObjectId, Team, ThingTemplate, MOTIVE_FRAMES_RESIDUAL,
