@@ -15797,6 +15797,14 @@ impl GameLogic {
             HostUpgradeKind::RadarVanScan => {
                 self.apply_player_unlock_upgrade(team, upgrade_name, "Upgrade_GLARadarVanScan")
             }
+            HostUpgradeKind::ChemicalSuits => self.apply_chemical_suits_to_team(team, upgrade_name),
+            HostUpgradeKind::Moab => {
+                self.apply_player_unlock_upgrade(team, upgrade_name, "Upgrade_AmericaMOAB")
+            }
+            HostUpgradeKind::SatelliteHack => self.apply_satellite_hack_to_team(team, upgrade_name),
+            HostUpgradeKind::Countermeasures => {
+                self.apply_countermeasures_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -15834,6 +15842,81 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_AmericaChemicalSuits residual — ChemSuitHumanArmor on infantry.
+    fn apply_chemical_suits_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
+        let mut n =
+            self.apply_player_unlock_upgrade(team, upgrade_name, UPGRADE_AMERICA_CHEMICAL_SUITS);
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Infantry) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_AMERICA_CHEMICAL_SUITS)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_CHEMICAL_SUITS);
+            obj.applied_upgrades
+                .insert(UPGRADE_AMERICA_CHEMICAL_SUITS.to_string());
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// C++ Upgrade_ChinaSatelliteHackOne/Two residual — player FOW/intel unlock.
+    fn apply_satellite_hack_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::{
+            UPGRADE_CHINA_SATELLITE_HACK_ONE, UPGRADE_CHINA_SATELLITE_HACK_TWO,
+        };
+        let lower = upgrade_name.to_ascii_lowercase();
+        let canonical = if lower.contains("two") || lower.contains("2") {
+            UPGRADE_CHINA_SATELLITE_HACK_TWO
+        } else {
+            UPGRADE_CHINA_SATELLITE_HACK_ONE
+        };
+        let n = self.apply_player_unlock_upgrade(team, upgrade_name, canonical);
+        // Also unlock both tiers when Two is researched (Two implies One residual).
+        if canonical == UPGRADE_CHINA_SATELLITE_HACK_TWO {
+            let _ = self.apply_player_unlock_upgrade(
+                team,
+                UPGRADE_CHINA_SATELLITE_HACK_ONE,
+                UPGRADE_CHINA_SATELLITE_HACK_ONE,
+            );
+        }
+        n
+    }
+
+    /// C++ Upgrade_AmericaCountermeasures residual — tag aircraft for flare residual.
+    fn apply_countermeasures_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_COUNTERMEASURES;
+        let mut n =
+            self.apply_player_unlock_upgrade(team, upgrade_name, UPGRADE_AMERICA_COUNTERMEASURES);
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Aircraft) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
+            obj.applied_upgrades
+                .insert(UPGRADE_AMERICA_COUNTERMEASURES.to_string());
+            n = n.saturating_add(1);
+        }
+        n
     }
 
     /// Generic player-level upgrade unlock residual (mines / radar scan / flags).
@@ -81019,6 +81102,86 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_chemical_suits_reduces_poison() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_armor_residual::{
+            apply_residual_armor, CHEM_SUIT_HUMAN_ARMOR_POISON,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let id = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        let before = {
+            let o = logic.get_object(id).unwrap();
+            apply_residual_armor(o, DamageType::Toxin, 100.0)
+        };
+        let n = logic.apply_chemical_suits_to_team(Team::USA, UPGRADE_AMERICA_CHEMICAL_SUITS);
+        assert!(n >= 1);
+        let after = {
+            let o = logic.get_object(id).unwrap();
+            apply_residual_armor(o, DamageType::Toxin, 100.0)
+        };
+        // Chem suit poison coeff 0.20 vs human default (higher).
+        assert!(
+            after < before,
+            "chem suits must reduce poison residual ({after} vs {before})"
+        );
+        assert!((after - 100.0 * CHEM_SUIT_HUMAN_ARMOR_POISON).abs() < 1.0);
+    }
+
+    #[test]
+    fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
+        use crate::game_logic::host_upgrades::{
+            UPGRADE_AMERICA_MOAB, UPGRADE_CHINA_SATELLITE_HACK_TWO,
+        };
+        use crate::game_logic::Team;
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "China", true));
+        assert_eq!(
+            logic.apply_player_unlock_upgrade(
+                Team::USA,
+                UPGRADE_AMERICA_MOAB,
+                UPGRADE_AMERICA_MOAB
+            ),
+            1
+        );
+        assert!(logic
+            .players
+            .get(&0)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_AMERICA_MOAB));
+        assert!(
+            logic.apply_satellite_hack_to_team(Team::China, UPGRADE_CHINA_SATELLITE_HACK_TWO) >= 1
+        );
+        assert!(logic
+            .players
+            .get(&1)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_CHINA_SATELLITE_HACK_TWO));
     }
 
     #[test]
