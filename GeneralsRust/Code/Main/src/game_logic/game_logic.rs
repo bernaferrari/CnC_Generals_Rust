@@ -76068,8 +76068,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
-    #[test]
     fn deliver_payload_parachute_directly_arms_landing_override() {
         use crate::game_logic::host_deliver_payload::{
             HostDeliverPayloadKind, SUPPLY_DROP_PARACHUTE_DIRECTLY,
@@ -76164,6 +76162,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn parachute_landing_override_steers_xz() {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::PARACHUTE_OPEN_DIST;
@@ -76225,6 +76224,7 @@ mod tests {
         let _ = d0;
     }
 
+    #[test]
     fn america_parachute_midair_death_free_fall_damages_rider() {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
