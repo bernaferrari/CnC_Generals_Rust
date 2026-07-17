@@ -39311,6 +39311,8 @@ impl GameLogic {
             use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
             let carpet = if matches!(*power, SpecialPowerType::EarlyChinaCarpetBomb) {
                 CarpetBombFactionTier::China
+            } else if matches!(*power, SpecialPowerType::AirForceCarpetBomb) {
+                CarpetBombFactionTier::AirForce
             } else {
                 CarpetBombFactionTier::highest_from_team_and_sciences(
                     source_team,
@@ -81350,6 +81352,54 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn airforce_carpet_bomb_forces_airforce_payload_tier() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::special_power_strikes::{
+            honesty_airf_carpet_bomb_residual_pack_ok, CarpetBombFactionTier, HostSuperweaponKind,
+            CARPET_BOMB_COUNT_AIRF,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_airf_carpet_bomb_residual_pack_ok());
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::AirForceCarpetBomb),
+            Some(HostSuperweaponKind::CarpetBomb)
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut cc = ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "ChinaCommandCenter",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        // China caster + AirF power still forces AirForce payload residual.
+        let id = logic
+            .queue_special_power_strike(
+                &SpecialPowerType::AirForceCarpetBomb,
+                src,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("airf carpet");
+        assert_eq!(
+            logic.special_power_strike_carpet_tier(id),
+            Some(CarpetBombFactionTier::AirForce)
+        );
+        assert_eq!(
+            CarpetBombFactionTier::AirForce.bomb_count(),
+            CARPET_BOMB_COUNT_AIRF
         );
     }
 

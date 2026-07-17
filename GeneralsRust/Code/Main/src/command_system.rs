@@ -286,6 +286,9 @@ pub enum SpecialPowerType {
     /// China Airforce Early Carpet Bomb residual (EARLY_SPECIAL_CHINA_CARPET_BOMB /
     /// Early_SuperweaponChinaCarpetBomb). China payload matrix + Early science gate.
     EarlyChinaCarpetBomb,
+    /// USA Airforce Carpet Bomb residual (AIRF_SPECIAL_CARPET_BOMB /
+    /// AirF_SuperweaponCarpetBomb). AirForce payload matrix (12 bombs / 130ms delay).
+    AirForceCarpetBomb,
     ClusterMines,
     DaisyCutter,
     EmergencyRepair,
