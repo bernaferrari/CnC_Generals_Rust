@@ -210,6 +210,12 @@ pub struct Object {
     /// C++ WAS_AIRBORNE_LAST_FRAME residual (general physics, not only shock).
     #[serde(default)]
     pub was_airborne_last_frame: bool,
+    /// C++ PhysicsBehaviorModuleData m_centerOfMassOffset residual.
+    #[serde(default)]
+    pub center_of_mass_offset: f32,
+    /// C++ m_pitchRollYawFactor residual (default 1.0).
+    #[serde(default = "default_one_f32")]
+    pub pitch_roll_yaw_factor: f32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -667,6 +673,8 @@ pub const LOCO_SURFACE_CLIFF: u32 = 1 << 2;
 pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
 pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
 /// C++ PhysicsBehavior default friction residuals (per-frame).
+/// C++ MOTIVE_FRAMES = LOGICFRAMES_PER_SECOND/3 residual.
+pub const MOTIVE_FRAMES_RESIDUAL: u32 = 10;
 pub const DEFAULT_FORWARD_FRICTION_RESIDUAL: f32 = 0.15;
 pub const DEFAULT_LATERAL_FRICTION_RESIDUAL: f32 = 0.15;
 pub const DEFAULT_Z_FRICTION_RESIDUAL: f32 = 0.8;
@@ -865,6 +873,8 @@ impl Object {
             stick_to_ground: false,
             allow_to_fall: false,
             was_airborne_last_frame: false,
+            center_of_mass_offset: 0.0,
+            pitch_roll_yaw_factor: 1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1057,6 +1067,8 @@ impl Object {
             stick_to_ground: false,
             allow_to_fall: false,
             was_airborne_last_frame: false,
+            center_of_mass_offset: 0.0,
+            pitch_roll_yaw_factor: 1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2451,6 +2463,28 @@ impl Object {
         self.physics_accel += mod_force * inv;
     }
 
+    /// C++ PhysicsBehavior::applyMotiveForce residual.
+    ///
+    /// Temporarily accepts full force (clears motive), applies, then arms motive
+    /// window for MOTIVE_FRAMES so subsequent collide forces are lateral-only.
+    pub fn apply_motive_force(&mut self, force: glam::Vec3) {
+        let prev = self.motive_frames_remaining;
+        self.motive_frames_remaining = 0;
+        self.apply_physics_force(force);
+        self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(prev);
+    }
+
+    /// C++ PhysicsBehavior::resetDynamicPhysics residual.
+    pub fn reset_dynamic_physics(&mut self) {
+        self.physics_accel = glam::Vec3::ZERO;
+        self.movement.velocity = glam::Vec3::ZERO;
+        self.invalidate_velocity_magnitude();
+        self.shock_yaw_rate = 0.0;
+        self.shock_pitch_rate = 0.0;
+        self.shock_roll_rate = 0.0;
+        self.motive_frames_remaining = 0;
+    }
+
     /// Integrate physics_accel into velocity residual (a → v per logic frame).
     pub fn integrate_physics_accel(&mut self) {
         if self.physics_accel != glam::Vec3::ZERO {
@@ -3068,10 +3102,29 @@ impl Object {
         let v = self.movement.velocity;
         let mut new_pos = old_pos + v;
         // YPR rate integrate residual (orientation presentation).
-        if self.shock_yaw_rate.abs() > 1e-8 {
-            let yaw = self.get_orientation() + self.shock_yaw_rate;
+        let pryf = self.pitch_roll_yaw_factor;
+        let mut yaw_rate = self.shock_yaw_rate * pryf;
+        let mut pitch_rate = self.shock_pitch_rate * pryf;
+        let roll_rate = self.shock_roll_rate * pryf;
+        // C++ centerOfMassOffset damps pitch toward straight up/down residual.
+        if self.center_of_mass_offset != 0.0 {
+            // Host residual: approximate pitch angle from shock_up_z.
+            let pitch_angle = (1.0 - self.shock_up_z.clamp(-1.0, 1.0))
+                .asin()
+                .copysign(self.shock_up_z);
+            let remaining = if self.center_of_mass_offset > 0.0 {
+                std::f32::consts::FRAC_PI_2 - pitch_angle
+            } else {
+                -std::f32::consts::FRAC_PI_2 + pitch_angle
+            };
+            pitch_rate *= remaining.sin();
+        }
+        let _ = roll_rate; // roll applied via shock rates presentation residual
+        if yaw_rate.abs() > 1e-8 {
+            let yaw = self.get_orientation() + yaw_rate;
             self.set_orientation(yaw);
         }
+        let _ = pitch_rate;
 
         let bounce_force = self.compute_ground_bounce_force(old_y, new_pos.y, ground_y);
         let mut bounced = false;
@@ -3118,6 +3171,10 @@ impl Object {
         self.was_airborne_last_frame = airborne_end;
         self.status.airborne_target = airborne_end;
         let _ = airborne_start; // reserved for future free-fall start residual
+                                // C++ killWhenRestingOnGround residual after landing.
+        if !airborne_end {
+            let _ = self.maybe_kill_when_resting_on_ground();
+        }
         bounced
     }
 
