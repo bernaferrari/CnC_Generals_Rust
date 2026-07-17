@@ -972,6 +972,15 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_HIJACKED residual (ConvertToHijackedVehicleCrateCollide).
     #[serde(default)]
     pub hijacked: bool,
+    /// C++ OBJECT_STATUS_NO_COLLISIONS residual (hijacker in vehicle / parachute).
+    #[serde(default)]
+    pub no_collisions: bool,
+    /// C++ OBJECT_STATUS_MASKED residual (not selectable/targetable by AI/player).
+    #[serde(default)]
+    pub masked: bool,
+    /// C++ OBJECT_STATUS_UNSELECTABLE residual.
+    #[serde(default)]
+    pub unselectable: bool,
     /// C++ OBJECT_STATUS_DISGUISED residual (Bomb Truck StealthUpdate disguise).
     /// Disguised units are not pure-stealth invisible; enemies see disguise team.
     #[serde(default)]
