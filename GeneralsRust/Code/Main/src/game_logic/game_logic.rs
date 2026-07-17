@@ -81467,6 +81467,7 @@ mod tests {
             SpecialPowerType::NukeNeutronMissile,
             SpecialPowerType::BaikonurRocket,
             SpecialPowerType::BattleshipBombardment,
+            SpecialPowerType::LaserCannon,
         ] {
             assert!(
                 logic
