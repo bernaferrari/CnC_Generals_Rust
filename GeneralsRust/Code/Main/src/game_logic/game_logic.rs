@@ -19971,6 +19971,15 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
+        // C++ ProductionPrerequisite residual (known sample table / SW tech tree).
+        if !self.team_satisfies_build_prerequisites(team, template_name) {
+            log::debug!(
+                "Blocked construction {} for team {:?} (Prerequisites residual)",
+                template_name,
+                team
+            );
+            return None;
+        }
         // C++ MaxSimultaneousOfType=DeterminedBySuperweaponRestriction residual.
         if !self.can_start_superweapon_building(team, template_name) {
             log::debug!(
@@ -44010,6 +44019,35 @@ impl GameLogic {
             .count() as u32
     }
 
+    /// Living constructed template names owned by a team residual (prereq scan).
+    pub fn team_owned_constructed_templates(&self, team: Team) -> Vec<String> {
+        let mut names = Vec::new();
+        for obj in self.objects.values() {
+            if obj.team == team && obj.is_alive() && obj.is_constructed() {
+                names.push(obj.template_name.clone());
+            }
+        }
+        names
+    }
+
+    /// C++ ProductionPrerequisite residual for known sample templates.
+    ///
+    /// Fail-closed: unknown templates (not in residual sample table) are allowed
+    /// so map/script spawns and unported INI trees still work. Known SW / tech
+    /// buildings require their Prerequisites Object list.
+    pub fn team_satisfies_build_prerequisites(&self, team: Team, template_name: &str) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            prereq_is_satisfied_residual, prereq_objects_for_template_residual,
+        };
+        let Some((prereqs, or_chain)) = prereq_objects_for_template_residual(template_name) else {
+            return true;
+        };
+        let owned = self.team_owned_constructed_templates(team);
+        let owned_refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
+        // Science residual: fail-open for structure Object prereqs (no RequiredScience on SW).
+        prereq_is_satisfied_residual(prereqs, or_chain, &owned_refs, true)
+    }
+
     /// C++ MaxSimultaneousOfType Superweapon residual gate.
     pub fn can_start_superweapon_building(&self, team: Team, template_name: &str) -> bool {
         use crate::game_logic::host_superweapon_kindof::{
@@ -53753,6 +53791,11 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_EMPPulse");
+        }
+
         // player_id 0 → Team::USA residual ownership.
         let caster_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -53975,6 +54018,11 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        if let Some(p) = game_logic.get_player_mut(1) {
+            p.unlock_science("SCIENCE_Frenzy1");
+        }
+
         let caster_id = game_logic
             .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
@@ -57856,6 +57904,11 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_EmergencyRepair1");
+        }
+
         let caster_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
@@ -58073,6 +58126,11 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        if let Some(p) = game_logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_GPSScrambler");
+        }
+
         let caster_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
@@ -82137,6 +82195,84 @@ mod tests {
     }
 
     #[test]
+    fn superweapon_structure_requires_tech_building_prereq() {
+        use crate::game_logic::host_production_buildable_command_residual::honesty_prerequisite_residual_pack_wave99;
+        use crate::game_logic::host_superweapon_kindof::{
+            AMERICA_PARTICLE_CANNON_UPLINK, GLA_SCUD_STORM,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_prerequisite_residual_pack_wave99());
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+
+        for name in [
+            AMERICA_PARTICLE_CANNON_UPLINK,
+            "AmericaStrategyCenter",
+            GLA_SCUD_STORM,
+            "GLAPalace",
+        ] {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Structure).set_health(2000.0);
+            if name.contains("Particle") || name.contains("Scud") {
+                t.add_kind_of(KindOf::FSSuperweapon);
+            }
+            logic.templates.insert(name.into(), t);
+        }
+
+        // Without Strategy Center: PUC construction blocked.
+        assert!(
+            logic
+                .create_object_under_construction(
+                    AMERICA_PARTICLE_CANNON_UPLINK,
+                    Team::USA,
+                    glam::Vec3::ZERO,
+                )
+                .is_none(),
+            "PUC needs AmericaStrategyCenter"
+        );
+        // Place Strategy Center (fully built residual).
+        let sc = logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("strategy");
+        assert!(logic.get_object(sc).unwrap().is_constructed());
+        assert!(
+            logic
+                .create_object_under_construction(
+                    AMERICA_PARTICLE_CANNON_UPLINK,
+                    Team::USA,
+                    glam::Vec3::new(20.0, 0.0, 0.0),
+                )
+                .is_some(),
+            "PUC allowed with Strategy Center"
+        );
+
+        // Scud needs Palace; USA without Palace blocked.
+        assert!(logic
+            .create_object_under_construction(
+                GLA_SCUD_STORM,
+                Team::USA,
+                glam::Vec3::new(30.0, 0.0, 0.0),
+            )
+            .is_none());
+        let palace = logic
+            .create_object("GLAPalace", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("palace");
+        let _ = palace;
+        assert!(logic
+            .create_object_under_construction(
+                GLA_SCUD_STORM,
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .is_some());
+    }
+
+    #[test]
     fn disabled_freezes_structure_superweapon_countdown() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
@@ -82309,13 +82445,19 @@ mod tests {
             AMERICA_PARTICLE_CANNON_UPLINK,
             GLA_SCUD_STORM,
             CHINA_NUCLEAR_MISSILE_LAUNCHER,
+            "GLAPalace",
+            "AmericaStrategyCenter",
+            "ChinaPropagandaCenter",
         ] {
             let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Structure)
-                .add_kind_of(KindOf::FSSuperweapon)
-                .set_health(4000.0);
+            t.add_kind_of(KindOf::Structure).set_health(4000.0);
+            if name.contains("Particle") || name.contains("Scud") || name.contains("Nuclear") {
+                t.add_kind_of(KindOf::FSSuperweapon);
+            }
             logic.templates.insert(name.into(), t);
         }
+        // Tech prereq residual buildings (fully built).
+        let _ = logic.create_object("GLAPalace", Team::USA, glam::Vec3::new(-50.0, 0.0, 0.0));
 
         let puc = logic
             .create_object(
@@ -82520,6 +82662,18 @@ mod tests {
             .add_kind_of(KindOf::FSSuperweapon)
             .set_health(4000.0);
         logic.templates.insert(GLA_SCUD_STORM.into(), scud);
+        // Tech prereqs residual for construction start gate.
+        for tech in ["AmericaStrategyCenter", "GLAPalace"] {
+            let mut t = ThingTemplate::new(tech);
+            t.add_kind_of(KindOf::Structure).set_health(2000.0);
+            logic.templates.insert(tech.into(), t);
+        }
+        let _ = logic.create_object(
+            "AmericaStrategyCenter",
+            Team::USA,
+            glam::Vec3::new(-100.0, 0.0, 0.0),
+        );
+        let _ = logic.create_object("GLAPalace", Team::USA, glam::Vec3::new(-80.0, 0.0, 0.0));
 
         let first = logic
             .create_object_under_construction(
@@ -82562,6 +82716,11 @@ mod tests {
         // Other team still free under limit.
         logic.set_skirmish_rules(true, true, true, true, 1.0);
         ensure_test_player_for_team(&mut logic, Team::China);
+        let _ = logic.create_object(
+            "AmericaStrategyCenter",
+            Team::China,
+            glam::Vec3::new(180.0, 0.0, 0.0),
+        );
         assert!(logic
             .create_object_under_construction(
                 AMERICA_PARTICLE_CANNON_UPLINK,
