@@ -15773,6 +15773,7 @@ impl GameLogic {
             HostUpgradeKind::ChainGuns => self.apply_chain_guns_to_team(team, upgrade_name),
             HostUpgradeKind::UraniumShells => self.apply_uranium_shells_to_team(team, upgrade_name),
             HostUpgradeKind::BlackNapalm => self.apply_black_napalm_to_team(team, upgrade_name),
+            HostUpgradeKind::ApBullets => self.apply_ap_bullets_to_team(team, upgrade_name),
             HostUpgradeKind::Other => 0,
         };
 
@@ -15810,6 +15811,79 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_GLAAPBullets residual — Rebel / Jarmen / Technical / Quad.
+    fn apply_ap_bullets_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_gla_rebel::is_gla_rebel_template;
+        use crate::game_logic::host_jarmen_kell::{
+            is_jarmen_kell_template, UPGRADE_GLA_AP_BULLETS,
+        };
+        use crate::game_logic::host_quad_cannon::is_quad_cannon_template;
+        use crate::game_logic::host_technical::is_technical_template;
+
+        let ids: Vec<(ObjectId, u8)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter_map(|(id, o)| {
+                if is_jarmen_kell_template(&o.template_name) {
+                    Some((*id, 0u8))
+                } else if is_gla_rebel_template(&o.template_name) {
+                    Some((*id, 1))
+                } else if is_technical_template(&o.template_name) {
+                    Some((*id, 2))
+                } else if is_quad_cannon_template(&o.template_name) {
+                    Some((*id, 3))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut n = 0u32;
+        for (id, kind) in ids {
+            match kind {
+                0 => {
+                    if self.apply_jarmen_kell_ap_bullets_upgrade(id) {
+                        if let Some(o) = self.objects.get_mut(&id) {
+                            o.apply_upgrade_tag(upgrade_name);
+                            o.apply_upgrade_tag(UPGRADE_GLA_AP_BULLETS);
+                        }
+                        n = n.saturating_add(1);
+                    }
+                }
+                1 => {
+                    if self.apply_rebel_ap_bullets_upgrade(id) {
+                        if let Some(o) = self.objects.get_mut(&id) {
+                            o.apply_upgrade_tag(upgrade_name);
+                            o.apply_upgrade_tag(UPGRADE_GLA_AP_BULLETS);
+                        }
+                        n = n.saturating_add(1);
+                    }
+                }
+                2 | 3 => {
+                    // Technical / Quad: tag residual; damage path reads applied_upgrades.
+                    if let Some(o) = self.objects.get_mut(&id) {
+                        if !o.has_upgrade_tag(UPGRADE_GLA_AP_BULLETS) {
+                            o.apply_upgrade_tag(upgrade_name);
+                            o.apply_upgrade_tag(UPGRADE_GLA_AP_BULLETS);
+                            o.applied_upgrades
+                                .insert(UPGRADE_GLA_AP_BULLETS.to_string());
+                            n = n.saturating_add(1);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_GLA_AP_BULLETS.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
     }
 
     /// C++ Upgrade_ChinaUraniumShells residual — Battlemaster / Overlord gun damage.
@@ -15931,19 +16005,37 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_GLAAPRockets residual — AP damage on Scorpions (+ RPG if present).
+    /// C++ Upgrade_GLAAPRockets residual — Scorpion / RPG / Stinger AP.
     fn apply_ap_rockets_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_base_defense::is_stinger_site_structure;
+        use crate::game_logic::host_rpg_trooper::is_rpg_trooper_template;
         use crate::game_logic::host_scorpion::{is_scorpion_template, UPGRADE_GLA_AP_ROCKETS};
-        let ids: Vec<ObjectId> = self
+
+        let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
-            .filter(|(_, o)| {
-                o.team == team && o.is_alive() && is_scorpion_template(&o.template_name)
+            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter_map(|(id, o)| {
+                if is_scorpion_template(&o.template_name) {
+                    Some((*id, 0u8))
+                } else if is_rpg_trooper_template(&o.template_name) {
+                    Some((*id, 1))
+                } else if is_stinger_site_structure(&o.template_name) {
+                    Some((*id, 2))
+                } else {
+                    None
+                }
             })
-            .map(|(id, _)| *id)
             .collect();
         let mut n = 0u32;
-        for id in ids {
-            if self.apply_scorpion_ap_rockets_upgrade(id) {
+        for (id, kind) in ids {
+            let ok = match kind {
+                0 => self.apply_scorpion_ap_rockets_upgrade(id),
+                1 => self.apply_rpg_trooper_ap_rockets_upgrade(id),
+                2 => self.apply_stinger_ap_rockets_upgrade(id),
+                _ => false,
+            };
+            if ok {
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.apply_upgrade_tag(upgrade_name);
                     o.apply_upgrade_tag(UPGRADE_GLA_AP_ROCKETS);
@@ -15951,21 +16043,11 @@ impl GameLogic {
                 n = n.saturating_add(1);
             }
         }
-        // RPG troopers residual if helper exists.
-        for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
-                continue;
-            }
-            let nme = obj.template_name.to_ascii_lowercase();
-            if nme.contains("rpgtrooper")
-                || nme.contains("rpg_trooper")
-                || nme.contains("tunneldefender")
-            {
-                if !obj.has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS) {
-                    obj.apply_upgrade_tag(upgrade_name);
-                    obj.apply_upgrade_tag(UPGRADE_GLA_AP_ROCKETS);
-                    n = n.saturating_add(1);
-                }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
             }
         }
         n
@@ -80606,6 +80688,81 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
+        use crate::game_logic::host_jarmen_kell::UPGRADE_GLA_AP_BULLETS;
+        use crate::game_logic::host_scorpion::UPGRADE_GLA_AP_ROCKETS;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+
+        let mut rebel = ThingTemplate::new("GLAInfantryRebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel);
+        let mut kell = ThingTemplate::new("GLAInfantryJarmenKell");
+        kell.add_kind_of(KindOf::Infantry).set_health(120.0);
+        logic.templates.insert("GLAInfantryJarmenKell".into(), kell);
+        let mut scorp = ThingTemplate::new("GLATankScorpion");
+        scorp.add_kind_of(KindOf::Vehicle).set_health(300.0);
+        logic.templates.insert("GLATankScorpion".into(), scorp);
+        let mut rpg = ThingTemplate::new("GLAInfantryRPGTrooper");
+        rpg.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRPGTrooper".into(), rpg);
+
+        let rid = logic
+            .create_object(
+                "GLAInfantryRebel",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("rebel");
+        let kid = logic
+            .create_object(
+                "GLAInfantryJarmenKell",
+                Team::GLA,
+                glam::Vec3::new(5.0, 0.0, 0.0),
+            )
+            .expect("kell");
+        let sid = logic
+            .create_object(
+                "GLATankScorpion",
+                Team::GLA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("scorp");
+        let pid = logic
+            .create_object(
+                "GLAInfantryRPGTrooper",
+                Team::GLA,
+                glam::Vec3::new(15.0, 0.0, 0.0),
+            )
+            .expect("rpg");
+
+        let n_b = logic.apply_ap_bullets_to_team(Team::GLA, UPGRADE_GLA_AP_BULLETS);
+        assert!(n_b >= 2, "rebel+kell");
+        assert!(logic
+            .get_object(rid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
+        assert!(logic
+            .get_object(kid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
+
+        let n_r = logic.apply_ap_rockets_to_team(Team::GLA, UPGRADE_GLA_AP_ROCKETS);
+        assert!(n_r >= 2, "scorp+rpg");
+        assert!(logic
+            .get_object(sid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
+        assert!(logic
+            .get_object(pid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
     }
 
     #[test]
