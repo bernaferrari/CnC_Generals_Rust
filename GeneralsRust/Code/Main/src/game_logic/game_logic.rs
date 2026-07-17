@@ -20164,6 +20164,11 @@ impl GameLogic {
         if !obj.is_alive() {
             return false;
         }
+        // C++ SpecialPowerModule::doSpecialPower / isReady: disabled objects cannot fire.
+        // Covers underpowered POWERED SWs (PUC/Nuke), EMP, hacked, unmanned, etc.
+        if obj.is_disabled() {
+            return false;
+        }
         // C++ SpecialPowerStore::canUseSpecialPower science residual.
         if let Some(required) =
             crate::game_logic::host_special_power_enum_residual::special_power_required_science(
@@ -45044,6 +45049,14 @@ impl GameLogic {
         };
         // Non-shared structure SWs: startPowerRecharge only (not express ready-now).
         if let Some(obj) = self.objects.get_mut(&structure_id) {
+            // Retail KindOf POWERED residual for energy-draining SWs (PUC/Nuke).
+            if crate::game_logic::host_superweapon_kindof::superweapon_energy_production_for_template(
+                &obj.template_name,
+            )
+            .is_some_and(|e| e < 0)
+            {
+                obj.thing.template.add_kind_of(KindOf::Powered);
+            }
             obj.start_power_recharge(&power);
         }
         let _ = self
@@ -82121,6 +82134,92 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn disabled_underpowered_blocks_structure_superweapon_fire() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+
+        let mut t = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .add_kind_of(KindOf::Powered)
+            .set_health(4000.0);
+        logic
+            .templates
+            .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
+
+        let puc = logic
+            .create_object(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("puc");
+        // Express ready (skip full recharge for fire gate residual).
+        if let Some(o) = logic.get_object_mut(puc) {
+            o.special_power_cooldowns
+                .remove(&SpecialPowerType::ParticleCannon);
+            o.special_power_cooldown_remaining = 0.0;
+            o.special_power_ready = true;
+            o.thing.template.add_kind_of(KindOf::Powered);
+            assert!(!o.is_disabled());
+        }
+        assert!(
+            logic.is_special_power_ready_for(puc, &SpecialPowerType::ParticleCannon),
+            "ready when powered"
+        );
+
+        // No power plants + PUC drain → underpowered after update.
+        logic.update();
+        {
+            let o = logic.get_object(puc).expect("puc");
+            assert!(
+                o.status.disabled_underpowered,
+                "PUC underpowered without plants"
+            );
+            assert!(o.is_disabled());
+        }
+        assert!(
+            !logic.is_special_power_ready_for(puc, &SpecialPowerType::ParticleCannon),
+            "C++ isDisabled blocks doSpecialPower residual"
+        );
+        assert!(
+            !logic.consume_special_power_charge_for(puc, &SpecialPowerType::ParticleCannon),
+            "consume blocked while disabled"
+        );
+
+        // Restore power plant residual → SW can fire again.
+        let mut plant = ThingTemplate::new("AmericaColdFusionReactor");
+        plant
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Powered);
+        logic
+            .templates
+            .insert("AmericaColdFusionReactor".into(), plant);
+        let plant_id = logic
+            .create_object(
+                "AmericaColdFusionReactor",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("plant");
+        if let Some(o) = logic.get_object_mut(plant_id) {
+            o.power_provided = 20; // cover PUC 10 + plant self residual
+            o.power_consumed = 0;
+        }
+        // Clear SW drain residual for margin, or keep and use 20.
+        logic.update();
+        {
+            let o = logic.get_object(puc).expect("puc");
+            assert!(!o.status.disabled_underpowered, "powered again after plant");
+        }
+        assert!(logic.is_special_power_ready_for(puc, &SpecialPowerType::ParticleCannon));
     }
 
     #[test]
