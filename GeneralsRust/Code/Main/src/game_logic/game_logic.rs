@@ -1416,6 +1416,8 @@ pub struct GameLogic {
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
     dozer_cancel_task_events: u32,
+    /// C++ MSG_RESUME_CONSTRUCTION residual assigns.
+    resume_construction_events: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2648,6 +2650,7 @@ impl GameLogic {
             sell_process_finishes: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
+            resume_construction_events: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3030,6 +3033,7 @@ impl GameLogic {
         self.sell_process_finishes = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
+        self.resume_construction_events = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -43177,6 +43181,69 @@ impl GameLogic {
         }
     }
 
+    /// C++ ActionManager::canResumeConstructionOf residual.
+    pub fn can_resume_construction_of(&self, dozer_id: ObjectId, structure_id: ObjectId) -> bool {
+        let Some(dozer) = self.objects.get(&dozer_id) else {
+            return false;
+        };
+        let Some(structure) = self.objects.get(&structure_id) else {
+            return false;
+        };
+        if !dozer.is_alive() || !dozer.can_construct() {
+            return false;
+        }
+        if !structure.is_alive() || !structure.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        if structure.team != dozer.team {
+            return false;
+        }
+        if !structure.status.under_construction || structure.status.sold {
+            return false;
+        }
+        // Another dozer already actively building this structure.
+        for (id, obj) in &self.objects {
+            if *id == dozer_id || !obj.is_alive() || !obj.can_construct() {
+                continue;
+            }
+            if obj.team != structure.team {
+                continue;
+            }
+            if matches!(obj.ai_state, AIState::Constructing) && obj.target == Some(structure_id) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// C++ DozerAIUpdate::privateResumeConstruction residual.
+    /// Returns true if a dozer was assigned.
+    pub fn resume_construction(&mut self, dozer_ids: &[ObjectId], structure_id: ObjectId) -> bool {
+        // Only one dozer resumes (C++ groupResumeConstruction — first that accepts).
+        for &dozer_id in dozer_ids {
+            if !self.can_resume_construction_of(dozer_id, structure_id) {
+                continue;
+            }
+            if let Some(dozer) = self.objects.get_mut(&dozer_id) {
+                dozer.target = Some(structure_id);
+                dozer.ai_state = AIState::Constructing;
+                dozer.set_actively_constructing(true);
+            }
+            // Structure awaiting → actively being constructed residual when dozer assigned.
+            if let Some(st) = self.objects.get_mut(&structure_id) {
+                st.set_under_construction_model_conditions(true);
+            }
+            self.resume_construction_events = self.resume_construction_events.saturating_add(1);
+            self.update_actively_constructing_model_conditions();
+            return true;
+        }
+        false
+    }
+
+    pub fn honesty_resume_construction_ok(&self) -> bool {
+        self.resume_construction_events > 0
+    }
+
     pub fn honesty_dozer_cancel_task_ok(&self) -> bool {
         self.dozer_cancel_task_events > 0
     }
@@ -77970,6 +78037,85 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn resume_construction_assigns_dozer_and_model_bits() {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, actively_constructing_model_bit,
+            host_model_condition_has, partially_constructed_model_bit,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+
+        let sid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = true;
+            o.construction_percent = 0.35;
+            o.set_under_construction_model_conditions(false); // awaiting
+        }
+        let did = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        assert!(logic.resume_construction(&[did], sid));
+        assert!(logic.honesty_resume_construction_ok());
+        let d = logic.get_object(did).expect("d");
+        assert_eq!(d.ai_state, AIState::Constructing);
+        assert_eq!(d.target, Some(sid));
+        assert!(host_model_condition_has(
+            d.model_condition_bits,
+            actively_constructing_model_bit()
+        ));
+        let s = logic.get_object(sid).expect("s");
+        assert!(host_model_condition_has(
+            s.model_condition_bits,
+            partially_constructed_model_bit()
+        ));
+        assert!(host_model_condition_has(
+            s.model_condition_bits,
+            actively_being_constructed_model_bit()
+        ));
+        // Second dozer cannot resume while first is actively building.
+        let did2 = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(12.0, 0.0, 0.0),
+            )
+            .expect("dozer2");
+        assert!(!logic.can_resume_construction_of(did2, sid));
+        assert!(!logic.resume_construction(&[did2], sid));
+        // Completed structure rejects resume.
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = false;
+        }
+        assert!(!logic.can_resume_construction_of(did, sid));
     }
 
     #[test]

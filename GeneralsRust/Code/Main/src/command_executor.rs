@@ -834,17 +834,14 @@ impl<'a> CommandExecutor<'a> {
     fn execute_resume_construction(
         &mut self,
         units: &[ObjectId],
-        _target_id: ObjectId,
+        target_id: ObjectId,
     ) -> CommandResult {
-        for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if unit.can_construct() {
-                    unit.set_ai_state(AIState::Constructing);
-                    return CommandResult::Success;
-                }
-            }
+        // C++ MSG_RESUME_CONSTRUCTION / groupResumeConstruction residual.
+        if self.game_logic.resume_construction(units, target_id) {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
         }
-        CommandResult::InvalidCommand
     }
 
     fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
