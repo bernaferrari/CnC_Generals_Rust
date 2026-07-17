@@ -47,6 +47,8 @@ pub const UPGRADE_GLA_REBEL_BOOBY_TRAP: &str = "Upgrade_GLAInfantryRebelBoobyTra
 pub const UPGRADE_DEMO_SUICIDE_BOMB: &str = "Demo_Upgrade_SuicideBomb";
 /// America Advanced Control Rods residual (PowerPlantUpgrade EnergyBonus).
 pub const UPGRADE_AMERICA_ADVANCED_CONTROL_RODS: &str = "Upgrade_AmericaAdvancedControlRods";
+/// China Subliminal Messaging residual (propaganda tower upgrade).
+pub const UPGRADE_CHINA_SUBLIMINAL_MESSAGING: &str = "Upgrade_ChinaSubliminalMessaging";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -113,6 +115,8 @@ pub enum HostUpgradeKind {
     SuicideBomb,
     /// America Advanced Control Rods: EnergyBonus on power plants.
     AdvancedControlRods,
+    /// China Subliminal Messaging: upgraded propaganda heal/buff residual.
+    SubliminalMessaging,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -157,6 +161,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::BoobyTrap
         } else if n.contains("advancedcontrolrods") || n.contains("controlrods") {
             HostUpgradeKind::AdvancedControlRods
+        } else if n.contains("subliminalmessaging") || n.contains("subliminal") {
+            HostUpgradeKind::SubliminalMessaging
         } else {
             HostUpgradeKind::Other
         }
@@ -181,6 +187,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::AnthraxGamma => "AnthraxGamma",
             HostUpgradeKind::SuicideBomb => "SuicideBomb",
             HostUpgradeKind::AdvancedControlRods => "AdvancedControlRods",
+            HostUpgradeKind::SubliminalMessaging => "SubliminalMessaging",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -209,6 +216,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::AnthraxGamma
             | HostUpgradeKind::SuicideBomb
             | HostUpgradeKind::AdvancedControlRods
+            | HostUpgradeKind::SubliminalMessaging
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -236,6 +244,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::AnthraxGamma => 1500,
             HostUpgradeKind::SuicideBomb => 2000,
             HostUpgradeKind::AdvancedControlRods => 1500,
+            HostUpgradeKind::SubliminalMessaging => 2000,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -260,6 +269,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::AnthraxGamma => 60.0,
             HostUpgradeKind::SuicideBomb => 30.0,
             HostUpgradeKind::AdvancedControlRods => 60.0,
+            HostUpgradeKind::SubliminalMessaging => 60.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -896,6 +906,17 @@ mod camouflage_template_tests {
     }
 
     #[test]
+    fn subliminal_messaging_kind_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaSubliminalMessaging"),
+            HostUpgradeKind::SubliminalMessaging
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaSubliminalMessaging"),
+            HostUpgradeKind::SubliminalMessaging
+        );
+    }
+
     #[test]
     fn advanced_control_rods_kind_from_name() {
         assert_eq!(
