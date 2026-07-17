@@ -81492,6 +81492,32 @@ mod tests {
     }
 
     #[test]
+    fn hacker_lotus_microwave_special_power_enum_residuals() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::HackerDisableBuilding),
+            Some("SPECIAL_HACKER_DISABLE_BUILDING")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::MicrowaveDisableBuilding),
+            Some("SPECIAL_HACKER_DISABLE_BUILDING")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::BlackLotusDisableVehicle),
+            Some("SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::BlackLotusStealCash),
+            Some("SPECIAL_BLACKLOTUS_STEAL_CASH_HACK")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::BlackLotusCaptureBuilding),
+            Some("SPECIAL_BLACKLOTUS_CAPTURE_BUILDING")
+        );
+    }
+
+    #[test]
     fn demo_and_burton_charge_special_power_enum_residuals() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
