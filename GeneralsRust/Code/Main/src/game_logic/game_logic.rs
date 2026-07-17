@@ -14293,6 +14293,12 @@ impl GameLogic {
                                     // Supply center: CashStolen if cash taken, else BuildingSabotaged.
                                     if kind.steals_cash() && cash_stolen > 0 {
                                         self.try_eva_cash_stolen(special_target_id);
+                                        // C++ GUI:AddCash / GUI:LoseCash floating text residual.
+                                        self.spawn_sabotage_cash_floating_texts(
+                                            object_id,
+                                            special_target_id,
+                                            cash_stolen,
+                                        );
                                     } else {
                                         self.try_eva_building_sabotaged(special_target_id);
                                     }
@@ -42070,6 +42076,65 @@ impl GameLogic {
     ///
     /// Type-specific MiscAudio cue + Drawable::flashAsSelected on the victim.
     /// Fake buildings skip additional feedback (C++ early return).
+
+    /// C++ SabotageSupplyCenter floating cash text residual:
+    /// green GUI:AddCash over saboteur (z+20), red GUI:LoseCash over victim (z+30).
+    pub fn spawn_sabotage_cash_floating_texts(
+        &mut self,
+        saboteur_id: ObjectId,
+        victim_id: ObjectId,
+        amount: u32,
+    ) {
+        if amount == 0 {
+            return;
+        }
+        use crate::game_logic::host_money_crate::HostMoneyFloatingText;
+        use crate::game_logic::host_saboteur::{
+            SABOTEUR_ADD_CASH_COLOR_RGBA, SABOTEUR_ADD_CASH_TEXT_KEY, SABOTEUR_ADD_CASH_Z_OFFSET,
+            SABOTEUR_LOSE_CASH_COLOR_RGBA, SABOTEUR_LOSE_CASH_TEXT_KEY,
+            SABOTEUR_LOSE_CASH_Z_OFFSET,
+        };
+        let sab_pos = self
+            .objects
+            .get(&saboteur_id)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::ZERO);
+        let vic_pos = self
+            .objects
+            .get(&victim_id)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::ZERO);
+        let frame = self.frame;
+        // Host world uses Y-up; C++ Coord3D.z is height → map to .y.
+        let add = HostMoneyFloatingText {
+            text: format!("+${amount}"),
+            text_key: SABOTEUR_ADD_CASH_TEXT_KEY.to_string(),
+            position: glam::Vec3::new(sab_pos.x, sab_pos.y + SABOTEUR_ADD_CASH_Z_OFFSET, sab_pos.z),
+            color_rgba: SABOTEUR_ADD_CASH_COLOR_RGBA,
+            amount,
+            spawn_frame: frame,
+            crate_id: saboteur_id,
+            picker_id: victim_id,
+        };
+        let lose = HostMoneyFloatingText {
+            text: format!("-${amount}"),
+            text_key: SABOTEUR_LOSE_CASH_TEXT_KEY.to_string(),
+            position: glam::Vec3::new(
+                vic_pos.x,
+                vic_pos.y + SABOTEUR_LOSE_CASH_Z_OFFSET,
+                vic_pos.z,
+            ),
+            color_rgba: SABOTEUR_LOSE_CASH_COLOR_RGBA,
+            amount,
+            spawn_frame: frame,
+            crate_id: victim_id,
+            picker_id: saboteur_id,
+        };
+        self.host_money_crates.record_money_floating_text(add);
+        self.host_money_crates.record_money_floating_text(lose);
+        self.saboteur.record_cash_floating_texts();
+    }
+
     pub fn do_sabotage_feedback_fx(
         &mut self,
         victim_id: ObjectId,
@@ -76530,6 +76595,68 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn sabotage_cash_steal_spawns_add_and_lose_floating_text() {
+        use crate::game_logic::host_saboteur::{
+            SABOTEUR_ADD_CASH_COLOR_RGBA, SABOTEUR_ADD_CASH_TEXT_KEY, SABOTEUR_ADD_CASH_Z_OFFSET,
+            SABOTEUR_LOSE_CASH_COLOR_RGBA, SABOTEUR_LOSE_CASH_TEXT_KEY,
+            SABOTEUR_LOSE_CASH_Z_OFFSET,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::GLA, "EnemyGLA", false),
+        );
+        if let Some(p) = logic.players.get_mut(&0) {
+            p.resources.supplies = 5000;
+        }
+        let mut sc = ThingTemplate::new("AmericaSupplyCenter");
+        sc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::SupplyCenter)
+            .set_health(500.0);
+        logic.templates.insert("AmericaSupplyCenter".into(), sc);
+        let mut sab = ThingTemplate::new("GLAInfantrySaboteur");
+        sab.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantrySaboteur".into(), sab);
+        let victim = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(10.0, 5.0, 20.0),
+            )
+            .expect("sc");
+        let saboteur = logic
+            .create_object(
+                "GLAInfantrySaboteur",
+                Team::GLA,
+                glam::Vec3::new(12.0, 5.0, 22.0),
+            )
+            .expect("sab");
+        logic.spawn_sabotage_cash_floating_texts(saboteur, victim, 1000);
+        assert!(logic.saboteur.honesty_cash_floating_texts_ok());
+        let texts = &logic.host_money_crates().money_floating_texts;
+        assert_eq!(texts.len(), 2, "add+lose pair");
+        let add = texts
+            .iter()
+            .find(|t| t.text_key == SABOTEUR_ADD_CASH_TEXT_KEY)
+            .expect("add");
+        let lose = texts
+            .iter()
+            .find(|t| t.text_key == SABOTEUR_LOSE_CASH_TEXT_KEY)
+            .expect("lose");
+        assert_eq!(add.color_rgba, SABOTEUR_ADD_CASH_COLOR_RGBA);
+        assert_eq!(lose.color_rgba, SABOTEUR_LOSE_CASH_COLOR_RGBA);
+        assert!((add.position.y - (5.0 + SABOTEUR_ADD_CASH_Z_OFFSET)).abs() < 0.01);
+        assert!((lose.position.y - (5.0 + SABOTEUR_LOSE_CASH_Z_OFFSET)).abs() < 0.01);
+        assert_eq!(add.amount, 1000);
+        assert_eq!(lose.amount, 1000);
     }
 
     #[test]
