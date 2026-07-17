@@ -2665,6 +2665,88 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn cancel_upgrade_empty_name_cancels_production_head_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType},
+            KindOf, Player, Team, ThingTemplate,
+        };
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        logic.add_player(player);
+        let mut bar = ThingTemplate::new("TestBarracks");
+        bar.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("TestBarracks".into(), bar);
+        let bid = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.building_data = Some(BuildingData::new(BuildingType::Barracks));
+        }
+
+        // Queue via command path so player + building both hold residual.
+        logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_FLASHBANG.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![bid],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        logic.process_commands();
+        assert!(logic
+            .get_player(0)
+            .map(|p| p.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG))
+            .unwrap_or(false));
+        let money_after_queue = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        // Empty name CancelUpgrade → head residual.
+        logic.queue_command(GameCommand {
+            command_type: CommandType::CancelUpgrade {
+                upgrade_name: String::new(),
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![bid],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        logic.process_commands();
+
+        assert!(
+            !logic
+                .get_player(0)
+                .map(|p| p.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG))
+                .unwrap_or(true),
+            "queued upgrade cleared"
+        );
+        let q_empty = logic
+            .get_object(bid)
+            .and_then(|o| o.building_data.as_ref())
+            .map(|b| b.production_queue.is_empty())
+            .unwrap_or(false);
+        assert!(q_empty, "building PRODUCTION_UPGRADE head removed");
+        let money_after = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert!(
+            money_after > money_after_queue,
+            "cancel refunds residual cost: before={money_after_queue} after={money_after}"
+        );
+    }
+
     fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
