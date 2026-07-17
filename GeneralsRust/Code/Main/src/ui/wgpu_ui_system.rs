@@ -884,7 +884,11 @@ impl WgpuUISystem {
 
     /// Handle control bar clicks - matches C++ ControlBar callbacks
     fn handle_control_bar_click(&self, element_name: &str) -> UISystemEvent {
-        if element_name.starts_with("CommandButton") {
+        // CommandButton* grid slots OR named Command_* residual buttons.
+        if element_name.starts_with("CommandButton")
+            || element_name.starts_with("Command_")
+            || element_name.starts_with("command_")
+        {
             info!(
                 "{}",
                 localization::localize_with_args(
@@ -945,34 +949,80 @@ impl WgpuUISystem {
         let now = std::time::SystemTime::now();
         let modifier_keys = crate::command_system::ModifierKeys::default();
 
-        // Map the first row of 3x4 command buttons to core RTS actions.
-        // (C++ ControlBar is context-sensitive; this is a faithful "minimal core" subset.)
-        let command_type = match element_name {
-            "CommandButton0_0" => crate::command_system::CommandType::Stop,
-            "CommandButton0_1" => {
-                let mut center = glam::Vec3::ZERO;
-                let mut count = 0.0;
-                for id in &units {
-                    if let Some(obj) = game_logic.get_object(*id) {
-                        center += obj.get_position();
-                        count += 1.0;
-                    }
-                }
-                let center = if count > 0.0 {
-                    center / count
-                } else {
-                    glam::Vec3::ZERO
-                };
-                crate::command_system::CommandType::Guard {
+        // Selection centroid residual (guard / rally fallback).
+        let mut center = glam::Vec3::ZERO;
+        let mut count = 0.0f32;
+        for id in &units {
+            if let Some(obj) = game_logic.get_object(*id) {
+                center += obj.get_position();
+                count += 1.0;
+            }
+        }
+        let center = if count > 0.0 {
+            center / count
+        } else {
+            glam::Vec3::ZERO
+        };
+
+        // 1) Named Command_* residual via shared mapper (Upgrade/Cancel/Stop/…).
+        let mut command_type = crate::command_system::command_type_from_button_name(element_name);
+
+        // 2) Legacy CommandButton grid slots → core RTS residual subset.
+        if command_type.is_none() {
+            command_type = match element_name {
+                "CommandButton0_0" => Some(crate::command_system::CommandType::Stop),
+                "CommandButton0_1" => Some(crate::command_system::CommandType::Guard {
                     target: crate::command_system::GuardTarget::Position(center),
+                }),
+                "CommandButton0_2" => Some(crate::command_system::CommandType::Scatter),
+                "CommandButton0_3" => Some(crate::command_system::CommandType::Sell {
+                    object_id: units[0],
+                }),
+                _ => None,
+            };
+        }
+
+        let Some(mut command_type) = command_type else {
+            return;
+        };
+
+        // Fill placeholders residual from selection / cursor world.
+        match &mut command_type {
+            crate::command_system::CommandType::DozerCancelConstruct { object_id } => {
+                *object_id = units[0];
+            }
+            crate::command_system::CommandType::Guard { target } => {
+                if matches!(
+                    target,
+                    crate::command_system::GuardTarget::Position(p) if *p == glam::Vec3::ZERO
+                ) {
+                    *target = crate::command_system::GuardTarget::Position(center);
                 }
             }
-            "CommandButton0_2" => crate::command_system::CommandType::Scatter,
-            "CommandButton0_3" => crate::command_system::CommandType::Sell {
-                object_id: units[0],
-            },
-            _ => return,
-        };
+            crate::command_system::CommandType::SetRallyPoint { location } => {
+                if *location == glam::Vec3::ZERO {
+                    // Natural rally residual: forward of primary selection.
+                    if let Some(obj) = game_logic.get_object(units[0]) {
+                        let f = obj.thing.get_direction_vector();
+                        *location = obj.get_position() + f * obj.selection_radius.max(10.0);
+                    } else {
+                        *location = center;
+                    }
+                }
+            }
+            crate::command_system::CommandType::AttackMoveTo { destination } => {
+                if *destination == glam::Vec3::ZERO {
+                    // Cursor world residual when available; else forward push.
+                    if let Some(obj) = game_logic.get_object(units[0]) {
+                        let f = obj.thing.get_direction_vector();
+                        *destination = obj.get_position() + f * 50.0;
+                    } else {
+                        *destination = center;
+                    }
+                }
+            }
+            _ => {}
+        }
 
         game_logic.queue_command(crate::command_system::GameCommand {
             command_type,

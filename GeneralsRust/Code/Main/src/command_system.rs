@@ -1980,6 +1980,17 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
     match key {
         "stop" => Some(CommandType::Stop),
         "scatter" => Some(CommandType::Scatter),
+        "attackmove" | "attackmoveto" => Some(CommandType::AttackMoveTo {
+            destination: glam::Vec3::ZERO, // filled by dispatch from cursor/world
+        }),
+        "setrallypoint" => Some(CommandType::SetRallyPoint {
+            location: glam::Vec3::ZERO, // filled by dispatch
+        }),
+        "guard" => Some(CommandType::Guard {
+            target: GuardTarget::Position(glam::Vec3::ZERO),
+        }),
+        "evacuate" | "structureexit" => Some(CommandType::Evacuate),
+        "exit" => Some(CommandType::Exit),
         "cancelupgrade" => Some(CommandType::CancelUpgrade {
             upgrade_name: String::new(),
         }),
@@ -2740,6 +2751,18 @@ mod tests {
         assert!(matches!(
             command_type_from_button_name("Command_Stop"),
             Some(CommandType::Stop)
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_AttackMove"),
+            Some(CommandType::AttackMoveTo { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_SetRallyPoint"),
+            Some(CommandType::SetRallyPoint { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_Evacuate"),
+            Some(CommandType::Evacuate)
         ));
     }
 

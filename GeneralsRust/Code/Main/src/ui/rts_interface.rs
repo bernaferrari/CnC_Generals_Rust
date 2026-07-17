@@ -239,3 +239,67 @@ impl BuildingInterface {
         Self { visible: false }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command_system::CommandType;
+    use crate::game_logic::ObjectId;
+
+    #[test]
+    fn activate_command_maps_upgrade_and_respects_enabled_residual() {
+        let mut panel = UnitCommandPanel::new();
+        panel.apply_selection_panel(
+            ControlBarSelectionPanelState {
+                visible: true,
+                primary_object_id: Some(ObjectId(1)),
+                ..ControlBarSelectionPanelState::default()
+            },
+            vec![ObjectId(1)],
+        );
+        panel.apply_commands(vec![
+            UnitCommandButton {
+                command_name: "Command_UpgradeAmericaSupplyLines".into(),
+                enabled: true,
+            },
+            UnitCommandButton {
+                command_name: "Command_UpgradeAmericaRangerFlashBangGrenade".into(),
+                enabled: false,
+            },
+        ]);
+        match panel
+            .activate_command("Command_UpgradeAmericaSupplyLines")
+            .expect("enabled upgrade")
+        {
+            CommandType::QueueUpgrade { upgrade_name } => {
+                assert_eq!(upgrade_name, "Upgrade_AmericaSupplyLines");
+            }
+            other => panic!("got {other:?}"),
+        }
+        assert!(
+            panel
+                .activate_command("Command_UpgradeAmericaRangerFlashBangGrenade")
+                .is_none(),
+            "disabled button must not activate"
+        );
+        match panel
+            .activate_command("Command_CancelUpgrade")
+            .map(|_| ())
+            .or_else(|| {
+                // Cancel not in list → None
+                None
+            }) {
+            None => {}
+            Some(()) => panic!("unexpected"),
+        }
+        // Add cancel and activate.
+        panel.apply_commands(vec![UnitCommandButton {
+            command_name: "Command_CancelUpgrade".into(),
+            enabled: true,
+        }]);
+        assert!(matches!(
+            panel.activate_command("Command_CancelUpgrade"),
+            Some(CommandType::CancelUpgrade { .. })
+        ));
+    }
+}
