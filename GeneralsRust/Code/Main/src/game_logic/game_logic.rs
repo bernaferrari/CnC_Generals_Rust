@@ -6366,6 +6366,29 @@ impl GameLogic {
     }
 
     /// C++ AttackStateMachine + AIAttackState::update residual (object attack).
+
+    /// C++ canPursue residual for AttackStateMachine CHASE vs APPROACH.
+    pub fn should_chase_attack_target(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {
+        let Some(u) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        let Some(v) = self.objects.get(&victim_id) else {
+            return false;
+        };
+        if !u.is_alive() || !v.is_alive() {
+            return false;
+        }
+        // Immobile / projectile residual: never chase.
+        if !u.can_move() || u.is_kind_of(crate::game_logic::KindOf::Projectile) {
+            return false;
+        }
+        // Stealthed undetected residual.
+        if v.status.stealthed && !v.status.detected && !v.status.disguised {
+            return false;
+        }
+        u.can_pursue_target(v)
+    }
+
     pub fn tick_attack_state_machine(
         &mut self,
         unit_id: ObjectId,
@@ -6423,8 +6446,13 @@ impl GameLogic {
         match sub {
             AttackSubState::AimAtTarget => {
                 if !in_range {
+                    let chase = self.should_chase_attack_target(unit_id, victim_id);
                     if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.attack_substate = AttackSubState::ApproachTarget;
+                        u.attack_substate = if chase {
+                            AttackSubState::ChaseTarget
+                        } else {
+                            AttackSubState::ApproachTarget
+                        };
                         u.status.is_aiming_weapon = false;
                     }
                     let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
@@ -6445,8 +6473,13 @@ impl GameLogic {
             }
             AttackSubState::FireWeapon => {
                 if !in_range {
+                    let chase = self.should_chase_attack_target(unit_id, victim_id);
                     if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.attack_substate = AttackSubState::ApproachTarget;
+                        u.attack_substate = if chase {
+                            AttackSubState::ChaseTarget
+                        } else {
+                            AttackSubState::ApproachTarget
+                        };
                         u.status.is_firing_weapon = false;
                     }
                     let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
@@ -6468,7 +6501,7 @@ impl GameLogic {
                 }
                 AttackMachineResult::Continue
             }
-            AttackSubState::ApproachTarget | AttackSubState::ChaseTarget => {
+            AttackSubState::ApproachTarget => {
                 if in_range {
                     if let Some(u) = self.objects.get_mut(&unit_id) {
                         u.attack_substate = AttackSubState::AimAtTarget;
@@ -6476,6 +6509,63 @@ impl GameLogic {
                     }
                     let _ = self.attack_aim_at_target_enter(unit_id);
                     return AttackMachineResult::Continue;
+                }
+                // Fleeing victim may upgrade Approach → Chase mid-path.
+                if self.should_chase_attack_target(unit_id, victim_id) {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.attack_substate = AttackSubState::ChaseTarget;
+                    }
+                }
+                let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
+                if let Some(u) = self.objects.get_mut(&unit_id) {
+                    u.approach_timestamp = logic_frame;
+                    u.status.moving = true;
+                }
+                AttackMachineResult::Continue
+            }
+            AttackSubState::ChaseTarget => {
+                // C++ AIAttackPursueTargetState residual.
+                // Stealthed undetected victim: drop to approach.
+                {
+                    let stealth_bail = self
+                        .objects
+                        .get(&victim_id)
+                        .map(|v| v.status.stealthed && !v.status.detected && !v.status.disguised)
+                        .unwrap_or(false);
+                    if stealth_bail {
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.attack_substate = AttackSubState::ApproachTarget;
+                        }
+                        return AttackMachineResult::Continue;
+                    }
+                }
+                if in_range {
+                    // Match speeds residual while goal still in range (victim * 0.95).
+                    let victim_spd = self
+                        .objects
+                        .get(&victim_id)
+                        .map(|v| v.forward_speed_2d().abs())
+                        .unwrap_or(0.0);
+                    if let Some(attacker) = self.objects.get_mut(&unit_id) {
+                        let desired = victim_spd * 0.95;
+                        let vel = attacker.movement.velocity;
+                        let speed = (vel.x * vel.x + vel.z * vel.z).sqrt();
+                        if speed > 1e-3 && desired > 0.0 {
+                            let scale = (desired / speed).min(1.0);
+                            attacker.movement.velocity.x *= scale;
+                            attacker.movement.velocity.z *= scale;
+                        }
+                        attacker.attack_substate = AttackSubState::AimAtTarget;
+                        attacker.status.moving = false;
+                    }
+                    let _ = self.attack_aim_at_target_enter(unit_id);
+                    return AttackMachineResult::Continue;
+                }
+                // canPursue false → drop to Approach (C++ onEnter SUCCESS → approach).
+                if !self.should_chase_attack_target(unit_id, victim_id) {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.attack_substate = AttackSubState::ApproachTarget;
+                    }
                 }
                 let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
                 if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -72348,6 +72438,135 @@ mod tests {
         assert_eq!(
             logic.objects[&aid].attack_substate,
             AttackSubState::FireWeapon
+        );
+    }
+
+    #[test]
+    fn attack_state_machine_oor_chases_fleeing_victim() {
+        use crate::game_logic::{
+            AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("ChaseA");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(1801);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.movement.max_speed = 20.0;
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 30.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("ChaseV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1802);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            // Far out of range, fleeing +X.
+            o.set_position(Vec3::new(200.0, 0.0, 0.0));
+            o.set_orientation(0.0);
+            o.movement.velocity = Vec3::new(8.0, 0.0, 0.0); // speed 8 < 20, > 2
+            o
+        });
+        assert!(logic.should_chase_attack_target(aid, vid));
+        assert_eq!(
+            logic.attack_state_enter(aid, vid),
+            AttackMachineResult::Continue
+        );
+        let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+        assert_eq!(r, AttackMachineResult::Continue);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::ChaseTarget
+        );
+    }
+
+    #[test]
+    fn attack_state_machine_oor_approaches_stationary_victim() {
+        use crate::game_logic::{
+            AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AppA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1803);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.movement.max_speed = 10.0;
+            o.weapon = Some(Weapon {
+                range: 30.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AppV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1804);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(200.0, 0.0, 0.0));
+            // Stationary — can_pursue false.
+            o.movement.velocity = Vec3::ZERO;
+            o
+        });
+        assert!(!logic.should_chase_attack_target(aid, vid));
+        assert_eq!(
+            logic.attack_state_enter(aid, vid),
+            AttackMachineResult::Continue
+        );
+        let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+        assert_eq!(r, AttackMachineResult::Continue);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::ApproachTarget
+        );
+    }
+
+    #[test]
+    fn attack_chase_drops_when_victim_stops_fleeing() {
+        use crate::game_logic::{
+            AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("DropA");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(1805);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.movement.max_speed = 20.0;
+            o.weapon = Some(Weapon {
+                range: 30.0,
+                ..Default::default()
+            });
+            o.attack_substate = AttackSubState::ChaseTarget;
+            o
+        });
+        let mut vt = ThingTemplate::new("DropV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1806);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(200.0, 0.0, 0.0));
+            o.movement.velocity = Vec3::ZERO; // stopped
+            o
+        });
+        let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+        assert_eq!(r, AttackMachineResult::Continue);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::ApproachTarget
         );
     }
 
