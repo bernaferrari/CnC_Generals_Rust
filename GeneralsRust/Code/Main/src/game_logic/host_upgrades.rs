@@ -217,6 +217,8 @@ pub enum HostUpgradeKind {
     SatelliteHack,
     /// America Countermeasures aircraft residual unlock.
     Countermeasures,
+    /// America Scout/Battle/Hellfire drone object-upgrade residual.
+    SlaveDrone,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -315,6 +317,15 @@ impl HostUpgradeKind {
             HostUpgradeKind::SatelliteHack
         } else if n.contains("countermeasure") {
             HostUpgradeKind::Countermeasures
+        } else if n.contains("scoutdrone")
+            || n.contains("battledrone")
+            || n.contains("hellfiredrone")
+            || (n.contains("drone")
+                && (n.contains("scout") || n.contains("battle") || n.contains("hellfire"))
+                && !n.contains("dronearmor")
+                && !n.contains("sentry"))
+        {
+            HostUpgradeKind::SlaveDrone
         } else {
             HostUpgradeKind::Other
         }
@@ -363,6 +374,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::Moab => "Moab",
             HostUpgradeKind::SatelliteHack => "SatelliteHack",
             HostUpgradeKind::Countermeasures => "Countermeasures",
+            HostUpgradeKind::SlaveDrone => "SlaveDrone",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -415,6 +427,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::Moab
             | HostUpgradeKind::SatelliteHack
             | HostUpgradeKind::Countermeasures
+            | HostUpgradeKind::SlaveDrone
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -466,6 +479,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::Moab => 2500,
             HostUpgradeKind::SatelliteHack => 1000,
             HostUpgradeKind::Countermeasures => 1000,
+            HostUpgradeKind::SlaveDrone => 300,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -514,6 +528,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::Moab => 60.0,
             HostUpgradeKind::SatelliteHack => 30.0,
             HostUpgradeKind::Countermeasures => 30.0,
+            HostUpgradeKind::SlaveDrone => 5.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -1147,6 +1162,27 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn slave_drone_kind_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaScoutDrone"),
+            HostUpgradeKind::SlaveDrone
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaBattleDrone"),
+            HostUpgradeKind::SlaveDrone
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaHellfireDrone"),
+            HostUpgradeKind::SlaveDrone
+        );
+        // DroneArmor is a different residual.
+        assert_ne!(
+            HostUpgradeKind::from_name("Upgrade_AmericaDroneArmor"),
+            HostUpgradeKind::SlaveDrone
+        );
     }
 
     #[test]
