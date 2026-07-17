@@ -44347,52 +44347,120 @@ impl GameLogic {
     }
 
     /// Enqueue unit production on a building if permitted.
-    pub fn enqueue_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
-        use crate::game_logic::host_stealth_fighter::{
-            is_stealth_fighter_science, player_may_produce_stealth_aircraft,
-            requires_stealth_fighter_science,
+
+    /// C++ BuildAssistant::canMakeUnit residual status for a producer + template.
+    ///
+    /// Fail-closed parking/maxed residual currently unused (always false) until
+    /// airfield hangar slots / MaxSimultaneous unit residual land.
+    pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
+        use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
+        use crate::game_logic::host_production_buildable_command_residual::{
+            can_make_type_from_checks_residual, CANMAKE_OK,
         };
+
+        let Some(template) = self.templates.get(template_name) else {
+            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+        };
+        let Some(producer) = self.objects.get(&producer_id) else {
+            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
+        };
+        if !producer.is_alive() || !producer.is_constructed() {
+            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
+        }
+        let team = producer.team;
+        let factory_disabled = producer.is_disabled();
+        let Some(building) = producer.building_data.as_ref() else {
+            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
+        };
+        // Wrong factory type residual → treat as no prereq/unavailable.
+        if !building.can_produce(template) {
+            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+        }
+        let queue_full = building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT;
+        let has_prereq = self.team_satisfies_build_prerequisites(team, template_name)
+            && self.can_start_superweapon_building(team, template_name);
+        // Science residual (stealth fighter etc.) as prereq gate.
+        let science_ok = {
+            use crate::game_logic::host_stealth_fighter::{
+                is_stealth_fighter_science, player_may_produce_stealth_aircraft,
+                requires_stealth_fighter_science,
+            };
+            if requires_stealth_fighter_science(template_name) {
+                match self.get_player_by_team(team) {
+                    Some(p) => {
+                        let has = p
+                            .unlocked_sciences
+                            .iter()
+                            .any(|s| is_stealth_fighter_science(s));
+                        player_may_produce_stealth_aircraft(has, template_name)
+                    }
+                    None => false,
+                }
+            } else {
+                true
+            }
+        };
+        let has_prereq = has_prereq && science_ok;
+        let has_money = match self.get_player_by_team(team) {
+            Some(p) => p.resources.supplies >= template.build_cost.supplies,
+            None => false,
+        };
+        let _ = CANMAKE_OK;
+        can_make_type_from_checks_residual(
+            has_prereq,
+            has_money,
+            factory_disabled,
+            queue_full,
+            false, // parking residual deferred
+            false, // maxed residual deferred (unit MaxSimultaneous)
+        )
+    }
+
+    /// True when CanMake residual is CANMAKE_OK.
+    pub fn can_make_unit_ok(&self, producer_id: ObjectId, template_name: &str) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK;
+        self.can_make_unit(producer_id, template_name) == CANMAKE_OK
+    }
+
+    pub fn enqueue_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            CANMAKE_NO_MONEY, CANMAKE_OK,
+        };
+        use crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science;
 
         let template = match self.templates.get(&template_name) {
             Some(t) => t.clone(),
             None => return false,
         };
         let science_gated = requires_stealth_fighter_science(&template_name);
-        let mut science_ok = true;
+        // C++ BuildAssistant::canMakeUnit residual gate (before charging).
+        let can_make = self.can_make_unit(producer_id, &template_name);
+        if can_make != CANMAKE_OK {
+            if can_make == CANMAKE_NO_MONEY {
+                if let Some(producer) = self.objects.get(&producer_id) {
+                    if let Some(p) = self.get_player_by_team(producer.team) {
+                        let pid = p.id;
+                        self.try_eva_insufficient_funds(pid);
+                    }
+                }
+            }
+            if science_gated
+                && can_make
+                    == crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ
+            {
+                self.stealth_fighter_science.record_production_denied();
+            }
+            return false;
+        }
+        let science_ok = science_gated; // residual already validated via can_make
         if let Some(producer) = self.objects.get(&producer_id) {
             let team = producer.team;
-            // Validate the producer can build this template before charging resources.
-            if let Some(building) = &producer.building_data {
-                if !building.can_produce(&template)
-                    || building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT
-                {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-            // MaxSimultaneous Superweapon residual before mut player borrow.
-            if !self.can_start_superweapon_building(team, &template_name) {
-                return false;
-            }
             let Some(player) = self.get_player_mut_by_team(team) else {
                 return false;
             };
             let player_id = player.id;
-            // SCIENCE_StealthFighter residual production gate (AirF free).
-            if science_gated {
-                let has_science = player
-                    .unlocked_sciences
-                    .iter()
-                    .any(|s| is_stealth_fighter_science(s));
-                science_ok = player_may_produce_stealth_aircraft(has_science, &template_name);
-                if !science_ok {
-                    self.stealth_fighter_science.record_production_denied();
-                    return false;
-                }
-            }
             if !player.spend_resources(&template.build_cost) {
-                // C++ ControlBar InsufficientFunds residual (local player).
+                // Race residual: money spent between can_make and charge.
                 self.try_eva_insufficient_funds(player_id);
                 return false;
             }
@@ -59268,6 +59336,71 @@ mod tests {
             .production_queue;
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].template_name, "USA_Humvee");
+    }
+
+    #[test]
+    fn can_make_unit_residual_gates_prereq_money_queue_disabled() {
+        use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
+        use crate::game_logic::host_production_buildable_command_residual::{
+            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_MONEY, CANMAKE_NO_PREREQ, CANMAKE_OK,
+            CANMAKE_QUEUE_FULL,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_barracks_template(&mut logic);
+        ensure_test_infantry_template(&mut logic);
+
+        let barracks = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        assert_eq!(logic.can_make_unit(barracks, "TestInfantry"), CANMAKE_OK);
+
+        // No money residual.
+        if let Some(p) = logic.get_player_mut(0) {
+            p.resources.supplies = 0;
+        }
+        assert_eq!(
+            logic.can_make_unit(barracks, "TestInfantry"),
+            CANMAKE_NO_MONEY
+        );
+        assert!(!logic.enqueue_production(barracks, "TestInfantry".into()));
+
+        if let Some(p) = logic.get_player_mut(0) {
+            p.resources.supplies = 100_000;
+        }
+        // Disabled factory residual.
+        if let Some(o) = logic.get_object_mut(barracks) {
+            o.status.disabled_underpowered = true;
+        }
+        assert_eq!(
+            logic.can_make_unit(barracks, "TestInfantry"),
+            CANMAKE_FACTORY_IS_DISABLED
+        );
+        if let Some(o) = logic.get_object_mut(barracks) {
+            o.status.disabled_underpowered = false;
+        }
+
+        // Queue full residual.
+        for _ in 0..DEFAULT_PRODUCTION_QUEUE_LIMIT {
+            assert!(logic.enqueue_production(barracks, "TestInfantry".into()));
+        }
+        assert_eq!(
+            logic.can_make_unit(barracks, "TestInfantry"),
+            CANMAKE_QUEUE_FULL
+        );
+
+        // Wrong factory type residual (vehicle at barracks).
+        let mut veh = ThingTemplate::new("TestVehicleUnit");
+        veh.add_kind_of(KindOf::Vehicle)
+            .set_health(100.0)
+            .set_cost(200, 0);
+        logic.templates.insert("TestVehicleUnit".into(), veh);
+        assert_eq!(
+            logic.can_make_unit(barracks, "TestVehicleUnit"),
+            CANMAKE_NO_PREREQ
+        );
     }
 
     #[test]

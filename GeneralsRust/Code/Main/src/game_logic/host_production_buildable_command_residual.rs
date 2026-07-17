@@ -250,6 +250,36 @@ pub const CANMAKE_QUEUE_FULL: u32 = 4;
 pub const CANMAKE_PARKING_PLACES_FULL: u32 = 5;
 pub const CANMAKE_MAXED_OUT_FOR_PLAYER: u32 = 6;
 
+/// C++ BuildAssistant::canMakeUnit residual status mapper.
+pub fn can_make_type_from_checks_residual(
+    has_prereq: bool,
+    has_money: bool,
+    factory_disabled: bool,
+    queue_full: bool,
+    parking_full: bool,
+    maxed_out: bool,
+) -> u32 {
+    if !has_prereq {
+        return CANMAKE_NO_PREREQ;
+    }
+    if factory_disabled {
+        return CANMAKE_FACTORY_IS_DISABLED;
+    }
+    if queue_full {
+        return CANMAKE_QUEUE_FULL;
+    }
+    if parking_full {
+        return CANMAKE_PARKING_PLACES_FULL;
+    }
+    if maxed_out {
+        return CANMAKE_MAXED_OUT_FOR_PLAYER;
+    }
+    if !has_money {
+        return CANMAKE_NO_MONEY;
+    }
+    CANMAKE_OK
+}
+
 /// C++ `LegalBuildCode` residual ordered names.
 pub const LEGAL_BUILD_CODE_NAME_TABLE_RESIDUAL: &[&str] = &[
     "LBC_OK",                    // 0
@@ -577,6 +607,17 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         && !buildable_status_ignores_prereq_residual(BSTATUS_YES)
         && CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL.len() == 7
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_OK") == Some(0)
+        && can_make_type_from_checks_residual(true, true, false, false, false, false) == CANMAKE_OK
+        && can_make_type_from_checks_residual(false, true, false, false, false, false)
+            == CANMAKE_NO_PREREQ
+        && can_make_type_from_checks_residual(true, false, false, false, false, false)
+            == CANMAKE_NO_MONEY
+        && can_make_type_from_checks_residual(true, true, true, false, false, false)
+            == CANMAKE_FACTORY_IS_DISABLED
+        && can_make_type_from_checks_residual(true, true, false, true, false, false)
+            == CANMAKE_QUEUE_FULL
+        && can_make_type_from_checks_residual(true, true, false, false, false, true)
+            == CANMAKE_MAXED_OUT_FOR_PLAYER
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_PREREQ") == Some(1)
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_MONEY") == Some(2)
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_QUEUE_FULL") == Some(4)
