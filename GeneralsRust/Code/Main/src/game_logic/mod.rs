@@ -929,6 +929,9 @@ pub struct ObjectStatus {
     /// (production / powered functions stop). Fail-closed continuous while attacking.
     #[serde(default)]
     pub disabled_subdued: bool,
+    /// C++ DISABLED_FREEFALL residual (PhysicsBehavior IS_IN_FREEFALL while airborne).
+    #[serde(default)]
+    pub disabled_freefall: bool,
     /// C++ OBJECT_STATUS_IS_CARBOMB residual (ConvertToCarBombCrateCollide).
     /// Vehicle uses SuicideCarBomb weapon set residual and detonates on attack fire.
     #[serde(default)]
