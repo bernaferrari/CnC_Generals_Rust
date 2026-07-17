@@ -35,6 +35,7 @@ pub struct HostCrateCreationEntry {
     pub unit_crate_type: &'static str,
     pub unit_crate_count: u32,
     pub is_heal_crate: bool,
+    pub is_shroud_crate: bool,
 }
 
 /// Host residual CrateTemplate subset.
@@ -58,6 +59,7 @@ static SALVAGE_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
     unit_crate_type: "",
     unit_crate_count: 0,
     is_heal_crate: false,
+    is_shroud_crate: false,
 }];
 
 static DOLLAR_1000_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -72,6 +74,7 @@ static DOLLAR_1000_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     unit_crate_type: "",
     unit_crate_count: 0,
     is_heal_crate: false,
+    is_shroud_crate: false,
 }];
 
 static DOLLAR_2500_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -86,6 +89,7 @@ static DOLLAR_2500_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     unit_crate_type: "",
     unit_crate_count: 0,
     is_heal_crate: false,
+    is_shroud_crate: false,
 }];
 
 static SUPPLY_DROP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -100,6 +104,7 @@ static SUPPLY_DROP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     unit_crate_type: "",
     unit_crate_count: 0,
     is_heal_crate: false,
+    is_shroud_crate: false,
 }];
 
 static SMALL_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -114,6 +119,7 @@ static SMALL_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationE
     unit_crate_type: "",
     unit_crate_count: 0,
     is_heal_crate: false,
+    is_shroud_crate: false,
 }];
 
 static MEDIUM_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -128,6 +134,7 @@ static MEDIUM_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreation
     unit_crate_type: "",
     unit_crate_count: 0,
     is_heal_crate: false,
+    is_shroud_crate: false,
 }];
 
 static FREE_CRUSADERS_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -142,6 +149,7 @@ static FREE_CRUSADERS_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationE
     unit_crate_type: "AmericaTankCrusader",
     unit_crate_count: 2,
     is_heal_crate: false,
+    is_shroud_crate: false,
 }];
 
 static HEAL_CRATE_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -156,6 +164,22 @@ static HEAL_CRATE_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry
     unit_crate_type: "",
     unit_crate_count: 0,
     is_heal_crate: true,
+    is_shroud_crate: false,
+}];
+
+static SHROUD_CRATE_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
+    crate_object_name: "ShroudCrate",
+    crate_chance: 1.0,
+    money_provided: 0,
+    building_pickup: false,
+    is_veterancy: false,
+    veterancy_effect_range: 0.0,
+    veterancy_levels: 1,
+    is_unit_crate: false,
+    unit_crate_type: "",
+    unit_crate_count: 0,
+    is_heal_crate: false,
+    is_shroud_crate: true,
 }];
 
 /// Built-in host crate templates (Crate.ini name residual keys).
@@ -204,6 +228,11 @@ pub static HOST_CRATE_TEMPLATES: &[HostCrateTemplate] = &[
         name: "HealCrateData",
         creation_chance: 1.0,
         possible: HEAL_CRATE_POSSIBLE,
+    },
+    HostCrateTemplate {
+        name: "ShroudCrateData",
+        creation_chance: 1.0,
+        possible: SHROUD_CRATE_POSSIBLE,
     },
 ];
 
@@ -271,6 +300,7 @@ pub struct HostCrateSpawnRequest {
     pub unit_crate_type: String,
     pub unit_crate_count: u32,
     pub is_heal_crate: bool,
+    pub is_shroud_crate: bool,
 }
 
 pub fn try_roll_crate_spawn(
@@ -295,6 +325,7 @@ pub fn try_roll_crate_spawn(
         unit_crate_type: entry.unit_crate_type.to_string(),
         unit_crate_count: entry.unit_crate_count,
         is_heal_crate: entry.is_heal_crate,
+        is_shroud_crate: entry.is_shroud_crate,
     })
 }
 
