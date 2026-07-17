@@ -10796,13 +10796,13 @@ impl GameLogic {
     ///
     /// Retail AmericaAirfield HealAmountPerSecond **10** → **10/30** HP per frame.
     pub(crate) fn tick_airfield_parking_heal(&mut self) {
+        use crate::game_logic::host_countermeasures::aircraft_has_countermeasures_upgrade;
         use crate::game_logic::host_dock_contain_exit_heal_residual::{
             parking_place_heal_per_frame, PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC,
         };
         let heal = parking_place_heal_per_frame(PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC);
-        if heal <= 0.0 {
-            return;
-        }
+        // Docked jets with Countermeasures (ReloadTime=0 / MustReloadAtAirfield residual)
+        // reload flares even when already at full HP.
         let jet_ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -10811,32 +10811,44 @@ impl GameLogic {
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
                     && o.ai_state == AIState::Docked
                     && o.contained_by.is_some()
-                    && o.health.current + 1e-3 < o.health.maximum
+                    && (o.health.current + 1e-3 < o.health.maximum
+                        || o.needs_return_to_base_rearm()
+                        || aircraft_has_countermeasures_upgrade(&o.applied_upgrades))
             })
             .map(|(id, _)| *id)
             .collect();
         for jid in jet_ids {
-            let af_ok = {
+            let (af_ok, has_cm) = {
                 let Some(jet) = self.objects.get(&jid) else {
                     continue;
                 };
                 let Some(af_id) = jet.contained_by else {
                     continue;
                 };
-                self.objects
+                let af_ok = self
+                    .objects
                     .get(&af_id)
                     .map(|af| Self::is_friendly_airfield(af, jet.team))
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                let has_cm = aircraft_has_countermeasures_upgrade(&jet.applied_upgrades);
+                (af_ok, has_cm)
             };
             if !af_ok {
                 continue;
+            }
+            if has_cm {
+                // C++ JetAIUpdate → CountermeasuresBehaviorInterface::reloadCountermeasures
+                // when landing / docked at airfield (ReloadTime=0 residual).
+                self.countermeasures.reload_at_airfield(jid);
             }
             if let Some(jet) = self.objects.get_mut(&jid) {
                 // Also top-up RTB ammo while parked (continuous rearm residual).
                 if jet.needs_return_to_base_rearm() {
                     let _ = jet.rearm_return_to_base_weapons();
                 }
-                jet.heal(heal);
+                if heal > 0.0 && jet.health.current + 1e-3 < jet.health.maximum {
+                    jet.heal(heal);
+                }
             }
         }
     }
@@ -37623,6 +37635,11 @@ impl GameLogic {
     /// Residual honesty: Countermeasures saw at least one incoming missile report.
     pub fn honesty_countermeasures_report_ok(&self) -> bool {
         self.countermeasures.honesty_report_ok()
+    }
+
+    /// Residual honesty: at least one airfield Countermeasures reload residual.
+    pub fn honesty_countermeasures_reload_ok(&self) -> bool {
+        self.countermeasures.total_reloads() > 0
     }
 
     pub fn countermeasures_registry(
@@ -81822,6 +81839,68 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn airfield_dock_reloads_countermeasures_residual() {
+        use crate::game_logic::host_countermeasures::{
+            aircraft_has_countermeasures_upgrade, FULL_LOAD_COUNTERMEASURES,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_COUNTERMEASURES;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+
+        let mut af = ThingTemplate::new("AmericaAirfield");
+        af.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaAirfield".into(), af);
+
+        let mut raptor = ThingTemplate::new("AmericaJetRaptor");
+        raptor.add_kind_of(KindOf::Aircraft).set_health(160.0);
+        logic.templates.insert("AmericaJetRaptor".into(), raptor);
+
+        let af_id = logic
+            .create_object("AmericaAirfield", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("af");
+        // Ensure constructed residual for dock.
+        if let Some(o) = logic.get_object_mut(af_id) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+
+        let air = logic
+            .create_object(
+                "AmericaJetRaptor",
+                Team::USA,
+                glam::Vec3::new(5.0, 0.0, 0.0),
+            )
+            .expect("raptor");
+        {
+            let o = logic.get_object_mut(air).unwrap();
+            o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
+            o.ai_state = AIState::Docked;
+            o.contained_by = Some(af_id);
+            assert!(aircraft_has_countermeasures_upgrade(&o.applied_upgrades));
+        }
+        // Exhaust flares residual.
+        {
+            let st = logic.countermeasures.ensure(air);
+            st.available = 0;
+            st.volleys_fired = 5;
+        }
+        assert_eq!(logic.countermeasures.get(air).map(|s| s.available), Some(0));
+
+        logic.tick_airfield_parking_heal();
+        assert!(
+            logic.honesty_countermeasures_reload_ok(),
+            "airfield dock must reload CM residual"
+        );
+        assert_eq!(
+            logic.countermeasures.get(air).map(|s| s.available),
+            Some(FULL_LOAD_COUNTERMEASURES)
         );
     }
 
