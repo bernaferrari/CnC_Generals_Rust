@@ -617,6 +617,8 @@ impl Default for SkirmishRulesState {
 
 /// Main GameLogic system
 pub struct GameLogic {
+    /// Named AttackPriorityInfo residual map (script sets).
+    pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// Objects in the world
     pub objects: HashMap<ObjectId, Object>,
 
@@ -1809,6 +1811,59 @@ fn mission_objective_to_display(
 }
 
 /// C++ AI::findClosestEnemy qualifier flags residual.
+/// C++ AttackPriorityInfo residual (ScriptEngine).
+#[derive(Debug, Clone)]
+pub struct AttackPriorityInfo {
+    pub name: String,
+    pub default_priority: i32,
+    /// Template name → priority (case-insensitive keys stored lowercased).
+    pub priorities: std::collections::HashMap<String, i32>,
+    /// KindOf name token → priority residual (SetAttackPriorityKindOf).
+    pub kind_priorities: std::collections::HashMap<String, i32>,
+}
+
+impl Default for AttackPriorityInfo {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            default_priority: 1, // ATTACK_PRIORITY_DEFAULT
+            priorities: std::collections::HashMap::new(),
+            kind_priorities: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl AttackPriorityInfo {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn set_priority_template(&mut self, template_name: &str, priority: i32) {
+        self.priorities
+            .insert(template_name.to_ascii_lowercase(), priority);
+    }
+
+    pub fn set_priority_kind(&mut self, kind_name: &str, priority: i32) {
+        self.kind_priorities
+            .insert(kind_name.to_ascii_lowercase(), priority);
+    }
+
+    /// C++ AttackPriorityInfo::getPriority residual.
+    pub fn get_priority_for_template(&self, template_name: &str) -> i32 {
+        let key = template_name.to_ascii_lowercase();
+        self.priorities
+            .get(&key)
+            .copied()
+            .unwrap_or(self.default_priority)
+    }
+}
+
+/// C++ AIData::m_attackPriorityDistanceModifier residual (world units per priority step).
+pub const ATTACK_PRIORITY_DISTANCE_MODIFIER: f32 = 50.0;
+
 pub mod find_enemy_flags {
     pub const CAN_SEE: u32 = 1 << 0;
     pub const CAN_ATTACK: u32 = 1 << 1;
@@ -2119,6 +2174,7 @@ impl GameLogic {
         let mission_hooks = MissionScriptHooks::new().expect("Mission script runtime init failed");
 
         let mut instance = Self {
+            attack_priority_sets: std::collections::HashMap::new(),
             objects: HashMap::new(),
             players: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
@@ -6491,7 +6547,63 @@ impl GameLogic {
 
     /// C++ AI::findClosestEnemy residual (host simplified partition filters).
     ///
-    /// Qualifiers: see `find_enemy_flags`. Returns nearest live enemy matching filters.
+    /// Qualifiers: see `find_enemy_flags`. When the hunter has an AttackPriorityInfo
+    /// set, uses priority-distance scoring (C++ modPriority = pri - dist/modifier).
+
+    /// Register/replace a named AttackPriorityInfo set.
+    pub fn register_attack_priority_set(&mut self, info: AttackPriorityInfo) {
+        let key = info.name.to_ascii_lowercase();
+        self.attack_priority_sets.insert(key, info);
+    }
+
+    /// C++ AIUpdateInterface::setAttackInfo residual (by set name).
+    pub fn set_unit_attack_priority_set(&mut self, unit_id: ObjectId, set_name: Option<&str>) {
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.attack_priority_set = set_name.map(|s| s.to_string());
+        }
+    }
+
+    /// Resolve AttackPriorityInfo for a unit (None = default closest-only).
+    pub fn attack_priority_info_for(&self, unit_id: ObjectId) -> Option<&AttackPriorityInfo> {
+        let name = self.objects.get(&unit_id)?.attack_priority_set.as_ref()?;
+        self.attack_priority_sets.get(&name.to_ascii_lowercase())
+    }
+
+    /// Priority for a candidate target under optional info (includes kind residual).
+    pub fn attack_priority_for_target(
+        &self,
+        info: &AttackPriorityInfo,
+        target: &crate::game_logic::object::Object,
+    ) -> i32 {
+        let mut pri = info.get_priority_for_template(&target.thing.template.name);
+        for (kind, &kp) in &info.kind_priorities {
+            let hit = match kind.as_str() {
+                "infantry" => target.is_kind_of(crate::game_logic::KindOf::Infantry),
+                "vehicle" => target.is_kind_of(crate::game_logic::KindOf::Vehicle),
+                "structure" | "building" => {
+                    target.is_kind_of(crate::game_logic::KindOf::Structure)
+                        || target.object_type == crate::game_logic::ObjectType::Building
+                }
+                "aircraft" => target.is_kind_of(crate::game_logic::KindOf::Aircraft),
+                _ => false,
+            };
+            if hit && kp > pri {
+                pri = kp;
+            }
+        }
+        if !target.contained_units().is_empty() {
+            for cid in target.contained_units() {
+                if let Some(c) = self.objects.get(&cid) {
+                    let cp = info.get_priority_for_template(&c.thing.template.name);
+                    if cp > pri {
+                        pri = cp;
+                    }
+                }
+            }
+        }
+        pri
+    }
+
     pub fn find_closest_enemy(
         &self,
         unit_id: ObjectId,
@@ -6513,10 +6625,13 @@ impl GameLogic {
         let attack_buildings = (qualifiers & ATTACK_BUILDINGS) != 0;
         let within_ar = (qualifiers & WITHIN_ATTACK_RANGE) != 0;
         let need_los = (qualifiers & CAN_SEE) != 0;
-        let ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
-        // UNFOGGED residual: host has no per-player shroud matrix yet — fail-open.
+        let _unfogged = (qualifiers & UNFOGGED) != 0;
+        let _ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
+        let prio = self.attack_priority_info_for(unit_id);
 
-        let mut best: Option<(ObjectId, f32)> = None;
+        let mut best_dist: Option<(ObjectId, f32)> = None;
+        let mut best_prio: Option<(ObjectId, i32, i32)> = None; // id, eff, actual
+
         for (&oid, obj) in self.objects.iter() {
             if oid == unit_id {
                 continue;
@@ -6524,7 +6639,6 @@ impl GameLogic {
             if !obj.is_targetable_by_enemy_of(me_team) {
                 continue;
             }
-            // Reject pure buildings unless they can attack or ATTACK_BUILDINGS.
             let is_bldg = obj.is_kind_of(crate::game_logic::KindOf::Structure)
                 || obj.object_type == crate::game_logic::ObjectType::Building;
             if is_bldg && !attack_buildings {
@@ -6534,8 +6648,6 @@ impl GameLogic {
                     continue;
                 }
             }
-            let _ = ignore_insig; // insignificant building filter residual pending INI.
-
             let opos = obj.get_position();
             let dx = opos.x - me_pos.x;
             let dz = opos.z - me_pos.z;
@@ -6547,7 +6659,6 @@ impl GameLogic {
                 continue;
             }
             if need_los {
-                // LOS residual: attack_view_blocked / pathfinding.
                 if self.attack_view_blocked(unit_id, Some(oid), opos)
                     || self.pathfinding_system.is_attack_view_blocked(me_pos, opos)
                 {
@@ -6568,13 +6679,37 @@ impl GameLogic {
                     continue;
                 }
             }
-            match best {
-                Some((_, bd)) if dist < bd => best = Some((oid, dist)),
-                None => best = Some((oid, dist)),
-                _ => {}
+
+            if let Some(info) = prio {
+                let cur = self.attack_priority_for_target(info, obj);
+                if cur == 0 {
+                    continue; // C++ skip zero priority
+                }
+                let modifier = (dist / ATTACK_PRIORITY_DISTANCE_MODIFIER) as i32;
+                let mut mod_pri = cur - modifier;
+                if mod_pri < 1 {
+                    mod_pri = 1;
+                }
+                match best_prio {
+                    Some((_, eff, act)) if mod_pri > eff || (mod_pri == eff && cur > act) => {
+                        best_prio = Some((oid, mod_pri, cur));
+                    }
+                    None => best_prio = Some((oid, mod_pri, cur)),
+                    _ => {}
+                }
+            } else {
+                match best_dist {
+                    Some((_, bd)) if dist < bd => best_dist = Some((oid, dist)),
+                    None => best_dist = Some((oid, dist)),
+                    _ => {}
+                }
             }
         }
-        best.map(|(id, _)| id)
+        if prio.is_some() {
+            best_prio.map(|(id, _, _)| id)
+        } else {
+            best_dist.map(|(id, _)| id)
+        }
     }
 
     pub fn get_next_mood_target(
@@ -74030,6 +74165,121 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn attack_priority_info_template_lookup() {
+        let mut info = AttackPriorityInfo::new("TestSet");
+        info.default_priority = 1;
+        info.set_priority_template("AmericaRanger", 50);
+        assert_eq!(info.get_priority_for_template("AmericaRanger"), 50);
+        assert_eq!(info.get_priority_for_template("Other"), 1);
+        assert_eq!(info.get_priority_for_template("americaranger"), 50);
+    }
+
+    #[test]
+    fn find_closest_enemy_uses_attack_priority() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut info = AttackPriorityInfo::new("Hunt");
+        info.default_priority = 1;
+        info.set_priority_template("HighValue", 100);
+        info.set_priority_template("LowValue", 5);
+        logic.register_attack_priority_set(info);
+
+        let mut at = ThingTemplate::new("Hunter");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2701);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.attack_priority_set = Some("Hunt".into());
+            o.weapon = Some(Weapon {
+                range: 500.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+        // Low value close
+        let mut lt = ThingTemplate::new("LowValue");
+        lt.add_kind_of(KindOf::Infantry);
+        lt.add_kind_of(KindOf::Attackable);
+        let lid = ObjectId(2702);
+        logic.objects.insert(lid, {
+            let mut o = Object::new(lt, lid, Team::GLA);
+            o.set_position(Vec3::new(40.0, 0.0, 0.0));
+            o
+        });
+        // High value farther
+        let mut ht = ThingTemplate::new("HighValue");
+        ht.add_kind_of(KindOf::Infantry);
+        ht.add_kind_of(KindOf::Attackable);
+        let hid = ObjectId(2703);
+        logic.objects.insert(hid, {
+            let mut o = Object::new(ht, hid, Team::GLA);
+            o.set_position(Vec3::new(120.0, 0.0, 0.0));
+            o
+        });
+        let found = logic.find_closest_enemy(aid, 400.0, find_enemy_flags::CAN_ATTACK);
+        assert_eq!(
+            found,
+            Some(hid),
+            "higher priority should win despite distance"
+        );
+    }
+
+    #[test]
+    fn find_closest_enemy_skips_zero_priority() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut info = AttackPriorityInfo::new("Zero");
+        info.default_priority = 0; // never attack default
+        info.set_priority_template("Allowed", 10);
+        logic.register_attack_priority_set(info);
+
+        let mut at = ThingTemplate::new("Hunter2");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2704);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.attack_priority_set = Some("Zero".into());
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut zt = ThingTemplate::new("Forbidden");
+        zt.add_kind_of(KindOf::Infantry);
+        zt.add_kind_of(KindOf::Attackable);
+        let zid = ObjectId(2705);
+        logic.objects.insert(zid, {
+            let mut o = Object::new(zt, zid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        let mut ok_t = ThingTemplate::new("Allowed");
+        ok_t.add_kind_of(KindOf::Infantry);
+        ok_t.add_kind_of(KindOf::Attackable);
+        let okid = ObjectId(2706);
+        logic.objects.insert(okid, {
+            let mut o = Object::new(ok_t, okid, Team::GLA);
+            o.set_position(Vec3::new(80.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.find_closest_enemy(aid, 200.0, find_enemy_flags::CAN_ATTACK),
+            Some(okid)
+        );
     }
 
     #[test]
