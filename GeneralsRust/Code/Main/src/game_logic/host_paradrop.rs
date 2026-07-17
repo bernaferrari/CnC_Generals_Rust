@@ -465,6 +465,28 @@ impl HostParadropRegistry {
         activate_frame: u32,
         unit_template: impl Into<String>,
     ) -> u32 {
+        self.queue_with_unit_count(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            activate_frame,
+            unit_template,
+            kind.unit_count(),
+        )
+    }
+
+    /// Queue with explicit science-tier residual unit count (Paradrop1/2/3).
+    pub fn queue_with_unit_count(
+        &mut self,
+        kind: HostParadropKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        target_position: Vec3,
+        activate_frame: u32,
+        unit_template: impl Into<String>,
+        unit_count: u32,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         let drop_frame = activate_frame.saturating_add(kind.drop_delay_frames());
@@ -478,7 +500,7 @@ impl HostParadropRegistry {
             drop_frame,
             phase: HostParadropPhase::Queued,
             unit_template: unit_template.into(),
-            unit_count: kind.unit_count(),
+            unit_count: unit_count.max(1),
             spawned_unit_ids: Vec::new(),
         };
         self.missions.insert(id, mission);
