@@ -119,6 +119,7 @@ pub mod host_slave_drones;
 pub mod host_sneak_attack;
 pub mod host_sp_science_upgrade_player_team_residual_wave109;
 pub mod host_special_power_enum_residual;
+pub mod host_spy_drone;
 pub mod host_spy_satellite;
 pub mod host_stealth_fighter;
 pub mod host_strategy_center;
