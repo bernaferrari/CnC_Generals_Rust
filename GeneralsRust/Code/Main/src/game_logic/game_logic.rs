@@ -20960,6 +20960,31 @@ impl GameLogic {
                     if enemy_kill && !under_construction && player.cash_bounty_percent > 0.0 {
                         bounty_awarded = player.do_bounty_for_kill(build_cost);
                     }
+
+                    // C++ Player::addSkillPointsForKill residual (scoreTheKill path).
+                    // No skill points for under-construction victims.
+                    if enemy_kill && !under_construction {
+                        use crate::game_logic::host_rank_ui_residual::skill_points_for_kill_residual;
+                        let vet_level = match destroyed_object.experience.level {
+                            crate::game_logic::VeterancyLevel::Rookie => 0,
+                            crate::game_logic::VeterancyLevel::Veteran => 1,
+                            crate::game_logic::VeterancyLevel::Elite => 2,
+                            crate::game_logic::VeterancyLevel::Heroic => 3,
+                        };
+                        let is_ac = destroyed_object.is_kind_of(KindOf::Aircraft)
+                            || destroyed_object.object_type == ObjectType::Aircraft;
+                        let is_veh = destroyed_object.is_kind_of(KindOf::Vehicle)
+                            || destroyed_object.object_type == ObjectType::Vehicle;
+                        let skill = skill_points_for_kill_residual(
+                            destroyed_is_structure,
+                            is_ac,
+                            is_veh,
+                            vet_level,
+                        );
+                        if skill > 0 {
+                            let _leveled = player.add_skill_points(skill);
+                        }
+                    }
                 }
             }
         }
@@ -81895,6 +81920,70 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn kill_grants_player_skill_points_residual() {
+        use crate::game_logic::host_rank_ui_residual::skill_points_for_kill_residual;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(skill_points_for_kill_residual(false, false, false, 0), 20);
+        assert_eq!(skill_points_for_kill_residual(true, false, false, 0), 200);
+        assert_eq!(skill_points_for_kill_residual(false, true, false, 0), 50);
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        // Fresh skirmish-like SPP residual.
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+            p.apply_faction_intrinsic_sciences();
+            p.skill_points = 0;
+            p.rank_level = 1;
+        }
+
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut rebel = ThingTemplate::new("GLAInfantryRebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel);
+
+        let killer = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("killer");
+        let victim = logic
+            .create_object(
+                "GLAInfantryRebel",
+                Team::GLA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("victim");
+        // Attribute kill to USA team residual (scoreTheKill killer team).
+        if let Some(v) = logic.get_object_mut(victim) {
+            v.last_damage_source = Some(killer);
+        }
+        let skill_before = logic
+            .get_player_by_team(Team::USA)
+            .map(|p| p.skill_points)
+            .unwrap_or(0);
+
+        // C++ destroy path: mark with killer team then process_destroy_list.
+        logic.mark_object_for_destruction(victim, Some(Team::USA));
+        logic.process_destroy_list();
+
+        let p = logic.get_player_by_team(Team::USA).expect("usa");
+        assert!(
+            p.skill_points >= skill_before + 20,
+            "skill_points {} expected >= {}",
+            p.skill_points,
+            skill_before + 20
+        );
+        let _ = killer;
     }
 
     #[test]
