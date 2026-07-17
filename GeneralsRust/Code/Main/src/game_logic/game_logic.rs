@@ -7138,6 +7138,31 @@ impl GameLogic {
     /// C++ HealCrateCollide::executeCrateBehavior residual.
     ///
     /// Heals all living objects owned by the picker's team to full health.
+
+    /// C++ ShroudCrateCollide::executeCrateBehavior residual.
+    ///
+    /// Permanently reveals the map for the picker's player (PartitionManager
+    /// revealMapForPlayer).
+    pub fn execute_shroud_crate_behavior(&mut self, picker_id: ObjectId) -> bool {
+        let team = match self.objects.get(&picker_id) {
+            Some(p) if p.is_alive() => p.team,
+            _ => return false,
+        };
+        // Map host team → player id residual.
+        let player_id = self
+            .players
+            .iter()
+            .find(|(_, p)| p.team == team)
+            .map(|(id, _)| *id)
+            .unwrap_or(match team {
+                Team::USA => 0,
+                Team::China => 1,
+                Team::GLA => 2,
+                Team::Neutral => 255,
+            });
+        self.partition_manager.reveal_map_for_player(player_id);
+        true
+    }
     pub fn execute_heal_crate_behavior(&mut self, picker_id: ObjectId) -> usize {
         let team = match self.objects.get(&picker_id) {
             Some(p) if p.is_alive() => p.team,
@@ -7348,7 +7373,9 @@ impl GameLogic {
             let Some(crate_id) = self.create_object(&req.object_name, Team::Neutral, pos) else {
                 continue;
             };
-            if req.is_heal_crate {
+            if req.is_shroud_crate {
+                self.host_money_crates.register_shroud_crate(crate_id);
+            } else if req.is_heal_crate {
                 self.host_money_crates.register_heal_crate(crate_id);
             } else if req.is_unit_crate {
                 self.host_money_crates.register_unit_crate(
@@ -16308,6 +16335,7 @@ impl GameLogic {
                 && !entry.is_veterancy
                 && !entry.is_unit_crate
                 && !entry.is_heal_crate
+                && !entry.is_shroud_crate
             {
                 continue;
             }
@@ -16465,6 +16493,29 @@ impl GameLogic {
                 .values()
                 .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
 
+            // C++ ShroudCrateCollide residual path.
+            if entry.is_shroud_crate {
+                let _ = self.execute_shroud_crate_behavior(picker_id);
+                if !self
+                    .host_money_crates
+                    .record_pickup(crate_id, 1, 0, is_structure)
+                {
+                    continue;
+                }
+                let pos = self
+                    .find_object(crate_id)
+                    .map(|o| o.get_position())
+                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .unwrap_or(glam::Vec3::ZERO);
+                self.queue_audio_event(
+                    AudioEventRequest::new("CrateShroud")
+                        .with_object(picker_id)
+                        .with_position(pos)
+                        .with_priority(110),
+                );
+                self.destroy_object(crate_id);
+                continue;
+            }
             // C++ HealCrateCollide residual path.
             if entry.is_heal_crate {
                 let _ = self.execute_heal_crate_behavior(picker_id);
@@ -75305,6 +75356,58 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn shroud_crate_reveals_map_for_picker_player() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "U", true));
+        let mut t = ThingTemplate::new("Scout");
+        t.add_kind_of(KindOf::Infantry);
+        let uid = ObjectId(5201);
+        logic.objects.insert(uid, {
+            let mut o = Object::new(t, uid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        assert!(!logic.partition_manager.has_revealed_map(0));
+        assert!(logic.execute_shroud_crate_behavior(uid));
+        assert!(logic.partition_manager.has_revealed_map(0));
+        // Idempotent
+        assert!(logic.execute_shroud_crate_behavior(uid));
+        assert!(logic.partition_manager.has_revealed_map(0));
+    }
+
+    #[test]
+    fn shroud_crate_collide_path() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(2, Player::new(2, Team::GLA, "G", true));
+        let mut ut = ThingTemplate::new("GUnit");
+        ut.add_kind_of(KindOf::Infantry);
+        let uid = ObjectId(5210);
+        logic.objects.insert(uid, {
+            let mut o = Object::new(ut, uid, Team::GLA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        let cid = ObjectId(5211);
+        let mut ct = ThingTemplate::new("ShroudCrate");
+        logic.templates.insert("ShroudCrate".into(), ct.clone());
+        logic.objects.insert(cid, {
+            let mut o = Object::new(ct, cid, Team::Neutral);
+            o.set_position(glam::Vec3::new(4.0, 0.0, 0.0));
+            o
+        });
+        logic.host_money_crates.register_shroud_crate(cid);
+        logic.update_money_crate_collides();
+        assert!(logic.partition_manager.has_revealed_map(2));
+        assert!(!logic.host_money_crates.contains(cid));
     }
 
     #[test]
