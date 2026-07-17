@@ -1385,6 +1385,8 @@ pub struct GameLogic {
     radar_construction_events: u32,
     /// Production door cycle residual honesty starts.
     production_door_cycles: u32,
+    /// Under-construction model condition residual updates.
+    construction_model_condition_updates: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2610,6 +2612,7 @@ impl GameLogic {
             radar_extend_completes: 0,
             radar_construction_events: 0,
             production_door_cycles: 0,
+            construction_model_condition_updates: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2985,6 +2988,7 @@ impl GameLogic {
         self.radar_extend_completes = 0;
         self.radar_construction_events = 0;
         self.production_door_cycles = 0;
+        self.construction_model_condition_updates = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5456,13 +5460,18 @@ impl GameLogic {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
                     let build_team = obj.team;
-                    let dozer_count = dozer_info
+                    // True nearby dozer count (0 allowed) for model-condition residual.
+                    let nearby_dozers = dozer_info
                         .iter()
                         .filter(|(pos, t)| {
                             *t == build_team && pos.distance(build_pos) <= BUILDER_RANGE
                         })
-                        .count()
-                        .max(1); // At least 1 so AI-built structures still progress.
+                        .count();
+                    let dozer_count = nearby_dozers.max(1); // At least 1 so AI-built structures still progress.
+                    let actively_built = nearby_dozers > 0;
+                    obj.set_under_construction_model_conditions(actively_built);
+                    self.construction_model_condition_updates =
+                        self.construction_model_condition_updates.saturating_add(1);
 
                     let power_factor = team_power_factor.get(&build_team).copied().unwrap_or(1.0);
                     let base_rate = 1.0 / obj.thing.template.build_time;
@@ -5472,6 +5481,7 @@ impl GameLogic {
                     if obj.construction_percent >= 1.0 {
                         obj.construction_percent = 1.0;
                         obj.status.under_construction = false;
+                        obj.clear_under_construction_model_conditions();
                         obj.health.current = obj.health.maximum;
                         crate::game_logic::host_heal_log::record(id, obj.health.current);
                         crate::game_logic::host_construction_log::record(
@@ -42936,6 +42946,10 @@ impl GameLogic {
         self.production_door_cycles > 0
     }
 
+    pub fn honesty_construction_model_condition_ok(&self) -> bool {
+        self.construction_model_condition_updates > 0
+    }
+
     pub fn honesty_unit_ready_ok(&self) -> bool {
         self.unit_ready_events > 0
     }
@@ -77704,6 +77718,85 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn under_construction_sets_partial_and_active_model_bits() {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, awaiting_construction_model_bit,
+            host_model_condition_has, partially_constructed_model_bit,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        st.build_time = 10.0;
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+        let sid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = true;
+            o.construction_percent = 0.1;
+        }
+        // No dozer → awaiting
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.set_under_construction_model_conditions(false);
+        }
+        let o = logic.get_object(sid).expect("o");
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            partially_constructed_model_bit()
+        ));
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            awaiting_construction_model_bit()
+        ));
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            actively_being_constructed_model_bit()
+        ));
+        // With dozer active residual
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.set_under_construction_model_conditions(true);
+        }
+        let o = logic.get_object(sid).expect("o2");
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            actively_being_constructed_model_bit()
+        ));
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            awaiting_construction_model_bit()
+        ));
+        // Complete clears under-construction bits then sets complete.
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.clear_under_construction_model_conditions();
+            o.set_construction_complete_condition();
+        }
+        let o = logic.get_object(sid).expect("o3");
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            partially_constructed_model_bit()
+        ));
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            actively_being_constructed_model_bit()
+        ));
     }
 
     #[test]

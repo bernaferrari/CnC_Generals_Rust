@@ -411,6 +411,20 @@ pub fn radar_upgraded_model_bit() -> u32 {
 }
 
 /// C++ MODELCONDITION_DOOR_1_OPENING residual bit.
+
+/// C++ MODELCONDITION_AWAITING_CONSTRUCTION residual bit.
+pub fn awaiting_construction_model_bit() -> u32 {
+    model_condition_bit_name_index("AWAITING_CONSTRUCTION").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_PARTIALLY_CONSTRUCTED residual bit.
+pub fn partially_constructed_model_bit() -> u32 {
+    model_condition_bit_name_index("PARTIALLY_CONSTRUCTED").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_ACTIVELY_BEING_CONSTRUCTED residual bit.
+pub fn actively_being_constructed_model_bit() -> u32 {
+    model_condition_bit_name_index("ACTIVELY_BEING_CONSTRUCTED").unwrap_or(0) as u32
+}
+
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
 }
