@@ -33429,31 +33429,82 @@ impl GameLogic {
     /// AmericaParachute residual: freefall at faster rate until fallen
     /// `ParachuteOpenDist` (100), then open chute (slower sink + open audio) and
     /// pitch/roll spring-damper sway residual while open.
+    ///
+    /// Also drives HijackerUpdate PutInContainer AmericaParachute residual:
+    /// chute Object sinks, riders sync position, ground collide → removeAllContained
+    /// + kill chute (C++ ParachuteContain::onCollide).
     /// Fail-closed: not full bone PARA_COG / DeliverPayload matrix.
-    fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
+    pub(crate) fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
+        use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
             is_pilot_template, should_open_parachute, tick_parachute_height_with_state,
             tick_parachute_sway, PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO,
         };
 
-        let (pos, is_pilot, chute_open, start_h, pitch, roll, pitch_rate, roll_rate) =
-            match self.objects.get(&pilot_id) {
-                Some(obj) if obj.is_alive() && obj.is_parachuting() => (
+        let (
+            pos,
+            is_pilot,
+            is_chute,
+            is_infantry_rider,
+            contained_by,
+            chute_open,
+            start_h,
+            pitch,
+            roll,
+            pitch_rate,
+            roll_rate,
+        ) = match self.objects.get(&pilot_id) {
+            Some(obj) if obj.is_alive() && obj.is_parachuting() => {
+                let name = obj.template_name.as_str();
+                (
                     obj.get_position(),
-                    is_pilot_template(&obj.template_name),
+                    is_pilot_template(name),
+                    name.eq_ignore_ascii_case(HIJACKER_PARACHUTE_NAME),
+                    obj.is_kind_of(KindOf::Infantry) || obj.object_type == ObjectType::Infantry,
+                    obj.contained_by,
                     obj.is_parachute_open(),
                     obj.status.parachute_start_height,
                     obj.status.parachute_pitch,
                     obj.status.parachute_roll,
                     obj.status.parachute_pitch_rate,
                     obj.status.parachute_roll_rate,
-                ),
-                _ => return,
-            };
-        if !is_pilot {
-            // Fail-closed: only residual ejected pilots parachute-sink via this path.
+                )
+            }
+            _ => return,
+        };
+
+        // Riders inside AmericaParachute: chute drives sink; just soft-sync.
+        if let Some(cid) = contained_by {
+            if self
+                .objects
+                .get(&cid)
+                .map(|c| {
+                    c.template_name
+                        .eq_ignore_ascii_case(HIJACKER_PARACHUTE_NAME)
+                        && c.is_alive()
+                })
+                .unwrap_or(false)
+            {
+                if let Some(chute) = self.objects.get(&cid) {
+                    let cp = chute.get_position();
+                    let open = chute.is_parachute_open();
+                    if let Some(r) = self.objects.get_mut(&pilot_id) {
+                        r.set_position(cp);
+                        if open && !r.is_parachute_open() {
+                            r.open_eject_parachute();
+                        }
+                    }
+                }
+                return;
+            }
+        }
+
+        // Drive sink for: AmericaParachute containers, ejected pilots, and
+        // parachuting infantry (hijacker residual without/with container).
+        if !(is_chute || is_pilot || is_infantry_rider) {
             return;
         }
+
         // Host residual ground height 0 (flat terrain residual; not full TerrainLogic).
         let ground = 0.0_f32;
         // OpenDist residual: freefall until fallen ≥ 100, then open chute.
@@ -33478,24 +33529,85 @@ impl GameLogic {
         } else {
             None
         };
-        // If freefall would overshoot ground before OpenDist, land closed residual.
-        if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+
+        let land_pos = Vec3::new(pos.x, if landed { ground } else { new_y }, pos.z);
+        let riders_to_release: Vec<ObjectId> = if is_chute && landed {
+            self.objects
+                .get(&pilot_id)
+                .map(|c| c.contained_units())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        if let Some(obj) = self.objects.get_mut(&pilot_id) {
             if just_opened {
-                pilot.open_eject_parachute();
+                obj.open_eject_parachute();
             }
-            let mut p = pilot.get_position();
+            let mut p = obj.get_position();
             p.y = new_y;
-            pilot.set_position(p);
-            if let Some((np, nr, npr, nrr)) = sway {
-                pilot.status.parachute_pitch = np;
-                pilot.status.parachute_roll = nr;
-                pilot.status.parachute_pitch_rate = npr;
-                pilot.status.parachute_roll_rate = nrr;
-            }
             if landed {
-                pilot.clear_eject_parachuting();
+                p.y = ground;
+            }
+            obj.set_position(p);
+            if let Some((np, nr, npr, nrr)) = sway {
+                obj.status.parachute_pitch = np;
+                obj.status.parachute_roll = nr;
+                obj.status.parachute_pitch_rate = npr;
+                obj.status.parachute_roll_rate = nrr;
+            }
+            if landed && !is_chute {
+                obj.clear_eject_parachuting();
             }
         }
+
+        // Sync contained riders to chute while descending.
+        if is_chute && !landed {
+            let ids = self
+                .objects
+                .get(&pilot_id)
+                .map(|c| c.contained_units())
+                .unwrap_or_default();
+            for rid in ids {
+                if let Some(r) = self.objects.get_mut(&rid) {
+                    r.set_position(land_pos);
+                    if open && !r.is_parachute_open() {
+                        r.open_eject_parachute();
+                    }
+                }
+            }
+        }
+
+        // C++ ParachuteContain::onCollide(null): removeAllContained + kill chute.
+        if is_chute && landed {
+            for rid in &riders_to_release {
+                if let Some(chute) = self.objects.get_mut(&pilot_id) {
+                    let _ = chute.exit_transport(*rid);
+                }
+                if let Some(r) = self.objects.get_mut(rid) {
+                    r.contained_by = None;
+                    r.ai_state = AIState::Idle;
+                    r.set_position(land_pos);
+                    r.clear_eject_parachuting();
+                    // Partition restore residual after chute dump.
+                    r.status.masked = false;
+                    r.status.unselectable = false;
+                    r.status.no_collisions = false;
+                    r.stop_moving();
+                    r.target = None;
+                }
+            }
+            // Kill AmericaParachute (SlowDeath residual → destroy).
+            if let Some(chute) = self.objects.get_mut(&pilot_id) {
+                chute.clear_eject_parachuting();
+                chute.health.current = 0.0;
+                chute.status.destroyed = true;
+            }
+            self.mark_object_for_destruction(pilot_id, None);
+            // Hijacker airborne PutInContainer land honesty.
+            self.car_bomb.record_airborne_parachute_land();
+        }
+
         if just_opened {
             self.usa_pilot.record_parachute_open();
             self.queue_audio_event(
@@ -75743,6 +75855,91 @@ mod tests {
             "airborne PutInContainer honesty"
         );
         assert!(logic.usa_pilot_residual().air_ejections >= 1);
+    }
+
+    #[test]
+    fn america_parachute_land_releases_hijacker() {
+        use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut ht = ThingTemplate::new("GLAInfantryHijacker");
+        ht.add_kind_of(KindOf::Infantry);
+        let hid = ObjectId(5531);
+        logic.objects.insert(hid, Object::new(ht, hid, Team::GLA));
+        let mut vt = ThingTemplate::new("AmericaTankCrusader");
+        vt.add_kind_of(KindOf::Vehicle);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(5532);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.set_position(glam::Vec3::new(5.0, 120.0, 5.0));
+            o.status.airborne_target = true;
+            o
+        });
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.apply_hijacked();
+            v.set_team(Team::GLA);
+        }
+        {
+            let h = logic.objects.get_mut(&hid).unwrap();
+            h.begin_hijacker_in_vehicle(vid);
+        }
+        logic.tick_hijacker_updates();
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.status.destroyed = true;
+            v.health.current = 0.0;
+        }
+        logic.tick_hijacker_updates();
+        let chute_id = logic.objects[&hid]
+            .contained_by
+            .expect("rider in AmericaParachute");
+        assert_eq!(
+            logic.objects[&chute_id].template_name,
+            HIJACKER_PARACHUTE_NAME
+        );
+
+        // Sink until ground collide residual (freefall + open + land).
+        for _ in 0..200 {
+            logic.tick_eject_parachute_residual(chute_id);
+            logic.tick_eject_parachute_residual(hid);
+            if !logic
+                .objects
+                .get(&chute_id)
+                .map(|c| c.is_alive())
+                .unwrap_or(false)
+            {
+                break;
+            }
+            if logic.objects[&hid].contained_by.is_none() && !logic.objects[&hid].is_parachuting() {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        let h = logic.objects.get(&hid).expect("hijacker survives land");
+        assert!(h.is_alive());
+        assert!(h.contained_by.is_none(), "removeAllContained on land");
+        assert!(!h.is_parachuting(), "rider clears parachuting on land");
+        assert!(!h.status.masked);
+        assert!(h.is_selectable() || !h.status.unselectable);
+        assert!(
+            (h.get_position().y).abs() < 0.5,
+            "rider lands near ground y={}",
+            h.get_position().y
+        );
+        assert!(
+            logic.car_bomb.honesty_airborne_parachute_land_ok(),
+            "ParachuteContain onCollide land honesty"
+        );
+        // Chute destroyed after land.
+        let chute_gone = logic
+            .objects
+            .get(&chute_id)
+            .map(|c| !c.is_alive() || c.status.destroyed)
+            .unwrap_or(true);
+        assert!(chute_gone, "AmericaParachute killed on ground collide");
     }
 
     #[test]
