@@ -5791,6 +5791,7 @@ impl GameLogic {
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
                 obj.tick_repulsor_status(self.frame);
+                obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {
                     self.bomb_truck_disguise.record_transition_halfpoint();
                 }
@@ -14206,8 +14207,7 @@ impl GameLogic {
                                                 SABOTEUR_STEAL_CASH_AMOUNT,
                                             );
                                         }
-                                        SaboteurEffectKind::MilitaryFactory
-                                        | SaboteurEffectKind::InternetCenter => {
+                                        SaboteurEffectKind::MilitaryFactory => {
                                             if let Some(until) =
                                                 kind.disabled_hacked_until(self.frame)
                                             {
@@ -14217,6 +14217,28 @@ impl GameLogic {
                                                     target.apply_disabled_hacked(until);
                                                 }
                                             }
+                                        }
+                                        SaboteurEffectKind::InternetCenter => {
+                                            // C++ SabotageInternetCenterCrateCollide residual:
+                                            // 1) disable SpyVisionUpdate on ALL team internet centers
+                                            // 2) DISABLED_HACKED on the sabotaged center
+                                            // 3) DISABLED_HACKED on contained hackers
+                                            let until = kind
+                                                .disabled_hacked_until(self.frame)
+                                                .unwrap_or_else(|| {
+                                                    self.frame.saturating_add(
+                                                        crate::game_logic::host_saboteur::SABOTEUR_INTERNET_DURATION_FRAMES,
+                                                    )
+                                                });
+                                            let (centers, hackers) = self
+                                                .apply_internet_center_sabotage_residual(
+                                                    special_target_id,
+                                                    target_team,
+                                                    until,
+                                                );
+                                            self.saboteur.record_internet_spy_vision_disable(
+                                                centers, hackers,
+                                            );
                                         }
                                         SaboteurEffectKind::SuperweaponOrCommand => {
                                             if let Some(target) =
@@ -31358,6 +31380,70 @@ impl GameLogic {
     }
 
     /// Residual honesty: AmericaParachute FreeFallDamage residual.
+
+    /// C++ SabotageInternetCenterCrateCollide residual deepen.
+    ///
+    /// - `disableInternetCenterSpyVision` on every team FSInternetCenter
+    /// - `setDisabledUntil(DISABLED_HACKED)` on the sabotaged center
+    /// - `disableHacker` on contained occupants
+    ///
+    /// Returns (internet_centers_spy_disabled, hackers_disabled).
+    pub(crate) fn apply_internet_center_sabotage_residual(
+        &mut self,
+        center_id: ObjectId,
+        owner_team: Team,
+        until_frame: u32,
+    ) -> (u32, u32) {
+        use crate::game_logic::host_hacker_income::is_internet_center_template;
+
+        // 1) All team internet centers: SpyVision disabled until frame.
+        let center_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && o.team == owner_team
+                    && (o.is_kind_of(KindOf::FSInternetCenter)
+                        || is_internet_center_template(&o.template_name))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut centers = 0u32;
+        for cid in &center_ids {
+            if let Some(c) = self.objects.get_mut(cid) {
+                c.apply_spy_vision_disabled_until(until_frame);
+                centers = centers.saturating_add(1);
+            }
+        }
+
+        // 2) Sabotaged center DISABLED_HACKED (visual fluff residual).
+        let mut hackers = 0u32;
+        let mut occupants: Vec<ObjectId> = self
+            .objects
+            .get(&center_id)
+            .map(|c| c.contained_units())
+            .unwrap_or_default();
+        // Also collect reverse contained_by residual (garrison / fail-open).
+        for (id, o) in &self.objects {
+            if o.contained_by == Some(center_id) && !occupants.contains(id) {
+                occupants.push(*id);
+            }
+        }
+        if let Some(target) = self.objects.get_mut(&center_id) {
+            target.apply_disabled_hacked(until_frame);
+            target.apply_spy_vision_disabled_until(until_frame);
+        }
+
+        // 3) Contained hackers DISABLED_HACKED residual.
+        for hid in occupants {
+            if let Some(h) = self.objects.get_mut(&hid) {
+                h.apply_disabled_hacked(until_frame);
+                hackers = hackers.saturating_add(1);
+            }
+        }
+        (centers.max(1), hackers) // at least the primary center counted
+    }
+
     pub fn honesty_pilot_free_fall_damage_ok(&self) -> bool {
         self.usa_pilot.honesty_free_fall_damage_ok()
     }
@@ -34268,6 +34354,16 @@ impl GameLogic {
     /// Residual honesty: disguiseAsObject copied from already-disguised target.
     pub fn honesty_bomb_truck_disguise_copy_ok(&self) -> bool {
         self.bomb_truck_disguise.honesty_disguise_copy_ok()
+    }
+
+    /// Residual honesty: Internet Center sabotage disabled SpyVision residual.
+    pub fn honesty_internet_center_spy_vision_ok(&self) -> bool {
+        self.saboteur.honesty_internet_spy_vision_ok()
+    }
+
+    /// Residual honesty: Internet Center sabotage disabled contained hackers.
+    pub fn honesty_internet_center_hackers_disabled_ok(&self) -> bool {
+        self.saboteur.honesty_internet_hackers_disabled_ok()
     }
 
     /// Residual honesty: at least one bomb-truck disguise reveal.
@@ -76278,6 +76374,85 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn internet_center_sabotage_disables_spy_vision_and_hackers() {
+        use crate::game_logic::host_saboteur::SABOTEUR_INTERNET_DURATION_FRAMES;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        // Saboteur
+        let mut st = ThingTemplate::new("GLAInfantrySaboteur");
+        st.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable);
+        let sid = ObjectId(9201);
+        logic.objects.insert(sid, Object::new(st, sid, Team::GLA));
+
+        // Two internet centers on USA
+        let mut ct = ThingTemplate::new("ChinaInternetCenter");
+        ct.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSInternetCenter)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic
+            .templates
+            .insert("ChinaInternetCenter".to_string(), ct.clone());
+        let c1 = logic
+            .create_object(
+                "ChinaInternetCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("c1");
+        let c2 = logic
+            .create_object(
+                "ChinaInternetCenter",
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("c2");
+
+        // Contained hacker in c1
+        let mut ht = ThingTemplate::new("ChinaInfantryHacker");
+        ht.add_kind_of(KindOf::Infantry);
+        let hid = ObjectId(9205);
+        logic.objects.insert(hid, Object::new(ht, hid, Team::USA));
+        {
+            let c = logic.objects.get_mut(&c1).unwrap();
+            // Structure garrison residual: force occupant list.
+            if let Some(bd) = c.building_data.as_mut() {
+                bd.max_garrison = bd.max_garrison.max(8);
+                if !bd.garrisoned_units.contains(&hid) {
+                    bd.garrisoned_units.push(hid);
+                }
+            } else {
+                c.max_transport = 8;
+                if !c.occupants.contains(&hid) {
+                    c.occupants.push(hid);
+                }
+            }
+        }
+        {
+            let h = logic.objects.get_mut(&hid).unwrap();
+            h.contained_by = Some(c1);
+            h.ai_state = AIState::Garrisoned;
+        }
+
+        let until = logic.frame + SABOTEUR_INTERNET_DURATION_FRAMES;
+        let (centers, hackers) =
+            logic.apply_internet_center_sabotage_residual(c1, Team::USA, until);
+        assert!(centers >= 2, "both team internet centers spy-disabled");
+        assert_eq!(hackers, 1, "contained hacker disabled");
+        assert!(logic.objects[&c1].is_spy_vision_disabled(logic.frame));
+        assert!(logic.objects[&c2].is_spy_vision_disabled(logic.frame));
+        assert!(logic.objects[&c1].status.disabled_hacked);
+        assert!(logic.objects[&hid].status.disabled_hacked);
+        logic
+            .saboteur
+            .record_internet_spy_vision_disable(centers, hackers);
+        assert!(logic.honesty_internet_center_spy_vision_ok());
+        assert!(logic.honesty_internet_center_hackers_disabled_ok());
     }
 
     #[test]

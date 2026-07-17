@@ -998,6 +998,9 @@ pub struct ObjectStatus {
     /// Host residual opacity factor during disguise transition (0..1 presentation).
     #[serde(default)]
     pub disguise_transition_opacity: f32,
+    /// C++ SpyVisionUpdate::setDisabledUntilFrame residual (Internet Center sabotage).
+    #[serde(default)]
+    pub spy_vision_disabled_until_frame: u32,
     /// C++ OBJECT_STATUS_FAERIE_FIRE residual (AvengerTargetDesignator paint).
     /// Attackers shooting a painted target gain TARGET_FAERIE_FIRE 150% ROF.
     #[serde(default)]
