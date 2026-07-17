@@ -382,6 +382,58 @@ pub fn experience_value_for_kill_residual(
     experience_values[victim_level as usize]
 }
 
+/// C++ Player::addSkillPointsForKill residual skill value when template SkillPointValue
+/// is unset (USE_EXP_VALUE_FOR_SKILL_VALUE → ExperienceValue).
+///
+/// Host residual defaults by victim kind (fail-closed vs full ThingTemplate INI peel):
+/// - Infantry: Ranger ExperienceValue ladder Regular **20**
+/// - Vehicle / aircraft: standard air residual Regular **50**
+/// - Structure: flat **200**
+/// Under-construction victims yield **0** (caller must gate).
+pub fn skill_points_for_kill_residual(
+    is_structure: bool,
+    is_aircraft: bool,
+    is_vehicle: bool,
+    victim_veterancy_level: i32,
+) -> i32 {
+    let level = victim_veterancy_level.clamp(LEVEL_REGULAR_RESIDUAL, LEVEL_HEROIC_RESIDUAL);
+    if is_structure {
+        return skill_point_value_residual(
+            [
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+            ],
+            EXP_VALUE_STRUCTURE_FLAT_RESIDUAL,
+            level,
+        );
+    }
+    if is_aircraft || is_vehicle {
+        return skill_point_value_residual(
+            [
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+            ],
+            EXP_VALUE_STANDARD_AIR_RESIDUAL,
+            level,
+        );
+    }
+    // Infantry / default residual.
+    skill_point_value_residual(
+        [
+            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+        ],
+        EXP_VALUE_RANGER_RESIDUAL,
+        level,
+    )
+}
+
 /// Wave 89 honesty: experience residual tables pack.
 pub fn honesty_experience_residual_tables_pack_wave89() -> bool {
     let ranger_level = experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 40)
