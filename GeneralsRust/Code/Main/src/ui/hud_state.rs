@@ -104,6 +104,18 @@ pub enum UiTextureId {
     User(u64),
 }
 
+/// Presentation-fed PublicTimer superweapon residual (InGameUI countdown).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UiSuperweaponTimer {
+    pub name: String,
+    pub template_name: String,
+    pub icon: String,
+    pub recharge_time: f32,
+    pub remaining: f32,
+    pub unlocked: bool,
+    pub ready: bool,
+}
+
 /// UI State extracted from game logic.
 #[derive(Debug, Clone)]
 pub struct GameUIState {
@@ -122,6 +134,8 @@ pub struct GameUIState {
     pub science_purchase_points: i32,
     /// ControlBar rank bar 0..100 residual.
     pub rank_progress_percent: i32,
+    /// PublicTimer superweapon countdown residual (presentation-fed).
+    pub superweapon_timers: Vec<UiSuperweaponTimer>,
     pub selected_units: Vec<ObjectId>,
     pub selected_unit_infos: Vec<UnitDisplayInfo>,
     /// ControlBar/WND selection panel (health/name) from PresentationFrame when available.
@@ -225,6 +239,7 @@ impl Default for GameUIState {
             skill_points: 0,
             science_purchase_points: 0,
             rank_progress_percent: 0,
+            superweapon_timers: Vec::new(),
             selected_units: Vec::new(),
             selected_unit_infos: Vec::new(),
             selection_panel: ControlBarSelectionPanelState::default(),

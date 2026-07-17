@@ -356,6 +356,75 @@ pub fn player_meets_special_power_science(
     })
 }
 
+/// C++ SpecialPowerTemplate::hasPublicTimer residual (SpecialPower.ini PublicTimer=Yes).
+///
+/// These powers show on the InGameUI superweapon countdown list for the local player.
+/// Fail-closed: not full InGameUI font flash / multi-object SW map / script hide.
+pub fn special_power_has_public_timer(power: &crate::command_system::SpecialPowerType) -> bool {
+    use crate::command_system::SpecialPowerType as P;
+    matches!(
+        power,
+        P::CarpetBomb
+            | P::CrateDrop
+            | P::NapalmStrike
+            | P::NuclearMissile
+            | P::NukeNeutronMissile
+            | P::SuperweaponNeutronMissile
+            | P::BaikonurRocket
+            | P::ScudStorm
+            | P::TerrorCell
+            | P::BlackMarketNuke
+            | P::ParticleCannon
+            | P::SuperweaponParticleCannon
+            | P::LaserCannon
+            | P::CruiseMissile
+    )
+}
+
+/// Display name residual for public-timer HUD rows.
+pub fn special_power_public_timer_display_name(
+    power: &crate::command_system::SpecialPowerType,
+) -> &'static str {
+    use crate::command_system::SpecialPowerType as P;
+    match power {
+        P::CarpetBomb => "Carpet Bomb",
+        P::CrateDrop => "Crate Drop",
+        P::NapalmStrike => "Napalm Strike",
+        P::NuclearMissile
+        | P::NukeNeutronMissile
+        | P::SuperweaponNeutronMissile
+        | P::BaikonurRocket => "Nuclear Missile",
+        P::ScudStorm => "Scud Storm",
+        P::TerrorCell => "Terror Cell",
+        P::BlackMarketNuke => "Black Market Nuke",
+        P::ParticleCannon | P::SuperweaponParticleCannon | P::LaserCannon => "Particle Cannon",
+        P::CruiseMissile => "Cruise Missile",
+        _ => "Superweapon",
+    }
+}
+
+/// Icon residual key for public-timer HUD (command-button style).
+pub fn special_power_public_timer_icon(
+    power: &crate::command_system::SpecialPowerType,
+) -> &'static str {
+    use crate::command_system::SpecialPowerType as P;
+    match power {
+        P::CarpetBomb => "SSCarpetBomb",
+        P::CrateDrop => "SSCrateDrop",
+        P::NapalmStrike => "SSNapalmStrike",
+        P::NuclearMissile
+        | P::NukeNeutronMissile
+        | P::SuperweaponNeutronMissile
+        | P::BaikonurRocket => "SSNuclearMissile",
+        P::ScudStorm => "SSScudStorm",
+        P::TerrorCell => "SSTerrorCell",
+        P::BlackMarketNuke => "SSBlackMarketNuke",
+        P::ParticleCannon | P::SuperweaponParticleCannon | P::LaserCannon => "SSParticleCannon",
+        P::CruiseMissile => "SSCruiseMissile",
+        _ => "SSSuperweapon",
+    }
+}
+
 pub fn special_power_uses_shared_synced_timer(
     power: &crate::command_system::SpecialPowerType,
 ) -> bool {
