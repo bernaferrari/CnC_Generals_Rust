@@ -206,6 +206,11 @@ pub const MC_BIT_ATTACKING: u32 = 34;
 pub const MC_BIT_MOVING: u32 = 49;
 pub const MC_BIT_DYING: u32 = 50;
 
+/// C++ MODELCONDITION_STUNNED_FLAILING residual index (ALLOW_SURRENDER off).
+pub const MC_BIT_STUNNED_FLAILING: u32 = 108;
+/// C++ MODELCONDITION_STUNNED residual index.
+pub const MC_BIT_STUNNED: u32 = 109;
+
 /// C++ ActiveBody::calcDamageState residual (default thresholds).
 pub fn host_calc_body_damage_state(health: f32, max_health: f32) -> HostBodyDamageType {
     if max_health <= 0.0 {
