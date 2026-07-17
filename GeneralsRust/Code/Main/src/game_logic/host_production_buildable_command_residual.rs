@@ -411,6 +411,25 @@ pub fn legal_build_code_from_checks_full_shroud_residual(
     too_close_to_supplies: bool,
     too_close_to_map_edge: bool,
 ) -> u32 {
+    legal_build_code_from_checks_complete_residual(
+        in_world_bounds,
+        shrouded,
+        false,
+        objects_in_the_way,
+        too_close_to_supplies,
+        too_close_to_map_edge,
+    )
+}
+
+/// Complete residual mapper including LBC_NOT_FLAT_ENOUGH.
+pub fn legal_build_code_from_checks_complete_residual(
+    in_world_bounds: bool,
+    shrouded: bool,
+    not_flat_enough: bool,
+    objects_in_the_way: bool,
+    too_close_to_supplies: bool,
+    too_close_to_map_edge: bool,
+) -> u32 {
     if !in_world_bounds {
         // C++ off-map → LBC_RESTRICTED_TERRAIN.
         return LBC_RESTRICTED_TERRAIN;
@@ -423,6 +442,10 @@ pub fn legal_build_code_from_checks_full_shroud_residual(
     if too_close_to_map_edge {
         return LBC_RESTRICTED_TERRAIN;
     }
+    // C++ hiZ-loZ > AllowedHeightVariationForBuilding → LBC_NOT_FLAT_ENOUGH.
+    if not_flat_enough {
+        return LBC_NOT_FLAT_ENOUGH;
+    }
     if objects_in_the_way {
         return LBC_OBJECTS_IN_THE_WAY;
     }
@@ -430,6 +453,24 @@ pub fn legal_build_code_from_checks_full_shroud_residual(
         return LBC_TOO_CLOSE_TO_SUPPLIES;
     }
     LBC_OK
+}
+
+/// Sample residual footprint corners for height variation (simplified vs full iterateFootprint).
+pub fn footprint_height_delta_residual(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let mut lo = samples[0];
+    let mut hi = samples[0];
+    for &h in samples.iter().skip(1) {
+        if h < lo {
+            lo = h;
+        }
+        if h > hi {
+            hi = h;
+        }
+    }
+    hi - lo
 }
 
 /// C++ CELLSHROUD_CLEAR residual: only fully visible cells allow build placement.
@@ -486,6 +527,10 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
             == LBC_SHROUD
         && cell_shroud_blocks_build_residual(false)
         && !cell_shroud_blocks_build_residual(true)
+        && legal_build_code_from_checks_complete_residual(true, false, true, false, false, false)
+            == LBC_NOT_FLAT_ENOUGH
+        && (footprint_height_delta_residual(&[0.0, 5.0, 10.0]) - 10.0).abs() < 0.01
+        && footprint_height_delta_residual(&[]) == 0.0
         && min_dist_from_map_edge_residual((0.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 100.0
         && min_dist_from_map_edge_residual((90.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 10.0
         && legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(5.0, 0.0, 5.0)], 20.0)
