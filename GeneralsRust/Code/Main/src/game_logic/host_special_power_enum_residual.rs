@@ -260,6 +260,105 @@ pub fn special_power_bit_name_index(name: &str) -> Option<usize> {
 /// Residual SpecialPower ReloadTime in seconds for host cooldown consume path.
 ///
 /// Fail-closed: unknown powers keep object template cooldown (caller default).
+
+/// C++ `SpecialPowerTemplate::m_sharedNSync` / INI `SharedSyncedTimer` residual.
+///
+/// Superweapons shared across a player's command centers return `true`.
+/// Unit special abilities (TNT, capture, disable, laser lock, charges) return
+/// `false` and keep per-object timers only.
+///
+/// Fail-closed: not full SpecialPowerStore template ID binding / PublicTimer UI.
+pub fn special_power_uses_shared_synced_timer(
+    power: &crate::command_system::SpecialPowerType,
+) -> bool {
+    use crate::command_system::SpecialPowerType as P;
+    match power {
+        // Superweapons / player-shared residual (SharedSyncedTimer = Yes in SpecialPower.ini).
+        P::DaisyCutter
+        | P::FuelAirBomb
+        | P::AirForceDaisyCutter
+        | P::Airstrike
+        | P::AirForceAirstrike
+        | P::NapalmStrike
+        | P::NuclearMissile
+        | P::BaikonurRocket
+        | P::BlackMarketNuke
+        | P::DetonateDirtyNuke
+        | P::NukeNeutronMissile
+        | P::SuperweaponNeutronMissile
+        | P::SpectreGunship
+        | P::AirForceSpectreGunship
+        | P::CarpetBomb
+        | P::AirForceCarpetBomb
+        | P::EarlyChinaCarpetBomb
+        | P::NukeChinaCarpetBomb
+        | P::ParticleCannon
+        | P::LaserCannon
+        | P::SuperweaponParticleCannon
+        | P::ScudStorm
+        | P::AnthraxBomb
+        | P::Artillery
+        | P::BattleshipBombardment
+        | P::CruiseMissile
+        | P::ClusterMines
+        | P::NukeDrop
+        | P::EmpPulse
+        | P::Paradrop
+        | P::InfantryParadrop
+        | P::TankParadrop
+        | P::Ambush
+        | P::TerrorCell
+        | P::LeafletDrop
+        | P::EarlyLeafletDrop
+        | P::Frenzy
+        | P::EarlyFrenzy
+        | P::EmergencyRepair
+        | P::EarlyEmergencyRepair
+        | P::GpsScrambler
+        | P::StealthGpsScrambler
+        | P::CiaIntelligence
+        | P::CommunicationsDownload
+        | P::CashHack
+        | P::CrateDrop
+        | P::SneakAttack
+        | P::SpySatellite
+        | P::SpyDrone
+        | P::RadarScan
+        | P::FireWall
+        | P::IonCannon => true,
+        // Unit abilities / non-shared residual.
+        P::HelixNapalmBomb
+        | P::HelixNukeBomb
+        | P::TankHunterTnt
+        | P::MissileDefenderLaserGuided
+        | P::LaserGuidedHowitzer
+        | P::DemoRebelTimedCharges
+        | P::BattleBusDemoTrapRollout
+        | P::DemoKellTimedCharges
+        | P::DemoKellStickyCharges
+        | P::DemoKellRemoteCharges
+        | P::BurtonTimedCharges
+        | P::BurtonRemoteCharges
+        | P::HackerDisableBuilding
+        | P::MicrowaveDisableBuilding
+        | P::BlackLotusDisableVehicle
+        | P::BlackLotusStealCash
+        | P::BlackLotusCaptureBuilding
+        | P::RangerCaptureBuilding
+        | P::RedGuardCaptureBuilding
+        | P::RebelCaptureBuilding
+        | P::DisguiseAsVehiclePower
+        | P::CleanupArea
+        | P::BattlePlanBombardment
+        | P::BattlePlanHoldTheLine
+        | P::BattlePlanSearchAndDestroy
+        | P::Invalid => false,
+        // Unknown residual: prefer shared for superweapon-like names is unsafe;
+        // fail-closed to per-object so unit abilities never block teammates.
+        _ => false,
+    }
+}
+
 pub fn special_power_reload_seconds(
     power: &crate::command_system::SpecialPowerType,
 ) -> Option<f32> {
