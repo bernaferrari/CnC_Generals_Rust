@@ -811,11 +811,16 @@ impl<'a> CommandExecutor<'a> {
             if obj.team != player_team {
                 return CommandResult::InvalidTarget;
             }
-            // C++ MSG_DOZER_CANCEL_CONSTRUCT: must be under construction, not sold/reconstructing.
+            // C++ MSG_DOZER_CANCEL_CONSTRUCT: must be under construction, not sold.
             if !obj.status.under_construction || obj.status.sold {
                 return CommandResult::InvalidCommand;
             }
-            let refund = obj.thing.template.build_cost.supplies;
+            // C++: no refund when OBJECT_STATUS_RECONSTRUCTING (rebuild hole path).
+            let refund = if obj.status.reconstructing {
+                0
+            } else {
+                obj.thing.template.build_cost.supplies
+            };
             if refund > 0 {
                 if let Some(player) = self.game_logic.get_player_mut(player_id) {
                     player.resources.supplies = player.resources.supplies.saturating_add(refund);
