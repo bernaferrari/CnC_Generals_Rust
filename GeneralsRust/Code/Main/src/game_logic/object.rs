@@ -7075,7 +7075,12 @@ impl Object {
             return;
         }
         self.special_power_ready = false;
-        self.special_power_cooldown_remaining = self.special_power_cooldown;
+        // Prefer retail SpecialPower ReloadTime residual when known; else template cooldown.
+        let cd = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+            power,
+        )
+        .unwrap_or(self.special_power_cooldown);
+        self.special_power_cooldown_remaining = cd;
         self.ai_state = AIState::Idle;
     }
 
