@@ -5785,6 +5785,7 @@ impl GameLogic {
             // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
+                obj.tick_selection_flash();
                 obj.tick_disabled_emp(self.frame);
                 obj.tick_disabled_paralyzed(self.frame);
                 obj.tick_eject_invulnerable(self.frame);
@@ -14295,19 +14296,8 @@ impl GameLogic {
                                     } else {
                                         self.try_eva_building_sabotaged(special_target_id);
                                     }
-                                    let audio = if kind.steals_cash() {
-                                        SABOTEUR_CASH_STEAL_AUDIO
-                                    } else if kind.resets_special_power() {
-                                        SABOTEUR_RESET_TIMER_AUDIO
-                                    } else {
-                                        SABOTEUR_SUCCESS_AUDIO
-                                    };
-                                    self.queue_audio_event(
-                                        AudioEventRequest::new(audio)
-                                            .with_object(special_target_id)
-                                            .with_position(target_position)
-                                            .with_priority(170),
-                                    );
+                                    // C++ doSabotageFeedbackFX residual (type audio + flash).
+                                    self.do_sabotage_feedback_fx(special_target_id, kind);
                                     let msg = localization::localize(
                                         "hud.saboteur.complete",
                                         "Building sabotaged",
@@ -42075,6 +42065,42 @@ impl GameLogic {
     }
 
     /// C++ TheEva->setShouldPlay(EVA_BuildingSabotaged) when victim is local.
+
+    /// C++ CrateCollide::doSabotageFeedbackFX residual.
+    ///
+    /// Type-specific MiscAudio cue + Drawable::flashAsSelected on the victim.
+    /// Fake buildings skip additional feedback (C++ early return).
+    pub fn do_sabotage_feedback_fx(
+        &mut self,
+        victim_id: ObjectId,
+        kind: crate::game_logic::host_saboteur::SaboteurEffectKind,
+    ) {
+        use crate::game_logic::host_saboteur::SaboteurEffectKind;
+        // Flash first so FakeBuilding still returns without audio but we match
+        // C++: FakeBuilding returns before flash. So skip entirely for fake.
+        if matches!(kind, SaboteurEffectKind::FakeBuilding) {
+            return;
+        }
+        if let Some(audio) = kind.feedback_audio() {
+            let pos = self
+                .objects
+                .get(&victim_id)
+                .map(|o| o.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            self.queue_audio_event(
+                AudioEventRequest::new(audio)
+                    .with_object(victim_id)
+                    .with_position(pos)
+                    .with_priority(170),
+            );
+        }
+        if let Some(obj) = self.objects.get_mut(&victim_id) {
+            obj.flash_as_selected();
+            self.saboteur.record_flash_as_selected();
+        }
+        self.saboteur.record_feedback_fx();
+    }
+
     pub fn try_eva_building_sabotaged(&mut self, victim_id: ObjectId) {
         if !self.is_object_locally_controlled(victim_id) {
             return;
@@ -76504,6 +76530,40 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn do_sabotage_feedback_fx_flash_and_audio_by_kind() {
+        use crate::game_logic::host_saboteur::{
+            SaboteurEffectKind, SABOTEUR_FLASH_DECAY_FRAMES, SABOTEUR_SHUTDOWN_AUDIO,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("AmericaWarFactory");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSWarFactory)
+            .set_health(800.0);
+        logic.templates.insert("AmericaWarFactory".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(1.0, 0.0, 1.0),
+            )
+            .expect("wf");
+        logic.do_sabotage_feedback_fx(id, SaboteurEffectKind::MilitaryFactory);
+        assert!(logic.saboteur.honesty_feedback_fx_ok());
+        assert!(logic.saboteur.honesty_flash_as_selected_ok());
+        let obj = logic.get_object(id).expect("obj");
+        assert_eq!(obj.selection_flash_remaining, SABOTEUR_FLASH_DECAY_FRAMES);
+        assert_eq!(
+            SaboteurEffectKind::MilitaryFactory.feedback_audio(),
+            Some(SABOTEUR_SHUTDOWN_AUDIO)
+        );
+        // Fake building: no flash/audio residual.
+        let before_flash = logic.saboteur.flash_as_selected;
+        logic.do_sabotage_feedback_fx(id, SaboteurEffectKind::FakeBuilding);
+        assert_eq!(logic.saboteur.flash_as_selected, before_flash);
     }
 
     #[test]

@@ -510,6 +510,8 @@ pub struct Object {
 
     /// Selection state
     pub selected: bool,
+    /// C++ Drawable selection flash envelope residual (frames remaining).
+    pub selection_flash_remaining: u32,
 
     /// AI state for autonomous behavior
     pub ai_state: AIState,
@@ -1280,6 +1282,7 @@ impl Object {
             power_provided,
             power_consumed,
             selected: false,
+            selection_flash_remaining: 0,
             ai_state: AIState::Idle,
             object_type,
             template_name,
@@ -1546,6 +1549,7 @@ impl Object {
             power_provided: 0,
             power_consumed: 0,
             selected: false,
+            selection_flash_remaining: 0,
             ai_state: AIState::Idle,
             object_type,
             template_name,
@@ -1966,6 +1970,23 @@ impl Object {
 
     /// Apply DISABLED_HACKED residual until `until_frame` (absolute host logic frame).
     /// C++ SpecialAbilityUpdate: setDisabledUntil(DISABLED_HACKED, now + EffectDuration).
+
+    /// C++ Drawable::flashAsSelected residual (default white/house flash, decay 4).
+    pub fn flash_as_selected(&mut self) {
+        self.selection_flash_remaining =
+            crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
+    }
+
+    /// True while selection flash envelope residual is active.
+    pub fn is_selection_flashing(&self) -> bool {
+        self.selection_flash_remaining > 0
+    }
+
+    /// Tick selection flash residual once per logic frame.
+    pub fn tick_selection_flash(&mut self) {
+        self.selection_flash_remaining = self.selection_flash_remaining.saturating_sub(1);
+    }
+
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
         self.status.disabled_hacked = true;
         self.status.disabled_hacked_until_frame = until_frame;
