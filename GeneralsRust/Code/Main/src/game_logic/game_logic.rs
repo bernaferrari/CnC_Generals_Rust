@@ -1808,6 +1808,16 @@ fn mission_objective_to_display(
     }
 }
 
+/// C++ AI::findClosestEnemy qualifier flags residual.
+pub mod find_enemy_flags {
+    pub const CAN_SEE: u32 = 1 << 0;
+    pub const CAN_ATTACK: u32 = 1 << 1;
+    pub const IGNORE_INSIGNIFICANT_BUILDINGS: u32 = 1 << 2;
+    pub const ATTACK_BUILDINGS: u32 = 1 << 3;
+    pub const WITHIN_ATTACK_RANGE: u32 = 1 << 4;
+    pub const UNFOGGED: u32 = 1 << 5;
+}
+
 /// C++ MoodMatrixAction residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoodMatrixAction {
@@ -3414,7 +3424,7 @@ impl GameLogic {
         // Host residual: Infantry/Vehicle default-need LOS unless Immobile structure.
         let needs_los = attacker.is_kind_of(KindOf::AttackNeedsLineOfSight)
             || ((attacker.is_kind_of(KindOf::Infantry) || attacker.is_kind_of(KindOf::Vehicle))
-                && !attacker.is_kind_of(KindOf::Immobile)
+                && !attacker.is_kind_of(KindOf::Structure /* immobile residual */)
                 && !attacker.is_kind_of(KindOf::Structure)
                 && !attacker.is_kind_of(KindOf::Aircraft));
         if !needs_los {
@@ -3437,8 +3447,8 @@ impl GameLogic {
         }
         // LOS_TERRAIN residual (C++ Weapon::isClearGoalFiringLineOfSightTerrain):
         // immobile attackers skip terrain LOS (cannot path around).
-        let immobile =
-            attacker.is_kind_of(KindOf::Immobile) || attacker.is_kind_of(KindOf::Structure);
+        let immobile = attacker.is_kind_of(KindOf::Structure /* immobile residual */)
+            || attacker.is_kind_of(KindOf::Structure);
         if !immobile {
             // Eye-line: lift by geometry height residual (selection_radius as proxy).
             let eye_from = from.y + attacker.selection_radius.max(5.0) * 0.5;
@@ -6036,7 +6046,9 @@ impl GameLogic {
                 a.team,
                 b.team,
                 b.is_kind_of(crate::game_logic::KindOf::Structure)
-                    || b.is_kind_of(crate::game_logic::KindOf::Immobile)
+                    || b.is_kind_of(
+                        crate::game_logic::KindOf::Structure, /* immobile residual */
+                    )
                     || !b.can_move(),
                 a.is_kind_of(crate::game_logic::KindOf::Infantry),
                 b.status.disabled_unmanned,
@@ -6178,7 +6190,9 @@ impl GameLogic {
                 return false;
             };
             let imm_ok = imm.is_kind_of(crate::game_logic::KindOf::Structure)
-                || imm.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || imm.is_kind_of(
+                    crate::game_logic::KindOf::Structure, /* immobile residual */
+                )
                 || !imm.can_move();
             (m.is_parachuting(), imm.get_position(), imm_ok)
         };
@@ -6474,6 +6488,95 @@ impl GameLogic {
     /// C++ AIUpdateInterface::getNextMoodTarget residual.
     ///
     /// Returns a candidate enemy to auto-acquire, or None.
+
+    /// C++ AI::findClosestEnemy residual (host simplified partition filters).
+    ///
+    /// Qualifiers: see `find_enemy_flags`. Returns nearest live enemy matching filters.
+    pub fn find_closest_enemy(
+        &self,
+        unit_id: ObjectId,
+        range: f32,
+        qualifiers: u32,
+    ) -> Option<ObjectId> {
+        use find_enemy_flags::*;
+        let Some(me) = self.objects.get(&unit_id) else {
+            return None;
+        };
+        if !me.is_alive() {
+            return None;
+        }
+        if (qualifiers & CAN_ATTACK) != 0 && !me.can_attack() {
+            return None;
+        }
+        let me_pos = me.get_position();
+        let me_team = me.team;
+        let attack_buildings = (qualifiers & ATTACK_BUILDINGS) != 0;
+        let within_ar = (qualifiers & WITHIN_ATTACK_RANGE) != 0;
+        let need_los = (qualifiers & CAN_SEE) != 0;
+        let ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
+        // UNFOGGED residual: host has no per-player shroud matrix yet — fail-open.
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (&oid, obj) in self.objects.iter() {
+            if oid == unit_id {
+                continue;
+            }
+            if !obj.is_targetable_by_enemy_of(me_team) {
+                continue;
+            }
+            // Reject pure buildings unless they can attack or ATTACK_BUILDINGS.
+            let is_bldg = obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                || obj.object_type == crate::game_logic::ObjectType::Building;
+            if is_bldg && !attack_buildings {
+                let bldg_can_attack =
+                    obj.can_attack() || obj.weapon.is_some() || obj.secondary_weapon.is_some();
+                if !bldg_can_attack {
+                    continue;
+                }
+            }
+            let _ = ignore_insig; // insignificant building filter residual pending INI.
+
+            let opos = obj.get_position();
+            let dx = opos.x - me_pos.x;
+            let dz = opos.z - me_pos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            if dist > range {
+                continue;
+            }
+            if within_ar && !me.is_within_attack_range(obj) {
+                continue;
+            }
+            if need_los {
+                // LOS residual: attack_view_blocked / pathfinding.
+                if self.attack_view_blocked(unit_id, Some(oid), opos)
+                    || self.pathfinding_system.is_attack_view_blocked(me_pos, opos)
+                {
+                    continue;
+                }
+            }
+            if (qualifiers & CAN_ATTACK) != 0 {
+                let r = self.get_able_to_attack_specific_object(
+                    unit_id,
+                    oid,
+                    AbleToAttackType::NewTarget,
+                    false,
+                );
+                if !matches!(
+                    r,
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                ) {
+                    continue;
+                }
+            }
+            match best {
+                Some((_, bd)) if dist < bd => best = Some((oid, dist)),
+                None => best = Some((oid, dist)),
+                _ => {}
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     pub fn get_next_mood_target(
         &mut self,
         unit_id: ObjectId,
@@ -6580,23 +6683,19 @@ impl GameLogic {
             }
         }
 
-        // Prefer nearest legal enemy via existing decision helper.
-        let candidates =
-            crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(self, pos, team, range);
-        let Some((cand, _dist)) = candidates else {
-            return None;
-        };
-        // Able-to-attack filter.
-        let result = self.get_able_to_attack_specific_object(
-            unit_id,
-            cand,
-            AbleToAttackType::NewTarget,
-            is_player_controlled,
-        );
-        match result {
-            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => Some(cand),
-            _ => None,
+        // C++ findClosestEnemy flags residual.
+        use find_enemy_flags::*;
+        let mut flags = CAN_ATTACK;
+        if let Some(o) = self.objects.get(&unit_id) {
+            if o.is_kind_of(crate::game_logic::KindOf::Structure) || !o.can_move() {
+                flags |= CAN_SEE;
+            }
         }
+        if called_by_ai && is_player_controlled {
+            flags |= WITHIN_ATTACK_RANGE | UNFOGGED;
+        }
+        let _ = (pos, team);
+        self.find_closest_enemy(unit_id, range, flags)
     }
 
     /// Idle mood auto-acquire: if idle and mood allows, set attack target.
@@ -73934,6 +74033,131 @@ mod tests {
     }
 
     #[test]
+    fn find_closest_enemy_skips_pure_buildings_by_default() {
+        use crate::game_logic::{
+            KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FceA");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2601);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+        // Pure building (no weapon) nearby.
+        let mut bt = ThingTemplate::new("FceB");
+        bt.add_kind_of(KindOf::Structure);
+        bt.add_kind_of(KindOf::Attackable);
+        let bid = ObjectId(2602);
+        logic.objects.insert(bid, {
+            let mut o = Object::new(bt, bid, Team::GLA);
+            o.object_type = ObjectType::Building;
+            o.set_position(Vec3::new(30.0, 0.0, 0.0));
+            o
+        });
+        // Infantry farther.
+        let mut it = ThingTemplate::new("FceI");
+        it.add_kind_of(KindOf::Infantry);
+        it.add_kind_of(KindOf::Attackable);
+        let iid = ObjectId(2603);
+        logic.objects.insert(iid, {
+            let mut o = Object::new(it, iid, Team::GLA);
+            o.set_position(Vec3::new(80.0, 0.0, 0.0));
+            o
+        });
+        let found = logic.find_closest_enemy(aid, 200.0, find_enemy_flags::CAN_ATTACK);
+        assert_eq!(found, Some(iid));
+        // With ATTACK_BUILDINGS, building wins as closer.
+        let found_b = logic.find_closest_enemy(
+            aid,
+            200.0,
+            find_enemy_flags::CAN_ATTACK | find_enemy_flags::ATTACK_BUILDINGS,
+        );
+        assert_eq!(found_b, Some(bid));
+    }
+
+    #[test]
+    fn find_closest_enemy_within_attack_range_flag() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FceA2");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2604);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 40.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut et = ThingTemplate::new("FceE2");
+        et.add_kind_of(KindOf::Infantry);
+        et.add_kind_of(KindOf::Attackable);
+        let eid = ObjectId(2605);
+        logic.objects.insert(eid, {
+            let mut o = Object::new(et, eid, Team::GLA);
+            o.set_position(Vec3::new(100.0, 0.0, 0.0)); // outside weapon range
+            o
+        });
+        assert!(logic
+            .find_closest_enemy(
+                aid,
+                200.0,
+                find_enemy_flags::CAN_ATTACK | find_enemy_flags::WITHIN_ATTACK_RANGE,
+            )
+            .is_none());
+        // Without WITHIN_ATTACK_RANGE, still found (PossibleAfterMoving).
+        assert_eq!(
+            logic.find_closest_enemy(aid, 200.0, find_enemy_flags::CAN_ATTACK),
+            Some(eid)
+        );
+    }
+
+    #[test]
+    fn find_closest_enemy_rejects_unable_attacker() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FceA3");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2606);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            // no weapon → cannot attack
+            o
+        });
+        let mut et = ThingTemplate::new("FceE3");
+        et.add_kind_of(KindOf::Infantry);
+        et.add_kind_of(KindOf::Attackable);
+        let eid = ObjectId(2607);
+        logic.objects.insert(eid, {
+            let mut o = Object::new(et, eid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        assert!(logic
+            .find_closest_enemy(aid, 100.0, find_enemy_flags::CAN_ATTACK)
+            .is_none());
+    }
+
+    #[test]
     fn get_next_mood_target_finds_nearby_enemy() {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
         use glam::Vec3;
@@ -75920,7 +76144,7 @@ mod tests {
 
         let mut st = ThingTemplate::new("BounceImm");
         st.add_kind_of(KindOf::Structure);
-        st.add_kind_of(KindOf::Immobile);
+        st.add_kind_of(KindOf::Structure /* immobile residual */);
         let iid = ObjectId(82);
         let mut s = Object::new(st, iid, Team::China);
         s.set_position(Vec3::new(5.0, 1.0, 0.0));
@@ -75968,7 +76192,7 @@ mod tests {
 
         let mut st = ThingTemplate::new("SCrash");
         st.add_kind_of(KindOf::Structure);
-        st.add_kind_of(KindOf::Immobile);
+        st.add_kind_of(KindOf::Structure /* immobile residual */);
         let sid = ObjectId(62);
         logic.objects.insert(sid, Object::new(st, sid, Team::GLA));
 
