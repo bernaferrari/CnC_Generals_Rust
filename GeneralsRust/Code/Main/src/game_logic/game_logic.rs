@@ -15776,6 +15776,12 @@ impl GameLogic {
             HostUpgradeKind::ApBullets => self.apply_ap_bullets_to_team(team, upgrade_name),
             HostUpgradeKind::AnthraxBeta => self.apply_anthrax_beta_to_team(team, upgrade_name),
             HostUpgradeKind::ToxinShells => self.apply_toxin_shells_to_team(team, upgrade_name),
+            HostUpgradeKind::AdvancedTraining => {
+                self.apply_advanced_training_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::TacticalNukeMig => {
+                self.apply_tactical_nuke_mig_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -15813,6 +15819,68 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_AmericaAdvancedTraining residual — 2× XP gain player unlock.
+    fn apply_advanced_training_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_unit_training::UPGRADE_AMERICA_ADVANCED_TRAINING;
+        let mut n = 0u32;
+        for p in self.players.values_mut() {
+            if p.team != team {
+                continue;
+            }
+            p.unlocked_sciences
+                .insert(UPGRADE_AMERICA_ADVANCED_TRAINING.to_string());
+            p.unlocked_sciences.insert(upgrade_name.to_string());
+            n = n.saturating_add(1);
+        }
+        // Tag living USA combat units so XP path can read unit tags residual.
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING) {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// C++ Upgrade_ChinaTacticalNukeMig residual — Nuke General MiG loadout.
+    fn apply_tactical_nuke_mig_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_mig::{is_nuke_mig_template, UPGRADE_CHINA_TACTICAL_NUKE_MIG};
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.team == team && o.is_alive() && is_nuke_mig_template(&o.template_name)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            if self.apply_mig_tactical_nuke_upgrade(id) {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag(UPGRADE_CHINA_TACTICAL_NUKE_MIG);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_CHINA_TACTICAL_NUKE_MIG.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
     }
 
     /// C++ Upgrade_GLAAnthraxBeta residual — toxin tractor + SCUD + scud storm tier.
@@ -16200,57 +16268,47 @@ impl GameLogic {
 
     /// C++ Upgrade_ChinaChainGuns residual — gattling/minigun damage ×1.25.
     fn apply_chain_guns_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
         use crate::game_logic::host_gattling_tank::{
-            is_gattling_tank_template, UPGRADE_CHINA_CHAIN_GUNS as GT_CHAIN,
+            is_gattling_tank_template, UPGRADE_CHINA_CHAIN_GUNS,
         };
-        use crate::game_logic::host_minigunner::{
-            is_minigunner_template, UPGRADE_CHINA_CHAIN_GUNS as MG_CHAIN,
-        };
+        use crate::game_logic::host_minigunner::is_minigunner_template;
 
-        let chain = if !GT_CHAIN.is_empty() {
-            GT_CHAIN
-        } else {
-            MG_CHAIN
-        };
-        let ids: Vec<(ObjectId, bool)> = self
+        let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
             .filter(|(_, o)| o.team == team && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_minigunner_template(&o.template_name) {
-                    Some((*id, true))
+                    Some((*id, 0u8))
                 } else if is_gattling_tank_template(&o.template_name)
-                    || o.template_name.to_ascii_lowercase().contains("gattling")
-                    || o.template_name.to_ascii_lowercase().contains("gatling")
+                    || is_gattling_cannon_structure(&o.template_name)
                 {
-                    Some((*id, false))
+                    Some((*id, 1))
                 } else {
                     None
                 }
             })
             .collect();
         let mut n = 0u32;
-        for (id, is_mg) in ids {
-            if is_mg {
-                if self.apply_minigunner_chain_guns_upgrade(id) {
-                    if let Some(o) = self.objects.get_mut(&id) {
-                        o.apply_upgrade_tag(upgrade_name);
-                        o.apply_upgrade_tag(chain);
-                    }
-                    n = n.saturating_add(1);
-                }
-            } else if let Some(o) = self.objects.get_mut(&id) {
-                if !o.has_upgrade_tag(chain) {
+        for (id, kind) in ids {
+            let ok = match kind {
+                0 => self.apply_minigunner_chain_guns_upgrade(id),
+                1 => self.apply_gattling_chain_guns_upgrade(id),
+                _ => false,
+            };
+            if ok {
+                if let Some(o) = self.objects.get_mut(&id) {
                     o.apply_upgrade_tag(upgrade_name);
-                    o.apply_upgrade_tag(chain);
-                    o.applied_upgrades.insert(chain.to_string());
-                    n = n.saturating_add(1);
+                    o.apply_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS);
                 }
+                n = n.saturating_add(1);
             }
         }
         for p in self.players.values_mut() {
             if p.team == team {
-                p.unlocked_sciences.insert(chain.to_string());
+                p.unlocked_sciences
+                    .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
             }
         }
@@ -80759,6 +80817,95 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
+        use crate::game_logic::host_unit_training::{
+            residual_xp_gain_with_advanced_training, UPGRADE_AMERICA_ADVANCED_TRAINING,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "China", true));
+
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut mig = ThingTemplate::new("Nuke_ChinaJetMIG");
+        mig.add_kind_of(KindOf::Aircraft).set_health(200.0);
+        logic.templates.insert("Nuke_ChinaJetMIG".into(), mig);
+
+        let rid = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        let mid = logic
+            .create_object(
+                "Nuke_ChinaJetMIG",
+                Team::China,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("mig");
+
+        let n_at =
+            logic.apply_advanced_training_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_TRAINING);
+        assert!(n_at >= 1);
+        assert!(logic
+            .players
+            .get(&0)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_AMERICA_ADVANCED_TRAINING));
+        assert!(logic
+            .get_object(rid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING));
+        // Honesty: XP scalar residual path.
+        assert!((residual_xp_gain_with_advanced_training(50.0, true) - 100.0).abs() < 0.01);
+
+        let n_nuke =
+            logic.apply_tactical_nuke_mig_to_team(Team::China, "Upgrade_ChinaTacticalNukeMig");
+        assert_eq!(n_nuke, 1);
+        assert!(logic
+            .get_object(mid)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_ChinaTacticalNukeMig"));
+    }
+
+    #[test]
+    fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
+        use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut g = ThingTemplate::new("ChinaTankGattling");
+        g.add_kind_of(KindOf::Vehicle).set_health(300.0);
+        logic.templates.insert("ChinaTankGattling".into(), g);
+        let id = logic
+            .create_object(
+                "ChinaTankGattling",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("gattling");
+        let n = logic.apply_chain_guns_to_team(Team::China, UPGRADE_CHINA_CHAIN_GUNS);
+        assert_eq!(n, 1);
+        assert!(logic
+            .get_object(id)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS));
     }
 
     #[test]
