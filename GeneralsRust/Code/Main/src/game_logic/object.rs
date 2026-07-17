@@ -77,6 +77,15 @@ pub struct Object {
     /// C++ transform Z-up residual (1 upright, <0 inverted / splat candidate).
     #[serde(default = "default_shock_up_z")]
     pub shock_up_z: f32,
+    /// C++ LocomotorSurfaceTypeMask residual (default by KindOf).
+    #[serde(default)]
+    pub locomotor_surfaces: u32,
+    /// Host TerrainLogic::isCliffCell residual for stun destruction (set by world).
+    #[serde(default)]
+    pub cell_is_cliff: bool,
+    /// Host TerrainLogic::isUnderwater residual for stun destruction (set by world).
+    #[serde(default)]
+    pub cell_is_underwater: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -527,6 +536,13 @@ fn default_shock_up_z() -> f32 {
     1.0
 }
 
+/// C++ LOCOMOTORSURFACE_* residual bits (LocomotorSet.h).
+pub const LOCO_SURFACE_GROUND: u32 = 1 << 0;
+pub const LOCO_SURFACE_WATER: u32 = 1 << 1;
+pub const LOCO_SURFACE_CLIFF: u32 = 1 << 2;
+pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
+pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
+
 impl Object {
     pub fn new(template: ThingTemplate, id: ObjectId, team: Team) -> Self {
         let max_health = template.max_health;
@@ -586,6 +602,9 @@ impl Object {
             shock_was_airborne: false,
             shock_grounded_once: false,
             shock_up_z: 1.0,
+            locomotor_surfaces: 0,
+            cell_is_cliff: false,
+            cell_is_underwater: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -733,6 +752,9 @@ impl Object {
             shock_was_airborne: false,
             shock_grounded_once: false,
             shock_up_z: 1.0,
+            locomotor_surfaces: 0,
+            cell_is_cliff: false,
+            cell_is_underwater: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -1856,6 +1878,7 @@ impl Object {
         self.shock_allow_bounce = true;
         self.shock_grounded_once = false;
         self.shock_up_z = 1.0;
+        self.ensure_locomotor_surfaces();
         // Strong upward impulse residual: freefall model bit while airborne from shock.
         if self.movement.velocity.y > 8.0 {
             use crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
@@ -1983,16 +2006,57 @@ impl Object {
         0.0
     }
 
+    /// Default locomotor surfaces residual from KindOf (fail-closed ground units).
+    pub fn default_locomotor_surfaces_for_template(template: &ThingTemplate) -> u32 {
+        if template.is_kind_of(KindOf::Aircraft) {
+            LOCO_SURFACE_AIR | LOCO_SURFACE_GROUND
+        } else if template.name.to_ascii_lowercase().contains("hover")
+            || template.name.to_ascii_lowercase().contains("amphib")
+            || template.name.to_ascii_lowercase().contains("ship")
+        {
+            LOCO_SURFACE_GROUND | LOCO_SURFACE_WATER
+        } else if template.is_kind_of(KindOf::Structure) {
+            LOCO_SURFACE_GROUND
+        } else {
+            LOCO_SURFACE_GROUND
+        }
+    }
+
+    fn ensure_locomotor_surfaces(&mut self) {
+        if self.locomotor_surfaces == 0 {
+            self.locomotor_surfaces =
+                Self::default_locomotor_surfaces_for_template(&self.thing.template);
+        }
+    }
+
+    pub fn has_locomotor_for_surface(&self, surface: u32) -> bool {
+        (self.locomotor_surfaces & surface) != 0
+    }
+
     /// C++ PhysicsBehavior::testStunnedUnitForDestruction residual.
     ///
-    /// Called on bounce. Upside-down stunned units are killed. Cliff/water/off-map
-    /// surface checks are fail-closed without full TerrainLogic/AI locomotor.
+    /// Called on bounce. Kills when upside-down, off-map, cliff without cliff
+    /// locomotor, or underwater without water locomotor.
     pub fn test_stunned_unit_for_destruction(&mut self) -> bool {
         if !self.is_shock_stunned() || self.status.destroyed {
             return false;
         }
+        self.ensure_locomotor_surfaces();
         // Upside down when transform Z-up residual is negative.
         if self.shock_up_z < 0.0 {
+            return self.kill_from_stun_destruction();
+        }
+        // C++ obj->isOffMap residual.
+        let pos = self.get_position();
+        if crate::game_logic::host_deliver_payload::is_off_map_default_residual(pos) {
+            return self.kill_from_stun_destruction();
+        }
+        // C++ isCliffCell && !hasLocomotorForSurface(CLIFF).
+        if self.cell_is_cliff && !self.has_locomotor_for_surface(LOCO_SURFACE_CLIFF) {
+            return self.kill_from_stun_destruction();
+        }
+        // C++ isUnderwater && !hasLocomotorForSurface(WATER).
+        if self.cell_is_underwater && !self.has_locomotor_for_surface(LOCO_SURFACE_WATER) {
             return self.kill_from_stun_destruction();
         }
         false
@@ -5138,6 +5202,56 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn stunned_off_map_cliff_water_kills_without_loco() {
+        use crate::game_logic::host_deliver_payload::{
+            is_off_map_default_residual, RESIDUAL_MAP_EXTENT_MAX_X,
+        };
+        let mut tmpl = ThingTemplate::new("GroundTank");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(31), Team::USA);
+        o.shock_stun_frames = 30;
+        o.ensure_locomotor_surfaces();
+        assert!(o.has_locomotor_for_surface(LOCO_SURFACE_GROUND));
+        assert!(!o.has_locomotor_for_surface(LOCO_SURFACE_CLIFF));
+        assert!(!o.has_locomotor_for_surface(LOCO_SURFACE_WATER));
+        o.set_position(glam::Vec3::new(RESIDUAL_MAP_EXTENT_MAX_X + 50.0, 0.0, 0.0));
+        assert!(is_off_map_default_residual(o.get_position()));
+        assert!(o.test_stunned_unit_for_destruction());
+        assert!(o.status.destroyed);
+
+        let mut t2 = ThingTemplate::new("CliffVictim");
+        t2.add_kind_of(KindOf::Infantry);
+        let mut c = Object::new(t2, ObjectId(32), Team::USA);
+        c.shock_stun_frames = 20;
+        c.cell_is_cliff = true;
+        c.set_position(glam::Vec3::ZERO);
+        assert!(c.test_stunned_unit_for_destruction());
+        assert!(c.status.destroyed);
+
+        let mut t3 = ThingTemplate::new("WaterVictim");
+        t3.add_kind_of(KindOf::Vehicle);
+        let mut w = Object::new(t3, ObjectId(33), Team::USA);
+        w.shock_stun_frames = 20;
+        w.cell_is_underwater = true;
+        w.set_position(glam::Vec3::ZERO);
+        assert!(w.test_stunned_unit_for_destruction());
+        assert!(w.status.destroyed);
+
+        let mut th = ThingTemplate::new("AmphibHover");
+        th.add_kind_of(KindOf::Vehicle);
+        let mut h = Object::new(th, ObjectId(34), Team::USA);
+        h.shock_stun_frames = 20;
+        h.locomotor_surfaces = LOCO_SURFACE_GROUND | LOCO_SURFACE_WATER;
+        h.cell_is_underwater = true;
+        h.set_position(glam::Vec3::ZERO);
+        assert!(!h.test_stunned_unit_for_destruction());
+        assert!(!h.status.destroyed);
+        h.cell_is_underwater = false;
+        h.cell_is_cliff = true;
+        h.locomotor_surfaces |= LOCO_SURFACE_CLIFF;
+        assert!(!h.test_stunned_unit_for_destruction());
+    }
     #[test]
     fn stunned_upside_down_bounce_kills_and_freefall_disables() {
         let mut tmpl = ThingTemplate::new("StunKill");
