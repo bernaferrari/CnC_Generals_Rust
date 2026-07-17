@@ -1435,6 +1435,10 @@ pub struct GameLogic {
     capture_ai_auto_sells: u32,
     /// C++ deselectObject on capture residual events.
     capture_deselections: u32,
+    /// C++ TunnelContain::onCapture entrance transfer residual events.
+    capture_tunnel_transfers: u32,
+    /// C++ TunnelContain last-entrance capture eject residual events.
+    capture_tunnel_last_ejects: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2701,6 +2705,8 @@ impl GameLogic {
             capture_kick_outs: 0,
             capture_ai_auto_sells: 0,
             capture_deselections: 0,
+            capture_tunnel_transfers: 0,
+            capture_tunnel_last_ejects: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3104,6 +3110,8 @@ impl GameLogic {
         self.capture_kick_outs = 0;
         self.capture_ai_auto_sells = 0;
         self.capture_deselections = 0;
+        self.capture_tunnel_transfers = 0;
+        self.capture_tunnel_last_ejects = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -43199,6 +43207,84 @@ impl GameLogic {
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
 
+    /// C++ TunnelContain::onCapture residual.
+    ///
+    /// Re-home entrance to new owner's tunnel system. Passengers are NOT
+    /// kicked (isKickOutOnCapture=false). If this was the old owner's last
+    /// entrance and the shared pool is non-empty, eject the pool (same
+    /// last-tunnel safety residual as onSelling).
+    pub fn on_capture_tunnel_network_residual(
+        &mut self,
+        tunnel_id: ObjectId,
+        old_team: Team,
+        new_team: Team,
+    ) {
+        if old_team == new_team {
+            return;
+        }
+        let is_tunnel = self
+            .objects
+            .get(&tunnel_id)
+            .map(|o| {
+                o.is_tunnel_network_style_container()
+                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                        &o.template_name,
+                    )
+            })
+            .unwrap_or(false);
+        if !is_tunnel {
+            return;
+        }
+
+        // Count remaining tunnel entrances for old team (exclude this one).
+        let remaining_old: u32 = self
+            .objects
+            .iter()
+            .filter(|(id, o)| {
+                **id != tunnel_id
+                    && o.team == old_team
+                    && o.is_alive()
+                    && !o.status.sold
+                    && (o.is_tunnel_network_style_container()
+                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                            &o.template_name,
+                        ))
+            })
+            .count() as u32;
+
+        if remaining_old == 0 {
+            // Last entrance left old team — eject shared pool (C++ assert path residual).
+            let units: Vec<ObjectId> = self.tunnel_network.contained_for_team(old_team);
+            if !units.is_empty() {
+                let pos = self
+                    .objects
+                    .get(&tunnel_id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(glam::Vec3::ZERO);
+                for (i, uid) in units.into_iter().enumerate() {
+                    let _ = self.tunnel_network.record_exit(old_team, uid, tunnel_id);
+                    if let Some(unit) = self.objects.get_mut(&uid) {
+                        let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
+                        let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 12.0;
+                        unit.stop_moving();
+                        unit.set_position(pos + offset);
+                        unit.set_target(None);
+                        unit.contained_by = None;
+                        unit.ai_state = AIState::Idle;
+                        unit.status.moving = false;
+                        unit.status.attacking = false;
+                    }
+                    self.capture_tunnel_last_ejects =
+                        self.capture_tunnel_last_ejects.saturating_add(1);
+                }
+            }
+        }
+
+        // Honesty: entrance transferred to new owner (pool stays with old team unless ejected).
+        self.capture_tunnel_transfers = self.capture_tunnel_transfers.saturating_add(1);
+        let _ = new_team;
+    }
+
     /// C++ Object::onCapture residual (after ownership flip).
     ///
     /// - OpenContain/TransportContain: kick passengers (tunnels/caves skip)
@@ -43216,6 +43302,8 @@ impl GameLogic {
         }
         // Contain kick residual.
         self.on_capture_kick_passengers(object_id, old_team, new_team);
+        // TunnelContain::onCapture entrance transfer / last-entrance eject residual.
+        self.on_capture_tunnel_network_residual(object_id, old_team, new_team);
 
         // Deselect from all players (C++ TheGameLogic->deselectObject residual).
         for player in self.players.values_mut() {
@@ -79843,6 +79931,102 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", true));
+
+        let mut tn = ThingTemplate::new("GLATunnelNetwork");
+        tn.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), tn);
+        let mut rebel = ThingTemplate::new("GLARebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLARebel".into(), rebel);
+
+        let tnl = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tn");
+        let uid = logic
+            .create_object("GLARebel", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("rebel");
+        assert!(logic.tunnel_network.record_enter(Team::GLA, uid, tnl));
+        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+
+        // Flip ownership then onCapture residual.
+        if let Some(o) = logic.get_object_mut(tnl) {
+            o.set_team(Team::USA);
+        }
+        logic.on_capture_object_residual(tnl, Team::GLA, Team::USA);
+
+        assert!(logic.capture_tunnel_transfers > 0);
+        assert!(logic.capture_tunnel_last_ejects > 0);
+        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
+        let unit = logic.get_object(uid).expect("rebel");
+        assert!(unit.contained_by.is_none());
+        assert_eq!(unit.ai_state, AIState::Idle);
+        // Passenger keeps old team.
+        assert_eq!(unit.team, Team::GLA);
+    }
+
+    #[test]
+    fn capture_non_last_tunnel_keeps_old_team_pool() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", true));
+
+        let mut tn = ThingTemplate::new("GLATunnelNetwork");
+        tn.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), tn);
+        let mut rebel = ThingTemplate::new("GLARebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLARebel".into(), rebel);
+
+        let t1 = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("t1");
+        let t2 = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("t2");
+        let uid = logic
+            .create_object("GLARebel", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("rebel");
+        assert!(logic.tunnel_network.record_enter(Team::GLA, uid, t1));
+
+        if let Some(o) = logic.get_object_mut(t1) {
+            o.set_team(Team::USA);
+        }
+        logic.on_capture_object_residual(t1, Team::GLA, Team::USA);
+
+        assert!(logic.capture_tunnel_transfers > 0);
+        assert_eq!(logic.capture_tunnel_last_ejects, 0);
+        // Pool stays with GLA (second entrance remains).
+        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+        let _ = t2;
     }
 
     #[test]
