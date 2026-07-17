@@ -4978,6 +4978,9 @@ impl SnapshotBuilder {
                 radar_count: 0,
                 radar_disabled: false,
                 logical_retaliation_mode_enabled: false,
+                rank_level: 1,
+                skill_points: 0,
+                science_purchase_points: 0,
             });
         }
 
