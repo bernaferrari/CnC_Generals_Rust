@@ -1429,6 +1429,8 @@ pub struct GameLogic {
     sell_parked_units_killed: u32,
     /// C++ TunnelContain::onSelling last-tunnel eject residual.
     sell_tunnel_last_ejects: u32,
+    /// C++ ContainModule::onCapture kick residual events.
+    capture_kick_outs: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2692,6 +2694,7 @@ impl GameLogic {
             sell_passengers_ejected: 0,
             sell_parked_units_killed: 0,
             sell_tunnel_last_ejects: 0,
+            capture_kick_outs: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3092,6 +3095,7 @@ impl GameLogic {
         self.sell_passengers_ejected = 0;
         self.sell_parked_units_killed = 0;
         self.sell_tunnel_last_ejects = 0;
+        self.capture_kick_outs = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -14262,6 +14266,8 @@ impl GameLogic {
                     }
 
                     if did_capture {
+                        // C++ TransportContain/OpenContain::onCapture residual.
+                        self.on_capture_kick_passengers(capture_target_id, target_team, team);
                         // C++ getAcademyStats()->recordBuildingCapture() residual.
                         if let Some(p) = self.get_player_mut_by_team(team) {
                             p.record_building_capture();
@@ -43184,6 +43190,57 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
+
+    /// C++ TransportContain/OpenContain::onCapture residual.
+    ///
+    /// Default containers kick passengers on capture (tunnels/caves do not).
+    /// Unmanned vehicles eject instantly (residual: same eject path).
+    pub fn on_capture_kick_passengers(
+        &mut self,
+        container_id: ObjectId,
+        old_team: Team,
+        new_team: Team,
+    ) {
+        if old_team == new_team {
+            return;
+        }
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        // C++ TunnelContain/CaveContain isKickOutOnCapture = false.
+        if container.is_tunnel_network_style_container()
+            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                &container.template_name,
+            )
+        {
+            return;
+        }
+        let pos = container.get_position();
+        let unmanned = container.status.disabled_unmanned;
+        let occupants: Vec<ObjectId> = container.contained_units();
+        if occupants.is_empty() {
+            return;
+        }
+        for (i, uid) in occupants.into_iter().enumerate() {
+            if let Some(unit) = self.objects.get_mut(&uid) {
+                let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
+                let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
+                unit.stop_moving();
+                unit.set_position(pos + offset);
+                unit.set_target(None);
+                unit.contained_by = None;
+                unit.ai_state = AIState::Idle;
+                unit.status.moving = false;
+                unit.status.attacking = false;
+                // Occupants keep their own team residual (don't flip with container).
+            }
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                let _ = c.remove_occupant(uid);
+            }
+            self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
+        }
+        let _ = unmanned;
+    }
 
     /// C++ OpenContain::onSelling + ParkingPlaceBehavior::killAllParkedUnits residual.
     ///
@@ -79719,6 +79776,80 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", true));
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee.add_kind_of(KindOf::Vehicle).set_health(300.0);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".into(), humvee);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut tn = ThingTemplate::new("GLATunnelNetwork");
+        tn.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), tn);
+        let mut rebel = ThingTemplate::new("GLARebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLARebel".into(), rebel);
+
+        // Transport capture kick residual.
+        let tid = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+        let rid = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(1.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        if let Some(t) = logic.get_object_mut(tid) {
+            assert!(t.add_occupant(rid));
+        }
+        if let Some(r) = logic.get_object_mut(rid) {
+            r.contained_by = Some(tid);
+            r.ai_state = AIState::Docked;
+        }
+        logic.on_capture_kick_passengers(tid, Team::USA, Team::GLA);
+        assert!(logic.capture_kick_outs > 0);
+        let r = logic.get_object(rid).expect("ranger");
+        assert!(r.contained_by.is_none());
+        assert_eq!(r.ai_state, AIState::Idle);
+        assert_eq!(r.team, Team::USA); // passenger keeps team
+
+        // Tunnel does not kick shared pool.
+        let tnl = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("tn");
+        let uid = logic
+            .create_object("GLARebel", Team::GLA, glam::Vec3::new(51.0, 0.0, 0.0))
+            .expect("rebel");
+        assert!(logic.tunnel_network.record_enter(Team::GLA, uid, tnl));
+        let before = logic.capture_kick_outs;
+        logic.on_capture_kick_passengers(tnl, Team::GLA, Team::USA);
+        assert_eq!(logic.capture_kick_outs, before);
+        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
     }
 
     #[test]
