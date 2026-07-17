@@ -98,6 +98,15 @@ pub struct Object {
     /// Last bounce vertical displacement residual for volume (prevY - y).
     #[serde(default)]
     pub last_bounce_fall_dy: f32,
+    /// C++ PhysicsBehavior bounce AudioEventRTS name residual.
+    #[serde(default = "default_bounce_sound_name")]
+    pub bounce_sound_name: String,
+    /// Last computed bounce volume residual [0.25, 1.0] (MuLaw path).
+    #[serde(default)]
+    pub last_bounce_volume: f32,
+    /// Pending bounce audio emits drained by GameLogic into TheAudio queue.
+    #[serde(default)]
+    pub bounce_audio_pending: u32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -556,6 +565,60 @@ pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
 pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
 /// C++ PhysicsBehavior isVerySmall3D residual threshold.
 pub const VERY_SMALL_VEL: f32 = 0.01;
+/// Host residual bounce-land AudioEventRTS name (fail-closed default).
+pub const BOUNCE_SOUND_DEFAULT: &str = "BodyFallGeneric";
+/// C++ doBounceSound NORMAL_VEL_Z residual.
+pub const BOUNCE_NORMAL_VEL_Z: f32 = 0.25;
+/// C++ doBounceSound NORMAL_MASS residual.
+pub const BOUNCE_NORMAL_MASS: f32 = 50.0;
+
+fn default_bounce_sound_name() -> String {
+    BOUNCE_SOUND_DEFAULT.to_string()
+}
+
+/// C++ MuLaw residual used by doBounceSound volume adjust.
+pub fn bounce_mulaw(x: f32, max_x: f32, mu: f32) -> f32 {
+    let max_x = max_x.max(1e-6);
+    let ax = (x.abs() / max_x).min(1.0);
+    let s = if x >= 0.0 { 1.0 } else { -1.0 };
+    s * (1.0 + mu * ax).ln() / (1.0 + mu).ln()
+}
+
+/// C++ NormalizeToRange residual.
+pub fn bounce_normalize_to_range(v: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
+    if (b - a).abs() < 1e-9 {
+        return c;
+    }
+    let t = ((v - a) / (b - a)).clamp(0.0, 1.0);
+    c + t * (d - c)
+}
+
+/// C++ doBounceSound volume residual from fall dy and mass.
+pub fn bounce_sound_volume_residual(fall_dy: f32, mass: f32) -> f32 {
+    let mut vel = fall_dy.abs();
+    if vel > BOUNCE_NORMAL_VEL_Z {
+        vel = BOUNCE_NORMAL_VEL_Z;
+    }
+    let mut m = mass.abs();
+    if m > BOUNCE_NORMAL_MASS {
+        m = BOUNCE_NORMAL_MASS;
+    }
+    let mut vol = bounce_normalize_to_range(
+        bounce_mulaw(vel, BOUNCE_NORMAL_VEL_Z, 500.0),
+        -1.0,
+        1.0,
+        0.25,
+        1.0,
+    );
+    vol *= bounce_normalize_to_range(
+        bounce_mulaw(m, BOUNCE_NORMAL_MASS, 500.0),
+        -1.0,
+        1.0,
+        0.25,
+        1.0,
+    );
+    vol.clamp(0.25, 1.0)
+}
 
 impl Object {
     pub fn new(template: ThingTemplate, id: ObjectId, team: Team) -> Self {
@@ -623,6 +686,9 @@ impl Object {
             immune_to_falling_damage: false,
             bounce_land_events: 0,
             last_bounce_fall_dy: 0.0,
+            bounce_sound_name: BOUNCE_SOUND_DEFAULT.to_string(),
+            last_bounce_volume: 0.0,
+            bounce_audio_pending: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -777,6 +843,9 @@ impl Object {
             immune_to_falling_damage: false,
             bounce_land_events: 0,
             last_bounce_fall_dy: 0.0,
+            bounce_sound_name: BOUNCE_SOUND_DEFAULT.to_string(),
+            last_bounce_volume: 0.0,
+            bounce_audio_pending: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -1956,11 +2025,25 @@ impl Object {
         v.x.abs() < VERY_SMALL_VEL && v.y.abs() < VERY_SMALL_VEL && v.z.abs() < VERY_SMALL_VEL
     }
 
-    /// C++ PhysicsBehavior::doBounceSound residual (event count + fall dy).
+    /// C++ PhysicsBehavior::doBounceSound residual (event count + fall dy + volume).
     pub fn record_bounce_land(&mut self, prev_y: f32) {
         let dy = (prev_y - self.get_position().y).abs();
         self.last_bounce_fall_dy = dy;
+        self.last_bounce_volume = bounce_sound_volume_residual(dy, Self::SHOCK_MASS);
         self.bounce_land_events = self.bounce_land_events.saturating_add(1);
+        self.bounce_audio_pending = self.bounce_audio_pending.saturating_add(1);
+        if self.bounce_sound_name.is_empty() {
+            self.bounce_sound_name = BOUNCE_SOUND_DEFAULT.to_string();
+        }
+    }
+
+    /// Drain one pending bounce audio emit for GameLogic → TheAudio queue.
+    pub fn take_bounce_audio_pending(&mut self) -> Option<(String, f32)> {
+        if self.bounce_audio_pending == 0 {
+            return None;
+        }
+        self.bounce_audio_pending = self.bounce_audio_pending.saturating_sub(1);
+        Some((self.bounce_sound_name.clone(), self.last_bounce_volume))
     }
 
     /// C++ killWhenRestingOnGround residual.
@@ -5312,6 +5395,14 @@ mod tests {
             "landing records bounce sound residual"
         );
         assert!(b.last_bounce_fall_dy > 0.0);
+        assert!(b.last_bounce_volume >= 0.25 && b.last_bounce_volume <= 1.0);
+        assert!(b.bounce_audio_pending > 0);
+        let (name, vol) = b.take_bounce_audio_pending().expect("pending");
+        assert_eq!(name, BOUNCE_SOUND_DEFAULT);
+        assert!((vol - b.last_bounce_volume).abs() < 1e-5);
+        let v_small = bounce_sound_volume_residual(0.05, 1.0);
+        let v_big = bounce_sound_volume_residual(0.25, 50.0);
+        assert!(v_big >= v_small);
 
         // Immune falling takes no damage.
         let mut ti = ThingTemplate::new("ImmuneFall");
