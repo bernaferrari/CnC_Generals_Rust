@@ -619,6 +619,8 @@ impl Default for SkirmishRulesState {
 pub struct GameLogic {
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
+    /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
+    pub enable_repulsors: bool,
     /// Objects in the world
     pub objects: HashMap<ObjectId, Object>,
 
@@ -2175,6 +2177,7 @@ impl GameLogic {
 
         let mut instance = Self {
             attack_priority_sets: std::collections::HashMap::new(),
+            enable_repulsors: false,
             objects: HashMap::new(),
             players: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
@@ -5791,6 +5794,8 @@ impl GameLogic {
             // Pilot / Ranger / MissileDefender / Pathfinder / ColonelBurton residual.
             // ScanRate 1000ms / ScanRange 300 / NeverHeal 0.85 (AlwaysHeal busy path fail-closed).
             self.try_auto_find_healing_residual(object_id);
+            // C++ AIIdleState: CAN_BE_REPULSED idle units flee closest repulsor.
+            let _ = self.try_idle_repulse(object_id);
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
                 if dense_world
@@ -6730,6 +6735,166 @@ impl GameLogic {
                 None
             }
         })
+    }
+
+    /// C++ TAiData::m_enableRepulsors residual.
+    pub fn set_enable_repulsors(&mut self, enabled: bool) {
+        self.enable_repulsors = enabled;
+    }
+
+    /// C++ Object::setStatus(OBJECT_STATUS_REPULSOR) residual.
+    pub fn set_unit_repulsor(&mut self, unit_id: ObjectId, repulsor: bool) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        u.status.repulsor = repulsor;
+        true
+    }
+
+    /// C++ ScriptActions::doNamedSetRepulsor residual.
+    pub fn set_named_unit_repulsor(&mut self, unit_name: &str, repulsor: bool) -> bool {
+        let Some(id) = self.find_object_id_by_name(unit_name) else {
+            return false;
+        };
+        self.set_unit_repulsor(id, repulsor)
+    }
+
+    /// C++ ScriptActions::doTeamSetRepulsor residual.
+    pub fn set_team_repulsor(&mut self, team: crate::game_logic::Team, repulsor: bool) -> usize {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0usize;
+        for id in ids {
+            if self.set_unit_repulsor(id, repulsor) {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    pub fn set_team_repulsor_by_name(&mut self, team_name: &str, repulsor: bool) -> usize {
+        let Some(team) = Self::resolve_host_team_name(team_name) else {
+            return 0;
+        };
+        self.set_team_repulsor(team, repulsor)
+    }
+
+    /// C++ PartitionFilterRepulsor + AI::findClosestRepulsor residual.
+    ///
+    /// Returns closest living repulsor in range:
+    /// - OBJECT_STATUS_REPULSOR flag, OR
+    /// - enemy able-to-attack structure, OR  
+    /// - enemy able-to-attack non-structure (C++ filter residual simplified)
+    /// Fail-closed vs full PartitionManager filters / stealth reject.
+    pub fn find_closest_repulsor(&self, unit_id: ObjectId, range: f32) -> Option<(ObjectId, f32)> {
+        if !self.enable_repulsors {
+            return None;
+        }
+        let me = self.objects.get(&unit_id)?;
+        if !me.is_alive() {
+            return None;
+        }
+        let my_pos = me.get_position();
+        let my_team = me.team;
+        let range_sq = range.max(0.0) * range.max(0.0);
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (oid, other) in &self.objects {
+            if *oid == unit_id {
+                continue;
+            }
+            if !other.is_alive() {
+                // Dead enemies can still be flagged repulsor via ActiveBody residual;
+                // only accept explicit repulsor status when dead.
+                if !other.status.repulsor {
+                    continue;
+                }
+            }
+            // Stealth residual: stealthed + not detected + not disguised → reject
+            if other.status.stealthed && !other.status.detected && !other.status.disguised {
+                continue;
+            }
+            let is_flag_repulsor = other.status.repulsor;
+            let is_enemy = other.team != my_team
+                && other.team != crate::game_logic::Team::Neutral
+                && my_team != crate::game_logic::Team::Neutral;
+            let enemy_attacker = is_enemy && other.can_attack();
+            // C++ PartitionFilterRepulsor: flag OR (enemy attackers; structures only if can attack)
+            let allow = if is_flag_repulsor {
+                true
+            } else if other.is_kind_of(crate::game_logic::KindOf::Structure) {
+                enemy_attacker
+            } else {
+                enemy_attacker
+            };
+            if !allow {
+                continue;
+            }
+            let op = other.get_position();
+            let dx = op.x - my_pos.x;
+            let dz = op.z - my_pos.z;
+            let d2 = dx * dx + dz * dz;
+            if d2 > range_sq {
+                continue;
+            }
+            if best.map(|(_, bd)| d2 < bd).unwrap_or(true) {
+                best = Some((*oid, d2));
+            }
+        }
+        best.map(|(id, d2)| (id, d2.sqrt()))
+    }
+
+    /// C++ AIIdleState repulsor branch + AIMoveAwayFromRepulsors residual.
+    ///
+    /// For KINDOF_CAN_BE_REPULSED idle units: flee closest repulsor via
+    /// ai_move_away_from_unit / request_safe_path residual.
+    pub fn try_idle_repulse(&mut self, unit_id: ObjectId) -> bool {
+        if !self.enable_repulsors {
+            return false;
+        }
+        let (vision, is_idle, can_be, alive, pos) = {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return false;
+            };
+            if !u.is_alive() || u.status.destroyed {
+                return false;
+            }
+            if !u.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed) {
+                return false;
+            }
+            // C++ ai->isIdle()
+            let idle = matches!(u.ai_state, crate::game_logic::AIState::Idle)
+                && u.target.is_none()
+                && u.move_away_from.is_none();
+            if !idle {
+                return false;
+            }
+            let vision = u.vision_range.max(50.0);
+            (vision, idle, true, true, u.get_position())
+        };
+        let _ = (is_idle, can_be, alive, pos);
+        let Some((rep_id, _)) = self.find_closest_repulsor(unit_id, vision) else {
+            return false;
+        };
+        let rep_pos = match self.objects.get(&rep_id) {
+            Some(r) => r.get_position(),
+            None => return false,
+        };
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            // C++ chooseLocomotorSet(PANIC) + requestSafePath residual (fail-closed).
+            u.ai_move_away_from_unit(rep_id, rep_pos);
+            let _ = u.begin_request_safe_path(
+                rep_id,
+                u.move_away_destination.unwrap_or(rep_pos),
+                self.frame,
+            );
+            true
+        } else {
+            false
+        }
     }
 
     pub fn sync_attack_priority_from_script_engine(&mut self) {
@@ -74417,6 +74582,99 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn set_unit_repulsor_status_flag() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("RepA");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(4201);
+        logic.objects.insert(id, Object::new(t, id, Team::USA));
+        assert!(!logic.objects[&id].status.repulsor);
+        assert!(logic.set_unit_repulsor(id, true));
+        assert!(logic.objects[&id].status.repulsor);
+        assert!(logic.set_unit_repulsor(id, false));
+        assert!(!logic.objects[&id].status.repulsor);
+    }
+
+    #[test]
+    fn find_closest_repulsor_respects_enable_flag() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut ct = ThingTemplate::new("CivR");
+        ct.add_kind_of(KindOf::Infantry);
+        ct.add_kind_of(KindOf::CanBeRepulsed);
+        let cid = ObjectId(4210);
+        let mut civ = Object::new(ct, cid, Team::Neutral);
+        civ.vision_range = 200.0;
+        logic.objects.insert(cid, civ);
+
+        let mut et = ThingTemplate::new("EnemyR");
+        et.add_kind_of(KindOf::Infantry);
+        et.add_kind_of(KindOf::Attackable);
+        let eid = ObjectId(4211);
+        let mut enemy = Object::new(et, eid, Team::GLA);
+        enemy.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        enemy.status.repulsor = true;
+        logic.objects.insert(eid, enemy);
+
+        // Disabled by default (C++ m_enableRepulsors = false).
+        assert!(logic.find_closest_repulsor(cid, 300.0).is_none());
+        logic.set_enable_repulsors(true);
+        let found = logic.find_closest_repulsor(cid, 300.0);
+        assert_eq!(found.map(|(id, _)| id), Some(eid));
+        // Out of range
+        assert!(logic.find_closest_repulsor(cid, 10.0).is_none());
+    }
+
+    #[test]
+    fn try_idle_repulse_flees_flagged_repulsor() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.set_enable_repulsors(true);
+
+        let mut ct = ThingTemplate::new("CivFlee");
+        ct.add_kind_of(KindOf::Infantry);
+        ct.add_kind_of(KindOf::CanBeRepulsed);
+        let cid = ObjectId(4220);
+        let mut civ = Object::new(ct, cid, Team::Neutral);
+        civ.vision_range = 200.0;
+        civ.ai_state = AIState::Idle;
+        // Ensure can_move
+        civ.movement.max_speed = 5.0;
+        logic.objects.insert(cid, civ);
+
+        let mut et = ThingTemplate::new("ThreatR");
+        et.add_kind_of(KindOf::Infantry);
+        let eid = ObjectId(4221);
+        let mut enemy = Object::new(et, eid, Team::China);
+        enemy.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+        enemy.status.repulsor = true;
+        logic.objects.insert(eid, enemy);
+
+        assert!(logic.try_idle_repulse(cid));
+        let civ = &logic.objects[&cid];
+        assert_eq!(civ.move_away_from, Some(eid));
+        assert!(civ.move_away_frames > 0);
+    }
+
+    #[test]
+    fn set_team_repulsor_applies_to_members() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        for i in 0..2u32 {
+            let name = format!("TR{i}");
+            let mut t = ThingTemplate::new(&name);
+            t.add_kind_of(KindOf::Infantry);
+            let id = ObjectId(4230 + i);
+            logic.objects.insert(id, Object::new(t, id, Team::GLA));
+        }
+        let n = logic.set_team_repulsor_by_name("GLA", true);
+        assert_eq!(n, 2);
+        assert!(logic.objects[&ObjectId(4230)].status.repulsor);
+        assert!(logic.objects[&ObjectId(4231)].status.repulsor);
     }
 
     #[test]
