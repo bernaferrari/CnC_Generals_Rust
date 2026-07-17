@@ -876,6 +876,10 @@ pub struct Object {
     /// Ordinals: -2=Sleep, -1=Passive, 0=Normal, 1=Alert, 2=Aggressive.
     #[serde(default)]
     pub ai_attitude: i8,
+    /// C++ ObjectRepulsorHelper residual: frames remaining until REPULSOR clears.
+    /// 0 while inactive or for permanent script-set repulsor (no auto-clear).
+    #[serde(default)]
+    pub repulsor_until_frame: u32,
     /// C++ BodyModule last damage source residual (Passive WaitForAttack).
     /// Set when damage is applied with a known attacker id.
     #[serde(default)]
@@ -1334,6 +1338,7 @@ impl Object {
             turret_natural_pitch_deg: 0.0,
             turret_recenter_frames: default_turret_recenter_frames(),
             ai_attitude: 0, // HostAiAttitude::Normal
+            repulsor_until_frame: 0,
             last_damage_source: None,
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
@@ -1586,6 +1591,7 @@ impl Object {
             turret_natural_pitch_deg: 0.0,
             turret_recenter_frames: default_turret_recenter_frames(),
             ai_attitude: 0, // HostAiAttitude::Normal
+            repulsor_until_frame: 0,
             last_damage_source: None,
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
@@ -2246,6 +2252,26 @@ impl Object {
     }
 
     /// Weapon ready with optional TARGET_FAERIE_FIRE ROF residual (150%).
+
+    /// C++ ObjectRepulsorHelper::update residual — clear temporary REPULSOR.
+    ///
+    /// `repulsor_until_frame` stores remaining frames (countdown), not an absolute
+    /// logic frame. C++ helper sleeps 2 seconds then clears the status bit.
+    pub fn tick_repulsor_status(&mut self, _current_frame: u32) {
+        if !self.status.repulsor {
+            self.repulsor_until_frame = 0;
+            return;
+        }
+        if self.repulsor_until_frame == 0 {
+            // Permanent script-set REPULSOR (no helper timer).
+            return;
+        }
+        self.repulsor_until_frame = self.repulsor_until_frame.saturating_sub(1);
+        if self.repulsor_until_frame == 0 {
+            self.status.repulsor = false;
+        }
+    }
+
     pub fn weapon_ready_vs_target(
         weapon: &Weapon,
         current_time: f32,
@@ -4515,6 +4541,21 @@ impl Object {
         let actual_damage = typed * armor_factor * battle_plan_armor;
 
         self.health.damage(actual_damage);
+
+        // C++ ActiveBody: damaged CAN_BE_REPULSED civilians scare others when EnableRepulsors.
+        // Object::setStatus(REPULSOR) + ObjectRepulsorHelper sleepUntil(+2 sec).
+        if crate::game_logic::host_repulsor_gate::is_enabled()
+            && actual_damage > 0.0
+            && self.is_kind_of(KindOf::CanBeRepulsed)
+        {
+            self.status.repulsor = true;
+            // 2 * LOGICFRAMES_PER_SECOND residual; frame base applied by host tick if 0.
+            // Store absolute if known; else relative sentinel cleared by tick with current frame.
+            if self.repulsor_until_frame == 0 || self.repulsor_until_frame < 100_000 {
+                // relative duration residual; tick converts with current_frame
+                self.repulsor_until_frame = 60; // 2 seconds @ 30Hz
+            }
+        }
 
         // Check if object is destroyed
         let destroyed = if !self.health.is_alive() {
