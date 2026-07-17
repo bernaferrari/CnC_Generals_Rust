@@ -89,6 +89,16 @@ pub const SABOTEUR_RESET_TIMER_AUDIO: &str = "SabotageResetTimerBuilding";
 pub const SABOTEUR_SHUTDOWN_AUDIO: &str = "SabotageShutDownBuilding";
 /// C++ Drawable::flashAsSelected envelope decay residual (play color,0,4).
 pub const SABOTEUR_FLASH_DECAY_FRAMES: u32 = 4;
+/// C++ GUI:AddCash floating text over saboteur (pos.z + 20).
+pub const SABOTEUR_ADD_CASH_Z_OFFSET: f32 = 20.0;
+/// C++ GUI:LoseCash floating text over victim (pos.z + 30).
+pub const SABOTEUR_LOSE_CASH_Z_OFFSET: f32 = 30.0;
+/// C++ GameMakeColor(0,255,0,255) residual for AddCash.
+pub const SABOTEUR_ADD_CASH_COLOR_RGBA: (u8, u8, u8, u8) = (0, 255, 0, 255);
+/// C++ GameMakeColor(255,0,0,255) residual for LoseCash.
+pub const SABOTEUR_LOSE_CASH_COLOR_RGBA: (u8, u8, u8, u8) = (255, 0, 0, 255);
+pub const SABOTEUR_ADD_CASH_TEXT_KEY: &str = "GUI:AddCash";
+pub const SABOTEUR_LOSE_CASH_TEXT_KEY: &str = "GUI:LoseCash";
 
 /// Kind of sabotage residual applied to a structure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -212,6 +222,8 @@ pub struct HostSaboteurRegistry {
     pub feedback_fx: u32,
     /// flashAsSelected residual applications.
     pub flash_as_selected: u32,
+    /// GUI:AddCash/LoseCash floating text pairs from cash sabotage.
+    pub cash_floating_texts: u32,
     /// Fake buildings destroyed.
     pub fakes_destroyed: u32,
     /// Saboteurs consumed on success.
@@ -323,6 +335,14 @@ impl HostSaboteurRegistry {
 
     pub fn honesty_flash_as_selected_ok(&self) -> bool {
         self.flash_as_selected > 0
+    }
+
+    pub fn record_cash_floating_texts(&mut self) {
+        self.cash_floating_texts = self.cash_floating_texts.saturating_add(1);
+    }
+
+    pub fn honesty_cash_floating_texts_ok(&self) -> bool {
+        self.cash_floating_texts > 0
     }
 
     pub fn honesty_sabotage_ok(&self) -> bool {
