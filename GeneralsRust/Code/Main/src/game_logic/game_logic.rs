@@ -81356,6 +81356,58 @@ mod tests {
     }
 
     #[test]
+    fn black_market_and_dirty_nuke_queue_nuclear_missile_residual() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::special_power_strikes::{
+            honesty_black_market_and_dirty_nuke_residual_pack_ok, HostSuperweaponKind,
+            BLACK_MARKET_NUKE_RELOAD_MS, DIRTY_NUKE_RELOAD_MS,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_black_market_and_dirty_nuke_residual_pack_ok());
+        assert_eq!(BLACK_MARKET_NUKE_RELOAD_MS, 600_000);
+        assert_eq!(DIRTY_NUKE_RELOAD_MS, 30_000);
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::BlackMarketNuke),
+            Some(HostSuperweaponKind::NuclearMissile)
+        );
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::DetonateDirtyNuke),
+            Some(HostSuperweaponKind::NuclearMissile)
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        let mut sc = ThingTemplate::new("GLACommandCenter");
+        sc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(4000.0);
+        logic.templates.insert("GLACommandCenter".into(), sc);
+        let src = logic
+            .create_object(
+                "GLACommandCenter",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("sc");
+        assert!(logic
+            .queue_special_power_strike(
+                &SpecialPowerType::BlackMarketNuke,
+                src,
+                glam::Vec3::new(80.0, 0.0, 0.0),
+            )
+            .is_some());
+        assert!(logic
+            .queue_special_power_strike(
+                &SpecialPowerType::DetonateDirtyNuke,
+                src,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .is_some());
+    }
+
+    #[test]
     fn airforce_carpet_bomb_forces_airforce_payload_tier() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::special_power_strikes::{

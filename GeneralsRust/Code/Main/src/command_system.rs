@@ -299,6 +299,13 @@ pub enum SpecialPowerType {
     IonCannon,
     NapalmStrike,
     NuclearMissile,
+    /// GLA Black Market Nuke residual (SPECIAL_BLACK_MARKET_NUKE /
+    /// SuperweaponBlackMarketNuke). Host maps to NuclearMissile radiation residual.
+    /// Fail-closed vs full BlackMarketNuke OCL / smaller dirty yield matrix.
+    BlackMarketNuke,
+    /// GLA Detonate Dirty Nuke residual (SPECIAL_DETONATE_DIRTY_NUKE /
+    /// SuperweaponDetonateDirtyNuke). Short-reload host NuclearMissile residual.
+    DetonateDirtyNuke,
     /// USA America Airborne / SuperweaponParadropAmerica residual.
     Paradrop,
     /// GLA Rebel Ambush / SuperweaponRebelAmbush residual (SPECIAL_AMBUSH).
