@@ -1808,6 +1808,48 @@ fn mission_objective_to_display(
     }
 }
 
+/// C++ CanAttackResult residual (WeaponSet.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanAttackResult {
+    /// C++ ATTACKRESULT_NOT_POSSIBLE
+    NotPossible,
+    /// C++ ATTACKRESULT_POSSIBLE
+    Possible,
+    /// C++ ATTACKRESULT_POSSIBLE_AFTER_MOVING
+    PossibleAfterMoving,
+    /// C++ ATTACKRESULT_INVALID_SHOT
+    InvalidShot,
+}
+
+/// C++ AbleToAttackType residual (GameCommon.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbleToAttackType {
+    /// ATTACK_NEW_TARGET
+    NewTarget,
+    /// ATTACK_NEW_TARGET_FORCED
+    NewTargetForced,
+    /// ATTACK_CONTINUED_TARGET
+    ContinuedTarget,
+    /// ATTACK_CONTINUED_TARGET_FORCED
+    ContinuedTargetForced,
+}
+
+impl AbleToAttackType {
+    pub fn is_forced(self) -> bool {
+        matches!(
+            self,
+            AbleToAttackType::NewTargetForced | AbleToAttackType::ContinuedTargetForced
+        )
+    }
+
+    pub fn is_continued(self) -> bool {
+        matches!(
+            self,
+            AbleToAttackType::ContinuedTarget | AbleToAttackType::ContinuedTargetForced
+        )
+    }
+}
+
 /// C++ AIAttackState outer residual result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttackMachineResult {
@@ -6313,6 +6355,153 @@ impl GameLogic {
     ///
     /// True when the attacker cannot possibly continue attacking the victim
     /// (dead, no weapon, same team residual, stealthed undetected).
+
+    /// C++ WeaponSet::getAbleToAttackSpecificObject residual (host-simplified).
+    pub fn get_able_to_attack_specific_object(
+        &self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        attack_type: AbleToAttackType,
+        from_player: bool,
+    ) -> CanAttackResult {
+        let Some(source) = self.objects.get(&unit_id) else {
+            return CanAttackResult::NotPossible;
+        };
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return CanAttackResult::NotPossible;
+        };
+        // Basic sanity.
+        if !source.is_alive()
+            || !victim.is_alive()
+            || source.status.destroyed
+            || victim.status.destroyed
+            || unit_id == victim_id
+        {
+            return CanAttackResult::NotPossible;
+        }
+        // MASKED residual: under_construction structures not attackable until built? skip.
+        // UNATTACKABLE kind residual: name-token fail-closed.
+        // UNATTACKABLE residual: KindOf token not yet ported; skip name gate.
+        // NO_ATTACK_FROM_AI residual not fully tracked; skip unless AI path later.
+
+        let force = attack_type.is_forced();
+        let same_owner_force = force && source.team == victim.team;
+
+        // Stealth residual.
+        let mut allow_stealth_block = true;
+        if source.status.ignoring_stealth || same_owner_force {
+            allow_stealth_block = false;
+        }
+        if force && victim.status.disguised {
+            allow_stealth_block = false;
+        }
+        if allow_stealth_block
+            && victim.status.stealthed
+            && !victim.status.detected
+            && !victim.status.disguised
+        {
+            return CanAttackResult::NotPossible;
+        }
+
+        // Relationship residual: ENEMIES required unless force / mine.
+        let enemies = source.team != victim.team;
+        let is_mine = false; // KindOf::Mine residual pending full matrix
+        if !enemies && !force && !(is_mine && source.team != victim.team) {
+            // Player command rejects non-enemies; AI/script may continue.
+            if from_player {
+                return CanAttackResult::NotPossible;
+            }
+            // AI residual: still allow if not same team allies — same team blocked.
+            if source.team == victim.team {
+                return CanAttackResult::NotPossible;
+            }
+        }
+
+        // Contained in enclosing container residual.
+        if victim.contained_by.is_some() {
+            // Fail-closed: treat any contained victim as not directly attackable
+            // unless force (garrison fire residual elsewhere).
+            if !force {
+                return CanAttackResult::NotPossible;
+            }
+        }
+
+        // Weapon legality / range residual.
+        self.get_able_to_use_weapon_against_target(unit_id, Some(victim_id), None, attack_type)
+    }
+
+    /// C++ WeaponSet::getAbleToUseWeaponAgainstTarget residual.
+    pub fn get_able_to_use_weapon_against_target(
+        &self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        pos: Option<glam::Vec3>,
+        _attack_type: AbleToAttackType,
+    ) -> CanAttackResult {
+        let Some(source) = self.objects.get(&unit_id) else {
+            return CanAttackResult::NotPossible;
+        };
+        if source.weapon.is_none() && source.secondary_weapon.is_none() {
+            return CanAttackResult::InvalidShot;
+        }
+
+        let target_pos = if let Some(vid) = victim_id {
+            let Some(v) = self.objects.get(&vid) else {
+                return CanAttackResult::NotPossible;
+            };
+            // Kind legality residual (air/ground), NOT range — range decides
+            // Possible vs PossibleAfterMoving below (C++ WeaponSet split).
+            let target_is_air =
+                v.is_kind_of(crate::game_logic::KindOf::Aircraft) || v.status.airborne_target;
+            let kind_ok = |w: &crate::game_logic::Weapon| {
+                if target_is_air {
+                    w.can_target_air
+                } else {
+                    w.can_target_ground
+                }
+            };
+            // Stealthed gate already applied in get_able_to_attack_specific_object;
+            // still block here if stealthed and not ignoring (defense in depth).
+            if v.is_effectively_stealthed()
+                && v.team != source.team
+                && !source.status.ignoring_stealth
+            {
+                return CanAttackResult::NotPossible;
+            }
+            let primary_ok = source.weapon.as_ref().is_some_and(kind_ok);
+            let secondary_ok = source.secondary_weapon.as_ref().is_some_and(kind_ok);
+            if !primary_ok && !secondary_ok {
+                return CanAttackResult::InvalidShot;
+            }
+            v.get_position()
+        } else if let Some(p) = pos {
+            p
+        } else {
+            return CanAttackResult::NotPossible;
+        };
+
+        let within = if let Some(vid) = victim_id {
+            let v = self.objects.get(&vid).unwrap();
+            source.is_within_attack_range(v)
+        } else {
+            source.is_within_attack_range_pos(target_pos)
+        };
+
+        // Contact / invalid pitch residual not expanded — range gate only.
+        if within {
+            CanAttackResult::Possible
+        } else {
+            // Mobile residual: max_speed > 0 or can_move.
+            let mobile = source.can_move() || source.movement.max_speed > 1e-3;
+            if mobile {
+                CanAttackResult::PossibleAfterMoving
+            } else {
+                // Immobile and out of range → invalid shot residual.
+                CanAttackResult::InvalidShot
+            }
+        }
+    }
+
     pub fn cannot_possibly_attack_object(
         &self,
         unit_id: ObjectId,
@@ -6322,40 +6511,22 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&unit_id) else {
             return true;
         };
-        let Some(victim) = self.objects.get(&victim_id) else {
-            return true;
-        };
+        // C++ callers check isAbleToAttack before getAbleToAttackSpecificObject.
         if !obj.can_attack() {
             return true;
         }
-        if !victim.is_alive() || victim.status.destroyed {
-            return true;
-        }
-        // Stealthed undetected residual (not force).
-        if !force_attacking
-            && victim.status.stealthed
-            && !victim.status.detected
-            && !victim.status.disguised
-        {
-            return true;
-        }
-        // Same-team residual: not enemies unless force.
-        if !force_attacking && obj.team == victim.team {
-            return true;
-        }
-        // No weapon can target residual.
-        let primary_ok = obj
-            .weapon
-            .as_ref()
-            .is_some_and(|w| obj.can_target_with(victim, w));
-        let secondary_ok = obj
-            .secondary_weapon
-            .as_ref()
-            .is_some_and(|w| obj.can_target_with(victim, w));
-        if !primary_ok && !secondary_ok {
-            return true;
-        }
-        false
+        let attack_type = if force_attacking {
+            AbleToAttackType::ContinuedTargetForced
+        } else {
+            AbleToAttackType::ContinuedTarget
+        };
+        // AI command residual (not player click).
+        let result =
+            self.get_able_to_attack_specific_object(unit_id, victim_id, attack_type, false);
+        !matches!(
+            result,
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        )
     }
 
     pub fn attack_state_enter(
@@ -73331,6 +73502,9 @@ mod tests {
             o.movement.max_speed = 10.0;
             o.weapon = Some(Weapon {
                 range: 30.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: true,
                 ..Default::default()
             });
             o
@@ -73431,6 +73605,143 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn able_to_attack_possible_in_range_enemy() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AtaA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2301);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AtaV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2302);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        let r =
+            logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false);
+        assert_eq!(r, CanAttackResult::Possible);
+    }
+
+    #[test]
+    fn able_to_attack_after_moving_when_oor() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AtaA2");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2303);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.movement.max_speed = 10.0;
+            o.weapon = Some(Weapon {
+                range: 30.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AtaV2");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2304);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(200.0, 0.0, 0.0));
+            o
+        });
+        let r =
+            logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false);
+        assert_eq!(r, CanAttackResult::PossibleAfterMoving);
+    }
+
+    #[test]
+    fn able_to_attack_rejects_self() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AtaA3");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2305);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        });
+        let r =
+            logic.get_able_to_attack_specific_object(aid, aid, AbleToAttackType::NewTarget, false);
+        assert_eq!(r, CanAttackResult::NotPossible);
+    }
+
+    #[test]
+    fn able_to_attack_stealth_blocks_unless_force() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AtaA4");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2306);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AtaV4");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2307);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+            o.status.stealthed = true;
+            o.status.detected = false;
+            o
+        });
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false),
+            CanAttackResult::NotPossible
+        );
+        // Force + same owner not required — force still blocked by stealth unless
+        // IGNORING_STEALTH or disguised. C++ force alone does not ignore stealth
+        // for normal units.
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(
+                aid,
+                vid,
+                AbleToAttackType::NewTargetForced,
+                true
+            ),
+            CanAttackResult::NotPossible
+        );
+        logic.objects.get_mut(&aid).unwrap().status.ignoring_stealth = true;
+        assert_eq!(
+            logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false),
+            CanAttackResult::Possible
+        );
     }
 
     #[test]

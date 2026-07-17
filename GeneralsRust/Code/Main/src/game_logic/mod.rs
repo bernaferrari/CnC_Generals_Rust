@@ -892,6 +892,9 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_IS_FIRING_WEAPON residual (AttackFireWeaponState).
     #[serde(default)]
     pub is_firing_weapon: bool,
+    /// C++ OBJECT_STATUS_IGNORING_STEALTH residual.
+    #[serde(default)]
+    pub ignoring_stealth: bool,
     /// C++ OBJECT_STATUS_IS_AIMING_WEAPON residual (AttackAimAtTargetState).
     #[serde(default)]
     pub is_aiming_weapon: bool,
