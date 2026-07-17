@@ -39690,6 +39690,11 @@ impl GameLogic {
 
     /// Queue a host residual America Paradrop / Airborne mission from DoSpecialPower.
     /// Returns mission id when the power maps to a supported residual kind.
+    /// Residual unit_count for a queued/completed host paradrop mission.
+    pub fn paradrop_mission_unit_count(&self, mission_id: u32) -> Option<u32> {
+        self.host_paradrops.get(mission_id).map(|m| m.unit_count)
+    }
+
     pub fn queue_paradrop(
         &mut self,
         power: &crate::command_system::SpecialPowerType,
@@ -39714,13 +39719,25 @@ impl GameLogic {
             PARADROP_RESIDUAL_TEMPLATE.to_string()
         };
 
-        let id = self.host_paradrops.queue(
+        // C++ SCIENCE_Paradrop1/2/3 residual payload size (5/10/20 Rangers).
+        let unit_count = {
+            use crate::game_logic::host_paradrop::ParadropScienceTier;
+            let sciences: Vec<&str> = self
+                .players
+                .values()
+                .filter(|p| p.team == source_team)
+                .flat_map(|p| p.unlocked_sciences.iter().map(|s| s.as_str()))
+                .collect();
+            ParadropScienceTier::highest_from_sciences(sciences).ranger_count()
+        };
+        let id = self.host_paradrops.queue_with_unit_count(
             kind,
             source_object,
             source_team,
             target_position,
             frame,
             unit_template,
+            unit_count,
         );
 
         // DeliverPayload cargo residual bookkeeping (AmericaJetCargoPlane honesty).
@@ -81177,6 +81194,75 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn paradrop_science_tier_selects_unit_count() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_paradrop::{
+            ParadropScienceTier, PARADROP_RANGER_COUNT_L1, PARADROP_RANGER_COUNT_L3,
+            SCIENCE_PARADROP1, SCIENCE_PARADROP3,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+
+        let src = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+
+        // Default tier 1 without science still queues residual L1 count via highest_from_sciences default.
+        let id1 = logic
+            .queue_paradrop(
+                &SpecialPowerType::Paradrop,
+                src,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("q1");
+        assert_eq!(
+            logic.paradrop_mission_unit_count(id1),
+            Some(PARADROP_RANGER_COUNT_L1)
+        );
+
+        // Unlock tier 3 science.
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert(SCIENCE_PARADROP3.to_string());
+        let id3 = logic
+            .queue_paradrop(
+                &SpecialPowerType::Paradrop,
+                src,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("q3");
+        assert_eq!(
+            logic.paradrop_mission_unit_count(id3),
+            Some(PARADROP_RANGER_COUNT_L3)
+        );
+        assert_eq!(
+            ParadropScienceTier::highest_from_sciences([SCIENCE_PARADROP1, SCIENCE_PARADROP3])
+                .ranger_count(),
+            PARADROP_RANGER_COUNT_L3
         );
     }
 
