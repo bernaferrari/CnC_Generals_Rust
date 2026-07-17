@@ -480,6 +480,14 @@ pub enum SpecialPowerType {
     BlackLotusCaptureBuilding,
     /// Microwave Tank disable building residual (SPECIAL_MICROWAVE_DISABLE_BUILDING).
     MicrowaveDisableBuilding,
+    /// Ranger capture building residual (SPECIAL_INFANTRY_CAPTURE_BUILDING).
+    RangerCaptureBuilding,
+    /// Red Guard capture building residual (SPECIAL_INFANTRY_CAPTURE_BUILDING).
+    RedGuardCaptureBuilding,
+    /// Rebel capture building residual (SPECIAL_INFANTRY_CAPTURE_BUILDING).
+    RebelCaptureBuilding,
+    /// Bomb Truck disguise residual (SPECIAL_DISGUISE_AS_VEHICLE).
+    DisguiseAsVehiclePower,
     Invalid,
 }
 
