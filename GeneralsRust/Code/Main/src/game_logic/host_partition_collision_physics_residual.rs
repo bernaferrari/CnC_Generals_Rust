@@ -535,6 +535,39 @@ pub const PHYSICS_VEHICLE_CRASHES_INTO_NON_BUILDING_WEAPON: &str =
 
 /// C++ GlobalData::m_defaultStructureRubbleHeight residual.
 pub const PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL: f32 = 1.0;
+/// C++ GlobalData::m_structureStiffness residual default.
+pub const PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL: f32 = 0.5;
+/// C++ structure stiffness clamp residual.
+pub const PHYSICS_STRUCTURE_STIFFNESS_MIN_RESIDUAL: f32 = 0.01;
+pub const PHYSICS_STRUCTURE_STIFFNESS_MAX_RESIDUAL: f32 = 0.99;
+/// C++ parachute building bounce-out fraction of radius residual.
+pub const PHYSICS_PARACHUTE_BOUNCE_OUT_FRAC_RESIDUAL: f32 = 0.1;
+
+/// Clamp structure stiffness residual to C++ [0.01, 0.99].
+pub fn clamp_structure_stiffness(stiffness: f32) -> f32 {
+    stiffness.clamp(
+        PHYSICS_STRUCTURE_STIFFNESS_MIN_RESIDUAL,
+        PHYSICS_STRUCTURE_STIFFNESS_MAX_RESIDUAL,
+    )
+}
+
+/// C++ immobile collide bounce factor residual: `-mag * mass * stiffness`.
+///
+/// `mag` is velocity magnitude (at least MINBOUNCESPEED).
+pub fn structure_immobile_bounce_factor(vel_mag: f32, mass: f32, stiffness: f32) -> f32 {
+    let mut mag = vel_mag.abs();
+    if mag < PHYSICS_MIN_BOUNCE_SPEED_RESIDUAL {
+        mag = PHYSICS_MIN_BOUNCE_SPEED_RESIDUAL;
+    }
+    let stiff = clamp_structure_stiffness(stiffness);
+    -mag * mass.abs().max(0.0) * stiff
+}
+
+/// C++ parachute bounce-out distance residual = usRadius * 0.1.
+pub fn parachute_bounce_out_distance(us_radius: f32) -> f32 {
+    us_radius * PHYSICS_PARACHUTE_BOUNCE_OUT_FRAC_RESIDUAL
+}
+
 /// C++ MINBOUNCESPEED residual (1/(LOGICFRAMES_PER_SECOND*5)).
 pub const PHYSICS_MIN_BOUNCE_SPEED_RESIDUAL: f32 = 1.0 / (30.0 * 5.0);
 
@@ -718,6 +751,11 @@ pub fn honesty_physics_residual_pack_wave96() -> bool {
         && PHYSICS_VEHICLE_CRASHES_INTO_NON_BUILDING_WEAPON
             == "VehicleCrashesIntoNonBuildingWeapon"
         && PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL == 1.0
+        && (PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL - 0.5).abs() < 1e-6
+        && (clamp_structure_stiffness(0.0) - 0.01).abs() < 1e-6
+        && (clamp_structure_stiffness(2.0) - 0.99).abs() < 1e-6
+        && structure_immobile_bounce_factor(0.0, 1.0, 0.5) < 0.0
+        && (parachute_bounce_out_distance(20.0) - 2.0).abs() < 1e-6
         && vehicle_crash_into_immobile_outcome(
             true,
             true,
