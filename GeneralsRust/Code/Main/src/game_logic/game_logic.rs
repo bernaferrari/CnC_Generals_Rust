@@ -19971,6 +19971,15 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
+        // C++ BuildAssistant isLocationLegalToBuild residual (objects-in-way / bounds).
+        if !self.is_location_legal_to_build(team, position) {
+            log::debug!(
+                "Blocked construction {} at {:?} (LegalBuildCode residual)",
+                template_name,
+                position
+            );
+            return None;
+        }
         // C++ ProductionPrerequisite residual (known sample table / SW tech tree).
         if !self.team_satisfies_build_prerequisites(team, template_name) {
             log::debug!(
@@ -44006,6 +44015,66 @@ impl GameLogic {
 
     pub fn beacon_count(&self) -> usize {
         snapshot_beacons().len()
+    }
+
+    /// Structure placement radius residual for LBC_OBJECTS_IN_THE_WAY.
+    fn structure_place_radius(obj: &Object) -> f32 {
+        use crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL;
+        // Prefer selection_radius when set; else default clearance residual.
+        if obj.selection_radius > 1.0 {
+            obj.selection_radius * 0.5
+        } else {
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5
+        }
+    }
+
+    /// C++ BuildAssistant::isLocationLegalToBuild residual (subset).
+    ///
+    /// Checks world bounds + living structure/immobile overlap. Fail-closed vs
+    /// full terrain slope / shroud / supply-dock distance matrix.
+    pub fn legal_build_code_at(&self, team: Team, position: glam::Vec3) -> u32 {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            legal_build_code_from_checks_residual, legal_build_objects_in_the_way_residual, LBC_OK,
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
+        };
+        let _ = team; // shroud residual deferred
+        let (min, max) = self.world_bounds();
+        let pad = 50.0;
+        let min_x = min.x.min(-1000.0) - pad;
+        let max_x = max.x.max(1000.0) + pad;
+        let min_z = min.z.min(-1000.0) - pad;
+        let max_z = max.z.max(1000.0) + pad;
+        let in_bounds = position.x.is_finite()
+            && position.z.is_finite()
+            && position.x >= min_x
+            && position.x <= max_x
+            && position.z >= min_z
+            && position.z <= max_z;
+        let place_r = STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
+        let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
+        for obj in self.objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            // Immobile / structure residual blocks placement (C++ KINDOF_IMMOBILE).
+            // Structure residual occupies the pad (C++ KINDOF_IMMOBILE subset).
+            let immobile = obj.is_kind_of(KindOf::Structure);
+            if !immobile {
+                continue;
+            }
+            // Under-construction and complete both occupy the pad residual.
+            let p = obj.get_position();
+            blockers.push((p.x, p.z, Self::structure_place_radius(obj)));
+        }
+        let in_way =
+            legal_build_objects_in_the_way_residual((position.x, position.z), place_r, &blockers);
+        legal_build_code_from_checks_residual(in_bounds, in_way)
+    }
+
+    /// True when residual LegalBuildCode is LBC_OK.
+    pub fn is_location_legal_to_build(&self, team: Team, position: glam::Vec3) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::LBC_OK;
+        self.legal_build_code_at(team, position) == LBC_OK
     }
 
     /// Count living/under-construction Superweapon-link-key objects for a team residual.
@@ -82195,6 +82264,56 @@ mod tests {
     }
 
     #[test]
+    fn structure_placement_rejects_objects_in_the_way_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            LBC_OBJECTS_IN_THE_WAY, LBC_OK,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        // Barracks not in prereq table → fail-open prereq residual.
+        let mut t = ThingTemplate::new("TestBarracksPad");
+        t.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("TestBarracksPad".into(), t);
+
+        let a = logic
+            .create_object_under_construction(
+                "TestBarracksPad",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("first pad");
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, glam::Vec3::new(0.0, 0.0, 0.0)),
+            LBC_OBJECTS_IN_THE_WAY
+        );
+        assert!(
+            logic
+                .create_object_under_construction(
+                    "TestBarracksPad",
+                    Team::USA,
+                    glam::Vec3::new(5.0, 0.0, 0.0),
+                )
+                .is_none(),
+            "stacked pad blocked"
+        );
+        // Far enough residual.
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, glam::Vec3::new(200.0, 0.0, 0.0)),
+            LBC_OK
+        );
+        assert!(logic
+            .create_object_under_construction(
+                "TestBarracksPad",
+                Team::USA,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .is_some());
+        let _ = a;
+    }
+
+    #[test]
     fn usa_puc_tech_tree_prereq_chain_residual() {
         use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -82237,19 +82356,19 @@ mod tests {
                 glam::Vec3::new(-10.0, 0.0, 0.0),
             )
             .expect("cc");
+        // Prove under-construction gate opens, then place completed tech buildings far apart.
         assert!(logic
             .create_object_under_construction(
                 "AmericaSupplyCenter",
                 Team::USA,
-                glam::Vec3::new(0.0, 0.0, 0.0),
+                glam::Vec3::new(100.0, 0.0, 0.0),
             )
             .is_some());
-        // Instant complete supply residual for next prereq.
         let _ = logic
             .create_object(
                 "AmericaSupplyCenter",
                 Team::USA,
-                glam::Vec3::new(10.0, 0.0, 0.0),
+                glam::Vec3::new(200.0, 0.0, 0.0),
             )
             .expect("supply");
 
@@ -82258,14 +82377,14 @@ mod tests {
             .create_object_under_construction(
                 "AmericaWarFactory",
                 Team::USA,
-                glam::Vec3::new(20.0, 0.0, 0.0),
+                glam::Vec3::new(300.0, 0.0, 0.0),
             )
             .is_some());
         let _ = logic
             .create_object(
                 "AmericaWarFactory",
                 Team::USA,
-                glam::Vec3::new(20.0, 0.0, 0.0),
+                glam::Vec3::new(400.0, 0.0, 0.0),
             )
             .expect("wf");
 
@@ -82274,14 +82393,14 @@ mod tests {
             .create_object_under_construction(
                 "AmericaStrategyCenter",
                 Team::USA,
-                glam::Vec3::new(30.0, 0.0, 0.0),
+                glam::Vec3::new(500.0, 0.0, 0.0),
             )
             .is_some());
         let _ = logic
             .create_object(
                 "AmericaStrategyCenter",
                 Team::USA,
-                glam::Vec3::new(30.0, 0.0, 0.0),
+                glam::Vec3::new(600.0, 0.0, 0.0),
             )
             .expect("sc");
 
@@ -82291,7 +82410,7 @@ mod tests {
                 .create_object_under_construction(
                     AMERICA_PARTICLE_CANNON_UPLINK,
                     Team::USA,
-                    glam::Vec3::new(40.0, 0.0, 0.0),
+                    glam::Vec3::new(700.0, 0.0, 0.0),
                 )
                 .is_some(),
             "full USA SW tech climb residual"
@@ -82340,7 +82459,7 @@ mod tests {
             .create_object(
                 "AmericaStrategyCenter",
                 Team::USA,
-                glam::Vec3::new(10.0, 0.0, 0.0),
+                glam::Vec3::new(100.0, 0.0, 0.0),
             )
             .expect("strategy");
         assert!(logic.get_object(sc).unwrap().is_constructed());
@@ -82349,7 +82468,7 @@ mod tests {
                 .create_object_under_construction(
                     AMERICA_PARTICLE_CANNON_UPLINK,
                     Team::USA,
-                    glam::Vec3::new(20.0, 0.0, 0.0),
+                    glam::Vec3::new(200.0, 0.0, 0.0),
                 )
                 .is_some(),
             "PUC allowed with Strategy Center"
@@ -82360,18 +82479,18 @@ mod tests {
             .create_object_under_construction(
                 GLA_SCUD_STORM,
                 Team::USA,
-                glam::Vec3::new(30.0, 0.0, 0.0),
+                glam::Vec3::new(300.0, 0.0, 0.0),
             )
             .is_none());
         let palace = logic
-            .create_object("GLAPalace", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .create_object("GLAPalace", Team::USA, glam::Vec3::new(400.0, 0.0, 0.0))
             .expect("palace");
         let _ = palace;
         assert!(logic
             .create_object_under_construction(
                 GLA_SCUD_STORM,
                 Team::USA,
-                glam::Vec3::new(50.0, 0.0, 0.0),
+                glam::Vec3::new(500.0, 0.0, 0.0),
             )
             .is_some());
     }
@@ -82775,9 +82894,9 @@ mod tests {
         let _ = logic.create_object(
             "AmericaStrategyCenter",
             Team::USA,
-            glam::Vec3::new(-100.0, 0.0, 0.0),
+            glam::Vec3::new(-400.0, 0.0, 0.0),
         );
-        let _ = logic.create_object("GLAPalace", Team::USA, glam::Vec3::new(-80.0, 0.0, 0.0));
+        let _ = logic.create_object("GLAPalace", Team::USA, glam::Vec3::new(-300.0, 0.0, 0.0));
 
         let first = logic
             .create_object_under_construction(
@@ -82793,7 +82912,7 @@ mod tests {
                 .create_object_under_construction(
                     AMERICA_PARTICLE_CANNON_UPLINK,
                     Team::USA,
-                    glam::Vec3::new(50.0, 0.0, 0.0),
+                    glam::Vec3::new(450.0, 0.0, 0.0),
                 )
                 .is_none(),
             "second PUC blocked"
@@ -82803,7 +82922,7 @@ mod tests {
                 .create_object_under_construction(
                     GLA_SCUD_STORM,
                     Team::USA,
-                    glam::Vec3::new(100.0, 0.0, 0.0),
+                    glam::Vec3::new(300.0, 0.0, 0.0),
                 )
                 .is_none(),
             "Scud also counts as Superweapon link key residual"
@@ -82823,13 +82942,13 @@ mod tests {
         let _ = logic.create_object(
             "AmericaStrategyCenter",
             Team::China,
-            glam::Vec3::new(180.0, 0.0, 0.0),
+            glam::Vec3::new(600.0, 0.0, 0.0),
         );
         assert!(logic
             .create_object_under_construction(
                 AMERICA_PARTICLE_CANNON_UPLINK,
                 Team::China,
-                glam::Vec3::new(200.0, 0.0, 0.0),
+                glam::Vec3::new(700.0, 0.0, 0.0),
             )
             .is_some());
     }
