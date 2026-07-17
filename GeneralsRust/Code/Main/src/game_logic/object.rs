@@ -7103,6 +7103,30 @@ impl Object {
         remaining <= 0.0
     }
 
+    /// C++ SpecialPowerModule::startPowerRecharge residual (non-SharedNSync path).
+    ///
+    /// Sets this power's cooldown to full ReloadTime so PublicTimer SWs start
+    /// charging when the structure is created/completed — not ready-to-fire.
+    pub fn start_power_recharge(&mut self, power: &crate::command_system::SpecialPowerType) {
+        let cd = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+            power,
+        )
+        .unwrap_or(self.special_power_cooldown)
+        .max(0.0);
+        if cd > 0.0 {
+            self.special_power_cooldowns.insert(power.clone(), cd);
+            // Legacy aggregate timer residual for single-slot HUD paths.
+            self.special_power_cooldown = cd;
+            self.special_power_cooldown_remaining = cd;
+            self.special_power_ready = false;
+        } else {
+            self.special_power_cooldowns.remove(power);
+            self.special_power_ready = true;
+            self.special_power_cooldown_remaining = 0.0;
+        }
+        self.refresh_special_power_aggregate_cooldown();
+    }
+
     /// Consume a charge for the special power and start per-power cooldown.
     pub fn consume_special_power_charge(&mut self, power: &SpecialPowerType) {
         if !self.is_special_power_ready(power) {
