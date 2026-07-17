@@ -15808,6 +15808,9 @@ impl GameLogic {
             HostUpgradeKind::SlaveDrone => {
                 self.apply_slave_drone_upgrade_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::CashBounty => {
+                self.apply_cash_bounty_upgrade_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -15845,6 +15848,35 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ CashBountyPower / SCIENCE_CashBounty residual via upgrade complete.
+    fn apply_cash_bounty_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science;
+
+        let pct = cash_bounty_percent_for_science(upgrade_name).unwrap_or(0.05);
+        let mut n = 0u32;
+        for p in self.players.values_mut() {
+            if p.team != team {
+                continue;
+            }
+            p.unlocked_sciences.insert(upgrade_name.to_string());
+            // SCIENCE names for kill path residual.
+            if pct >= 0.20 - f32::EPSILON {
+                p.unlocked_sciences
+                    .insert("SCIENCE_CashBounty3".to_string());
+            } else if pct >= 0.10 - f32::EPSILON {
+                p.unlocked_sciences
+                    .insert("SCIENCE_CashBounty2".to_string());
+            } else {
+                p.unlocked_sciences
+                    .insert("SCIENCE_CashBounty1".to_string());
+            }
+            p.set_cash_bounty(pct);
+            self.cash_bounty.record_bounty_set(p.cash_bounty_percent);
+            n = n.saturating_add(1);
+        }
+        n
     }
 
     /// C++ America Scout/Battle/Hellfire drone object-upgrade residual.
@@ -81146,6 +81178,27 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_cash_bounty_sets_player_percent() {
+        use crate::game_logic::host_cash_bounty::{CASH_BOUNTY1_PERCENT, CASH_BOUNTY3_PERCENT};
+        use crate::game_logic::Team;
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+
+        let n = logic.apply_cash_bounty_upgrade_to_team(Team::GLA, "Upgrade_CashBounty");
+        assert_eq!(n, 1);
+        let p = logic.players.get(&0).unwrap();
+        assert!((p.cash_bounty_percent - CASH_BOUNTY1_PERCENT).abs() < 0.001);
+        assert!(p.unlocked_sciences.contains("SCIENCE_CashBounty1"));
+
+        let n3 = logic.apply_cash_bounty_upgrade_to_team(Team::GLA, "SCIENCE_CashBounty3");
+        assert_eq!(n3, 1);
+        let p = logic.players.get(&0).unwrap();
+        assert!((p.cash_bounty_percent - CASH_BOUNTY3_PERCENT).abs() < 0.001);
     }
 
     #[test]

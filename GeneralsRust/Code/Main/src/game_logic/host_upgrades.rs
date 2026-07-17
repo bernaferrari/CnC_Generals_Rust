@@ -219,6 +219,8 @@ pub enum HostUpgradeKind {
     Countermeasures,
     /// America Scout/Battle/Hellfire drone object-upgrade residual.
     SlaveDrone,
+    /// GLA Cash Bounty kill-award residual.
+    CashBounty,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -326,6 +328,8 @@ impl HostUpgradeKind {
                 && !n.contains("sentry"))
         {
             HostUpgradeKind::SlaveDrone
+        } else if n.contains("cashbounty") {
+            HostUpgradeKind::CashBounty
         } else {
             HostUpgradeKind::Other
         }
@@ -375,6 +379,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::SatelliteHack => "SatelliteHack",
             HostUpgradeKind::Countermeasures => "Countermeasures",
             HostUpgradeKind::SlaveDrone => "SlaveDrone",
+            HostUpgradeKind::CashBounty => "CashBounty",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -428,6 +433,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::SatelliteHack
             | HostUpgradeKind::Countermeasures
             | HostUpgradeKind::SlaveDrone
+            | HostUpgradeKind::CashBounty
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -480,6 +486,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::SatelliteHack => 1000,
             HostUpgradeKind::Countermeasures => 1000,
             HostUpgradeKind::SlaveDrone => 300,
+            HostUpgradeKind::CashBounty => 0,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -529,6 +536,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::SatelliteHack => 30.0,
             HostUpgradeKind::Countermeasures => 30.0,
             HostUpgradeKind::SlaveDrone => 5.0,
+            HostUpgradeKind::CashBounty => 0.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -1162,6 +1170,18 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn cash_bounty_kind_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_CashBounty"),
+            HostUpgradeKind::CashBounty
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("SCIENCE_CashBounty3"),
+            HostUpgradeKind::CashBounty
+        );
     }
 
     #[test]
