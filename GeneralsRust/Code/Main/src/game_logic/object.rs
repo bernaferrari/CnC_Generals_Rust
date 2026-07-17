@@ -8,6 +8,10 @@ fn default_one_f32() -> f32 {
     1.0
 }
 
+fn default_max_shots() -> i32 {
+    -1
+}
+
 fn default_braking() -> f32 {
     50.0
 }
@@ -369,6 +373,30 @@ pub struct Object {
     /// C++ group move speed factor residual (1.0 = full).
     #[serde(default = "default_one_f32")]
     pub group_speed_factor: f32,
+    /// C++ AIUpdate m_isAttackPath residual.
+    #[serde(default)]
+    pub is_attack_path: bool,
+    /// C++ m_isApproachPath residual.
+    #[serde(default)]
+    pub is_approach_path: bool,
+    /// C++ m_isSafePath residual.
+    #[serde(default)]
+    pub is_safe_path: bool,
+    /// C++ m_requestedVictimID residual.
+    #[serde(default)]
+    pub requested_victim_id: Option<ObjectId>,
+    /// C++ m_requestedDestination residual.
+    #[serde(default)]
+    pub requested_destination: Option<glam::Vec3>,
+    /// C++ m_pathTimestamp residual (frame of last path request).
+    #[serde(default)]
+    pub path_timestamp: u32,
+    /// C++ queue-for-path delay frames remaining (0 = idle).
+    #[serde(default)]
+    pub queue_for_path_frames: u32,
+    /// C++ Weapon maxShotCount residual (-1 = unlimited).
+    #[serde(default = "default_max_shots")]
+    pub max_shots_to_fire: i32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -1060,6 +1088,14 @@ impl Object {
             max_lift: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
+            is_attack_path: false,
+            is_approach_path: false,
+            is_safe_path: false,
+            requested_victim_id: None,
+            requested_destination: None,
+            path_timestamp: 0,
+            queue_for_path_frames: 0,
+            max_shots_to_fire: -1,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1286,6 +1322,14 @@ impl Object {
             max_lift: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
+            is_attack_path: false,
+            is_approach_path: false,
+            is_safe_path: false,
+            requested_victim_id: None,
+            requested_destination: None,
+            path_timestamp: 0,
+            queue_for_path_frames: 0,
+            max_shots_to_fire: -1,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -3001,12 +3045,88 @@ impl Object {
         lift
     }
 
+    /// C++ AIUpdateInterface::requestAttackPath flag residual (before pathfinder).
+    pub fn begin_request_attack_path(
+        &mut self,
+        victim_id: Option<ObjectId>,
+        victim_pos: glam::Vec3,
+        current_frame: u32,
+    ) -> bool {
+        // Returns false if should defer (repath too soon).
+        self.requested_destination = Some(victim_pos);
+        self.requested_victim_id = victim_id;
+        self.is_attack_path = true;
+        self.is_approach_path = false;
+        self.is_safe_path = false;
+        self.waiting_for_path = true;
+        if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
+            // C++ setQueueForPathTime(2 sec)
+            self.queue_for_path_frames = 60;
+            return false;
+        }
+        self.path_timestamp = current_frame;
+        true
+    }
+
+    /// C++ AIUpdateInterface::requestPath flag residual (non-attack).
+    pub fn begin_request_move_path(&mut self, destination: glam::Vec3, current_frame: u32) -> bool {
+        self.requested_destination = Some(destination);
+        self.requested_victim_id = None;
+        self.is_attack_path = false;
+        self.is_approach_path = false;
+        self.is_safe_path = false;
+        self.waiting_for_path = true;
+        if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
+            self.queue_for_path_frames = 60;
+            return false;
+        }
+        self.path_timestamp = current_frame;
+        true
+    }
+
+    /// C++ requestApproachPath residual.
+    pub fn begin_request_approach_path(
+        &mut self,
+        destination: glam::Vec3,
+        current_frame: u32,
+    ) -> bool {
+        let ok = self.begin_request_move_path(destination, current_frame);
+        self.is_approach_path = true;
+        ok
+    }
+
+    /// C++ requestSafePath residual.
+    pub fn begin_request_safe_path(
+        &mut self,
+        repulsor: ObjectId,
+        flee_pos: glam::Vec3,
+        current_frame: u32,
+    ) -> bool {
+        let ok = self.begin_request_move_path(flee_pos, current_frame);
+        self.is_safe_path = true;
+        self.requested_victim_id = Some(repulsor);
+        ok
+    }
+
+    /// Tick path queue delay residual.
+    pub fn tick_path_queue(&mut self) {
+        if self.queue_for_path_frames > 0 {
+            self.queue_for_path_frames -= 1;
+        }
+    }
+
+    /// C++ privateAttackObject max-shots residual.
+    pub fn set_max_shots_to_fire(&mut self, max_shots: i32) {
+        self.max_shots_to_fire = max_shots;
+    }
+
     /// C++ AIUpdateInterface::requestPath residual (fail-closed straight path).
     ///
     /// Sets waiting_for_path briefly, installs single-waypoint path to dest.
     /// Full Pathfinder A* is applied by GameLogic when grid is available.
     pub fn request_path(&mut self, destination: glam::Vec3, waypoints: Option<Vec<glam::Vec3>>) {
         self.waiting_for_path = true;
+        self.queue_for_path_frames = 0;
         self.maintain_pos_valid = false;
         if let Some(mut wps) = waypoints {
             if wps.is_empty() {
