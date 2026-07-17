@@ -963,6 +963,16 @@ pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTempla
         return build_structure_armor_residual();
     }
     if obj.is_kind_of(KindOf::Infantry) {
+        // C++ ChemSuitHumanArmor when Upgrade_AmericaChemicalSuits residual is active.
+        if obj.has_upgrade_tag("Upgrade_AmericaChemicalSuits")
+            || obj.has_upgrade_tag("UpgradeChemicalSuits")
+            || obj
+                .applied_upgrades
+                .iter()
+                .any(|u| u.to_ascii_lowercase().contains("chemicalsuit"))
+        {
+            return build_chem_suit_human_armor_residual();
+        }
         return build_human_armor_residual();
     }
     if obj.is_kind_of(KindOf::Vehicle) {

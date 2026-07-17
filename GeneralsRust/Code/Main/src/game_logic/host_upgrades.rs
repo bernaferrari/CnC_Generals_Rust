@@ -91,6 +91,16 @@ pub const UPGRADE_CHINA_RADAR: &str = "Upgrade_ChinaRadar";
 pub const UPGRADE_GLA_RADAR: &str = "Upgrade_GLARadar";
 /// GLA Radar Van Scan residual.
 pub const UPGRADE_GLA_RADAR_VAN_SCAN: &str = "Upgrade_GLARadarVanScan";
+/// America Chemical Suits residual.
+pub const UPGRADE_AMERICA_CHEMICAL_SUITS: &str = "Upgrade_AmericaChemicalSuits";
+/// America MOAB residual.
+pub const UPGRADE_AMERICA_MOAB: &str = "Upgrade_AmericaMOAB";
+/// China Satellite Hack One residual.
+pub const UPGRADE_CHINA_SATELLITE_HACK_ONE: &str = "Upgrade_ChinaSatelliteHackOne";
+/// China Satellite Hack Two residual.
+pub const UPGRADE_CHINA_SATELLITE_HACK_TWO: &str = "Upgrade_ChinaSatelliteHackTwo";
+/// America Countermeasures residual.
+pub const UPGRADE_AMERICA_COUNTERMEASURES: &str = "Upgrade_AmericaCountermeasures";
 /// Fortified structure AddMaxHealth residual (retail BlackMarket path honesty).
 pub const FORTIFIED_STRUCTURE_ADD_MAX_HEALTH: f32 = 500.0;
 
@@ -199,6 +209,14 @@ pub enum HostUpgradeKind {
     Radar,
     /// GLA Radar Van Scan unlock residual.
     RadarVanScan,
+    /// America Chemical Suits poison/radiation armor residual.
+    ChemicalSuits,
+    /// America MOAB superweapon unlock residual.
+    Moab,
+    /// China Satellite Hack residual unlock.
+    SatelliteHack,
+    /// America Countermeasures aircraft residual unlock.
+    Countermeasures,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -289,6 +307,14 @@ impl HostUpgradeKind {
             || n == "upgradeglaradar"
         {
             HostUpgradeKind::Radar
+        } else if n.contains("chemicalsuit") {
+            HostUpgradeKind::ChemicalSuits
+        } else if n.contains("americamoab") || n.ends_with("moab") {
+            HostUpgradeKind::Moab
+        } else if n.contains("satellitehack") {
+            HostUpgradeKind::SatelliteHack
+        } else if n.contains("countermeasure") {
+            HostUpgradeKind::Countermeasures
         } else {
             HostUpgradeKind::Other
         }
@@ -333,6 +359,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::FortifiedStructure => "FortifiedStructure",
             HostUpgradeKind::Radar => "Radar",
             HostUpgradeKind::RadarVanScan => "RadarVanScan",
+            HostUpgradeKind::ChemicalSuits => "ChemicalSuits",
+            HostUpgradeKind::Moab => "Moab",
+            HostUpgradeKind::SatelliteHack => "SatelliteHack",
+            HostUpgradeKind::Countermeasures => "Countermeasures",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -381,6 +411,10 @@ impl HostUpgradeKind {
             | HostUpgradeKind::FortifiedStructure
             | HostUpgradeKind::Radar
             | HostUpgradeKind::RadarVanScan
+            | HostUpgradeKind::ChemicalSuits
+            | HostUpgradeKind::Moab
+            | HostUpgradeKind::SatelliteHack
+            | HostUpgradeKind::Countermeasures
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -428,6 +462,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::FortifiedStructure => 1000,
             HostUpgradeKind::Radar => 1000,
             HostUpgradeKind::RadarVanScan => 500,
+            HostUpgradeKind::ChemicalSuits => 1000,
+            HostUpgradeKind::Moab => 2500,
+            HostUpgradeKind::SatelliteHack => 1000,
+            HostUpgradeKind::Countermeasures => 1000,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -472,6 +510,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::FortifiedStructure => 30.0,
             HostUpgradeKind::Radar => 30.0,
             HostUpgradeKind::RadarVanScan => 15.0,
+            HostUpgradeKind::ChemicalSuits => 30.0,
+            HostUpgradeKind::Moab => 60.0,
+            HostUpgradeKind::SatelliteHack => 30.0,
+            HostUpgradeKind::Countermeasures => 30.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -1105,6 +1147,26 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn chemical_moab_satellite_kinds_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaChemicalSuits"),
+            HostUpgradeKind::ChemicalSuits
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaMOAB"),
+            HostUpgradeKind::Moab
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaSatelliteHackOne"),
+            HostUpgradeKind::SatelliteHack
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaCountermeasures"),
+            HostUpgradeKind::Countermeasures
+        );
     }
 
     #[test]
