@@ -3397,14 +3397,9 @@ impl GameClient {
             visual_delta * visual_speed as f32
         };
 
-        // C++ GameClient::update residual: keyboard/mouse subsystem device poll
-        // (lines 560-584). Main still owns OS WindowEvent → command translation;
-        // this only advances GameClient input device state machines.
-        self.update_input()?;
-        // C++ lines 560-584 audio residual: drain GameClient audio/music/speech
-        // subsystem queues. Distinct from Main GameLogic::process_audio_events
-        // (presentation SFX → host AudioEventRequest path).
-        self.update_audio()?;
+        // Main owns OS input + audio tick (CncGameEngine event loop /
+        // process_audio_events). Presentation shell must not double-tick
+        // update_input / update_audio — device poll remains on full update().
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
