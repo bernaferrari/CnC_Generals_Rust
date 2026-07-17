@@ -1461,6 +1461,10 @@ pub struct GameLogic {
     control_rods_upgrades: u32,
     /// Plants that received EnergyBonus from control rods residual.
     control_rods_plants_affected: u32,
+    /// C++ SubliminalMessaging upgrade residual completions.
+    subliminal_messaging_upgrades: u32,
+    /// Propaganda towers tagged by subliminal residual.
+    subliminal_towers_affected: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2737,6 +2741,8 @@ impl GameLogic {
             overcharge_exhaustions: 0,
             control_rods_upgrades: 0,
             control_rods_plants_affected: 0,
+            subliminal_messaging_upgrades: 0,
+            subliminal_towers_affected: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3150,6 +3156,8 @@ impl GameLogic {
         self.overcharge_exhaustions = 0;
         self.control_rods_upgrades = 0;
         self.control_rods_plants_affected = 0;
+        self.subliminal_messaging_upgrades = 0;
+        self.subliminal_towers_affected = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -15753,6 +15761,9 @@ impl GameLogic {
             HostUpgradeKind::AdvancedControlRods => {
                 self.apply_advanced_control_rods_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::SubliminalMessaging => {
+                self.apply_subliminal_messaging_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -15790,6 +15801,46 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_ChinaSubliminalMessaging residual.
+    ///
+    /// Tags propaganda towers and unlocks upgraded heal/buff rate path
+    /// (player unlocked_sciences + tower upgrade tags).
+    fn apply_subliminal_messaging_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_propaganda::{
+            is_propaganda_tower, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+        };
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            let is_tower =
+                is_propaganda_tower(&obj.template_name) || obj.has_overlord_propaganda_residual();
+            if !is_tower {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
+            affected = affected.saturating_add(1);
+        }
+        // Also unlock at player level so towers without tags still see upgraded rate.
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_CHINA_SUBLIMINAL_MESSAGING.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        self.subliminal_messaging_upgrades = self.subliminal_messaging_upgrades.saturating_add(1);
+        self.subliminal_towers_affected = self.subliminal_towers_affected.saturating_add(affected);
+        affected
     }
 
     /// C++ PowerPlantUpgrade Advanced Control Rods residual.
@@ -80254,6 +80305,40 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn subliminal_messaging_tags_propaganda_towers() {
+        use crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+
+        let mut tower = ThingTemplate::new("ChinaSpeakerTower");
+        tower.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic.templates.insert("ChinaSpeakerTower".into(), tower);
+
+        let id = logic
+            .create_object(
+                "ChinaSpeakerTower",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tower");
+        let n = logic
+            .apply_subliminal_messaging_to_team(Team::China, UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
+        assert_eq!(n, 1);
+        assert!(logic.subliminal_messaging_upgrades > 0);
+        let t = logic.get_object(id).unwrap();
+        assert!(t.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
+        assert!(logic
+            .players
+            .get(&0)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
     }
 
     #[test]
