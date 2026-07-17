@@ -85,6 +85,10 @@ pub const SABOTEUR_SUCCESS_AUDIO: &str = "BuildingSabotaged";
 pub const SABOTEUR_CASH_STEAL_AUDIO: &str = "MoneyWithdrawSound";
 /// Residual superweapon timer-reset audio honesty.
 pub const SABOTEUR_RESET_TIMER_AUDIO: &str = "SabotageResetTimerBuilding";
+/// C++ MiscAudio m_sabotageShutDownBuilding residual.
+pub const SABOTEUR_SHUTDOWN_AUDIO: &str = "SabotageShutDownBuilding";
+/// C++ Drawable::flashAsSelected envelope decay residual (play color,0,4).
+pub const SABOTEUR_FLASH_DECAY_FRAMES: u32 = 4;
 
 /// Kind of sabotage residual applied to a structure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -139,6 +143,31 @@ impl SaboteurEffectKind {
         matches!(self, Self::SupplyCenter)
     }
 
+    /// C++ CrateCollide::doSabotageFeedbackFX sound selection residual.
+    /// FakeBuilding returns None (no additional feedback).
+    pub fn feedback_audio(self) -> Option<&'static str> {
+        match self {
+            Self::FakeBuilding => None,
+            Self::SuperweaponOrCommand => Some(SABOTEUR_RESET_TIMER_AUDIO),
+            Self::SupplyCenter => Some(SABOTEUR_CASH_STEAL_AUDIO),
+            Self::PowerPlant | Self::MilitaryFactory | Self::InternetCenter => {
+                Some(SABOTEUR_SHUTDOWN_AUDIO)
+            }
+        }
+    }
+
+    /// C++ SabotageVictimType residual label for honesty/tests.
+    pub fn victim_type_label(self) -> &'static str {
+        match self {
+            Self::PowerPlant => "SAB_VICTIM_POWER_PLANT",
+            Self::SupplyCenter => "SAB_VICTIM_SUPPLY_CENTER",
+            Self::MilitaryFactory => "SAB_VICTIM_MILITARY_FACTORY",
+            Self::SuperweaponOrCommand => "SAB_VICTIM_SUPERWEAPON",
+            Self::InternetCenter => "SAB_VICTIM_INTERNET_CENTER",
+            Self::FakeBuilding => "SAB_VICTIM_FAKE_BUILDING",
+        }
+    }
+
     pub fn destroys_target(self) -> bool {
         matches!(self, Self::FakeBuilding)
     }
@@ -179,6 +208,10 @@ pub struct HostSaboteurRegistry {
     pub eva_building_sabotaged: u32,
     /// EVA CashStolen residual fires.
     pub eva_cash_stolen: u32,
+    /// doSabotageFeedbackFX residual applications (audio and/or flash).
+    pub feedback_fx: u32,
+    /// flashAsSelected residual applications.
+    pub flash_as_selected: u32,
     /// Fake buildings destroyed.
     pub fakes_destroyed: u32,
     /// Saboteurs consumed on success.
@@ -274,6 +307,22 @@ impl HostSaboteurRegistry {
 
     pub fn honesty_eva_cash_stolen_ok(&self) -> bool {
         self.eva_cash_stolen > 0
+    }
+
+    pub fn record_feedback_fx(&mut self) {
+        self.feedback_fx = self.feedback_fx.saturating_add(1);
+    }
+
+    pub fn honesty_feedback_fx_ok(&self) -> bool {
+        self.feedback_fx > 0
+    }
+
+    pub fn record_flash_as_selected(&mut self) {
+        self.flash_as_selected = self.flash_as_selected.saturating_add(1);
+    }
+
+    pub fn honesty_flash_as_selected_ok(&self) -> bool {
+        self.flash_as_selected > 0
     }
 
     pub fn honesty_sabotage_ok(&self) -> bool {
@@ -458,6 +507,15 @@ pub fn honesty_saboteur_effect_residual_ok() -> bool {
         && SaboteurEffectKind::InternetCenter.disabled_hacked_until(0) == Some(450)
         && SaboteurEffectKind::PowerPlant.power_sabotage_until(0) == Some(900)
         && SABOTEUR_SUCCESS_AUDIO == "BuildingSabotaged"
+        && SABOTEUR_SHUTDOWN_AUDIO == "SabotageShutDownBuilding"
+        && SABOTEUR_RESET_TIMER_AUDIO == "SabotageResetTimerBuilding"
+        && SABOTEUR_CASH_STEAL_AUDIO == "MoneyWithdrawSound"
+        && SABOTEUR_FLASH_DECAY_FRAMES == 4
+        && SaboteurEffectKind::FakeBuilding.feedback_audio().is_none()
+        && SaboteurEffectKind::MilitaryFactory.feedback_audio() == Some(SABOTEUR_SHUTDOWN_AUDIO)
+        && SaboteurEffectKind::SuperweaponOrCommand.feedback_audio()
+            == Some(SABOTEUR_RESET_TIMER_AUDIO)
+        && SaboteurEffectKind::SupplyCenter.feedback_audio() == Some(SABOTEUR_CASH_STEAL_AUDIO)
         && SABOTEUR_CASH_STEAL_AUDIO == "MoneyWithdrawSound"
         && SABOTEUR_RESET_TIMER_AUDIO == "SabotageResetTimerBuilding"
 }

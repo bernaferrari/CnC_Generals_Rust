@@ -188,6 +188,8 @@ pub struct RenderableObject {
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
+    /// C++ Drawable selection flash envelope residual frames.
+    pub selection_flash_remaining: u32,
     pub destroyed: bool,
     /// C++ ModelConditionFlags residual (ALLOW_SURRENDER-off bit layout, low 128).
     pub model_condition_bits: u128,
@@ -2235,6 +2237,7 @@ impl PresentationFrame {
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
+                selection_flash_remaining: obj.selection_flash_remaining,
                 destroyed: obj.status.destroyed || !obj.is_alive(),
                 model_condition_bits: {
                     // Prefer live residual bits; recompute if pristine-zero and damaged.
