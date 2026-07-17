@@ -104,9 +104,25 @@ pub struct Object {
     /// Last computed bounce volume residual [0.25, 1.0] (MuLaw path).
     #[serde(default)]
     pub last_bounce_volume: f32,
-    /// Pending bounce audio emits drained by GameLogic into TheAudio queue.
-    #[serde(default)]
     pub bounce_audio_pending: u32,
+    /// C++ ThingTemplate CrusherLevel residual.
+    #[serde(default)]
+    pub crusher_level: u8,
+    /// C++ ThingTemplate CrushableLevel residual (default 255 = uncrushable).
+    #[serde(default = "default_crushable_level")]
+    pub crushable_level: u8,
+    /// C++ BodyModule front crushed residual.
+    #[serde(default)]
+    pub front_crushed: bool,
+    /// C++ BodyModule back crushed residual.
+    #[serde(default)]
+    pub back_crushed: bool,
+    /// C++ PhysicsBehavior m_currentOverlap residual.
+    #[serde(default)]
+    pub physics_current_overlap: Option<ObjectId>,
+    /// C++ PhysicsBehavior m_previousOverlap residual.
+    #[serde(default)]
+    pub physics_previous_overlap: Option<ObjectId>,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -576,6 +592,10 @@ fn default_bounce_sound_name() -> String {
     BOUNCE_SOUND_DEFAULT.to_string()
 }
 
+fn default_crushable_level() -> u8 {
+    255
+}
+
 /// C++ MuLaw residual used by doBounceSound volume adjust.
 pub fn bounce_mulaw(x: f32, max_x: f32, mu: f32) -> f32 {
     let max_x = max_x.max(1e-6);
@@ -689,6 +709,12 @@ impl Object {
             bounce_sound_name: BOUNCE_SOUND_DEFAULT.to_string(),
             last_bounce_volume: 0.0,
             bounce_audio_pending: 0,
+            crusher_level: 0,
+            crushable_level: 255,
+            front_crushed: false,
+            back_crushed: false,
+            physics_current_overlap: None,
+            physics_previous_overlap: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -846,6 +872,12 @@ impl Object {
             bounce_sound_name: BOUNCE_SOUND_DEFAULT.to_string(),
             last_bounce_volume: 0.0,
             bounce_audio_pending: 0,
+            crusher_level: 0,
+            crushable_level: 255,
+            front_crushed: false,
+            back_crushed: false,
+            physics_current_overlap: None,
+            physics_previous_overlap: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2032,6 +2064,128 @@ impl Object {
     /// C++ PhysicsBehavior::scrubVelocity2D residual (host XZ ground plane).
     ///
     /// If desired < 0.001, zero lateral velocity. Else scale down if faster than desired.
+
+    fn ensure_crush_levels(&mut self) {
+        // Host residual defaults when unset: vehicles crush infantry.
+        if self.crusher_level == 0 && self.is_kind_of(KindOf::Vehicle) {
+            self.crusher_level = 1;
+        }
+        if self.crushable_level == 255 && self.is_kind_of(KindOf::Infantry) {
+            self.crushable_level = 0;
+        }
+    }
+
+    /// C++ Object::canCrushOrSquish TEST_CRUSH_ONLY residual.
+    pub fn can_crush_only(&self, other: &Object, is_ally: bool) -> bool {
+        use crate::game_logic::host_partition_collision_physics_residual::can_crush_only_residual;
+        can_crush_only_residual(
+            self.crusher_level,
+            other.crushable_level,
+            is_ally,
+            self.status.disabled_unmanned,
+        )
+    }
+
+    /// Unit direction 2D residual from orientation (host XZ plane).
+    pub fn unit_direction_xz(&self) -> (f32, f32) {
+        let yaw = self.get_orientation();
+        // Orientation 0 faces +X (see movement atan2(-z, x) residual).
+        (yaw.cos(), yaw.sin())
+    }
+
+    /// C++ PhysicsBehavior::checkForOverlapCollision residual.
+    ///
+    /// Returns true if this is an overlap/crush interaction (skip normal bounce).
+    /// On first crush pass of target point, applies HUGE crush damage.
+    pub fn check_for_overlap_collision(&mut self, other: &mut Object, is_ally: bool) -> bool {
+        use crate::game_logic::host_partition_collision_physics_residual::{
+            past_crush_point_residual, select_crush_target_residual, CrushTarget,
+            PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+        };
+        self.ensure_crush_levels();
+        other.ensure_crush_levels();
+        if self.velocity_is_very_small() {
+            return false;
+        }
+        let self_crushing_other = self.can_crush_only(other, is_ally);
+        let self_being_crushed = other.can_crush_only(self, is_ally);
+        if self_crushing_other && self_being_crushed {
+            return false;
+        }
+        if self_being_crushed {
+            return true; // passive overlap
+        }
+        if !self_crushing_other {
+            return false;
+        }
+        // add overlap
+        let oid = other.id;
+        let first =
+            self.physics_previous_overlap != Some(oid) && self.physics_current_overlap != Some(oid);
+        self.physics_current_overlap = Some(oid);
+        if first {
+            // 0-amount crush damage residual (DamageFX trigger only).
+            let _ = other.take_damage_from_typed_death(
+                0.0,
+                Some(self.id),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+            );
+        }
+        if other.front_crushed && other.back_crushed {
+            return true;
+        }
+        let target = select_crush_target_residual(other.front_crushed, other.back_crushed);
+        if target == CrushTarget::NoCrush {
+            return true;
+        }
+        let us = self.get_position();
+        let them = other.get_position();
+        let (dx_f, dz_f) = self.unit_direction_xz();
+        // major radius residual ≈ selection_radius
+        let major = other.selection_radius.max(5.0);
+        let offset = major / 2.0;
+        let crushee_facing = {
+            let y = other.get_orientation();
+            (y.cos(), y.sin())
+        };
+        let point = match target {
+            CrushTarget::FrontEndCrush => (
+                them.x + crushee_facing.0 * offset,
+                them.z + crushee_facing.1 * offset,
+            ),
+            CrushTarget::BackEndCrush => (
+                them.x - crushee_facing.0 * offset,
+                them.z - crushee_facing.1 * offset,
+            ),
+            CrushTarget::TotalCrush | CrushTarget::NoCrush => (them.x, them.z),
+        };
+        if past_crush_point_residual((us.x, us.z), point, (dx_f, dz_f), offset) {
+            match target {
+                CrushTarget::FrontEndCrush => other.front_crushed = true,
+                CrushTarget::BackEndCrush => other.back_crushed = true,
+                CrushTarget::TotalCrush => {
+                    other.front_crushed = true;
+                    other.back_crushed = true;
+                }
+                CrushTarget::NoCrush => {}
+            }
+            let _ = other.take_damage_from_typed_death(
+                PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+                Some(self.id),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+            );
+        }
+        true
+    }
+
+    /// End-of-frame overlap residual: previous = current, clear current.
+    pub fn advance_physics_overlap_frame(&mut self) {
+        self.physics_previous_overlap = self.physics_current_overlap;
+        self.physics_current_overlap = None;
+    }
+
     pub fn scrub_velocity_2d(&mut self, desired_velocity: f32) {
         if desired_velocity < 0.001 {
             self.movement.velocity.x = 0.0;
@@ -5465,6 +5619,48 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn crush_overlap_collision_kills_infantry() {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        let mut vt = ThingTemplate::new("CrusherTank");
+        vt.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(vt, ObjectId(91), Team::USA);
+        tank.crusher_level = 1;
+        tank.set_orientation(0.0); // faces +X
+        tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0); // moving +X
+
+        let mut it = ThingTemplate::new("CrushableInf");
+        it.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(it, ObjectId(92), Team::GLA);
+        inf.crushable_level = 0;
+        inf.selection_radius = 10.0;
+        // Tank past infantry center along +X.
+        inf.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+        tank.set_position(glam::Vec3::new(6.0, 0.0, 0.0));
+
+        assert!(tank.can_crush_only(&inf, false));
+        assert!(tank.check_for_overlap_collision(&mut inf, false));
+        assert!(inf.status.destroyed || inf.health.current <= 0.0);
+        if inf.status.destroyed {
+            assert_eq!(inf.status.death_type, HostDeathType::Crushed);
+        }
+        // Allies do not crush.
+        let mut a = Object::new(
+            {
+                let mut t = ThingTemplate::new("AllyInf");
+                t.add_kind_of(KindOf::Infantry);
+                t
+            },
+            ObjectId(93),
+            Team::USA,
+        );
+        a.crushable_level = 0;
+        a.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+        tank.physics_current_overlap = None;
+        tank.physics_previous_overlap = None;
+        assert!(!tank.can_crush_only(&a, true));
+        assert!(!tank.check_for_overlap_collision(&mut a, true));
+    }
     #[test]
     fn scrub_velocity_and_structure_stiffness_bounce() {
         use crate::game_logic::host_partition_collision_physics_residual::{
