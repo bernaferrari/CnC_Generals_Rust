@@ -39139,6 +39139,16 @@ impl GameLogic {
 
     /// Queue a host residual superweapon strike from DoSpecialPower.
     /// Returns strike id when the power maps to a supported residual kind.
+    /// Residual A10 science tier stored on a queued/completed strike.
+    pub fn special_power_strike_a10_tier(
+        &self,
+        strike_id: u32,
+    ) -> Option<crate::game_logic::special_power_strikes::A10StrikeScienceTier> {
+        self.special_power_strikes
+            .get(strike_id)
+            .map(|s| s.a10_tier)
+    }
+
     pub fn queue_special_power_strike(
         &mut self,
         power: &crate::command_system::SpecialPowerType,
@@ -39146,8 +39156,8 @@ impl GameLogic {
         target_position: Vec3,
     ) -> Option<u32> {
         use crate::game_logic::special_power_strikes::{
-            ArtilleryBarrageScienceTier, HostSuperweaponKind, ScudStormAnthraxTier,
-            SpectreGunshipScienceTier,
+            A10StrikeScienceTier, ArtilleryBarrageScienceTier, HostSuperweaponKind,
+            ScudStormAnthraxTier, SpectreGunshipScienceTier,
         };
         let kind = HostSuperweaponKind::from_command_power(power)?;
         let source_team = self
@@ -39180,6 +39190,12 @@ impl GameLogic {
         } else {
             ScudStormAnthraxTier::Base
         };
+        // A10 FormationSize residual from unlocked SCIENCE_A10ThunderboltMissileStrike1/2/3.
+        let a10_tier = if kind == HostSuperweaponKind::A10Strike {
+            A10StrikeScienceTier::highest_from_sciences(sciences.iter().map(|s| s.as_str()))
+        } else {
+            A10StrikeScienceTier::Level1
+        };
         let id = self.special_power_strikes.queue_with_all_tiers(
             kind,
             source_object,
@@ -39189,6 +39205,7 @@ impl GameLogic {
             artillery_tier,
             spectre_tier,
             scud_anthrax_tier,
+            a10_tier,
         );
 
         // C++ SpecialPowerModule SuperweaponLaunched EVA residual.
@@ -81219,6 +81236,63 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn a10_science_tier_selects_formation_size_damage_scale() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::special_power_strikes::{
+            A10StrikeScienceTier, HostSpecialPowerStrikeRegistry, HostSuperweaponKind,
+            A10_FORMATIONION_SIZE_L3, A10_SCIENCE_TIER3,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(
+            A10StrikeScienceTier::highest_from_sciences([A10_SCIENCE_TIER3]).formation_size(),
+            A10_FORMATIONION_SIZE_L3
+        );
+        let l1 =
+            HostSpecialPowerStrikeRegistry::damage_at_distance(HostSuperweaponKind::A10Strike, 0.0);
+        let l3 = HostSpecialPowerStrikeRegistry::damage_at_distance_with_tiers(
+            HostSuperweaponKind::A10Strike,
+            0.0,
+            crate::game_logic::special_power_strikes::ScudStormAnthraxTier::Base,
+            A10StrikeScienceTier::Level3,
+        );
+        assert!((l3 - l1 * 3.0).abs() < 0.1, "l1={l1} l3={l3}");
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert(A10_SCIENCE_TIER3.to_string());
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let id = logic
+            .queue_special_power_strike(
+                &SpecialPowerType::Airstrike,
+                src,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("a10");
+        assert_eq!(
+            logic.special_power_strike_a10_tier(id),
+            Some(A10StrikeScienceTier::Level3)
         );
     }
 
