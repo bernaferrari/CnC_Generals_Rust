@@ -855,7 +855,12 @@ impl<'a> CommandExecutor<'a> {
             if obj.team != player_team || !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
                 return CommandResult::InvalidTarget;
             }
-            if obj.status.sold || self.game_logic.is_object_being_sold(object_id) {
+            if obj.status.sold
+                || obj.status.reconstructing
+                || obj.status.under_construction
+                || self.game_logic.is_object_being_sold(object_id)
+            {
+                // C++ sellObject: structures only when complete (not under construction/rebuild).
                 return CommandResult::InvalidCommand;
             }
             // C++ BuildAssistant::sellObject multi-frame residual (scaffold → SOLD → refund).
