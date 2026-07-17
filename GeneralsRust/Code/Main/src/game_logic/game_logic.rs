@@ -6259,6 +6259,105 @@ impl GameLogic {
     /// C++ AIAttackAimAtTargetState::onEnter residual.
 
     /// C++ AIAttackState::onEnter residual — start nested AttackStateMachine at AIM.
+
+    /// C++ Object::chooseBestWeaponForTarget / AIAttackState::chooseWeapon residual.
+    ///
+    /// Locks `active_weapon_slot` to the PreferMostDamage residual choice.
+    /// Returns false when no legal weapon exists for the victim (or ground).
+    pub fn choose_best_weapon_for_target(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        current_time: f32,
+    ) -> bool {
+        let Some(u) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        if !u.is_alive() {
+            return false;
+        }
+        // Ground attack residual: any ready weapon is enough.
+        let Some(vid) = victim_id else {
+            let has = u.weapon.is_some() || u.secondary_weapon.is_some();
+            return has;
+        };
+        let Some(v) = self.objects.get(&vid) else {
+            return false;
+        };
+        // Snapshot selection without holding mut borrow across get_mut.
+        let slot = u.select_combat_weapon_slot(v, current_time);
+        let Some(slot) = slot else {
+            // Not ready this frame — still pick a legal slot that can target
+            // (ammo/reload residual may clear next frame).
+            let primary_legal = u.weapon.as_ref().is_some_and(|w| u.can_target_with(v, w));
+            let secondary_legal = u
+                .secondary_weapon
+                .as_ref()
+                .is_some_and(|w| u.can_target_with(v, w));
+            if !primary_legal && !secondary_legal {
+                return false;
+            }
+            let fallback = if primary_legal { 0u8 } else { 1u8 };
+            if let Some(uu) = self.objects.get_mut(&unit_id) {
+                uu.active_weapon_slot = fallback;
+            }
+            return true;
+        };
+        if let Some(uu) = self.objects.get_mut(&unit_id) {
+            uu.active_weapon_slot = slot;
+        }
+        true
+    }
+
+    /// C++ cannotPossiblyAttackObject state condition residual.
+    ///
+    /// True when the attacker cannot possibly continue attacking the victim
+    /// (dead, no weapon, same team residual, stealthed undetected).
+    pub fn cannot_possibly_attack_object(
+        &self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        force_attacking: bool,
+    ) -> bool {
+        let Some(obj) = self.objects.get(&unit_id) else {
+            return true;
+        };
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return true;
+        };
+        if !obj.can_attack() {
+            return true;
+        }
+        if !victim.is_alive() || victim.status.destroyed {
+            return true;
+        }
+        // Stealthed undetected residual (not force).
+        if !force_attacking
+            && victim.status.stealthed
+            && !victim.status.detected
+            && !victim.status.disguised
+        {
+            return true;
+        }
+        // Same-team residual: not enemies unless force.
+        if !force_attacking && obj.team == victim.team {
+            return true;
+        }
+        // No weapon can target residual.
+        let primary_ok = obj
+            .weapon
+            .as_ref()
+            .is_some_and(|w| obj.can_target_with(victim, w));
+        let secondary_ok = obj
+            .secondary_weapon
+            .as_ref()
+            .is_some_and(|w| obj.can_target_with(victim, w));
+        if !primary_ok && !secondary_ok {
+            return true;
+        }
+        false
+    }
+
     pub fn attack_state_enter(
         &mut self,
         unit_id: ObjectId,
@@ -6285,6 +6384,15 @@ impl GameLogic {
             if !v.is_alive() || v.status.destroyed {
                 return AttackMachineResult::Failure;
             }
+        }
+        // C++ cannotPossiblyAttackObject residual on enter.
+        if self.cannot_possibly_attack_object(unit_id, victim_id, false) {
+            return AttackMachineResult::Failure;
+        }
+        // C++ AIAttackState::chooseWeapon residual (PreferMostDamage).
+        let t = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        if !self.choose_best_weapon_for_target(unit_id, Some(victim_id), t) {
+            return AttackMachineResult::Failure;
         }
         {
             let Some(u) = self.objects.get_mut(&unit_id) else {
@@ -6487,6 +6595,12 @@ impl GameLogic {
                 return AttackMachineResult::Success;
             }
         }
+        // C++ cannotPossiblyAttackObject condition → EXIT_MACHINE_WITH_FAILURE.
+        if self.cannot_possibly_attack_object(unit_id, victim_id, false) {
+            return AttackMachineResult::Failure;
+        }
+        // Re-evaluate weapon choice every frame (C++ AIAttackState::update).
+        let _ = self.choose_best_weapon_for_target(unit_id, Some(victim_id), current_time);
 
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.target = Some(victim_id);
@@ -73279,6 +73393,123 @@ mod tests {
         assert_eq!(
             logic.objects[&aid].attack_substate,
             AttackSubState::ApproachTarget
+        );
+    }
+
+    #[test]
+    fn choose_best_weapon_prefers_ready_slot() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("CwA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2201);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.weapon = Some(Weapon {
+                damage: 5.0,
+                range: 50.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Default::default()
+            });
+            o.secondary_weapon = Some(Weapon {
+                damage: 40.0,
+                range: 50.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("CwV");
+        vt.add_kind_of(KindOf::Structure);
+        let vid = ObjectId(2202);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o
+        });
+        assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
+        // Prefer secondary vs structure when damage higher (select_combat residual).
+        assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn cannot_possibly_attack_same_team() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("CpA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2203);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("CpV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2204);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o
+        });
+        assert!(logic.cannot_possibly_attack_object(aid, vid, false));
+        assert!(!logic.cannot_possibly_attack_object(aid, vid, true)); // force
+    }
+
+    #[test]
+    fn cannot_possibly_attack_stealthed_undetected() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("StA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2205);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("StV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2206);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.status.stealthed = true;
+            o.status.detected = false;
+            o
+        });
+        assert!(logic.cannot_possibly_attack_object(aid, vid, false));
+        logic.objects.get_mut(&vid).unwrap().status.detected = true;
+        assert!(!logic.cannot_possibly_attack_object(aid, vid, false));
+    }
+
+    #[test]
+    fn attack_state_enter_fails_without_legal_weapon() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("NwA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2207);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            // no weapon
+            o
+        });
+        let mut vt = ThingTemplate::new("NwV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2208);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o
+        });
+        assert_eq!(
+            logic.attack_state_enter(aid, vid),
+            AttackMachineResult::Failure
         );
     }
 
