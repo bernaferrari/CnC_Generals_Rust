@@ -2769,6 +2769,15 @@ impl Object {
     }
 
     /// C++ ActiveBody visual condition + Drawable::reactToBodyDamageStateChange residual.
+
+    /// C++ ProductionUpdate MODELCONDITION_CONSTRUCTION_COMPLETE residual.
+    pub fn set_construction_complete_condition(&mut self) {
+        use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
+        let bit = construction_complete_model_bit();
+        self.model_condition_bits |= 1u128 << bit;
+        self.refresh_model_condition_bits();
+    }
+
     pub fn refresh_model_condition_bits(&mut self) {
         use crate::game_logic::host_enum_table_residual::{
             host_apply_body_damage_model_bits, host_calc_body_damage_state, HostBodyDamageType,

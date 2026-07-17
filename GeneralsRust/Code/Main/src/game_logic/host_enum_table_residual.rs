@@ -206,6 +206,7 @@ pub const MC_BIT_ATTACKING: u32 = 34;
 pub const MC_BIT_MOVING: u32 = 49;
 /// C++ MODELCONDITION_DISGUISED residual bit index.
 pub const MC_BIT_DISGUISED: u32 = 116;
+
 pub const MC_BIT_DYING: u32 = 50;
 
 /// C++ MODELCONDITION_STUNNED_FLAILING residual index (ALLOW_SURRENDER off).
@@ -393,6 +394,12 @@ pub const MODELCONDITION_CONTINUOUS_FIRE_MEAN: u32 = 85;
 pub const MODELCONDITION_CONTINUOUS_FIRE_FAST: u32 = 86;
 
 /// Lookup ModelCondition bit-name index residual.
+
+/// C++ MODELCONDITION_CONSTRUCTION_COMPLETE residual bit index from name table.
+pub fn construction_complete_model_bit() -> u32 {
+    model_condition_bit_name_index("CONSTRUCTION_COMPLETE").unwrap_or(55) as u32
+}
+
 pub fn model_condition_bit_name_index(name: &str) -> Option<usize> {
     MODEL_CONDITION_BIT_NAME_LIST
         .iter()
