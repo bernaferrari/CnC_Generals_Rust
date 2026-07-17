@@ -1747,6 +1747,16 @@ impl Object {
             bits &= !(1u128 << MC_BIT_STUNNED_FLAILING);
             bits |= 1u128 << MC_BIT_STUNNED;
         }
+        // SPLATTED residual sticks after fatal falling damage.
+        use crate::game_logic::host_enum_table_residual::MC_BIT_SPLATTED;
+        let had_splat = (self.model_condition_bits & (1u128 << MC_BIT_SPLATTED)) != 0;
+        if had_splat
+            || (self.status.destroyed
+                && self.status.death_type
+                    == crate::game_logic::host_usa_pilot::HostDeathType::Splatted)
+        {
+            bits |= 1u128 << MC_BIT_SPLATTED;
+        }
         self.model_condition_bits = bits;
     }
 
@@ -1845,9 +1855,69 @@ impl Object {
     /// C++ GlobalData::m_groundStiffness default residual.
     pub const GROUND_STIFFNESS: f32 = 0.5;
     /// Host gravity residual (world-Y up) while shock-airborne.
-    pub const SHOCK_GRAVITY: f32 = -0.8;
+    pub const SHOCK_GRAVITY: f32 = -1.0; // C++ GlobalData::m_gravity residual
     /// C++ handleBounce YPR damping residual.
     pub const BOUNCE_YPR_DAMPING: f32 = 0.7;
+    /// C++ PhysicsBehavior mass default residual.
+    pub const SHOCK_MASS: f32 = 1.0;
+    /// C++ FallHeightDamageFactor default residual.
+    pub const FALL_HEIGHT_DAMAGE_FACTOR: f32 = 1.0;
+    /// C++ min fall angle tan residual (~71 degrees).
+    pub const FALL_MIN_ANGLE_TAN: f32 = 3.0;
+    pub const FALL_TINY_DELTA: f32 = 0.01;
+
+    /// C++ heightToSpeed(height) = sqrt(|2*g*h|) with g residual 1.0.
+    pub fn height_to_fall_speed(height: f32) -> f32 {
+        (2.0 * Self::SHOCK_GRAVITY.abs() * height.abs()).sqrt()
+    }
+
+    /// C++ PhysicsBehaviorModuleData::m_minFallSpeedForDamage default (height 40).
+    pub fn min_fall_speed_for_damage() -> f32 {
+        Self::height_to_fall_speed(40.0)
+    }
+
+    /// C++ falling-damage residual when leaving airborne for ground.
+    ///
+    /// `impact_vy` is world-Y velocity at impact (negative when falling).
+    /// Returns damage applied (0 if none).
+    pub fn apply_shock_fall_damage(&mut self, impact_vy: f32) -> f32 {
+        if self.is_kind_of(KindOf::Projectile) {
+            return 0.0;
+        }
+        // netSpeed = -activeVelZ - minFall (C++ Z-up); host Y-up equivalent.
+        let net_speed = (-impact_vy) - Self::min_fall_speed_for_damage();
+        if net_speed <= 0.0 {
+            return 0.0;
+        }
+        let vx = self.movement.velocity.x;
+        let vz = self.movement.velocity.z;
+        // Steep-fall gate residual.
+        let steep_x =
+            vx.abs() <= Self::FALL_TINY_DELTA || (impact_vy / vx).abs() >= Self::FALL_MIN_ANGLE_TAN;
+        let steep_z =
+            vz.abs() <= Self::FALL_TINY_DELTA || (impact_vy / vz).abs() >= Self::FALL_MIN_ANGLE_TAN;
+        if !(steep_x && steep_z) {
+            return 0.0;
+        }
+        let damage_amt = net_speed * Self::SHOCK_MASS * Self::FALL_HEIGHT_DAMAGE_FACTOR;
+        if damage_amt <= 0.0 {
+            return 0.0;
+        }
+        let killed = self.take_damage_from_typed_death(
+            damage_amt,
+            Some(self.id),
+            crate::game_logic::combat::DamageType::Falling,
+            crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
+        );
+        if killed {
+            use crate::game_logic::host_enum_table_residual::MC_BIT_SPLATTED;
+            self.model_condition_bits |= 1u128 << MC_BIT_SPLATTED;
+            self.refresh_model_condition_bits();
+            // refresh may clear SPLATTED if not wired — re-set after.
+            self.model_condition_bits |= 1u128 << MC_BIT_SPLATTED;
+        }
+        damage_amt
+    }
 
     /// C++ PhysicsBehavior::handleBounce residual (world-Y = C++ Z).
     ///
@@ -1916,6 +1986,9 @@ impl Object {
             let mut pos = self.get_position();
             let new_y = pos.y + self.movement.velocity.y;
             if new_y <= ground_y {
+                // Capture impact velocity before bounce/slam (C++ activeVelZ residual).
+                let impact_vy = self.movement.velocity.y;
+                let was_air = self.shock_was_airborne || old_y > ground_y + 0.01;
                 let bounced = self.handle_shock_ground_bounce(old_y, new_y, ground_y);
                 pos.y = ground_y;
                 self.set_position(pos);
@@ -1926,6 +1999,10 @@ impl Object {
                     if self.shock_stun_frames > 15 {
                         self.shock_stun_frames = 15;
                     }
+                }
+                // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd → falling damage.
+                if was_air {
+                    let _ = self.apply_shock_fall_damage(impact_vy);
                 }
                 if bounced <= 0.0 {
                     // Slam residual: clamp downward vel at ground.
@@ -4984,6 +5061,64 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn shock_fall_damage_splats_on_hard_landing() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_enum_table_residual::{
+            host_model_condition_has, MC_BIT_SPLATTED,
+        };
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        // height_to_speed(40) with |g|=1 → sqrt(80) ≈ 8.94
+        assert!((Object::min_fall_speed_for_damage() - (80.0f32).sqrt()).abs() < 1e-3);
+        let mut tmpl = ThingTemplate::new("SplatVic");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.max_health = 50.0;
+        let mut o = Object::new(tmpl, ObjectId(11), Team::USA);
+        o.health.current = 50.0;
+        o.health.maximum = 50.0;
+        o.set_position(glam::Vec3::new(0.0, 5.0, 0.0));
+        o.shock_was_airborne = true;
+        o.shock_allow_bounce = false;
+        o.shock_stun_frames = 20;
+        // Hard downward impact residual (steep fall, no lateral).
+        o.movement.velocity = glam::Vec3::new(0.0, -20.0, 0.0);
+        let dmg = o.apply_shock_fall_damage(-20.0);
+        assert!(dmg > 0.0, "expected fall damage, got {dmg}");
+        // net = 20 - sqrt(80) ≈ 11.06 → kills 50hp unit with mass1 factor1? 11 < 50 so wounded
+        assert!(o.health.current < 50.0);
+        // Stronger impact to splat.
+        o.health.current = 5.0;
+        o.status.destroyed = false;
+        let dmg2 = o.apply_shock_fall_damage(-30.0);
+        assert!(dmg2 > 5.0);
+        assert!(o.status.destroyed || o.health.current <= 0.0);
+        if o.status.destroyed {
+            assert_eq!(o.status.death_type, HostDeathType::Splatted);
+            assert!(host_model_condition_has(
+                o.model_condition_bits,
+                MC_BIT_SPLATTED
+            ));
+        }
+        // Shallow slope residual: large lateral vs vertical → no damage.
+        let mut s = Object::new(
+            {
+                let mut t = ThingTemplate::new("SlopeVic");
+                t.add_kind_of(KindOf::Vehicle);
+                t
+            },
+            ObjectId(12),
+            Team::USA,
+        );
+        s.health.current = 100.0;
+        s.movement.velocity = glam::Vec3::new(50.0, -5.0, 0.0);
+        let d0 = s.apply_shock_fall_damage(-5.0);
+        assert_eq!(d0, 0.0, "below min fall speed");
+        // Above min speed but shallow angle.
+        let d1 = s.apply_shock_fall_damage(-20.0);
+        // |20/50|=0.4 < 3 → not steep
+        assert_eq!(d1, 0.0, "shallow fall must not damage");
+        let _ = DamageType::Falling;
+    }
     #[test]
     fn shock_bounce_settles_freefall_and_switches_to_stunned() {
         use crate::game_logic::host_enum_table_residual::{

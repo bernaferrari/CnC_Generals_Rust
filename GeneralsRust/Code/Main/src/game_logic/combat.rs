@@ -17,6 +17,8 @@ pub enum DamageType {
     Flame,
     Anthrax,
     Unresistable,
+    /// C++ DAMAGE_FALLING residual (PhysicsBehavior landing splat).
+    Falling,
 }
 
 /// Armor types
