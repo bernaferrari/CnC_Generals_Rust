@@ -1126,7 +1126,10 @@ impl<'a> CommandExecutor<'a> {
                     ) {
                         continue;
                     }
-                } else if *power_type == SpecialPowerType::Paradrop {
+                } else if *power_type == SpecialPowerType::Paradrop
+                    || *power_type == SpecialPowerType::InfantryParadrop
+                    || *power_type == SpecialPowerType::TankParadrop
+                {
                     if self
                         .game_logic
                         .queue_paradrop(power_type, unit_id, pos)
@@ -1134,7 +1137,9 @@ impl<'a> CommandExecutor<'a> {
                     {
                         continue;
                     }
-                } else if *power_type == SpecialPowerType::Ambush {
+                } else if *power_type == SpecialPowerType::Ambush
+                    || *power_type == SpecialPowerType::TerrorCell
+                {
                     if self
                         .game_logic
                         .queue_ambush(power_type, unit_id, pos)

@@ -308,9 +308,18 @@ pub enum SpecialPowerType {
     DetonateDirtyNuke,
     /// USA America Airborne / SuperweaponParadropAmerica residual.
     Paradrop,
+    /// Infantry General Paradrop residual (Infa_SuperweaponInfantryParadrop).
+    /// Host maps to Paradrop residual path with same ranger payload fail-closed.
+    InfantryParadrop,
+    /// Tank General Tank Paradrop residual (Tank_SuperweaponTankParadrop).
+    /// Host maps to Paradrop residual path (fail-closed infantry payload).
+    TankParadrop,
     /// GLA Rebel Ambush / SuperweaponRebelAmbush residual (SPECIAL_AMBUSH).
     /// Spawns infantry near target after fade delay — fail-closed vs full OCL.
     Ambush,
+    /// GLA Terror Cell residual (SPECIAL_TERROR_CELL / SuperweaponTerrorCell).
+    /// Host maps to Ambush infantry spawn residual (fail-closed vs full OCL cell).
+    TerrorCell,
     ParticleCannon,
     RadarScan,
     ScudStorm,
