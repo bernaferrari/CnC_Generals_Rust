@@ -1439,6 +1439,8 @@ pub struct GameLogic {
     capture_tunnel_transfers: u32,
     /// C++ TunnelContain last-entrance capture eject residual events.
     capture_tunnel_last_ejects: u32,
+    /// C++ TechBuildingBehavior CAPTURED model residual events.
+    capture_tech_model_updates: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2707,6 +2709,7 @@ impl GameLogic {
             capture_deselections: 0,
             capture_tunnel_transfers: 0,
             capture_tunnel_last_ejects: 0,
+            capture_tech_model_updates: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3112,6 +3115,7 @@ impl GameLogic {
         self.capture_deselections = 0;
         self.capture_tunnel_transfers = 0;
         self.capture_tunnel_last_ejects = 0;
+        self.capture_tech_model_updates = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -43324,6 +43328,32 @@ impl GameLogic {
             // C++ clearScriptStatus(OBJECT_STATUS_SCRIPT_UNSELLABLE) residual.
         }
 
+        // C++ TechBuildingBehavior MODELCONDITION_CAPTURED residual:
+        // playable side owner → set CAPTURED; neutral → clear.
+        let is_tech = self
+            .objects
+            .get(&object_id)
+            .map(|o| {
+                let n = o.template_name.to_ascii_lowercase();
+                n.starts_with("tech")
+                    || crate::game_logic::host_oil_derrick::is_oil_derrick_template(
+                        &o.template_name,
+                    )
+                    || n.contains("oilrefinery")
+                    || n.contains("hospital")
+                    || n.contains("artilleryplatform")
+                    || n.contains("reinforcementpad")
+                    || n.contains("repairbay") && n.contains("tech")
+            })
+            .unwrap_or(false);
+        if is_tech {
+            let playable = new_team != Team::Neutral;
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.set_captured_model_condition(playable);
+            }
+            self.capture_tech_model_updates = self.capture_tech_model_updates.saturating_add(1);
+        }
+
         // Skirmish AI sells captured faction structures (C++ isSkirmishAIPlayer residual).
         let new_owner_is_ai = self
             .players
@@ -79930,6 +79960,51 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn capture_tech_building_sets_captured_model_condition() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::Neutral, "Neutral", false));
+
+        let mut oil = ThingTemplate::new("TechOilDerrick");
+        oil.add_kind_of(KindOf::Structure).set_health(2000.0);
+        logic.templates.insert("TechOilDerrick".into(), oil);
+
+        let id = logic
+            .create_object(
+                "TechOilDerrick",
+                Team::Neutral,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("oil");
+        assert!(!logic.get_object(id).unwrap().has_captured_model_condition());
+
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_team(Team::USA);
+        }
+        logic.on_capture_object_residual(id, Team::Neutral, Team::USA);
+        assert!(logic.capture_tech_model_updates > 0);
+        assert!(
+            logic.get_object(id).unwrap().has_captured_model_condition(),
+            "playable owner must set CAPTURED model condition"
+        );
+
+        // Return to neutral clears.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_team(Team::Neutral);
+        }
+        logic.on_capture_object_residual(id, Team::USA, Team::Neutral);
+        assert!(
+            !logic.get_object(id).unwrap().has_captured_model_condition(),
+            "neutral owner must clear CAPTURED"
         );
     }
 
