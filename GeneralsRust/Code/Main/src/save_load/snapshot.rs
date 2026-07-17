@@ -3267,6 +3267,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                     crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
                 scud_anthrax_tier:
                     crate::game_logic::special_power_strikes::ScudStormAnthraxTier::Base,
+                a10_tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier::Level1,
+                a10_formation_size_applications: 0,
                 multi_strike_applied: 0,
                 particle_status:
                     crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
