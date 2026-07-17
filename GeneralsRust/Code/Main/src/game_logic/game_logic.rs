@@ -44348,6 +44348,32 @@ impl GameLogic {
 
     /// Enqueue unit production on a building if permitted.
 
+    /// Living units of template for a team + queued production of that template residual.
+    pub fn count_team_units_of_template_owned_or_queued(
+        &self,
+        team: Team,
+        template_name: &str,
+    ) -> u32 {
+        let mut n = 0u32;
+        for obj in self.objects.values() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if obj.template_name.eq_ignore_ascii_case(template_name) {
+                n = n.saturating_add(1);
+            }
+            // Queued production residual.
+            if let Some(b) = obj.building_data.as_ref() {
+                for item in &b.production_queue {
+                    if item.template_name.eq_ignore_ascii_case(template_name) {
+                        n = n.saturating_add(1);
+                    }
+                }
+            }
+        }
+        n
+    }
+
     /// Hangar occupancy residual: docked aircraft at this airfield + queued aircraft.
     pub fn airfield_parking_occupied_or_queued(&self, airfield_id: ObjectId) -> u32 {
         let Some(af) = self.objects.get(&airfield_id) else {
@@ -44411,7 +44437,7 @@ impl GameLogic {
     /// C++ BuildAssistant::canMakeUnit residual status for a producer + template.
     ///
     /// Fail-closed parking/maxed residual currently unused (always false) until
-    /// MaxSimultaneous unit residual still deferred (parking hangar residual live).
+    /// Hero MaxSimultaneousOfType=1 residual live; full INI MaxSimultaneous matrix deferred.
     pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
         use crate::game_logic::host_production_buildable_command_residual::{
@@ -44484,13 +44510,22 @@ impl GameLogic {
             None => false,
         };
         let _ = CANMAKE_OK;
+        // C++ MaxSimultaneousOfType residual (heroes MaxSimultaneousOfType=1).
+        let maxed_out = {
+            use crate::game_logic::host_production_buildable_command_residual::{
+                unit_max_simultaneous_of_type_residual, unit_maxed_out_for_player_residual,
+            };
+            let max = unit_max_simultaneous_of_type_residual(template_name);
+            let owned = self.count_team_units_of_template_owned_or_queued(team, template_name);
+            unit_maxed_out_for_player_residual(owned, max)
+        };
         can_make_type_from_checks_residual(
             has_prereq,
             has_money,
             factory_disabled,
             queue_full,
             parking_full,
-            false, // maxed residual deferred (unit MaxSimultaneous)
+            maxed_out,
         )
     }
 
@@ -59414,6 +59449,72 @@ mod tests {
             .production_queue;
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].template_name, "USA_Humvee");
+    }
+
+    #[test]
+    fn can_make_hero_maxed_out_at_one_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            unit_max_simultaneous_of_type_residual, CANMAKE_MAXED_OUT_FOR_PLAYER, CANMAKE_OK,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(
+            unit_max_simultaneous_of_type_residual("AmericaInfantryColonelBurton"),
+            Some(1)
+        );
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_barracks_template(&mut logic);
+        let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+        burton
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Hero)
+            .set_health(200.0)
+            .set_cost(1500, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryColonelBurton".into(), burton);
+
+        let barracks = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        assert_eq!(
+            logic.can_make_unit(barracks, "AmericaInfantryColonelBurton"),
+            CANMAKE_OK
+        );
+        assert!(logic.enqueue_production(barracks, "AmericaInfantryColonelBurton".into()));
+        // Queued counts toward max residual.
+        assert_eq!(
+            logic.can_make_unit(barracks, "AmericaInfantryColonelBurton"),
+            CANMAKE_MAXED_OUT_FOR_PLAYER
+        );
+        // Complete spawn also maxes.
+        let mut logic2 = GameLogic::new();
+        ensure_test_player_for_team(&mut logic2, Team::USA);
+        ensure_test_barracks_template(&mut logic2);
+        logic2.templates.insert(
+            "AmericaInfantryColonelBurton".into(),
+            logic
+                .templates
+                .get("AmericaInfantryColonelBurton")
+                .unwrap()
+                .clone(),
+        );
+        let b2 = logic2
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let _ = logic2
+            .create_object(
+                "AmericaInfantryColonelBurton",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .unwrap();
+        assert_eq!(
+            logic2.can_make_unit(b2, "AmericaInfantryColonelBurton"),
+            CANMAKE_MAXED_OUT_FOR_PLAYER
+        );
+        assert!(!logic2.enqueue_production(b2, "AmericaInfantryColonelBurton".into()));
     }
 
     #[test]
