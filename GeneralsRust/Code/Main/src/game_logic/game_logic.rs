@@ -1819,6 +1819,17 @@ pub enum AttackFireResult {
     Failure,
 }
 
+/// C++ AIAttackAimAtTargetState residual result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttackAimResult {
+    /// Still turning / held out-of-range wait.
+    Continue,
+    /// Within AcceptableAimDelta.
+    Success,
+    /// Dead victim / no weapon / held out of range.
+    Failure,
+}
+
 impl GameLogic {
     fn seed_sample_objectives() -> Vec<ObjectiveDisplay> {
         vec![
@@ -6229,11 +6240,96 @@ impl GameLogic {
         true
     }
 
-    /// C++ AIAttackFireWeaponState readiness residual.
-    ///
-    /// True when attacker can fire at victim this frame (range + ready + optional LOS).
+    /// C++ AIAttackAimAtTargetState::onEnter residual.
+    pub fn attack_aim_at_target_enter(&mut self, unit_id: ObjectId) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        if !u.is_alive() {
+            return false;
+        }
+        if u.weapon.is_none() && u.secondary_weapon.is_none() {
+            return false;
+        }
+        u.status.is_aiming_weapon = true;
+        u.status.attacking = true;
+        u.ai_state = AIState::Attacking;
+        true
+    }
 
-    /// C++ AIAttackFireWeaponState::onEnter residual — set IS_FIRING_WEAPON.
+    /// C++ AIAttackAimAtTargetState::onExit residual.
+    pub fn attack_aim_at_target_exit(&mut self, unit_id: ObjectId) {
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.status.is_aiming_weapon = false;
+        }
+    }
+
+    /// C++ AIAttackAimAtTargetState::update residual (body turn, no turret).
+    ///
+    /// Turns in place toward victim using AcceptableAimDelta; returns Success
+    /// when |relAngle| < aimDelta.
+    pub fn attack_aim_at_target_update(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        max_turn_rad: f32,
+    ) -> AttackAimResult {
+        // Snapshot victim position + liveness.
+        let victim_pos = {
+            let Some(v) = self.objects.get(&victim_id) else {
+                return AttackAimResult::Failure;
+            };
+            if !v.is_alive() || v.status.destroyed {
+                return AttackAimResult::Failure;
+            }
+            v.get_position()
+        };
+
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return AttackAimResult::Failure;
+        };
+        if !u.is_alive() {
+            return AttackAimResult::Failure;
+        }
+        if u.weapon.is_none() && u.secondary_weapon.is_none() {
+            return AttackAimResult::Failure;
+        }
+        u.status.is_aiming_weapon = true;
+        u.target = Some(victim_id);
+
+        // Range gate while HELD residual: if out of range, Failure.
+        // Host residual: always check range if weapon present.
+        // (Held check not fully ported; range failure only when far and not turning.)
+        let slot = u.active_weapon_slot;
+        let aimed = u.turn_toward_position(victim_pos, slot, max_turn_rad.max(0.05));
+        if aimed {
+            AttackAimResult::Success
+        } else {
+            // If completely out of attack range, fail so approach can resume.
+            // Need immutable borrow of victim again.
+            let range_ok = {
+                // self-borrow: get positions from u and re-check via stored weapon range
+                let us = u.get_position();
+                let dx = victim_pos.x - us.x;
+                let dz = victim_pos.z - us.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let range = u
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.range)
+                    .or_else(|| u.secondary_weapon.as_ref().map(|w| w.range))
+                    .unwrap_or(0.0)
+                    * u.battle_plan_range_multiplier();
+                dist <= range + 1e-3
+            };
+            if !range_ok {
+                AttackAimResult::Failure
+            } else {
+                AttackAimResult::Continue
+            }
+        }
+    }
+
     pub fn attack_fire_weapon_enter(&mut self, unit_id: ObjectId) -> bool {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
@@ -71951,6 +72047,116 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn attack_aim_enter_exit_flags() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AimA");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(1501);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::USA);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                ..Default::default()
+            });
+            o
+        });
+        assert!(logic.attack_aim_at_target_enter(id));
+        assert!(logic.objects[&id].status.is_aiming_weapon);
+        logic.attack_aim_at_target_exit(id);
+        assert!(!logic.objects[&id].status.is_aiming_weapon);
+    }
+
+    #[test]
+    fn attack_aim_update_success_when_facing() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AimAtk");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1502);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0); // +X
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AimVic");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1503);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(40.0, 0.0, 0.0)); // along +X
+            o
+        });
+        let r = logic.attack_aim_at_target_update(aid, vid, 1.0);
+        assert_eq!(r, AttackAimResult::Success);
+    }
+
+    #[test]
+    fn attack_aim_update_continues_while_turning() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AimAtk2");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1504);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0); // +X
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AimVic2");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1505);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            // Behind shooter — need ~180° turn; small step keeps Continue.
+            o.set_position(Vec3::new(-40.0, 0.0, 0.0));
+            o
+        });
+        let r = logic.attack_aim_at_target_update(aid, vid, 0.05); // ~3°
+        assert_eq!(r, AttackAimResult::Continue);
+        assert!(logic.objects[&aid].status.is_aiming_weapon);
+    }
+
+    #[test]
+    fn attack_aim_update_fails_dead_victim() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AimAtk3");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1506);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AimVic3");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1507);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.status.destroyed = true;
+            o
+        });
+        let r = logic.attack_aim_at_target_update(aid, vid, 1.0);
+        assert_eq!(r, AttackAimResult::Failure);
     }
 
     #[test]
