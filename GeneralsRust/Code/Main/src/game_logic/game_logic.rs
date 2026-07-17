@@ -82195,6 +82195,110 @@ mod tests {
     }
 
     #[test]
+    fn usa_puc_tech_tree_prereq_chain_residual() {
+        use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+
+        // Seed templates residual for climb: CC free → Supply → WF → Strategy → PUC.
+        for name in [
+            "AmericaCommandCenter",
+            "AmericaSupplyCenter",
+            "AmericaWarFactory",
+            "AmericaAirfield",
+            "AmericaStrategyCenter",
+            AMERICA_PARTICLE_CANNON_UPLINK,
+        ] {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Structure).set_health(2000.0);
+            if name.contains("Particle") {
+                t.add_kind_of(KindOf::FSSuperweapon);
+            }
+            if name.contains("Command") {
+                t.add_kind_of(KindOf::CommandCenter);
+            }
+            logic.templates.insert(name.into(), t);
+        }
+
+        // Cannot start Supply without CC.
+        assert!(logic
+            .create_object_under_construction(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .is_none());
+        let _ = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(-10.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        assert!(logic
+            .create_object_under_construction(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .is_some());
+        // Instant complete supply residual for next prereq.
+        let _ = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("supply");
+
+        // WarFactory needs supply.
+        assert!(logic
+            .create_object_under_construction(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 0.0),
+            )
+            .is_some());
+        let _ = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("wf");
+
+        // Strategy needs WF OR Airfield (or_chain residual).
+        assert!(logic
+            .create_object_under_construction(
+                "AmericaStrategyCenter",
+                Team::USA,
+                glam::Vec3::new(30.0, 0.0, 0.0),
+            )
+            .is_some());
+        let _ = logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                glam::Vec3::new(30.0, 0.0, 0.0),
+            )
+            .expect("sc");
+
+        // PUC needs Strategy.
+        assert!(
+            logic
+                .create_object_under_construction(
+                    AMERICA_PARTICLE_CANNON_UPLINK,
+                    Team::USA,
+                    glam::Vec3::new(40.0, 0.0, 0.0),
+                )
+                .is_some(),
+            "full USA SW tech climb residual"
+        );
+    }
+
+    #[test]
     fn superweapon_structure_requires_tech_building_prereq() {
         use crate::game_logic::host_production_buildable_command_residual::honesty_prerequisite_residual_pack_wave99;
         use crate::game_logic::host_superweapon_kindof::{
