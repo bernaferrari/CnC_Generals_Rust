@@ -5977,6 +5977,13 @@ impl GameLogic {
                     prod.set_construction_complete_condition_at(now);
                     prod.start_production_door_cycle(self.frame);
                     self.production_door_cycles = self.production_door_cycles.saturating_add(1);
+                    // C++ QueueProductionExitUpdate ExitDelay residual after release.
+                    if let Some(building) = prod.building_data.as_mut() {
+                        let delay = crate::game_logic::host_dock_contain_exit_heal_residual::queue_exit_delay_seconds_for_template(
+                            &prod.template_name,
+                        );
+                        building.arm_exit_delay(delay);
+                    }
                 }
                 // SCIENCE_StealthFighter residual: record gated production spawn.
                 if crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science(
@@ -59449,6 +59456,93 @@ mod tests {
             .production_queue;
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].template_name, "USA_Humvee");
+    }
+
+    #[test]
+    fn china_barracks_exit_delay_holds_second_unit_residual() {
+        use crate::game_logic::buildings::BuildingType;
+        use crate::game_logic::host_dock_contain_exit_heal_residual::{
+            queue_exit_delay_seconds_for_template, QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_FRAMES,
+            QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS, 300);
+        assert_eq!(QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_FRAMES, 9);
+        assert!((queue_exit_delay_seconds_for_template("ChinaBarracks") - 0.3).abs() < 0.001);
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        let mut bar = ThingTemplate::new("ChinaBarracks");
+        bar.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("ChinaBarracks".into(), bar);
+        let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+        rg.add_kind_of(KindOf::Infantry)
+            .set_health(100.0)
+            .set_cost(100, 0);
+        // Fast build residual for test.
+        rg.build_time = 0.05;
+        logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+
+        let bid = logic
+            .create_object("ChinaBarracks", Team::China, glam::Vec3::ZERO)
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+        }
+        assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
+        assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
+
+        // Tick until first completes (~0.05s).
+        for _ in 0..5 {
+            logic.update();
+        }
+        let living = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+            .count();
+        assert!(living >= 1, "first redguard should spawn, living={living}");
+        // Exit delay armed residual.
+        let delay = logic
+            .get_object(bid)
+            .and_then(|o| o.building_data.as_ref())
+            .map(|b| b.exit_delay_remaining())
+            .unwrap_or(0.0);
+        assert!(
+            delay > 0.0,
+            "ChinaBarracks should arm exit delay after first release, delay={delay}"
+        );
+        let living_mid = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+            .count();
+        // Immediate next frame should still hold second unit if progress complete.
+        logic.update();
+        let living_held = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+            .count();
+        assert_eq!(
+            living_held, living_mid,
+            "second unit held during exit delay residual"
+        );
+        // Drain exit delay (~0.3s at 30Hz ≈ 9 frames).
+        for _ in 0..15 {
+            logic.update();
+        }
+        let living_end = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+            .count();
+        assert!(
+            living_end >= 2,
+            "second redguard releases after exit delay, living={living_end}"
+        );
     }
 
     #[test]
