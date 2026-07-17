@@ -78272,6 +78272,56 @@ mod tests {
     }
 
     #[test]
+    fn production_door_cycle_includes_waiting_to_close() {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("AmericaBarracks");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), st);
+        let id = logic
+            .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.start_production_door_cycle(0);
+            assert_eq!(o.production_door_phase, 1);
+            assert!(host_model_condition_has(
+                o.model_condition_bits,
+                door_1_opening_model_bit()
+            ));
+            // open done
+            assert!(!o.tick_production_door(15));
+            assert_eq!(o.production_door_phase, 2);
+            assert!(host_model_condition_has(
+                o.model_condition_bits,
+                door_1_waiting_open_model_bit()
+            ));
+            // wait open done → WAITING_TO_CLOSE
+            assert!(!o.tick_production_door(45));
+            assert_eq!(o.production_door_phase, 3);
+            assert!(host_model_condition_has(
+                o.model_condition_bits,
+                door_1_waiting_to_close_model_bit()
+            ));
+            // wait_to_close done → CLOSING
+            assert!(!o.tick_production_door(46));
+            assert_eq!(o.production_door_phase, 4);
+            assert!(host_model_condition_has(
+                o.model_condition_bits,
+                door_1_closing_model_bit()
+            ));
+            // close done
+            assert!(o.tick_production_door(61));
+            assert_eq!(o.production_door_phase, 0);
+        }
+    }
+
+    #[test]
     fn dozer_bored_mine_clear_assigns_enemy_mine() {
         use crate::game_logic::host_mines::{HostMineData, HostMineKind};
         use crate::game_logic::{KindOf, Team, ThingTemplate};

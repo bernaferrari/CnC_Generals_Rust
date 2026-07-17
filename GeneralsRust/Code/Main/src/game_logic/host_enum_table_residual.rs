@@ -447,6 +447,11 @@ pub fn door_1_closing_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_CLOSING").unwrap_or(0) as u32
 }
 
+/// C++ MODELCONDITION_DOOR_1_WAITING_TO_CLOSE residual bit.
+pub fn door_1_waiting_to_close_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_1_WAITING_TO_CLOSE").unwrap_or(0) as u32
+}
+
 pub fn model_condition_bit_name_index(name: &str) -> Option<usize> {
     MODEL_CONDITION_BIT_NAME_LIST
         .iter()
