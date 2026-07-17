@@ -997,7 +997,9 @@ impl<'a> CommandExecutor<'a> {
             // SneakAttack residual delays then spawns a GLA tunnel + shockwave damage.
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
-            if *power_type == SpecialPowerType::CiaIntelligence {
+            if *power_type == SpecialPowerType::CiaIntelligence
+                || *power_type == SpecialPowerType::CommunicationsDownload
+            {
                 let team = self
                     .game_logic
                     .get_object(unit_id)

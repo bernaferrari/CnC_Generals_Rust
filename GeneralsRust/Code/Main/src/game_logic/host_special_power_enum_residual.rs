@@ -160,6 +160,9 @@ pub fn host_command_power_cpp_enum_name(
         HostCommandSpecialPowerType::ScudStorm => Some("SPECIAL_SCUD_STORM"),
         HostCommandSpecialPowerType::SpySatellite => Some("SPECIAL_SPY_SATELLITE"),
         HostCommandSpecialPowerType::CiaIntelligence => Some("SPECIAL_CIA_INTELLIGENCE"),
+        HostCommandSpecialPowerType::CommunicationsDownload => {
+            Some("SPECIAL_COMMUNICATIONS_DOWNLOAD")
+        }
         HostCommandSpecialPowerType::SpyDrone => Some("SPECIAL_SPY_DRONE"),
         HostCommandSpecialPowerType::AnthraxBomb => Some("SPECIAL_ANTHRAX_BOMB"),
         HostCommandSpecialPowerType::SpectreGunship => Some("SPECIAL_SPECTRE_GUNSHIP"),

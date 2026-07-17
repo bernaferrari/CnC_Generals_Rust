@@ -81434,6 +81434,57 @@ mod tests {
     }
 
     #[test]
+    fn communications_download_maps_to_cia_intelligence_residual() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_cia_intelligence::{
+            honesty_communications_download_residual_pack_ok, COMMUNICATIONS_DOWNLOAD_RELOAD_MS,
+            COMMUNICATIONS_DOWNLOAD_SPECIAL_ENUM,
+        };
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_communications_download_residual_pack_ok());
+        assert_eq!(COMMUNICATIONS_DOWNLOAD_RELOAD_MS, 10_000);
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::CommunicationsDownload),
+            Some(COMMUNICATIONS_DOWNLOAD_SPECIAL_ENUM)
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", false));
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut enemy = ThingTemplate::new("GLAInfantryRebel");
+        enemy.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), enemy);
+        let src = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let _e = logic
+            .create_object(
+                "GLAInfantryRebel",
+                Team::GLA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        assert!(logic.activate_cia_intelligence(0, Team::USA, Some(src)));
+        // CommunicationsDownload shares host SpyVision residual path.
+        assert!(logic.activate_cia_intelligence(0, Team::USA, Some(src)));
+        let _ = SpecialPowerType::CommunicationsDownload;
+    }
+
+    #[test]
     fn general_special_power_aliases_map_to_host_residuals() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::special_power_strikes::{
