@@ -1297,6 +1297,14 @@ pub struct GameLogic {
     last_radar_kind_time: [f32; 3],
     last_radar_audio_time: f32,
     last_radar_event: Option<RadarEntry>,
+    /// C++ Radar tryUnderAttackEvent throttle residual (frame, xz pos).
+    under_attack_event_history: Vec<(u32, f32, f32)>,
+    /// tryUnderAttackEvent residual honesty fires.
+    under_attack_events: u32,
+    /// EVA BaseUnderAttack residual honesty fires.
+    eva_base_under_attack: u32,
+    /// EVA AllyUnderAttack residual honesty fires.
+    eva_ally_under_attack: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2498,6 +2506,10 @@ impl GameLogic {
             last_radar_kind_time: [-10.0; 3],
             last_radar_audio_time: -10.0,
             last_radar_event: None,
+            under_attack_event_history: Vec::new(),
+            under_attack_events: 0,
+            eva_base_under_attack: 0,
+            eva_ally_under_attack: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2849,6 +2861,10 @@ impl GameLogic {
         self.mission_objectives = Self::seed_sample_objectives();
         self.rebuild_objective_lookup();
         self.last_radar_event = None;
+        self.under_attack_event_history.clear();
+        self.under_attack_events = 0;
+        self.eva_base_under_attack = 0;
+        self.eva_ally_under_attack = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -15176,6 +15192,8 @@ impl GameLogic {
                 (false, 0.0, glam::Vec3::ZERO, Team::Neutral)
             }
         };
+        // C++ TheRadar->tryUnderAttackEvent(this) residual on damage.
+        let _ = self.try_under_attack_event(target_id);
         // C++ ActiveBody: friend retaliation even if victim dies.
         let _ = self.try_friends_retaliate(target_id, attacker_id);
         if destroyed {
@@ -42271,6 +42289,150 @@ impl GameLogic {
     ///
     /// - STRUCTURE + MP_COUNT_FOR_VICTORY-class → EVA_BuildingLost (C++ typo BuldingLost)
     /// - INFANTRY or VEHICLE → EVA_UnitLost + RADAR_EVENT_FAKE residual
+
+    /// C++ Radar::tryUnderAttackEvent residual.
+    ///
+    /// Throttled by tryEvent distance/time residual. Fires radar attack message,
+    /// audio honesty, and EVA BaseUnderAttack / AllyUnderAttack for victory-class
+    /// structures owned by local / allied players.
+    pub fn try_under_attack_event(&mut self, victim_id: ObjectId) -> bool {
+        use crate::game_logic::host_radar_stealth_vision_residual::{
+            RADAR_AUDIO_HARVESTER_UNDER_ATTACK, RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
+            RADAR_MSG_HARVESTER_UNDER_ATTACK, RADAR_MSG_STRUCTURE_UNDER_ATTACK,
+            RADAR_MSG_UNDER_ATTACK, RADAR_MSG_UNIT_UNDER_ATTACK,
+            SPOTTER_TRY_EVENT_CLOSE_ENOUGH_DISTANCE_SQ_RESIDUAL,
+            SPOTTER_TRY_EVENT_FRAMES_BETWEEN_EVENTS_RESIDUAL,
+        };
+        let Some(obj) = self.objects.get(&victim_id) else {
+            return false;
+        };
+        if !obj.is_alive() {
+            return false;
+        }
+        let pos = obj.get_position();
+        let team = obj.team;
+        let is_infantry = obj.is_kind_of(KindOf::Infantry);
+        let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+        let is_structure = obj.is_kind_of(KindOf::Structure);
+        let name_l = obj.template_name.to_ascii_lowercase();
+        let is_harvester = name_l.contains("supplytruck")
+            || name_l.contains("supply_truck")
+            || name_l.contains("harvester")
+            || name_l.contains("gatherer")
+            || (name_l.contains("worker") && !name_l.contains("dozer"));
+        let is_mp_count = is_structure
+            && (obj.is_kind_of(KindOf::CommandCenter)
+                || obj.is_kind_of(KindOf::FSPower)
+                || obj.is_kind_of(KindOf::PowerPlant)
+                || obj.is_kind_of(KindOf::FSBarracks)
+                || obj.is_kind_of(KindOf::FSWarFactory)
+                || obj.is_kind_of(KindOf::FSAirfield)
+                || obj.is_kind_of(KindOf::FSSuperweapon)
+                || obj.is_kind_of(KindOf::FSStrategyCenter)
+                || obj.is_kind_of(KindOf::FSTechnology)
+                || obj.is_kind_of(KindOf::SupplyCenter)
+                || obj.is_kind_of(KindOf::FSSupplyCenter));
+        let alliance = self
+            .players
+            .values()
+            .find(|p| p.team == team)
+            .map(|p| p.alliance_team)
+            .unwrap_or(-1);
+
+        // C++ tryEvent throttle residual (XZ plane).
+        let now = self.frame;
+        let close_sq = SPOTTER_TRY_EVENT_CLOSE_ENOUGH_DISTANCE_SQ_RESIDUAL;
+        let frames_between = SPOTTER_TRY_EVENT_FRAMES_BETWEEN_EVENTS_RESIDUAL;
+        let px = pos.x;
+        let pz = pos.z;
+        for &(frame, ex, ez) in &self.under_attack_event_history {
+            if now.saturating_sub(frame) < frames_between {
+                let dx = ex - px;
+                let dz = ez - pz;
+                if dx * dx + dz * dz <= close_sq {
+                    return false;
+                }
+            }
+        }
+        self.under_attack_event_history.push((now, px, pz));
+        if self.under_attack_event_history.len() > 64 {
+            let drain = self.under_attack_event_history.len() - 64;
+            self.under_attack_event_history.drain(0..drain);
+        }
+        self.under_attack_events = self.under_attack_events.saturating_add(1);
+
+        let (msg_key, msg_fallback, audio) = if is_infantry || is_vehicle {
+            if is_harvester {
+                (
+                    RADAR_MSG_HARVESTER_UNDER_ATTACK,
+                    "Harvester under attack",
+                    RADAR_AUDIO_HARVESTER_UNDER_ATTACK,
+                )
+            } else {
+                (
+                    RADAR_MSG_UNIT_UNDER_ATTACK,
+                    "Unit under attack",
+                    RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
+                )
+            }
+        } else if is_structure && is_mp_count {
+            (
+                RADAR_MSG_STRUCTURE_UNDER_ATTACK,
+                "Structure under attack",
+                RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
+            )
+        } else {
+            (
+                RADAR_MSG_UNDER_ATTACK,
+                "Under attack",
+                RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
+            )
+        };
+        let msg = localization::localize(msg_key, msg_fallback);
+        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
+        self.queue_audio_event(
+            AudioEventRequest::new(audio)
+                .with_object(victim_id)
+                .with_position(pos)
+                .with_priority(165),
+        );
+
+        if is_structure && is_mp_count {
+            let local_owns = self
+                .players
+                .values()
+                .any(|p| p.is_local && p.is_alive && p.team == team);
+            let local_ally = !local_owns
+                && self.players.values().any(|p| {
+                    p.is_local
+                        && p.is_alive
+                        && p.alliance_team == alliance
+                        && alliance >= 0
+                        && p.team != team
+                });
+            if local_owns {
+                let _ = gamelogic::helpers::TheEva::set_should_play(
+                    gamelogic::helpers::EvaEvent::BaseUnderAttack,
+                );
+                self.eva_base_under_attack = self.eva_base_under_attack.saturating_add(1);
+            } else if local_ally {
+                let _ = gamelogic::helpers::TheEva::set_should_play(
+                    gamelogic::helpers::EvaEvent::AllyUnderAttack,
+                );
+                self.eva_ally_under_attack = self.eva_ally_under_attack.saturating_add(1);
+            }
+        }
+        true
+    }
+
+    pub fn honesty_under_attack_event_ok(&self) -> bool {
+        self.under_attack_events > 0
+    }
+
+    pub fn honesty_eva_base_under_attack_ok(&self) -> bool {
+        self.eva_base_under_attack > 0
+    }
+
     pub fn try_eva_on_local_object_death(
         &mut self,
         _victim_id: ObjectId,
@@ -76769,6 +76931,45 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn try_under_attack_event_base_eva_and_throttle() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        let mut st = ThingTemplate::new("AmericaCommandCenter");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 20.0),
+            )
+            .expect("cc");
+        assert!(logic.try_under_attack_event(id));
+        assert!(logic.honesty_under_attack_event_ok());
+        assert!(logic.honesty_eva_base_under_attack_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::BaseUnderAttack),
+            "{events:?}"
+        );
+        // Throttle: second event near same pos within 300 frames rejected.
+        assert!(!logic.try_under_attack_event(id));
+        // Far away position should still fire.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(glam::Vec3::new(1000.0, 0.0, 1000.0));
+        }
+        assert!(logic.try_under_attack_event(id));
     }
 
     #[test]
