@@ -412,6 +412,28 @@ pub enum SpecialPowerType {
     /// (1000/2000/4000). Fail-closed vs full CashHackSpecialPower victim clamp /
     /// floating text / multiplayer academy path.
     CashHack,
+    /// USA Airforce DaisyCutter residual (AIRF_SPECIAL_DAISY_CUTTER).
+    AirForceDaisyCutter,
+    /// USA Airforce A10 residual (AIRF_SPECIAL_A10_THUNDERBOLT_STRIKE).
+    AirForceAirstrike,
+    /// USA Airforce Spectre residual (AIRF_SPECIAL_SPECTRE_GUNSHIP).
+    AirForceSpectreGunship,
+    /// Superweapon General PUC residual (SUPW_SPECIAL_PARTICLE_UPLINK_CANNON).
+    SuperweaponParticleCannon,
+    /// Nuke General NeutronMissile residual (NUKE_SPECIAL_NEUTRON_MISSILE).
+    NukeNeutronMissile,
+    /// Superweapon General NeutronMissile residual (SUPW path alias).
+    SuperweaponNeutronMissile,
+    /// Nuke General China CarpetBomb residual.
+    NukeChinaCarpetBomb,
+    /// Stealth General GPS Scrambler residual (Slth_SuperweaponGPSScrambler).
+    StealthGpsScrambler,
+    /// Launch Baikonur Rocket residual (SPECIAL_LAUNCH_BAIKONUR_ROCKET).
+    BaikonurRocket,
+    /// Nuke General NukeDrop residual (NUKE_SPECIAL_CLUSTER_MINES).
+    NukeDrop,
+    /// Battleship Bombardment residual (SPECIAL_BATTLESHIP_BOMBARDMENT).
+    BattleshipBombardment,
     Invalid,
 }
 
