@@ -32,6 +32,19 @@
 /// C++ MiscAudio m_radarInfiltrationSound residual honesty.
 pub const RADAR_INFILTRATION_AUDIO: &str = "RadarInfiltration";
 
+/// C++ RADAR:UnitUnderAttack residual.
+pub const RADAR_MSG_UNIT_UNDER_ATTACK: &str = "RADAR:UnitUnderAttack";
+/// C++ RADAR:HarvesterUnderAttack residual.
+pub const RADAR_MSG_HARVESTER_UNDER_ATTACK: &str = "RADAR:HarvesterUnderAttack";
+/// C++ RADAR:StructureUnderAttack residual.
+pub const RADAR_MSG_STRUCTURE_UNDER_ATTACK: &str = "RADAR:StructureUnderAttack";
+/// C++ RADAR:UnderAttack residual (generic).
+pub const RADAR_MSG_UNDER_ATTACK: &str = "RADAR:UnderAttack";
+/// C++ MiscAudio m_radarStructureUnderAttackSound residual.
+pub const RADAR_AUDIO_STRUCTURE_UNDER_ATTACK: &str = "RadarStructureUnderAttack";
+/// C++ MiscAudio m_radarHarvesterUnderAttackSound residual.
+pub const RADAR_AUDIO_HARVESTER_UNDER_ATTACK: &str = "RadarHarvesterUnderAttack";
+
 pub const RADAR_STEALTH_VISION_LOGIC_FPS: f32 = 30.0;
 
 /// Convert msec residual → logic frames @ 30 FPS (exact for multiples of 100/1000).
@@ -312,6 +325,9 @@ pub fn honesty_spotter_residual_pack_wave97() -> bool {
         && (SPOTTER_SECOND_MATERIAL_PASS_OPACITY_RESIDUAL - 1.0).abs() < 1e-6
         && SPOTTER_RADAR_EVENT_STEALTH_DISCOVERED_INDEX == 8
         && SPOTTER_RADAR_EVENT_STEALTH_NEUTRALIZED_INDEX == 9
+        && RADAR_MSG_UNIT_UNDER_ATTACK == "RADAR:UnitUnderAttack"
+        && RADAR_MSG_STRUCTURE_UNDER_ATTACK == "RADAR:StructureUnderAttack"
+        && SPOTTER_TRY_EVENT_FRAMES_BETWEEN_EVENTS_RESIDUAL == 300
         && residual_name_index(
             RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL,
             "RADAR_EVENT_STEALTH_DISCOVERED",
