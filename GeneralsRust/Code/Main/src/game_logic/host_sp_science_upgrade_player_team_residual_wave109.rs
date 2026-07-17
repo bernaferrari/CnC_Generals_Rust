@@ -545,6 +545,119 @@ pub const SCIENCE_STORE_TABLE_WAVE109: &[ScienceStoreResidualRowWave109] = &[
 
 /// C++ residual: cost **0** → cannot be purchased (not free).
 #[inline]
+
+/// C++ `ScienceStore::getSciencePurchaseCost` residual for host purchase path.
+///
+/// Returns `None` when unknown (caller may default to 1 for SCIENCE_* names).
+/// Cost **0** means not purchasable (C++ residual).
+pub fn science_purchase_point_cost_residual(science_name: &str) -> Option<i32> {
+    let name = science_name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    if let Some(row) = science_store_row_wave109(name) {
+        return Some(row.point_cost);
+    }
+    // Known host residual constants (SciencePurchasePointCost = 1 typical).
+    use crate::game_logic::host_cash_bounty::CASH_BOUNTY_SCIENCE_POINT_COST;
+    use crate::game_logic::host_spy_drone::SPY_DRONE_REQUIRED_SCIENCE;
+    let n = name.to_ascii_lowercase();
+    if n.contains("cashbounty") {
+        return Some(CASH_BOUNTY_SCIENCE_POINT_COST as i32);
+    }
+    if name == SPY_DRONE_REQUIRED_SCIENCE || n == "science_spydrone" {
+        return Some(1);
+    }
+    if n.starts_with("science_")
+        || n.starts_with("airf_science_")
+        || n.starts_with("nuke_science_")
+        || n.starts_with("early_science_")
+        || n.starts_with("supw_science_")
+        || n.starts_with("chem_science_")
+        || n.starts_with("slth_science_")
+        || n.starts_with("infa_science_")
+        || n.starts_with("tank_science_")
+    {
+        // Rank sciences and faction base sciences are not purchased for points.
+        if n.contains("science_rank")
+            || n == "science_america"
+            || n == "science_china"
+            || n == "science_gla"
+        {
+            return Some(0);
+        }
+        // Default purchasable residual cost 1 (Science.ini SciencePurchasePointCost).
+        return Some(1);
+    }
+    None
+}
+
+/// C++ `Player::hasPrereqsForScience` residual from Wave109 store + CashBounty chain.
+///
+/// Missing table entry → prereqs considered satisfied (fail-open for unmapped names
+/// once cost gate passes). Empty prereq slots are ignored.
+pub fn science_prereqs_met_residual(
+    unlocked: &std::collections::HashSet<String>,
+    science_name: &str,
+) -> bool {
+    let has = |req: &str| -> bool {
+        if req.is_empty() {
+            return true;
+        }
+        let r = req.to_ascii_lowercase().replace('-', "_");
+        unlocked.iter().any(|u| {
+            let n = u.to_ascii_lowercase().replace('-', "_");
+            n == r || n.ends_with(&r) || r.ends_with(&n)
+        })
+    };
+    if let Some(row) = science_store_row_wave109(science_name.trim()) {
+        return has(row.prereq_a) && has(row.prereq_b);
+    }
+    // CashBounty chain residual without full table.
+    use crate::game_logic::host_cash_bounty::{
+        CASH_BOUNTY1_PREREQ_SCIENCES, CASH_BOUNTY2_PREREQ_SCIENCES, CASH_BOUNTY3_PREREQ_SCIENCES,
+        SCIENCE_CASH_BOUNTY1, SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
+    };
+    let prereqs: &[&str] = match science_name.trim() {
+        x if x == SCIENCE_CASH_BOUNTY1 => &CASH_BOUNTY1_PREREQ_SCIENCES,
+        x if x == SCIENCE_CASH_BOUNTY2 => &CASH_BOUNTY2_PREREQ_SCIENCES,
+        x if x == SCIENCE_CASH_BOUNTY3 => &CASH_BOUNTY3_PREREQ_SCIENCES,
+        _ => return true,
+    };
+    prereqs.iter().all(|p| has(p))
+}
+
+/// C++ `Player::isCapableOfPurchasingScience` residual.
+pub fn is_capable_of_purchasing_science_residual(
+    unlocked: &std::collections::HashSet<String>,
+    science_purchase_points: i32,
+    science_name: &str,
+) -> bool {
+    let name = science_name.trim();
+    if name.is_empty() {
+        return false;
+    }
+    // Already owned.
+    let key = name.to_ascii_lowercase().replace('-', "_");
+    if unlocked.iter().any(|u| {
+        let n = u.to_ascii_lowercase().replace('-', "_");
+        n == key
+    }) {
+        return false;
+    }
+    let Some(cost) = science_purchase_point_cost_residual(name) else {
+        // Unknown non-SCIENCE name: not purchasable residual.
+        return false;
+    };
+    if !science_is_purchasable_residual(cost) {
+        return false;
+    }
+    if cost > science_purchase_points {
+        return false;
+    }
+    science_prereqs_met_residual(unlocked, name)
+}
+
 pub fn science_is_purchasable_residual(point_cost: i32) -> bool {
     point_cost > SCIENCE_PURCHASE_COST_UNPURCHASABLE_RESIDUAL
 }
