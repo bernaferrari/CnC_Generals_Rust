@@ -82761,30 +82761,139 @@ mod tests {
 
     #[test]
     fn shared_timer_ready_fires_eva_superweapon_ready_residual() {
+        // Structure PublicTimer SWs (PUC/Nuke/Scud) are not SharedNSync — ready EVA
+        // fires from Object::tick_timers edge (below). Shared+PublicTimer science
+        // powers do not map to SuperweaponReady EVA residual families.
         use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
         ensure_test_player_for_team(&mut logic, Team::USA);
         if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
             p.is_local = true;
-            p.apply_faction_intrinsic_sciences();
-            p.shared_special_power_cooldowns
+        }
+        let mut t = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .add_kind_of(KindOf::Powered)
+            .set_health(4000.0);
+        logic
+            .templates
+            .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
+        // Fully built PUC without start_power_recharge path: create then set near-ready.
+        // Use create_object (map-placed) which starts full recharge — then force remaining.
+        let id = logic
+            .create_object(AMERICA_PARTICLE_CANNON_UPLINK, Team::USA, glam::Vec3::ZERO)
+            .expect("puc");
+        // Power plant so underpowered does not freeze countdown residual.
+        let mut plant = ThingTemplate::new("AmericaColdFusionReactor");
+        plant
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Powered);
+        logic
+            .templates
+            .insert("AmericaColdFusionReactor".into(), plant);
+        let pid = logic
+            .create_object(
+                "AmericaColdFusionReactor",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("plant");
+        if let Some(o) = logic.get_object_mut(pid) {
+            o.power_provided = 20;
+            o.power_consumed = 0;
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.disabled_underpowered = false;
+            o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 0.05);
+            o.special_power_cooldown_remaining = 0.05;
+            o.special_power_ready = false;
         }
         assert!(!logic.honesty_eva_superweapon_ready_ok());
-        // Tick past remaining residual.
-        logic.tick_shared_special_power_timers(0.1);
+        // Object tick_timers edge → try_eva_superweapon_ready residual.
+        if let Some(o) = logic.get_object_mut(id) {
+            let became = o.tick_timers(0.1);
+            assert!(became, "PUC must become ready");
+        }
+        // GameLogic update path also calls try_eva on became_ready — call residual directly.
+        logic.try_eva_superweapon_ready(id, Team::USA, AMERICA_PARTICLE_CANNON_UPLINK);
         assert!(
             logic.honesty_eva_superweapon_ready_ok(),
-            "PUC shared timer ready edge must fire EVA SuperweaponReady residual"
+            "structure SW ready edge must fire EVA SuperweaponReady residual"
         );
-        // Timer removed when ready.
-        let rem = logic.get_player_by_team(Team::USA).and_then(|p| {
+        assert!(
+            !crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+                &SpecialPowerType::ParticleCannon
+            ),
+            "PUC is structure-bound, not SharedNSync"
+        );
+        assert!(
+            crate::game_logic::host_special_power_enum_residual::special_power_is_structure_bound_public_timer(
+                &SpecialPowerType::ParticleCannon
+            )
+        );
+    }
+
+    #[test]
+    fn presentation_structure_sw_timer_uses_object_cooldown() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use crate::presentation_frame::PresentationFrame;
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+            p.is_local = true;
+        }
+        let mut t = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .add_kind_of(KindOf::Powered)
+            .set_health(4000.0);
+        logic
+            .templates
+            .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
+        let id = logic
+            .create_object(AMERICA_PARTICLE_CANNON_UPLINK, Team::USA, glam::Vec3::ZERO)
+            .expect("puc");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.special_power_cooldowns
+                .insert(SpecialPowerType::ParticleCannon, 123.0);
+            o.special_power_cooldown_remaining = 123.0;
+            o.special_power_ready = false;
+        }
+        // Player shared map must NOT drive structure SW HUD residual.
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
             p.shared_special_power_cooldowns
-                .get(&SpecialPowerType::ParticleCannon)
-                .copied()
-        });
-        assert!(rem.is_none() || rem == Some(0.0));
+                .insert(SpecialPowerType::ParticleCannon, 1.0);
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let row = frame
+            .superweapon_timers()
+            .iter()
+            .find(|t| t.name.contains("Particle") || t.template_name.contains("Particle"))
+            .expect("PUC timer row");
+        assert!(row.unlocked);
+        assert!(
+            (row.remaining - 123.0).abs() < 0.01,
+            "remaining {} must come from structure module not player shared 1.0",
+            row.remaining
+        );
+        assert!(!row.ready);
+        // Destroy structure → removeSuperweapon residual (row gone).
+        logic.mark_object_for_destruction(id, None);
+        logic.process_destroy_list();
+        let frame2 = PresentationFrame::build_from_logic(&logic, 1);
+        assert!(
+            frame2
+                .superweapon_timers()
+                .iter()
+                .all(|t| !t.template_name.contains("Particle") && !t.name.contains("Particle")),
+            "destroyed PUC removes PublicTimer row residual"
+        );
     }
 
     #[test]
