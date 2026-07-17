@@ -1808,6 +1808,26 @@ fn mission_objective_to_display(
     }
 }
 
+/// C++ MoodMatrixAction residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoodMatrixAction {
+    Idle,
+    Move,
+    Attack,
+    AttackMove,
+}
+
+/// C++ MAA_* residual flags (host simplified).
+pub mod mood_action_adjust {
+    pub const ACTION_OK: u32 = 0x01;
+    pub const ACTION_TO_IDLE: u32 = 0x02;
+    pub const ACTION_TO_ATTACK_MOVE: u32 = 0x04;
+    pub const AFFECT_RANGE_IGNORE_ALL: u32 = 0x10;
+    pub const AFFECT_RANGE_WAIT_FOR_ATTACK: u32 = 0x20;
+    pub const AFFECT_RANGE_ALERT: u32 = 0x40;
+    pub const AFFECT_RANGE_AGGRESSIVE: u32 = 0x80;
+}
+
 /// C++ CanAttackResult residual (WeaponSet.h).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanAttackResult {
@@ -6357,6 +6377,117 @@ impl GameLogic {
     /// (dead, no weapon, same team residual, stealthed undetected).
 
     /// C++ WeaponSet::getAbleToAttackSpecificObject residual (host-simplified).
+
+    /// C++ AIUpdateInterface::transferAttack residual.
+    ///
+    /// Retargets units attacking `from_id` onto `to_id` (rebuild hole / create-object die).
+    pub fn transfer_attack(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {
+        let new_alive = self
+            .objects
+            .get(&to_id)
+            .map(|o| o.is_alive() && !o.status.destroyed)
+            .unwrap_or(false);
+        if !new_alive {
+            return 0;
+        }
+        let mut transferred = 0usize;
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in ids {
+            if id == from_id || id == to_id {
+                continue;
+            }
+            let Some(u) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let mut did = false;
+            if u.target == Some(from_id) {
+                u.target = Some(to_id);
+                did = true;
+            }
+            if u.turret_target_id == Some(from_id) {
+                u.turret_target_id = Some(to_id);
+                u.turret_force_attacking = true;
+                if matches!(
+                    u.turret_substate,
+                    crate::game_logic::object::TurretSubState::Idle
+                        | crate::game_logic::object::TurretSubState::Hold
+                        | crate::game_logic::object::TurretSubState::Recenter
+                ) {
+                    u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
+                }
+                did = true;
+            }
+            // Nested attack SM victim residual.
+            if u.ai_state == AIState::Attacking && u.target == Some(to_id) {
+                // already updated target above
+                did = true;
+            }
+            if did {
+                transferred += 1;
+            }
+        }
+        transferred
+    }
+
+    /// C++ AIUpdateInterface::getMoodMatrixActionAdjustment residual.
+    ///
+    /// Uses `ai_attitude` on the object (-2 Sleep .. +2 Aggressive).
+    /// Player-controlled residual always returns ACTION_OK.
+    pub fn get_mood_matrix_action_adjustment(
+        &self,
+        unit_id: ObjectId,
+        action: MoodMatrixAction,
+        is_player_controlled: bool,
+    ) -> u32 {
+        use mood_action_adjust::*;
+        let Some(obj) = self.objects.get(&unit_id) else {
+            return ACTION_OK;
+        };
+        // Mob member residual: IGNORED_IN_GUI KindOf not fully ported.
+        if is_player_controlled {
+            return ACTION_OK;
+        }
+        // Attitude ordinals: -2 Sleep, -1 Passive, 0 Normal, 1 Alert, 2 Aggressive.
+        let mood = obj.ai_attitude.clamp(-2, 2);
+        match action {
+            MoodMatrixAction::Idle => match mood {
+                -2 => ACTION_OK | AFFECT_RANGE_IGNORE_ALL,
+                -1 => ACTION_OK | AFFECT_RANGE_WAIT_FOR_ATTACK,
+                0 => ACTION_OK,
+                1 => ACTION_OK | AFFECT_RANGE_ALERT,
+                _ => ACTION_OK | AFFECT_RANGE_AGGRESSIVE,
+            },
+            MoodMatrixAction::Move => match mood {
+                -2 => ACTION_TO_IDLE | AFFECT_RANGE_IGNORE_ALL,
+                -1 => ACTION_OK | AFFECT_RANGE_WAIT_FOR_ATTACK,
+                0 => ACTION_OK,
+                1 => ACTION_TO_ATTACK_MOVE | AFFECT_RANGE_ALERT,
+                _ => ACTION_TO_ATTACK_MOVE | AFFECT_RANGE_AGGRESSIVE,
+            },
+            MoodMatrixAction::Attack => match mood {
+                -2 => ACTION_TO_IDLE | AFFECT_RANGE_IGNORE_ALL,
+                _ => ACTION_OK,
+            },
+            MoodMatrixAction::AttackMove => match mood {
+                -2 => ACTION_TO_IDLE | AFFECT_RANGE_IGNORE_ALL,
+                -1 | 0 => ACTION_OK,
+                1 => ACTION_OK | AFFECT_RANGE_ALERT,
+                _ => ACTION_OK | AFFECT_RANGE_AGGRESSIVE,
+            },
+        }
+    }
+
+    /// True when mood allows attack action (MAA_Action_Ok bit set, not forced to idle).
+    pub fn mood_allows_attack(&self, unit_id: ObjectId, is_player_controlled: bool) -> bool {
+        use mood_action_adjust::*;
+        let adj = self.get_mood_matrix_action_adjustment(
+            unit_id,
+            MoodMatrixAction::Attack,
+            is_player_controlled,
+        );
+        (adj & ACTION_OK) != 0 && (adj & ACTION_TO_IDLE) == 0
+    }
+
     pub fn get_able_to_attack_specific_object(
         &self,
         unit_id: ObjectId,
@@ -6555,6 +6686,11 @@ impl GameLogic {
             if !v.is_alive() || v.status.destroyed {
                 return AttackMachineResult::Failure;
             }
+        }
+        // C++ getMoodMatrixActionAdjustment(MM_Action_Attack) residual.
+        // AI-controlled sleep mood refuses attack (→ idle).
+        if !self.mood_allows_attack(unit_id, false) {
+            return AttackMachineResult::Failure;
         }
         // C++ cannotPossiblyAttackObject residual on enter.
         if self.cannot_possibly_attack_object(unit_id, victim_id, false) {
@@ -73605,6 +73741,122 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn transfer_attack_retargets_attackers() {
+        use crate::game_logic::object::TurretSubState;
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut mk = |id: u32, team| {
+            let name = format!("T{id}");
+            let mut t = ThingTemplate::new(&name);
+            t.add_kind_of(KindOf::Infantry);
+            let mut o = Object::new(t, ObjectId(id), team);
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        };
+        let from = ObjectId(2401);
+        let to = ObjectId(2402);
+        let atk = ObjectId(2403);
+        logic.objects.insert(from, mk(2401, Team::GLA));
+        logic.objects.insert(to, mk(2402, Team::GLA));
+        logic.objects.insert(atk, {
+            let mut o = mk(2403, Team::USA);
+            o.target = Some(from);
+            o.ai_state = AIState::Attacking;
+            o.turret_enabled = true;
+            o.turret_target_id = Some(from);
+            o.turret_substate = TurretSubState::Aim;
+            o
+        });
+        let n = logic.transfer_attack(from, to);
+        assert!(n >= 1);
+        assert_eq!(logic.objects[&atk].target, Some(to));
+        assert_eq!(logic.objects[&atk].turret_target_id, Some(to));
+    }
+
+    #[test]
+    fn mood_matrix_sleep_blocks_attack() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("MoodA");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(2410);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::USA);
+            o.ai_attitude = -2; // Sleep
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        });
+        let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Attack, false);
+        assert_eq!(
+            adj & mood_action_adjust::ACTION_TO_IDLE,
+            mood_action_adjust::ACTION_TO_IDLE
+        );
+        assert!(!logic.mood_allows_attack(id, false));
+        // Player always allowed.
+        assert!(logic.mood_allows_attack(id, true));
+    }
+
+    #[test]
+    fn mood_matrix_aggressive_move_to_attack_move() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("MoodB");
+        t.add_kind_of(KindOf::Vehicle);
+        let id = ObjectId(2411);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::GLA);
+            o.ai_attitude = 2; // Aggressive
+            o
+        });
+        let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Move, false);
+        assert_eq!(
+            adj & mood_action_adjust::ACTION_TO_ATTACK_MOVE,
+            mood_action_adjust::ACTION_TO_ATTACK_MOVE
+        );
+        assert_eq!(
+            adj & mood_action_adjust::AFFECT_RANGE_AGGRESSIVE,
+            mood_action_adjust::AFFECT_RANGE_AGGRESSIVE
+        );
+    }
+
+    #[test]
+    fn attack_state_enter_fails_when_sleep_mood() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("SleepA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(2412);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.ai_attitude = -2;
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("SleepV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2413);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o
+        });
+        assert_eq!(
+            logic.attack_state_enter(aid, vid),
+            AttackMachineResult::Failure
+        );
     }
 
     #[test]
