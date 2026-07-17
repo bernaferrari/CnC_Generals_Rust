@@ -411,6 +411,14 @@ impl Player {
         }
     }
 
+    /// C++ Player::expressSpecialPowerReadyFrame(now) residual — ready immediately.
+    pub fn express_shared_special_power_ready_now(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+    ) {
+        self.shared_special_power_cooldowns.remove(power);
+    }
+
     /// Tick SharedSyncedTimer residual cooldowns.
     ///
     /// Returns powers that just became ready this tick (C++ PublicTimer ready edge).
@@ -20257,6 +20265,74 @@ impl GameLogic {
         for (team, name) in ready_events {
             // source id unused by try_eva_superweapon_ready residual.
             self.try_eva_superweapon_ready(crate::game_logic::ObjectId(0), team, &name);
+        }
+    }
+
+    /// C++ SpecialPowerModule::onSpecialPowerCreation residual.
+    ///
+    /// When a science is first acquired, sharedNSync powers that require it are
+    /// expressed ready-now on the player timer (Dustin residual: start ready to fire).
+    /// Fail-closed: not full StartsPaused upgrade gate / InGameUI addSuperweapon font.
+    pub fn on_special_power_science_creation(&mut self, player_id: u32, science_name: &str) {
+        use crate::command_system::SpecialPowerType as P;
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        use crate::game_logic::host_special_power_enum_residual::{
+            special_power_required_science, special_power_uses_shared_synced_timer,
+        };
+        let sci = normalize_science_name_residual(science_name);
+        if sci.is_empty() {
+            return;
+        }
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return;
+        };
+        // Sample of host powers that may require this science residual.
+        const CANDIDATES: &[P] = &[
+            P::Airstrike,
+            P::AirForceAirstrike,
+            P::DaisyCutter,
+            P::AirForceDaisyCutter,
+            P::FuelAirBomb,
+            P::SpyDrone,
+            P::Paradrop,
+            P::InfantryParadrop,
+            P::TankParadrop,
+            P::CarpetBomb,
+            P::AirForceCarpetBomb,
+            P::EarlyChinaCarpetBomb,
+            P::ClusterMines,
+            P::EmpPulse,
+            P::LeafletDrop,
+            P::Ambush,
+            P::TerrorCell,
+            P::Frenzy,
+            P::EmergencyRepair,
+            P::GpsScrambler,
+            P::SneakAttack,
+            P::SpectreGunship,
+            P::AirForceSpectreGunship,
+            P::NapalmStrike,
+            P::BlackMarketNuke,
+            P::Artillery,
+            P::CrateDrop,
+            P::CashHack,
+            P::SpySatellite,
+        ];
+        for power in CANDIDATES {
+            let Some(req) = special_power_required_science(power) else {
+                continue;
+            };
+            // Match science residual (canonical or alias).
+            let req_n = req.to_ascii_lowercase();
+            let sci_n = sci.to_ascii_lowercase();
+            if req_n != sci_n && !sci_n.ends_with(&req_n) && !req_n.ends_with(&sci_n) {
+                continue;
+            }
+            if !special_power_uses_shared_synced_timer(power) {
+                continue;
+            }
+            // C++: startPowerRecharge then express ready-now for sharedNSync.
+            player.express_shared_special_power_ready_now(power);
         }
     }
 
@@ -43980,18 +44056,22 @@ impl GameLogic {
         use crate::game_logic::host_stealth_fighter::is_stealth_fighter_science;
         use crate::game_logic::host_unit_training::is_unit_training_science;
 
-        let Some(player) = self.get_player_mut_by_team(team) else {
-            return false;
+        let player_id = {
+            let Some(player) = self.get_player_mut_by_team(team) else {
+                return false;
+            };
+            if !player.unlock_science(science_name) {
+                return false;
+            }
+            player.id
         };
-        if !player.unlock_science(science_name) {
-            return false;
-        }
         if is_stealth_fighter_science(science_name) {
             self.stealth_fighter_science.record_science_unlock();
         }
         if is_unit_training_science(science_name) {
             self.unit_training.record_science_unlock();
         }
+        self.on_special_power_science_creation(player_id, science_name);
         true
     }
 
@@ -81971,6 +82051,35 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn science_purchase_expresses_shared_special_power_ready() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::Team;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let pid = logic.get_player_by_team(Team::USA).map(|p| p.id).unwrap();
+        {
+            let p = logic.get_player_mut(pid).unwrap();
+            p.apply_faction_intrinsic_sciences();
+            p.science_purchase_points = 5;
+            // Simulate prior cooling residual for A10.
+            p.shared_special_power_cooldowns
+                .insert(SpecialPowerType::Airstrike, 999.0);
+        }
+        assert!(logic.unlock_team_science(Team::USA, "SCIENCE_A10ThunderboltMissileStrike1"));
+        let p = logic.get_player(pid).unwrap();
+        assert!(p.has_unlocked_science("SCIENCE_A10ThunderboltMissileStrike1"));
+        // C++ onSpecialPowerCreation: sharedNSync expressed ready-now.
+        assert!(
+            p.is_shared_special_power_ready(&SpecialPowerType::Airstrike),
+            "A10 must be ready-now after science creation residual"
+        );
+        // DaisyCutter science creation residual.
+        assert!(logic.unlock_team_science(Team::USA, "SCIENCE_DaisyCutter"));
+        let p = logic.get_player(pid).unwrap();
+        assert!(p.is_shared_special_power_ready(&SpecialPowerType::DaisyCutter));
     }
 
     #[test]
