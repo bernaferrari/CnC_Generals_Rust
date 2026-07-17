@@ -2901,6 +2901,19 @@ impl Object {
     /// - With active dozer nearby: PARTIALLY_CONSTRUCTED + ACTIVELY_BEING_CONSTRUCTED
     /// - Without dozer (waiting): AWAITING_CONSTRUCTION + PARTIALLY_CONSTRUCTED
     /// - Clears ACTIVELY_BEING when dozer leaves.
+
+    /// C++ MODELCONDITION_ACTIVELY_CONSTRUCTING residual (dozer or factory).
+    pub fn set_actively_constructing(&mut self, active: bool) {
+        use crate::game_logic::host_enum_table_residual::actively_constructing_model_bit;
+        let bit = actively_constructing_model_bit();
+        if active {
+            self.model_condition_bits |= 1u128 << bit;
+        } else {
+            self.model_condition_bits &= !(1u128 << bit);
+        }
+        self.refresh_model_condition_bits();
+    }
+
     pub fn set_under_construction_model_conditions(&mut self, actively_built: bool) {
         use crate::game_logic::host_enum_table_residual::{
             actively_being_constructed_model_bit, awaiting_construction_model_bit,
@@ -3074,6 +3087,12 @@ impl Object {
         }
         if had_active {
             bits |= 1u128 << actively_being_constructed_model_bit();
+        }
+        use crate::game_logic::host_enum_table_residual::actively_constructing_model_bit;
+        let had_ac =
+            (self.model_condition_bits & (1u128 << actively_constructing_model_bit())) != 0;
+        if had_ac {
+            bits |= 1u128 << actively_constructing_model_bit();
         }
         self.model_condition_bits = bits;
     }

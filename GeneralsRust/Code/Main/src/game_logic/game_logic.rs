@@ -1387,6 +1387,8 @@ pub struct GameLogic {
     production_door_cycles: u32,
     /// Under-construction model condition residual updates.
     construction_model_condition_updates: u32,
+    /// ACTIVELY_CONSTRUCTING residual bit updates.
+    actively_constructing_updates: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2613,6 +2615,7 @@ impl GameLogic {
             radar_construction_events: 0,
             production_door_cycles: 0,
             construction_model_condition_updates: 0,
+            actively_constructing_updates: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2989,6 +2992,7 @@ impl GameLogic {
         self.radar_construction_events = 0;
         self.production_door_cycles = 0;
         self.construction_model_condition_updates = 0;
+        self.actively_constructing_updates = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5544,6 +5548,8 @@ impl GameLogic {
             // Constructed footprint is a static path/LOS obstacle.
             self.block_structure_object_path(completed_id);
         }
+        // C++ ACTIVELY_CONSTRUCTING residual for dozers/factories.
+        self.update_actively_constructing_model_conditions();
     }
 
     fn update_production(&mut self, dt: f32) {
@@ -42946,6 +42952,46 @@ impl GameLogic {
         self.production_door_cycles > 0
     }
 
+    /// C++ DozerAIUpdate / ProductionUpdate ACTIVELY_CONSTRUCTING residual.
+    ///
+    /// - Dozers with AIState::Constructing get the bit set
+    /// - Factories with non-empty production queue get the bit set
+    /// - Cleared when idle / empty queue
+    pub fn update_actively_constructing_model_conditions(&mut self) {
+        let mut updates = 0u32;
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !obj.is_alive() {
+                continue;
+            }
+            let is_dozer_building =
+                obj.can_construct() && matches!(obj.ai_state, AIState::Constructing);
+            let is_producing = obj
+                .building_data
+                .as_ref()
+                .map(|b| !b.production_queue.is_empty())
+                .unwrap_or(false);
+            let want = is_dozer_building || is_producing;
+            // Cheap edge: always set to desired state (idempotent bit ops).
+            let bit_before = obj.model_condition_bits;
+            obj.set_actively_constructing(want);
+            if obj.model_condition_bits != bit_before {
+                updates = updates.saturating_add(1);
+            }
+        }
+        if updates > 0 {
+            self.actively_constructing_updates =
+                self.actively_constructing_updates.saturating_add(updates);
+        }
+    }
+
+    pub fn honesty_actively_constructing_ok(&self) -> bool {
+        self.actively_constructing_updates > 0
+    }
+
     pub fn honesty_construction_model_condition_ok(&self) -> bool {
         self.construction_model_condition_updates > 0
     }
@@ -77718,6 +77764,99 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn actively_constructing_bit_on_dozer_and_factory() {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_constructing_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+        let mut barracks = ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+        let mut unit = ThingTemplate::new("AmericaInfantryRanger");
+        unit.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), unit);
+
+        let did = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        if let Some(o) = logic.get_object_mut(did) {
+            o.ai_state = AIState::Constructing;
+        }
+        let bid = logic
+            .create_object(
+                "AmericaBarracks",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            if let Some(bd) = o.building_data.as_mut() {
+                // Non-empty queue residual for factory ACTIVELY_CONSTRUCTING.
+                bd.production_queue
+                    .push(crate::game_logic::buildings::ProductionItem {
+                        template_name: "AmericaInfantryRanger".into(),
+                        progress: 0.0,
+                        total_time: 10.0,
+                        cost: crate::game_logic::Resources {
+                            supplies: 0,
+                            power: 0,
+                        },
+                    });
+            }
+        }
+        logic.update_actively_constructing_model_conditions();
+        assert!(logic.honesty_actively_constructing_ok());
+        let d = logic.get_object(did).expect("d");
+        assert!(host_model_condition_has(
+            d.model_condition_bits,
+            actively_constructing_model_bit()
+        ));
+        let b = logic.get_object(bid).expect("b");
+        assert!(
+            host_model_condition_has(b.model_condition_bits, actively_constructing_model_bit()),
+            "factory with queue should be ACTIVELY_CONSTRUCTING"
+        );
+        // Clear when idle / empty queue.
+        if let Some(o) = logic.get_object_mut(did) {
+            o.ai_state = AIState::Idle;
+        }
+        if let Some(o) = logic.get_object_mut(bid) {
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.production_queue.clear();
+            }
+        }
+        logic.update_actively_constructing_model_conditions();
+        let d = logic.get_object(did).expect("d2");
+        assert!(!host_model_condition_has(
+            d.model_condition_bits,
+            actively_constructing_model_bit()
+        ));
+        let b = logic.get_object(bid).expect("b2");
+        assert!(!host_model_condition_has(
+            b.model_condition_bits,
+            actively_constructing_model_bit()
+        ));
     }
 
     #[test]
