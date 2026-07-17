@@ -1441,6 +1441,8 @@ pub struct GameLogic {
     capture_tunnel_last_ejects: u32,
     /// C++ TechBuildingBehavior CAPTURED model residual events.
     capture_tech_model_updates: u32,
+    /// C++ infantry→unmanned vehicle recrew residual events.
+    unmanned_reclaims: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2710,6 +2712,7 @@ impl GameLogic {
             capture_tunnel_transfers: 0,
             capture_tunnel_last_ejects: 0,
             capture_tech_model_updates: 0,
+            unmanned_reclaims: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3116,6 +3119,7 @@ impl GameLogic {
         self.capture_tunnel_transfers = 0;
         self.capture_tunnel_last_ejects = 0;
         self.capture_tech_model_updates = 0;
+        self.unmanned_reclaims = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -6512,21 +6516,33 @@ impl GameLogic {
         if a_para && b_para {
             return true;
         }
-        // C++ infantry into unmanned vehicle residual (ignored obstacle special case simplified).
+        // C++ PhysicsUpdate infantry→unmanned vehicle pilot residual.
         if a_infantry && b_unmanned {
-            if let Some(b) = self.objects.get_mut(&b_id) {
-                b.status.disabled_unmanned = false;
-                // Capture residual: transfer team to infantry's team.
-                b.team = a_team;
+            if self.try_infantry_unmanned_reclaim(a_id, b_id) {
+                if let Some(a) = self.objects.get_mut(&a_id) {
+                    a.last_collidee = Some(b_id);
+                }
+                return true;
             }
-            if let Some(a) = self.objects.get_mut(&a_id) {
-                a.health.current = 0.0;
-                a.status.destroyed = true;
+        } else {
+            let b_inf = self
+                .objects
+                .get(&b_id)
+                .map(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
+                .unwrap_or(false);
+            let a_unm = self
+                .objects
+                .get(&a_id)
+                .map(|o| o.status.disabled_unmanned)
+                .unwrap_or(false);
+            if b_inf && a_unm {
+                if self.try_infantry_unmanned_reclaim(b_id, a_id) {
+                    if let Some(a) = self.objects.get_mut(&a_id) {
+                        a.last_collidee = Some(b_id);
+                    }
+                    return true;
+                }
             }
-            if let Some(a) = self.objects.get_mut(&a_id) {
-                a.last_collidee = Some(b_id);
-            }
-            return true;
         }
 
         let same_team = a_team == b_team;
@@ -43210,6 +43226,43 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
+
+    /// C++ PhysicsUpdate infantry→unmanned vehicle pilot residual.
+    ///
+    /// Returns true when the pair was handled (vehicle recrewed, infantry destroyed).
+    pub fn try_infantry_unmanned_reclaim(
+        &mut self,
+        infantry_id: ObjectId,
+        vehicle_id: ObjectId,
+    ) -> bool {
+        let (inf_team, inf_level, is_inf) = match self.objects.get(&infantry_id) {
+            Some(inf) => (
+                inf.team,
+                inf.experience.level,
+                inf.is_kind_of(KindOf::Infantry) && inf.is_alive(),
+            ),
+            None => return false,
+        };
+        if !is_inf {
+            return false;
+        }
+        let is_unmanned = self
+            .objects
+            .get(&vehicle_id)
+            .map(|v| v.is_alive() && v.status.disabled_unmanned)
+            .unwrap_or(false);
+        if !is_unmanned {
+            return false;
+        }
+        if let Some(veh) = self.objects.get_mut(&vehicle_id) {
+            let _ = veh.apply_pilot_recrew(inf_team, inf_level);
+        }
+        self.destroy_object(infantry_id);
+        // C++ destroyObject is immediate for collision reclaim residual path.
+        self.process_destroy_list();
+        self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
+        true
+    }
 
     /// C++ TunnelContain::onCapture residual.
     ///
@@ -79961,6 +80014,64 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn infantry_collision_reclaims_unmanned_vehicle() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, VeterancyLevel};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", true));
+
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee.add_kind_of(KindOf::Vehicle).set_health(300.0);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".into(), humvee);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+
+        let vid = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+        if let Some(v) = logic.get_object_mut(vid) {
+            v.apply_kill_pilot_unmanned();
+            v.set_team(Team::Neutral);
+        }
+        let iid = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(1.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        if let Some(i) = logic.get_object_mut(iid) {
+            i.experience.level = VeterancyLevel::Veteran;
+        }
+
+        assert!(logic.try_infantry_unmanned_reclaim(iid, vid));
+        assert!(logic.unmanned_reclaims > 0);
+        // destroy_object may defer removal to end-of-frame residual.
+        let infantry_gone = logic.get_object(iid).map(|o| !o.is_alive()).unwrap_or(true);
+        assert!(
+            infantry_gone,
+            "pilot infantry must be destroyed/dead after reclaim"
+        );
+        let v = logic.get_object(vid).expect("vehicle survives");
+        assert!(!v.status.disabled_unmanned);
+        assert_eq!(v.team, Team::USA);
+        assert_eq!(v.experience.level, VeterancyLevel::Veteran);
     }
 
     #[test]
