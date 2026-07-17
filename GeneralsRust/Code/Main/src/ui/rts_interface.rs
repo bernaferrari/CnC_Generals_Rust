@@ -190,6 +190,32 @@ impl UnitCommandPanel {
         self.visible
     }
 
+    /// Activate a presentation command button by name → [`crate::command_system::CommandType`].
+    ///
+    /// Returns None when disabled, unknown, or selection empty. Fills CancelConstruction
+    /// object_id from primary selection residual.
+    pub fn activate_command(
+        &self,
+        command_name: &str,
+    ) -> Option<crate::command_system::CommandType> {
+        let btn = self
+            .commands
+            .iter()
+            .find(|c| c.command_name.eq_ignore_ascii_case(command_name))?;
+        if !btn.enabled {
+            return None;
+        }
+        let mut cmd = crate::command_system::command_type_from_button_name(&btn.command_name)?;
+        if let crate::command_system::CommandType::DozerCancelConstruct { object_id } = &mut cmd {
+            if let Some(id) = self.selected_ids.first().copied() {
+                *object_id = id;
+            } else if let Some(id) = self.selection_panel.primary_object_id {
+                *object_id = id;
+            }
+        }
+        Some(cmd)
+    }
+
     pub fn clear_selection(&mut self) {
         self.selection_panel = ControlBarSelectionPanelState::default();
         self.selected_ids.clear();

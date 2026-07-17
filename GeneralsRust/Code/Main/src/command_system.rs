@@ -1960,6 +1960,64 @@ impl CommandableObject for Object {
     }
 }
 
+/// Map retail/host ControlBar command button names to [`CommandType`].
+///
+/// Fail-closed residual: upgrade/cancel/stop/scatter core only — not full
+/// CommandSet INI matrix / context-sensitive ControlBar.cpp.
+pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
+    let n = name.trim();
+    if n.is_empty() {
+        return None;
+    }
+    let lower: String = n
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    // Drop optional "command" prefix residual.
+    let key = lower.strip_prefix("command").unwrap_or(lower.as_str());
+
+    match key {
+        "stop" => Some(CommandType::Stop),
+        "scatter" => Some(CommandType::Scatter),
+        "cancelupgrade" => Some(CommandType::CancelUpgrade {
+            upgrade_name: String::new(),
+        }),
+        "cancelunit" | "cancelunitcreate" => Some(CommandType::CancelUnitCreate {
+            template_name: String::new(),
+        }),
+        "cancelconstruction" => Some(CommandType::DozerCancelConstruct {
+            object_id: crate::game_logic::ObjectId(0),
+        }),
+        _ => {
+            // Command_UpgradeAmericaX / Command_Upgrade_GLA… → Upgrade_AmericaX
+            if let Some(rest) = key.strip_prefix("upgrade") {
+                if rest.is_empty() {
+                    return None;
+                }
+                // Rebuild from original casing after Command_/Upgrade prefix.
+                let stripped = n
+                    .trim()
+                    .trim_start_matches("Command_")
+                    .trim_start_matches("command_")
+                    .trim_start_matches("Command")
+                    .trim_start_matches("command");
+                let body = stripped
+                    .strip_prefix("Upgrade_")
+                    .or_else(|| stripped.strip_prefix("Upgrade"))
+                    .or_else(|| stripped.strip_prefix("upgrade_"))
+                    .or_else(|| stripped.strip_prefix("upgrade"))
+                    .unwrap_or(rest)
+                    .trim_start_matches('_');
+                let upgrade_name = format!("Upgrade_{body}");
+                Some(CommandType::QueueUpgrade { upgrade_name })
+            } else {
+                None
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2666,6 +2724,98 @@ mod tests {
 
     #[test]
     #[test]
+    #[test]
+    fn command_type_from_button_name_upgrade_and_cancel_residual() {
+        let q = command_type_from_button_name("Command_UpgradeAmericaRangerFlashBangGrenade")
+            .expect("upgrade");
+        match q {
+            CommandType::QueueUpgrade { upgrade_name } => {
+                assert_eq!(upgrade_name, "Upgrade_AmericaRangerFlashBangGrenade");
+            }
+            other => panic!("expected QueueUpgrade, got {other:?}"),
+        }
+        let c = command_type_from_button_name("Command_CancelUpgrade").expect("cancel");
+        assert!(matches!(
+            c,
+            CommandType::CancelUpgrade { upgrade_name } if upgrade_name.is_empty()
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_Stop"),
+            Some(CommandType::Stop)
+        ));
+    }
+
+    #[test]
+    fn queue_upgrade_refuses_when_production_queue_full_residual() {
+        use crate::game_logic::buildings::{
+            BuildingData, BuildingType, ProductionItem, ProductionKind,
+            DEFAULT_PRODUCTION_QUEUE_LIMIT,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
+        use crate::game_logic::{KindOf, Player, Resources, Team, ThingTemplate};
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut bar = ThingTemplate::new("TestBarracks");
+        bar.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("TestBarracks".into(), bar);
+        let bid = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            let mut bd = BuildingData::new(BuildingType::Barracks);
+            for i in 0..DEFAULT_PRODUCTION_QUEUE_LIMIT {
+                bd.production_queue.push(ProductionItem {
+                    template_name: format!("Filler{i}"),
+                    progress: 0.0,
+                    total_time: 10.0,
+                    cost: Resources {
+                        supplies: 0,
+                        power: 0,
+                    },
+                    quantity_total: 1,
+                    quantity_produced: 0,
+                    kind: ProductionKind::Unit,
+                });
+            }
+            o.building_data = Some(bd);
+        }
+        let money_before = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_FLASHBANG.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![bid],
+            modifier_keys: ModifierKeys::default(),
+        });
+        logic.process_commands();
+        let money_after = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            money_before, money_after,
+            "queue-full upgrade must not charge residual"
+        );
+        assert!(
+            !logic
+                .get_player(0)
+                .map(|p| p.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG))
+                .unwrap_or(true),
+            "must not queue upgrade when production queue full"
+        );
+    }
+
     fn cancel_upgrade_empty_name_cancels_production_head_residual() {
         use crate::command_system::{CommandType, GameCommand};
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
