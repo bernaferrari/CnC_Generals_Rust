@@ -86,6 +86,15 @@ impl BuildingType {
     }
 }
 
+/// C++ ProductionType residual (ProductionUpdate.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProductionKind {
+    /// PRODUCTION_UNIT residual.
+    Unit,
+    /// PRODUCTION_UPGRADE residual.
+    Upgrade,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductionItem {
     pub template_name: String,
@@ -96,6 +105,14 @@ pub struct ProductionItem {
     pub quantity_total: u32,
     /// C++ ProductionEntry::m_productionQuantityProduced residual.
     pub quantity_produced: u32,
+    /// C++ ProductionEntry::m_type residual.
+    pub kind: ProductionKind,
+}
+
+impl ProductionItem {
+    pub fn is_upgrade(&self) -> bool {
+        matches!(self.kind, ProductionKind::Upgrade)
+    }
 }
 
 impl BuildingData {
@@ -168,6 +185,7 @@ impl BuildingData {
                 cost: template.build_cost,
                 quantity_total: quantity.max(1),
                 quantity_produced: 0,
+                kind: ProductionKind::Unit,
             };
             self.production_queue.push(item);
             true
@@ -176,13 +194,52 @@ impl BuildingData {
         }
     }
 
+    /// Queue a PRODUCTION_UPGRADE residual entry (research on this producer).
+    ///
+    /// C++ ProductionUpdate::queueUpgrade — one entry per upgrade name, costs
+    /// already withdrawn by the player path. `total_time` is research seconds.
+    pub fn add_upgrade_to_queue(
+        &mut self,
+        upgrade_name: String,
+        total_time_secs: f32,
+        cost: Resources,
+    ) -> bool {
+        if self.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT {
+            return false;
+        }
+        // C++ isUpgradeInQueue: refuse duplicate upgrade entries.
+        let key = upgrade_name.to_ascii_lowercase();
+        if self
+            .production_queue
+            .iter()
+            .any(|i| i.is_upgrade() && i.template_name.eq_ignore_ascii_case(&upgrade_name))
+        {
+            return false;
+        }
+        let _ = key;
+        self.production_queue.push(ProductionItem {
+            template_name: upgrade_name,
+            progress: 0.0,
+            total_time: total_time_secs.max(0.0),
+            cost,
+            quantity_total: 1,
+            quantity_produced: 0,
+            kind: ProductionKind::Upgrade,
+        });
+        true
+    }
+
     /// C++ parity (ThingTemplate::calcTimeToBuild): when energy ratio < 1.0
     /// production speed is reduced.  The penalty is:
     ///   energy_short = (1.0 - ratio) * penalty_modifier
     ///   rate = max(1.0 - energy_short, MIN_SPEED)
     ///   if ratio < 1.0: rate = min(rate, MAX_SPEED)
     /// Defaults: MIN=0.5, MAX=0.8, modifier=1.0  (GameData.ini).
-    pub fn update_production(&mut self, dt: f32, power_factor: f32) -> Option<String> {
+    pub fn update_production(
+        &mut self,
+        dt: f32,
+        power_factor: f32,
+    ) -> Option<(String, ProductionKind)> {
         // C++ QueueProductionExitUpdate: while exit delay busy, hold next release.
         if self.exit_delay_remaining > 0.0 {
             self.exit_delay_remaining = (self.exit_delay_remaining - dt).max(0.0);
@@ -205,11 +262,12 @@ impl BuildingData {
                 item.progress = item.total_time;
                 item.quantity_produced = item.quantity_produced.saturating_add(1);
                 let name = item.template_name.clone();
+                let kind = item.kind;
                 let done = item.quantity_produced >= item.quantity_total.max(1);
                 if done {
                     self.production_queue.remove(0);
                 }
-                return Some(name);
+                return Some((name, kind));
             }
         }
         None
@@ -474,13 +532,15 @@ impl BuildingBehavior {
             } else if let Some(building_data) = building.building_data.as_mut() {
                 let completed = building_data.update_production(dt, 1.0); // fallback path; main loop handles power
                 let rally = building_data.rally_point;
-                if let Some(template_name) = completed {
-                    let spawn_pos = building.get_position()
-                        + building.thing.get_direction_vector()
-                            * building.selection_radius.max(10.0);
-                    Some((building.team, template_name, spawn_pos, rally))
-                } else {
-                    None
+                match completed {
+                    Some((template_name, ProductionKind::Unit)) => {
+                        let spawn_pos = building.get_position()
+                            + building.thing.get_direction_vector()
+                                * building.selection_radius.max(10.0);
+                        Some((building.team, template_name, spawn_pos, rally))
+                    }
+                    // PRODUCTION_UPGRADE residual is applied by GameLogic::update_production.
+                    Some((_, ProductionKind::Upgrade)) | None => None,
                 }
             } else {
                 None
@@ -684,6 +744,7 @@ mod tests {
             cost: Resources::default(),
             quantity_total: 1,
             quantity_produced: 0,
+            kind: ProductionKind::Unit,
         });
 
         assert_eq!(building.get_production_progress(), Some(1.0));
@@ -703,6 +764,7 @@ mod tests {
             cost: Resources::default(),
             quantity_total: 1,
             quantity_produced: 0,
+            kind: ProductionKind::Unit,
         });
 
         assert_eq!(building.get_production_progress(), Some(1.0));

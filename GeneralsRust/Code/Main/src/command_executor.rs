@@ -2142,6 +2142,27 @@ impl<'a> CommandExecutor<'a> {
                 player_id,
                 cost.supplies,
             );
+            // C++ ProductionUpdate::queueUpgrade — research advances on the producer.
+            let research_secs = {
+                let frames = self
+                    .game_logic
+                    .host_upgrades()
+                    .entries_snapshot()
+                    .into_iter()
+                    .find(|e| e.player_id == player_id && e.name.eq_ignore_ascii_case(upgrade_name))
+                    .map(|e| e.residual_research_frames.max(1))
+                    .unwrap_or(1);
+                frames as f32 / 30.0
+            };
+            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
+                if let Some(building) = obj.building_data.as_mut() {
+                    let _ = building.add_upgrade_to_queue(
+                        upgrade_name.to_string(),
+                        research_secs,
+                        cost.clone(),
+                    );
+                }
+            }
         }
         if any {
             CommandResult::Success
@@ -2184,6 +2205,17 @@ impl<'a> CommandExecutor<'a> {
         for player_id in cancelled_players {
             self.game_logic
                 .record_host_upgrade_cancelled(player_id, upgrade_name);
+        }
+        // C++ cancelUpgrade also removes the PRODUCTION_UPGRADE entry from the producer queue.
+        for &unit_id in units {
+            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
+                if let Some(building) = obj.building_data.as_mut() {
+                    building.production_queue.retain(|item| {
+                        !(item.is_upgrade()
+                            && item.template_name.eq_ignore_ascii_case(upgrade_name))
+                    });
+                }
+            }
         }
         if refunded {
             CommandResult::Success
