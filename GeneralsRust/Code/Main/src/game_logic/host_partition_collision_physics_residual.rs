@@ -626,6 +626,63 @@ pub fn vehicle_crash_destroys_vehicle(outcome: VehicleCrashImmobileOutcome) -> b
     )
 }
 
+/// C++ HUGE_DAMAGE_AMOUNT residual used for crush kill.
+pub const PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL: f32 = 999999.0;
+
+/// C++ CrushEnum residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrushTarget {
+    NoCrush,
+    FrontEndCrush,
+    BackEndCrush,
+    TotalCrush,
+}
+
+/// C++ canCrushOrSquish TEST_CRUSH_ONLY residual (levels only).
+pub fn can_crush_only_residual(
+    crusher_level: u8,
+    crushable_level: u8,
+    is_ally: bool,
+    crusher_unmanned: bool,
+) -> bool {
+    if is_ally || crusher_unmanned || crusher_level == 0 {
+        return false;
+    }
+    crusher_level > crushable_level
+}
+
+/// Simplified C++ checkForOverlapCollision crush-target residual.
+///
+/// Uses crusher facing (sin/cos of yaw) and relative crushee position.
+/// When neither end is crushed, prefers total if past center; otherwise
+/// front/back by along-facing offset of crushee major radius half.
+pub fn select_crush_target_residual(front_crushed: bool, back_crushed: bool) -> CrushTarget {
+    if front_crushed && back_crushed {
+        CrushTarget::NoCrush
+    } else if front_crushed {
+        CrushTarget::BackEndCrush
+    } else if back_crushed {
+        CrushTarget::FrontEndCrush
+    } else {
+        CrushTarget::TotalCrush
+    }
+}
+
+/// C++ past-crush-point test residual: dot < 0 and dist² < 2.25 * offset².
+pub fn past_crush_point_residual(
+    crusher_pos: (f32, f32),
+    point: (f32, f32),
+    dir: (f32, f32),
+    offset_distance: f32,
+) -> bool {
+    let dx = point.0 - crusher_pos.0;
+    let dy = point.1 - crusher_pos.1;
+    let dot = dir.0 * dx + dir.1 * dy;
+    let dist_sq = dx * dx + dy * dy;
+    let too_far = 2.25 * offset_distance * offset_distance;
+    dot < 0.0 && dist_sq < too_far
+}
+
 /// C++ `PhysicsTurningType` residual: TURN_NEGATIVE.
 pub const PHYSICS_TURN_NEGATIVE: i32 = -1;
 /// C++ `TURN_NONE` residual.
@@ -784,6 +841,13 @@ pub fn honesty_physics_residual_pack_wave96() -> bool {
             == Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
         && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
         && !vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon)
+        && can_crush_only_residual(1, 0, false, false)
+        && !can_crush_only_residual(1, 0, true, false)
+        && !can_crush_only_residual(0, 0, false, false)
+        && select_crush_target_residual(false, false) == CrushTarget::TotalCrush
+        && select_crush_target_residual(true, false) == CrushTarget::BackEndCrush
+        && past_crush_point_residual((0.0, 0.0), (-1.0, 0.0), (1.0, 0.0), 10.0)
+        && !past_crush_point_residual((0.0, 0.0), (5.0, 0.0), (1.0, 0.0), 10.0)
 }
 
 // ---------------------------------------------------------------------------
