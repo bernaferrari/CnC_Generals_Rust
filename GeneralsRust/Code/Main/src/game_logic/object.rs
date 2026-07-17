@@ -532,6 +532,12 @@ pub struct Object {
 
     /// Guard position
     pub guard_position: Option<Vec3>,
+    /// C++ AIGuardRetaliateMachine goal victim residual.
+    #[serde(default)]
+    pub guard_retaliate_victim: Option<ObjectId>,
+    /// C++ setGoalPositionClipped anchor for GuardRetaliate return residual.
+    #[serde(default)]
+    pub guard_retaliate_anchor: Option<Vec3>,
 
     /// Guard target
     pub guard_target: Option<ObjectId>,
@@ -955,6 +961,8 @@ pub enum AIState {
     Repairing,
     GuardingArea,
     GuardingObject,
+    /// C++ AI_GUARD_RETALIATE residual — attack aggressor with guard restrictions.
+    GuardRetaliating,
     Patrolling,
     Docked,
     Garrisoned,
@@ -1246,6 +1254,8 @@ impl Object {
             max_health,
             target_location: None,
             guard_position: None,
+            guard_retaliate_victim: None,
+            guard_retaliate_anchor: None,
             guard_target: None,
             force_attack: false,
             show_health_bar: true, // Show health bars by default
@@ -1499,6 +1509,8 @@ impl Object {
             max_health: 100.0,
             target_location: None,
             guard_position: None,
+            guard_retaliate_victim: None,
+            guard_retaliate_anchor: None,
             guard_target: None,
             force_attack: false,
             show_health_bar: true,
@@ -6200,6 +6212,93 @@ impl Object {
         if target.is_some() {
             self.ai_state = AIState::GuardingObject;
         }
+    }
+
+    /// C++ AIUpdateInterface::privateGuardRetaliate residual.
+    ///
+    /// Clears current goal, anchors at `pos` (unit position if None), sets
+    /// goal victim, enters GuardRetaliating, optional max shots.
+    pub fn begin_guard_retaliate(
+        &mut self,
+        victim: ObjectId,
+        anchor: Option<glam::Vec3>,
+        max_shots: Option<i32>,
+    ) {
+        if !self.is_alive() || self.status.destroyed {
+            return;
+        }
+        if self.is_kind_of(KindOf::Immobile) || self.is_kind_of(KindOf::Structure) {
+            return;
+        }
+        let anchor_pos = anchor.unwrap_or_else(|| self.get_position());
+        self.guard_retaliate_victim = Some(victim);
+        self.guard_retaliate_anchor = Some(anchor_pos);
+        // Preserve ordinary guard anchors if already guarding.
+        if self.guard_position.is_none() && self.guard_target.is_none() {
+            self.guard_position = Some(anchor_pos);
+        }
+        self.target = Some(victim);
+        self.target_location = None;
+        self.ai_state = AIState::GuardRetaliating;
+        self.status.attacking = true;
+        if let Some(max) = max_shots {
+            self.max_shots_to_fire = max;
+        }
+        crate::game_logic::host_attack_log::record(self.id, Some(victim));
+    }
+
+    /// Clear GuardRetaliate residual and return to guard/idle.
+    pub fn end_guard_retaliate(&mut self) {
+        self.guard_retaliate_victim = None;
+        self.guard_retaliate_anchor = None;
+        self.target = None;
+        self.status.attacking = false;
+        if self.guard_target.is_some() {
+            self.ai_state = AIState::GuardingObject;
+        } else if self.guard_position.is_some() {
+            self.ai_state = AIState::GuardingArea;
+        } else {
+            self.ai_state = AIState::Idle;
+        }
+        crate::game_logic::host_attack_log::record(self.id, None);
+    }
+
+    /// Tick GuardRetaliate: drop when victim gone; return toward anchor if far.
+    ///
+    /// Fail-closed vs full AIGuardRetaliateMachine inner/outer/return states.
+    pub fn tick_guard_retaliate(&mut self, victim_alive: bool, victim_pos: Option<glam::Vec3>) {
+        if !matches!(self.ai_state, AIState::GuardRetaliating) {
+            return;
+        }
+        if !victim_alive || self.guard_retaliate_victim.is_none() {
+            // Return residual: move back to anchor then end.
+            if let Some(anchor) = self.guard_retaliate_anchor {
+                let us = self.get_position();
+                let dx = us.x - anchor.x;
+                let dz = us.z - anchor.z;
+                // CLOSE_ENOUGH = 25 residual
+                if dx * dx + dz * dz > 25.0 * 25.0 && self.can_move() {
+                    self.move_to(anchor);
+                    // Keep GuardRetaliating until close enough? C++ RETURN state.
+                    // Host: issue move then end attack bit.
+                    self.target = None;
+                    self.status.attacking = false;
+                    self.ai_state = AIState::Moving;
+                    // stash that we should re-enter guard when move completes via clear on kill path
+                    return;
+                }
+            }
+            self.end_guard_retaliate();
+            return;
+        }
+        // Keep target locked on victim.
+        if let Some(vid) = self.guard_retaliate_victim {
+            if self.target != Some(vid) {
+                self.target = Some(vid);
+                self.status.attacking = true;
+            }
+        }
+        let _ = victim_pos;
     }
 
     pub fn can_repair(&self) -> bool {

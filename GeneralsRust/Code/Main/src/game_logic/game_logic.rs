@@ -5888,6 +5888,9 @@ impl GameLogic {
             }
         }
 
+        // GuardRetaliate victim-death / return residual.
+        self.tick_guard_retaliate_states();
+
         // Apply all AI commands
         for command in ai_commands {
             self.apply_ai_command(command);
@@ -6902,15 +6905,40 @@ impl GameLogic {
                 CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {}
                 _ => continue,
             }
-            // C++ aiGuardRetaliate residual → host attack command.
+            // C++ aiGuardRetaliate residual.
             if let Some(friend) = self.objects.get_mut(&fid) {
-                friend.target = Some(damager_id);
-                friend.ai_state = AIState::Attacking;
+                let anchor = friend.get_position();
+                friend.begin_guard_retaliate(damager_id, Some(anchor), None);
                 n += 1;
             }
         }
         n
     }
+    /// Tick all GuardRetaliating units (victim death / return residual).
+    pub fn tick_guard_retaliate_states(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| matches!(o.ai_state, AIState::GuardRetaliating))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let victim_id = self.objects.get(&id).and_then(|o| o.guard_retaliate_victim);
+            let (alive, vpos) = match victim_id {
+                Some(vid) => match self.objects.get(&vid) {
+                    Some(v) if v.is_alive() && !v.status.destroyed => {
+                        (true, Some(v.get_position()))
+                    }
+                    _ => (false, None),
+                },
+                None => (false, None),
+            };
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.tick_guard_retaliate(alive, vpos);
+            }
+        }
+    }
+
     pub fn set_unit_repulsor(&mut self, unit_id: ObjectId, repulsor: bool) -> bool {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
@@ -12168,7 +12196,7 @@ impl GameLogic {
                 }
             }
 
-            AIState::Attacking => {
+            AIState::GuardRetaliating | AIState::Attacking => {
                 use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
 
                 let Some(current_target_id) = target_id else {
@@ -74762,6 +74790,80 @@ mod tests {
     }
 
     #[test]
+    fn begin_guard_retaliate_sets_state_and_anchor() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GR");
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Attackable);
+        let id = ObjectId(4501);
+        let mut o = Object::new(t, id, Team::USA);
+        o.set_position(glam::Vec3::new(10.0, 0.0, 20.0));
+        o.weapon = Some(Weapon {
+            range: 50.0,
+            ..Default::default()
+        });
+        logic.objects.insert(id, o);
+        let victim = ObjectId(4502);
+        logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+            victim,
+            Some(glam::Vec3::new(10.0, 0.0, 20.0)),
+            Some(5),
+        );
+        let o = &logic.objects[&id];
+        assert_eq!(o.ai_state, AIState::GuardRetaliating);
+        assert_eq!(o.guard_retaliate_victim, Some(victim));
+        assert_eq!(o.target, Some(victim));
+        assert_eq!(o.max_shots_to_fire, 5);
+    }
+
+    #[test]
+    fn guard_retaliate_ends_when_victim_dead() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GR2");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(4510);
+        let mut o = Object::new(t, id, Team::USA);
+        o.set_position(glam::Vec3::ZERO);
+        o.weapon = Some(Weapon {
+            range: 40.0,
+            ..Default::default()
+        });
+        logic.objects.insert(id, o);
+        let vid = ObjectId(4511);
+        let mut et = ThingTemplate::new("EV");
+        et.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(vid, {
+            let mut e = Object::new(et, vid, Team::GLA);
+            e.set_position(glam::Vec3::new(15.0, 0.0, 0.0));
+            e
+        });
+        logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+            vid,
+            Some(glam::Vec3::ZERO),
+            None,
+        );
+        // Kill victim
+        if let Some(e) = logic.objects.get_mut(&vid) {
+            e.status.destroyed = true;
+            e.health.current = 0.0;
+        }
+        logic.tick_guard_retaliate_states();
+        let o = &logic.objects[&id];
+        // Victim dead near anchor → end_guard_retaliate → GuardingArea (anchor preserved)
+        assert!(
+            matches!(
+                o.ai_state,
+                AIState::GuardingArea | AIState::Idle | AIState::Moving
+            ),
+            "got {:?}",
+            o.ai_state
+        );
+        assert!(o.guard_retaliate_victim.is_none() || matches!(o.ai_state, AIState::Moving));
+    }
+
+    #[test]
     fn friends_retaliate_against_nearby_aggressor() {
         use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
         let mut logic = GameLogic::new();
@@ -74812,7 +74914,9 @@ mod tests {
         assert!(n >= 1, "friend should retaliate, got {n}");
         let f = &logic.objects[&fid];
         assert_eq!(f.target, Some(eid));
-        assert_eq!(f.ai_state, AIState::Attacking);
+        assert_eq!(f.ai_state, AIState::GuardRetaliating);
+        assert_eq!(f.guard_retaliate_victim, Some(eid));
+        assert!(f.guard_retaliate_anchor.is_some());
     }
 
     #[test]
