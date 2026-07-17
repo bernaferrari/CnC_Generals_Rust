@@ -44040,12 +44040,14 @@ impl GameLogic {
         template_name: &str,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            cell_shroud_blocks_build_residual, legal_build_code_from_checks_full_shroud_residual,
+            cell_shroud_blocks_build_residual, footprint_height_delta_residual,
+            legal_build_code_from_checks_complete_residual,
             legal_build_objects_in_the_way_residual, legal_build_too_close_to_supplies_residual,
             min_dist_from_map_edge_residual, STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
         };
         use crate::game_logic::host_structure_economy_residual::{
-            is_legal_build_distance_from_map_edge, is_supply_warehouse_template,
+            is_legal_build_distance_from_map_edge, is_legal_build_height_variation,
+            is_supply_warehouse_template, ALLOWED_HEIGHT_VARIATION_FOR_BUILDING,
             MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
         };
         use crate::game_logic::host_upgrades::is_supply_center_template;
@@ -44121,13 +44123,48 @@ impl GameLogic {
             let clear = self.is_build_location_shroud_clear(player_id, position);
             cell_shroud_blocks_build_residual(clear)
         };
-        legal_build_code_from_checks_full_shroud_residual(
+        // C++ footprint height sample residual (hiZ-loZ > AllowedHeightVariation).
+        // Fail-open when no height samples available (synthetic maps without terrain).
+        let not_flat = self.footprint_not_flat_enough(position, place_r);
+        legal_build_code_from_checks_complete_residual(
             in_bounds,
             shrouded,
+            not_flat,
             in_way,
             too_close,
             too_close_edge,
         )
+    }
+
+    /// C++ BuildAssistant footprint hiZ-loZ residual vs AllowedHeightVariationForBuilding.
+    fn footprint_not_flat_enough(&self, position: glam::Vec3, place_radius: f32) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::footprint_height_delta_residual;
+        use crate::game_logic::host_structure_economy_residual::is_legal_build_height_variation;
+        let r = place_radius.max(1.0);
+        // 3x3 sample residual across pad (simplified vs full iterateFootprint resolution).
+        let offsets = [
+            (-r, -r),
+            (0.0, -r),
+            (r, -r),
+            (-r, 0.0),
+            (0.0, 0.0),
+            (r, 0.0),
+            (-r, r),
+            (0.0, r),
+            (r, r),
+        ];
+        let mut samples = Vec::with_capacity(9);
+        for (dx, dz) in offsets {
+            let p = glam::Vec3::new(position.x + dx, 0.0, position.z + dz);
+            if let Some(h) = self.terrain_height_at(p) {
+                samples.push(h);
+            }
+        }
+        if samples.is_empty() {
+            return false; // fail-open residual
+        }
+        let delta = footprint_height_delta_residual(&samples);
+        !is_legal_build_height_variation(delta)
     }
 
     /// C++ PartitionManager::getShroudStatusForPlayer == CELLSHROUD_CLEAR residual.
@@ -82345,6 +82382,66 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn structure_placement_rejects_not_flat_enough_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            footprint_height_delta_residual, LBC_NOT_FLAT_ENOUGH, LBC_OK,
+        };
+        use crate::game_logic::host_structure_economy_residual::ALLOWED_HEIGHT_VARIATION_FOR_BUILDING;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!((ALLOWED_HEIGHT_VARIATION_FOR_BUILDING - 10.0).abs() < 0.01);
+        assert!((footprint_height_delta_residual(&[0.0, 12.0]) - 12.0).abs() < 0.01);
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.override_world_size(400.0, 400.0);
+        // Fog off residual so shroud does not interfere.
+        logic.set_skirmish_rules(false, true, false, true, 1.0);
+
+        let mut t = ThingTemplate::new("TestFlatBarracks");
+        t.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("TestFlatBarracks".into(), t);
+
+        // Install synthetic height cache with a steep ridge.
+        let w = logic.pathfinding_system.grid.width().max(1) as u32;
+        let h = logic.pathfinding_system.grid.height().max(1) as u32;
+        let mut heights = vec![0.0_f32; (w * h) as usize];
+        // Raise half the grid by 20 (> AllowedHeightVariation 10).
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                if x as f32 > w as f32 * 0.5 {
+                    heights[idx] = 20.0;
+                }
+            }
+        }
+        assert!(logic.restore_terrain_heights_from_grid(w, h, &heights));
+
+        // Placement straddling the ridge residual should be not flat.
+        let ridge = glam::Vec3::new(0.0, 0.0, 0.0);
+        // Center may be flat-ish depending on grid origin; sample near world origin
+        // which maps into mid-grid after override_world_size.
+        let code = logic.legal_build_code_at(Team::USA, ridge, "TestFlatBarracks");
+        // If samples all same side of ridge, may still be OK — force by checking
+        // a point near the world x midpoint where cells change.
+        let mid = glam::Vec3::new(5.0, 0.0, 0.0);
+        let code_mid = logic.legal_build_code_at(Team::USA, mid, "TestFlatBarracks");
+        assert!(
+            code == LBC_NOT_FLAT_ENOUGH || code_mid == LBC_NOT_FLAT_ENOUGH,
+            "expected not-flat residual, got {code}/{code_mid}"
+        );
+
+        // Flat far-left pad residual.
+        let flat = glam::Vec3::new(-80.0, 0.0, 0.0);
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, flat, "TestFlatBarracks"),
+            LBC_OK
+        );
+        assert!(logic
+            .create_object_under_construction("TestFlatBarracks", Team::USA, flat)
+            .is_some());
     }
 
     #[test]
