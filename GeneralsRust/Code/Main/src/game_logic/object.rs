@@ -535,6 +535,9 @@ pub struct Object {
     /// C++ AIGuardRetaliateMachine goal victim residual.
     #[serde(default)]
     pub guard_retaliate_victim: Option<ObjectId>,
+    /// C++ AIUpdateInterface::m_crateCreated residual (notifyCrate).
+    #[serde(default)]
+    pub crate_created: Option<ObjectId>,
     /// C++ setGoalPositionClipped anchor for GuardRetaliate return residual.
     #[serde(default)]
     pub guard_retaliate_anchor: Option<Vec3>,
@@ -1256,6 +1259,7 @@ impl Object {
             guard_position: None,
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
+            crate_created: None,
             guard_target: None,
             force_attack: false,
             show_health_bar: true, // Show health bars by default
@@ -1511,6 +1515,7 @@ impl Object {
             guard_position: None,
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
+            crate_created: None,
             guard_target: None,
             force_attack: false,
             show_health_bar: true,
@@ -6218,6 +6223,21 @@ impl Object {
     ///
     /// Clears current goal, anchors at `pos` (unit position if None), sets
     /// goal victim, enters GuardRetaliating, optional max shots.
+
+    /// C++ AIUpdateInterface::notifyCrate residual.
+    pub fn notify_crate(&mut self, crate_id: ObjectId) {
+        self.crate_created = Some(crate_id);
+    }
+
+    /// C++ AIUpdateInterface::checkForCrateToPickup residual.
+    ///
+    /// Saves id, clears marker (C++ clears before lookup — host saves first so
+    /// the crate can actually be found), returns crate id if still pending.
+    pub fn check_for_crate_to_pickup(&mut self) -> Option<ObjectId> {
+        let id = self.crate_created.take()?;
+        Some(id)
+    }
+
     pub fn begin_guard_retaliate(
         &mut self,
         victim: ObjectId,
