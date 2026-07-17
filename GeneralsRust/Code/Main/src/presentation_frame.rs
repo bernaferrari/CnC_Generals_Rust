@@ -212,6 +212,8 @@ pub struct RenderableObject {
     pub unselectable: bool,
     /// C++ RebuildHole residual frozen for presentation/UI.
     pub is_rebuild_hole: bool,
+    /// C++ OBJECT_STATUS_RECONSTRUCTING residual frozen for presentation.
+    pub reconstructing: bool,
     /// Veterancy rank residual for chevrons / UI.
     pub veterancy: PresentationVeterancy,
     /// Experience points residual (display / debug).
@@ -2327,6 +2329,7 @@ impl PresentationFrame {
                 sold: obj.status.sold,
                 unselectable: obj.status.unselectable,
                 is_rebuild_hole: obj.is_rebuild_hole,
+                reconstructing: obj.status.reconstructing,
                 veterancy: PresentationVeterancy::from_host(obj.experience.level),
                 experience_points: obj.experience.current.max(0.0),
                 moving: obj.status.moving,
@@ -7416,6 +7419,28 @@ mod tests {
                     << crate::game_logic::host_enum_table_residual::partially_constructed_model_bit()))
                 != 0
         );
+    }
+
+    #[test]
+    fn reconstructing_freezes_into_presentation() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+        let mut st = ThingTemplate::new("GLABarracks");
+        st.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic.templates.insert("GLABarracks".into(), st);
+        let id = logic
+            .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = true;
+            o.status.reconstructing = true;
+            o.is_rebuild_hole = false;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert!(ro.reconstructing);
+        assert!(ro.under_construction);
     }
 
     #[test]
