@@ -408,6 +408,8 @@ pub struct UnitRenderInput {
     pub orientation: f32,
     pub selected: bool,
     pub selection_radius: f32,
+    /// C++ Drawable selection flash envelope residual frames remaining.
+    pub selection_flash_remaining: u32,
     pub is_structure: bool,
     pub is_unit: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
@@ -437,6 +439,7 @@ impl UnitRenderInput {
             orientation: ro.orientation,
             selected: ro.selected,
             selection_radius: ro.selection_radius.max(5.0),
+            selection_flash_remaining: ro.selection_flash_remaining,
             is_structure: ro.is_structure,
             is_unit: ro.is_unit,
             engine_bridged: ro.engine_bridged,
@@ -461,6 +464,11 @@ impl UnitRenderInput {
     #[inline]
     pub fn fow_should_render(&self) -> bool {
         self.fow_visibility.should_render()
+    }
+
+    /// C++ TintEnvelope residual intensity (linear fade over decay frames).
+    pub fn selection_flash_intensity(&self) -> f32 {
+        crate::game_logic::host_saboteur::selection_flash_intensity(self.selection_flash_remaining)
     }
 }
 
@@ -5504,6 +5512,7 @@ mod tests {
             orientation: 0.0,
             selected: false,
             selection_radius: 5.0,
+            selection_flash_remaining: 0,
             is_structure: false,
             is_unit: true,
             engine_bridged: false,
