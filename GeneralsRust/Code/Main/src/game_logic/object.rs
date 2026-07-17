@@ -4,6 +4,20 @@ use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// C++ AttackStateMachine substate residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AttackSubState {
+    /// C++ AIM_AT_TARGET (default on enter).
+    #[default]
+    AimAtTarget,
+    /// C++ FIRE_WEAPON.
+    FireWeapon,
+    /// C++ APPROACH_TARGET.
+    ApproachTarget,
+    /// C++ CHASE_TARGET (pursue residual collapses to approach when not fleeing).
+    ChaseTarget,
+}
+
 fn default_one_f32() -> f32 {
     1.0
 }
@@ -412,6 +426,9 @@ pub struct Object {
     /// C++ Weapon maxShotCount residual (-1 = unlimited).
     #[serde(default = "default_max_shots")]
     pub max_shots_to_fire: i32,
+    /// C++ AttackStateMachine current substate residual.
+    #[serde(default)]
+    pub attack_substate: crate::game_logic::AttackSubState,
     /// C++ AIAttackApproachTargetState m_approachTimestamp residual.
     #[serde(default)]
     pub approach_timestamp: u32,
@@ -1122,6 +1139,7 @@ impl Object {
             path_timestamp: 0,
             queue_for_path_frames: 0,
             max_shots_to_fire: -1,
+            attack_substate: crate::game_logic::AttackSubState::AimAtTarget,
             approach_timestamp: 0,
             prev_victim_pos: None,
             temporary_move_frames: 0,
@@ -1359,6 +1377,7 @@ impl Object {
             path_timestamp: 0,
             queue_for_path_frames: 0,
             max_shots_to_fire: -1,
+            attack_substate: crate::game_logic::AttackSubState::AimAtTarget,
             approach_timestamp: 0,
             prev_victim_pos: None,
             temporary_move_frames: 0,

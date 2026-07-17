@@ -1808,6 +1808,17 @@ fn mission_objective_to_display(
     }
 }
 
+/// C++ AIAttackState outer residual result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttackMachineResult {
+    /// Keep running nested AttackStateMachine.
+    Continue,
+    /// Victim dead / exit success.
+    Success,
+    /// Cannot attack (no weapon, max shots, under construction).
+    Failure,
+}
+
 /// C++ AIAttackFireWeaponState residual result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttackFireResult {
@@ -6241,6 +6252,185 @@ impl GameLogic {
     }
 
     /// C++ AIAttackAimAtTargetState::onEnter residual.
+
+    /// C++ AIAttackState::onEnter residual — start nested AttackStateMachine at AIM.
+    pub fn attack_state_enter(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+    ) -> AttackMachineResult {
+        {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return AttackMachineResult::Failure;
+            };
+            if !u.is_alive() || u.status.under_construction {
+                return AttackMachineResult::Failure;
+            }
+            if u.weapon.is_none() && u.secondary_weapon.is_none() {
+                return AttackMachineResult::Failure;
+            }
+            if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
+                return AttackMachineResult::Failure;
+            }
+        }
+        {
+            let Some(v) = self.objects.get(&victim_id) else {
+                return AttackMachineResult::Failure;
+            };
+            if !v.is_alive() || v.status.destroyed {
+                return AttackMachineResult::Failure;
+            }
+        }
+        {
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return AttackMachineResult::Failure;
+            };
+            u.target = Some(victim_id);
+            u.status.attacking = true;
+            u.ai_state = AIState::Attacking;
+            u.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+            if u.max_shots_to_fire == 0 {
+                u.max_shots_to_fire = -1;
+            }
+        }
+        let _ = self.attack_aim_at_target_enter(unit_id);
+        AttackMachineResult::Continue
+    }
+
+    /// C++ AIAttackState::onExit residual.
+    pub fn attack_state_exit(&mut self, unit_id: ObjectId) {
+        self.attack_aim_at_target_exit(unit_id);
+        self.attack_fire_weapon_exit(unit_id);
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.status.attacking = false;
+            u.status.is_aiming_weapon = false;
+            u.status.is_firing_weapon = false;
+            u.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+        }
+    }
+
+    /// C++ AttackStateMachine + AIAttackState::update residual (object attack).
+    pub fn tick_attack_state_machine(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        current_time: f32,
+        logic_frame: u32,
+        max_turn_rad: f32,
+    ) -> AttackMachineResult {
+        {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return AttackMachineResult::Failure;
+            };
+            if !u.is_alive() || u.status.under_construction {
+                return AttackMachineResult::Failure;
+            }
+            if u.weapon.is_none() && u.secondary_weapon.is_none() {
+                return AttackMachineResult::Failure;
+            }
+            if u.max_shots_to_fire == 0 {
+                return AttackMachineResult::Failure;
+            }
+        }
+        {
+            let Some(v) = self.objects.get(&victim_id) else {
+                return AttackMachineResult::Success;
+            };
+            if !v.is_alive() || v.status.destroyed {
+                return AttackMachineResult::Success;
+            }
+        }
+
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.target = Some(victim_id);
+            u.status.attacking = true;
+            u.ai_state = AIState::Attacking;
+        }
+
+        let in_range = {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return AttackMachineResult::Failure;
+            };
+            let Some(v) = self.objects.get(&victim_id) else {
+                return AttackMachineResult::Success;
+            };
+            u.is_within_attack_range(v)
+        };
+
+        let sub = self
+            .objects
+            .get(&unit_id)
+            .map(|u| u.attack_substate)
+            .unwrap_or(crate::game_logic::AttackSubState::AimAtTarget);
+
+        use crate::game_logic::AttackSubState;
+        match sub {
+            AttackSubState::AimAtTarget => {
+                if !in_range {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.attack_substate = AttackSubState::ApproachTarget;
+                        u.status.is_aiming_weapon = false;
+                    }
+                    let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
+                    return AttackMachineResult::Continue;
+                }
+                match self.attack_aim_at_target_update(unit_id, victim_id, max_turn_rad) {
+                    AttackAimResult::Success => {
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.attack_substate = AttackSubState::FireWeapon;
+                            u.status.is_aiming_weapon = false;
+                        }
+                        let _ = self.attack_fire_weapon_enter(unit_id);
+                    }
+                    AttackAimResult::Continue => {}
+                    AttackAimResult::Failure => return AttackMachineResult::Failure,
+                }
+                AttackMachineResult::Continue
+            }
+            AttackSubState::FireWeapon => {
+                if !in_range {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.attack_substate = AttackSubState::ApproachTarget;
+                        u.status.is_firing_weapon = false;
+                    }
+                    let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
+                    return AttackMachineResult::Continue;
+                }
+                let fire = self.attack_fire_weapon_update(unit_id, victim_id, current_time);
+                match fire {
+                    AttackFireResult::Continue => {
+                        // PRE_ATTACK wind-up — stay in FIRE.
+                    }
+                    AttackFireResult::Success | AttackFireResult::Failure => {
+                        // C++ both edges return to AIM_AT_TARGET.
+                        self.attack_fire_weapon_exit(unit_id);
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.attack_substate = AttackSubState::AimAtTarget;
+                        }
+                        let _ = self.attack_aim_at_target_enter(unit_id);
+                    }
+                }
+                AttackMachineResult::Continue
+            }
+            AttackSubState::ApproachTarget | AttackSubState::ChaseTarget => {
+                if in_range {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.attack_substate = AttackSubState::AimAtTarget;
+                        u.status.moving = false;
+                    }
+                    let _ = self.attack_aim_at_target_enter(unit_id);
+                    return AttackMachineResult::Continue;
+                }
+                let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
+                if let Some(u) = self.objects.get_mut(&unit_id) {
+                    u.approach_timestamp = logic_frame;
+                    u.status.moving = true;
+                }
+                AttackMachineResult::Continue
+            }
+        }
+    }
+
     pub fn attack_aim_at_target_enter(&mut self, unit_id: ObjectId) -> bool {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
@@ -72047,6 +72237,169 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn attack_state_machine_aim_to_fire_when_facing() {
+        use crate::game_logic::{
+            AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AsmA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1601);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AsmV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1602);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.attack_state_enter(aid, vid),
+            AttackMachineResult::Continue
+        );
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::AimAtTarget
+        );
+        // Facing target: one tick should promote Aim → Fire.
+        let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+        assert_eq!(r, AttackMachineResult::Continue);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::FireWeapon
+        );
+    }
+
+    #[test]
+    fn attack_state_machine_out_of_range_approaches() {
+        use crate::game_logic::{
+            AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AsmA2");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1603);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 30.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AsmV2");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1604);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(400.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.attack_state_enter(aid, vid),
+            AttackMachineResult::Continue
+        );
+        let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+        assert_eq!(r, AttackMachineResult::Continue);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::ApproachTarget
+        );
+    }
+
+    #[test]
+    fn attack_state_machine_success_when_victim_dies() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AsmA3");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1605);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("AsmV3");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1606);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o
+        });
+        assert_eq!(
+            logic.attack_state_enter(aid, vid),
+            AttackMachineResult::Continue
+        );
+        logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
+        let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+        assert_eq!(r, AttackMachineResult::Success);
+    }
+
+    #[test]
+    fn attack_state_machine_fire_returns_to_aim() {
+        use crate::game_logic::{
+            AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AsmA4");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1607);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            });
+            o.attack_substate = AttackSubState::FireWeapon;
+            o.status.is_firing_weapon = true;
+            o
+        });
+        let mut vt = ThingTemplate::new("AsmV4");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1608);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(15.0, 0.0, 0.0));
+            o
+        });
+        let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
+        assert_eq!(r, AttackMachineResult::Continue);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::AimAtTarget
+        );
     }
 
     #[test]
