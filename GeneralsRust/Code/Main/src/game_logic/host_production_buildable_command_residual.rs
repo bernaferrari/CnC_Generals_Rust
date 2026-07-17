@@ -420,6 +420,52 @@ pub const PREREQ_SAMPLE_TABLE_RESIDUAL: &[PrereqSampleRow] = &[
         prereq_objects: &["ChinaPropagandaCenter"],
         or_chain: false,
     },
+    // Intermediate tech buildings residual (FactionBuilding.ini Prerequisites).
+    PrereqSampleRow {
+        unit: "GLAPalace",
+        prereq_objects: &["GLAArmsDealer"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "ChinaPropagandaCenter",
+        prereq_objects: &["ChinaWarFactory"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "AmericaAirfield",
+        prereq_objects: &["AmericaSupplyCenter"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "ChinaBarracks",
+        prereq_objects: &["ChinaCommandCenter"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "GLAArmsDealer",
+        prereq_objects: &["GLASupplyStash"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "AmericaPowerPlant",
+        prereq_objects: &["AmericaCommandCenter"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "AmericaSupplyCenter",
+        prereq_objects: &["AmericaCommandCenter"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "ChinaSupplyCenter",
+        prereq_objects: &["ChinaCommandCenter"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "GLASupplyStash",
+        prereq_objects: &["GLACommandCenter"],
+        or_chain: false,
+    },
 ];
 
 /// Residual satisfaction for a simple unit-ownership map residual.
@@ -473,7 +519,7 @@ pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
         && PREREQ_INI_FIELD_NAMES.len() == 2
         && residual_name_index(PREREQ_INI_FIELD_NAMES, "Object") == Some(0)
         && residual_name_index(PREREQ_INI_FIELD_NAMES, "Science") == Some(1)
-        && PREREQ_SAMPLE_TABLE_RESIDUAL.len() == 8
+        && PREREQ_SAMPLE_TABLE_RESIDUAL.len() == 17
         && PREREQ_SAMPLE_TABLE_RESIDUAL[0].unit == "AmericaWarFactory"
         && PREREQ_SAMPLE_TABLE_RESIDUAL[0].prereq_objects == &["AmericaSupplyCenter"]
         && !PREREQ_SAMPLE_TABLE_RESIDUAL[0].or_chain
@@ -520,6 +566,12 @@ pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
             == Some((&["GLAPalace"][..], false))
         && prereq_objects_for_template_residual("ChinaNuclearMissileLauncher")
             == Some((&["ChinaPropagandaCenter"][..], false))
+        && prereq_objects_for_template_residual("GLAPalace")
+            == Some((&["GLAArmsDealer"][..], false))
+        && prereq_objects_for_template_residual("ChinaPropagandaCenter")
+            == Some((&["ChinaWarFactory"][..], false))
+        && prereq_objects_for_template_residual("AmericaStrategyCenter")
+            == Some((&["AmericaWarFactory", "AmericaAirfield"][..], true))
         && prereq_is_satisfied_residual(
             &["AmericaStrategyCenter"],
             false,
