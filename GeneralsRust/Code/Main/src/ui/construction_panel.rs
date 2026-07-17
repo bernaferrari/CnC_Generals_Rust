@@ -47,12 +47,30 @@ pub struct BuildableItem {
     /// Name of the object to construct (may differ from template_name for
     /// reskins).
     pub object_name: String,
+    /// C++ CanMakeType ordinal residual (CANMAKE_*); default OK when unknown.
+    pub can_make: u32,
+    /// True when CanMake residual allows production/purchase.
+    pub available: bool,
+    /// Optional HelpBox status string residual when unavailable.
+    pub help_status: Option<String>,
 }
 
 impl BuildableItem {
     /// True when the player has enough credits.
     pub fn is_affordable(&self, credits: i32) -> bool {
         credits >= self.cost
+    }
+
+    /// True when CanMake residual is OK and credits cover cost residual.
+    pub fn is_enabled(&self, credits: i32) -> bool {
+        self.available && self.is_affordable(credits)
+    }
+
+    /// Apply presentation CanMake residual onto this cameo.
+    pub fn apply_can_make(&mut self, can_make: u32, available: bool, help_status: Option<String>) {
+        self.can_make = can_make;
+        self.available = available;
+        self.help_status = help_status;
     }
 }
 
@@ -446,6 +464,9 @@ impl ConstructionPanel {
                     radius_cursor_type: btn.radius_cursor_type.clone(),
                     command: btn.command.clone(),
                     object_name: btn.object.clone(),
+                    can_make: 0,
+                    available: true,
+                    help_status: None,
                 };
 
                 self.items.push(item);
@@ -515,6 +536,43 @@ impl ConstructionPanel {
     /// All items (unfiltered).
     pub fn all_items(&self) -> &[BuildableItem] {
         &self.items
+    }
+
+    pub fn items_mut(&mut self) -> &mut [BuildableItem] {
+        &mut self.items
+    }
+
+    /// Apply presentation CanMake residual onto matching buildable cameos.
+    ///
+    /// Matches by template_name / object_name (case-insensitive). Unmatched
+    /// cameos keep prior available residual (default true).
+    pub fn apply_can_make_cameos(&mut self, cameos: &[crate::ui::hud_state::CanMakeCameoUi]) {
+        if cameos.is_empty() {
+            return;
+        }
+        let lookup: HashMap<String, &crate::ui::hud_state::CanMakeCameoUi> = cameos
+            .iter()
+            .map(|c| (c.template_name.to_ascii_lowercase(), c))
+            .collect();
+        for item in self.items.iter_mut() {
+            let key = item.template_name.to_ascii_lowercase();
+            let key2 = item.object_name.to_ascii_lowercase();
+            if let Some(c) = lookup.get(&key).or_else(|| lookup.get(&key2)) {
+                item.apply_can_make(c.can_make, c.available, c.help_status.clone());
+            }
+        }
+    }
+
+    /// True when a cameo is clickable residual (CanMake OK + affordable).
+    pub fn is_item_enabled(&self, template_name: &str, credits: i32) -> bool {
+        self.items
+            .iter()
+            .find(|i| {
+                i.template_name.eq_ignore_ascii_case(template_name)
+                    || i.object_name.eq_ignore_ascii_case(template_name)
+            })
+            .map(|i| i.is_enabled(credits))
+            .unwrap_or(false)
     }
 
     pub fn selected_building(&self) -> Option<&str> {
@@ -731,6 +789,56 @@ pub fn resolve_command_set_name(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn apply_can_make_cameos_disables_unavailable_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            CANMAKE_MAXED_OUT_FOR_PLAYER, CANMAKE_OK,
+        };
+        use crate::ui::hud_state::CanMakeCameoUi;
+        let mut panel = ConstructionPanel::new(0, 0);
+        // Inject cameo residual via apply after manually setting items through reflection-free path:
+        // use enqueue of BuildableItem
+        let item = BuildableItem {
+            template_name: "AmericaInfantryColonelBurton".into(),
+            display_name: "Burton".into(),
+            cost: 1500,
+            build_time: 20.0,
+            button_image: String::new(),
+            hotkey: None,
+            button_border_type: "BUILD".into(),
+            radius_cursor_type: String::new(),
+            command: "UNIT_BUILD".into(),
+            object_name: "AmericaInfantryColonelBurton".into(),
+            can_make: CANMAKE_OK,
+            available: true,
+            help_status: None,
+        };
+        // Access items via private field in same module tests
+        panel.items.push(item);
+        assert!(panel.is_item_enabled("AmericaInfantryColonelBurton", 10_000));
+        panel.apply_can_make_cameos(&[CanMakeCameoUi {
+            template_name: "AmericaInfantryColonelBurton".into(),
+            can_make: CANMAKE_MAXED_OUT_FOR_PLAYER,
+            available: false,
+            help_status: Some("Cannot build unit because maximum number reached".into()),
+        }]);
+        assert!(!panel.is_item_enabled("AmericaInfantryColonelBurton", 10_000));
+        let bi = panel
+            .all_items()
+            .iter()
+            .find(|i| i.template_name.contains("Burton"))
+            .unwrap();
+        assert_eq!(bi.can_make, CANMAKE_MAXED_OUT_FOR_PLAYER);
+        assert!(!bi.available);
+        assert!(bi
+            .help_status
+            .as_deref()
+            .is_some_and(|s| s.contains("maximum")));
+        // Affordable but unavailable residual still disabled.
+        assert!(!bi.is_enabled(10_000));
+    }
+
     use super::*;
 
     #[test]
@@ -746,6 +854,9 @@ mod tests {
             radius_cursor_type: String::new(),
             command: "OBJECT_BUILD".into(),
             object_name: "TestObject".into(),
+            can_make: 0,
+            available: true,
+            help_status: None,
         };
 
         let mut entry = BuildQueueEntry::new(item);
@@ -769,6 +880,9 @@ mod tests {
             radius_cursor_type: String::new(),
             command: "OBJECT_BUILD".into(),
             object_name: "Instant".into(),
+            can_make: 0,
+            available: true,
+            help_status: None,
         };
         let mut entry = BuildQueueEntry::new(item);
         assert!(entry.tick(0.0)); // zero-time items complete immediately
@@ -854,6 +968,9 @@ mod tests {
             radius_cursor_type: String::new(),
             command: "UNIT_BUILD".into(),
             object_name: "AmericaInfantryRanger".into(),
+            can_make: 0,
+            available: true,
+            help_status: None,
         };
         panel.enqueue(item.clone());
         assert_eq!(panel.build_queue().len(), 1);
@@ -874,6 +991,9 @@ mod tests {
             radius_cursor_type: String::new(),
             command: "OBJECT_BUILD".into(),
             object_name: "TestObj".into(),
+            can_make: 0,
+            available: true,
+            help_status: None,
         };
         panel.enqueue(item);
         let cancelled = panel.cancel_current();
@@ -924,6 +1044,9 @@ mod tests {
             radius_cursor_type: String::new(),
             command: "OBJECT_BUILD".into(),
             object_name: "T".into(),
+            can_make: 0,
+            available: true,
+            help_status: None,
         };
         assert!(item.is_affordable(500));
         assert!(item.is_affordable(999));
