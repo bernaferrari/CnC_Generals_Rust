@@ -4998,6 +4998,27 @@ impl Object {
         self.status.disguise_transition_frames > 0
     }
 
+    /// C++ SpyVisionUpdate::setDisabledUntilFrame residual.
+    pub fn apply_spy_vision_disabled_until(&mut self, until_frame: u32) {
+        if until_frame > self.status.spy_vision_disabled_until_frame {
+            self.status.spy_vision_disabled_until_frame = until_frame;
+        }
+    }
+
+    /// Whether SpyVision residual is currently disabled by sabotage residual.
+    pub fn is_spy_vision_disabled(&self, current_frame: u32) -> bool {
+        self.status.spy_vision_disabled_until_frame > current_frame
+    }
+
+    /// Expire SpyVision sabotage disable residual when frame passes.
+    pub fn tick_spy_vision_disabled(&mut self, current_frame: u32) {
+        if self.status.spy_vision_disabled_until_frame > 0
+            && current_frame >= self.status.spy_vision_disabled_until_frame
+        {
+            self.status.spy_vision_disabled_until_frame = 0;
+        }
+    }
+
     /// Apparent team residual for a viewer (see host_bomb_truck_disguise).
     pub fn apparent_team_to(&self, viewer_team: Team) -> Team {
         crate::game_logic::host_bomb_truck_disguise::apparent_team_for_viewer(

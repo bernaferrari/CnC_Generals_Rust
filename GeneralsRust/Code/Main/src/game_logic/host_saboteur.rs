@@ -165,6 +165,10 @@ pub struct HostSaboteurRegistry {
     pub superweapon_resets: u32,
     /// Internet center disables.
     pub internet_disables: u32,
+    /// SpyVisionUpdate setDisabledUntilFrame residual (all team centers).
+    pub internet_spy_vision_disables: u32,
+    /// Contained hackers DISABLED_HACKED residual count.
+    pub internet_hackers_disabled: u32,
     /// Fake buildings destroyed.
     pub fakes_destroyed: u32,
     /// Saboteurs consumed on success.
@@ -207,6 +211,19 @@ impl HostSaboteurRegistry {
 
     pub fn record_consumed(&mut self) {
         self.saboteurs_consumed = self.saboteurs_consumed.saturating_add(1);
+    }
+    pub fn record_internet_spy_vision_disable(&mut self, centers: u32, hackers: u32) {
+        self.internet_spy_vision_disables =
+            self.internet_spy_vision_disables.saturating_add(centers);
+        self.internet_hackers_disabled = self.internet_hackers_disabled.saturating_add(hackers);
+    }
+
+    pub fn honesty_internet_spy_vision_ok(&self) -> bool {
+        self.internet_spy_vision_disables > 0
+    }
+
+    pub fn honesty_internet_hackers_disabled_ok(&self) -> bool {
+        self.internet_hackers_disabled > 0
     }
 
     pub fn honesty_sabotage_ok(&self) -> bool {
