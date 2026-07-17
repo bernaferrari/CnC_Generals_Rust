@@ -15771,6 +15771,8 @@ impl GameLogic {
             HostUpgradeKind::LaserMissiles => self.apply_laser_missiles_to_team(team, upgrade_name),
             HostUpgradeKind::Nationalism => self.apply_nationalism_to_team(team, upgrade_name),
             HostUpgradeKind::ChainGuns => self.apply_chain_guns_to_team(team, upgrade_name),
+            HostUpgradeKind::UraniumShells => self.apply_uranium_shells_to_team(team, upgrade_name),
+            HostUpgradeKind::BlackNapalm => self.apply_black_napalm_to_team(team, upgrade_name),
             HostUpgradeKind::Other => 0,
         };
 
@@ -15808,6 +15810,100 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_ChinaUraniumShells residual — Battlemaster / Overlord gun damage.
+    fn apply_uranium_shells_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_battlemaster::{
+            is_battlemaster_template, UPGRADE_CHINA_URANIUM_SHELLS,
+        };
+        use crate::game_logic::host_overlord_gun::is_overlord_gun_chassis;
+
+        let ids: Vec<(ObjectId, u8)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter_map(|(id, o)| {
+                if is_battlemaster_template(&o.template_name) {
+                    Some((*id, 0u8))
+                } else if is_overlord_gun_chassis(&o.template_name) {
+                    Some((*id, 1))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut n = 0u32;
+        for (id, kind) in ids {
+            let ok = match kind {
+                0 => self.apply_battlemaster_uranium_upgrade(id),
+                1 => self.apply_overlord_gun_uranium_upgrade(id),
+                _ => false,
+            };
+            if ok {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag(UPGRADE_CHINA_URANIUM_SHELLS);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
+    }
+
+    /// C++ Upgrade_ChinaBlackNapalm residual — MiG / Inferno / Dragon fire field.
+    fn apply_black_napalm_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_dragon_tank::is_dragon_tank_template;
+        use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
+        use crate::game_logic::host_mig::is_mig_template;
+
+        let ids: Vec<(ObjectId, u8)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter_map(|(id, o)| {
+                if is_mig_template(&o.template_name) {
+                    Some((*id, 0u8))
+                } else if is_inferno_cannon_template(&o.template_name) {
+                    Some((*id, 1))
+                } else if is_dragon_tank_template(&o.template_name) {
+                    Some((*id, 2))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut n = 0u32;
+        for (id, kind) in ids {
+            let ok = match kind {
+                0 => self.apply_mig_black_napalm_upgrade(id),
+                1 => self.apply_inferno_black_napalm_upgrade(id),
+                2 => self.apply_dragon_black_napalm_upgrade(id),
+                _ => false,
+            };
+            if ok {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag("Upgrade_ChinaBlackNapalm");
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert("Upgrade_ChinaBlackNapalm".to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
     }
 
     /// C++ Upgrade_GLAScorpionRocket residual — equip SECONDARY on all Scorpions.
@@ -80510,6 +80606,49 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_uranium_and_black_napalm() {
+        use crate::game_logic::host_battlemaster::{
+            has_uranium_shells_upgrade, UPGRADE_CHINA_URANIUM_SHELLS,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+
+        let mut bm = ThingTemplate::new("ChinaTankBattleMaster");
+        bm.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("ChinaTankBattleMaster".into(), bm);
+        let mut mig = ThingTemplate::new("ChinaJetMIG");
+        mig.add_kind_of(KindOf::Aircraft).set_health(200.0);
+        logic.templates.insert("ChinaJetMIG".into(), mig);
+
+        let bid = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("bm");
+        let mid = logic
+            .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("mig");
+
+        let n_u = logic.apply_uranium_shells_to_team(Team::China, UPGRADE_CHINA_URANIUM_SHELLS);
+        assert!(n_u >= 1);
+        assert!(has_uranium_shells_upgrade(
+            &logic.get_object(bid).unwrap().applied_upgrades
+        ));
+
+        let n_b = logic.apply_black_napalm_to_team(Team::China, "Upgrade_ChinaBlackNapalm");
+        assert!(n_b >= 1);
+        assert!(logic
+            .get_object(mid)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_ChinaBlackNapalm"));
     }
 
     #[test]
