@@ -665,16 +665,19 @@ impl Player {
     ///
     /// Spends **science purchase points** (not supplies). Cost 0 = not purchasable.
     pub fn attempt_to_purchase_science(&mut self, science_name: &str) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::science_purchase_point_cost_residual;
-        if !self.is_capable_of_purchasing_science(science_name) {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
+            normalize_science_name_residual, science_purchase_point_cost_residual,
+        };
+        let canonical = normalize_science_name_residual(science_name);
+        if !self.is_capable_of_purchasing_science(&canonical) {
             return false;
         }
-        let cost = science_purchase_point_cost_residual(science_name).unwrap_or(1);
+        let cost = science_purchase_point_cost_residual(&canonical).unwrap_or(1);
         if cost > self.science_purchase_points {
             return false;
         }
         self.science_purchase_points -= cost;
-        self.unlock_science(science_name)
+        self.unlock_science(&canonical)
     }
 
     pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {

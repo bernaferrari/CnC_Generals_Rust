@@ -2317,6 +2317,10 @@ mod tests {
         let mut game_logic = GameLogic::new();
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 3000;
+        // C++ residual: science purchase points, not supplies.
+        player.science_purchase_points = 2;
+        player.unlocked_sciences.insert("SCIENCE_AMERICA".into());
+        player.unlocked_sciences.insert("SCIENCE_Rank1".into());
         game_logic.add_player(player);
 
         let purchase_command = GameCommand {
@@ -2352,10 +2356,17 @@ mod tests {
 
         let player = game_logic.get_player(0).expect("player should exist");
         assert_eq!(
-            player.resources.supplies, 1500,
-            "duplicate science variant should not spend supplies"
+            player.resources.supplies, 3000,
+            "science purchase must not spend supplies residual"
         );
-        assert!(player.has_unlocked_science("a10_strike_1"));
+        assert_eq!(
+            player.science_purchase_points, 1,
+            "one point spent residual"
+        );
+        assert!(
+            player.has_unlocked_science("SCIENCE_A10ThunderboltMissileStrike1"),
+            "canonical A10 science residual"
+        );
     }
 
     #[test]
