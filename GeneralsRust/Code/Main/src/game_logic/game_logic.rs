@@ -39384,7 +39384,10 @@ impl GameLogic {
         if kind == HostSuperweaponKind::CarpetBomb {
             use crate::command_system::SpecialPowerType;
             use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
-            let carpet = if matches!(*power, SpecialPowerType::EarlyChinaCarpetBomb) {
+            let carpet = if matches!(
+                *power,
+                SpecialPowerType::EarlyChinaCarpetBomb | SpecialPowerType::NukeChinaCarpetBomb
+            ) {
                 CarpetBombFactionTier::China
             } else if matches!(*power, SpecialPowerType::AirForceCarpetBomb) {
                 CarpetBombFactionTier::AirForce
@@ -81428,6 +81431,68 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn general_special_power_aliases_map_to_host_residuals() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::special_power_strikes::{
+            honesty_general_special_power_alias_pack_ok, CarpetBombFactionTier, HostSuperweaponKind,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_general_special_power_alias_pack_ok());
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+
+        for power in [
+            SpecialPowerType::AirForceDaisyCutter,
+            SpecialPowerType::AirForceAirstrike,
+            SpecialPowerType::AirForceSpectreGunship,
+            SpecialPowerType::SuperweaponParticleCannon,
+            SpecialPowerType::NukeNeutronMissile,
+            SpecialPowerType::BaikonurRocket,
+            SpecialPowerType::BattleshipBombardment,
+        ] {
+            assert!(
+                logic
+                    .queue_special_power_strike(&power, src, glam::Vec3::new(70.0, 0.0, 0.0))
+                    .is_some(),
+                "power {power:?} must queue host residual"
+            );
+        }
+
+        let id = logic
+            .queue_special_power_strike(
+                &SpecialPowerType::NukeChinaCarpetBomb,
+                src,
+                glam::Vec3::new(90.0, 0.0, 0.0),
+            )
+            .expect("nuke china carpet");
+        assert_eq!(
+            logic.special_power_strike_carpet_tier(id),
+            Some(CarpetBombFactionTier::China)
+        );
+
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::StealthGpsScrambler),
+            None
+        ); // GPS is not a superweapon strike
+        assert!(logic.activate_gps_scrambler(0, glam::Vec3::new(20.0, 0.0, 0.0), Some(src)));
     }
 
     #[test]

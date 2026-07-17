@@ -2483,6 +2483,29 @@ pub const NAPALM_STRIKE_SPECIAL_ENUM: &str = "SPECIAL_NAPALM_STRIKE";
 pub const NAPALM_STRIKE_SPECIAL_POWER: &str = "SuperweaponNapalmStrike";
 
 /// Wave residual honesty: NapalmStrike maps onto DaisyCutter host blast residual.
+/// Wave residual honesty: general special-power aliases map onto host residual kinds.
+pub fn honesty_general_special_power_alias_pack_ok() -> bool {
+    use crate::command_system::SpecialPowerType as P;
+    HostSuperweaponKind::from_command_power(&P::AirForceDaisyCutter)
+        == Some(HostSuperweaponKind::DaisyCutter)
+        && HostSuperweaponKind::from_command_power(&P::AirForceAirstrike)
+            == Some(HostSuperweaponKind::A10Strike)
+        && HostSuperweaponKind::from_command_power(&P::AirForceSpectreGunship)
+            == Some(HostSuperweaponKind::SpectreGunship)
+        && HostSuperweaponKind::from_command_power(&P::SuperweaponParticleCannon)
+            == Some(HostSuperweaponKind::ParticleCannon)
+        && HostSuperweaponKind::from_command_power(&P::NukeNeutronMissile)
+            == Some(HostSuperweaponKind::NuclearMissile)
+        && HostSuperweaponKind::from_command_power(&P::SuperweaponNeutronMissile)
+            == Some(HostSuperweaponKind::NuclearMissile)
+        && HostSuperweaponKind::from_command_power(&P::BaikonurRocket)
+            == Some(HostSuperweaponKind::NuclearMissile)
+        && HostSuperweaponKind::from_command_power(&P::NukeChinaCarpetBomb)
+            == Some(HostSuperweaponKind::CarpetBomb)
+        && HostSuperweaponKind::from_command_power(&P::BattleshipBombardment)
+            == Some(HostSuperweaponKind::ArtilleryBarrage)
+}
+
 pub fn honesty_napalm_strike_residual_pack_ok() -> bool {
     NAPALM_STRIKE_RELOAD_MS == 600_000
         && NAPALM_STRIKE_RELOAD_FRAMES == 18_000
@@ -4828,19 +4851,32 @@ impl HostSuperweaponKind {
         match power {
             SpecialPowerType::DaisyCutter
             | SpecialPowerType::FuelAirBomb
-            | SpecialPowerType::NapalmStrike => Some(HostSuperweaponKind::DaisyCutter),
-            SpecialPowerType::Airstrike => Some(HostSuperweaponKind::A10Strike),
+            | SpecialPowerType::NapalmStrike
+            | SpecialPowerType::AirForceDaisyCutter => Some(HostSuperweaponKind::DaisyCutter),
+            SpecialPowerType::Airstrike | SpecialPowerType::AirForceAirstrike => {
+                Some(HostSuperweaponKind::A10Strike)
+            }
             SpecialPowerType::ScudStorm => Some(HostSuperweaponKind::ScudStorm),
-            SpecialPowerType::ParticleCannon => Some(HostSuperweaponKind::ParticleCannon),
+            SpecialPowerType::ParticleCannon | SpecialPowerType::SuperweaponParticleCannon => {
+                Some(HostSuperweaponKind::ParticleCannon)
+            }
             SpecialPowerType::NuclearMissile
             | SpecialPowerType::BlackMarketNuke
-            | SpecialPowerType::DetonateDirtyNuke => Some(HostSuperweaponKind::NuclearMissile),
+            | SpecialPowerType::DetonateDirtyNuke
+            | SpecialPowerType::NukeNeutronMissile
+            | SpecialPowerType::SuperweaponNeutronMissile
+            | SpecialPowerType::BaikonurRocket => Some(HostSuperweaponKind::NuclearMissile),
             SpecialPowerType::AnthraxBomb => Some(HostSuperweaponKind::AnthraxBomb),
-            SpecialPowerType::SpectreGunship => Some(HostSuperweaponKind::SpectreGunship),
+            SpecialPowerType::SpectreGunship | SpecialPowerType::AirForceSpectreGunship => {
+                Some(HostSuperweaponKind::SpectreGunship)
+            }
             SpecialPowerType::CarpetBomb
             | SpecialPowerType::EarlyChinaCarpetBomb
-            | SpecialPowerType::AirForceCarpetBomb => Some(HostSuperweaponKind::CarpetBomb),
-            SpecialPowerType::Artillery => Some(HostSuperweaponKind::ArtilleryBarrage),
+            | SpecialPowerType::AirForceCarpetBomb
+            | SpecialPowerType::NukeChinaCarpetBomb => Some(HostSuperweaponKind::CarpetBomb),
+            SpecialPowerType::Artillery | SpecialPowerType::BattleshipBombardment => {
+                Some(HostSuperweaponKind::ArtilleryBarrage)
+            }
             SpecialPowerType::CruiseMissile => Some(HostSuperweaponKind::CruiseMissile),
             _ => None,
         }
