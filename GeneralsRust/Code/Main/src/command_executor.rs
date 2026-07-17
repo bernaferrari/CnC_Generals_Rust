@@ -1138,7 +1138,9 @@ impl<'a> CommandExecutor<'a> {
                     {
                         continue;
                     }
-                } else if *power_type == SpecialPowerType::LeafletDrop {
+                } else if *power_type == SpecialPowerType::LeafletDrop
+                    || *power_type == SpecialPowerType::EarlyLeafletDrop
+                {
                     if self
                         .game_logic
                         .queue_leaflet_drop(power_type, unit_id, pos)
