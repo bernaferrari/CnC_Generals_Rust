@@ -312,6 +312,8 @@ pub struct Player {
     pub radar_count: i32,
     /// True when radar is disabled by script/power residual (C++ m_radarDisabled).
     pub radar_disabled: bool,
+    /// C++ Player::m_logicalRetaliationModeEnabled residual (options Auto-Retaliate).
+    pub logical_retaliation_mode_enabled: bool,
 }
 
 impl Player {
@@ -345,6 +347,7 @@ impl Player {
             cash_bounty_percent: 0.0,
             radar_count: 0,
             radar_disabled: false,
+            logical_retaliation_mode_enabled: false,
         }
     }
 
@@ -621,6 +624,10 @@ pub struct GameLogic {
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
     pub enable_repulsors: bool,
+    /// C++ TAiData::m_retaliateFriendsRadius residual (default 120).
+    pub retaliate_friends_radius: f32,
+    /// C++ TAiData::m_maxRetaliateDistance residual (default 210).
+    pub max_retaliate_distance: f32,
     /// Objects in the world
     pub objects: HashMap<ObjectId, Object>,
 
@@ -2178,6 +2185,8 @@ impl GameLogic {
         let mut instance = Self {
             attack_priority_sets: std::collections::HashMap::new(),
             enable_repulsors: false,
+            retaliate_friends_radius: 120.0,
+            max_retaliate_distance: 210.0,
             objects: HashMap::new(),
             players: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
@@ -6745,6 +6754,163 @@ impl GameLogic {
     }
 
     /// C++ Object::setStatus(OBJECT_STATUS_REPULSOR) residual.
+
+    /// C++ Player::setLogicalRetaliationModeEnabled residual.
+    pub fn set_logical_retaliation_mode(&mut self, player_id: u32, enabled: bool) {
+        if let Some(p) = self.players.get_mut(&player_id) {
+            p.logical_retaliation_mode_enabled = enabled;
+        }
+    }
+
+    /// Enable logical retaliation for all local (human) players.
+    pub fn set_all_local_logical_retaliation(&mut self, enabled: bool) {
+        for p in self.players.values_mut() {
+            if p.is_local {
+                p.logical_retaliation_mode_enabled = enabled;
+            }
+        }
+    }
+
+    /// C++ ActiveBody::shouldRetaliateAgainstAggressor residual.
+    pub fn should_retaliate_against_aggressor(
+        &self,
+        victim_id: ObjectId,
+        damager_id: ObjectId,
+    ) -> bool {
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return false;
+        };
+        let Some(damager) = self.objects.get(&damager_id) else {
+            return false;
+        };
+        if !damager.is_alive() && !damager.status.destroyed {
+            // still allow if alive
+        }
+        if !damager.is_alive() {
+            return false;
+        }
+        // Airborne targets never trigger friend retaliation.
+        if damager.status.airborne_target || damager.is_kind_of(KindOf::Aircraft) {
+            return false;
+        }
+        // Enemies only.
+        if damager.team == victim.team
+            || damager.team == Team::Neutral
+            || victim.team == Team::Neutral
+        {
+            return false;
+        }
+        let vp = victim.get_position();
+        let dp = damager.get_position();
+        let dx = vp.x - dp.x;
+        let dz = vp.z - dp.z;
+        let d2 = dx * dx + dz * dz;
+        let max_d = self.max_retaliate_distance;
+        if d2 > max_d * max_d {
+            return false;
+        }
+        // Controlling player must be human (local residual).
+        let human = self
+            .players
+            .values()
+            .find(|p| p.team == victim.team)
+            .map(|p| p.is_local && p.logical_retaliation_mode_enabled)
+            .unwrap_or(false);
+        if !human {
+            return false;
+        }
+        if victim.is_kind_of(KindOf::Drone) {
+            return false;
+        }
+        true
+    }
+
+    /// C++ ActiveBody::shouldRetaliate residual (friend unit eligibility).
+    pub fn should_retaliate_friend(&self, unit_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        if !obj.is_alive() || obj.status.destroyed {
+            return false;
+        }
+        if obj.is_kind_of(KindOf::CannotRetaliate)
+            || obj.is_kind_of(KindOf::Immobile)
+            || obj.is_kind_of(KindOf::Structure)
+            || obj.is_kind_of(KindOf::Drone)
+        {
+            return false;
+        }
+        // Idle only.
+        if !matches!(obj.ai_state, AIState::Idle) || obj.target.is_some() {
+            return false;
+        }
+        // Stealthed + not detected → no.
+        if obj.status.stealthed && !obj.status.detected {
+            return false;
+        }
+        obj.can_attack()
+    }
+
+    /// C++ ActiveBody damage path friend retaliation residual.
+    ///
+    /// Nearby allied idle mobile units that can attack the damager enter
+    /// GuardRetaliate (host: attack damager). Invoked even if victim died.
+    pub fn try_friends_retaliate(&mut self, victim_id: ObjectId, damager_id: ObjectId) -> usize {
+        if !self.should_retaliate_against_aggressor(victim_id, damager_id) {
+            return 0;
+        }
+        let (vpos, vteam, vradius) = {
+            let Some(v) = self.objects.get(&victim_id) else {
+                return 0;
+            };
+            // Bounding circle residual: use collision radius or default 10.
+            let r = if v.is_kind_of(KindOf::Structure) {
+                40.0
+            } else {
+                10.0
+            };
+            (v.get_position(), v.team, r)
+        };
+        let range = self.retaliate_friends_radius + vradius;
+        let range_sq = range * range;
+        let candidates: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(id, o)| {
+                **id != victim_id && **id != damager_id && o.team == vteam && o.is_alive() && {
+                    let p = o.get_position();
+                    let dx = p.x - vpos.x;
+                    let dz = p.z - vpos.z;
+                    dx * dx + dz * dz <= range_sq
+                }
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        let mut n = 0usize;
+        for fid in candidates {
+            if !self.should_retaliate_friend(fid) {
+                continue;
+            }
+            // AbleToAttack residual.
+            match self.get_able_to_attack_specific_object(
+                fid,
+                damager_id,
+                AbleToAttackType::NewTarget,
+                false,
+            ) {
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {}
+                _ => continue,
+            }
+            // C++ aiGuardRetaliate residual → host attack command.
+            if let Some(friend) = self.objects.get_mut(&fid) {
+                friend.target = Some(damager_id);
+                friend.ai_state = AIState::Attacking;
+                n += 1;
+            }
+        }
+        n
+    }
     pub fn set_unit_repulsor(&mut self, unit_id: ObjectId, repulsor: bool) -> bool {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
@@ -14182,32 +14348,41 @@ impl GameLogic {
         };
 
         // Apply damage to target (BodyModule last_damage_source residual).
-        if let Some(target) = self.objects.get_mut(&target_id) {
+        let (destroyed, kill_xp, victim_pos, victim_team) = {
+            let Some(target) = self.objects.get_mut(&target_id) else {
+                return;
+            };
             let destroyed = target.take_damage_from(weapon_damage, Some(attacker_id));
             if destroyed {
-                log::debug!("Object {} destroyed object {}", attacker_id, target_id);
-                // C++ parity: XP based on victim's ExperienceValue.
                 let kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
                 let victim_pos = target.get_position();
                 let victim_team = target.team;
-                self.mark_object_for_destruction(target_id, Some(attacker_team));
-                let wname = self.objects.get(&attacker_id).and_then(|a| {
-                    a.thing
-                        .template
-                        .primary_weapon_name
-                        .clone()
-                        .or_else(|| a.thing.template.secondary_weapon_name.clone())
-                });
-                self.continue_or_stop_after_kill(
-                    attacker_id,
-                    target_id,
-                    victim_pos,
-                    victim_team,
-                    wname.as_deref(),
-                    kill_xp,
-                );
+                (true, kill_xp, victim_pos, victim_team)
+            } else {
+                (false, 0.0, glam::Vec3::ZERO, Team::Neutral)
             }
+        };
+        // C++ ActiveBody: friend retaliation even if victim dies.
+        let _ = self.try_friends_retaliate(target_id, attacker_id);
+        if destroyed {
+            log::debug!("Object {} destroyed object {}", attacker_id, target_id);
+            self.mark_object_for_destruction(target_id, Some(attacker_team));
+            let wname = self.objects.get(&attacker_id).and_then(|a| {
+                a.thing
+                    .template
+                    .primary_weapon_name
+                    .clone()
+                    .or_else(|| a.thing.template.secondary_weapon_name.clone())
+            });
+            self.continue_or_stop_after_kill(
+                attacker_id,
+                target_id,
+                victim_pos,
+                victim_team,
+                wname.as_deref(),
+                kill_xp,
+            );
         }
     }
 
@@ -74584,6 +74759,131 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn friends_retaliate_against_nearby_aggressor() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        // Human local player USA
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        logic.set_logical_retaliation_mode(0, true);
+
+        // Victim
+        let mut vt = ThingTemplate::new("Vic");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(4401);
+        let mut victim = Object::new(vt, vid, Team::USA);
+        victim.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+        victim.health.current = 100.0;
+        victim.health.maximum = 100.0;
+        logic.objects.insert(vid, victim);
+
+        // Friend idle nearby
+        let mut ft = ThingTemplate::new("Friend");
+        ft.add_kind_of(KindOf::Infantry);
+        ft.add_kind_of(KindOf::Attackable);
+        let fid = ObjectId(4402);
+        let mut friend = Object::new(ft, fid, Team::USA);
+        friend.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
+        friend.ai_state = AIState::Idle;
+        friend.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            ..Default::default()
+        });
+        logic.objects.insert(fid, friend);
+
+        // Enemy damager within max retaliate distance
+        let mut et = ThingTemplate::new("Aggr");
+        et.add_kind_of(KindOf::Infantry);
+        et.add_kind_of(KindOf::Attackable);
+        let eid = ObjectId(4403);
+        let mut enemy = Object::new(et, eid, Team::GLA);
+        enemy.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        enemy.health.current = 100.0;
+        enemy.health.maximum = 100.0;
+        logic.objects.insert(eid, enemy);
+
+        let n = logic.try_friends_retaliate(vid, eid);
+        assert!(n >= 1, "friend should retaliate, got {n}");
+        let f = &logic.objects[&fid];
+        assert_eq!(f.target, Some(eid));
+        assert_eq!(f.ai_state, AIState::Attacking);
+    }
+
+    #[test]
+    fn friends_retaliate_skipped_when_mode_off() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        // mode off
+        let mut vt = ThingTemplate::new("Vic2");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(4411);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        let mut ft = ThingTemplate::new("Fr2");
+        ft.add_kind_of(KindOf::Infantry);
+        ft.add_kind_of(KindOf::Attackable);
+        let fid = ObjectId(4412);
+        logic.objects.insert(fid, {
+            let mut o = Object::new(ft, fid, Team::USA);
+            o.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+            o.ai_state = AIState::Idle;
+            o.weapon = Some(Weapon {
+                range: 80.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut et = ThingTemplate::new("En2");
+        et.add_kind_of(KindOf::Infantry);
+        let eid = ObjectId(4413);
+        logic.objects.insert(eid, {
+            let mut o = Object::new(et, eid, Team::China);
+            o.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(logic.try_friends_retaliate(vid, eid), 0);
+        assert!(logic.objects[&fid].target.is_none());
+    }
+
+    #[test]
+    fn drones_do_not_trigger_or_join_retaliation() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        logic.set_logical_retaliation_mode(0, true);
+        // Victim is drone → shouldRetaliateAgainstAggressor false
+        let mut vt = ThingTemplate::new("DroneV");
+        vt.add_kind_of(KindOf::Drone);
+        vt.add_kind_of(KindOf::Vehicle);
+        let vid = ObjectId(4421);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        let mut et = ThingTemplate::new("EnD");
+        et.add_kind_of(KindOf::Infantry);
+        let eid = ObjectId(4422);
+        logic.objects.insert(eid, {
+            let mut o = Object::new(et, eid, Team::GLA);
+            o.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
+            o
+        });
+        assert!(!logic.should_retaliate_against_aggressor(vid, eid));
     }
 
     #[test]
