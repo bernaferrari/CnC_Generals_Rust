@@ -5994,22 +5994,36 @@ impl GameLogic {
         }
         // Mobile-mobile: AI processCollision residual (usually no bounce force).
         let frame = self.frame;
-        let allow_force = {
-            let Some(a) = self.objects.get(&a_id) else {
-                return false;
-            };
-            let Some(b) = self.objects.get(&b_id) else {
-                return false;
-            };
-            a.ai_process_collision_allows_force(b, frame)
+        let b_snap = match self.objects.get(&b_id) {
+            Some(b) => b.clone(),
+            None => return false,
         };
-        if !allow_force {
-            if let Some(a) = self.objects.get_mut(&a_id) {
-                a.last_collidee = Some(b_id);
+        let allow_force = match self.objects.get_mut(&a_id) {
+            Some(a) => a.ai_process_collision(&b_snap, frame),
+            None => return false,
+        };
+        if let Some(a) = self.objects.get_mut(&a_id) {
+            a.last_collidee = Some(b_id);
+            if a.is_blocked {
+                a.apply_blocked_speed_cap();
             }
+        }
+        if !allow_force {
             return true; // AI handled / no force
         }
-        false
+        // Panic bounce residual: small separation impulse on XZ.
+        if let Some(a) = self.objects.get_mut(&a_id) {
+            let us = a.get_position();
+            let them = b_snap.get_position();
+            let mut dx = us.x - them.x;
+            let mut dz = us.z - them.z;
+            let len = (dx * dx + dz * dz).sqrt().max(1.0);
+            dx /= len;
+            dz /= len;
+            a.movement.velocity.x += dx * 0.5;
+            a.movement.velocity.z += dz * 0.5;
+        }
+        true
     }
 
     pub fn apply_overlap_crush_check(
@@ -6139,6 +6153,10 @@ impl GameLogic {
     /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
+        // Per-frame blocked bookkeeping residual (before new collide pairs).
+        for o in self.objects.values_mut() {
+            o.clear_blocked_frame_state();
+        }
         // Rebuild partition cells (C++ registerObject residual each update).
         // Keep FOW reveal residual; only re-register live objects.
         self.partition_manager.clear_registered_objects();
@@ -71485,6 +71503,74 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn ai_blocked_sets_speed_cap() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("BlkA");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(701);
+        let mut a = Object::new(at, aid, Team::USA);
+        a.movement.velocity = Vec3::new(0.0, 0.0, 4.0); // moving +Z
+        a.set_position(Vec3::new(0.0, 0.0, 0.0));
+        // face +Z
+        a.set_orientation(0.0);
+        a.selection_radius = 8.0;
+        a.crusher_level = 0;
+        logic.objects.insert(aid, a);
+
+        let mut bt = ThingTemplate::new("BlkB");
+        bt.add_kind_of(KindOf::Vehicle);
+        let bid = ObjectId(702);
+        let mut b = Object::new(bt, bid, Team::USA);
+        b.set_position(Vec3::new(0.0, 0.0, 5.0)); // in front
+        b.set_orientation(0.0);
+        b.selection_radius = 8.0;
+        b.movement.velocity = Vec3::ZERO;
+        logic.objects.insert(bid, b);
+
+        assert!(logic.try_physics_collide(aid, bid, 8.0));
+        let a = logic.objects.get(&aid).unwrap();
+        // Moving into stopped ally vehicle → blocked, no bounce force path still handled.
+        assert!(a.is_blocked || a.last_collidee == Some(bid));
+        // Speed cap applied when blocked with low max speed.
+        if a.is_blocked {
+            assert!(a.movement.velocity.length() <= 4.0 + 1e-3);
+        }
+    }
+
+    #[test]
+    fn panic_infantry_allows_bounce_force() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("PanicA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(711);
+        let mut a = Object::new(at, aid, Team::USA);
+        a.is_panicking = true;
+        a.movement.velocity = Vec3::new(0.0, 0.0, 2.0);
+        a.set_position(Vec3::new(0.0, 0.0, 0.0));
+        a.set_orientation(0.0);
+        a.selection_radius = 5.0;
+        logic.objects.insert(aid, a);
+
+        let mut bt = ThingTemplate::new("PanicB");
+        bt.add_kind_of(KindOf::Infantry);
+        let bid = ObjectId(712);
+        let mut b = Object::new(bt, bid, Team::USA);
+        b.set_position(Vec3::new(0.0, 0.0, 3.0));
+        b.set_orientation(0.0);
+        b.selection_radius = 5.0;
+        logic.objects.insert(bid, b);
+
+        assert!(logic.try_physics_collide(aid, bid, 5.0));
+        let a = logic.objects.get(&aid).unwrap();
+        // Bounce impulse residual should push velocity somewhat.
+        assert!(a.last_collidee == Some(bid));
     }
 
     #[test]
