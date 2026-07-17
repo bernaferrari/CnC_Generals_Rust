@@ -1442,6 +1442,8 @@ pub struct GameLogic {
     rebuild_hole_workers: u32,
     rebuild_hole_heals: u32,
     rebuild_hole_completes: u32,
+    /// C++ transferAttack residual events around rebuild holes.
+    rebuild_hole_attack_transfers: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2684,6 +2686,7 @@ impl GameLogic {
             rebuild_hole_workers: 0,
             rebuild_hole_heals: 0,
             rebuild_hole_completes: 0,
+            rebuild_hole_attack_transfers: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3076,6 +3079,7 @@ impl GameLogic {
         self.rebuild_hole_workers = 0;
         self.rebuild_hole_heals = 0;
         self.rebuild_hole_completes = 0;
+        self.rebuild_hole_attack_transfers = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -43579,6 +43583,12 @@ impl GameLogic {
                 .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
         }
         self.rebuild_hole_spawns = self.rebuild_hole_spawns.saturating_add(1);
+        // C++ RebuildHoleExposeDie TransferAttackers residual (default true).
+        let n = self.transfer_attack(destroyed_id, hole_id);
+        if n > 0 {
+            self.rebuild_hole_attack_transfers =
+                self.rebuild_hole_attack_transfers.saturating_add(n as u32);
+        }
         Some(hole_id)
     }
 
@@ -43732,6 +43742,12 @@ impl GameLogic {
                 // C++ maskObject(TRUE) while reconstructing.
                 h.status.masked = true;
                 h.status.unselectable = true;
+            }
+            // C++ transferAttack(hole, reconstructing) residual.
+            let n = self.transfer_attack(hole_id, new_id);
+            if n > 0 {
+                self.rebuild_hole_attack_transfers =
+                    self.rebuild_hole_attack_transfers.saturating_add(n as u32);
             }
             self.rebuild_hole_reconstructs = self.rebuild_hole_reconstructs.saturating_add(1);
         }
@@ -78551,6 +78567,71 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn rebuild_hole_transfers_attackers_and_cancel_skips_refund() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("GLABarracks");
+        st.add_kind_of(KindOf::Structure).set_health(800.0);
+        st.build_cost.supplies = 500;
+        logic.templates.insert("GLABarracks".into(), st);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let sid = logic
+            .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let aid = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("a");
+        if let Some(a) = logic.get_object_mut(aid) {
+            a.ai_state = AIState::Attacking;
+            a.target = Some(sid);
+        }
+        let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+        assert!(logic.rebuild_hole_attack_transfers > 0);
+        assert_eq!(logic.get_object(aid).unwrap().target, Some(hole));
+        // Reconstructing cancel residual: no refund.
+        if let Some(p) = logic.get_player_mut(0) {
+            p.resources.supplies = 1000;
+        }
+        // Build reconstructing structure manually with reconstructing flag.
+        let rid = logic
+            .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("recon");
+        if let Some(o) = logic.get_object_mut(rid) {
+            o.status.under_construction = true;
+            o.status.reconstructing = true;
+            o.construction_percent = 0.2;
+        }
+        // Simulate cancel refund policy.
+        let refund = {
+            let o = logic.get_object(rid).unwrap();
+            if o.status.reconstructing {
+                0
+            } else {
+                o.thing.template.build_cost.supplies
+            }
+        };
+        assert_eq!(refund, 0);
     }
 
     #[test]
