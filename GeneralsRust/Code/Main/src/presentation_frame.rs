@@ -5886,7 +5886,82 @@ impl PresentationFrame {
             push(&mut cmds, "Command_SpecialPower", false);
         }
         if panel.production_progress.is_some() {
-            push(&mut cmds, "Command_CancelUnit", true);
+            // C++ cancel queue head: unit vs upgrade residual.
+            if panel.production_is_upgrade {
+                push(&mut cmds, "Command_CancelUpgrade", true);
+            } else {
+                push(&mut cmds, "Command_CancelUnit", true);
+            }
+        }
+        // C++ GUI_COMMAND_PLAYER_UPGRADE residual: disable upgrade commands that
+        // are already complete or currently researching (COMMAND_RESTRICTED).
+        let queued = &self.local_queued_upgrades;
+        let unlocked = &self.local_unlocked_sciences;
+        for name in unlocked.iter().chain(queued.iter()) {
+            let cmd = format!(
+                "Command_Upgrade{}",
+                name.trim_start_matches("Upgrade_")
+                    .trim_start_matches("upgrade_")
+            );
+            // Also try full Upgrade_ name suffix residual.
+            let cmd_full = format!("Command_{}", name);
+            for cname in [cmd, cmd_full] {
+                // Only mark disabled if a matching enable was not already pushed.
+                if let Some(existing) = cmds
+                    .iter_mut()
+                    .find(|c| c.command_name.eq_ignore_ascii_case(&cname))
+                {
+                    existing.enabled = false;
+                }
+            }
+        }
+        // Structure producers: expose residual upgrade research buttons from
+        // applied/known host upgrades that are NOT unlocked and NOT queued.
+        // Fail-closed: sample residual set only (not full CommandSet INI matrix).
+        if ro.can_produce || ro.is_structure {
+            const SAMPLE_UPGRADE_COMMANDS: &[(&str, &str)] = &[
+                (
+                    "Command_UpgradeAmericaRangerFlashBangGrenade",
+                    "Upgrade_AmericaRangerFlashBangGrenade",
+                ),
+                (
+                    "Command_UpgradeAmericaRangerCaptureBuilding",
+                    "Upgrade_AmericaRangerCaptureBuilding",
+                ),
+                (
+                    "Command_UpgradeAmericaSupplyLines",
+                    "Upgrade_AmericaSupplyLines",
+                ),
+                ("Command_UpgradeGLACamouflage", "Upgrade_GLACamouflage"),
+            ];
+            let norm = |s: &str| {
+                s.chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .flat_map(|c| c.to_lowercase())
+                    .collect::<String>()
+            };
+            for (cmd, upgrade) in SAMPLE_UPGRADE_COMMANDS {
+                let u = norm(upgrade);
+                let owned = unlocked.iter().any(|x| norm(x) == u)
+                    || unlocked
+                        .iter()
+                        .any(|x| norm(x).contains(&u) || u.contains(&norm(x)));
+                let researching = queued.iter().any(|x| norm(x) == u)
+                    || queued
+                        .iter()
+                        .any(|x| norm(x).contains(&u) || u.contains(&norm(x)))
+                    || (panel.production_is_upgrade
+                        && panel
+                            .production_template
+                            .as_ref()
+                            .map(|t| norm(t) == u || norm(t).contains(&u))
+                            .unwrap_or(false));
+                let enabled = !owned && !researching;
+                // Only push when structure can produce (barracks/war factory/etc residual).
+                if ro.can_produce {
+                    push(&mut cmds, cmd, enabled);
+                }
+            }
         }
         cmds
     }
@@ -9149,6 +9224,74 @@ mod tests {
         let mut ui = crate::ui::GameUIState::default();
         frame.apply_to_ui_state(&mut ui);
         assert_eq!(ui.new_beacons.len(), 1);
+    }
+
+    #[test]
+    fn unit_command_cancel_upgrade_when_researching_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        logic.add_player(player);
+        let mut bar = ThingTemplate::new("TestBarracks");
+        bar.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("TestBarracks".into(), bar);
+        let bid = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.building_data = Some(crate::game_logic::BuildingData::new(
+                crate::game_logic::buildings::BuildingType::Barracks,
+            ));
+            o.selected = true;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![bid];
+        }
+        logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_FLASHBANG.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![bid],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        logic.process_commands();
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let cmds = frame.unit_command_buttons();
+        let names: Vec<_> = cmds.iter().map(|c| c.command_name.as_str()).collect();
+        assert!(
+            names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("Command_CancelUpgrade")),
+            "researching upgrade should expose CancelUpgrade: {:?}",
+            names
+        );
+        assert!(
+            !names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("Command_CancelUnit")),
+            "should not expose CancelUnit while upgrade head: {:?}",
+            names
+        );
+        // FlashBang command disabled while researching residual.
+        if let Some(btn) = cmds
+            .iter()
+            .find(|c| c.command_name.to_ascii_lowercase().contains("flashbang"))
+        {
+            assert!(
+                !btn.enabled,
+                "FlashBang upgrade command restricted while researching"
+            );
+        }
     }
 
     #[test]
