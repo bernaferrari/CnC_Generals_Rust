@@ -2019,6 +2019,15 @@ pub struct PresentationFrame {
     pub local_radar_disabled: bool,
     /// GLA cash bounty percent residual (0..1).
     pub local_cash_bounty_percent: f32,
+    /// C++ Player::m_rankLevel residual (1-based).
+    pub local_rank_level: u32,
+    /// C++ Player::m_skillPoints residual (GeneralsExperience).
+    pub local_skill_points: i32,
+    /// C++ Player::m_sciencePurchasePoints residual.
+    pub local_science_purchase_points: i32,
+    /// ControlBar rank progress residual 0..100
+    /// (`(skill - levelDown) * 100 / (levelUp - levelDown)`).
+    pub local_rank_progress_percent: i32,
     /// Unlocked science names residual (capped).
     pub local_unlocked_sciences: Vec<String>,
     /// Queued upgrade template names residual (capped).
@@ -2550,6 +2559,23 @@ impl PresentationFrame {
         let local_cash_bounty_percent = local
             .map(|p| p.cash_bounty_percent.clamp(0.0, 1.0))
             .unwrap_or(0.0);
+        let local_rank_level = local.map(|p| p.rank_level.max(1)).unwrap_or(1);
+        let local_skill_points = local.map(|p| p.skill_points).unwrap_or(0);
+        let local_science_purchase_points = local.map(|p| p.science_purchase_points).unwrap_or(0);
+        let local_rank_progress_percent = {
+            use crate::game_logic::host_rank_ui_residual::{
+                rank_level_down_threshold_residual, rank_level_up_threshold_residual,
+                rank_progress_percent_residual, RankSkillStateResidual,
+            };
+            let state = RankSkillStateResidual {
+                rank_level: local_rank_level,
+                skill_points: local_skill_points,
+                science_purchase_points: local_science_purchase_points,
+                level_up: rank_level_up_threshold_residual(local_rank_level),
+                level_down: rank_level_down_threshold_residual(local_rank_level),
+            };
+            rank_progress_percent_residual(&state)
+        };
         const MAX_SCIENCE_NAMES: usize = 32;
         const MAX_UPGRADE_NAMES: usize = 32;
         let mut local_unlocked_sciences: Vec<String> = local
@@ -2778,6 +2804,10 @@ impl PresentationFrame {
             local_radar_count,
             local_radar_disabled,
             local_cash_bounty_percent,
+            local_rank_level,
+            local_skill_points,
+            local_science_purchase_points,
+            local_rank_progress_percent,
             local_unlocked_sciences,
             local_queued_upgrades,
             selected,
@@ -3268,6 +3298,26 @@ impl PresentationFrame {
     /// Whether a science name is unlocked for the local player residual.
     pub fn local_has_science(&self, name: &str) -> bool {
         self.local_unlocked_sciences.iter().any(|s| s == name)
+    }
+
+    /// Generals rank residual frozen at snapshot.
+    pub fn local_rank_level(&self) -> u32 {
+        self.local_rank_level
+    }
+
+    /// GeneralsExperience skill points residual.
+    pub fn local_skill_points(&self) -> i32 {
+        self.local_skill_points
+    }
+
+    /// Remaining science purchase points residual.
+    pub fn local_science_purchase_points(&self) -> i32 {
+        self.local_science_purchase_points
+    }
+
+    /// ControlBar rank bar progress residual (0..100).
+    pub fn local_rank_progress_percent(&self) -> i32 {
+        self.local_rank_progress_percent
     }
 
     /// Objects with a ready special power residual (UI / command button feed).
@@ -4732,6 +4782,10 @@ impl PresentationFrame {
     /// so a prior live `update_ui_state` walk cannot leave stale identity when a frame
     /// is available.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
+        ui.rank_level = self.local_rank_level;
+        ui.skill_points = self.local_skill_points;
+        ui.science_purchase_points = self.local_science_purchase_points;
+        ui.rank_progress_percent = self.local_rank_progress_percent;
         use crate::game_logic::victory::PlayerOutcome;
         use crate::ui::{color_for_player, BuildQueueEntry, MinimapDot};
 
@@ -6274,6 +6328,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn presentation_freezes_local_rank_skill_residual() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "USA", true);
+        p.apply_faction_intrinsic_sciences();
+        p.skill_points = 850; // rank 2 threshold 800
+        p.rank_level = 1;
+        // Recompute rank via add_skill_points path residual.
+        let _ = p.add_skill_points(0); // no-op if 0
+                                       // Force rank apply by setting skill then calling add with 0 won't promote;
+                                       // set rank manually for freeze honesty.
+        p.rank_level = 2;
+        p.science_purchase_points = 3;
+        logic.add_player(p);
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.local_rank_level, 2);
+        assert_eq!(frame.local_skill_points, 850);
+        assert_eq!(frame.local_science_purchase_points, 3);
+        assert!(frame.local_rank_progress_percent >= 0 && frame.local_rank_progress_percent <= 100);
+        assert!(
+            frame.local_has_science("SCIENCE_AMERICA")
+                || frame
+                    .local_unlocked_sciences
+                    .iter()
+                    .any(|s| s.contains("AMERICA"))
+        );
+    }
+
     fn runtime_host_presentation_query_helpers() {
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let mut logic = crate::game_logic::GameLogic::new();
