@@ -985,6 +985,19 @@ pub struct ObjectStatus {
     /// Disguised units are not pure-stealth invisible; enemies see disguise team.
     #[serde(default)]
     pub disguised: bool,
+
+    /// C++ StealthUpdate m_disguiseTransitionFrames residual.
+    #[serde(default)]
+    pub disguise_transition_frames: u32,
+    /// C++ m_transitioningToDisguise residual (true = gaining look).
+    #[serde(default)]
+    pub disguise_transitioning_to: bool,
+    /// C++ m_disguiseHalfpointReached residual (model swap at mid transition).
+    #[serde(default)]
+    pub disguise_halfpoint_reached: bool,
+    /// Host residual opacity factor during disguise transition (0..1 presentation).
+    #[serde(default)]
+    pub disguise_transition_opacity: f32,
     /// C++ OBJECT_STATUS_FAERIE_FIRE residual (AvengerTargetDesignator paint).
     /// Attackers shooting a painted target gain TARGET_FAERIE_FIRE 150% ROF.
     #[serde(default)]

@@ -5791,6 +5791,9 @@ impl GameLogic {
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
                 obj.tick_repulsor_status(self.frame);
+                if obj.tick_disguise_transition() {
+                    self.bomb_truck_disguise.record_transition_halfpoint();
+                }
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
             self.tick_eject_parachute_residual(object_id);
@@ -14560,6 +14563,7 @@ impl GameLogic {
                                 obj.ai_state = AIState::Idle;
                             }
                             self.bomb_truck_disguise.record_disguise(object_id, &tpl);
+                            self.bomb_truck_disguise.record_transition_start();
                             if copied_disguise {
                                 self.bomb_truck_disguise.record_disguise_copy();
                             }
@@ -67675,6 +67679,24 @@ mod tests {
         game_logic.templates.insert("TestBombTruck".to_string(), t);
     }
 
+    /// Advance disguise transition residual past halfpoint (model swap).
+    fn advance_disguise_halfpoint(game_logic: &mut GameLogic, ids: &[ObjectId]) {
+        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
+        let frames = (BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES / 2).saturating_add(1);
+        for _ in 0..frames {
+            game_logic.update_ai(ids, 1.0 / 30.0);
+        }
+    }
+
+    /// Advance disguise reveal transition residual past halfpoint.
+    fn advance_disguise_reveal_halfpoint(game_logic: &mut GameLogic, ids: &[ObjectId]) {
+        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
+        let frames = (BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES / 2).saturating_add(1);
+        for _ in 0..frames {
+            game_logic.update_ai(ids, 1.0 / 30.0);
+        }
+    }
+
     /// Residual: DisguiseAsVehicle on bomb truck → DISGUISED + stealthed,
     /// apparent team for enemies = disguise team; auto-target skips same-team.
     #[test]
@@ -67729,15 +67751,17 @@ mod tests {
             assert_eq!(truck.target, Some(usa_tank_id));
         }
 
-        // Instant residual (StartAbilityRange = 1e6) — one AI update completes.
+        // Instant residual (StartAbilityRange = 1e6) — one AI update arms transition.
         game_logic.update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0);
+        // C++ changeVisualDisguise at DisguiseTransitionTime halfpoint.
+        advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id]);
 
         let truck = game_logic
             .find_object(truck_id)
             .expect("truck after disguise");
         assert!(
             truck.status.disguised,
-            "bomb truck must set OBJECT_STATUS_DISGUISED"
+            "bomb truck must set OBJECT_STATUS_DISGUISED at halfpoint"
         );
         assert!(
             truck.status.stealthed,
@@ -67804,6 +67828,7 @@ mod tests {
             },
         );
         game_logic.update_ai(&[truck_id, usa_tank_id, victim_id], 1.0 / 30.0);
+        advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id, victim_id]);
         assert!(
             game_logic
                 .find_object(truck_id)
@@ -67820,6 +67845,13 @@ mod tests {
             truck.status.attacking = true;
         }
         game_logic.update_stealth_and_detection();
+        // C++ reveal transition halfpoint restores true look; end clears STEALTHED.
+        advance_disguise_reveal_halfpoint(&mut game_logic, &[truck_id, usa_tank_id, victim_id]);
+        // Finish remaining reveal frames for STEALTHED clear residual.
+        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
+        for _ in 0..(BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES / 2 + 2) {
+            game_logic.update_ai(&[truck_id, usa_tank_id, victim_id], 1.0 / 30.0);
+        }
 
         let truck = game_logic
             .find_object(truck_id)
@@ -76249,6 +76281,60 @@ mod tests {
     }
 
     #[test]
+    fn disguise_transition_halfpoint_commits_appearance() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_bomb_truck_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+        let truck_id = game_logic
+            .create_object("TestBombTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("truck");
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("tank");
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DisguiseAsVehicle { target_id: tank_id },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![truck_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
+        {
+            let t = game_logic.find_object(truck_id).unwrap();
+            assert!(t.is_disguise_transitioning());
+            assert!(!t.status.disguised, "pre-halfpoint not yet DISGUISED");
+            assert!(t.status.stealthed);
+            assert!(t.disguise_pending_template.is_some());
+        }
+        // Just before halfpoint
+        for _ in 0..(BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES / 2 - 2) {
+            game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
+        }
+        assert!(
+            !game_logic.find_object(truck_id).unwrap().status.disguised,
+            "still pre-halfpoint"
+        );
+        // Cross halfpoint
+        for _ in 0..4 {
+            game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
+        }
+        let t = game_logic.find_object(truck_id).unwrap();
+        assert!(t.status.disguised, "halfpoint commits DISGUISED");
+        assert_eq!(t.disguise_as_template.as_deref(), Some("TestTank"));
+        assert!(
+            game_logic
+                .bomb_truck_disguise()
+                .honesty_transition_halfpoint_ok(),
+            "halfpoint honesty"
+        );
+    }
+
+    #[test]
     fn disguise_copies_already_disguised_template() {
         // C++ StealthUpdate::disguiseAsObject: if target already disguised,
         // copy its disguise template/player, not the target's true template.
@@ -76281,6 +76367,7 @@ mod tests {
         });
         game_logic.process_commands();
         game_logic.update_ai(&[truck_a, usa_tank], 1.0 / 30.0);
+        advance_disguise_halfpoint(&mut game_logic, &[truck_a, usa_tank]);
         {
             let a = game_logic.find_object(truck_a).expect("a");
             assert!(a.is_disguised());
@@ -76299,6 +76386,7 @@ mod tests {
         });
         game_logic.process_commands();
         game_logic.update_ai(&[truck_b, truck_a], 1.0 / 30.0);
+        advance_disguise_halfpoint(&mut game_logic, &[truck_b, truck_a]);
 
         let b = game_logic.find_object(truck_b).expect("b after copy");
         assert!(b.is_disguised(), "B must disguise");

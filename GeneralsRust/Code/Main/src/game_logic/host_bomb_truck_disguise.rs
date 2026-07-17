@@ -211,6 +211,10 @@ pub struct HostBombTruckDisguiseRegistry {
     pub disguises: u32,
     /// C++ disguiseAsObject copy from already-disguised target.
     pub disguise_copies: u32,
+    /// Disguise transition residual starts (apply or reveal arm).
+    pub transition_starts: u32,
+    /// Halfpoint changeVisualDisguise residual fires.
+    pub transition_halfpoints: u32,
     /// Successful disguise reveals (distance / attack residual).
     pub reveals: u32,
     /// Last disguised object id (residual observability).
@@ -241,6 +245,18 @@ impl HostBombTruckDisguiseRegistry {
     /// Residual honesty: copied disguise from an already-disguised target.
     pub fn honesty_disguise_copy_ok(&self) -> bool {
         self.disguise_copies > 0
+    }
+
+    pub fn record_transition_start(&mut self) {
+        self.transition_starts = self.transition_starts.saturating_add(1);
+    }
+
+    pub fn record_transition_halfpoint(&mut self) {
+        self.transition_halfpoints = self.transition_halfpoints.saturating_add(1);
+    }
+
+    pub fn honesty_transition_halfpoint_ok(&self) -> bool {
+        self.transition_halfpoints > 0
     }
 
     pub fn record_reveal(&mut self) {
