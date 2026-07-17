@@ -39140,6 +39140,16 @@ impl GameLogic {
     /// Queue a host residual superweapon strike from DoSpecialPower.
     /// Returns strike id when the power maps to a supported residual kind.
     /// Residual A10 science tier stored on a queued/completed strike.
+    /// Residual CarpetBomb faction tier stored on a queued/completed strike.
+    pub fn special_power_strike_carpet_tier(
+        &self,
+        strike_id: u32,
+    ) -> Option<crate::game_logic::special_power_strikes::CarpetBombFactionTier> {
+        self.special_power_strikes
+            .get(strike_id)
+            .map(|s| s.carpet_tier)
+    }
+
     pub fn special_power_strike_a10_tier(
         &self,
         strike_id: u32,
@@ -39207,6 +39217,17 @@ impl GameLogic {
             scud_anthrax_tier,
             a10_tier,
         );
+        // CarpetBomb faction residual (America / AirForce / China payload matrix).
+        if kind == HostSuperweaponKind::CarpetBomb {
+            use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
+            let carpet = CarpetBombFactionTier::highest_from_team_and_sciences(
+                source_team,
+                sciences.iter().map(|s| s.as_str()),
+            );
+            let _ =
+                self.special_power_strikes
+                    .apply_carpet_tier(id, carpet, frame, target_position);
+        }
 
         // C++ SpecialPowerModule SuperweaponLaunched EVA residual.
         self.try_eva_superweapon_launched(source_team, kind);
@@ -81236,6 +81257,101 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn carpet_bomb_faction_tier_from_team_and_airforce_science() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::special_power_strikes::{
+            CarpetBombFactionTier, CARPET_BOMB_COUNT, CARPET_BOMB_COUNT_AIRF,
+            CARPET_BOMB_COUNT_CHINA,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        assert_eq!(
+            CarpetBombFactionTier::from_team(Team::China).bomb_count(),
+            CARPET_BOMB_COUNT_CHINA
+        );
+        assert_eq!(
+            CarpetBombFactionTier::from_team(Team::USA).bomb_count(),
+            CARPET_BOMB_COUNT
+        );
+        assert_eq!(
+            CarpetBombFactionTier::AirForce.bomb_count(),
+            CARPET_BOMB_COUNT_AIRF
+        );
+        assert_eq!(
+            CarpetBombFactionTier::highest_from_team_and_sciences(
+                Team::USA,
+                ["AirF_SUPERWEAPON_CarpetBomb"],
+            ),
+            CarpetBombFactionTier::AirForce
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut cc = ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "ChinaCommandCenter",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let id = logic
+            .queue_special_power_strike(
+                &SpecialPowerType::CarpetBomb,
+                src,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("carpet");
+        assert_eq!(
+            logic.special_power_strike_carpet_tier(id),
+            Some(CarpetBombFactionTier::China)
+        );
+
+        let mut logic_us = GameLogic::new();
+        logic_us
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic_us
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert("AirF_SUPERWEAPON_CarpetBomb".to_string());
+        let mut us_cc = ThingTemplate::new("AmericaCommandCenter");
+        us_cc
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic_us
+            .templates
+            .insert("AmericaCommandCenter".into(), us_cc);
+        let us_src = logic_us
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("us cc");
+        let us_id = logic_us
+            .queue_special_power_strike(
+                &SpecialPowerType::CarpetBomb,
+                us_src,
+                glam::Vec3::new(140.0, 0.0, 0.0),
+            )
+            .expect("us carpet");
+        assert_eq!(
+            logic_us.special_power_strike_carpet_tier(us_id),
+            Some(CarpetBombFactionTier::AirForce)
         );
     }
 
