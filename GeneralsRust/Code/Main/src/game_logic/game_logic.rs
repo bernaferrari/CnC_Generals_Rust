@@ -4845,6 +4845,7 @@ impl GameLogic {
         self.tick_out_of_ammo_jet_damage();
         self.tick_airfield_parking_heal();
         self.tick_airfield_runway_clear();
+        self.tick_shock_stun_all();
 
         // Projectiles: drain global fire queue into host CombatSystem and step.
         // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
@@ -5865,6 +5866,22 @@ impl GameLogic {
     /// rings using PrimaryDamage / SecondaryDamage peels and RadiusDamageAffects.
 
     /// C++ shockwave residual around an impact (hit or miss splash).
+
+    /// Advance Physics stun residual on all shocked units.
+    pub(crate) fn tick_shock_stun_all(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.shock_stun_frames > 0)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.tick_shock_stun();
+            }
+        }
+    }
+
     pub(crate) fn apply_shock_wave_at_impact(
         &mut self,
         impact: glam::Vec3,

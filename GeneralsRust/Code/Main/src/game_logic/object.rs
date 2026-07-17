@@ -53,6 +53,9 @@ pub struct Object {
     /// C++ ModelConditionFlags residual bits (ALLOW_SURRENDER-off index layout).
     #[serde(default)]
     pub model_condition_bits: u128,
+    /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
+    #[serde(default)]
+    pub shock_stun_frames: u32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -550,6 +553,7 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             model_condition_bits: 0,
+            shock_stun_frames: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -689,6 +693,7 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             model_condition_bits: 0,
+            shock_stun_frames: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -1684,6 +1689,17 @@ impl Object {
         } else {
             bits &= !(1u128 << MC_BIT_DYING);
         }
+        // C++ Physics stun model conditions residual.
+        use crate::game_logic::host_enum_table_residual::{
+            MC_BIT_STUNNED, MC_BIT_STUNNED_FLAILING,
+        };
+        bits &= !(1u128 << MC_BIT_STUNNED_FLAILING);
+        bits &= !(1u128 << MC_BIT_STUNNED);
+        if self.shock_stun_frames > 15 {
+            bits |= 1u128 << MC_BIT_STUNNED_FLAILING;
+        } else if self.shock_stun_frames > 0 {
+            bits |= 1u128 << MC_BIT_STUNNED;
+        }
         self.model_condition_bits = bits;
     }
 
@@ -1720,14 +1736,32 @@ impl Object {
         if speed > MAX_SHOCK_SPEED {
             self.movement.velocity *= MAX_SHOCK_SPEED / speed;
         }
-        // Stun residual: clear attack order briefly via AI idle flag.
+        // C++ setStunned(true) + MODELCONDITION_STUNNED_FLAILING residual.
+        // Duration: 45 frames (~1.5s). First 30 flailing, then STUNNED, then clear.
+        const TOTAL: u32 = 45;
+        self.shock_stun_frames = self.shock_stun_frames.max(TOTAL);
+        self.refresh_model_condition_bits();
         if matches!(
             self.ai_state,
-            AIState::Attacking | AIState::AttackMoving | AIState::Moving | AIState::Idle
+            AIState::Attacking | AIState::AttackMoving | AIState::Moving
         ) {
             self.status.moving = true;
         }
         true
+    }
+
+    /// Tick shock stun residual (once per logic frame).
+    pub fn tick_shock_stun(&mut self) {
+        if self.shock_stun_frames == 0 {
+            return;
+        }
+        self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
+        self.refresh_model_condition_bits();
+    }
+
+    /// C++ PhysicsBehavior::getIsStunned residual.
+    pub fn is_shock_stunned(&self) -> bool {
+        self.shock_stun_frames > 0
     }
 
     pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
@@ -4687,15 +4721,61 @@ mod tests {
 
     #[test]
     fn shock_wave_impulse_knocks_ground_units() {
-        let mut o = Object::new(ThingTemplate::new("ShockVic"), ObjectId(1), Team::USA);
-        o.thing.template.add_kind_of(KindOf::Vehicle);
+        use crate::game_logic::host_enum_table_residual::{
+            host_model_condition_has, MC_BIT_STUNNED, MC_BIT_STUNNED_FLAILING,
+        };
+        let mut tmpl = ThingTemplate::new("ShockVic");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(1), Team::USA);
         o.movement.velocity = glam::Vec3::ZERO;
         assert!(o.apply_shock_wave_impulse(glam::Vec3::new(20.0, 10.0, 0.0)));
         assert!(o.movement.velocity.length() > 0.0);
+        assert!(o.is_shock_stunned());
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_STUNNED_FLAILING
+        ));
+        // After flail window: STUNNED bit.
+        o.shock_stun_frames = 10;
+        o.refresh_model_condition_bits();
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_STUNNED
+        ));
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_STUNNED_FLAILING
+        ));
         // Aircraft immune.
-        let mut a = Object::new(ThingTemplate::new("ShockAir"), ObjectId(2), Team::USA);
-        a.thing.template.add_kind_of(KindOf::Aircraft);
+        let mut at = ThingTemplate::new("ShockAir");
+        at.add_kind_of(KindOf::Aircraft);
+        let mut a = Object::new(at, ObjectId(2), Team::USA);
         a.status.airborne_target = true;
         assert!(!a.apply_shock_wave_impulse(glam::Vec3::new(20.0, 10.0, 0.0)));
+    }
+
+    #[test]
+    fn shock_stun_ticks_clear_model_bits() {
+        use crate::game_logic::host_enum_table_residual::{
+            host_model_condition_has, MC_BIT_STUNNED, MC_BIT_STUNNED_FLAILING,
+        };
+        let mut tmpl = ThingTemplate::new("StunTick");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(tmpl, ObjectId(3), Team::USA);
+        assert!(o.apply_shock_wave_impulse(glam::Vec3::new(5.0, 5.0, 0.0)));
+        let start = o.shock_stun_frames;
+        assert!(start >= 40);
+        for _ in 0..start {
+            o.tick_shock_stun();
+        }
+        assert_eq!(o.shock_stun_frames, 0);
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_STUNNED_FLAILING
+        ));
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            MC_BIT_STUNNED
+        ));
     }
 }
