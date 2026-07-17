@@ -7123,6 +7123,60 @@ impl GameLogic {
     ///
     /// Uses victim template `create_crate_data` list + last_damage_source as killer.
     /// Spawns money crates and notifies computer killers.
+
+    /// C++ SalvageCrateCollide::executeCrateBehavior residual.
+    ///
+    /// Priority: armor set → weapon set (chance) → level (chance) → money.
+    /// Returns (kind label, money granted).
+    pub fn execute_salvage_crate_behavior(
+        &mut self,
+        picker_id: ObjectId,
+        money_provided: u32,
+        seed: u32,
+    ) -> (&'static str, u32) {
+        use crate::game_logic::host_gamedata_lobby_residual::{
+            SALVAGE_LEVEL_CHANCE_RESIDUAL, SALVAGE_WEAPON_CHANCE_RESIDUAL,
+        };
+        use crate::game_logic::host_rng_residual::pure_logic_random_real;
+        use crate::game_logic::VeterancyLevel;
+
+        let Some(picker) = self.objects.get_mut(&picker_id) else {
+            return ("none", 0);
+        };
+        // Armor salvager path (no percent).
+        if picker.is_kind_of(KindOf::ArmorSalvager) && picker.armor_crate_upgrade < 2 {
+            picker.apply_salvage_armor_upgrade();
+            return ("armor", 0);
+        }
+        // Weapon salvager path.
+        if picker.is_kind_of(KindOf::WeaponSalvager) && picker.weapon_crate_upgrade < 2 {
+            let roll = pure_logic_random_real(seed, 1, 0.0, 1.0);
+            if SALVAGE_WEAPON_CHANCE_RESIDUAL >= 1.0 - f32::EPSILON
+                || roll < SALVAGE_WEAPON_CHANCE_RESIDUAL
+            {
+                picker.apply_salvage_weapon_upgrade();
+                return ("weapon", 0);
+            }
+        }
+        // Level path.
+        let can_level = !matches!(picker.experience.level, VeterancyLevel::Heroic);
+        if can_level {
+            let roll = pure_logic_random_real(seed, 2, 0.0, 1.0);
+            if SALVAGE_LEVEL_CHANCE_RESIDUAL >= 1.0 - f32::EPSILON
+                || roll < SALVAGE_LEVEL_CHANCE_RESIDUAL
+            {
+                picker.apply_salvage_level_gain();
+                return ("level", 0);
+            }
+        }
+        // Money fallback.
+        let money = if money_provided > 0 {
+            money_provided
+        } else {
+            crate::game_logic::host_create_crate_die::salvage_money_roll(seed, 3)
+        };
+        ("money", money)
+    }
     pub fn try_create_crates_on_die(
         &mut self,
         victim_id: ObjectId,
@@ -7169,12 +7223,17 @@ impl GameLogic {
             let Some(crate_id) = self.create_object(&req.object_name, Team::Neutral, pos) else {
                 continue;
             };
-            self.host_money_crates.register(
-                crate_id,
-                req.money_provided,
-                req.building_pickup,
-                if req.building_pickup { 25 } else { 0 },
-            );
+            if req.object_name.eq_ignore_ascii_case("SalvageCrate") {
+                self.host_money_crates
+                    .register_salvage_crate(crate_id, req.money_provided);
+            } else {
+                self.host_money_crates.register(
+                    crate_id,
+                    req.money_provided,
+                    req.building_pickup,
+                    if req.building_pickup { 25 } else { 0 },
+                );
+            }
             if let Some(kid) = killer_id {
                 let _ = self.notify_computer_killer_of_crate(kid, crate_id);
             }
@@ -16060,6 +16119,7 @@ impl GameLogic {
             bool, // building_pickup
             bool, // residual paid
             bool, // above_terrain
+            bool, // is_salvage
         )> = Vec::new();
         for id in crate_ids {
             // Forget destroyed crates.
@@ -16075,7 +16135,11 @@ impl GameLogic {
                 Some(e) => e,
                 None => continue,
             };
-            if entry.building_pickup_residual_paid || entry.money_provided == 0 {
+            // Salvage crates may grant upgrades with money_provided still set.
+            if entry.building_pickup_residual_paid {
+                continue;
+            }
+            if entry.money_provided == 0 && !entry.is_salvage {
                 continue;
             }
             let pos = obj.get_position();
@@ -16087,6 +16151,7 @@ impl GameLogic {
                 entry.building_pickup,
                 entry.building_pickup_residual_paid,
                 above,
+                entry.is_salvage,
             ));
         }
 
@@ -16099,6 +16164,7 @@ impl GameLogic {
             bool, /*constructed*/
             bool, /*projectile*/
             bool, /*parachute picker*/
+            bool, /*salvager*/
         )> = self
             .objects
             .iter()
@@ -16114,6 +16180,9 @@ impl GameLogic {
                 let is_structure =
                     obj.is_kind_of(KindOf::Structure) || obj.object_type == ObjectType::Building;
                 let constructed = obj.is_constructed() && !obj.status.under_construction;
+                let is_salvager = obj.is_kind_of(KindOf::Salvager)
+                    || obj.is_kind_of(KindOf::WeaponSalvager)
+                    || obj.is_kind_of(KindOf::ArmorSalvager);
                 Some((
                     *id,
                     obj.team,
@@ -16122,6 +16191,7 @@ impl GameLogic {
                     constructed,
                     is_projectile,
                     is_parachute_picker,
+                    is_salvager,
                 ))
             })
             .collect();
@@ -16129,7 +16199,7 @@ impl GameLogic {
         let mut pickups: Vec<(ObjectId, ObjectId, Team, bool)> = Vec::new();
         let mut above_rejects = 0_u32;
         let mut forbidden_rejects = 0_u32;
-        for (crate_id, crate_pos, building_pickup, _paid, above_terrain) in &crates {
+        for (crate_id, crate_pos, building_pickup, _paid, above_terrain, is_salvage) in &crates {
             let mut best: Option<(ObjectId, Team, bool, f32)> = None;
             for (
                 picker_id,
@@ -16139,8 +16209,17 @@ impl GameLogic {
                 constructed,
                 is_projectile,
                 is_parachute_picker,
+                is_salvager,
             ) in &pickers
             {
+                // C++ SalvageCrateCollide::isValidToExecute — only SALVAGER units.
+                if *is_salvage && !*is_salvager {
+                    continue;
+                }
+                // Salvage crates are not building-pickup residual.
+                if *is_salvage && *is_structure {
+                    continue;
+                }
                 if *picker_id == *crate_id {
                     continue;
                 }
@@ -16216,18 +16295,33 @@ impl GameLogic {
                 .players
                 .values()
                 .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
-            let (amount, boost) = HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines);
-            if amount == 0 {
+
+            // C++ SalvageCrateCollide residual path.
+            let (amount, boost) = if entry.is_salvage {
+                let seed = crate_id
+                    .0
+                    .wrapping_add(picker_id.0)
+                    .wrapping_add(self.frame);
+                let (_kind, money) =
+                    self.execute_salvage_crate_behavior(picker_id, entry.money_provided, seed);
+                (money, 0u32)
+            } else {
+                HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines)
+            };
+            // Salvage may grant upgrade with 0 money — still consume crate.
+            if amount == 0 && !entry.is_salvage {
                 continue;
             }
             if !self
                 .host_money_crates
-                .record_pickup(crate_id, amount, boost, is_structure)
+                .record_pickup(crate_id, amount.max(1), boost, is_structure)
             {
                 continue;
             }
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                player.credit_supplies(amount);
+            if amount > 0 {
+                if let Some(player) = self.get_player_mut_by_team(team) {
+                    player.credit_supplies(amount);
+                }
             }
             if boost > 0 {
                 self.supply_lines_bonus_cash_total =
@@ -74965,6 +75059,100 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn salvage_crate_only_salvager_picks_up() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "G", true));
+
+        let mut st = ThingTemplate::new("Scorp");
+        st.add_kind_of(KindOf::Vehicle);
+        st.add_kind_of(KindOf::Salvager);
+        st.add_kind_of(KindOf::WeaponSalvager);
+        let sid = ObjectId(4801);
+        logic.objects.insert(sid, {
+            let mut o = Object::new(st, sid, Team::GLA);
+            o.set_position(glam::Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        });
+
+        // Non-salvager nearby
+        let mut it = ThingTemplate::new("Inf");
+        it.add_kind_of(KindOf::Infantry);
+        let iid = ObjectId(4802);
+        logic.objects.insert(iid, {
+            let mut o = Object::new(it, iid, Team::GLA);
+            o.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+            o
+        });
+
+        let cid = ObjectId(4803);
+        let mut ct = ThingTemplate::new("SalvageCrate");
+        logic.templates.insert("SalvageCrate".into(), ct.clone());
+        logic.objects.insert(cid, {
+            let mut o = Object::new(ct, cid, Team::Neutral);
+            o.set_position(glam::Vec3::new(2.0, 0.0, 0.0));
+            o
+        });
+        logic.host_money_crates.register_salvage_crate(cid, 50);
+
+        logic.update_money_crate_collides();
+        // Crate consumed by salvager
+        assert!(
+            !logic.host_money_crates.contains(cid) || logic.objects.get(&cid).is_none(),
+            "salvage crate should be picked"
+        );
+        let scorp = &logic.objects[&sid];
+        // Weapon chance is 100% retail → weapon upgrade
+        assert!(
+            scorp.weapon_crate_upgrade >= 1
+                || logic
+                    .players
+                    .values()
+                    .any(|p| p.team == Team::GLA && p.resources.supplies > 10_000),
+            "expected weapon upgrade or money residual"
+        );
+    }
+
+    #[test]
+    fn execute_salvage_weapon_then_money() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("WS");
+        t.add_kind_of(KindOf::WeaponSalvager);
+        t.add_kind_of(KindOf::Salvager);
+        let id = ObjectId(4810);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::GLA);
+            o.weapon = Some(Weapon {
+                damage: 20.0,
+                ..Default::default()
+            });
+            o
+        });
+        let (kind, money) = logic.execute_salvage_crate_behavior(id, 40, 1);
+        assert_eq!(kind, "weapon");
+        assert_eq!(money, 0);
+        assert_eq!(logic.objects[&id].weapon_crate_upgrade, 1);
+        // Second upgrade
+        let (kind, _) = logic.execute_salvage_crate_behavior(id, 40, 1);
+        assert_eq!(kind, "weapon");
+        assert_eq!(logic.objects[&id].weapon_crate_upgrade, 2);
+        // Fully upgraded → money (weapon chance may still roll but upgrade maxed goes to level/money)
+        let (kind, money) = logic.execute_salvage_crate_behavior(id, 40, 99);
+        assert!(kind == "level" || kind == "money", "got {kind}");
+        if kind == "money" {
+            assert_eq!(money, 40);
+        }
     }
 
     #[test]

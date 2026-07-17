@@ -192,6 +192,9 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::CanBeRepulsed => 32,
         KindOf::CannotRetaliate => 33,
         KindOf::Drone => 34,
+        KindOf::Salvager => 35,
+        KindOf::WeaponSalvager => 36,
+        KindOf::ArmorSalvager => 37,
     }
 }
 
@@ -232,6 +235,9 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         32 => Ok(KindOf::CanBeRepulsed),
         33 => Ok(KindOf::CannotRetaliate),
         34 => Ok(KindOf::Drone),
+        35 => Ok(KindOf::Salvager),
+        36 => Ok(KindOf::WeaponSalvager),
+        37 => Ok(KindOf::ArmorSalvager),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),
