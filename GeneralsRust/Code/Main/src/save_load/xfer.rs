@@ -189,6 +189,7 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::AttackNeedsLineOfSight => 29,
         KindOf::Immobile => 30,
         KindOf::AircraftPathAround => 31,
+        KindOf::CanBeRepulsed => 32,
     }
 }
 
@@ -226,6 +227,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         29 => Ok(KindOf::AttackNeedsLineOfSight),
         30 => Ok(KindOf::Immobile),
         31 => Ok(KindOf::AircraftPathAround),
+        32 => Ok(KindOf::CanBeRepulsed),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),
