@@ -7143,6 +7143,37 @@ impl GameLogic {
     ///
     /// Permanently reveals the map for the picker's player (PartitionManager
     /// revealMapForPlayer).
+
+    /// C++ ScriptEngine::transferObjectName residual (host bridge).
+    ///
+    /// Moves a script-visible name from `from_id` to `to_id` via host name field
+    /// + NamedObjectTracker when available.
+    pub fn transfer_script_object_name(&mut self, from_id: ObjectId, to_id: ObjectId) -> bool {
+        use gamelogic::scripting::engine::get_named_object_tracker;
+        let name = self
+            .objects
+            .get(&from_id)
+            .map(|o| o.name.clone())
+            .filter(|n| !n.is_empty());
+        let Some(n) = name else {
+            return false;
+        };
+        if let Some(t) = self.objects.get_mut(&to_id) {
+            t.name = n.clone();
+        }
+        if let Some(f) = self.objects.get_mut(&from_id) {
+            f.name.clear();
+        }
+        // Register on tracker (engine id or host id residual).
+        let eng = self
+            .objects
+            .get(&to_id)
+            .and_then(|o| o.engine_object_id)
+            .unwrap_or(to_id.0);
+        let tracker = get_named_object_tracker();
+        let _ = tracker.register_named_object(n, eng);
+        true
+    }
     pub fn execute_shroud_crate_behavior(&mut self, picker_id: ObjectId) -> bool {
         let team = match self.objects.get(&picker_id) {
             Some(p) if p.is_alive() => p.team,
@@ -13909,10 +13940,15 @@ impl GameLogic {
                             // C++ ConvertToHijackedVehicleCrateCollide residual:
                             // walk → transfer team + OBJECT_STATUS_HIJACKED; hijacker
                             // consumed (fail-closed vs hide-in-vehicle HijackerUpdate).
+                            // Endow MAX veterancy + cancel dozer tasks via apply_hijacked_from.
+                            let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_hijacked();
+                                target.apply_hijacked_from(donor_snap.as_ref());
                                 target.set_team(team);
                             }
+                            // C++ transferObjectName residual.
+                            let _ = self.transfer_script_object_name(object_id, special_target_id);
+                            // Local victim EVA residual → radar message already.
                             self.car_bomb.record_hijack();
                             self.queue_audio_event(
                                 AudioEventRequest::new(
@@ -14234,11 +14270,7 @@ impl GameLogic {
                                 target.set_team(team);
                             }
                             // C++ transferObjectName residual (script named object).
-                            if let Some(ref donor) = donor_snap {
-                                let dname = donor.template_name.clone();
-                                // Prefer named tracker name if present later; template residual.
-                                let _ = dname;
-                            }
+                            let _ = self.transfer_script_object_name(object_id, special_target_id);
                             self.car_bomb.record_conversion();
                             self.queue_audio_event(
                                 AudioEventRequest::new(
@@ -75401,6 +75433,67 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn hijack_takes_max_veterancy_and_marks_status() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+        let mut logic = GameLogic::new();
+        let mut ht = ThingTemplate::new("Hijacker");
+        ht.add_kind_of(KindOf::Infantry);
+        let hid = ObjectId(5401);
+        logic.objects.insert(hid, {
+            let mut o = Object::new(ht, hid, Team::GLA);
+            o.name = "NamedJacker".into();
+            o.experience.level = VeterancyLevel::Elite;
+            o.experience.current = 200.0;
+            o
+        });
+        let mut vt = ThingTemplate::new("Vic");
+        vt.add_kind_of(KindOf::Vehicle);
+        vt.add_kind_of(KindOf::Worker);
+        let vid = ObjectId(5402);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.experience.level = VeterancyLevel::Veteran;
+            o.experience.current = 80.0;
+            o.ai_state = AIState::Constructing;
+            o
+        });
+        let donor = logic.objects.get(&hid).cloned();
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.apply_hijacked_from(donor.as_ref());
+            v.set_team(Team::GLA);
+        }
+        let _ = logic.transfer_script_object_name(hid, vid);
+        let v = &logic.objects[&vid];
+        assert!(v.status.hijacked);
+        assert_eq!(v.team, Team::GLA);
+        assert_eq!(v.experience.level, VeterancyLevel::Elite);
+        assert_eq!(v.ai_state, AIState::Idle);
+        assert_eq!(v.name, "NamedJacker");
+    }
+
+    #[test]
+    fn transfer_script_object_name_moves_host_name() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut a = ThingTemplate::new("A");
+        a.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(5410);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(a, aid, Team::USA);
+            o.name = "ScriptUnit".into();
+            o
+        });
+        let mut b = ThingTemplate::new("B");
+        b.add_kind_of(KindOf::Vehicle);
+        let bid = ObjectId(5411);
+        logic.objects.insert(bid, Object::new(b, bid, Team::USA));
+        assert!(logic.transfer_script_object_name(aid, bid));
+        assert_eq!(logic.objects[&bid].name, "ScriptUnit");
+        assert!(logic.objects[&aid].name.is_empty());
     }
 
     #[test]
