@@ -244,6 +244,38 @@ pub fn superweapon_max_simultaneous_allowed(limit_superweapons: bool) -> Option<
 }
 
 /// Honesty pack residual for MaxSimultaneous link key.
+
+/// C++ EnergyProduction residual for a superweapon template name.
+///
+/// Returns `Some(energy)` where negative values drain power (PUC/Nuke **-10**),
+/// Scud Storm **0**. Non-superweapon templates return `None`.
+pub fn superweapon_energy_production_for_template(template_name: &str) -> Option<i32> {
+    if !is_superweapon_link_key_template(template_name) {
+        return None;
+    }
+    let n = template_name.to_ascii_lowercase();
+    // Rebuild holes do not drain (not live SW structure residual).
+    if n.contains("rebuildhole") {
+        return Some(0);
+    }
+    if n.contains("scudstorm") || n.contains("scud_storm") {
+        return Some(SCUD_STORM_ENERGY_PRODUCTION);
+    }
+    // Particle Cannon / Nuclear Missile powered SW residual.
+    Some(SUPERWEAPON_ENERGY_DRAIN)
+}
+
+/// Map EnergyProduction residual onto Object power_provided / power_consumed.
+///
+/// C++ negative EnergyProduction → power_consumed = abs(energy); positive → power_provided.
+pub fn apply_energy_production_to_power(energy_production: i32) -> (i32, i32) {
+    if energy_production >= 0 {
+        (energy_production, 0)
+    } else {
+        (0, energy_production.abs())
+    }
+}
+
 pub fn honesty_superweapon_max_simultaneous_residual_pack() -> bool {
     SUPERWEAPON_LINK_KEY == "Superweapon"
         && SUPERWEAPON_MAX_SIMULTANEOUS_WHEN_LIMITED == 1
@@ -254,6 +286,14 @@ pub fn honesty_superweapon_max_simultaneous_residual_pack() -> bool {
         && !is_superweapon_link_key_template("AmericaCommandCenter")
         && superweapon_max_simultaneous_allowed(false).is_none()
         && superweapon_max_simultaneous_allowed(true) == Some(1)
+        && superweapon_energy_production_for_template(AMERICA_PARTICLE_CANNON_UPLINK)
+            == Some(SUPERWEAPON_ENERGY_DRAIN)
+        && superweapon_energy_production_for_template(CHINA_NUCLEAR_MISSILE_LAUNCHER)
+            == Some(SUPERWEAPON_ENERGY_DRAIN)
+        && superweapon_energy_production_for_template(GLA_SCUD_STORM)
+            == Some(SCUD_STORM_ENERGY_PRODUCTION)
+        && apply_energy_production_to_power(SUPERWEAPON_ENERGY_DRAIN) == (0, 10)
+        && apply_energy_production_to_power(0) == (0, 0)
 }
 
 #[cfg(test)]
