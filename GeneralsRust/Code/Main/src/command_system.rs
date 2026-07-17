@@ -351,6 +351,9 @@ pub enum SpecialPowerType {
     /// Delayed disable of enemy infantry/vehicles in radius (DISABLED_EMP residual).
     /// Fail-closed: not full OCL B52 / LeafletContainer / LeafletFX particle path.
     LeafletDrop,
+    /// USA Airforce Early Leaflet Drop residual (EARLY_SPECIAL_LEAFLET_DROP /
+    /// Early_SuperweaponLeafletDrop). Same delay/radius/reload; Early science gate.
+    EarlyLeafletDrop,
     /// GLA Sneak Attack residual (SPECIAL_SNEAK_ATTACK / SuperweaponSneakAttack).
     /// Delayed tunnel structure spawn at target + residual shockwave damage.
     /// Fail-closed: not full OCL Start animation / multi-shockwave / TunnelContain path.

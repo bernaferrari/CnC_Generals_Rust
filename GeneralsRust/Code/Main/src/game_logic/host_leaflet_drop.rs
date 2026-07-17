@@ -57,6 +57,16 @@ pub const LEAFLET_SPECIAL_POWER: &str = "SuperweaponLeafletDrop";
 pub const LEAFLET_SPECIAL_ENUM: &str = "SPECIAL_LEAFLET_DROP";
 /// Retail RequiredScience residual.
 pub const LEAFLET_REQUIRED_SCIENCE: &str = "SCIENCE_LeafletDrop";
+/// Retail Early_SuperweaponLeafletDrop RequiredScience residual.
+pub const EARLY_LEAFLET_REQUIRED_SCIENCE: &str = "Early_SCIENCE_LeafletDrop";
+/// Retail Early_SuperweaponLeafletDrop Enum residual.
+pub const EARLY_LEAFLET_SPECIAL_ENUM: &str = "EARLY_SPECIAL_LEAFLET_DROP";
+/// Retail Early_SuperweaponLeafletDrop special power name residual.
+pub const EARLY_LEAFLET_SPECIAL_POWER: &str = "Early_SuperweaponLeafletDrop";
+/// Retail Early leaflet ReloadTime residual (same 300000ms as baseline).
+pub const EARLY_LEAFLET_RELOAD_MS: u32 = 300_000;
+/// Early ReloadTime frames residual.
+pub const EARLY_LEAFLET_RELOAD_FRAMES: u32 = 9_000;
 /// Retail ViewObjectDuration residual (msec).
 pub const LEAFLET_VIEW_OBJECT_DURATION_MS: u32 = 30_000;
 /// ViewObjectDuration 30000ms → 900 frames.
@@ -88,6 +98,8 @@ pub const LEAFLET_IMPACT_AUDIO: &str = "LeafletDropEffect";
 pub enum HostLeafletDropKind {
     /// USA SPECIAL_LEAFLET_DROP / SuperweaponLeafletDrop residual.
     UsaLeafletDrop,
+    /// USA Airforce Early EARLY_SPECIAL_LEAFLET_DROP residual (same delay/radius/reload).
+    UsaEarlyLeafletDrop,
 }
 
 impl HostLeafletDropKind {
@@ -95,6 +107,7 @@ impl HostLeafletDropKind {
     pub fn from_command_power(power: &SpecialPowerType) -> Option<Self> {
         match power {
             SpecialPowerType::LeafletDrop => Some(HostLeafletDropKind::UsaLeafletDrop),
+            SpecialPowerType::EarlyLeafletDrop => Some(HostLeafletDropKind::UsaEarlyLeafletDrop),
             _ => None,
         }
     }
@@ -102,39 +115,50 @@ impl HostLeafletDropKind {
     pub fn label(self) -> &'static str {
         match self {
             HostLeafletDropKind::UsaLeafletDrop => "UsaLeafletDrop",
+            HostLeafletDropKind::UsaEarlyLeafletDrop => "UsaEarlyLeafletDrop",
         }
     }
 
     /// Delay frames before disable residual applies.
     pub fn delay_frames(self) -> u32 {
         match self {
-            HostLeafletDropKind::UsaLeafletDrop => LEAFLET_DELAY_FRAMES,
+            HostLeafletDropKind::UsaLeafletDrop | HostLeafletDropKind::UsaEarlyLeafletDrop => {
+                LEAFLET_DELAY_FRAMES
+            }
         }
     }
 
     /// Affect radius residual.
     pub fn radius(self) -> f32 {
         match self {
-            HostLeafletDropKind::UsaLeafletDrop => HOST_LEAFLET_RADIUS,
+            HostLeafletDropKind::UsaLeafletDrop | HostLeafletDropKind::UsaEarlyLeafletDrop => {
+                HOST_LEAFLET_RADIUS
+            }
         }
     }
 
     /// DISABLED_EMP duration frames residual.
     pub fn disabled_duration_frames(self) -> u32 {
         match self {
-            HostLeafletDropKind::UsaLeafletDrop => LEAFLET_DISABLED_DURATION_FRAMES,
+            HostLeafletDropKind::UsaLeafletDrop | HostLeafletDropKind::UsaEarlyLeafletDrop => {
+                LEAFLET_DISABLED_DURATION_FRAMES
+            }
         }
     }
 
     pub fn activate_audio(self) -> &'static str {
         match self {
-            HostLeafletDropKind::UsaLeafletDrop => LEAFLET_ACTIVATE_AUDIO,
+            HostLeafletDropKind::UsaLeafletDrop | HostLeafletDropKind::UsaEarlyLeafletDrop => {
+                LEAFLET_ACTIVATE_AUDIO
+            }
         }
     }
 
     pub fn impact_audio(self) -> &'static str {
         match self {
-            HostLeafletDropKind::UsaLeafletDrop => LEAFLET_IMPACT_AUDIO,
+            HostLeafletDropKind::UsaLeafletDrop | HostLeafletDropKind::UsaEarlyLeafletDrop => {
+                LEAFLET_IMPACT_AUDIO
+            }
         }
     }
 }
@@ -425,6 +449,27 @@ pub fn honesty_leaflet_drop_residual_pack_ok() -> bool {
     honesty_leaflet_drop_special_power_residual_ok() && honesty_leaflet_drop_container_residual_ok()
 }
 
+/// Wave residual honesty: EarlyLeafletDrop science shortcut timer matrix.
+///
+/// Retail Early_SuperweaponLeafletDrop shares Delay/Radius/Reload with baseline;
+/// only RequiredScience / Enum / template name differ.
+pub fn honesty_early_leaflet_drop_residual_pack_ok() -> bool {
+    EARLY_LEAFLET_REQUIRED_SCIENCE == "Early_SCIENCE_LeafletDrop"
+        && EARLY_LEAFLET_SPECIAL_ENUM == "EARLY_SPECIAL_LEAFLET_DROP"
+        && EARLY_LEAFLET_SPECIAL_POWER == "Early_SuperweaponLeafletDrop"
+        && EARLY_LEAFLET_RELOAD_MS == LEAFLET_RELOAD_MS
+        && EARLY_LEAFLET_RELOAD_FRAMES == LEAFLET_RELOAD_FRAMES
+        && HostLeafletDropKind::UsaEarlyLeafletDrop.delay_frames()
+            == HostLeafletDropKind::UsaLeafletDrop.delay_frames()
+        && (HostLeafletDropKind::UsaEarlyLeafletDrop.radius()
+            - HostLeafletDropKind::UsaLeafletDrop.radius())
+        .abs()
+            < 0.01
+        && HostLeafletDropKind::from_command_power(
+            &crate::command_system::SpecialPowerType::EarlyLeafletDrop,
+        ) == Some(HostLeafletDropKind::UsaEarlyLeafletDrop)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,5 +567,18 @@ mod tests {
         assert_eq!(LEAFLET_REQUIRED_SCIENCE, "SCIENCE_LeafletDrop");
         assert!((HOST_LEAFLET_RADIUS - 110.0).abs() < 0.01);
         assert!(LEAFLET_SHARED_SYNCED_TIMER);
+    }
+
+    #[test]
+    fn early_leaflet_kind_maps_and_matches_baseline_timers() {
+        assert!(honesty_early_leaflet_drop_residual_pack_ok());
+        assert_eq!(
+            HostLeafletDropKind::UsaEarlyLeafletDrop.delay_frames(),
+            LEAFLET_DELAY_FRAMES
+        );
+        assert_eq!(
+            HostLeafletDropKind::UsaEarlyLeafletDrop.disabled_duration_frames(),
+            LEAFLET_DISABLED_DURATION_FRAMES
+        );
     }
 }
