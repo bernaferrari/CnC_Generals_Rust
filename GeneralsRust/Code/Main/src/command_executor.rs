@@ -1059,7 +1059,9 @@ impl<'a> CommandExecutor<'a> {
                     ) {
                         continue;
                     }
-                } else if *power_type == SpecialPowerType::Frenzy {
+                } else if *power_type == SpecialPowerType::Frenzy
+                    || *power_type == SpecialPowerType::EarlyFrenzy
+                {
                     let level = {
                         use crate::game_logic::host_frenzy::highest_frenzy_level_from_sciences;
                         let sciences = self
@@ -1096,7 +1098,9 @@ impl<'a> CommandExecutor<'a> {
                     ) {
                         continue;
                     }
-                } else if *power_type == SpecialPowerType::EmergencyRepair {
+                } else if *power_type == SpecialPowerType::EmergencyRepair
+                    || *power_type == SpecialPowerType::EarlyEmergencyRepair
+                {
                     let level = {
                         use crate::game_logic::host_emergency_repair::highest_emergency_repair_level_from_sciences;
                         let sciences = self
