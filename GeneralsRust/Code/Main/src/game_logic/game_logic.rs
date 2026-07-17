@@ -275,6 +275,14 @@ pub struct PlayerStatistics {
     pub resources_spent: u32,
     /// C++ ScoreKeeper::m_totalMoneyEarned residual.
     pub money_earned: u32,
+    /// C++ AcademyStats::m_structuresCaptured residual.
+    pub structures_captured: u32,
+    /// Alias honesty counter for academy capture residual.
+    pub academy_building_captures: u32,
+    /// C++ EVA UnitLost residual fires attributed to this player.
+    pub eva_unit_lost: u32,
+    /// C++ EVA BuildingLost residual fires attributed to this player.
+    pub eva_building_lost: u32,
 }
 
 /// Player structure
@@ -457,6 +465,14 @@ impl Player {
     /// Credit absolute supplies (income residual) and log economy channel.
 
     /// C++ ScoreKeeper::addMoneyEarned residual.
+
+    /// C++ AcademyStats::recordBuildingCapture residual.
+    pub fn record_building_capture(&mut self) {
+        self.statistics.structures_captured = self.statistics.structures_captured.saturating_add(1);
+        self.statistics.academy_building_captures =
+            self.statistics.academy_building_captures.saturating_add(1);
+    }
+
     pub fn add_money_earned(&mut self, amount: u32) {
         if amount == 0 {
             return;
@@ -13874,6 +13890,10 @@ impl GameLogic {
                     }
 
                     if did_capture {
+                        // C++ getAcademyStats()->recordBuildingCapture() residual.
+                        if let Some(p) = self.get_player_mut_by_team(team) {
+                            p.record_building_capture();
+                        }
                         if is_lotus_captor {
                             self.hero_abilities.record_building_capture();
                             self.queue_audio_event(
@@ -18718,6 +18738,32 @@ impl GameLogic {
                     destroyed_structure = true;
                 }
                 let victim_team = obj.team;
+                // C++ Object::onDie EVA residual (local, non-self-inflicted).
+                let is_infantry = obj.is_kind_of(KindOf::Infantry);
+                let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                // KINDOF_MP_COUNT_FOR_VICTORY residual class (main base buildings).
+                let is_mp_count = is_structure
+                    && (obj.is_kind_of(KindOf::CommandCenter)
+                        || obj.is_kind_of(KindOf::FSPower)
+                        || obj.is_kind_of(KindOf::PowerPlant)
+                        || obj.is_kind_of(KindOf::FSBarracks)
+                        || obj.is_kind_of(KindOf::FSWarFactory)
+                        || obj.is_kind_of(KindOf::FSAirfield)
+                        || obj.is_kind_of(KindOf::FSSuperweapon)
+                        || obj.is_kind_of(KindOf::FSStrategyCenter)
+                        || obj.is_kind_of(KindOf::FSTechnology)
+                        || obj.is_kind_of(KindOf::SupplyCenter)
+                        || obj.is_kind_of(KindOf::FSSupplyCenter));
+                self.try_eva_on_local_object_death(
+                    event.id,
+                    victim_team,
+                    is_structure,
+                    is_infantry,
+                    is_vehicle,
+                    is_mp_count,
+                    death_pos,
+                    event.killer,
+                );
                 let frame = self.frame;
                 let death_type = obj.status.death_type;
                 let _ = self.combat_particles.spawn_death_fx_for_type(
@@ -42220,6 +42266,49 @@ impl GameLogic {
     /// C++ TheEva->setShouldPlay(EVA_BuildingBeingStolen) when capture prep starts.
 
     /// C++ TheEva->setShouldPlay(EVA_VehicleStolen) when hijack victim is local.
+
+    /// C++ Object::onDie EVA residual for local non-self-inflicted losses.
+    ///
+    /// - STRUCTURE + MP_COUNT_FOR_VICTORY-class → EVA_BuildingLost (C++ typo BuldingLost)
+    /// - INFANTRY or VEHICLE → EVA_UnitLost + RADAR_EVENT_FAKE residual
+    pub fn try_eva_on_local_object_death(
+        &mut self,
+        _victim_id: ObjectId,
+        victim_team: crate::game_logic::Team,
+        is_structure: bool,
+        is_infantry: bool,
+        is_vehicle: bool,
+        is_mp_count_for_victory: bool,
+        death_pos: glam::Vec3,
+        killer: Option<crate::game_logic::Team>,
+    ) {
+        // Local victim residual.
+        let local = self
+            .players
+            .values()
+            .any(|p| p.is_local && p.is_alive && p.team == victim_team);
+        if !local {
+            return;
+        }
+        // C++ !selfInflicted residual.
+        if killer == Some(victim_team) {
+            return;
+        }
+        if is_structure && is_mp_count_for_victory {
+            let _ = gamelogic::helpers::TheEva::set_should_play(
+                gamelogic::helpers::EvaEvent::BuildingLost,
+            );
+            self.saboteur.record_eva_building_lost();
+        } else if is_infantry || is_vehicle {
+            let _ =
+                gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
+            self.saboteur.record_eva_unit_lost();
+            // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) residual for spacebar jump.
+            let msg = localization::localize("RADAR:UnitLost", "Unit lost");
+            self.queue_radar_message_at(msg, death_pos, radar_notifications::RadarKind::Generic);
+        }
+    }
+
     pub fn try_eva_vehicle_stolen(&mut self, victim_id: ObjectId) {
         if !self.is_object_locally_controlled(victim_id) {
             return;
@@ -76680,6 +76769,83 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn local_unit_death_queues_eva_unit_lost() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::GLA, "Enemy", false),
+        );
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let id = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        logic.try_eva_on_local_object_death(
+            id,
+            Team::USA,
+            false,
+            true,
+            false,
+            false,
+            glam::Vec3::ZERO,
+            Some(Team::GLA),
+        );
+        assert!(logic.saboteur.honesty_eva_unit_lost_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::UnitLost),
+            "{events:?}"
+        );
+        // Self-inflicted must not fire.
+        let before = logic.saboteur.eva_unit_lost;
+        logic.try_eva_on_local_object_death(
+            id,
+            Team::USA,
+            false,
+            true,
+            false,
+            false,
+            glam::Vec3::ZERO,
+            Some(Team::USA),
+        );
+        assert_eq!(logic.saboteur.eva_unit_lost, before);
+    }
+
+    #[test]
+    fn capture_records_academy_building_capture() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::China, "Captor", true),
+        );
+        if let Some(p) = logic.get_player_mut_by_team(Team::China) {
+            p.record_building_capture();
+        }
+        let p = logic
+            .players
+            .values()
+            .find(|p| p.team == Team::China)
+            .expect("p");
+        assert_eq!(p.statistics.structures_captured, 1);
+        assert_eq!(p.statistics.academy_building_captures, 1);
+        let _ = KindOf::Structure; // keep import path warm for residual tests
+        let _ = ThingTemplate::new("x");
     }
 
     #[test]
