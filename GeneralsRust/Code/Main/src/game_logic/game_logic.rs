@@ -44039,6 +44039,17 @@ impl GameLogic {
         position: glam::Vec3,
         template_name: &str,
     ) -> u32 {
+        self.legal_build_code_at_for_builder(team, position, template_name, None)
+    }
+
+    /// C++ isLocationLegalToBuild with optional builder for CLEAR_PATH residual.
+    pub fn legal_build_code_at_for_builder(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+    ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             cell_shroud_blocks_build_residual, footprint_height_delta_residual,
             legal_build_code_from_checks_complete_residual,
@@ -44047,8 +44058,7 @@ impl GameLogic {
         };
         use crate::game_logic::host_structure_economy_residual::{
             is_legal_build_distance_from_map_edge, is_legal_build_height_variation,
-            is_supply_warehouse_template, ALLOWED_HEIGHT_VARIATION_FOR_BUILDING,
-            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
+            is_supply_warehouse_template, MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
         };
         use crate::game_logic::host_upgrades::is_supply_center_template;
         let (min, max) = self.world_bounds();
@@ -44126,14 +44136,86 @@ impl GameLogic {
         // C++ footprint height sample residual (hiZ-loZ > AllowedHeightVariation).
         // Fail-open when no height samples available (synthetic maps without terrain).
         let not_flat = self.footprint_not_flat_enough(position, place_r);
-        legal_build_code_from_checks_complete_residual(
+        // C++ CLEAR_PATH residual when a mobile builder is provided.
+        let no_clear = match builder_id {
+            Some(bid) => !self.builder_has_clear_path_to(bid, position),
+            None => false,
+        };
+        crate::game_logic::host_production_buildable_command_residual::legal_build_code_from_checks_with_path_residual(
             in_bounds,
             shrouded,
             not_flat,
             in_way,
             too_close,
             too_close_edge,
+            no_clear,
         )
+    }
+
+    /// C++ AIUpdateInterface::isQuickPathAvailable residual (simplified host pathfind).
+    ///
+    /// Fail-open when builder missing / immobile / already at goal. Fail-closed
+    /// when pathfinding returns no path for a mobile constructor.
+    pub fn builder_has_clear_path_to(&self, builder_id: ObjectId, goal: glam::Vec3) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::builder_skips_clear_path_residual;
+        let Some(builder) = self.objects.get(&builder_id) else {
+            return builder_skips_clear_path_residual(true);
+        };
+        if !builder.is_alive() {
+            return false;
+        }
+        // Structures / immobile skip CLEAR_PATH residual.
+        if builder.is_kind_of(KindOf::Structure) || builder.is_kind_of(KindOf::Immobile) {
+            return builder_skips_clear_path_residual(true);
+        }
+        if !builder.can_move() && !builder.can_construct() {
+            return builder_skips_clear_path_residual(true);
+        }
+        let start = builder.get_position();
+        let dx = start.x - goal.x;
+        let dz = start.z - goal.z;
+        // Already close enough to pad residual — treat as clear.
+        if dx * dx + dz * dz <= 64.0 * 64.0 {
+            return true;
+        }
+        // Host pathfinding residual: need &mut pathfinding_system — use interior mutability
+        // via a quick cell walk instead of full A* when possible.
+        self.quick_path_available_residual(start, goal)
+    }
+
+    /// Simplified CLEAR_PATH residual without mutably borrowing pathfinding.
+    ///
+    /// Walks a coarse line of cells; blocked if any cell is impassable structure
+    /// footprint residual. Fail-open when grid unavailable.
+    fn quick_path_available_residual(&self, start: glam::Vec3, goal: glam::Vec3) -> bool {
+        use crate::game_logic::pathfinding::GridPos;
+        let grid = &self.pathfinding_system.grid;
+        let gs = grid.world_to_grid(start);
+        let gg = grid.world_to_grid(goal);
+        // If either end invalid, fail-open residual (map placement still works).
+        if !grid.is_valid_pos(gs) || !grid.is_valid_pos(gg) {
+            return true;
+        }
+        // Goal on static structure residual is still a legal build pad — dozer
+        // walks to the edge. Only intermediate cells block CLEAR_PATH residual.
+        let steps = (gs.x - gg.x).abs().max((gs.y - gg.y).abs()).max(1);
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            let x = (gs.x as f32 + (gg.x - gs.x) as f32 * t).round() as i32;
+            let y = (gs.y as f32 + (gg.y - gs.y) as f32 * t).round() as i32;
+            let cell = GridPos::new(x, y);
+            if !grid.is_valid_pos(cell) {
+                continue;
+            }
+            // Skip start and goal cells residual.
+            if cell == gs || cell == gg {
+                continue;
+            }
+            if grid.is_static_blocked(cell) {
+                return false;
+            }
+        }
+        true
     }
 
     /// C++ BuildAssistant footprint hiZ-loZ residual vs AllowedHeightVariationForBuilding.
@@ -44194,8 +44276,18 @@ impl GameLogic {
         position: glam::Vec3,
         template_name: &str,
     ) -> bool {
+        self.is_location_legal_to_build_for_builder(team, position, template_name, None)
+    }
+
+    pub fn is_location_legal_to_build_for_builder(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+    ) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::LBC_OK;
-        self.legal_build_code_at(team, position, template_name) == LBC_OK
+        self.legal_build_code_at_for_builder(team, position, template_name, builder_id) == LBC_OK
     }
 
     /// Count living/under-construction Superweapon-link-key objects for a team residual.
@@ -82381,6 +82473,75 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn structure_placement_rejects_no_clear_path_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            LBC_NO_CLEAR_PATH, LBC_OK,
+        };
+        use crate::game_logic::pathfinding::GridPos;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.override_world_size(400.0, 400.0);
+        logic.set_skirmish_rules(false, true, false, true, 1.0);
+
+        let mut dozer_t = ThingTemplate::new("TestPathDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(250.0);
+        logic.templates.insert("TestPathDozer".into(), dozer_t);
+        let mut bar = ThingTemplate::new("TestPathBarracks");
+        bar.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("TestPathBarracks".into(), bar);
+
+        let dozer = logic
+            .create_object(
+                "TestPathDozer",
+                Team::USA,
+                glam::Vec3::new(-100.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        // Wall of static-blocked cells between dozer and pad.
+        let start = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(glam::Vec3::new(-100.0, 0.0, 0.0));
+        let goal = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(glam::Vec3::new(100.0, 0.0, 0.0));
+        let mid_x = (start.x + goal.x) / 2;
+        for dy in -5..=5 {
+            logic
+                .pathfinding_system
+                .grid
+                .set_blocked(GridPos::new(mid_x, start.y + dy), true);
+        }
+        let pad = glam::Vec3::new(100.0, 0.0, 0.0);
+        assert_eq!(
+            logic.legal_build_code_at_for_builder(Team::USA, pad, "TestPathBarracks", Some(dozer)),
+            LBC_NO_CLEAR_PATH
+        );
+        // Without builder residual, CLEAR_PATH is not required.
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, pad, "TestPathBarracks"),
+            LBC_OK
+        );
+        // Clear wall → path residual OK.
+        for dy in -5..=5 {
+            logic
+                .pathfinding_system
+                .grid
+                .set_blocked(GridPos::new(mid_x, start.y + dy), false);
+        }
+        assert_eq!(
+            logic.legal_build_code_at_for_builder(Team::USA, pad, "TestPathBarracks", Some(dozer)),
+            LBC_OK
         );
     }
 
