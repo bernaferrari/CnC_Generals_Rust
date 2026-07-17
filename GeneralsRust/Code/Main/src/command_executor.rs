@@ -1166,6 +1166,11 @@ impl<'a> CommandExecutor<'a> {
                     {
                         continue;
                     }
+                } else if *power_type == SpecialPowerType::CashHack {
+                    let _stolen = self
+                        .game_logic
+                        .activate_cash_hack(self.current_player_id, Some(unit_id));
+                    // Always treat as success residual once activated (even 0 stolen).
                 } else if *power_type == SpecialPowerType::CleanupArea {
                     if !self.game_logic.activate_cleanup_area(
                         self.current_player_id,
