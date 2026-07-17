@@ -203,6 +203,8 @@ pub struct Object {
     pub rebuild_worker_id: Option<ObjectId>,
     /// C++ RebuildHoleBehavior m_reconstructingID residual.
     pub rebuild_reconstructing_id: Option<ObjectId>,
+    /// C++ Object::m_producerID residual (hole is producer of reconstructing building).
+    pub producer_id: Option<ObjectId>,
     /// C++ ProductionUpdate m_constructionCompleteFrame residual.
     /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
     pub construction_complete_clear_frame: u32,
@@ -1214,6 +1216,7 @@ impl Object {
             rebuild_spawner_id: None,
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
+            producer_id: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
@@ -1497,6 +1500,7 @@ impl Object {
             rebuild_spawner_id: None,
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
+            producer_id: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,

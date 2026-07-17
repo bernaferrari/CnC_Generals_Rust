@@ -1446,6 +1446,8 @@ pub struct GameLogic {
     rebuild_hole_attack_transfers: u32,
     /// C++ RebuildHoleBehavior::transferBombs residual events.
     rebuild_hole_bomb_transfers: u32,
+    /// C++ RECONSTRUCTING death → hole restart residual events.
+    rebuild_hole_recon_deaths: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2690,6 +2692,7 @@ impl GameLogic {
             rebuild_hole_completes: 0,
             rebuild_hole_attack_transfers: 0,
             rebuild_hole_bomb_transfers: 0,
+            rebuild_hole_recon_deaths: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3084,6 +3087,7 @@ impl GameLogic {
         self.rebuild_hole_completes = 0;
         self.rebuild_hole_attack_transfers = 0;
         self.rebuild_hole_bomb_transfers = 0;
+        self.rebuild_hole_recon_deaths = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -19075,8 +19079,13 @@ impl GameLogic {
 
             self.cancel_all_production(event.id);
 
+            // C++ Object::onDie RECONSTRUCTING residual (lost rebuild → hole).
+            let handled_recon = self.handle_reconstructing_death(event.id);
             // C++ RebuildHoleExposeDie residual (GLA structures → hole).
-            let _ = self.maybe_spawn_rebuild_hole(event.id);
+            // Skip if this was a reconstructing building (hole already exists).
+            if !handled_recon {
+                let _ = self.maybe_spawn_rebuild_hole(event.id);
+            }
 
             // Snapshot CreateCrateDie residual fields before remove.
             let (crate_data, death_pos_pre, death_team_pre, last_src) =
@@ -43517,6 +43526,51 @@ impl GameLogic {
         self.dozer_bored_repair_events > 0
     }
 
+    /// C++ Object::onDie RECONSTRUCTING residual — transfer attackers back to hole
+    /// and restart RebuildHole worker spawn process.
+    pub fn handle_reconstructing_death(&mut self, destroyed_id: ObjectId) -> bool {
+        let (is_recon, producer, template_name) = {
+            let Some(o) = self.objects.get(&destroyed_id) else {
+                return false;
+            };
+            (
+                o.status.reconstructing,
+                o.producer_id,
+                o.template_name.clone(),
+            )
+        };
+        if !is_recon {
+            return false;
+        }
+        let Some(hole_id) = producer else {
+            return false;
+        };
+        let Some(hole) = self.objects.get_mut(&hole_id) else {
+            return false;
+        };
+        if !hole.is_rebuild_hole {
+            return false;
+        }
+        // Restart rebuild process residual.
+        hole.rebuild_template_name = Some(template_name);
+        hole.rebuild_reconstructing_id = None;
+        hole.rebuild_worker_id = None;
+        hole.status.masked = false;
+        hole.status.unselectable = false;
+        hole.rebuild_ready_frame = self
+            .frame
+            .max(1)
+            .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
+        // Transfer attackers from lost reconstruction to hole.
+        let n = self.transfer_attack(destroyed_id, hole_id);
+        if n > 0 {
+            self.rebuild_hole_attack_transfers =
+                self.rebuild_hole_attack_transfers.saturating_add(n as u32);
+        }
+        self.rebuild_hole_recon_deaths = self.rebuild_hole_recon_deaths.saturating_add(1);
+        true
+    }
+
     /// C++ RebuildHoleBehavior::transferBombs residual.
     ///
     /// Sticky bombs / mines attached to `from_id` retarget to `to_id`.
@@ -43768,8 +43822,8 @@ impl GameLogic {
                 o.construction_percent = 0.0;
                 o.set_under_construction_model_conditions(true);
                 o.health.current = (o.health.maximum * 0.1).max(1.0);
-                // Producer residual = hole.
-                // (no producer_id field universally; use contained/rebuild link)
+                // C++ setProducer(hole) residual.
+                o.producer_id = Some(hole_id);
             }
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 w.target = Some(new_id);
@@ -78609,6 +78663,75 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn reconstructing_death_transfers_attackers_back_to_hole() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("GLATunnelNetwork");
+        st.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), st);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+
+        let orig = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("orig");
+        if let Some(o) = logic.get_object_mut(orig) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let hole = logic.maybe_spawn_rebuild_hole(orig).expect("hole");
+        // Simulate reconstructing building with producer = hole.
+        let rid = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("recon");
+        if let Some(o) = logic.get_object_mut(rid) {
+            o.status.under_construction = true;
+            o.status.reconstructing = true;
+            o.producer_id = Some(hole);
+            o.construction_percent = 0.3;
+        }
+        if let Some(h) = logic.get_object_mut(hole) {
+            h.rebuild_reconstructing_id = Some(rid);
+            h.status.masked = true;
+        }
+        let aid = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("atk");
+        if let Some(a) = logic.get_object_mut(aid) {
+            a.ai_state = AIState::Attacking;
+            a.target = Some(rid);
+        }
+        assert!(logic.handle_reconstructing_death(rid));
+        assert!(logic.rebuild_hole_recon_deaths > 0);
+        assert_eq!(logic.get_object(aid).unwrap().target, Some(hole));
+        let h = logic.get_object(hole).unwrap();
+        assert!(h.rebuild_reconstructing_id.is_none());
+        assert!(!h.status.masked);
+        assert!(h.rebuild_ready_frame > 0);
     }
 
     #[test]
