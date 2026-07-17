@@ -5887,12 +5887,14 @@ impl GameLogic {
     /// Refreshes cell_is_cliff / cell_is_underwater from terrain before each tick
     /// so testStunnedUnitForDestruction sees live surface residual.
     pub(crate) fn tick_shock_stun_all(&mut self) {
+        // Include bounce_audio_pending so land audio drains even after stun ends.
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.shock_stun_frames > 0)
+            .filter(|(_, o)| o.shock_stun_frames > 0 || o.bounce_audio_pending > 0)
             .map(|(id, _)| *id)
             .collect();
+        let mut bounce_audio: Vec<(ObjectId, String, glam::Vec3, f32)> = Vec::new();
         for id in ids {
             let pos = self
                 .objects
@@ -5903,8 +5905,24 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.cell_is_cliff = cliff;
                 o.cell_is_underwater = water;
-                o.tick_shock_stun();
+                if o.shock_stun_frames > 0 {
+                    o.tick_shock_stun();
+                }
+                while let Some((name, vol)) = o.take_bounce_audio_pending() {
+                    let p = o.get_position();
+                    bounce_audio.push((id, name, p, vol));
+                }
             }
+        }
+        // C++ TheAudio->addAudioEvent bounce residual.
+        for (id, name, pos, vol) in bounce_audio {
+            let pri = (64.0 + vol * 136.0).clamp(0.0, 255.0) as u8;
+            self.queue_audio_event(
+                AudioEventRequest::new(&name)
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(pri),
+            );
         }
     }
 
@@ -71157,6 +71175,36 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn tick_shock_stun_all_queues_bounce_audio() {
+        use crate::game_logic::{
+            bounce_sound_volume_residual, KindOf, Object, ObjectId, Team, ThingTemplate,
+            BOUNCE_SOUND_DEFAULT,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("BounceAud");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let id = ObjectId(9100);
+        let mut o = Object::new(tmpl, id, Team::USA);
+        o.shock_stun_frames = 0;
+        o.record_bounce_land(2.0);
+        assert!(o.bounce_audio_pending > 0);
+        logic.objects.insert(id, o);
+        let before = logic.queued_audio_event_count_for_test();
+        logic.tick_shock_stun_all();
+        assert!(
+            logic.queued_audio_event_count_for_test() > before,
+            "bounce land must queue AudioEventRequest"
+        );
+        let events = std::mem::take(&mut logic.queued_audio_events);
+        assert!(events.iter().any(|e| e.event_type == BOUNCE_SOUND_DEFAULT));
+        assert!(events.iter().any(|e| e.object_id == Some(id)));
+        let v = bounce_sound_volume_residual(0.2, 10.0);
+        assert!(v >= 0.25 && v <= 1.0);
+        let _ = Vec3::ZERO;
     }
 
     #[test]
