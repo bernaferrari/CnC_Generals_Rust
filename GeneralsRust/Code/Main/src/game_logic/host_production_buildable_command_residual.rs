@@ -404,6 +404,22 @@ pub const PREREQ_SAMPLE_TABLE_RESIDUAL: &[PrereqSampleRow] = &[
         prereq_objects: &["AmericaWarFactory", "AmericaAirfield"],
         or_chain: true, // OR residual sample (either facility unlocks)
     },
+    // Superweapon structure Prerequisites residual (FactionBuilding.ini).
+    PrereqSampleRow {
+        unit: "AmericaParticleCannonUplink",
+        prereq_objects: &["AmericaStrategyCenter"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "GLAScudStorm",
+        prereq_objects: &["GLAPalace"],
+        or_chain: false,
+    },
+    PrereqSampleRow {
+        unit: "ChinaNuclearMissileLauncher",
+        prereq_objects: &["ChinaPropagandaCenter"],
+        or_chain: false,
+    },
 ];
 
 /// Residual satisfaction for a simple unit-ownership map residual.
@@ -435,6 +451,21 @@ pub fn prereq_is_satisfied_residual(
     }
 }
 
+/// Look up residual Prerequisites Object list for a template name (case-insensitive).
+pub fn prereq_row_for_template_residual(template_name: &str) -> Option<&'static PrereqSampleRow> {
+    let n = template_name.to_ascii_lowercase();
+    PREREQ_SAMPLE_TABLE_RESIDUAL
+        .iter()
+        .find(|r| r.unit.eq_ignore_ascii_case(template_name) || r.unit.to_ascii_lowercase() == n)
+}
+
+/// Convenience: prereq object names + or_chain for a template residual.
+pub fn prereq_objects_for_template_residual(
+    template_name: &str,
+) -> Option<(&'static [&'static str], bool)> {
+    prereq_row_for_template_residual(template_name).map(|r| (r.prereq_objects, r.or_chain))
+}
+
 /// Wave 99 honesty: prerequisite residual pack.
 pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
     PREREQ_MAX_UNITS_RESIDUAL == 32
@@ -442,7 +473,7 @@ pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
         && PREREQ_INI_FIELD_NAMES.len() == 2
         && residual_name_index(PREREQ_INI_FIELD_NAMES, "Object") == Some(0)
         && residual_name_index(PREREQ_INI_FIELD_NAMES, "Science") == Some(1)
-        && PREREQ_SAMPLE_TABLE_RESIDUAL.len() == 5
+        && PREREQ_SAMPLE_TABLE_RESIDUAL.len() == 8
         && PREREQ_SAMPLE_TABLE_RESIDUAL[0].unit == "AmericaWarFactory"
         && PREREQ_SAMPLE_TABLE_RESIDUAL[0].prereq_objects == &["AmericaSupplyCenter"]
         && !PREREQ_SAMPLE_TABLE_RESIDUAL[0].or_chain
@@ -483,6 +514,24 @@ pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
         // Science residual gate
         && !prereq_is_satisfied_residual(&[], false, &[], false)
         && prereq_is_satisfied_residual(&[], false, &[], true)
+        && prereq_objects_for_template_residual("AmericaParticleCannonUplink")
+            == Some((&["AmericaStrategyCenter"][..], false))
+        && prereq_objects_for_template_residual("GLAScudStorm")
+            == Some((&["GLAPalace"][..], false))
+        && prereq_objects_for_template_residual("ChinaNuclearMissileLauncher")
+            == Some((&["ChinaPropagandaCenter"][..], false))
+        && prereq_is_satisfied_residual(
+            &["AmericaStrategyCenter"],
+            false,
+            &["AmericaStrategyCenter"],
+            true,
+        )
+        && !prereq_is_satisfied_residual(
+            &["AmericaStrategyCenter"],
+            false,
+            &["AmericaCommandCenter"],
+            true,
+        )
 }
 
 // ---------------------------------------------------------------------------
