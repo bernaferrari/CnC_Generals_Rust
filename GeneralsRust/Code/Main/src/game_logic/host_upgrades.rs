@@ -219,6 +219,10 @@ pub enum HostUpgradeKind {
     Countermeasures,
     /// America Scout/Battle/Hellfire drone object-upgrade residual.
     SlaveDrone,
+    /// China Helix NapalmBomb ability unlock residual.
+    HelixNapalmBomb,
+    /// Nuke General Helix NukeBomb ability unlock residual.
+    HelixNukeBomb,
     /// GLA Cash Bounty kill-award residual.
     CashBounty,
     /// Other / unknown upgrades (unlock flag only).
@@ -331,6 +335,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::SlaveDrone
         } else if n.contains("cashbounty") {
             HostUpgradeKind::CashBounty
+        } else if n.contains("helixnukebomb") || n.contains("nuke_upgrade_helixnukebomb") {
+            HostUpgradeKind::HelixNukeBomb
+        } else if n.contains("helixnapalmbomb") || n.contains("helixnapalm") {
+            HostUpgradeKind::HelixNapalmBomb
         } else {
             HostUpgradeKind::Other
         }
@@ -381,6 +389,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::Countermeasures => "Countermeasures",
             HostUpgradeKind::SlaveDrone => "SlaveDrone",
             HostUpgradeKind::CashBounty => "CashBounty",
+            HostUpgradeKind::HelixNapalmBomb => "HelixNapalmBomb",
+            HostUpgradeKind::HelixNukeBomb => "HelixNukeBomb",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -435,7 +445,9 @@ impl HostUpgradeKind {
             | HostUpgradeKind::Countermeasures
             | HostUpgradeKind::SlaveDrone
             | HostUpgradeKind::CashBounty
-            | HostUpgradeKind::Other => 1,
+            | HostUpgradeKind::HelixNapalmBomb
+            | HostUpgradeKind::HelixNukeBomb => 1,
+            HostUpgradeKind::Other => 1,
         }
     }
 
@@ -488,6 +500,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::Countermeasures => 1000,
             HostUpgradeKind::SlaveDrone => 300,
             HostUpgradeKind::CashBounty => 0,
+            HostUpgradeKind::HelixNapalmBomb | HostUpgradeKind::HelixNukeBomb => 0,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -538,6 +551,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::Countermeasures => 30.0,
             HostUpgradeKind::SlaveDrone => 5.0,
             HostUpgradeKind::CashBounty => 0.0,
+            HostUpgradeKind::HelixNapalmBomb | HostUpgradeKind::HelixNukeBomb => 0.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
