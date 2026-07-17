@@ -2309,7 +2309,7 @@ impl ControlBar {
         veterancy_overlay: Option<&str>,
         production_progress: Option<f32>,
         production_template: Option<&str>,
-        production_queue: &[(String, f32)],
+        production_queue: &[(String, f32, bool)],
     ) {
         match primary_template_name {
             Some(name) if !name.is_empty() && selected_count > 0 => {
@@ -2334,9 +2334,13 @@ impl ControlBar {
                 if let Ok(mut context) = self.context.write() {
                     context.construction_queue = production_queue
                         .iter()
-                        .map(|(template_name, progress)| ProductionItem {
+                        .map(|(template_name, progress, is_upgrade)| ProductionItem {
                             template_name: template_name.clone(),
-                            production_type: ProductionType::Unit,
+                            production_type: if *is_upgrade {
+                                ProductionType::Upgrade
+                            } else {
+                                ProductionType::Unit
+                            },
                             progress: *progress,
                             cost: std::collections::HashMap::new(),
                             build_time: 0.0,
@@ -2348,11 +2352,17 @@ impl ControlBar {
                 self.build_queue_data = production_queue
                     .iter()
                     .enumerate()
-                    .map(|(idx, (template_name, _))| BuildQueueEntry {
-                        production_type: QueueProductionType::Unit,
-                        production_id: idx as u32,
-                        upgrade_name: template_name.clone(),
-                    })
+                    .map(
+                        |(idx, (template_name, _progress, is_upgrade))| BuildQueueEntry {
+                            production_type: if *is_upgrade {
+                                QueueProductionType::Upgrade
+                            } else {
+                                QueueProductionType::Unit
+                            },
+                            production_id: idx as u32,
+                            upgrade_name: template_name.clone(),
+                        },
+                    )
                     .collect();
                 self.mark_ui_dirty();
             }
