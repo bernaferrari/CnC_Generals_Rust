@@ -2896,6 +2896,49 @@ impl Object {
         true
     }
 
+    /// C++ BuildAssistant/Dozer construction model-condition residual.
+    ///
+    /// - With active dozer nearby: PARTIALLY_CONSTRUCTED + ACTIVELY_BEING_CONSTRUCTED
+    /// - Without dozer (waiting): AWAITING_CONSTRUCTION + PARTIALLY_CONSTRUCTED
+    /// - Clears ACTIVELY_BEING when dozer leaves.
+    pub fn set_under_construction_model_conditions(&mut self, actively_built: bool) {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, awaiting_construction_model_bit,
+            construction_complete_model_bit, partially_constructed_model_bit,
+        };
+        let await_b = awaiting_construction_model_bit();
+        let part_b = partially_constructed_model_bit();
+        let active_b = actively_being_constructed_model_bit();
+        let complete_b = construction_complete_model_bit();
+        // Clear all construction-related bits first.
+        self.model_condition_bits &= !(1u128 << await_b);
+        self.model_condition_bits &= !(1u128 << part_b);
+        self.model_condition_bits &= !(1u128 << active_b);
+        self.model_condition_bits &= !(1u128 << complete_b);
+        self.model_condition_bits |= 1u128 << part_b;
+        if actively_built {
+            self.model_condition_bits |= 1u128 << active_b;
+        } else {
+            self.model_condition_bits |= 1u128 << await_b;
+        }
+        self.refresh_model_condition_bits();
+    }
+
+    /// C++ clear construction model conditions on finish (before CONSTRUCTION_COMPLETE).
+    pub fn clear_under_construction_model_conditions(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, awaiting_construction_model_bit,
+            partially_constructed_model_bit,
+        };
+        let await_b = awaiting_construction_model_bit();
+        let part_b = partially_constructed_model_bit();
+        let active_b = actively_being_constructed_model_bit();
+        self.model_condition_bits &= !(1u128 << await_b);
+        self.model_condition_bits &= !(1u128 << part_b);
+        self.model_condition_bits &= !(1u128 << active_b);
+        self.refresh_model_condition_bits();
+    }
+
     pub fn set_construction_complete_condition(&mut self) {
         use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
         let bit = construction_complete_model_bit();
@@ -3007,12 +3050,30 @@ impl Object {
         if had_door_close {
             bits |= 1u128 << door_1_closing_model_bit();
         }
-        // Construction complete residual sticks.
-        use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
+        // Construction residual bits stick across body/motion refresh.
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, awaiting_construction_model_bit,
+            construction_complete_model_bit, partially_constructed_model_bit,
+        };
         let had_cc =
             (self.model_condition_bits & (1u128 << construction_complete_model_bit())) != 0;
+        let had_await =
+            (self.model_condition_bits & (1u128 << awaiting_construction_model_bit())) != 0;
+        let had_partial =
+            (self.model_condition_bits & (1u128 << partially_constructed_model_bit())) != 0;
+        let had_active =
+            (self.model_condition_bits & (1u128 << actively_being_constructed_model_bit())) != 0;
         if had_cc {
             bits |= 1u128 << construction_complete_model_bit();
+        }
+        if had_await {
+            bits |= 1u128 << awaiting_construction_model_bit();
+        }
+        if had_partial {
+            bits |= 1u128 << partially_constructed_model_bit();
+        }
+        if had_active {
+            bits |= 1u128 << actively_being_constructed_model_bit();
         }
         self.model_condition_bits = bits;
     }
