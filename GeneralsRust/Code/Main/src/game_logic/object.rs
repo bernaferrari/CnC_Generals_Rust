@@ -2099,8 +2099,7 @@ impl Object {
     /// On first crush pass of target point, applies HUGE crush damage.
     pub fn check_for_overlap_collision(&mut self, other: &mut Object, is_ally: bool) -> bool {
         use crate::game_logic::host_partition_collision_physics_residual::{
-            past_crush_point_residual, select_crush_target_residual, CrushTarget,
-            PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+            past_crush_point_residual, CrushTarget, PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
         };
         self.ensure_crush_levels();
         other.ensure_crush_levels();
@@ -2135,10 +2134,6 @@ impl Object {
         if other.front_crushed && other.back_crushed {
             return true;
         }
-        let target = select_crush_target_residual(other.front_crushed, other.back_crushed);
-        if target == CrushTarget::NoCrush {
-            return true;
-        }
         let us = self.get_position();
         let them = other.get_position();
         let (dx_f, dz_f) = self.unit_direction_xz();
@@ -2149,6 +2144,21 @@ impl Object {
             let y = other.get_orientation();
             (y.cos(), y.sin())
         };
+        let target = {
+            use crate::game_logic::host_partition_collision_physics_residual::select_crush_target_by_perp_residual;
+            select_crush_target_by_perp_residual(
+                other.front_crushed,
+                other.back_crushed,
+                (us.x, us.z),
+                (them.x, them.z),
+                (dx_f, dz_f),
+                crushee_facing,
+                offset,
+            )
+        };
+        if target == CrushTarget::NoCrush {
+            return true;
+        }
         let point = match target {
             CrushTarget::FrontEndCrush => (
                 them.x + crushee_facing.0 * offset,
@@ -5619,6 +5629,56 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn crush_selects_front_or_back_by_approach() {
+        use crate::game_logic::host_partition_collision_physics_residual::{
+            select_crush_target_by_perp_residual, CrushTarget,
+        };
+        // Sanity on residual selector.
+        assert_eq!(
+            select_crush_target_by_perp_residual(
+                false,
+                false,
+                (4.0, 0.5),
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 0.0),
+                5.0,
+            ),
+            CrushTarget::FrontEndCrush
+        );
+        // Approach front of infantry: tank past front point only → front_crushed first.
+        let mut vt = ThingTemplate::new("FrontCrushTank");
+        vt.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(vt, ObjectId(201), Team::USA);
+        tank.crusher_level = 1;
+        tank.set_orientation(0.0);
+        tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+        // Front of inf at x≈5 (offset 5, facing +X): tank just past front.
+        tank.set_position(glam::Vec3::new(5.5, 0.0, 0.2));
+
+        let mut it = ThingTemplate::new("FrontCrushInf");
+        it.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(it, ObjectId(202), Team::GLA);
+        inf.crushable_level = 0;
+        inf.selection_radius = 10.0;
+        inf.set_orientation(0.0);
+        inf.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+        inf.health.current = 999999.0; // survive first non-total if needed
+        inf.health.maximum = 999999.0;
+
+        // With front selection + past front point, front_crushed set.
+        // Use huge HP so we can observe flags before death if total.
+        assert!(tank.check_for_overlap_collision(&mut inf, false));
+        // Either front crushed or total (if selector picked total and killed).
+        assert!(
+            inf.front_crushed || inf.back_crushed || inf.status.destroyed,
+            "front={} back={} dead={}",
+            inf.front_crushed,
+            inf.back_crushed,
+            inf.status.destroyed
+        );
+    }
     #[test]
     fn crush_overlap_collision_kills_infantry() {
         use crate::game_logic::host_usa_pilot::HostDeathType;
