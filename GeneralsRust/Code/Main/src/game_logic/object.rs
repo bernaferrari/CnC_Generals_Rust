@@ -2028,6 +2028,98 @@ impl Object {
     /// C++ PhysicsBehavior::doBounceSound residual (event count + fall dy + volume).
 
     /// C++ PhysicsBehavior onCollide vehicle-into-immobile crash residual.
+
+    /// C++ PhysicsBehavior::scrubVelocity2D residual (host XZ ground plane).
+    ///
+    /// If desired < 0.001, zero lateral velocity. Else scale down if faster than desired.
+    pub fn scrub_velocity_2d(&mut self, desired_velocity: f32) {
+        if desired_velocity < 0.001 {
+            self.movement.velocity.x = 0.0;
+            self.movement.velocity.z = 0.0;
+            return;
+        }
+        let vx = self.movement.velocity.x;
+        let vz = self.movement.velocity.z;
+        let cur = (vx * vx + vz * vz).sqrt();
+        if desired_velocity > cur || cur < 1e-6 {
+            return;
+        }
+        let s = desired_velocity / cur;
+        self.movement.velocity.x = vx * s;
+        self.movement.velocity.z = vz * s;
+    }
+
+    /// C++ PhysicsBehavior::scrubVelocityZ residual (host Y-up vertical).
+    pub fn scrub_velocity_vertical(&mut self, desired_velocity: f32) {
+        if desired_velocity.abs() < 0.001 {
+            self.movement.velocity.y = 0.0;
+            return;
+        }
+        let vy = self.movement.velocity.y;
+        if (desired_velocity < 0.0 && vy < desired_velocity)
+            || (desired_velocity > 0.0 && vy > desired_velocity)
+        {
+            self.movement.velocity.y = desired_velocity;
+        }
+    }
+
+    /// C++ parachute vs building jam residual: push out + scrub lateral.
+    pub fn apply_parachute_building_bounce_out(
+        &mut self,
+        other_center: glam::Vec3,
+        us_radius: f32,
+    ) {
+        use crate::game_logic::host_partition_collision_physics_residual::parachute_bounce_out_distance;
+        let us = self.get_position();
+        let mut dx = other_center.x - us.x;
+        let mut dz = other_center.z - us.z;
+        let mut dist = (dx * dx + dz * dz).sqrt();
+        if dist < 1.0 {
+            dist = 1.0;
+            dx = 1.0;
+            dz = 0.0;
+        }
+        let bounce = parachute_bounce_out_distance(us_radius);
+        let mut pos = us;
+        pos.x -= bounce * dx / dist;
+        pos.z -= bounce * dz / dist;
+        self.set_position(pos);
+        self.scrub_velocity_2d(0.0);
+    }
+
+    /// C++ immobile collide stiffness bounce residual on velocity.
+    ///
+    /// Zeros velocity then applies bounce factor along separation (host XZ + Y).
+    /// Returns applied force vector residual (for tests).
+    pub fn apply_structure_stiffness_bounce(
+        &mut self,
+        other_center: glam::Vec3,
+        stiffness: f32,
+        mass: f32,
+    ) -> glam::Vec3 {
+        use crate::game_logic::host_partition_collision_physics_residual::structure_immobile_bounce_factor;
+        let us = self.get_position();
+        let mut dx = other_center.x - us.x;
+        let mut dy = other_center.y - us.y;
+        let mut dz = other_center.z - us.z;
+        let mut dist = (dx * dx + dy * dy + dz * dz).sqrt();
+        if dist < 1.0 {
+            dist = 1.0;
+        }
+        let mag = self.movement.velocity.length();
+        let factor = structure_immobile_bounce_factor(mag, mass, stiffness);
+        // C++ cheats: nuke velocity then apply force direction from delta.
+        self.movement.velocity = glam::Vec3::ZERO;
+        let dir = glam::Vec3::new(dx / dist, dy / dist, dz / dist);
+        // Force on us is opposite separation (push away from other): -delta direction * |factor|
+        // factor is already negative; force = factor * unit(delta) pushes us away when factor<0?
+        // C++: force = factor * (delta/dist) with factor negative → toward -delta = away from other. Good.
+        let force = dir * factor;
+        // mass≈1 → velocity += force (host residual, no separate accel integrate).
+        self.movement.velocity += force;
+        force
+    }
+
     pub fn evaluate_vehicle_crash_into(
         &self,
         other: &Object,
@@ -5373,6 +5465,47 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn scrub_velocity_and_structure_stiffness_bounce() {
+        use crate::game_logic::host_partition_collision_physics_residual::{
+            clamp_structure_stiffness, parachute_bounce_out_distance,
+            PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL,
+        };
+        let mut tmpl = ThingTemplate::new("ScrubVic");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(71), Team::USA);
+        o.movement.velocity = glam::Vec3::new(10.0, 0.0, 0.0);
+        o.scrub_velocity_2d(5.0);
+        assert!((o.movement.velocity.x - 5.0).abs() < 1e-3);
+        assert!(o.movement.velocity.z.abs() < 1e-5);
+        o.scrub_velocity_2d(0.0);
+        assert_eq!(o.movement.velocity.x, 0.0);
+
+        o.movement.velocity = glam::Vec3::new(0.0, -8.0, 0.0);
+        o.scrub_velocity_vertical(-3.0);
+        assert!((o.movement.velocity.y - (-3.0)).abs() < 1e-5);
+
+        // Parachute bounce out.
+        o.set_position(glam::Vec3::new(0.0, 5.0, 0.0));
+        o.movement.velocity = glam::Vec3::new(4.0, -1.0, 0.0);
+        o.apply_parachute_building_bounce_out(glam::Vec3::new(10.0, 5.0, 0.0), 20.0);
+        assert!(o.get_position().x < 0.0, "pushed away from building +X");
+        assert_eq!(o.movement.velocity.x, 0.0);
+        assert_eq!(o.movement.velocity.z, 0.0);
+        assert!((parachute_bounce_out_distance(20.0) - 2.0).abs() < 1e-6);
+
+        // Structure stiffness bounce.
+        o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+        o.movement.velocity = glam::Vec3::new(6.0, -2.0, 0.0);
+        let f = o.apply_structure_stiffness_bounce(
+            glam::Vec3::new(5.0, 2.0, 0.0),
+            PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL,
+            1.0,
+        );
+        assert!(f.x < 0.0, "push back -X force={f:?}");
+        assert!(o.movement.velocity.x < 0.0);
+        assert!((clamp_structure_stiffness(0.5) - 0.5).abs() < 1e-6);
+    }
     #[test]
     fn vehicle_crash_into_structure_residual() {
         use crate::game_logic::host_partition_collision_physics_residual::{
