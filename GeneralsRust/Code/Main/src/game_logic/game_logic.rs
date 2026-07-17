@@ -18610,29 +18610,47 @@ impl GameLogic {
                     .map(|bd| bd.damage_percent_to_units)
                     .unwrap_or(0.0);
 
-                for (i, contained_id) in obj.contained_units().into_iter().enumerate() {
-                    if let Some(unit) = self.objects.get_mut(&contained_id) {
-                        // Apply damage before ejection if configured.
-                        if damage_pct > 0.0 {
-                            let dmg = unit.max_health * damage_pct;
-                            let destroyed = unit.take_damage(dmg);
-                            if destroyed {
-                                unit.status.destroyed = true;
-                                self.mark_object_for_destruction(contained_id, event.killer);
-                                continue;
-                            }
-                        }
+                // C++ ParachuteContain::onDie: airborne chute → FreeFallDamage riders.
+                let is_america_parachute = obj.template_name.eq_ignore_ascii_case(
+                    crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME,
+                );
+                let chute_airborne = is_america_parachute
+                    && crate::game_logic::host_usa_pilot::should_apply_parachute_free_fall_damage(
+                        obj.is_parachuting() || is_america_parachute,
+                        eject_origin.y,
+                    );
 
-                        let angle = (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
-                            + i as f32 * 0.73;
-                        let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
-                        unit.stop_moving();
-                        unit.set_position(eject_origin + offset);
-                        unit.set_target(None);
-                        unit.contained_by = None;
-                        unit.ai_state = AIState::Idle;
-                        unit.status.moving = false;
-                        unit.status.attacking = false;
+                if chute_airborne {
+                    let riders = obj.contained_units();
+                    for rid in riders {
+                        let _ = self.apply_rider_free_fall_damage(rid, eject_origin);
+                    }
+                    self.car_bomb.record_airborne_parachute_free_fall();
+                } else {
+                    for (i, contained_id) in obj.contained_units().into_iter().enumerate() {
+                        if let Some(unit) = self.objects.get_mut(&contained_id) {
+                            // Apply damage before ejection if configured.
+                            if damage_pct > 0.0 {
+                                let dmg = unit.max_health * damage_pct;
+                                let destroyed = unit.take_damage(dmg);
+                                if destroyed {
+                                    unit.status.destroyed = true;
+                                    self.mark_object_for_destruction(contained_id, event.killer);
+                                    continue;
+                                }
+                            }
+
+                            let angle = (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
+                                + i as f32 * 0.73;
+                            let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
+                            unit.stop_moving();
+                            unit.set_position(eject_origin + offset);
+                            unit.set_target(None);
+                            unit.contained_by = None;
+                            unit.ai_state = AIState::Idle;
+                            unit.status.moving = false;
+                            unit.status.attacking = false;
+                        }
                     }
                 }
 
@@ -31289,40 +31307,118 @@ impl GameLogic {
     /// leaves the rider freefalling (chute closed). Fail-closed: not full
     /// physics fling / DEATH_SPLATTED SlowDeath matrix.
     ///
-    /// Returns true when residual applied.
-    pub fn destroy_eject_parachute_midair(&mut self, pilot_id: ObjectId) -> bool {
+    /// `id` may be:
+    /// - a parachuting pilot/rider (legacy host residual path), or
+    /// - an AmericaParachute container (C++ onDie on the chute Object).
+    ///
+    /// Returns true when residual applied to at least one rider/pilot.
+    pub fn destroy_eject_parachute_midair(&mut self, id: ObjectId) -> bool {
+        use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
-            free_fall_damage_amount, should_apply_parachute_free_fall_damage,
+            free_fall_damage_amount, should_apply_parachute_free_fall_damage, HostDeathType,
             PILOT_FREE_FALL_DAMAGE_AUDIO,
         };
 
-        let Some(pilot) = self.objects.get(&pilot_id) else {
+        let Some(obj) = self.objects.get(&id) else {
             return false;
         };
-        if !should_apply_parachute_free_fall_damage(pilot.is_parachuting(), pilot.get_position().y)
-        {
+        let is_chute = obj
+            .template_name
+            .eq_ignore_ascii_case(HIJACKER_PARACHUTE_NAME);
+        let height = obj.get_position().y;
+        let chute_parachuting = obj.is_parachuting() || is_chute;
+        if !should_apply_parachute_free_fall_damage(chute_parachuting, height) {
             return false;
         }
-        let max_hp = pilot.health.maximum.max(pilot.max_health);
-        let dmg = free_fall_damage_amount(max_hp);
-        let pos = pilot.get_position();
 
-        let destroyed = if let Some(p) = self.objects.get_mut(&pilot_id) {
+        // Container path: removeAllContained + FreeFallDamage each rider.
+        if is_chute {
+            let riders = obj.contained_units();
+            let chute_pos = obj.get_position();
+            let mut any = false;
+            for rid in riders {
+                // Exit contain residual.
+                if let Some(chute) = self.objects.get_mut(&id) {
+                    let _ = chute.exit_transport(rid);
+                }
+                let applied = self.apply_rider_free_fall_damage(rid, chute_pos);
+                any |= applied;
+            }
+            // Kill chute residual (if not already dying).
+            if let Some(chute) = self.objects.get_mut(&id) {
+                chute.clear_eject_parachuting();
+                if chute.is_alive() {
+                    chute.health.current = 0.0;
+                    chute.status.destroyed = true;
+                    chute.status.death_type = HostDeathType::Normal;
+                }
+            }
+            if any {
+                self.car_bomb.record_airborne_parachute_free_fall();
+            }
+            return any;
+        }
+
+        // Legacy pilot/rider path (no separate chute Object).
+        self.apply_rider_free_fall_damage(id, obj.get_position())
+    }
+
+    /// Apply FreeFallDamagePercent residual to one rider and leave freefalling.
+    fn apply_rider_free_fall_damage(&mut self, rider_id: ObjectId, eject_pos: glam::Vec3) -> bool {
+        use crate::game_logic::host_usa_pilot::{
+            free_fall_damage_amount, should_apply_parachute_free_fall_damage, HostDeathType,
+            PILOT_FREE_FALL_DAMAGE_AUDIO,
+        };
+
+        let Some(rider) = self.objects.get(&rider_id) else {
+            return false;
+        };
+        // Rider may still be parachuting from chute; height from eject pos.
+        let height = eject_pos.y.max(rider.get_position().y);
+        if !should_apply_parachute_free_fall_damage(true, height) {
+            return false;
+        }
+        let max_hp = rider.health.maximum.max(rider.max_health);
+        let dmg = free_fall_damage_amount(max_hp);
+
+        let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
+            r.contained_by = None;
+            r.ai_state = AIState::Idle;
+            r.set_position(eject_pos);
             // Chute destroyed → freefall residual (chute closed, still parachuting sink).
-            p.status.parachute_open = false;
-            p.take_damage(dmg)
+            r.status.parachute_open = false;
+            r.status.parachuting = true;
+            r.status.airborne_target = true;
+            r.status.masked = false;
+            r.status.unselectable = false;
+            r.status.no_collisions = false;
+            // DAMAGE_FALLING / DEATH_SPLATTED residual if this kill finishes them.
+            let killed = r.take_damage_from_typed_death(
+                dmg,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+                HostDeathType::Splatted,
+            );
+            // Ensure freefall continues even if take_damage cleared parachuting on death.
+            if !killed {
+                r.status.parachuting = true;
+                r.status.parachute_open = false;
+                r.status.airborne_target = true;
+            }
+            killed
         } else {
             return false;
         };
+
         self.usa_pilot.record_free_fall_damage();
         self.queue_audio_event(
             AudioEventRequest::new(PILOT_FREE_FALL_DAMAGE_AUDIO)
-                .with_object(pilot_id)
-                .with_position(pos)
+                .with_object(rider_id)
+                .with_position(eject_pos)
                 .with_priority(160),
         );
         if destroyed {
-            self.mark_object_for_destruction(pilot_id, None);
+            self.mark_object_for_destruction(rider_id, None);
         }
         true
     }
@@ -75855,6 +75951,80 @@ mod tests {
             "airborne PutInContainer honesty"
         );
         assert!(logic.usa_pilot_residual().air_ejections >= 1);
+    }
+
+    #[test]
+    fn america_parachute_midair_death_free_fall_damages_rider() {
+        use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
+        use crate::game_logic::host_usa_pilot::{
+            free_fall_damage_amount, significantly_above_terrain_threshold,
+        };
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut ht = ThingTemplate::new("GLAInfantryHijacker");
+        ht.add_kind_of(KindOf::Infantry);
+        ht.set_health(100.0);
+        let hid = ObjectId(5541);
+        logic.objects.insert(hid, {
+            let mut o = Object::new(ht, hid, Team::GLA);
+            o
+        });
+        // Ensure chute template.
+        if !logic.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
+            let mut ct = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
+            ct.add_kind_of(KindOf::Vehicle).set_health(1.0);
+            logic
+                .templates
+                .insert(HIJACKER_PARACHUTE_NAME.to_string(), ct);
+        }
+        let thr = significantly_above_terrain_threshold();
+        let high = thr + 80.0;
+        let chute_id = logic
+            .create_object(
+                HIJACKER_PARACHUTE_NAME,
+                Team::GLA,
+                glam::Vec3::new(0.0, high, 0.0),
+            )
+            .expect("chute");
+        {
+            let c = logic.objects.get_mut(&chute_id).unwrap();
+            c.max_transport = 1;
+            let _ = c.enter_transport(hid);
+            c.apply_eject_parachuting();
+            c.status.parachute_open = true;
+        }
+        {
+            let h = logic.objects.get_mut(&hid).unwrap();
+            h.contained_by = Some(chute_id);
+            h.apply_eject_parachuting();
+            h.status.parachute_open = true;
+            h.set_position(glam::Vec3::new(0.0, high, 0.0));
+            h.health.current = h.health.maximum;
+        }
+        let hp_before = logic.objects[&hid].health.current;
+        let max_hp = logic.objects[&hid].health.maximum;
+
+        assert!(
+            logic.destroy_eject_parachute_midair(chute_id),
+            "chute mid-air death must FreeFallDamage rider"
+        );
+        assert!(logic.honesty_pilot_free_fall_damage_ok());
+        let h = &logic.objects[&hid];
+        assert!(h.contained_by.is_none(), "removeAllContained on chute die");
+        assert!(!h.is_parachute_open(), "chute closed residual");
+        assert!(h.is_parachuting() || !h.is_alive(), "freefall residual");
+        let expected = free_fall_damage_amount(max_hp);
+        assert!(
+            (hp_before - h.health.current - expected).abs() < 0.1 || !h.is_alive(),
+            "FreeFallDamagePercent residual dmg {}, hp {} → {}",
+            expected,
+            hp_before,
+            h.health.current
+        );
+        assert!(
+            logic.car_bomb.honesty_airborne_parachute_free_fall_ok(),
+            "container FreeFallDamage honesty"
+        );
     }
 
     #[test]
