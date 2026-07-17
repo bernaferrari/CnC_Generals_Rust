@@ -885,6 +885,12 @@ pub enum KindOf {
     CannotRetaliate,
     /// C++ KINDOF_DRONE — drones never retaliate.
     Drone,
+    /// C++ KINDOF_SALVAGER — GLA salvage crate pickers.
+    Salvager,
+    /// C++ KINDOF_WEAPON_SALVAGER — can gain weapon crate upgrades.
+    WeaponSalvager,
+    /// C++ KINDOF_ARMOR_SALVAGER — can gain armor crate upgrades.
+    ArmorSalvager,
     /// C++ KINDOF_AIRCRAFT_PATH_AROUND — tall buildings aircraft path around.
     AircraftPathAround,
 }
