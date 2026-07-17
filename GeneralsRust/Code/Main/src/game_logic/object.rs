@@ -3010,6 +3010,27 @@ impl Object {
     /// C++ MODELCONDITION_ACTIVELY_CONSTRUCTING residual (dozer or factory).
 
     /// C++ BuildAssistant sell scaffold model residual (start of sell).
+    /// C++ TechBuildingBehavior MODELCONDITION_CAPTURED residual.
+    pub fn set_captured_model_condition(&mut self, captured: bool) {
+        use crate::game_logic::host_enum_table_residual::captured_model_bit;
+        let bit = captured_model_bit();
+        if bit == 0 {
+            return;
+        }
+        if captured {
+            self.model_condition_bits |= 1u128 << bit;
+        } else {
+            self.model_condition_bits &= !(1u128 << bit);
+        }
+        self.refresh_model_condition_bits();
+    }
+
+    pub fn has_captured_model_condition(&self) -> bool {
+        use crate::game_logic::host_enum_table_residual::captured_model_bit;
+        let bit = captured_model_bit();
+        bit != 0 && (self.model_condition_bits & (1u128 << bit)) != 0
+    }
+
     pub fn apply_sell_scaffold_model_conditions(&mut self) {
         use crate::game_logic::host_enum_table_residual::{
             actively_being_constructed_model_bit, construction_complete_model_bit,
