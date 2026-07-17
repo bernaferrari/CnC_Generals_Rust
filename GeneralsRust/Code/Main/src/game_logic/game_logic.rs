@@ -81492,6 +81492,28 @@ mod tests {
     }
 
     #[test]
+    fn infantry_capture_and_disguise_special_power_enum_residuals() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::RangerCaptureBuilding),
+            Some("SPECIAL_INFANTRY_CAPTURE_BUILDING")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::RedGuardCaptureBuilding),
+            Some("SPECIAL_INFANTRY_CAPTURE_BUILDING")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::RebelCaptureBuilding),
+            Some("SPECIAL_INFANTRY_CAPTURE_BUILDING")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::DisguiseAsVehiclePower),
+            Some("SPECIAL_DISGUISE_AS_VEHICLE")
+        );
+    }
+
+    #[test]
     fn hacker_lotus_microwave_special_power_enum_residuals() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
