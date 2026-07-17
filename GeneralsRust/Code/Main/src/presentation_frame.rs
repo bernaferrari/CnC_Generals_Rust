@@ -2615,14 +2615,14 @@ impl PresentationFrame {
             .unwrap_or_default();
         let _ = (&mut local_unlocked_sciences, &mut local_queued_upgrades);
 
-        // PublicTimer superweapon residual from player SharedSyncedTimer + sciences.
+        // PublicTimer superweapon residual from player SharedSyncedTimer + ownership.
         let mut superweapon_timers: Vec<PresentationSuperweaponTimer> = Vec::new();
         if let Some(p) = local {
             use crate::command_system::SpecialPowerType as P;
             use crate::game_logic::host_special_power_enum_residual::{
                 special_power_has_public_timer, special_power_public_timer_display_name,
                 special_power_public_timer_icon, special_power_reload_seconds,
-                special_power_required_science,
+                special_power_required_science, template_provides_public_timer_power,
             };
             const PUBLIC_POWERS: &[P] = &[
                 P::ParticleCannon,
@@ -2640,6 +2640,19 @@ impl PresentationFrame {
                 P::SuperweaponNeutronMissile,
                 P::BaikonurRocket,
             ];
+            // Living constructed structures owned by local team (C++ addSuperweapon residual).
+            let owned_sw_templates: Vec<String> = logic
+                .get_objects()
+                .values()
+                .filter(|o| {
+                    o.team == p.team
+                        && o.is_alive()
+                        && o.is_constructed()
+                        && (o.is_kind_of(crate::game_logic::KindOf::Structure)
+                            || o.is_kind_of(crate::game_logic::KindOf::FSSuperweapon))
+                })
+                .map(|o| o.template_name.clone())
+                .collect();
             let mut seen = std::collections::HashSet::new();
             for power in PUBLIC_POWERS {
                 if !special_power_has_public_timer(power) {
@@ -2649,15 +2662,29 @@ impl PresentationFrame {
                 if !seen.insert(template.clone()) {
                     continue;
                 }
-                let unlocked = match special_power_required_science(power) {
+                let science_ok = match special_power_required_science(power) {
                     Some(req) => p.has_unlocked_science(req),
-                    // Structure SWs (PUC/Nuke/Scud): unlocked when player owns any living
-                    // structure that can fire them residual — fail-closed approximate:
-                    // treat as unlocked once player has Rank1 + faction science.
-                    None => {
-                        p.has_unlocked_science("SCIENCE_Rank1") || !p.unlocked_sciences.is_empty()
-                    }
+                    None => true,
                 };
+                let structure_templates =
+                    crate::game_logic::host_special_power_enum_residual::special_power_public_timer_structure_templates(
+                        power,
+                    );
+                let structure_ok = if structure_templates.is_empty() {
+                    // Science-only PublicTimer (Carpet/Crate/Napalm/Terror/BMNuke):
+                    // unlocked by science residual alone.
+                    science_ok
+                } else {
+                    // Structure SWs: require living constructed building residual.
+                    owned_sw_templates
+                        .iter()
+                        .any(|t| template_provides_public_timer_power(power, t))
+                };
+                let unlocked = science_ok && structure_ok;
+                // Only list unlocked PublicTimer rows (C++ addSuperweapon when present).
+                if !unlocked {
+                    continue;
+                }
                 let reload = special_power_reload_seconds(power).unwrap_or(0.0).max(0.0);
                 let remaining = p
                     .shared_special_power_cooldowns
@@ -2665,9 +2692,7 @@ impl PresentationFrame {
                     .copied()
                     .unwrap_or(0.0)
                     .max(0.0);
-                // Prefer shared remaining; if zero but object aggregate cooling, skip
-                // (shared is authority for PublicTimer superweapons).
-                let ready = unlocked && remaining <= 0.0;
+                let ready = remaining <= 0.0;
                 superweapon_timers.push(PresentationSuperweaponTimer {
                     name: special_power_public_timer_display_name(power).to_string(),
                     template_name: template,
@@ -6463,35 +6488,52 @@ mod tests {
     #[test]
     fn presentation_freezes_public_timer_superweapons() {
         use crate::command_system::SpecialPowerType;
-        use crate::game_logic::{GameLogic, Player, Team};
+        use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
         let mut logic = GameLogic::new();
         let mut p = Player::new(0, Team::USA, "USA", true);
         p.apply_faction_intrinsic_sciences();
-        // Structure SW residual unlocked with Rank1.
         p.shared_special_power_cooldowns
             .insert(SpecialPowerType::ParticleCannon, 120.0);
-        p.shared_special_power_cooldowns
-            .insert(SpecialPowerType::NuclearMissile, 0.0);
         logic.add_player(p);
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        // Without SW structure: no PublicTimer PUC row residual.
+        let frame0 = PresentationFrame::build_from_logic(&logic, 0);
         assert!(
-            !frame.superweapon_timers.is_empty(),
-            "expected public timer residual rows"
+            frame0
+                .superweapon_timers
+                .iter()
+                .find(|t| t.name.contains("Particle"))
+                .is_none(),
+            "PUC timer requires structure residual"
         );
-        let puc = frame
+        // Build living PUC residual.
+        let mut puc = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
+        puc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .set_health(4000.0);
+        logic
+            .templates
+            .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), puc);
+        let id = logic
+            .create_object(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("puc");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let puc_t = frame
             .superweapon_timers
             .iter()
             .find(|t| t.name.contains("Particle"))
             .expect("PUC");
-        assert!(puc.unlocked);
-        assert!((puc.remaining - 120.0).abs() < 0.5);
-        assert!(!puc.ready);
-        let nuke = frame
-            .superweapon_timers
-            .iter()
-            .find(|t| t.name.contains("Nuclear"))
-            .expect("nuke");
-        assert!(nuke.ready);
+        assert!(puc_t.unlocked);
+        assert!((puc_t.remaining - 120.0).abs() < 0.5);
+        assert!(!puc_t.ready);
         // Apply to construction panel residual.
         let mut panel = crate::ui::construction_panel::ConstructionPanel::new(0, 0);
         frame.apply_superweapon_timers_to_panel(&mut panel);

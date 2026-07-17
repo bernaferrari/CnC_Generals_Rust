@@ -360,6 +360,51 @@ pub fn player_meets_special_power_science(
 ///
 /// These powers show on the InGameUI superweapon countdown list for the local player.
 /// Fail-closed: not full InGameUI font flash / multi-object SW map / script hide.
+
+/// Host structure template residual that provides a PublicTimer superweapon.
+///
+/// Used by presentation/InGameUI to unlock countdown rows when the local player
+/// owns a living constructed superweapon building (C++ addSuperweapon path).
+/// Fail-closed: not full multi-general template aliases / capture transfer matrix.
+pub fn special_power_public_timer_structure_templates(
+    power: &crate::command_system::SpecialPowerType,
+) -> &'static [&'static str] {
+    use crate::command_system::SpecialPowerType as P;
+    use crate::game_logic::host_superweapon_kindof::{
+        AMERICA_PARTICLE_CANNON_UPLINK, CHINA_NUCLEAR_MISSILE_LAUNCHER, GLA_SCUD_STORM,
+    };
+    match power {
+        P::ParticleCannon | P::SuperweaponParticleCannon | P::LaserCannon => &[
+            AMERICA_PARTICLE_CANNON_UPLINK,
+            "AmericaParticleUplinkCannon",
+            "SupW_AmericaParticleCannonUplink",
+            "Lazr_AmericaParticleCannonUplink",
+        ],
+        P::NuclearMissile
+        | P::NukeNeutronMissile
+        | P::SuperweaponNeutronMissile
+        | P::BaikonurRocket => &[
+            CHINA_NUCLEAR_MISSILE_LAUNCHER,
+            "Nuke_ChinaNuclearMissileLauncher",
+            "SupW_AmericaNuclearMissile",
+        ],
+        P::ScudStorm => &[GLA_SCUD_STORM, "Chem_GLAScudStorm"],
+        // Science-gated PublicTimer powers: no structure template residual.
+        _ => &[],
+    }
+}
+
+/// True when `template_name` matches a structure residual for this public timer power.
+pub fn template_provides_public_timer_power(
+    power: &crate::command_system::SpecialPowerType,
+    template_name: &str,
+) -> bool {
+    let t = template_name.to_ascii_lowercase();
+    special_power_public_timer_structure_templates(power)
+        .iter()
+        .any(|s| t == s.to_ascii_lowercase() || t.contains(&s.to_ascii_lowercase()))
+}
+
 pub fn special_power_has_public_timer(power: &crate::command_system::SpecialPowerType) -> bool {
     use crate::command_system::SpecialPowerType as P;
     matches!(
