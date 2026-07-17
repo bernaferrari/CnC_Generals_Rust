@@ -456,6 +456,20 @@ pub enum SpecialPowerType {
     /// (shares SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES enum).
     /// Host maps to secondary laser-lock attack residual.
     LaserGuidedHowitzer,
+    /// Demo Rebel timed charges residual (SPECIAL_TIMED_CHARGES / Reload 30000ms).
+    DemoRebelTimedCharges,
+    /// Demo Kell timed charges residual (SPECIAL_TIMED_CHARGES).
+    DemoKellTimedCharges,
+    /// Demo Kell sticky charges residual (SPECIAL_TIMED_CHARGES).
+    DemoKellStickyCharges,
+    /// Demo Kell remote charges residual (SPECIAL_REMOTE_CHARGES).
+    DemoKellRemoteCharges,
+    /// Battle Bus demo trap rollout residual (SPECIAL_TIMED_CHARGES / Reload 7500ms).
+    BattleBusDemoTrapRollout,
+    /// Colonel Burton timed charges residual (SPECIAL_TIMED_CHARGES).
+    BurtonTimedCharges,
+    /// Colonel Burton remote charges residual (SPECIAL_REMOTE_CHARGES).
+    BurtonRemoteCharges,
     Invalid,
 }
 
