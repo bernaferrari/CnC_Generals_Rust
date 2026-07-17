@@ -523,7 +523,7 @@ pub fn special_power_reload_seconds(
         | P::RebelCaptureBuilding
         | P::DisguiseAsVehiclePower => Some(0),
         P::SpySatellite => Some(60_000),
-        P::SpyDrone => Some(60_000),
+        P::SpyDrone => Some(crate::game_logic::host_spy_drone::SPY_DRONE_RELOAD_MS),
         P::RadarScan => Some(60_000),
         P::CleanupArea => Some(0),
         P::BattlePlanBombardment | P::BattlePlanHoldTheLine | P::BattlePlanSearchAndDestroy => {
