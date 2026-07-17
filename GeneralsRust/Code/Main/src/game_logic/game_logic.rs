@@ -20022,7 +20022,10 @@ impl GameLogic {
         self.players.values().find(|p| p.team == team)
     }
 
-    /// Combined object + SharedSyncedTimer residual ready gate.
+    /// Combined object + SharedSyncedTimer + RequiredScience residual ready gate.
+    ///
+    /// C++ order residual: object alive → science (`canUseSpecialPower`) →
+    /// sharedNSync / per-object cooldown.
     pub fn is_special_power_ready_for(
         &self,
         object_id: ObjectId,
@@ -20033,6 +20036,19 @@ impl GameLogic {
         };
         if !obj.is_alive() {
             return false;
+        }
+        // C++ SpecialPowerStore::canUseSpecialPower science residual.
+        if let Some(required) =
+            crate::game_logic::host_special_power_enum_residual::special_power_required_science(
+                power,
+            )
+        {
+            match self.get_player_by_team(obj.team) {
+                Some(player) if player.has_unlocked_science(required) => {}
+                Some(_) => return false,
+                // Fail-closed: science-gated powers need a controlling player residual.
+                None => return false,
+            }
         }
         if crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
             power,
@@ -81628,6 +81644,54 @@ mod tests {
     }
 
     #[test]
+    fn special_power_required_science_gates_shared_superweapons() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let cc1 = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc1");
+        // DaisyCutter requires SCIENCE_DaisyCutter.
+        assert!(
+            crate::game_logic::host_special_power_enum_residual::special_power_required_science(
+                &SpecialPowerType::DaisyCutter
+            ) == Some("SCIENCE_DaisyCutter")
+        );
+        assert!(!logic.is_special_power_ready_for(cc1, &SpecialPowerType::DaisyCutter));
+        // SpySatellite has no RequiredScience residual — ready without unlock.
+        assert!(
+            crate::game_logic::host_special_power_enum_residual::special_power_required_science(
+                &SpecialPowerType::SpySatellite
+            )
+            .is_none()
+        );
+        assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpySatellite));
+        // ParticleCannon structure SW: no science residual.
+        assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::ParticleCannon));
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+            p.unlock_science("SCIENCE_DaisyCutter");
+        }
+        assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::DaisyCutter));
+        // Unit ability residual: no science gate.
+        assert!(
+            crate::game_logic::host_special_power_enum_residual::special_power_required_science(
+                &SpecialPowerType::TankHunterTnt
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn shared_synced_special_power_timer_is_player_wide() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -81653,6 +81717,14 @@ mod tests {
                 glam::Vec3::new(100.0, 0.0, 0.0),
             )
             .expect("cc2");
+        // RequiredScience residual: A10 needs SCIENCE_A10ThunderboltMissileStrike1.
+        assert!(
+            !logic.is_special_power_ready_for(cc1, &SpecialPowerType::Airstrike),
+            "A10 blocked without science residual"
+        );
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+            assert!(p.unlock_science("SCIENCE_A10ThunderboltMissileStrike1"));
+        }
         assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::Airstrike));
         assert!(logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike));
         assert!(logic.consume_special_power_charge_for(cc1, &SpecialPowerType::Airstrike));

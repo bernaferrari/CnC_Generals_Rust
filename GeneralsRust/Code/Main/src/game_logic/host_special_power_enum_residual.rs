@@ -268,6 +268,94 @@ pub fn special_power_bit_name_index(name: &str) -> Option<usize> {
 /// `false` and keep per-object timers only.
 ///
 /// Fail-closed: not full SpecialPowerStore template ID binding / PublicTimer UI.
+
+/// C++ `SpecialPowerTemplate::m_requiredScience` residual (SpecialPower.ini).
+///
+/// `None` = SCIENCE_INVALID / no RequiredScience line (always science-ok).
+/// Tier-1 science name residual: higher tiers still satisfy via player unlock
+/// of that same key or a higher tier when callers unlock them explicitly.
+///
+/// Fail-closed: not full ScienceStore purchase graph / multi-template aliases.
+pub fn special_power_required_science(
+    power: &crate::command_system::SpecialPowerType,
+) -> Option<&'static str> {
+    use crate::command_system::SpecialPowerType as P;
+    match power {
+        P::DaisyCutter | P::FuelAirBomb | P::AirForceDaisyCutter => Some("SCIENCE_DaisyCutter"),
+        P::Airstrike => Some("SCIENCE_A10ThunderboltMissileStrike1"),
+        P::AirForceAirstrike => Some("AirF_SCIENCE_A10ThunderboltMissileStrike1"),
+        P::NapalmStrike => Some("SCIENCE_NapalmStrike"),
+        P::BlackMarketNuke => Some("SCIENCE_BlackMarketNuke"),
+        P::SpectreGunship => Some("SCIENCE_SpectreGunshipSolo"),
+        P::AirForceSpectreGunship => Some("SCIENCE_SpectreGunship1"),
+        // Public-timer carpet bomb has RequiredScience commented out in retail INI.
+        P::CarpetBomb => None,
+        P::AirForceCarpetBomb => Some("SCIENCE_AirF_CarpetBomb"),
+        P::EarlyChinaCarpetBomb => Some("Early_SCIENCE_ChinaCarpetBomb"),
+        P::NukeChinaCarpetBomb => Some("Nuke_SCIENCE_ChinaCarpetBomb"),
+        P::Artillery => Some("SCIENCE_ArtilleryBarrage1"),
+        P::ClusterMines => Some("SCIENCE_ClusterMines"),
+        P::NukeDrop => Some("Nuke_SCIENCE_NukeDrop"),
+        P::EmpPulse => Some("SCIENCE_EMPPulse"),
+        P::Paradrop => Some("SCIENCE_Paradrop1"),
+        P::InfantryParadrop => Some("Infa_SCIENCE_InfantryParadrop1"),
+        P::TankParadrop => Some("SCIENCE_TankParadrop1"),
+        P::Ambush => Some("SCIENCE_RebelAmbush1"),
+        P::TerrorCell => Some("SCIENCE_TerrorCell"),
+        P::LeafletDrop => Some("SCIENCE_LeafletDrop"),
+        P::EarlyLeafletDrop => Some("Early_SCIENCE_LeafletDrop"),
+        P::Frenzy => Some("SCIENCE_Frenzy1"),
+        P::EarlyFrenzy => Some("Early_SCIENCE_Frenzy1"),
+        P::EmergencyRepair => Some("SCIENCE_EmergencyRepair1"),
+        P::EarlyEmergencyRepair => Some("Early_SCIENCE_EmergencyRepair1"),
+        P::GpsScrambler => Some("SCIENCE_GPSScrambler"),
+        P::StealthGpsScrambler => Some("Slth_SCIENCE_GPSScrambler"),
+        P::CashHack => Some("SCIENCE_CashHack1"),
+        P::CrateDrop => Some("SCIENCE_CrateDrop"),
+        P::SneakAttack => Some("SCIENCE_SneakAttack"),
+        P::SpyDrone => Some("SCIENCE_SpyDrone"),
+        P::AnthraxBomb => Some("SCIENCE_AnthraxBomb"),
+        // Structure-built / no RequiredScience residual.
+        P::NuclearMissile
+        | P::BaikonurRocket
+        | P::NukeNeutronMissile
+        | P::SuperweaponNeutronMissile
+        | P::DetonateDirtyNuke
+        | P::ParticleCannon
+        | P::LaserCannon
+        | P::SuperweaponParticleCannon
+        | P::ScudStorm
+        | P::SpySatellite
+        | P::RadarScan
+        | P::CiaIntelligence
+        | P::CommunicationsDownload
+        | P::BattleshipBombardment
+        | P::CruiseMissile
+        | P::FireWall
+        | P::IonCannon => None,
+        // Unit special abilities: no player science gate residual.
+        _ => None,
+    }
+}
+
+/// True when player science residual allows firing this power.
+///
+/// C++ `SpecialPowerStore::canUseSpecialPower` science branch residual.
+pub fn player_meets_special_power_science(
+    unlocked_sciences: &std::collections::HashSet<String>,
+    power: &crate::command_system::SpecialPowerType,
+) -> bool {
+    let Some(required) = special_power_required_science(power) else {
+        return true;
+    };
+    // Normalize like Player::has_unlocked_upgrade residual (case/underscore).
+    let req = required.to_ascii_lowercase().replace('-', "_");
+    unlocked_sciences.iter().any(|s| {
+        let u = s.to_ascii_lowercase().replace('-', "_");
+        u == req || u.ends_with(&req) || req.ends_with(&u)
+    })
+}
+
 pub fn special_power_uses_shared_synced_timer(
     power: &crate::command_system::SpecialPowerType,
 ) -> bool {
