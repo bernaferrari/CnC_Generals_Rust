@@ -39871,6 +39871,11 @@ impl GameLogic {
 
     /// Queue a host residual GLA Rebel Ambush mission from DoSpecialPower.
     /// Returns mission id when the power maps to a supported residual kind.
+    /// Residual unit_count for a queued/completed host ambush mission.
+    pub fn ambush_mission_unit_count(&self, mission_id: u32) -> Option<u32> {
+        self.host_ambushes.get(mission_id).map(|m| m.unit_count)
+    }
+
     pub fn queue_ambush(
         &mut self,
         power: &crate::command_system::SpecialPowerType,
@@ -39895,13 +39900,25 @@ impl GameLogic {
             AMBUSH_RESIDUAL_TEMPLATE.to_string()
         };
 
-        let id = self.host_ambushes.queue(
+        // C++ SCIENCE_RebelAmbush1/2/3 residual payload size (4/8/16 Rebels).
+        let unit_count = {
+            use crate::game_logic::host_ambush::AmbushScienceTier;
+            let sciences: Vec<&str> = self
+                .players
+                .values()
+                .filter(|p| p.team == source_team)
+                .flat_map(|p| p.unlocked_sciences.iter().map(|s| s.as_str()))
+                .collect();
+            AmbushScienceTier::highest_from_sciences(sciences).rebel_count()
+        };
+        let id = self.host_ambushes.queue_with_unit_count(
             kind,
             source_object,
             source_team,
             target_position,
             frame,
             unit_template,
+            unit_count,
         );
 
         self.queue_audio_event(
@@ -81194,6 +81211,63 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn ambush_science_tier_selects_unit_count() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_ambush::{
+            AmbushScienceTier, GLA_AMBUSH1_UNIT_COUNT, GLA_AMBUSH3_UNIT_COUNT, SCIENCE_AMBUSH3,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        let mut palace = ThingTemplate::new("GLAPalace");
+        palace.add_kind_of(KindOf::Structure).set_health(3000.0);
+        logic.templates.insert("GLAPalace".into(), palace);
+        let mut rebel = ThingTemplate::new("GLAInfantryRebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel);
+
+        let src = logic
+            .create_object("GLAPalace", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("palace");
+
+        let id1 = logic
+            .queue_ambush(
+                &SpecialPowerType::Ambush,
+                src,
+                glam::Vec3::new(80.0, 0.0, 0.0),
+            )
+            .expect("q1");
+        assert_eq!(
+            logic.ambush_mission_unit_count(id1),
+            Some(GLA_AMBUSH1_UNIT_COUNT)
+        );
+
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert(SCIENCE_AMBUSH3.to_string());
+        let id3 = logic
+            .queue_ambush(
+                &SpecialPowerType::Ambush,
+                src,
+                glam::Vec3::new(160.0, 0.0, 0.0),
+            )
+            .expect("q3");
+        assert_eq!(
+            logic.ambush_mission_unit_count(id3),
+            Some(GLA_AMBUSH3_UNIT_COUNT)
+        );
+        assert_eq!(
+            AmbushScienceTier::highest_from_sciences([SCIENCE_AMBUSH3]).rebel_count(),
+            GLA_AMBUSH3_UNIT_COUNT
         );
     }
 
