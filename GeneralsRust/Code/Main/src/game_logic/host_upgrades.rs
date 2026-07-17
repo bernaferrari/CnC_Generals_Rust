@@ -73,6 +73,10 @@ pub const UPGRADE_GLA_TOXIN_SHELLS: &str = "Upgrade_GLAToxinShells";
 pub const UPGRADE_AMERICA_ADVANCED_TRAINING: &str = "Upgrade_AmericaAdvancedTraining";
 /// China Tactical Nuke MiG residual.
 pub const UPGRADE_CHINA_TACTICAL_NUKE_MIG: &str = "Upgrade_ChinaTacticalNukeMig";
+/// America Drone Armor residual.
+pub const UPGRADE_AMERICA_DRONE_ARMOR: &str = "Upgrade_AmericaDroneArmor";
+/// China Aircraft Armor residual.
+pub const UPGRADE_CHINA_AIRCRAFT_ARMOR: &str = "Upgrade_ChinaAircraftArmor";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -165,6 +169,10 @@ pub enum HostUpgradeKind {
     AdvancedTraining,
     /// China Tactical Nuke MiG residual.
     TacticalNukeMig,
+    /// America Drone Armor max-health residual.
+    DroneArmor,
+    /// China Aircraft Armor max-health residual.
+    AircraftArmor,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -235,6 +243,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::AdvancedTraining
         } else if n.contains("tacticalnukemig") || n.contains("nukemig") {
             HostUpgradeKind::TacticalNukeMig
+        } else if n.contains("dronearmor") {
+            HostUpgradeKind::DroneArmor
+        } else if n.contains("aircraftarmor") {
+            HostUpgradeKind::AircraftArmor
         } else {
             HostUpgradeKind::Other
         }
@@ -272,6 +284,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ToxinShells => "ToxinShells",
             HostUpgradeKind::AdvancedTraining => "AdvancedTraining",
             HostUpgradeKind::TacticalNukeMig => "TacticalNukeMig",
+            HostUpgradeKind::DroneArmor => "DroneArmor",
+            HostUpgradeKind::AircraftArmor => "AircraftArmor",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -313,6 +327,8 @@ impl HostUpgradeKind {
             | HostUpgradeKind::ToxinShells
             | HostUpgradeKind::AdvancedTraining
             | HostUpgradeKind::TacticalNukeMig
+            | HostUpgradeKind::DroneArmor
+            | HostUpgradeKind::AircraftArmor
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -353,6 +369,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ToxinShells => 1000,
             HostUpgradeKind::AdvancedTraining => 1500,
             HostUpgradeKind::TacticalNukeMig => 2000,
+            HostUpgradeKind::DroneArmor => 500,
+            HostUpgradeKind::AircraftArmor => 1500,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -390,6 +408,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ToxinShells => 30.0,
             HostUpgradeKind::AdvancedTraining => 30.0,
             HostUpgradeKind::TacticalNukeMig => 60.0,
+            HostUpgradeKind::DroneArmor => 40.0,
+            HostUpgradeKind::AircraftArmor => 45.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -1023,6 +1043,18 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn drone_aircraft_armor_kinds_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaDroneArmor"),
+            HostUpgradeKind::DroneArmor
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaAircraftArmor"),
+            HostUpgradeKind::AircraftArmor
+        );
     }
 
     #[test]

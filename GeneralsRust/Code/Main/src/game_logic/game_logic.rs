@@ -15782,6 +15782,8 @@ impl GameLogic {
             HostUpgradeKind::TacticalNukeMig => {
                 self.apply_tactical_nuke_mig_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::DroneArmor => self.apply_drone_armor_to_team(team, upgrade_name),
+            HostUpgradeKind::AircraftArmor => self.apply_aircraft_armor_to_team(team, upgrade_name),
             HostUpgradeKind::Other => 0,
         };
 
@@ -15819,6 +15821,96 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_AmericaDroneArmor residual — +max health on slave drones.
+    fn apply_drone_armor_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_slave_drones::{
+            drone_armor_add_max_health, is_battle_drone_template, is_hellfire_drone_template,
+            is_scout_drone_template, SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR,
+        };
+
+        let mut n = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            let kind = if is_battle_drone_template(&obj.template_name) {
+                Some(SlaveDroneKind::Battle)
+            } else if is_hellfire_drone_template(&obj.template_name) {
+                Some(SlaveDroneKind::Hellfire)
+            } else if is_scout_drone_template(&obj.template_name) {
+                Some(SlaveDroneKind::Scout)
+            } else {
+                None
+            };
+            let Some(kind) = kind else {
+                continue;
+            };
+            if obj.has_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR) || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            let add = drone_armor_add_max_health(kind);
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR);
+            obj.applied_upgrades
+                .insert(UPGRADE_AMERICA_DRONE_ARMOR.to_string());
+            obj.max_health = (obj.max_health + add).max(1.0);
+            obj.health.maximum = (obj.health.maximum + add).max(1.0);
+            obj.health.current = (obj.health.current + add).min(obj.health.maximum);
+            n = n.saturating_add(1);
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_AMERICA_DRONE_ARMOR.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
+    }
+
+    /// C++ Upgrade_ChinaAircraftArmor residual — +40 max health on MiGs.
+    fn apply_aircraft_armor_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_mig::{
+            apply_mig_aircraft_armor_health, is_mig_template, UPGRADE_CHINA_AIRCRAFT_ARMOR,
+        };
+
+        let mut n = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_mig_template(&obj.template_name) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_CHINA_AIRCRAFT_ARMOR)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_CHINA_AIRCRAFT_ARMOR);
+            obj.applied_upgrades
+                .insert(UPGRADE_CHINA_AIRCRAFT_ARMOR.to_string());
+            let mut max_h = obj.max_health;
+            let mut cur = obj.health.current;
+            let mut maximum = obj.health.maximum;
+            apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
+            obj.max_health = max_h;
+            obj.health.current = cur;
+            obj.health.maximum = maximum;
+            n = n.saturating_add(1);
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_CHINA_AIRCRAFT_ARMOR.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
     }
 
     /// C++ Upgrade_AmericaAdvancedTraining residual — 2× XP gain player unlock.
@@ -80817,6 +80909,53 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_drone_and_aircraft_armor() {
+        use crate::game_logic::host_mig::{
+            MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH, UPGRADE_CHINA_AIRCRAFT_ARMOR,
+        };
+        use crate::game_logic::host_slave_drones::{
+            drone_armor_add_max_health, SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "China", true));
+
+        let mut battle = ThingTemplate::new("AmericaBattleDrone");
+        battle.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("AmericaBattleDrone".into(), battle);
+        let mut mig = ThingTemplate::new("ChinaJetMIG");
+        mig.add_kind_of(KindOf::Aircraft).set_health(160.0);
+        logic.templates.insert("ChinaJetMIG".into(), mig);
+
+        let did = logic
+            .create_object(
+                "AmericaBattleDrone",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("drone");
+        let before = logic.get_object(did).unwrap().max_health;
+        let n_d = logic.apply_drone_armor_to_team(Team::USA, UPGRADE_AMERICA_DRONE_ARMOR);
+        assert_eq!(n_d, 1);
+        let after = logic.get_object(did).unwrap().max_health;
+        assert!((after - before - drone_armor_add_max_health(SlaveDroneKind::Battle)).abs() < 0.1);
+
+        let mid = logic
+            .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("mig");
+        let mb = logic.get_object(mid).unwrap().max_health;
+        let n_a = logic.apply_aircraft_armor_to_team(Team::China, UPGRADE_CHINA_AIRCRAFT_ARMOR);
+        assert_eq!(n_a, 1);
+        let ma = logic.get_object(mid).unwrap().max_health;
+        assert!((ma - mb - MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).abs() < 0.1);
     }
 
     #[test]

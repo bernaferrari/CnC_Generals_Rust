@@ -3816,6 +3816,8 @@ impl XferData for HostUpgradeKind {
             HostUpgradeKind::ToxinShells => 28,
             HostUpgradeKind::AdvancedTraining => 29,
             HostUpgradeKind::TacticalNukeMig => 30,
+            HostUpgradeKind::DroneArmor => 31,
+            HostUpgradeKind::AircraftArmor => 32,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -3850,6 +3852,8 @@ impl XferData for HostUpgradeKind {
             28 => HostUpgradeKind::ToxinShells,
             29 => HostUpgradeKind::AdvancedTraining,
             30 => HostUpgradeKind::TacticalNukeMig,
+            31 => HostUpgradeKind::DroneArmor,
+            32 => HostUpgradeKind::AircraftArmor,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostUpgradeKind discriminant: {other}"
