@@ -5046,6 +5046,7 @@ impl SnapshotBuilder {
                 rank_level: 1,
                 skill_points: 0,
                 science_purchase_points: 0,
+                shared_special_power_cooldowns: std::collections::HashMap::new(),
             });
         }
 
