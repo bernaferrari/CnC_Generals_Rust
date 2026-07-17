@@ -147,6 +147,8 @@ pub fn host_command_power_cpp_enum_name(
         HostCommandSpecialPowerType::EarlyEmergencyRepair => Some("EARLY_SPECIAL_REPAIR_VEHICLES"),
         HostCommandSpecialPowerType::NapalmStrike => Some("SPECIAL_NAPALM_STRIKE"),
         HostCommandSpecialPowerType::NuclearMissile => Some("SPECIAL_NEUTRON_MISSILE"),
+        HostCommandSpecialPowerType::BlackMarketNuke => Some("SPECIAL_BLACK_MARKET_NUKE"),
+        HostCommandSpecialPowerType::DetonateDirtyNuke => Some("SPECIAL_DETONATE_DIRTY_NUKE"),
         HostCommandSpecialPowerType::Paradrop => Some("SPECIAL_PARADROP_AMERICA"),
         HostCommandSpecialPowerType::Ambush => Some("SPECIAL_AMBUSH"),
         HostCommandSpecialPowerType::ParticleCannon => Some("SPECIAL_PARTICLE_UPLINK_CANNON"),

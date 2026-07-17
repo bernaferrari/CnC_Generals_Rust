@@ -2451,6 +2451,44 @@ pub fn honesty_airf_carpet_bomb_residual_pack_ok() -> bool {
         ) == Some(HostSuperweaponKind::CarpetBomb)
 }
 
+/// Retail SuperweaponBlackMarketNuke ReloadTime residual (msec).
+pub const BLACK_MARKET_NUKE_RELOAD_MS: u32 = 600_000;
+/// BlackMarketNuke ReloadTime frames residual.
+pub const BLACK_MARKET_NUKE_RELOAD_FRAMES: u32 = 18_000;
+/// Retail RequiredScience residual.
+pub const BLACK_MARKET_NUKE_REQUIRED_SCIENCE: &str = "SCIENCE_BlackMarketNuke";
+/// Retail Enum residual.
+pub const BLACK_MARKET_NUKE_SPECIAL_ENUM: &str = "SPECIAL_BLACK_MARKET_NUKE";
+/// Retail SuperweaponBlackMarketNuke name residual.
+pub const BLACK_MARKET_NUKE_SPECIAL_POWER: &str = "SuperweaponBlackMarketNuke";
+/// Retail SuperweaponDetonateDirtyNuke ReloadTime residual (msec).
+pub const DIRTY_NUKE_RELOAD_MS: u32 = 30_000;
+/// DirtyNuke ReloadTime frames residual.
+pub const DIRTY_NUKE_RELOAD_FRAMES: u32 = 900;
+/// Retail Enum residual.
+pub const DIRTY_NUKE_SPECIAL_ENUM: &str = "SPECIAL_DETONATE_DIRTY_NUKE";
+/// Retail SuperweaponDetonateDirtyNuke name residual.
+pub const DIRTY_NUKE_SPECIAL_POWER: &str = "SuperweaponDetonateDirtyNuke";
+
+/// Wave residual honesty: BlackMarketNuke + DirtyNuke map onto NuclearMissile host path.
+pub fn honesty_black_market_and_dirty_nuke_residual_pack_ok() -> bool {
+    BLACK_MARKET_NUKE_RELOAD_MS == 600_000
+        && BLACK_MARKET_NUKE_RELOAD_FRAMES == 18_000
+        && BLACK_MARKET_NUKE_REQUIRED_SCIENCE == "SCIENCE_BlackMarketNuke"
+        && BLACK_MARKET_NUKE_SPECIAL_ENUM == "SPECIAL_BLACK_MARKET_NUKE"
+        && BLACK_MARKET_NUKE_SPECIAL_POWER == "SuperweaponBlackMarketNuke"
+        && DIRTY_NUKE_RELOAD_MS == 30_000
+        && DIRTY_NUKE_RELOAD_FRAMES == 900
+        && DIRTY_NUKE_SPECIAL_ENUM == "SPECIAL_DETONATE_DIRTY_NUKE"
+        && DIRTY_NUKE_SPECIAL_POWER == "SuperweaponDetonateDirtyNuke"
+        && HostSuperweaponKind::from_command_power(
+            &crate::command_system::SpecialPowerType::BlackMarketNuke,
+        ) == Some(HostSuperweaponKind::NuclearMissile)
+        && HostSuperweaponKind::from_command_power(
+            &crate::command_system::SpecialPowerType::DetonateDirtyNuke,
+        ) == Some(HostSuperweaponKind::NuclearMissile)
+}
+
 pub fn honesty_early_china_carpet_bomb_residual_pack_ok() -> bool {
     EARLY_CHINA_CARPET_REQUIRED_SCIENCE == "Early_SCIENCE_ChinaCarpetBomb"
         && EARLY_CHINA_CARPET_SPECIAL_ENUM == "EARLY_SPECIAL_CHINA_CARPET_BOMB"
@@ -4771,7 +4809,9 @@ impl HostSuperweaponKind {
             SpecialPowerType::Airstrike => Some(HostSuperweaponKind::A10Strike),
             SpecialPowerType::ScudStorm => Some(HostSuperweaponKind::ScudStorm),
             SpecialPowerType::ParticleCannon => Some(HostSuperweaponKind::ParticleCannon),
-            SpecialPowerType::NuclearMissile => Some(HostSuperweaponKind::NuclearMissile),
+            SpecialPowerType::NuclearMissile
+            | SpecialPowerType::BlackMarketNuke
+            | SpecialPowerType::DetonateDirtyNuke => Some(HostSuperweaponKind::NuclearMissile),
             SpecialPowerType::AnthraxBomb => Some(HostSuperweaponKind::AnthraxBomb),
             SpecialPowerType::SpectreGunship => Some(HostSuperweaponKind::SpectreGunship),
             SpecialPowerType::CarpetBomb
