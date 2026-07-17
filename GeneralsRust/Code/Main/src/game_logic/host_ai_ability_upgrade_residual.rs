@@ -99,6 +99,7 @@ pub fn host_ai_state_cpp_enum_name(state: &AIState) -> &'static str {
         AIState::Constructing => "AI_BUSY",
         AIState::Repairing => "AI_BUSY",
         AIState::GuardingArea | AIState::GuardingObject => "AI_GUARD",
+        AIState::GuardRetaliating => "AI_GUARD_RETALIATE",
         AIState::Patrolling => "AI_HUNT",
         AIState::Docked | AIState::Docking => "AI_DOCK",
         AIState::Garrisoned => "AI_ENTER",

@@ -228,6 +228,7 @@ impl GameWorldShadow {
             A::Repairing => 8,
             A::GuardingArea => 9,
             A::GuardingObject => 10,
+            A::GuardRetaliating => 20,
             A::Patrolling => 11,
             A::Docked => 12,
             A::Garrisoned => 13,
