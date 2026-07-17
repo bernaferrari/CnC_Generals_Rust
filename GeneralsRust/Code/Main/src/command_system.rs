@@ -268,7 +268,7 @@ pub enum DropTarget {
 }
 
 /// Special power types
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SpecialPowerType {
     Airstrike,
     /// China Artillery Barrage residual (SPECIAL_ARTILLERY_BARRAGE /
