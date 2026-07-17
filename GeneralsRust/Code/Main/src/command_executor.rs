@@ -998,7 +998,32 @@ impl<'a> CommandExecutor<'a> {
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             // Missile Defender laser guided needs an object target (lock secondary + attack).
-            if *power_type == SpecialPowerType::TankHunterTnt {
+            // Timed/remote charge specials (Burton / Demo / BattleBus) → plant residual paths.
+            if matches!(
+                *power_type,
+                SpecialPowerType::DemoRebelTimedCharges
+                    | SpecialPowerType::DemoKellTimedCharges
+                    | SpecialPowerType::DemoKellStickyCharges
+                    | SpecialPowerType::BattleBusDemoTrapRollout
+                    | SpecialPowerType::BurtonTimedCharges
+            ) {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !self.queue_special_timed_charge(unit_id, *tid, power_type) {
+                    continue;
+                }
+            } else if matches!(
+                *power_type,
+                SpecialPowerType::DemoKellRemoteCharges | SpecialPowerType::BurtonRemoteCharges
+            ) {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !self.queue_special_remote_charge(unit_id, *tid) {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::TankHunterTnt {
                 let PowerTarget::Object(tid) = target else {
                     continue;
                 };
@@ -2955,6 +2980,80 @@ impl<'a> CommandExecutor<'a> {
     /// C++ residual: any ground vehicle target (ally/enemy/neutral) except
     /// bomb trucks / trains / aircraft. Completes without approach walk
     /// (StartAbilityRange = 1e6). Fail-closed: not full drawable model swap.
+    /// Timed-charge special residual (Burton/Demo/BattleBus): walk + plant timed charge.
+    fn queue_special_timed_charge(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+        power_type: &SpecialPowerType,
+    ) -> bool {
+        use crate::game_logic::{AIState, PendingSpecialAbility};
+
+        let Some(unit) = self.game_logic.get_object(unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() || !unit.can_move() {
+            return false;
+        }
+        let Some(target) = self.game_logic.get_object(target_id) else {
+            return false;
+        };
+        if !target.is_alive() {
+            return false;
+        }
+        let target_team = target.team;
+        if target_team == unit.team || target_team == crate::game_logic::Team::Neutral {
+            // BattleBus trap rollout may target ground near self; allow structure/vehicle enemies only residual.
+            if !matches!(*power_type, SpecialPowerType::BattleBusDemoTrapRollout) {
+                return false;
+            }
+        }
+        let target_pos = target.get_position();
+        if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+            u.stop_moving();
+            u.status.attacking = false;
+            u.target = Some(target_id);
+            u.target_location = None;
+        }
+        let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
+        self.game_logic.queue_pending_special_ability(
+            unit_id,
+            PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+        );
+        true
+    }
+
+    /// Remote-charge special residual (Burton/Demo Kell): walk + plant remote charge.
+    fn queue_special_remote_charge(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+        use crate::game_logic::{AIState, PendingSpecialAbility};
+
+        let Some(unit) = self.game_logic.get_object(unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() || !unit.can_move() {
+            return false;
+        }
+        let Some(target) = self.game_logic.get_object(target_id) else {
+            return false;
+        };
+        if !target.is_alive() {
+            return false;
+        }
+        let target_pos = target.get_position();
+        if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+            u.stop_moving();
+            u.status.attacking = false;
+            u.target = Some(target_id);
+            u.target_location = None;
+        }
+        let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
+        self.game_logic.queue_pending_special_ability(
+            unit_id,
+            PendingSpecialAbility::PlantRemoteDemoCharge { target_id },
+        );
+        true
+    }
+
     /// Tank Hunter TNT special residual: path to target and plant timed sticky charge.
     fn queue_tank_hunter_tnt(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
         use crate::game_logic::host_tank_hunter::{
