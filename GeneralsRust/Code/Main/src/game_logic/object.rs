@@ -2,7 +2,7 @@ use super::*;
 use crate::command_system::SpecialPowerType;
 use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// C++ TurretAI state residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -712,9 +712,16 @@ pub struct Object {
     pub applied_upgrades: HashSet<String>,
 
     /// Special power availability/cooldown state.
+    ///
+    /// Legacy aggregate residual (HUD/presentation): ready when **all** tracked
+    /// per-power cooldowns are clear, remaining = max remaining among them.
     pub special_power_ready: bool,
     pub special_power_cooldown: f32,
     pub special_power_cooldown_remaining: f32,
+    /// Per-power residual cooldown remaining (seconds). Independent timers so
+    /// A10 vs SpySatellite do not share one charge (C++ SpecialPowerModule style).
+    #[serde(default)]
+    pub special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
 
     /// Host residual mine / demo-trap / timed demo-charge state.
     /// `None` for ordinary units/structures. Fail-closed: not full C++
@@ -1384,6 +1391,7 @@ impl Object {
             special_power_ready: true,
             special_power_cooldown,
             special_power_cooldown_remaining: 0.0,
+            special_power_cooldowns: HashMap::new(),
             mine_data: None,
             is_detector: false,
             detection_range: 0.0,
@@ -1668,6 +1676,7 @@ impl Object {
             special_power_ready: true,
             special_power_cooldown: 10.0,
             special_power_cooldown_remaining: 0.0,
+            special_power_cooldowns: HashMap::new(),
             mine_data: None,
             is_detector: false,
             detection_range: 0.0,
@@ -7065,23 +7074,56 @@ impl Object {
     }
 
     /// Check whether this object can fire the requested special power.
-    pub fn is_special_power_ready(&self, _power: &SpecialPowerType) -> bool {
-        self.is_alive() && self.special_power_ready && self.special_power_cooldown_remaining <= 0.0
+    ///
+    /// Per-power residual: only this power's timer must be clear (other SWs may
+    /// still be reloading). Aggregate `special_power_ready` is refreshed for HUD.
+    pub fn is_special_power_ready(&self, power: &SpecialPowerType) -> bool {
+        if !self.is_alive() {
+            return false;
+        }
+        let remaining = self
+            .special_power_cooldowns
+            .get(power)
+            .copied()
+            .unwrap_or(0.0);
+        remaining <= 0.0
     }
 
-    /// Consume a charge for the special power and start cooldown.
+    /// Consume a charge for the special power and start per-power cooldown.
     pub fn consume_special_power_charge(&mut self, power: &SpecialPowerType) {
         if !self.is_special_power_ready(power) {
             return;
         }
-        self.special_power_ready = false;
         // Prefer retail SpecialPower ReloadTime residual when known; else template cooldown.
         let cd = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
             power,
         )
-        .unwrap_or(self.special_power_cooldown);
-        self.special_power_cooldown_remaining = cd;
+        .unwrap_or(self.special_power_cooldown)
+        .max(0.0);
+        if cd > 0.0 {
+            self.special_power_cooldowns.insert(power.clone(), cd);
+        } else {
+            self.special_power_cooldowns.remove(power);
+        }
+        self.refresh_special_power_aggregate_cooldown();
         self.ai_state = AIState::Idle;
+    }
+
+    /// Refresh legacy aggregate ready/remaining from per-power residual timers.
+    pub fn refresh_special_power_aggregate_cooldown(&mut self) {
+        let mut max_rem = 0.0_f32;
+        self.special_power_cooldowns.retain(|_, r| {
+            if *r > max_rem {
+                max_rem = *r;
+            }
+            *r > 0.0
+        });
+        // Also consider legacy single timer if still non-zero (older save residual).
+        if self.special_power_cooldown_remaining > max_rem {
+            max_rem = self.special_power_cooldown_remaining;
+        }
+        self.special_power_cooldown_remaining = max_rem;
+        self.special_power_ready = max_rem <= 0.0;
     }
 
     pub fn apply_upgrade_tag(&mut self, upgrade: &str) {
@@ -7638,18 +7680,20 @@ impl Object {
             }
         }
 
-        let mut became_ready = false;
+        let was_ready = self.special_power_ready;
+        // Tick per-power residual timers independently.
+        if dt > 0.0 && !self.special_power_cooldowns.is_empty() {
+            for rem in self.special_power_cooldowns.values_mut() {
+                *rem = (*rem - dt).max(0.0);
+            }
+        }
+        // Legacy single-timer residual (older paths / saves).
         if self.special_power_cooldown_remaining > 0.0 {
             self.special_power_cooldown_remaining =
                 (self.special_power_cooldown_remaining - dt).max(0.0);
-            if self.special_power_cooldown_remaining <= 0.0 {
-                // Transition into ready (was cooling down).
-                if !self.special_power_ready {
-                    became_ready = true;
-                }
-                self.special_power_ready = true;
-            }
         }
+        self.refresh_special_power_aggregate_cooldown();
+        let became_ready = !was_ready && self.special_power_ready;
         became_ready
     }
 

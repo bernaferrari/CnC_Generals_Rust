@@ -81492,6 +81492,51 @@ mod tests {
     }
 
     #[test]
+    fn special_power_cooldowns_are_independent_per_power() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        cc.special_power_cooldown = 10.0;
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let o = logic.get_object_mut(id).unwrap();
+        assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
+        assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
+        o.consume_special_power_charge(&SpecialPowerType::Airstrike);
+        // A10 reloading must not block SpySatellite residual.
+        assert!(!o.is_special_power_ready(&SpecialPowerType::Airstrike));
+        assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
+        o.consume_special_power_charge(&SpecialPowerType::SpySatellite);
+        assert!(!o.is_special_power_ready(&SpecialPowerType::SpySatellite));
+        // Tick 60s: spy sat (60s) clears, A10 (240s) remains.
+        let _ = o.tick_timers(60.0);
+        assert!(
+            o.is_special_power_ready(&SpecialPowerType::SpySatellite),
+            "spy remaining should clear at 60s"
+        );
+        assert!(
+            !o.is_special_power_ready(&SpecialPowerType::Airstrike),
+            "a10 should still be on 240s residual"
+        );
+        let a10_rem = o
+            .special_power_cooldowns
+            .get(&SpecialPowerType::Airstrike)
+            .copied()
+            .unwrap_or(0.0);
+        assert!((a10_rem - 180.0).abs() < 0.5, "a10_rem={a10_rem}");
+    }
+
+    #[test]
     fn special_power_reload_seconds_uses_retail_residual_table() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds;
