@@ -385,9 +385,28 @@ pub fn legal_build_code_from_checks_ex_residual(
     )
 }
 
-/// Full residual LegalBuildCode mapper (bounds / objects / supplies / map edge).
+/// Full residual LegalBuildCode mapper (bounds / shroud / objects / supplies / map edge).
+///
+/// C++ checks SHROUD_REVEALED first after off-map (BuildAssistant::isLocationLegalToBuild).
 pub fn legal_build_code_from_checks_full_residual(
     in_world_bounds: bool,
+    objects_in_the_way: bool,
+    too_close_to_supplies: bool,
+    too_close_to_map_edge: bool,
+) -> u32 {
+    legal_build_code_from_checks_full_shroud_residual(
+        in_world_bounds,
+        false,
+        objects_in_the_way,
+        too_close_to_supplies,
+        too_close_to_map_edge,
+    )
+}
+
+/// Full residual mapper with explicit shroud gate.
+pub fn legal_build_code_from_checks_full_shroud_residual(
+    in_world_bounds: bool,
+    shrouded: bool,
     objects_in_the_way: bool,
     too_close_to_supplies: bool,
     too_close_to_map_edge: bool,
@@ -395,6 +414,10 @@ pub fn legal_build_code_from_checks_full_residual(
     if !in_world_bounds {
         // C++ off-map → LBC_RESTRICTED_TERRAIN.
         return LBC_RESTRICTED_TERRAIN;
+    }
+    // C++ SHROUD_REVEALED option: not CELLSHROUD_CLEAR → LBC_SHROUD (before other errors).
+    if shrouded {
+        return LBC_SHROUD;
     }
     // C++ MinDistFromEdgeOfMapForBuild samples set terrainRestricted → LBC_RESTRICTED_TERRAIN.
     if too_close_to_map_edge {
@@ -407,6 +430,12 @@ pub fn legal_build_code_from_checks_full_residual(
         return LBC_TOO_CLOSE_TO_SUPPLIES;
     }
     LBC_OK
+}
+
+/// C++ CELLSHROUD_CLEAR residual: only fully visible cells allow build placement.
+/// Fogged/Hidden both fail the SHROUD_REVEALED option residual.
+pub fn cell_shroud_blocks_build_residual(is_clear: bool) -> bool {
+    !is_clear
 }
 
 /// Min distance from map edge residual helper (world units).
@@ -453,6 +482,10 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         && legal_build_code_from_checks_ex_residual(true, false, true) == LBC_TOO_CLOSE_TO_SUPPLIES
         && legal_build_code_from_checks_full_residual(true, false, false, true)
             == LBC_RESTRICTED_TERRAIN
+        && legal_build_code_from_checks_full_shroud_residual(true, true, false, false, false)
+            == LBC_SHROUD
+        && cell_shroud_blocks_build_residual(false)
+        && !cell_shroud_blocks_build_residual(true)
         && min_dist_from_map_edge_residual((0.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 100.0
         && min_dist_from_map_edge_residual((90.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 10.0
         && legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(5.0, 0.0, 5.0)], 20.0)
