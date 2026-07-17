@@ -2120,6 +2120,8 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
 
+        use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
+
         let mut seen_teams = HashSet::new();
         let mut any = false;
         let cost = Resources {
@@ -2129,10 +2131,32 @@ impl<'a> CommandExecutor<'a> {
         // Collect successful queues then record honesty (avoids borrow conflicts).
         let mut recorded: Vec<(u32, crate::game_logic::Team, ObjectId)> = Vec::new();
         for &unit_id in units {
+            // C++ queueMaxed / MaxQueueEntries residual: refuse before charging.
+            let producer_ok =
+                self.game_logic.get_object(unit_id).is_some_and(|source| {
+                    if !Self::can_source_queue_upgrade(source) {
+                        return false;
+                    }
+                    let Some(building) = source.building_data.as_ref() else {
+                        return false;
+                    };
+                    if building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT {
+                        return false;
+                    }
+                    // C++ isUpgradeInQueue residual.
+                    if building.production_queue.iter().any(|i| {
+                        i.is_upgrade() && i.template_name.eq_ignore_ascii_case(upgrade_name)
+                    }) {
+                        return false;
+                    }
+                    true
+                });
+            if !producer_ok {
+                continue;
+            }
             let team = self
                 .game_logic
                 .get_object(unit_id)
-                .filter(|source| Self::can_source_queue_upgrade(source))
                 .map(|source| source.team);
             if let Some(team) = team {
                 if !seen_teams.insert(team) {
@@ -2148,6 +2172,29 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         for (player_id, team, unit_id) in recorded {
+            // C++ ProductionUpdate::queueUpgrade — research advances on the producer.
+            let research_secs = {
+                let kind =
+                    crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name);
+                kind.residual_research_frames().max(1) as f32 / 30.0
+            };
+            let mut building_queued = false;
+            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
+                if let Some(building) = obj.building_data.as_mut() {
+                    building_queued = building.add_upgrade_to_queue(
+                        upgrade_name.to_string(),
+                        research_secs,
+                        cost.clone(),
+                    );
+                }
+            }
+            if !building_queued {
+                // Fail-closed: refund player if PRODUCTION_UPGRADE could not be placed.
+                if let Some(player) = self.game_logic.get_player_mut(player_id) {
+                    let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
+                }
+                continue;
+            }
             self.game_logic.record_host_upgrade_queued(
                 player_id,
                 team,
@@ -2160,27 +2207,7 @@ impl<'a> CommandExecutor<'a> {
                 player_id,
                 cost.supplies,
             );
-            // C++ ProductionUpdate::queueUpgrade — research advances on the producer.
-            let research_secs = {
-                let frames = self
-                    .game_logic
-                    .host_upgrades()
-                    .entries_snapshot()
-                    .into_iter()
-                    .find(|e| e.player_id == player_id && e.name.eq_ignore_ascii_case(upgrade_name))
-                    .map(|e| e.residual_research_frames.max(1))
-                    .unwrap_or(1);
-                frames as f32 / 30.0
-            };
-            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
-                if let Some(building) = obj.building_data.as_mut() {
-                    let _ = building.add_upgrade_to_queue(
-                        upgrade_name.to_string(),
-                        research_secs,
-                        cost.clone(),
-                    );
-                }
-            }
+            any = true;
         }
         if any {
             CommandResult::Success
