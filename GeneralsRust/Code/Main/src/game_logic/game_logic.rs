@@ -6170,6 +6170,125 @@ impl GameLogic {
     /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
 
+    /// C++ AIUpdateInterface::privateMoveToPosition residual.
+    pub fn private_move_to_position(&mut self, unit_id: ObjectId, pos: glam::Vec3) -> bool {
+        let Some(u) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        if !u.can_move() || !u.is_alive() {
+            return false;
+        }
+        let was_idle = matches!(u.ai_state, AIState::Idle);
+        // Clear blocked residual on new move order.
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.is_blocked = false;
+            u.is_blocked_and_stuck = false;
+            u.num_frames_blocked = 0;
+            if !was_idle {
+                // C++ temporary AI_MOVE_TO for 20 seconds when non-idle AI command.
+                u.temporary_move_frames = 20 * 30;
+            }
+        }
+        self.request_object_path(unit_id, pos)
+    }
+
+    /// C++ AIUpdateInterface::privateStop residual.
+    pub fn private_stop(&mut self, unit_id: ObjectId) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        u.stop_moving();
+        u.status.attacking = false;
+        u.target = None;
+        true
+    }
+
+    /// C++ AIAttackApproachTargetState::computePath residual.
+    ///
+    /// Returns true if approach path is valid/in-progress (stay in approach).
+    /// Returns false if should leave approach (no weapon / should pursue).
+    pub fn attack_approach_compute_path(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        fixed_pos: Option<glam::Vec3>,
+    ) -> bool {
+        let frame = self.frame;
+        let (mobile, stuck, waiting, path_empty, approach_ts, prev_vic, has_weapon, from) = {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return false;
+            };
+            if !u.can_move() {
+                return false;
+            }
+            (
+                true,
+                u.is_blocked_and_stuck,
+                u.waiting_for_path,
+                u.movement.path.is_empty(),
+                u.approach_timestamp,
+                u.prev_victim_pos,
+                u.weapon.is_some() || u.secondary_weapon.is_some(),
+                u.get_position(),
+            )
+        };
+        let _ = mobile;
+
+        if waiting {
+            return true;
+        }
+
+        let mut force_repath = stuck;
+        if !force_repath && path_empty && !waiting {
+            force_repath = true;
+        }
+        if !force_repath
+            && frame.saturating_sub(approach_ts) < crate::game_logic::MIN_RECOMPUTE_TIME_RESIDUAL
+        {
+            return true;
+        }
+
+        if let Some(vid) = victim_id {
+            let Some(victim) = self.objects.get(&vid) else {
+                return false;
+            };
+            if !victim.is_alive() {
+                return false;
+            }
+            if !has_weapon {
+                return false;
+            }
+            let vic_pos = victim.get_position();
+            // Center position residual (geometry center ≈ position for host).
+            let center = vic_pos;
+            if !force_repath {
+                if let Some(prev) = prev_vic {
+                    if crate::game_logic::is_same_position_residual(from, prev, center) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                u.prev_victim_pos = Some(center);
+                u.approach_timestamp = frame;
+            }
+            // Contact weapon: ignore obstacle + path into target residual handled by assign.
+            let _ = self.request_attack_path(unit_id, Some(vid), center);
+            true
+        } else if let Some(pos) = fixed_pos {
+            if !force_repath {
+                return true; // fixed positions don't move
+            }
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                u.approach_timestamp = frame;
+            }
+            let _ = self.request_attack_path(unit_id, None, pos);
+            true
+        } else {
+            false
+        }
+    }
+
     /// C++ AIUpdateInterface::requestAttackPath residual.
     ///
     /// Rate-limits repath (<3 frames → queue 2s). On accept, runs findAttackPath.
@@ -71630,6 +71749,91 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn private_move_to_position_sets_path() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("Mv");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(1201);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o
+        });
+        assert!(logic.private_move_to_position(id, Vec3::new(40.0, 0.0, 0.0)));
+        let o = logic.objects.get(&id).unwrap();
+        assert!(o.movement.target_position.is_some() || !o.movement.path.is_empty());
+    }
+
+    #[test]
+    fn private_stop_clears_attack() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("St");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(1202);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::USA);
+            o.status.attacking = true;
+            o.target = Some(ObjectId(9));
+            o.movement.target_position = Some(Vec3::ONE);
+            o
+        });
+        assert!(logic.private_stop(id));
+        let o = logic.objects.get(&id).unwrap();
+        assert!(!o.status.attacking);
+        assert!(o.target.is_none());
+        assert!(o.movement.target_position.is_none());
+    }
+
+    #[test]
+    fn attack_approach_skips_when_victim_still() {
+        use crate::game_logic::{
+            is_same_position_residual, KindOf, Object, ObjectId, Team, ThingTemplate,
+            MIN_RECOMPUTE_TIME_RESIDUAL,
+        };
+        use glam::Vec3;
+        assert_eq!(MIN_RECOMPUTE_TIME_RESIDUAL, 10);
+        let our = Vec3::ZERO;
+        let prev = Vec3::new(50.0, 0.0, 0.0);
+        assert!(is_same_position_residual(our, prev, prev));
+        assert!(!is_same_position_residual(
+            our,
+            prev,
+            Vec3::new(80.0, 0.0, 0.0)
+        ));
+
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("AA");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(1211);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 50.0,
+                ..Default::default()
+            });
+            o.approach_timestamp = 100;
+            o.prev_victim_pos = Some(Vec3::new(40.0, 0.0, 0.0));
+            o
+        });
+        let mut vt = ThingTemplate::new("AV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1212);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(40.0, 0.0, 0.0));
+            o
+        });
+        logic.frame = 105; // within MIN_RECOMPUTE of 100
+        assert!(logic.attack_approach_compute_path(aid, Some(vid), None));
     }
 
     #[test]
