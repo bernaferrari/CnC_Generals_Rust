@@ -207,6 +207,8 @@ pub fn apply_skirmish_config(
         player.color_rgb = slot.color_rgb;
         player.start_position = slot.start_position;
         player.alliance_team = slot.team;
+        // C++ Player::resetSciences residual: IntrinsicSciences + Rank1 SPP.
+        player.apply_faction_intrinsic_sciences();
         logic.add_player(player);
 
         if slot.is_human && human_id.is_none() {
@@ -450,6 +452,49 @@ mod tests {
         assert!(cfg.slots[0].is_human);
         assert_eq!(cfg.slots[1].ai_difficulty.as_deref(), Some("Hard"));
         assert_eq!(cfg.slots[1].faction, "GLA");
+    }
+
+    #[test]
+    fn skirmish_config_grants_faction_intrinsic_sciences() {
+        use crate::game_logic::GameLogic;
+        let mut logic = GameLogic::new();
+        let config = SkirmishMatchConfig {
+            map: "Lone Eagle".into(),
+            rules: GameRulesSnapshot::default_rules(),
+            slots: vec![
+                SkirmishSlotConfig {
+                    slot_index: 0,
+                    is_human: true,
+                    is_active: true,
+                    faction: "USA".into(),
+                    color_rgb: (0, 0, 255),
+                    team: 0,
+                    start_position: 0,
+                    player_name: "Human".into(),
+                    ai_difficulty: None,
+                },
+                SkirmishSlotConfig {
+                    slot_index: 1,
+                    is_human: false,
+                    is_active: true,
+                    faction: "China".into(),
+                    color_rgb: (255, 0, 0),
+                    team: 1,
+                    start_position: 1,
+                    player_name: "AI".into(),
+                    ai_difficulty: Some("Medium".into()),
+                },
+            ],
+        };
+        apply_skirmish_config(&mut logic, &config).expect("cfg");
+        let usa = logic.get_player(0).expect("usa");
+        assert!(usa.has_unlocked_science("SCIENCE_AMERICA"));
+        assert!(usa.has_unlocked_science("SCIENCE_Rank1"));
+        assert!(usa.science_purchase_points >= 1);
+        let china = logic.get_player(1).expect("china");
+        assert!(china.has_unlocked_science("SCIENCE_CHINA"));
+        assert!(china.has_unlocked_science("SCIENCE_Rank1"));
+        assert!(usa.is_capable_of_purchasing_science("SCIENCE_DaisyCutter"));
     }
 
     #[test]
