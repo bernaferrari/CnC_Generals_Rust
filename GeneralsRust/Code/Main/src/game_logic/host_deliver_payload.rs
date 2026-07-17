@@ -1450,6 +1450,10 @@ pub struct HostDeliverPayloadRegistry {
     pub crate_parachute_opens: u32,
     /// AmericaCrateParachute residual land events.
     pub crate_parachute_lands: u32,
+    /// C++ m_isParachuteDirectly setOverrideDestination residual arms.
+    pub parachute_directly_overrides: u32,
+    /// Open-chute XZ steps toward DeliverPayload target residual.
+    pub parachute_directly_steps: u32,
     /// CreateAtEdge residual edge-spawn events (honesty).
     pub create_at_edge_spawns: u32,
     /// DeliveryDistance band entries observed (honesty).
@@ -1487,6 +1491,8 @@ impl HostDeliverPayloadRegistry {
             stagger_items_total: 0,
             crate_parachute_opens: 0,
             crate_parachute_lands: 0,
+            parachute_directly_overrides: 0,
+            parachute_directly_steps: 0,
             create_at_edge_spawns: 0,
             delivery_band_entries: 0,
             door_open_events: 0,
@@ -2055,6 +2061,24 @@ impl HostDeliverPayloadRegistry {
 
     pub fn record_crate_parachute_land(&mut self) {
         self.crate_parachute_lands = self.crate_parachute_lands.saturating_add(1);
+    }
+
+    pub fn record_parachute_directly_override(&mut self) {
+        self.parachute_directly_overrides = self.parachute_directly_overrides.saturating_add(1);
+    }
+
+    pub fn record_parachute_directly_step(&mut self) {
+        self.parachute_directly_steps = self.parachute_directly_steps.saturating_add(1);
+    }
+
+    /// Residual honesty: ParachuteDirectly armed landingOverride at least once.
+    pub fn honesty_parachute_directly_ok(&self) -> bool {
+        self.parachute_directly_overrides > 0
+    }
+
+    /// Residual honesty: open chute stepped toward DeliverPayload LZ.
+    pub fn honesty_parachute_directly_steer_ok(&self) -> bool {
+        self.parachute_directly_overrides > 0 && self.parachute_directly_steps > 0
     }
 
     pub fn honesty_crate_parachute_open_ok(&self) -> bool {

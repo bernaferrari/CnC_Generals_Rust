@@ -16454,6 +16454,14 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.apply_crate_parachuting();
                 }
+                // C++ DeliverPayloadAIUpdate: m_isParachuteDirectly →
+                // contain->setOverrideDestination(ai->getTargetPos()).
+                if crate::game_logic::host_deliver_payload::SUPPLY_DROP_PARACHUTE_DIRECTLY {
+                    if self.set_parachute_override_destination(id, plan.target_position) {
+                        self.host_deliver_payloads
+                            .record_parachute_directly_override();
+                    }
+                }
             }
             self.host_deliver_payloads
                 .record_item_spawned(plan.mission_id, spawned_id);
@@ -16920,7 +16928,7 @@ impl GameLogic {
     /// Applied to residual money crates that spawned from DeliverPayload cargo
     /// (PutInContainer AmericaCrateParachute). Fail-closed: not full container
     /// Object / W3D bone / CrateParachuteLocomotor force matrix.
-    fn tick_crate_parachute_residual(&mut self, crate_id: ObjectId) {
+    pub(crate) fn tick_crate_parachute_residual(&mut self, crate_id: ObjectId) {
         use crate::game_logic::host_deliver_payload::{
             should_open_crate_parachute, tick_crate_parachute_height, CRATE_PARACHUTE_LAND_AUDIO,
             CRATE_PARACHUTE_OPEN_AUDIO,
@@ -16930,16 +16938,18 @@ impl GameLogic {
         if !self.host_money_crates.contains(crate_id) {
             return;
         }
-        let (pos, chute_open, start_h, pitch, roll) = match self.objects.get(&crate_id) {
-            Some(obj) if obj.is_alive() && obj.is_parachuting() => (
-                obj.get_position(),
-                obj.is_parachute_open(),
-                obj.status.parachute_start_height,
-                obj.parachute_pitch(),
-                obj.parachute_roll(),
-            ),
-            _ => return,
-        };
+        let (pos, chute_open, start_h, pitch, roll, landing_override) =
+            match self.objects.get(&crate_id) {
+                Some(obj) if obj.is_alive() && obj.is_parachuting() => (
+                    obj.get_position(),
+                    obj.is_parachute_open(),
+                    obj.status.parachute_start_height,
+                    obj.parachute_pitch(),
+                    obj.parachute_roll(),
+                    obj.parachute_landing_override(),
+                ),
+                _ => return,
+            };
         let ground = 0.0_f32;
         let mut just_opened = false;
         let mut open = chute_open;
@@ -16948,16 +16958,45 @@ impl GameLogic {
             just_opened = true;
         }
         let (new_y, landed) = tick_crate_parachute_height(pos.y, ground, open);
+        // ParachuteDirectly residual: open chute steers XZ to DeliverPayload target.
+        let mut nx = pos.x;
+        let mut nz = pos.z;
+        let mut did_override_step = false;
+        if open && !landed {
+            if let Some(target) = landing_override {
+                use crate::game_logic::host_usa_pilot::{
+                    step_parachute_landing_override, PARACHUTE_LANDING_OVERRIDE_SPEED,
+                };
+                let (sx, sz, moved) = step_parachute_landing_override(
+                    pos.x,
+                    pos.z,
+                    target.x,
+                    target.z,
+                    PARACHUTE_LANDING_OVERRIDE_SPEED,
+                );
+                if moved {
+                    nx = sx;
+                    nz = sz;
+                    did_override_step = true;
+                }
+            }
+        }
         if let Some(obj) = self.objects.get_mut(&crate_id) {
             if just_opened {
                 obj.open_eject_parachute();
             }
             let mut p = obj.get_position();
+            p.x = nx;
+            p.z = nz;
             p.y = new_y;
             obj.set_position(p);
             if landed {
                 obj.clear_eject_parachuting();
             }
+        }
+        if did_override_step {
+            self.usa_pilot.record_landing_override_step();
+            self.host_deliver_payloads.record_parachute_directly_step();
         }
         if just_opened {
             self.host_deliver_payloads.record_crate_parachute_open();
@@ -38000,6 +38039,21 @@ impl GameLogic {
             let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
             for pos in &plan.spawn_positions {
                 if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
+                    // C++ Paradrop PutInContainer AmericaParachute + ParachuteDirectly
+                    // residual: elevated infantry freefall aiming at LZ.
+                    if let Some(obj) = self.objects.get_mut(&id) {
+                        // Elevate residual if spawn is near ground.
+                        let mut p = obj.get_position();
+                        if p.y < 80.0 {
+                            p.y = 120.0;
+                            obj.set_position(p);
+                        }
+                        obj.apply_eject_parachuting();
+                    }
+                    if self.set_parachute_override_destination(id, plan.target_position) {
+                        self.host_deliver_payloads
+                            .record_parachute_directly_override();
+                    }
                     spawned.push(id);
                 }
             }
@@ -76015,6 +76069,101 @@ mod tests {
 
     #[test]
     #[test]
+    #[test]
+    fn deliver_payload_parachute_directly_arms_landing_override() {
+        use crate::game_logic::host_deliver_payload::{
+            HostDeliverPayloadKind, SUPPLY_DROP_PARACHUTE_DIRECTLY,
+            SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+        assert!(SUPPLY_DROP_PARACHUTE_DIRECTLY);
+        let mut logic = GameLogic::new();
+        // Residual supply-drop crate template.
+        if !logic
+            .templates
+            .contains_key(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE)
+        {
+            let mut t = ThingTemplate::new(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE);
+            t.add_kind_of(KindOf::Resource).set_health(1.0);
+            logic
+                .templates
+                .insert(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string(), t);
+        }
+        let zone = ObjectId(8801);
+        logic.objects.insert(zone, {
+            let mut t = ThingTemplate::new("AmericaSupplyDropZone");
+            t.add_kind_of(KindOf::Structure);
+            Object::new(t, zone, Team::USA)
+        });
+        let target = glam::Vec3::new(200.0, 0.0, 150.0);
+        let mission_id = logic.host_deliver_payloads.queue(
+            HostDeliverPayloadKind::SupplyDropZoneCrate,
+            zone,
+            Team::USA,
+            target,
+            logic.frame,
+            SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string(),
+        );
+        // Advance frames until items spawn.
+        let mut spawned_any = false;
+        for _ in 0..400 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_deliver_payloads();
+            if logic
+                .host_deliver_payloads
+                .get(mission_id)
+                .map(|m| !m.spawned_payload_ids.is_empty())
+                .unwrap_or(false)
+            {
+                spawned_any = true;
+                break;
+            }
+        }
+        assert!(spawned_any, "DeliverPayload must spawn residual crate");
+        let crate_id = logic
+            .host_deliver_payloads
+            .get(mission_id)
+            .unwrap()
+            .spawned_payload_ids[0];
+        let c = logic.objects.get(&crate_id).expect("crate object");
+        assert!(c.is_parachuting(), "crate must parachute");
+        assert!(
+            c.has_parachute_landing_override(),
+            "ParachuteDirectly must arm landingOverride"
+        );
+        let ov = c.parachute_landing_override().unwrap();
+        assert!(
+            (ov.x - target.x).abs() < 0.1 && (ov.z - target.z).abs() < 0.1,
+            "override LZ must match DeliverPayload target {:?}",
+            ov
+        );
+        assert!(
+            logic.host_deliver_payloads.honesty_parachute_directly_ok(),
+            "DeliverPayload ParachuteDirectly honesty"
+        );
+
+        // Open + step toward target residual.
+        {
+            let c = logic.objects.get_mut(&crate_id).unwrap();
+            c.open_eject_parachute();
+            // Force open path for XZ step.
+            c.status.parachute_start_height = c.get_position().y + 200.0;
+        }
+        let before = logic.objects[&crate_id].get_position();
+        for _ in 0..10 {
+            logic.tick_crate_parachute_residual(crate_id);
+        }
+        let after = logic.objects[&crate_id].get_position();
+        let d0 = ((before.x - target.x).powi(2) + (before.z - target.z).powi(2)).sqrt();
+        let d1 = ((after.x - target.x).powi(2) + (after.z - target.z).powi(2)).sqrt();
+        assert!(
+            d1 < d0 - 0.5,
+            "crate must steer XZ toward LZ: before {} after {}",
+            d0,
+            d1
+        );
+    }
+
     fn parachute_landing_override_steers_xz() {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::PARACHUTE_OPEN_DIST;
