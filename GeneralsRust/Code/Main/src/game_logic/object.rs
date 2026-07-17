@@ -192,6 +192,10 @@ pub struct Object {
     /// C++ ProductionUpdate m_constructionCompleteFrame residual.
     /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
     pub construction_complete_clear_frame: u32,
+    /// C++ Object::m_soleHealingBenefactorID residual.
+    pub sole_healing_benefactor: Option<ObjectId>,
+    /// C++ Object::m_soleHealingBenefactorExpirationFrame residual.
+    pub sole_healing_benefactor_expiration_frame: u32,
     /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
     #[serde(default)]
     pub shock_stun_frames: u32,
@@ -1188,6 +1192,8 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             construction_complete_clear_frame: 0,
+            sole_healing_benefactor: None,
+            sole_healing_benefactor_expiration_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -1461,6 +1467,8 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             construction_complete_clear_frame: 0,
+            sole_healing_benefactor: None,
+            sole_healing_benefactor_expiration_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -2941,6 +2949,33 @@ impl Object {
         self.model_condition_bits &= !(1u128 << active_b);
         self.model_condition_bits |= 1u128 << sold_b;
         self.refresh_model_condition_bits();
+    }
+
+    /// C++ Object::attemptHealingFromSoleBenefactor residual.
+    ///
+    /// Non-stacking healers (dozer repair, ambulance, propaganda) claim exclusive
+    /// heal rights for `duration` frames. Returns false if another benefactor still
+    /// owns the claim.
+    pub fn attempt_healing_from_sole_benefactor(
+        &mut self,
+        amount: f32,
+        source_id: ObjectId,
+        duration_frames: u32,
+        now: u32,
+    ) -> bool {
+        if amount <= 0.0 {
+            return false;
+        }
+        let claim_open = now > self.sole_healing_benefactor_expiration_frame
+            || self.sole_healing_benefactor == Some(source_id);
+        if !claim_open {
+            return false;
+        }
+        self.sole_healing_benefactor = Some(source_id);
+        self.sole_healing_benefactor_expiration_frame = now.saturating_add(duration_frames);
+        let before = self.health.current;
+        self.heal(amount);
+        self.health.current > before + 0.0001 || self.health.current >= self.health.maximum - 0.01
     }
 
     pub fn set_actively_constructing(&mut self, active: bool) {

@@ -1420,6 +1420,8 @@ pub struct GameLogic {
     resume_construction_events: u32,
     /// C++ DOZER:RepairComplete residual events.
     repair_complete_events: u32,
+    /// C++ attemptHealingFromSoleBenefactor reject residual (dozer repair).
+    sole_benefactor_repair_rejects: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2654,6 +2656,7 @@ impl GameLogic {
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
             repair_complete_events: 0,
+            sole_benefactor_repair_rejects: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3038,6 +3041,7 @@ impl GameLogic {
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
         self.repair_complete_events = 0;
+        self.sole_benefactor_repair_rejects = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -13494,19 +13498,43 @@ impl GameLogic {
                         crate::game_logic::host_repair::dozer_repair_hp_per_sec(max_hp)
                             .max(REPAIR_RATE * 0.25);
                     let heal_amount = heal_per_sec * dt;
-                    let (target_full, healed, repair_pos) =
-                        if let Some(target) = self.objects.get_mut(&repair_target_id) {
-                            let before = target.health.current;
-                            target.heal(heal_amount);
-                            let after = target.health.current;
-                            (
-                                after >= target.health.maximum - 0.01,
-                                after > before + 0.0001,
-                                target.get_position(),
-                            )
-                        } else {
-                            (true, false, repair_target_pos)
-                        };
+                    // C++ attemptHealingFromSoleBenefactor(health, dozer, 2) residual.
+                    let now = self.frame;
+                    let sole = if let Some(target) = self.objects.get_mut(&repair_target_id) {
+                        let healed = target.attempt_healing_from_sole_benefactor(
+                            heal_amount,
+                            object_id,
+                            2,
+                            now,
+                        );
+                        let full = target.health.current >= target.health.maximum - 0.01;
+                        let pos = target.get_position();
+                        Some((full, healed, pos))
+                    } else {
+                        None
+                    };
+                    let (target_full, healed, repair_pos) = match sole {
+                        Some(v) => v,
+                        None => {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                                obj.ai_state = AIState::Idle;
+                                obj.set_actively_constructing(false);
+                            }
+                            continue;
+                        }
+                    };
+                    if !healed && !target_full {
+                        // Another dozer owns sole-benefactor claim — cancel this dozer task.
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(None);
+                            obj.ai_state = AIState::Idle;
+                            obj.set_actively_constructing(false);
+                        }
+                        self.sole_benefactor_repair_rejects =
+                            self.sole_benefactor_repair_rejects.saturating_add(1);
+                        continue;
+                    }
                     if healed {
                         self.record_structure_repair_residual_heal();
                     }
@@ -43274,6 +43302,10 @@ impl GameLogic {
 
     pub fn honesty_repair_complete_ok(&self) -> bool {
         self.repair_complete_events > 0
+    }
+
+    pub fn honesty_sole_benefactor_repair_ok(&self) -> bool {
+        self.sole_benefactor_repair_rejects > 0
     }
 
     pub fn honesty_dozer_cancel_task_ok(&self) -> bool {
@@ -78069,6 +78101,83 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn dozer_repair_sole_benefactor_rejects_second_dozer() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+        let sid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.health.current = 200.0;
+        }
+        let d1 = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(1.0, 0.0, 0.0),
+            )
+            .expect("d1");
+        let d2 = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(2.0, 0.0, 0.0),
+            )
+            .expect("d2");
+        logic.frame = 10;
+        // First dozer claims sole heal.
+        let ok1 = {
+            let o = logic.get_object_mut(sid).unwrap();
+            o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 10)
+        };
+        assert!(ok1);
+        // Second dozer rejected while claim active.
+        let ok2 = {
+            let o = logic.get_object_mut(sid).unwrap();
+            o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 10)
+        };
+        assert!(!ok2);
+        // Same dozer can heal again within claim.
+        let ok1b = {
+            let o = logic.get_object_mut(sid).unwrap();
+            o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 11)
+        };
+        assert!(ok1b);
+        // After expiration (strict now > expiry; claim at 11 → expiry 13 → open at 14).
+        let ok2b = {
+            let o = logic.get_object_mut(sid).unwrap();
+            o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 14)
+        };
+        assert!(ok2b);
+        assert_eq!(
+            logic.get_object(sid).unwrap().sole_healing_benefactor,
+            Some(d2)
+        );
     }
 
     #[test]
