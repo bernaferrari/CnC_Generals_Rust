@@ -81492,6 +81492,57 @@ mod tests {
     }
 
     #[test]
+    fn special_power_reload_seconds_uses_retail_residual_table() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds;
+        use crate::game_logic::host_tank_hunter::TNT_RELOAD_MS;
+        use crate::game_logic::special_power_strikes::A10_STRIKE_RELOAD_MS;
+        assert_eq!(
+            special_power_reload_seconds(&SpecialPowerType::Airstrike),
+            Some(A10_STRIKE_RELOAD_MS as f32 / 1000.0)
+        );
+        assert_eq!(
+            special_power_reload_seconds(&SpecialPowerType::TankHunterTnt),
+            Some(TNT_RELOAD_MS as f32 / 1000.0)
+        );
+        assert_eq!(
+            special_power_reload_seconds(&SpecialPowerType::MissileDefenderLaserGuided),
+            Some(0.0)
+        );
+        assert_eq!(
+            special_power_reload_seconds(&SpecialPowerType::DetonateDirtyNuke),
+            Some(30.0)
+        );
+        // Consume applies residual reload onto object cooldown remaining.
+        let mut logic = GameLogic::new();
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        // Template default cooldown is often 10s — residual must override for A10.
+        cc.special_power_cooldown = 10.0;
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        if let Some(o) = logic.get_object_mut(id) {
+            assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
+            o.consume_special_power_charge(&SpecialPowerType::Airstrike);
+            assert!(!o.special_power_ready);
+            assert!(
+                (o.special_power_cooldown_remaining - 240.0).abs() < 0.01,
+                "remaining={}",
+                o.special_power_cooldown_remaining
+            );
+        }
+    }
+
+    #[test]
     fn infantry_capture_and_disguise_special_power_enum_residuals() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
