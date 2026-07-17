@@ -357,6 +357,18 @@ pub struct Object {
     /// C++ OFFSET_INCREASING flag residual.
     #[serde(default)]
     pub wander_offset_increasing: bool,
+    /// C++ Locomotor downhill-only residual (ski / sled).
+    #[serde(default)]
+    pub downhill_only: bool,
+    /// C++ m_lift residual (world-Y up accel capacity).
+    #[serde(default)]
+    pub max_lift: f32,
+    /// C++ m_speedLimitZ residual (vertical speed limit).
+    #[serde(default)]
+    pub speed_limit_z: f32,
+    /// C++ group move speed factor residual (1.0 = full).
+    #[serde(default = "default_one_f32")]
+    pub group_speed_factor: f32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -1044,6 +1056,10 @@ impl Object {
             wander_angle_offset: 0.0,
             wander_offset_increment: 0.0,
             wander_offset_increasing: true,
+            downhill_only: false,
+            max_lift: 0.0,
+            speed_limit_z: 999999.0,
+            group_speed_factor: 1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1266,6 +1282,10 @@ impl Object {
             wander_angle_offset: 0.0,
             wander_offset_increment: 0.0,
             wander_offset_increasing: true,
+            downhill_only: false,
+            max_lift: 0.0,
+            speed_limit_z: 999999.0,
+            group_speed_factor: 1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2809,19 +2829,23 @@ impl Object {
                 if self.loco_preferred_height == 0.0 && goal_y.is_none() {
                     return true;
                 }
-                let mut p = self.get_position();
-                let preferred = if let Some(gy) = goal_y {
+                let p = self.get_position();
+                let preferred_raw = if let Some(gy) = goal_y {
                     gy
                 } else {
                     self.loco_preferred_height + ground_y
                 };
-                let mut delta = preferred - p.y;
+                let mut delta = preferred_raw - p.y;
                 delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
                 let preferred = p.y + delta;
-                // Lift force residual: motive vertical force = mass * lift.
-                let lift = preferred - p.y;
+                let lift = if self.max_lift > 0.0 {
+                    self.calc_lift_to_use_at_pt(p.y, preferred)
+                } else {
+                    // Fail-closed: no lift template — proportional residual.
+                    preferred - p.y
+                };
                 if lift.abs() > 1.0e-4 {
-                    let force_y = lift * self.physics_get_mass() * 30.0; // per-frame→impulse-ish
+                    let force_y = lift * self.physics_get_mass();
                     self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));
                 }
                 true
@@ -2918,6 +2942,91 @@ impl Object {
                 self.loco_appearance = LocomotorAppearance::Treads;
             }
         }
+    }
+
+    /// C++ Locomotor::getMaxLift residual (host world-Y).
+    pub fn get_max_lift(&self) -> f32 {
+        self.max_lift.max(0.0)
+    }
+
+    /// C++ Locomotor::calcLiftToUseAtPt residual (simplified).
+    ///
+    /// Gravity residual = -1.0 (host world-Y). Returns lift accel to apply (not force).
+    pub fn calc_lift_to_use_at_pt(&self, cur_y: f32, preferred_height: f32) -> f32 {
+        const GRAVITY: f32 = -1.0;
+        let max_gross = self.get_max_lift();
+        let mut max_net = max_gross + GRAVITY;
+        if max_net < 0.0 {
+            max_net = 0.0;
+        }
+        let cur_vy = self.movement.velocity.y;
+        let max_accel = if self.ultra_accurate {
+            if cur_vy < 0.0 {
+                2.0 * max_net
+            } else {
+                -2.0 * max_net
+            }
+        } else if cur_vy < 0.0 {
+            max_net
+        } else {
+            GRAVITY
+        };
+        let desired_accel = if max_accel.abs() > 0.001 {
+            let delta_y = preferred_height - cur_y;
+            let brake_dist = (cur_vy * cur_vy) / max_accel.abs().max(1e-6);
+            if brake_dist.abs() > delta_y.abs() {
+                max_accel
+            } else if cur_vy.abs() > self.speed_limit_z {
+                self.speed_limit_z - cur_vy
+            } else {
+                // a = 2(dz - v) assuming t=1 frame
+                2.0 * (delta_y - cur_vy)
+            }
+        } else {
+            0.0
+        };
+        let mut lift = desired_accel - GRAVITY;
+        if self.ultra_accurate {
+            const UP_FACTOR: f32 = 3.0;
+            if lift > UP_FACTOR * max_gross {
+                lift = UP_FACTOR * max_gross;
+            } else if lift < -max_gross {
+                lift = -max_gross;
+            }
+        } else if lift > max_gross {
+            lift = max_gross;
+        } else if lift < 0.0 {
+            lift = 0.0;
+        }
+        lift
+    }
+
+    /// C++ AIUpdateInterface::requestPath residual (fail-closed straight path).
+    ///
+    /// Sets waiting_for_path briefly, installs single-waypoint path to dest.
+    /// Full Pathfinder A* is applied by GameLogic when grid is available.
+    pub fn request_path(&mut self, destination: glam::Vec3, waypoints: Option<Vec<glam::Vec3>>) {
+        self.waiting_for_path = true;
+        self.maintain_pos_valid = false;
+        if let Some(mut wps) = waypoints {
+            if wps.is_empty() {
+                wps.push(destination);
+            }
+            self.movement.path = wps;
+        } else {
+            self.movement.path = vec![destination];
+        }
+        self.movement.current_path_index = 0;
+        self.movement.target_position = self.movement.path.first().copied();
+        self.waiting_for_path = false;
+        self.is_braking = false;
+    }
+
+    /// True if effectively moving (C++ isMoving || isWaitingForPath).
+    pub fn is_effectively_moving(&self) -> bool {
+        self.waiting_for_path
+            || self.movement.target_position.is_some()
+            || self.movement.velocity.length_squared() > 0.01
     }
 
     /// C++ Locomotor::calcMinTurnRadius residual (host units).
@@ -6038,11 +6147,20 @@ impl Object {
 
             // C++ locoUpdate_moveTowardsPosition residual (treads-like host default).
             let max_speed = self.movement.max_speed.max(0.0);
-            let mut desired_speed = max_speed;
+            let mut desired_speed = max_speed * self.group_speed_factor.clamp(0.0, 1.0);
             // Cap by blocked speed residual (convert frame→sec: blocked is per-frame).
             if self.is_blocked && self.cur_max_blocked_speed.is_finite() {
                 let blocked_per_sec = self.cur_max_blocked_speed * 30.0;
                 desired_speed = desired_speed.min(blocked_per_sec);
+            }
+
+            // C++ getIsDownhillOnly residual: refuse uphill goals.
+            if self.downhill_only {
+                let us_y = current_pos.y;
+                let goal_y = target_pos.y;
+                if us_y < goal_y - 0.05 {
+                    return;
+                }
             }
 
             // Legs wander residual: bias desired heading before rotate.
