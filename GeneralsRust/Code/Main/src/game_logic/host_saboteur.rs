@@ -234,6 +234,10 @@ pub struct HostSaboteurRegistry {
     pub flash_as_selected: u32,
     /// GUI:AddCash/LoseCash floating text pairs from cash sabotage.
     pub cash_floating_texts: u32,
+    /// EVA UnitLost residual fires.
+    pub eva_unit_lost: u32,
+    /// EVA BuildingLost residual fires.
+    pub eva_building_lost: u32,
     /// Fake buildings destroyed.
     pub fakes_destroyed: u32,
     /// Saboteurs consumed on success.
@@ -353,6 +357,22 @@ impl HostSaboteurRegistry {
 
     pub fn honesty_cash_floating_texts_ok(&self) -> bool {
         self.cash_floating_texts > 0
+    }
+
+    pub fn record_eva_unit_lost(&mut self) {
+        self.eva_unit_lost = self.eva_unit_lost.saturating_add(1);
+    }
+
+    pub fn honesty_eva_unit_lost_ok(&self) -> bool {
+        self.eva_unit_lost > 0
+    }
+
+    pub fn record_eva_building_lost(&mut self) {
+        self.eva_building_lost = self.eva_building_lost.saturating_add(1);
+    }
+
+    pub fn honesty_eva_building_lost_ok(&self) -> bool {
+        self.eva_building_lost > 0
     }
 
     pub fn honesty_sabotage_ok(&self) -> bool {
