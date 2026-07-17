@@ -445,6 +445,10 @@ pub enum SpecialPowerType {
     /// Laser General Particle Uplink residual (LAZR_SPECIAL_PARTICLE_UPLINK_CANNON).
     /// Host maps to ParticleCannon residual path.
     LaserCannon,
+    /// USA Missile Defender laser guided special residual
+    /// (SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES).
+    /// Locks secondary laser weapon + attack target (StartAbilityRange 200).
+    MissileDefenderLaserGuided,
     Invalid,
 }
 

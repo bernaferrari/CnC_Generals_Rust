@@ -81487,6 +81487,64 @@ mod tests {
     }
 
     #[test]
+    fn missile_defender_laser_guided_special_locks_secondary() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_missile_defender::{
+            is_missile_defender_template, missile_defender_laser_guided_weapon,
+            missile_defender_primary_weapon, LASER_GUIDED_START_ABILITY_RANGE,
+        };
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::MissileDefenderLaserGuided),
+            Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
+        );
+        assert!(is_missile_defender_template(
+            "AmericaInfantryMissileDefender"
+        ));
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+        md.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".into(), md);
+        let mut enemy = ThingTemplate::new("GLAInfantryRebel");
+        enemy.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), enemy);
+
+        let src = logic
+            .create_object(
+                "AmericaInfantryMissileDefender",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("md");
+        if let Some(o) = logic.get_object_mut(src) {
+            o.weapon = Some(missile_defender_primary_weapon());
+            o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+            o.active_weapon_slot = 0;
+        }
+        let tgt = logic
+            .create_object(
+                "GLAInfantryRebel",
+                Team::GLA,
+                glam::Vec3::new(LASER_GUIDED_START_ABILITY_RANGE - 10.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+
+        assert!(logic.activate_missile_defender_laser_guided(src, tgt));
+        let o = logic.get_object(src).unwrap();
+        assert_eq!(o.active_weapon_slot, 1);
+        assert_eq!(o.target, Some(tgt));
+        assert!(logic.missile_defender_residual_laser_specials >= 1);
+        let _ = SpecialPowerType::MissileDefenderLaserGuided;
+    }
+
+    #[test]
     fn host_upgrade_complete_helix_nuke_bomb_tags_helix() {
         use crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB;
         use crate::game_logic::host_upgrades::HostUpgradeKind;
