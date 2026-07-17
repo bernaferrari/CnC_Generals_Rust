@@ -892,6 +892,9 @@ pub struct Object {
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
     #[serde(default = "default_true_for_auto_acquire")]
     pub auto_acquire_when_idle: bool,
+    /// C++ AIUpdateInterface attack priority set name residual.
+    #[serde(default)]
+    pub attack_priority_set: Option<String>,
 
     /// CamoNetting StealthUpdate FriendlyOpacity residual (0.5 cloaked / 1.0 revealed).
     /// Fail-closed: not full drawable sub-object camo net mesh visual.
@@ -1336,6 +1339,7 @@ impl Object {
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
             auto_acquire_when_idle: true,
+            attack_priority_set: None,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
@@ -1587,6 +1591,7 @@ impl Object {
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
             auto_acquire_when_idle: true,
+            attack_priority_set: None,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
