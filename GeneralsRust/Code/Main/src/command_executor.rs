@@ -998,8 +998,50 @@ impl<'a> CommandExecutor<'a> {
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             // Missile Defender laser guided needs an object target (lock secondary + attack).
-            // Timed/remote charge specials (Burton / Demo / BattleBus) → plant residual paths.
-            if matches!(
+            // Hero/unit disable & capture specials → existing walk-to residual command paths.
+            if *power_type == SpecialPowerType::HackerDisableBuilding
+                || *power_type == SpecialPowerType::MicrowaveDisableBuilding
+            {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !matches!(
+                    self.execute_hacker_disable_building(&[unit_id], *tid),
+                    CommandResult::Success
+                ) {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::BlackLotusDisableVehicle {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !matches!(
+                    self.execute_disable_vehicle_hack(&[unit_id], *tid),
+                    CommandResult::Success
+                ) {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::BlackLotusStealCash {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !matches!(
+                    self.execute_steal_cash_hack(&[unit_id], *tid),
+                    CommandResult::Success
+                ) {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::BlackLotusCaptureBuilding {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !matches!(
+                    self.execute_capture_building(&[unit_id], *tid),
+                    CommandResult::Success
+                ) {
+                    continue;
+                }
+            } else if matches!(
                 *power_type,
                 SpecialPowerType::DemoRebelTimedCharges
                     | SpecialPowerType::DemoKellTimedCharges
