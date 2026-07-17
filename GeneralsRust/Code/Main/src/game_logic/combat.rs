@@ -557,6 +557,19 @@ impl CombatSystem {
         dt: f32,
         objects: &mut HashMap<ObjectId, Object>,
     ) -> Vec<ObjectId> {
+        self.update_projectiles_with_countermeasures(dt, objects, None, 0)
+    }
+
+    /// Projectile step with optional America Countermeasures diversion residual.
+    pub fn update_projectiles_with_countermeasures(
+        &mut self,
+        dt: f32,
+        objects: &mut HashMap<ObjectId, Object>,
+        mut countermeasures: Option<
+            &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+        >,
+        frame: u32,
+    ) -> Vec<ObjectId> {
         let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
 
         // Process projectile updates
@@ -786,7 +799,36 @@ impl CombatSystem {
                     death_type,
                     ..
                 } => {
-                    if let Some(target) = objects.get_mut(target_id) {
+                    // America Countermeasures residual: divert missile before Direct damage.
+                    let mut diverted = false;
+                    if let Some(reg) = countermeasures.as_mut() {
+                        if let Some(target) = objects.get(target_id) {
+                            let is_air = target.is_kind_of(KindOf::Aircraft)
+                                || target.status.airborne_target;
+                            if is_air
+                                && crate::game_logic::host_countermeasures::aircraft_has_countermeasures_upgrade(
+                                    &target.applied_upgrades,
+                                )
+                            {
+                                // projectile id residual: use target_id xor frame as stand-in when
+                                // DamageEvent does not carry proj id (evasion still deterministic).
+                                let proj_key = ObjectId(target_id.0.wrapping_add(frame));
+                                diverted = crate::game_logic::host_countermeasures::try_divert_missile(
+                                    reg,
+                                    *target_id,
+                                    proj_key,
+                                    frame,
+                                    true,
+                                );
+                            }
+                        }
+                    }
+                    if diverted {
+                        log::debug!(
+                            "Countermeasures diverted projectile residual vs object {}",
+                            target_id
+                        );
+                    } else if let Some(target) = objects.get_mut(target_id) {
                         let destroyed = target.take_damage_from_typed_death(
                             *damage,
                             None,
