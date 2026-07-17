@@ -13850,10 +13850,15 @@ impl GameLogic {
                         {
                             false
                         } else {
+                            // C++ capture prep residual: warn local victim + infiltration.
+                            self.try_eva_building_being_stolen(capture_target_id);
+                            self.try_infiltration_event(capture_target_id);
                             self.cancel_all_production(capture_target_id);
                             if let Some(target) = self.objects.get_mut(&capture_target_id) {
                                 target.set_team(team);
                                 target.health.heal(target.max_health);
+                                // C++ defect(..., 1) one-frame flash residual.
+                                target.flash_as_selected();
                                 true
                             } else {
                                 false
@@ -13879,6 +13884,24 @@ impl GameLogic {
                                 .with_position(position)
                                 .with_priority(160),
                             );
+                        }
+                        // C++ EVA_BuildingStolen when victim was local before defect.
+                        // (team already flipped — use BeingStolen honesty or explicit
+                        // pre-flip: fire BuildingStolen if victim team had local player
+                        // that is no longer owner.)
+                        // BeingStolen already gated on pre-flip local control; Stolen
+                        // should also only fire for former local owner.
+                        // Re-check: after flip, former local team lost the building —
+                        // if any local player is on previous target_team.
+                        let former_local = self
+                            .players
+                            .values()
+                            .any(|p| p.is_local && p.is_alive && p.team == target_team);
+                        if former_local {
+                            let _ = gamelogic::helpers::TheEva::set_should_play(
+                                gamelogic::helpers::EvaEvent::BuildingStolen,
+                            );
+                            self.hero_abilities.record_eva_building_stolen();
                         }
                         let msg =
                             localization::localize("hud.capture.complete", "Building captured");
@@ -42192,6 +42215,28 @@ impl GameLogic {
             self.saboteur.record_flash_as_selected();
         }
         self.saboteur.record_feedback_fx();
+    }
+
+    /// C++ TheEva->setShouldPlay(EVA_BuildingBeingStolen) when capture prep starts.
+    pub fn try_eva_building_being_stolen(&mut self, victim_id: ObjectId) {
+        if !self.is_object_locally_controlled(victim_id) {
+            return;
+        }
+        let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::BuildingBeingStolen,
+        );
+        self.hero_abilities.record_eva_building_being_stolen();
+    }
+
+    /// C++ TheEva->setShouldPlay(EVA_BuildingStolen) when capture completes.
+    pub fn try_eva_building_stolen(&mut self, victim_id: ObjectId) {
+        if !self.is_object_locally_controlled(victim_id) {
+            return;
+        }
+        let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::BuildingStolen,
+        );
+        self.hero_abilities.record_eva_building_stolen();
     }
 
     pub fn try_eva_building_sabotaged(&mut self, victim_id: ObjectId) {
@@ -76623,6 +76668,48 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn capture_building_queues_eva_being_stolen_and_stolen() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Victim", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::China, "Captor", false),
+        );
+        let mut b = ThingTemplate::new("AmericaPowerPlant");
+        b.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        logic.templates.insert("AmericaPowerPlant".into(), b);
+        let id = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("b");
+        assert!(logic.is_object_locally_controlled(id));
+        logic.try_eva_building_being_stolen(id);
+        logic.try_eva_building_stolen(id);
+        assert!(logic.hero_abilities.honesty_eva_building_being_stolen_ok());
+        assert!(logic.hero_abilities.honesty_eva_building_stolen_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::BuildingBeingStolen),
+            "{events:?}"
+        );
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::BuildingStolen),
+            "{events:?}"
+        );
     }
 
     #[test]
