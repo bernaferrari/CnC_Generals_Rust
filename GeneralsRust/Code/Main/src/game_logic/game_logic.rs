@@ -6169,6 +6169,32 @@ impl GameLogic {
     /// Partition cell broadphase (cell size 40) + selection_radius XZ spheres.
     /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
+
+    /// C++ AIUpdateInterface::requestPath residual.
+    ///
+    /// Uses host PathfindingSystem A* when available; fail-closed straight path.
+    pub fn request_object_path(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        let Some(obj) = self.objects.get(&id) else {
+            return false;
+        };
+        if obj.status.destroyed || !obj.is_alive() {
+            return false;
+        }
+        let start = obj.get_position();
+        // Snapshot objects for pathfinder dynamic obstacles.
+        let waypoints = self
+            .pathfinding_system
+            .find_path(start, destination, &self.objects)
+            .filter(|p| p.len() >= 2)
+            .unwrap_or_else(|| vec![destination]);
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.request_path(destination, Some(waypoints));
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         // Snapshot ground heights before mut pass (terrain borrow).
@@ -71546,6 +71572,72 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn request_object_path_sets_target() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("PathUnit");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(1001);
+        let mut o = Object::new(t, id, Team::USA);
+        o.set_position(Vec3::new(0.0, 0.0, 0.0));
+        logic.objects.insert(id, o);
+        assert!(logic.request_object_path(id, Vec3::new(50.0, 0.0, 0.0)));
+        let o = logic.objects.get(&id).unwrap();
+        assert!(o.movement.target_position.is_some());
+        assert!(!o.movement.path.is_empty());
+        assert!(!o.waiting_for_path);
+    }
+
+    #[test]
+    fn downhill_only_blocks_uphill() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Ski");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(1002), Team::USA);
+        o.downhill_only = true;
+        o.set_position(Vec3::new(0.0, 10.0, 0.0));
+        o.movement.max_speed = 30.0;
+        o.movement.acceleration = 100.0;
+        o.movement.target_position = Some(Vec3::new(20.0, 20.0, 0.0)); // uphill
+        let p0 = o.get_position();
+        o.update_movement(1.0 / 30.0);
+        // Should not advance toward uphill goal.
+        assert!((o.get_position() - p0).length() < 1e-3);
+    }
+
+    #[test]
+    fn group_speed_factor_scales_desired() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Grp");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(1003), Team::USA);
+        o.set_orientation(0.0);
+        o.set_position(Vec3::ZERO);
+        o.movement.max_speed = 40.0;
+        o.movement.acceleration = 1000.0;
+        o.group_speed_factor = 0.5;
+        o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
+        o.update_movement(1.0 / 30.0);
+        // With half group speed, shouldn't hit full 40 quickly.
+        assert!(o.movement.velocity.length() < 35.0);
+    }
+
+    #[test]
+    fn calc_lift_positive_when_below_preferred() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("Lift");
+        t.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(t, ObjectId(1004), Team::USA);
+        o.max_lift = 5.0;
+        o.movement.velocity.y = 0.0;
+        let lift = o.calc_lift_to_use_at_pt(10.0, 20.0);
+        assert!(lift > 0.0, "lift={lift}");
     }
 
     #[test]
