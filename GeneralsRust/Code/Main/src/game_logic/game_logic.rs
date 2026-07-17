@@ -10451,6 +10451,14 @@ impl GameLogic {
             if let Some(af) = self.objects.get_mut(&af_id) {
                 freed = af.remove_occupant(jet_id);
             }
+            // C++ releaseSpace → setHoldDoorOpen(door, false) when slot empty.
+            // Fail-closed: clear hold when airfield has no remaining parked jets.
+            let still_parked = self.airfield_parked_count(af_id) > 0;
+            if let Some(af) = self.objects.get_mut(&af_id) {
+                if !still_parked {
+                    af.set_production_door_hold_open(false, self.frame);
+                }
+            }
         }
         // Success if we launched, or cleaned a lingering parking slot, or jet is free.
         took_off || freed || af_hint.is_some()
@@ -10556,6 +10564,8 @@ impl GameLogic {
             } else if !af.occupants.contains(&jet_id) {
                 af.occupants.push(jet_id);
             }
+            // C++ ParkingPlaceBehavior::reserveSpace → setHoldDoorOpen(door, true).
+            af.set_production_door_hold_open(true, self.frame);
         }
         true
     }
@@ -78269,6 +78279,47 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn production_door_hold_open_blocks_close_until_released() {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_waiting_open_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("AmericaAirfield");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(2000.0);
+        logic.templates.insert("AmericaAirfield".into(), st);
+        let id = logic
+            .create_object("AmericaAirfield", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("af");
+        // Hold open starts door cycle.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_production_door_hold_open(true, 0);
+            assert!(o.production_door_hold_open);
+            assert_eq!(o.production_door_phase, 1);
+            // Advance to WAITING_OPEN
+            assert!(!o.tick_production_door(15));
+            assert_eq!(o.production_door_phase, 2);
+            // Held: cannot leave WAITING_OPEN
+            assert!(!o.tick_production_door(100));
+            assert_eq!(o.production_door_phase, 2);
+            assert!(host_model_condition_has(
+                o.model_condition_bits,
+                door_1_waiting_open_model_bit()
+            ));
+            // Release hold → can progress
+            o.set_production_door_hold_open(false, 100);
+            assert!(!o.tick_production_door(100));
+            assert_eq!(o.production_door_phase, 3); // WAITING_TO_CLOSE
+            assert!(!o.tick_production_door(101));
+            assert_eq!(o.production_door_phase, 4); // CLOSING
+            assert!(o.tick_production_door(116));
+            assert_eq!(o.production_door_phase, 0);
+        }
     }
 
     #[test]
