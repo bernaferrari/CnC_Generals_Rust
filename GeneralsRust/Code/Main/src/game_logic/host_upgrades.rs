@@ -45,6 +45,8 @@ pub const UPGRADE_CHINA_NUCLEAR_TANKS: &str = "Upgrade_ChinaNuclearTanks";
 pub const UPGRADE_GLA_REBEL_BOOBY_TRAP: &str = "Upgrade_GLAInfantryRebelBoobyTrapAttack";
 /// Demo General SuicideBomb death-weapon residual.
 pub const UPGRADE_DEMO_SUICIDE_BOMB: &str = "Demo_Upgrade_SuicideBomb";
+/// America Advanced Control Rods residual (PowerPlantUpgrade EnergyBonus).
+pub const UPGRADE_AMERICA_ADVANCED_CONTROL_RODS: &str = "Upgrade_AmericaAdvancedControlRods";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -109,6 +111,8 @@ pub enum HostUpgradeKind {
     AnthraxGamma,
     /// Demo SuicideBomb: structure/unit death blast residual.
     SuicideBomb,
+    /// America Advanced Control Rods: EnergyBonus on power plants.
+    AdvancedControlRods,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -151,6 +155,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::NuclearTanks
         } else if n.contains("boobytrap") {
             HostUpgradeKind::BoobyTrap
+        } else if n.contains("advancedcontrolrods") || n.contains("controlrods") {
+            HostUpgradeKind::AdvancedControlRods
         } else {
             HostUpgradeKind::Other
         }
@@ -174,6 +180,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::BoobyTrap => "BoobyTrap",
             HostUpgradeKind::AnthraxGamma => "AnthraxGamma",
             HostUpgradeKind::SuicideBomb => "SuicideBomb",
+            HostUpgradeKind::AdvancedControlRods => "AdvancedControlRods",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -201,6 +208,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::BoobyTrap
             | HostUpgradeKind::AnthraxGamma
             | HostUpgradeKind::SuicideBomb
+            | HostUpgradeKind::AdvancedControlRods
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -227,6 +235,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::BoobyTrap => 1000,
             HostUpgradeKind::AnthraxGamma => 1500,
             HostUpgradeKind::SuicideBomb => 2000,
+            HostUpgradeKind::AdvancedControlRods => 1500,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -250,6 +259,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::BoobyTrap => 30.0,
             HostUpgradeKind::AnthraxGamma => 60.0,
             HostUpgradeKind::SuicideBomb => 30.0,
+            HostUpgradeKind::AdvancedControlRods => 60.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -886,6 +896,22 @@ mod camouflage_template_tests {
     }
 
     #[test]
+    #[test]
+    fn advanced_control_rods_kind_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaAdvancedControlRods"),
+            HostUpgradeKind::AdvancedControlRods
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("SupW_Upgrade_AmericaAdvancedControlRods"),
+            HostUpgradeKind::AdvancedControlRods
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS),
+            HostUpgradeKind::AdvancedControlRods
+        );
+    }
+
     fn camouflage_kind_from_name() {
         assert_eq!(
             HostUpgradeKind::from_name("Upgrade_GLACamouflage"),
