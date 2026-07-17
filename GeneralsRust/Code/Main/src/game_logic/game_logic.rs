@@ -1444,6 +1444,8 @@ pub struct GameLogic {
     rebuild_hole_completes: u32,
     /// C++ transferAttack residual events around rebuild holes.
     rebuild_hole_attack_transfers: u32,
+    /// C++ RebuildHoleBehavior::transferBombs residual events.
+    rebuild_hole_bomb_transfers: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2687,6 +2689,7 @@ impl GameLogic {
             rebuild_hole_heals: 0,
             rebuild_hole_completes: 0,
             rebuild_hole_attack_transfers: 0,
+            rebuild_hole_bomb_transfers: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3080,6 +3083,7 @@ impl GameLogic {
         self.rebuild_hole_heals = 0;
         self.rebuild_hole_completes = 0;
         self.rebuild_hole_attack_transfers = 0;
+        self.rebuild_hole_bomb_transfers = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -43513,6 +43517,42 @@ impl GameLogic {
         self.dozer_bored_repair_events > 0
     }
 
+    /// C++ RebuildHoleBehavior::transferBombs residual.
+    ///
+    /// Sticky bombs / mines attached to `from_id` retarget to `to_id`.
+    pub fn transfer_bombs(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {
+        if from_id == to_id {
+            return 0;
+        }
+        if !self.objects.contains_key(&to_id) {
+            return 0;
+        }
+        let mut n = 0usize;
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in ids {
+            if id == from_id || id == to_id {
+                continue;
+            }
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            // StickyBombUpdate target residual stored as mine_data.attached_to.
+            if let Some(md) = obj.mine_data.as_mut() {
+                if md.attached_to == Some(from_id) {
+                    md.attached_to = Some(to_id);
+                    n = n.saturating_add(1);
+                }
+            }
+            // Also retarget if attacking the old host as sticky residual.
+            // Fail-closed: only mine-kind objects (mine_data present).
+        }
+        if n > 0 {
+            self.rebuild_hole_bomb_transfers =
+                self.rebuild_hole_bomb_transfers.saturating_add(n as u32);
+        }
+        n
+    }
+
     /// C++ RebuildHoleExposeDie HoleName residual for common GLA structures.
     fn rebuild_hole_name_for_template(template_name: &str) -> Option<&'static str> {
         let n = template_name.to_ascii_lowercase();
@@ -43749,6 +43789,8 @@ impl GameLogic {
                 self.rebuild_hole_attack_transfers =
                     self.rebuild_hole_attack_transfers.saturating_add(n as u32);
             }
+            // C++ transferBombs(reconstructing) residual.
+            let _ = self.transfer_bombs(hole_id, new_id);
             self.rebuild_hole_reconstructs = self.rebuild_hole_reconstructs.saturating_add(1);
         }
         for hid in holes_to_remove {
@@ -78567,6 +78609,63 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
+        use crate::game_logic::host_mines::{HostMineData, HostMineKind};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        let mut st = ThingTemplate::new("GLATunnelNetwork");
+        st.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), st);
+        let mut bomb_t = ThingTemplate::new("TimedC4Charge");
+        bomb_t.set_health(10.0);
+        logic.templates.insert("TimedC4Charge".into(), bomb_t);
+        let hole = {
+            let sid = logic
+                .create_object(
+                    "GLATunnelNetwork",
+                    Team::GLA,
+                    glam::Vec3::new(0.0, 0.0, 0.0),
+                )
+                .expect("s");
+            if let Some(o) = logic.get_object_mut(sid) {
+                o.status.under_construction = false;
+                o.construction_percent = 1.0;
+            }
+            logic.maybe_spawn_rebuild_hole(sid).expect("hole")
+        };
+        let bid = logic
+            .create_object("TimedC4Charge", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("bomb");
+        if let Some(o) = logic.get_object_mut(bid) {
+            let mut md = HostMineData::new(HostMineKind::TimedDemoCharge);
+            md.attached_to = Some(hole);
+            o.mine_data = Some(md);
+        }
+        // Force reconstruct path.
+        let now = logic.frame.max(1);
+        if let Some(h) = logic.get_object_mut(hole) {
+            h.rebuild_ready_frame = now;
+        }
+        logic.frame = now;
+        logic.update_rebuild_holes();
+        let rid = logic
+            .get_object(hole)
+            .and_then(|h| h.rebuild_reconstructing_id)
+            .expect("recon");
+        assert_eq!(
+            logic
+                .get_object(bid)
+                .and_then(|b| b.mine_data.as_ref())
+                .and_then(|m| m.attached_to),
+            Some(rid)
+        );
+        assert!(logic.rebuild_hole_bomb_transfers > 0);
     }
 
     #[test]
