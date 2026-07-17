@@ -3940,9 +3940,10 @@ pub const A10_PAYLOAD_TEMPLATE: &str = "A10ThunderboltMissile";
 pub const A10_PAYLOAD_WEAPON: &str = "A10ThunderboltMissileWeapon";
 
 /// Residual A10 science tier (FormationSize 1/2/3 jets).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum A10StrikeScienceTier {
     /// SCIENCE_A10ThunderboltMissileStrike1 → FormationSize **1**.
+    #[default]
     Level1,
     /// SCIENCE_A10ThunderboltMissileStrike2 → FormationSize **2**.
     Level2,
@@ -5307,6 +5308,13 @@ pub struct HostSpecialPowerStrike {
     /// Ignored for non-ScudStorm kinds. Default Base.
     #[serde(default)]
     pub scud_anthrax_tier: ScudStormAnthraxTier,
+    /// A10 science-tier FormationSize residual (1/2/3 jets).
+    /// Ignored for non-A10 kinds. Default Level1.
+    #[serde(default)]
+    pub a10_tier: A10StrikeScienceTier,
+    /// Honesty: A10 FormationSize residual applications at queue.
+    #[serde(default)]
+    pub a10_formation_size_applications: u32,
     /// Multi-strike residual: how many shells/bombs have already applied damage.
     /// One-shot kinds leave this at 0 and complete in a single wave.
     #[serde(default)]
@@ -7052,6 +7060,7 @@ impl HostSpecialPowerStrikeRegistry {
             artillery_tier,
             spectre_tier,
             ScudStormAnthraxTier::Base,
+            A10StrikeScienceTier::Level1,
         )
     }
 
@@ -7066,6 +7075,7 @@ impl HostSpecialPowerStrikeRegistry {
         artillery_tier: ArtilleryBarrageScienceTier,
         spectre_tier: SpectreGunshipScienceTier,
         scud_anthrax_tier: ScudStormAnthraxTier,
+        a10_tier: A10StrikeScienceTier,
     ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -7086,6 +7096,8 @@ impl HostSpecialPowerStrikeRegistry {
             artillery_tier,
             spectre_tier,
             scud_anthrax_tier,
+            a10_tier,
+            a10_formation_size_applications: 0,
             multi_strike_applied: 0,
             particle_status: ParticleUplinkStatus::Idle,
             particle_status_peak: ParticleUplinkStatus::Idle,
@@ -7218,6 +7230,9 @@ impl HostSpecialPowerStrikeRegistry {
             strike.artillery_weapon_error_radius_applications = 1;
             strike.artillery_preferred_height_applications = 1;
         }
+        if kind == HostSuperweaponKind::A10Strike {
+            strike.a10_formation_size_applications = 1;
+        }
         if kind == HostSuperweaponKind::CruiseMissile {
             strike.cruise_residual_pack_armed = 1;
             strike.cruise_loft_applications = 1;
@@ -7236,7 +7251,12 @@ impl HostSpecialPowerStrikeRegistry {
     /// (`ScudStormDamageWeapon`): full Primary inside PrimaryRadius, Secondary
     /// out to SecondaryRadius (not linear falloff).
     pub fn damage_at_distance(kind: HostSuperweaponKind, distance: f32) -> f32 {
-        Self::damage_at_distance_with_scud_tier(kind, distance, ScudStormAnthraxTier::Base)
+        Self::damage_at_distance_with_tiers(
+            kind,
+            distance,
+            ScudStormAnthraxTier::Base,
+            A10StrikeScienceTier::Level1,
+        )
     }
 
     /// Falloff residual with ScudStorm anthrax-upgrade tier (Secondary 150/200, Primary 500/550).
@@ -7244,6 +7264,19 @@ impl HostSpecialPowerStrikeRegistry {
         kind: HostSuperweaponKind,
         distance: f32,
         scud_tier: ScudStormAnthraxTier,
+    ) -> f32 {
+        Self::damage_at_distance_with_tiers(kind, distance, scud_tier, A10StrikeScienceTier::Level1)
+    }
+
+    /// Falloff residual with ScudStorm anthrax + A10 FormationSize science tiers.
+    ///
+    /// A10 residual: scale host max damage by FormationSize (1/2/3 jets).
+    /// Fail-closed vs full multi-jet DeliverPayload flight Object.
+    pub fn damage_at_distance_with_tiers(
+        kind: HostSuperweaponKind,
+        distance: f32,
+        scud_tier: ScudStormAnthraxTier,
+        a10_tier: A10StrikeScienceTier,
     ) -> f32 {
         if kind == HostSuperweaponKind::ScudStorm {
             if distance <= SCUD_STORM_PRIMARY_RADIUS {
@@ -7256,7 +7289,10 @@ impl HostSpecialPowerStrikeRegistry {
         }
         let radius = kind.damage_radius();
         let inner = kind.falloff_inner();
-        let max = kind.max_damage();
+        let mut max = kind.max_damage();
+        if kind == HostSuperweaponKind::A10Strike {
+            max *= a10_tier.formation_size().max(1) as f32;
+        }
         if distance <= inner {
             max
         } else if distance >= radius {
@@ -7358,19 +7394,21 @@ impl HostSpecialPowerStrikeRegistry {
                     due_points
                         .iter()
                         .map(|epicenter| {
-                            Self::damage_at_distance_with_scud_tier(
+                            Self::damage_at_distance_with_tiers(
                                 strike.kind,
                                 horizontal_distance(pos, *epicenter),
                                 strike.scud_anthrax_tier,
+                                strike.a10_tier,
                             )
                         })
                         .fold(0.0_f32, f32::max)
                 } else {
                     let dist = horizontal_distance(pos, strike.target_position);
-                    let primary = Self::damage_at_distance_with_scud_tier(
+                    let primary = Self::damage_at_distance_with_tiers(
                         strike.kind,
                         dist,
                         strike.scud_anthrax_tier,
+                        strike.a10_tier,
                     );
                     // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
                     // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
@@ -12238,6 +12276,7 @@ mod tests {
             ArtilleryBarrageScienceTier::Level1,
             SpectreGunshipScienceTier::Level2,
             ScudStormAnthraxTier::AnthraxBeta,
+            A10StrikeScienceTier::Level1,
         );
         assert_eq!(
             reg.get(id).unwrap().scud_anthrax_tier,
