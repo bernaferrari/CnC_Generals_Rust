@@ -1423,6 +1423,10 @@ pub struct GameLogic {
     sell_process_finishes: u32,
     /// C++ sellObject destroy owned mines residual.
     sell_owned_mines_destroyed: u32,
+    /// C++ OpenContain::onSelling passenger eject residual.
+    sell_passengers_ejected: u32,
+    /// C++ ParkingPlaceBehavior::killAllParkedUnits residual.
+    sell_parked_units_killed: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2683,6 +2687,8 @@ impl GameLogic {
             sell_process_starts: 0,
             sell_process_finishes: 0,
             sell_owned_mines_destroyed: 0,
+            sell_passengers_ejected: 0,
+            sell_parked_units_killed: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3080,6 +3086,8 @@ impl GameLogic {
         self.sell_process_starts = 0;
         self.sell_process_finishes = 0;
         self.sell_owned_mines_destroyed = 0;
+        self.sell_passengers_ejected = 0;
+        self.sell_parked_units_killed = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -43172,6 +43180,95 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
+
+    /// C++ OpenContain::onSelling + ParkingPlaceBehavior::killAllParkedUnits residual.
+    ///
+    /// - Eject garrison/transport occupants (orderAllPassengersToExit residual)
+    /// - Kill parked aircraft at airfield hangar (grounded only)
+    pub fn on_selling_container_residual(&mut self, structure_id: ObjectId) {
+        let Some(pos) = self.objects.get(&structure_id).map(|o| o.get_position()) else {
+            return;
+        };
+        let is_airfield = self
+            .objects
+            .get(&structure_id)
+            .map(|o| {
+                o.is_kind_of(KindOf::FSAirfield)
+                    || o.template_name.to_ascii_lowercase().contains("airfield")
+            })
+            .unwrap_or(false);
+
+        // Snapshot occupants.
+        let occupants: Vec<ObjectId> = self
+            .objects
+            .get(&structure_id)
+            .map(|o| o.contained_units())
+            .unwrap_or_default();
+
+        // Eject passengers around structure (OpenContain::onSelling).
+        for (i, uid) in occupants.iter().copied().enumerate() {
+            if is_airfield {
+                // Parked jets: kill if not airborne takeoff residual.
+                let kill = self
+                    .objects
+                    .get(&uid)
+                    .map(|u| {
+                        let aircraft =
+                            u.is_kind_of(KindOf::Aircraft) || u.object_type == ObjectType::Aircraft;
+                        let airborne = u.status.airborne_target || u.get_position().y > 5.0;
+                        aircraft && !airborne
+                    })
+                    .unwrap_or(false);
+                if kill {
+                    self.destroy_object(uid);
+                    self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(1);
+                    continue;
+                }
+            }
+            // Eject residual.
+            if let Some(unit) = self.objects.get_mut(&uid) {
+                let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
+                let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
+                unit.stop_moving();
+                unit.set_position(pos + offset);
+                unit.set_target(None);
+                unit.contained_by = None;
+                unit.ai_state = AIState::Idle;
+                unit.status.moving = false;
+                unit.status.attacking = false;
+            }
+            if let Some(st) = self.objects.get_mut(&structure_id) {
+                let _ = st.remove_occupant(uid);
+            }
+            self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
+        }
+
+        // Also kill any jet with contained_by = structure (hangar roster residual).
+        if is_airfield {
+            let parked: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter_map(|(id, o)| {
+                    if o.contained_by != Some(structure_id) {
+                        return None;
+                    }
+                    let aircraft =
+                        o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft;
+                    let airborne = o.status.airborne_target || o.get_position().y > 5.0;
+                    if aircraft && !airborne {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for pid in parked {
+                self.destroy_object(pid);
+                self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(1);
+            }
+        }
+    }
+
     pub fn start_sell_object(&mut self, object_id: ObjectId) -> bool {
         let Some(obj) = self.objects.get(&object_id) else {
             return false;
@@ -43189,6 +43286,8 @@ impl GameLogic {
         let frame = self.frame;
         // Cancel production + refund queue first (C++ ProductionUpdate cancelAndRefundAllProduction).
         self.cancel_all_production(object_id);
+        // C++ contain->onSelling() + ParkingPlace killAllParkedUnits residual.
+        self.on_selling_container_residual(object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
             obj.construction_percent = 0.999;
@@ -79562,6 +79661,100 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn sell_ejects_garrison_and_kills_parked_aircraft() {
+        use crate::game_logic::ObjectType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut bunker = ThingTemplate::new("AmericaBunker");
+        bunker
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        bunker.build_cost.supplies = 500;
+        logic.templates.insert("AmericaBunker".into(), bunker);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut af = ThingTemplate::new("AmericaAirfield");
+        af.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(2000.0);
+        af.build_cost.supplies = 1000;
+        logic.templates.insert("AmericaAirfield".into(), af);
+        let mut jet = ThingTemplate::new("AmericaJetRaptor");
+        jet.add_kind_of(KindOf::Aircraft).set_health(200.0);
+        logic.templates.insert("AmericaJetRaptor".into(), jet);
+
+        let bid = logic
+            .create_object("AmericaBunker", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("bunker");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.max_garrison = 5;
+            }
+        }
+        let rid = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(1.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        if let Some(b) = logic.get_object_mut(bid) {
+            assert!(b.add_occupant(rid));
+        }
+        if let Some(r) = logic.get_object_mut(rid) {
+            r.contained_by = Some(bid);
+            r.ai_state = AIState::Garrisoned;
+        }
+        assert!(logic.start_sell_object(bid));
+        assert!(logic.sell_passengers_ejected > 0);
+        let r = logic.get_object(rid).expect("ranger ejected");
+        assert!(r.contained_by.is_none());
+        assert_eq!(r.ai_state, AIState::Idle);
+
+        // Airfield parked jet kill residual.
+        let afid = logic
+            .create_object(
+                "AmericaAirfield",
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("af");
+        if let Some(o) = logic.get_object_mut(afid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let jid = logic
+            .create_object(
+                "AmericaJetRaptor",
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("jet");
+        if let Some(j) = logic.get_object_mut(jid) {
+            j.object_type = ObjectType::Aircraft;
+            j.contained_by = Some(afid);
+            j.ai_state = AIState::Docked;
+            j.status.airborne_target = false;
+        }
+        if let Some(a) = logic.get_object_mut(afid) {
+            let _ = a.add_occupant(jid);
+        }
+        assert!(logic.start_sell_object(afid));
+        logic.process_destroy_list();
+        assert!(logic.sell_parked_units_killed > 0);
+        assert!(logic.get_object(jid).is_none());
     }
 
     #[test]
