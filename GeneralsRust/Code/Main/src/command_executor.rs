@@ -911,11 +911,29 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_cancel_unit(&mut self, units: &[ObjectId], template_name: &str) -> CommandResult {
+        // Resolve empty name → unit production head residual (not PRODUCTION_UPGRADE).
+        let resolved = if template_name.trim().is_empty() {
+            units.iter().find_map(|&unit_id| {
+                self.game_logic.get_object(unit_id).and_then(|obj| {
+                    obj.building_data.as_ref().and_then(|b| {
+                        b.production_queue
+                            .iter()
+                            .find(|i| !i.is_upgrade())
+                            .map(|i| i.template_name.clone())
+                    })
+                })
+            })
+        } else {
+            Some(template_name.to_string())
+        };
+        let Some(template_name) = resolved.filter(|s| !s.trim().is_empty()) else {
+            return CommandResult::InvalidCommand;
+        };
         let mut cancelled = false;
         for &unit_id in units {
             if self
                 .game_logic
-                .cancel_production(unit_id, template_name.to_string())
+                .cancel_production(unit_id, template_name.clone())
             {
                 cancelled = true;
             }
@@ -2172,14 +2190,30 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_cancel_upgrade(&mut self, units: &[ObjectId], upgrade_name: &str) -> CommandResult {
-        if upgrade_name.trim().is_empty() {
+        // C++ cancel queue head residual: Command_CancelUpgrade may omit the name;
+        // resolve from the first selected producer's PRODUCTION_UPGRADE head.
+        let resolved_name = if upgrade_name.trim().is_empty() {
+            units.iter().find_map(|&unit_id| {
+                self.game_logic.get_object(unit_id).and_then(|obj| {
+                    obj.building_data.as_ref().and_then(|b| {
+                        b.production_queue
+                            .iter()
+                            .find(|i| i.is_upgrade())
+                            .map(|i| i.template_name.clone())
+                    })
+                })
+            })
+        } else {
+            Some(upgrade_name.to_string())
+        };
+        let Some(upgrade_name) = resolved_name.filter(|s| !s.trim().is_empty()) else {
             return CommandResult::InvalidCommand;
-        }
+        };
 
         let mut seen_teams = HashSet::new();
         let mut refunded = false;
         let refund = Resources {
-            supplies: self.resolve_upgrade_cost_supplies(upgrade_name),
+            supplies: self.resolve_upgrade_cost_supplies(&upgrade_name),
             power: 0,
         };
         let mut cancelled_players: Vec<u32> = Vec::new();
@@ -2195,7 +2229,7 @@ impl<'a> CommandExecutor<'a> {
                 }
                 if let Some(player) = self.game_logic.get_player_mut_by_team(team) {
                     let player_id = player.id;
-                    if player.cancel_queued_upgrade(upgrade_name, &refund) {
+                    if player.cancel_queued_upgrade(&upgrade_name, &refund) {
                         refunded = true;
                         cancelled_players.push(player_id);
                     }
@@ -2204,20 +2238,27 @@ impl<'a> CommandExecutor<'a> {
         }
         for player_id in cancelled_players {
             self.game_logic
-                .record_host_upgrade_cancelled(player_id, upgrade_name);
+                .record_host_upgrade_cancelled(player_id, &upgrade_name);
         }
         // C++ cancelUpgrade also removes the PRODUCTION_UPGRADE entry from the producer queue.
+        let mut removed_from_building = false;
         for &unit_id in units {
             if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
                 if let Some(building) = obj.building_data.as_mut() {
+                    let before = building.production_queue.len();
                     building.production_queue.retain(|item| {
                         !(item.is_upgrade()
-                            && item.template_name.eq_ignore_ascii_case(upgrade_name))
+                            && item.template_name.eq_ignore_ascii_case(&upgrade_name))
                     });
+                    if building.production_queue.len() < before {
+                        removed_from_building = true;
+                    }
                 }
             }
         }
-        if refunded {
+        // If player queue was already empty but building still held the entry, treat as success
+        // after removing the PRODUCTION_UPGRADE residual (refund already applied or N/A).
+        if refunded || removed_from_building {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
