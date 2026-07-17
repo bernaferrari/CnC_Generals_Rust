@@ -114,6 +114,14 @@ pub struct GameUIState {
     pub credits_per_second: f32,
     pub player_id: u32,
     pub player_name: String,
+    /// Generals rank residual (1-based).
+    pub rank_level: u32,
+    /// GeneralsExperience skill points residual.
+    pub skill_points: i32,
+    /// Remaining science purchase points residual.
+    pub science_purchase_points: i32,
+    /// ControlBar rank bar 0..100 residual.
+    pub rank_progress_percent: i32,
     pub selected_units: Vec<ObjectId>,
     pub selected_unit_infos: Vec<UnitDisplayInfo>,
     /// ControlBar/WND selection panel (health/name) from PresentationFrame when available.
@@ -213,6 +221,10 @@ impl Default for GameUIState {
             credits_per_second: 5.0,
             player_id: 0,
             player_name: localization::localize("hud.commander", "Commander"),
+            rank_level: 1,
+            skill_points: 0,
+            science_purchase_points: 0,
+            rank_progress_percent: 0,
             selected_units: Vec::new(),
             selected_unit_infos: Vec::new(),
             selection_panel: ControlBarSelectionPanelState::default(),
