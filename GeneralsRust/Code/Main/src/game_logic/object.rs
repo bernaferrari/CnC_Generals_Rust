@@ -189,6 +189,8 @@ pub struct Object {
     pub production_door_phase: u8,
     /// Frame when current door residual phase ends.
     pub production_door_phase_end_frame: u32,
+    /// C++ ProductionUpdate DoorInfo::m_holdOpen residual (ParkingPlace).
+    pub production_door_hold_open: bool,
     /// C++ ProductionUpdate m_constructionCompleteFrame residual.
     /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
     pub construction_complete_clear_frame: u32,
@@ -1193,6 +1195,7 @@ impl Object {
             radar_active: false,
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
+            production_door_hold_open: false,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
@@ -1469,6 +1472,7 @@ impl Object {
             radar_active: false,
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
+            production_door_hold_open: false,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
@@ -2836,6 +2840,25 @@ impl Object {
         self.refresh_model_condition_bits();
     }
 
+    /// C++ ProductionUpdate::setHoldDoorOpen residual.
+    ///
+    /// When hold becomes true and the door is idle, starts OPENING residual.
+    /// While hold is true, tick will not leave WAITING_OPEN / WAITING_TO_CLOSE.
+    pub fn set_production_door_hold_open(&mut self, hold: bool, now: u32) {
+        self.production_door_hold_open = hold;
+        if hold && self.production_door_phase == 0 {
+            // C++: if all door frames 0, start opening.
+            self.start_production_door_cycle(now);
+        }
+        if !hold {
+            // Allow close path to proceed from current phase on next tick.
+            // If stuck in wait phases, schedule immediate advance eligibility.
+            if matches!(self.production_door_phase, 2 | 3) {
+                self.production_door_phase_end_frame = now;
+            }
+        }
+    }
+
     /// Advance production door residual; returns true when cycle fully closed.
     pub fn tick_production_door(&mut self, now: u32) -> bool {
         if self.production_door_phase == 0 {
@@ -2863,6 +2886,12 @@ impl Object {
                 false
             }
             2 => {
+                // C++: !m_holdOpen required to leave WAITING_OPEN.
+                if self.production_door_hold_open {
+                    // Keep waiting-open while held (refresh wait stamp residual).
+                    self.production_door_phase_end_frame = now.saturating_add(30);
+                    return false;
+                }
                 // WAITING_OPEN → WAITING_TO_CLOSE residual (C++ theWaitingToCloseFlags).
                 self.model_condition_bits &= !(1u128 << wait_b);
                 self.model_condition_bits |= 1u128 << wait_close_b;
@@ -2873,6 +2902,11 @@ impl Object {
                 false
             }
             3 => {
+                // C++: !m_holdOpen required to leave WAITING_TO_CLOSE / CLOSING path.
+                if self.production_door_hold_open {
+                    self.production_door_phase_end_frame = now.saturating_add(1);
+                    return false;
+                }
                 // WAITING_TO_CLOSE → CLOSING
                 self.model_condition_bits &= !(1u128 << wait_close_b);
                 self.model_condition_bits |= 1u128 << close_b;
@@ -2882,6 +2916,16 @@ impl Object {
                 false
             }
             4 => {
+                // C++: !m_holdOpen required to finish closing.
+                if self.production_door_hold_open {
+                    // Snap back to waiting-open while held.
+                    self.model_condition_bits &= !(1u128 << close_b);
+                    self.model_condition_bits |= 1u128 << wait_b;
+                    self.production_door_phase = 2;
+                    self.production_door_phase_end_frame = now.saturating_add(30);
+                    self.refresh_model_condition_bits();
+                    return false;
+                }
                 // CLOSING → idle
                 self.model_condition_bits &= !(1u128 << close_b);
                 self.production_door_phase = 0;
