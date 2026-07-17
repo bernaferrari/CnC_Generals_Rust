@@ -4927,6 +4927,12 @@ impl Object {
     }
 
     /// C++ canPursue residual (simplified — no turret matrix).
+
+    /// C++ Weapon::hasLeechRange residual (primary or secondary active).
+    pub fn leech_range_active(&self) -> bool {
+        self.leech_range_active_primary || self.leech_range_active_secondary
+    }
+
     pub fn can_pursue_target(&self, victim: &Object) -> bool {
         // Need victim physics (velocity).
         let victim_speed = victim.forward_speed_2d().abs();
