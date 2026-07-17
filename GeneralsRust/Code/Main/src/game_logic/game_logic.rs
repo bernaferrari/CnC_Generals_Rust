@@ -6171,14 +6171,34 @@ impl GameLogic {
     /// Returns number of pairs that invoked try_physics_collide successfully.
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
         // Per-frame blocked bookkeeping residual (before new collide pairs).
+        // Snapshot ground heights before mut pass (terrain borrow).
+        let ground_heights: Vec<(ObjectId, f32)> = {
+            let mut out = Vec::new();
+            for (id, o) in self.objects.iter() {
+                if o.status.destroyed || !o.is_alive() {
+                    continue;
+                }
+                let p = o.get_position();
+                let g = self
+                    .terrain_height_at(glam::Vec3::new(p.x, 0.0, p.z))
+                    .unwrap_or(0.0);
+                out.push((*id, g));
+            }
+            out
+        };
         for o in self.objects.values_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
-            // C++ PhysicsBehavior update residual order: friction → integrate accel.
+            // C++ PhysicsBehavior update residual order: friction → integrate accel → motion.
             if o.can_move() && !o.status.destroyed {
                 o.apply_frictional_forces();
             }
             o.integrate_physics_accel();
+        }
+        for (id, ground_y) in ground_heights {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let _ = o.tick_physics_motion_step(ground_y);
+            }
         }
         // Rebuild partition cells (C++ registerObject residual each update).
         // Keep FOW reveal residual; only re-register live objects.
@@ -71526,6 +71546,48 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn tick_physics_motion_step_clamps_ground() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Mot");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(931), Team::USA);
+        o.set_position(Vec3::new(0.0, 1.0, 0.0));
+        o.movement.velocity = Vec3::new(0.0, -3.0, 0.0); // crosses ground in one frame
+        o.shock_allow_bounce = true;
+        o.original_allow_bounce = false;
+        o.was_airborne_last_frame = true;
+        o.immune_to_falling_damage = true; // isolate clamp
+        let bounced = o.tick_physics_motion_step(0.0);
+        assert!(
+            (o.get_position().y - 0.0).abs() < 1e-4,
+            "y={}",
+            o.get_position().y
+        );
+        // Falling into ground with allow bounce should produce bounce force path.
+        assert!(
+            bounced,
+            "expected bounce force when crossing ground with ALLOW_BOUNCE"
+        );
+        assert!(o.movement.velocity.y >= -1e-3);
+    }
+
+    #[test]
+    fn stick_to_ground_snaps_when_not_falling() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Stick");
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(932), Team::USA);
+        o.set_position(Vec3::new(0.0, 1.5, 0.0));
+        o.movement.velocity = Vec3::ZERO;
+        o.stick_to_ground = true;
+        o.allow_to_fall = false;
+        let _ = o.tick_physics_motion_step(0.0);
+        assert!((o.get_position().y - 0.0).abs() < 1e-4);
     }
 
     #[test]
