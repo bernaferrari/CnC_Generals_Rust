@@ -693,6 +693,10 @@ impl Default for SkirmishRulesState {
 const REBUILD_HOLE_WORKER_RESPAWN_FRAMES: u32 = 300;
 /// C++ HoleMaxHealth residual default for GLA holes.
 const REBUILD_HOLE_MAX_HEALTH_RESIDUAL: f32 = 500.0;
+/// C++ HoleHealthRegen%PerSecond residual default (0.1 = 10%/sec).
+const REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC: f32 = 0.10;
+/// C++ WorkerObjectName residual sample for GLA holes.
+const REBUILD_HOLE_WORKER_TEMPLATE: &str = "GLAWorker";
 const FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL: u32 = 45;
 /// C++ TOTAL_FRAMES_TO_SELL_OBJECT residual (LOGICFRAMES_PER_SECOND * 3.0 = 90).
 const TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL: u32 = 90;
@@ -1435,6 +1439,9 @@ pub struct GameLogic {
     rebuild_hole_spawns: u32,
     /// C++ RebuildHoleBehavior reconstruct residual events.
     rebuild_hole_reconstructs: u32,
+    rebuild_hole_workers: u32,
+    rebuild_hole_heals: u32,
+    rebuild_hole_completes: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2674,6 +2681,9 @@ impl GameLogic {
             dozer_bored_mine_clear_events: 0,
             rebuild_hole_spawns: 0,
             rebuild_hole_reconstructs: 0,
+            rebuild_hole_workers: 0,
+            rebuild_hole_heals: 0,
+            rebuild_hole_completes: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3063,6 +3073,9 @@ impl GameLogic {
         self.dozer_bored_mine_clear_events = 0;
         self.rebuild_hole_spawns = 0;
         self.rebuild_hole_reconstructs = 0;
+        self.rebuild_hole_workers = 0;
+        self.rebuild_hole_heals = 0;
+        self.rebuild_hole_completes = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -43569,51 +43582,172 @@ impl GameLogic {
         Some(hole_id)
     }
 
-    /// C++ RebuildHoleBehavior::update residual — reconstruct after worker delay.
+    /// C++ RebuildHoleBehavior::update residual:
+    /// - hole health regen while waiting
+    /// - spawn unselectable worker after WorkerRespawnDelay
+    /// - worker starts reconstruction; hole masked while reconstructing
+    /// - when reconstruction completes, hole is destroyed
     pub fn update_rebuild_holes(&mut self) {
         let now = self.frame;
+        let dt = 1.0 / 30.0;
+        let heal_frac = REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC * dt;
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(_, o)| o.is_alive() && o.is_rebuild_hole)
             .map(|(id, _)| *id)
             .collect();
+        let mut holes_to_remove: Vec<ObjectId> = Vec::new();
         for hole_id in ids {
-            let (team, pos, rebuild_name, orient) = {
+            // Hole health regen residual (always while hole alive).
+            if let Some(h) = self.objects.get_mut(&hole_id) {
+                if h.health.current + 1e-3 < h.health.maximum {
+                    let add = h.health.maximum * heal_frac;
+                    h.heal(add);
+                    self.rebuild_hole_heals = self.rebuild_hole_heals.saturating_add(1);
+                }
+            }
+
+            // If reconstructing building finished, destroy hole.
+            let recon_done = {
                 let Some(h) = self.objects.get(&hole_id) else {
                     continue;
                 };
-                if h.rebuild_ready_frame == 0 || now < h.rebuild_ready_frame {
+                if let Some(rid) = h.rebuild_reconstructing_id {
+                    match self.objects.get(&rid) {
+                        None => {
+                            // Building gone — clear and respawn worker residual next cycle.
+                            true // treat as need reset
+                        }
+                        Some(b) if b.is_alive() && !b.status.under_construction => true,
+                        _ => false,
+                    }
+                } else {
+                    false
+                }
+            };
+            if recon_done {
+                let finished = self
+                    .objects
+                    .get(&hole_id)
+                    .and_then(|h| h.rebuild_reconstructing_id)
+                    .and_then(|rid| self.objects.get(&rid))
+                    .map(|b| b.is_alive() && !b.status.under_construction)
+                    .unwrap_or(false);
+                if finished {
+                    // Clear producer link residual and remove hole.
+                    if let Some(rid) = self
+                        .objects
+                        .get(&hole_id)
+                        .and_then(|h| h.rebuild_reconstructing_id)
+                    {
+                        if let Some(b) = self.objects.get_mut(&rid) {
+                            b.status.reconstructing = false;
+                            b.status.masked = false;
+                        }
+                    }
+                    // Destroy residual unselectable worker if still around.
+                    if let Some(wid) = self.objects.get(&hole_id).and_then(|h| h.rebuild_worker_id)
+                    {
+                        self.destroy_object(wid);
+                    }
+                    holes_to_remove.push(hole_id);
+                    self.rebuild_hole_completes = self.rebuild_hole_completes.saturating_add(1);
+                    continue;
+                } else {
+                    // Reconstructing object died — reset for new worker.
+                    if let Some(h) = self.objects.get_mut(&hole_id) {
+                        h.rebuild_reconstructing_id = None;
+                        h.rebuild_worker_id = None;
+                        h.status.masked = false;
+                        h.rebuild_ready_frame = now
+                            .max(1)
+                            .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
+                    }
                     continue;
                 }
-                (
-                    h.team,
-                    h.get_position(),
-                    h.rebuild_template_name.clone(),
-                    h.get_orientation(),
-                )
-            };
-            let Some(rebuild_name) = rebuild_name else {
+            }
+
+            let Some(h) = self.objects.get(&hole_id) else {
                 continue;
             };
-            // Remove hole immediately so reconstruction can occupy the footprint.
-            self.objects.remove(&hole_id);
+            // Already reconstructing — keep masked.
+            if h.rebuild_reconstructing_id.is_some() {
+                continue;
+            }
+            if h.rebuild_ready_frame == 0 || now < h.rebuild_ready_frame {
+                continue;
+            }
+            let team = h.team;
+            let pos = h.get_position();
+            let orient = h.get_orientation();
+            let rebuild_name = match h.rebuild_template_name.clone() {
+                Some(n) => n,
+                None => continue,
+            };
+
+            // Ensure worker template residual.
+            if !self.templates.contains_key(REBUILD_HOLE_WORKER_TEMPLATE) {
+                let mut wt = ThingTemplate::new(REBUILD_HOLE_WORKER_TEMPLATE);
+                wt.add_kind_of(KindOf::Vehicle)
+                    .add_kind_of(KindOf::Worker)
+                    .set_health(200.0);
+                self.templates
+                    .insert(REBUILD_HOLE_WORKER_TEMPLATE.to_string(), wt);
+            }
+            let worker_id = self.create_object(REBUILD_HOLE_WORKER_TEMPLATE, team, pos);
+            let Some(worker_id) = worker_id else {
+                continue;
+            };
+            if let Some(w) = self.objects.get_mut(&worker_id) {
+                w.status.unselectable = true;
+                w.status.masked = false;
+                w.ai_state = AIState::Constructing;
+            }
+            self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
+
+            // Spawn reconstructing building (C++ ai->construct residual).
             let Some(new_id) = self.create_object(&rebuild_name, team, pos) else {
+                self.destroy_object(worker_id);
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&new_id) {
                 o.set_orientation(orient);
                 o.status.under_construction = true;
+                o.status.reconstructing = true;
                 o.construction_percent = 0.0;
-                o.set_under_construction_model_conditions(false);
+                o.set_under_construction_model_conditions(true);
                 o.health.current = (o.health.maximum * 0.1).max(1.0);
+                // Producer residual = hole.
+                // (no producer_id field universally; use contained/rebuild link)
+            }
+            if let Some(w) = self.objects.get_mut(&worker_id) {
+                w.target = Some(new_id);
+                w.ai_state = AIState::Constructing;
+                w.set_actively_constructing(true);
+            }
+            if let Some(h) = self.objects.get_mut(&hole_id) {
+                h.rebuild_worker_id = Some(worker_id);
+                h.rebuild_reconstructing_id = Some(new_id);
+                // C++ maskObject(TRUE) while reconstructing.
+                h.status.masked = true;
+                h.status.unselectable = true;
             }
             self.rebuild_hole_reconstructs = self.rebuild_hole_reconstructs.saturating_add(1);
+        }
+        for hid in holes_to_remove {
+            self.objects.remove(&hid);
         }
     }
 
     pub fn honesty_rebuild_hole_ok(&self) -> bool {
-        self.rebuild_hole_spawns > 0 && self.rebuild_hole_reconstructs > 0
+        self.rebuild_hole_spawns > 0
+            && self.rebuild_hole_reconstructs > 0
+            && self.rebuild_hole_workers > 0
+    }
+
+    pub fn honesty_rebuild_hole_heal_ok(&self) -> bool {
+        self.rebuild_hole_heals > 0
     }
 
     pub fn honesty_dozer_bored_mine_clear_ok(&self) -> bool {
@@ -78451,25 +78585,38 @@ mod tests {
             Some("GLATunnelNetwork")
         );
         assert!(logic.rebuild_hole_spawns > 0);
-        // Force ready and reconstruct.
+        // Heal residual while waiting.
+        if let Some(h) = logic.get_object_mut(hole) {
+            h.health.current = 100.0;
+        }
+        logic.update_rebuild_holes();
+        assert!(logic.honesty_rebuild_hole_heal_ok());
+        // Force ready → worker + reconstructing building; hole stays masked.
         let now = logic.frame.max(1);
         if let Some(h) = logic.get_object_mut(hole) {
             h.rebuild_ready_frame = now;
         }
         logic.frame = now;
         logic.update_rebuild_holes();
-        logic.process_destroy_list();
         assert!(logic.rebuild_hole_reconstructs > 0);
-        // Hole gone, new under-construction structure present.
+        assert!(logic.rebuild_hole_workers > 0);
+        let h = logic
+            .get_object(hole)
+            .expect("hole still present while reconstructing");
+        assert!(h.status.masked);
+        let rid = h.rebuild_reconstructing_id.expect("recon id");
+        let wid = h.rebuild_worker_id.expect("worker id");
+        assert!(logic.get_object(wid).unwrap().status.unselectable);
+        assert!(logic.get_object(rid).unwrap().status.under_construction);
+        assert!(logic.get_object(rid).unwrap().status.reconstructing);
+        // Complete construction → hole removed.
+        if let Some(b) = logic.get_object_mut(rid) {
+            b.status.under_construction = false;
+            b.construction_percent = 1.0;
+        }
+        logic.update_rebuild_holes();
         assert!(logic.get_object(hole).is_none());
-        let rebuilt = logic
-            .get_objects()
-            .values()
-            .find(|o| {
-                o.template_name == "GLATunnelNetwork" && o.status.under_construction && o.id != sid
-            })
-            .map(|o| o.id);
-        assert!(rebuilt.is_some(), "expected reconstructing structure");
+        assert!(logic.rebuild_hole_completes > 0);
         assert!(logic.honesty_rebuild_hole_ok());
     }
 
