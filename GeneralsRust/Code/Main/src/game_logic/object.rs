@@ -2133,6 +2133,33 @@ impl Object {
         self.status.parachute_roll = 0.0;
         self.status.parachute_pitch_rate = 0.0;
         self.status.parachute_roll_rate = 0.0;
+        self.status.parachute_landing_override = None;
+        self.status.parachute_landing_override_set = false;
+    }
+
+    /// C++ ParachuteContain::setOverrideDestination residual.
+    ///
+    /// DeliverPayload aims the open chute at an explicit LZ instead of
+    /// findPositionAround drift. Host residual: store XZ target for open-chute
+    /// horizontal step.
+    pub fn set_parachute_override_destination(&mut self, dest: glam::Vec3) {
+        self.status.parachute_landing_override = Some(dest);
+        self.status.parachute_landing_override_set = true;
+    }
+
+    /// Whether landing override residual is armed.
+    pub fn has_parachute_landing_override(&self) -> bool {
+        self.status.parachute_landing_override_set
+            && self.status.parachute_landing_override.is_some()
+    }
+
+    /// Landing override residual target (world XZ; y ignored for aim).
+    pub fn parachute_landing_override(&self) -> Option<glam::Vec3> {
+        if self.status.parachute_landing_override_set {
+            self.status.parachute_landing_override
+        } else {
+            None
+        }
     }
 
     /// AmericaParachute pitch residual (radians) while chute open.
