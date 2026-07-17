@@ -273,6 +273,8 @@ pub struct PlayerStatistics {
     pub structures_built: u32,
     pub resources_collected: u32,
     pub resources_spent: u32,
+    /// C++ ScoreKeeper::m_totalMoneyEarned residual.
+    pub money_earned: u32,
 }
 
 /// Player structure
@@ -453,6 +455,15 @@ impl Player {
 
     /// Queue an upgrade for this player when not already queued/completed and affordable.
     /// Credit absolute supplies (income residual) and log economy channel.
+
+    /// C++ ScoreKeeper::addMoneyEarned residual.
+    pub fn add_money_earned(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        self.statistics.money_earned = self.statistics.money_earned.saturating_add(amount);
+    }
+
     pub fn credit_supplies(&mut self, amount: u32) {
         if amount == 0 {
             return;
@@ -14292,6 +14303,10 @@ impl GameLogic {
                                     // C++ TheEva->setShouldPlay residual when victim local.
                                     // Supply center: CashStolen if cash taken, else BuildingSabotaged.
                                     if kind.steals_cash() && cash_stolen > 0 {
+                                        // C++ controller ScoreKeeper::addMoneyEarned residual.
+                                        if let Some(p) = self.get_player_mut_by_team(team) {
+                                            p.add_money_earned(cash_stolen);
+                                        }
                                         self.try_eva_cash_stolen(special_target_id);
                                         // C++ GUI:AddCash / GUI:LoseCash floating text residual.
                                         self.spawn_sabotage_cash_floating_texts(
@@ -14433,11 +14448,24 @@ impl GameLogic {
                         }
                         PendingSpecialAbility::StealCashHack { .. } => {
                             // Black Lotus residual: steal cash from enemy economy.
+                            // C++ SPECIAL_BLACKLOTUS_STEAL_CASH_HACK:
+                            // withdraw/deposit, scorekeeper money earned, EVA_CashStolen
+                            // when victim local, GUI:AddCash/LoseCash floating texts.
                             let amount =
                                 crate::game_logic::host_hero_abilities::STEAL_CASH_DEFAULT_AMOUNT;
                             let stolen = self.steal_cash_from_team(target_team, team, amount);
                             if stolen > 0 {
                                 self.hero_abilities.record_cash_steal(stolen);
+                                // C++ controller->getScoreKeeper()->addMoneyEarned(cash)
+                                if let Some(p) = self.get_player_mut_by_team(team) {
+                                    p.add_money_earned(stolen);
+                                }
+                                self.try_eva_cash_stolen(special_target_id);
+                                self.spawn_sabotage_cash_floating_texts(
+                                    object_id,
+                                    special_target_id,
+                                    stolen,
+                                );
                                 self.queue_audio_event(
                                     AudioEventRequest::new(
                                         crate::game_logic::host_hero_abilities::STEAL_CASH_AUDIO,
@@ -76595,6 +76623,65 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn black_lotus_cash_steal_records_score_and_floating_text() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Victim", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::China, "Lotus", false),
+        );
+        if let Some(p) = logic.players.get_mut(&0) {
+            p.resources.supplies = 2500;
+        }
+        let mut sc = ThingTemplate::new("AmericaSupplyCenter");
+        sc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::SupplyCenter)
+            .set_health(500.0);
+        logic.templates.insert("AmericaSupplyCenter".into(), sc);
+        let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryBlackLotus".into(), lotus);
+        let victim = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("sc");
+        let hacker = logic
+            .create_object(
+                "ChinaInfantryBlackLotus",
+                Team::China,
+                glam::Vec3::new(5.0, 0.0, 5.0),
+            )
+            .expect("lotus");
+        let stolen = logic.steal_cash_from_team(Team::USA, Team::China, 1000);
+        assert_eq!(stolen, 1000);
+        if let Some(p) = logic.get_player_mut_by_team(Team::China) {
+            p.add_money_earned(stolen);
+        }
+        logic.try_eva_cash_stolen(victim);
+        logic.spawn_sabotage_cash_floating_texts(hacker, victim, stolen);
+        let china = logic
+            .players
+            .values()
+            .find(|p| p.team == Team::China)
+            .expect("china");
+        assert!(china.statistics.money_earned >= 1000);
+        assert!(logic.saboteur.honesty_cash_floating_texts_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(events.iter().any(|e| *e == EvaEvent::CashStolen));
     }
 
     #[test]
