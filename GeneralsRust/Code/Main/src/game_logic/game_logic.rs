@@ -15764,6 +15764,13 @@ impl GameLogic {
             HostUpgradeKind::SubliminalMessaging => {
                 self.apply_subliminal_messaging_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::ScorpionRocket => {
+                self.apply_scorpion_rocket_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::ApRockets => self.apply_ap_rockets_to_team(team, upgrade_name),
+            HostUpgradeKind::LaserMissiles => self.apply_laser_missiles_to_team(team, upgrade_name),
+            HostUpgradeKind::Nationalism => self.apply_nationalism_to_team(team, upgrade_name),
+            HostUpgradeKind::ChainGuns => self.apply_chain_guns_to_team(team, upgrade_name),
             HostUpgradeKind::Other => 0,
         };
 
@@ -15801,6 +15808,204 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_GLAScorpionRocket residual — equip SECONDARY on all Scorpions.
+    fn apply_scorpion_rocket_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_scorpion::{is_scorpion_template, UPGRADE_GLA_SCORPION_ROCKET};
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.team == team && o.is_alive() && is_scorpion_template(&o.template_name)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            if self.apply_scorpion_rocket_upgrade(id) {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
+    /// C++ Upgrade_GLAAPRockets residual — AP damage on Scorpions (+ RPG if present).
+    fn apply_ap_rockets_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_scorpion::{is_scorpion_template, UPGRADE_GLA_AP_ROCKETS};
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.team == team && o.is_alive() && is_scorpion_template(&o.template_name)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            if self.apply_scorpion_ap_rockets_upgrade(id) {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag(UPGRADE_GLA_AP_ROCKETS);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        // RPG troopers residual if helper exists.
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            let nme = obj.template_name.to_ascii_lowercase();
+            if nme.contains("rpgtrooper")
+                || nme.contains("rpg_trooper")
+                || nme.contains("tunneldefender")
+            {
+                if !obj.has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS) {
+                    obj.apply_upgrade_tag(upgrade_name);
+                    obj.apply_upgrade_tag(UPGRADE_GLA_AP_ROCKETS);
+                    n = n.saturating_add(1);
+                }
+            }
+        }
+        n
+    }
+
+    /// C++ Upgrade_AmericaLaserMissiles residual — Raptor jet damage.
+    fn apply_laser_missiles_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_raptor::{is_raptor_template, UPGRADE_AMERICA_LASER_MISSILES};
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive() && is_raptor_template(&o.template_name))
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            if self.apply_raptor_laser_missiles_upgrade(id) {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
+    /// C++ Upgrade_ChinaNationalism residual — horde ROF tag on infantry/tanks.
+    fn apply_nationalism_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_battlemaster::{is_battlemaster_template, UPGRADE_NATIONALISM};
+        use crate::game_logic::host_minigunner::is_minigunner_template;
+        use crate::game_logic::host_red_guard::is_red_guard_template;
+        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+
+        let ids: Vec<(ObjectId, u8)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter_map(|(id, o)| {
+                if is_battlemaster_template(&o.template_name) {
+                    Some((*id, 0u8))
+                } else if is_red_guard_template(&o.template_name) {
+                    Some((*id, 1))
+                } else if is_tank_hunter_template(&o.template_name) {
+                    Some((*id, 2))
+                } else if is_minigunner_template(&o.template_name) {
+                    Some((*id, 3))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut n = 0u32;
+        for (id, kind) in ids {
+            let ok = match kind {
+                0 => self.apply_battlemaster_nationalism_upgrade(id),
+                1 => self.apply_red_guard_nationalism_upgrade(id),
+                2 => self.apply_tank_hunter_nationalism_upgrade(id),
+                3 => self.apply_minigunner_nationalism_upgrade(id),
+                _ => false,
+            };
+            if ok {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag(UPGRADE_NATIONALISM);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        // Player-level unlock residual so late-built units can inherit.
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences.insert(UPGRADE_NATIONALISM.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
+    }
+
+    /// C++ Upgrade_ChinaChainGuns residual — gattling/minigun damage ×1.25.
+    fn apply_chain_guns_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_gattling_tank::{
+            is_gattling_tank_template, UPGRADE_CHINA_CHAIN_GUNS as GT_CHAIN,
+        };
+        use crate::game_logic::host_minigunner::{
+            is_minigunner_template, UPGRADE_CHINA_CHAIN_GUNS as MG_CHAIN,
+        };
+
+        let chain = if !GT_CHAIN.is_empty() {
+            GT_CHAIN
+        } else {
+            MG_CHAIN
+        };
+        let ids: Vec<(ObjectId, bool)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter_map(|(id, o)| {
+                if is_minigunner_template(&o.template_name) {
+                    Some((*id, true))
+                } else if is_gattling_tank_template(&o.template_name)
+                    || o.template_name.to_ascii_lowercase().contains("gattling")
+                    || o.template_name.to_ascii_lowercase().contains("gatling")
+                {
+                    Some((*id, false))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut n = 0u32;
+        for (id, is_mg) in ids {
+            if is_mg {
+                if self.apply_minigunner_chain_guns_upgrade(id) {
+                    if let Some(o) = self.objects.get_mut(&id) {
+                        o.apply_upgrade_tag(upgrade_name);
+                        o.apply_upgrade_tag(chain);
+                    }
+                    n = n.saturating_add(1);
+                }
+            } else if let Some(o) = self.objects.get_mut(&id) {
+                if !o.has_upgrade_tag(chain) {
+                    o.apply_upgrade_tag(upgrade_name);
+                    o.apply_upgrade_tag(chain);
+                    o.applied_upgrades.insert(chain.to_string());
+                    n = n.saturating_add(1);
+                }
+            }
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences.insert(chain.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
     }
 
     /// C++ Upgrade_ChinaSubliminalMessaging residual.
@@ -80305,6 +80510,88 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
+        use crate::game_logic::host_raptor::{is_raptor_template, UPGRADE_AMERICA_LASER_MISSILES};
+        use crate::game_logic::host_scorpion::{
+            has_scorpion_rocket_upgrade, UPGRADE_GLA_SCORPION_ROCKET,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "USA", true));
+
+        let mut scorp = ThingTemplate::new("GLATankScorpion");
+        scorp.add_kind_of(KindOf::Vehicle).set_health(300.0);
+        logic.templates.insert("GLATankScorpion".into(), scorp);
+        let mut raptor = ThingTemplate::new("AmericaJetRaptor");
+        raptor.add_kind_of(KindOf::Aircraft).set_health(200.0);
+        logic.templates.insert("AmericaJetRaptor".into(), raptor);
+
+        let sid = logic
+            .create_object("GLATankScorpion", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("scorp");
+        let rid = logic
+            .create_object(
+                "AmericaJetRaptor",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("raptor");
+
+        let n_s = logic.apply_scorpion_rocket_to_team(Team::GLA, UPGRADE_GLA_SCORPION_ROCKET);
+        assert_eq!(n_s, 1);
+        let s = logic.get_object(sid).unwrap();
+        assert!(has_scorpion_rocket_upgrade(&s.applied_upgrades));
+        assert!(s.secondary_weapon.is_some());
+
+        let n_r = logic.apply_laser_missiles_to_team(Team::USA, UPGRADE_AMERICA_LASER_MISSILES);
+        assert_eq!(n_r, 1);
+        assert!(is_raptor_template(
+            &logic.get_object(rid).unwrap().template_name
+        ));
+        assert!(logic
+            .get_object(rid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES));
+    }
+
+    #[test]
+    fn host_upgrade_complete_nationalism_tags_red_guard() {
+        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+        rg.add_kind_of(KindOf::Infantry).set_health(120.0);
+        logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+        let id = logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("rg");
+        let n = logic.apply_nationalism_to_team(Team::China, UPGRADE_NATIONALISM);
+        assert!(n >= 1);
+        assert!(logic
+            .get_object(id)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_NATIONALISM));
+        assert!(logic
+            .players
+            .get(&0)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_NATIONALISM));
     }
 
     #[test]

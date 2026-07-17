@@ -49,6 +49,16 @@ pub const UPGRADE_DEMO_SUICIDE_BOMB: &str = "Demo_Upgrade_SuicideBomb";
 pub const UPGRADE_AMERICA_ADVANCED_CONTROL_RODS: &str = "Upgrade_AmericaAdvancedControlRods";
 /// China Subliminal Messaging residual (propaganda tower upgrade).
 pub const UPGRADE_CHINA_SUBLIMINAL_MESSAGING: &str = "Upgrade_ChinaSubliminalMessaging";
+/// GLA Scorpion Rocket residual.
+pub const UPGRADE_GLA_SCORPION_ROCKET: &str = "Upgrade_GLAScorpionRocket";
+/// GLA AP Rockets residual.
+pub const UPGRADE_GLA_AP_ROCKETS: &str = "Upgrade_GLAAPRockets";
+/// America Laser Missiles residual.
+pub const UPGRADE_AMERICA_LASER_MISSILES: &str = "Upgrade_AmericaLaserMissiles";
+/// China Nationalism residual.
+pub const UPGRADE_CHINA_NATIONALISM: &str = "Upgrade_ChinaNationalism";
+/// China Chain Guns residual.
+pub const UPGRADE_CHINA_CHAIN_GUNS: &str = "Upgrade_ChinaChainGuns";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -117,6 +127,16 @@ pub enum HostUpgradeKind {
     AdvancedControlRods,
     /// China Subliminal Messaging: upgraded propaganda heal/buff residual.
     SubliminalMessaging,
+    /// GLA Scorpion Rocket secondary missile residual.
+    ScorpionRocket,
+    /// GLA AP Rockets damage residual (Scorpion / RPG).
+    ApRockets,
+    /// America Laser Missiles jet damage residual.
+    LaserMissiles,
+    /// China Nationalism horde ROF residual.
+    Nationalism,
+    /// China Chain Guns gattling/minigun damage residual.
+    ChainGuns,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -163,6 +183,16 @@ impl HostUpgradeKind {
             HostUpgradeKind::AdvancedControlRods
         } else if n.contains("subliminalmessaging") || n.contains("subliminal") {
             HostUpgradeKind::SubliminalMessaging
+        } else if n.contains("scorpionrocket") {
+            HostUpgradeKind::ScorpionRocket
+        } else if n.contains("aprockets") || n.contains("aprocket") {
+            HostUpgradeKind::ApRockets
+        } else if n.contains("lasermissiles") || n.contains("lasermissile") {
+            HostUpgradeKind::LaserMissiles
+        } else if n.contains("nationalism") {
+            HostUpgradeKind::Nationalism
+        } else if n.contains("chainguns") || n.contains("chaingun") {
+            HostUpgradeKind::ChainGuns
         } else {
             HostUpgradeKind::Other
         }
@@ -188,6 +218,11 @@ impl HostUpgradeKind {
             HostUpgradeKind::SuicideBomb => "SuicideBomb",
             HostUpgradeKind::AdvancedControlRods => "AdvancedControlRods",
             HostUpgradeKind::SubliminalMessaging => "SubliminalMessaging",
+            HostUpgradeKind::ScorpionRocket => "ScorpionRocket",
+            HostUpgradeKind::ApRockets => "ApRockets",
+            HostUpgradeKind::LaserMissiles => "LaserMissiles",
+            HostUpgradeKind::Nationalism => "Nationalism",
+            HostUpgradeKind::ChainGuns => "ChainGuns",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -217,6 +252,11 @@ impl HostUpgradeKind {
             | HostUpgradeKind::SuicideBomb
             | HostUpgradeKind::AdvancedControlRods
             | HostUpgradeKind::SubliminalMessaging
+            | HostUpgradeKind::ScorpionRocket
+            | HostUpgradeKind::ApRockets
+            | HostUpgradeKind::LaserMissiles
+            | HostUpgradeKind::Nationalism
+            | HostUpgradeKind::ChainGuns
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -245,6 +285,11 @@ impl HostUpgradeKind {
             HostUpgradeKind::SuicideBomb => 2000,
             HostUpgradeKind::AdvancedControlRods => 1500,
             HostUpgradeKind::SubliminalMessaging => 2000,
+            HostUpgradeKind::ScorpionRocket => 800,
+            HostUpgradeKind::ApRockets => 1500,
+            HostUpgradeKind::LaserMissiles => 1500,
+            HostUpgradeKind::Nationalism => 2000,
+            HostUpgradeKind::ChainGuns => 1500,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -270,6 +315,11 @@ impl HostUpgradeKind {
             HostUpgradeKind::SuicideBomb => 30.0,
             HostUpgradeKind::AdvancedControlRods => 60.0,
             HostUpgradeKind::SubliminalMessaging => 60.0,
+            HostUpgradeKind::ScorpionRocket => 30.0,
+            HostUpgradeKind::ApRockets => 45.0,
+            HostUpgradeKind::LaserMissiles => 40.0,
+            HostUpgradeKind::Nationalism => 60.0,
+            HostUpgradeKind::ChainGuns => 40.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -903,6 +953,30 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn scorpion_laser_nationalism_chain_kinds_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLAScorpionRocket"),
+            HostUpgradeKind::ScorpionRocket
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLAAPRockets"),
+            HostUpgradeKind::ApRockets
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaLaserMissiles"),
+            HostUpgradeKind::LaserMissiles
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaNationalism"),
+            HostUpgradeKind::Nationalism
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaChainGuns"),
+            HostUpgradeKind::ChainGuns
+        );
     }
 
     #[test]
