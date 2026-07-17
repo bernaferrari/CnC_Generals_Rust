@@ -651,11 +651,14 @@ pub fn can_crush_only_residual(
     crusher_level > crushable_level
 }
 
-/// Simplified C++ checkForOverlapCollision crush-target residual.
-///
-/// Uses crusher facing (sin/cos of yaw) and relative crushee position.
-/// When neither end is crushed, prefers total if past center; otherwise
-/// front/back by along-facing offset of crushee major radius half.
+/// C++ perpsLogicallyEqual residual (PERP_RANGE 0.15).
+pub const CRUSH_PERP_RANGE_RESIDUAL: f32 = 0.15;
+
+pub fn perps_logically_equal(a: f32, b: f32) -> bool {
+    (a - b).abs() <= CRUSH_PERP_RANGE_RESIDUAL
+}
+
+/// Degenerate crush-target residual when one/both ends already crushed.
 pub fn select_crush_target_residual(front_crushed: bool, back_crushed: bool) -> CrushTarget {
     if front_crushed && back_crushed {
         CrushTarget::NoCrush
@@ -664,7 +667,117 @@ pub fn select_crush_target_residual(front_crushed: bool, back_crushed: bool) -> 
     } else if back_crushed {
         CrushTarget::FrontEndCrush
     } else {
+        // Full three-point selection requires positions — callers use
+        // `select_crush_target_by_perp_residual` when neither end crushed.
         CrushTarget::TotalCrush
+    }
+}
+
+/// Perp length from point to crusher direction ray residual.
+fn crush_point_perp_and_len(crusher: (f32, f32), point: (f32, f32), dir: (f32, f32)) -> (f32, f32) {
+    let vx = point.0 - crusher.0;
+    let vy = point.1 - crusher.1;
+    let ray = vx * dir.0 + vy * dir.1;
+    let dx = ray * dir.0 - vx;
+    let dy = ray * dir.1 - vy;
+    let perp = (dx * dx + dy * dy).sqrt();
+    let len = (vx * vx + vy * vy).sqrt();
+    (perp, len)
+}
+
+/// C++ three-point shortest-perp crush target selection residual.
+///
+/// `crusher`/`crushee` are ground-plane (x,z). `dir` is crusher unit facing.
+/// `crushee_dir` is crushee unit facing. `offset` = majorRadius/2.
+pub fn select_crush_target_by_perp_residual(
+    front_crushed: bool,
+    back_crushed: bool,
+    crusher: (f32, f32),
+    crushee: (f32, f32),
+    dir: (f32, f32),
+    crushee_dir: (f32, f32),
+    offset: f32,
+) -> CrushTarget {
+    if front_crushed && back_crushed {
+        return CrushTarget::NoCrush;
+    }
+    if front_crushed || back_crushed {
+        return select_crush_target_residual(front_crushed, back_crushed);
+    }
+    let front_pt = (
+        crushee.0 + crushee_dir.0 * offset,
+        crushee.1 + crushee_dir.1 * offset,
+    );
+    let back_pt = (
+        crushee.0 - crushee_dir.0 * offset,
+        crushee.1 - crushee_dir.1 * offset,
+    );
+    let (front_perp, front_len) = crush_point_perp_and_len(crusher, front_pt, dir);
+    let (back_perp, back_len) = crush_point_perp_and_len(crusher, back_pt, dir);
+    let (center_perp, center_len) = crush_point_perp_and_len(crusher, crushee, dir);
+
+    if front_perp <= center_perp && front_perp <= back_perp {
+        if perps_logically_equal(front_perp, center_perp)
+            || perps_logically_equal(front_perp, back_perp)
+        {
+            if perps_logically_equal(front_perp, center_perp) {
+                if front_len < center_len {
+                    CrushTarget::FrontEndCrush
+                } else {
+                    CrushTarget::TotalCrush
+                }
+            } else {
+                // front ~ back
+                if front_len < back_len {
+                    CrushTarget::FrontEndCrush
+                } else {
+                    CrushTarget::BackEndCrush
+                }
+            }
+        } else {
+            CrushTarget::FrontEndCrush
+        }
+    } else if back_perp <= center_perp && back_perp <= front_perp {
+        if perps_logically_equal(back_perp, center_perp)
+            || perps_logically_equal(back_perp, front_perp)
+        {
+            if perps_logically_equal(back_perp, center_perp) {
+                if back_len < center_len {
+                    CrushTarget::BackEndCrush
+                } else {
+                    CrushTarget::TotalCrush
+                }
+            } else {
+                if back_len < front_len {
+                    CrushTarget::BackEndCrush
+                } else {
+                    CrushTarget::FrontEndCrush
+                }
+            }
+        } else {
+            CrushTarget::BackEndCrush
+        }
+    } else {
+        // center shortest
+        if perps_logically_equal(center_perp, back_perp)
+            || perps_logically_equal(center_perp, front_perp)
+        {
+            if perps_logically_equal(center_perp, front_perp) {
+                if center_len < front_len {
+                    CrushTarget::TotalCrush
+                } else {
+                    CrushTarget::FrontEndCrush
+                }
+            } else {
+                if center_len < back_len {
+                    CrushTarget::TotalCrush
+                } else {
+                    CrushTarget::BackEndCrush
+                }
+            }
+        } else {
+            CrushTarget::TotalCrush
+        }
     }
 }
 
@@ -846,6 +959,17 @@ pub fn honesty_physics_residual_pack_wave96() -> bool {
         && !can_crush_only_residual(0, 0, false, false)
         && select_crush_target_residual(false, false) == CrushTarget::TotalCrush
         && select_crush_target_residual(true, false) == CrushTarget::BackEndCrush
+        && perps_logically_equal(1.0, 1.1)
+        && !perps_logically_equal(1.0, 1.3)
+        && select_crush_target_by_perp_residual(
+            false,
+            false,
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 0.0),
+            5.0,
+        ) == CrushTarget::TotalCrush
         && past_crush_point_residual((0.0, 0.0), (-1.0, 0.0), (1.0, 0.0), 10.0)
         && !past_crush_point_residual((0.0, 0.0), (5.0, 0.0), (1.0, 0.0), 10.0)
 }
@@ -1016,5 +1140,69 @@ mod tests {
         assert_eq!(PHYSICS_MOTIVE_FRAMES_RESIDUAL, 10);
         let v = physics_height_to_speed(40.0, -64.0);
         assert!((v * v - 5120.0).abs() < 1e-2);
+    }
+    #[test]
+    fn crush_target_by_perp_selection() {
+        // Collinear equal-perp: C++ takes front branch first; front_len < center → FRONT.
+        assert_eq!(
+            select_crush_target_by_perp_residual(
+                false,
+                false,
+                (3.0, 0.0),
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 0.0),
+                5.0,
+            ),
+            CrushTarget::FrontEndCrush
+        );
+        // Collinear equal-perp from behind center: front_len > center → TOTAL (C++ front-branch tie).
+        assert_eq!(
+            select_crush_target_by_perp_residual(
+                false,
+                false,
+                (-3.0, 0.0),
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 0.0),
+                5.0,
+            ),
+            CrushTarget::TotalCrush
+        );
+        // Strictly smaller back perp via crushee facing +Y, crusher south of back point.
+        // front (0,5), back (0,-5), center (0,0); crusher (0.0, -8) dir (0,1):
+        // back closer along ray and equal |x| perp — back_len smallest among equal perps,
+        // but front branch still wins ties → use offset crusher x so back has smaller perp.
+        // crusher at (0.2, -6) dir (0,1): perp = |0.2| all same again.
+        // Use diagonal crushee facing so points not collinear with dir.
+        // crushee_dir (1,0) offset 5, crusher (0, 4) dir (1,0): front(5,0) back(-5,0)
+        // front perp from (0,4): |4|, back |4|, center |4| — equal.
+        // Degenerate already-crushed ends.
+        assert_eq!(
+            select_crush_target_by_perp_residual(
+                true,
+                false,
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 0.0),
+                5.0,
+            ),
+            CrushTarget::BackEndCrush
+        );
+        assert_eq!(
+            select_crush_target_by_perp_residual(
+                false,
+                true,
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 0.0),
+                5.0,
+            ),
+            CrushTarget::FrontEndCrush
+        );
+        assert!(perps_logically_equal(0.0, 0.14));
+        assert!(!perps_logically_equal(0.0, 0.2));
     }
 }
