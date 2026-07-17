@@ -7134,6 +7134,81 @@ impl GameLogic {
     ///
     /// Grants `levels` to picker and same-team allies within effect_range
     /// (0 range = picker only). Fail-closed: not full pilot goal-object gate.
+
+    /// C++ HealCrateCollide::executeCrateBehavior residual.
+    ///
+    /// Heals all living objects owned by the picker's team to full health.
+    pub fn execute_heal_crate_behavior(&mut self, picker_id: ObjectId) -> usize {
+        let team = match self.objects.get(&picker_id) {
+            Some(p) if p.is_alive() => p.team,
+            _ => return 0,
+        };
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive() && !o.status.destroyed)
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0usize;
+        for id in ids {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let max = o.health.maximum;
+                if o.health.current < max {
+                    o.health.current = max;
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// C++ UnitCrateCollide::executeCrateBehavior residual.
+    ///
+    /// Spawns `count` units of `unit_type` on picker's team near picker.
+    pub fn execute_unit_crate_behavior(
+        &mut self,
+        picker_id: ObjectId,
+        unit_type: &str,
+        count: u32,
+    ) -> usize {
+        let (team, origin, ori) = match self.objects.get(&picker_id) {
+            Some(p) if p.is_alive() => (p.team, p.get_position(), p.get_orientation()),
+            _ => return 0,
+        };
+        if unit_type.is_empty() || count == 0 {
+            return 0;
+        }
+        // Ensure template
+        if !self.templates.contains_key(unit_type) {
+            let mut t = ThingTemplate::new(unit_type);
+            // Guess kind from name residual
+            if unit_type.contains("Tank") || unit_type.contains("Vehicle") {
+                t.add_kind_of(KindOf::Vehicle);
+            } else if unit_type.contains("Jet") || unit_type.contains("Aircraft") {
+                t.add_kind_of(KindOf::Aircraft);
+            } else {
+                t.add_kind_of(KindOf::Infantry);
+            }
+            t.add_kind_of(KindOf::Attackable);
+            self.templates.insert(unit_type.to_string(), t);
+        }
+        let mut spawned = 0usize;
+        for i in 0..count {
+            let ang = ori + (i as f32) * 0.9;
+            let pos = glam::Vec3::new(
+                origin.x + ang.cos() * (8.0 + i as f32 * 4.0),
+                origin.y,
+                origin.z + ang.sin() * (8.0 + i as f32 * 4.0),
+            );
+            if let Some(nid) = self.create_object(unit_type, team, pos) {
+                if let Some(o) = self.objects.get_mut(&nid) {
+                    o.set_orientation(ori);
+                }
+                spawned += 1;
+            }
+        }
+        spawned
+    }
     pub fn execute_veterancy_crate_behavior(
         &mut self,
         picker_id: ObjectId,
@@ -7273,7 +7348,15 @@ impl GameLogic {
             let Some(crate_id) = self.create_object(&req.object_name, Team::Neutral, pos) else {
                 continue;
             };
-            if req.is_veterancy {
+            if req.is_heal_crate {
+                self.host_money_crates.register_heal_crate(crate_id);
+            } else if req.is_unit_crate {
+                self.host_money_crates.register_unit_crate(
+                    crate_id,
+                    &req.unit_crate_type,
+                    req.unit_crate_count,
+                );
+            } else if req.is_veterancy {
                 self.host_money_crates.register_level_up_crate(
                     crate_id,
                     req.veterancy_effect_range,
@@ -16220,7 +16303,12 @@ impl GameLogic {
             if entry.building_pickup_residual_paid {
                 continue;
             }
-            if entry.money_provided == 0 && !entry.is_salvage && !entry.is_veterancy {
+            if entry.money_provided == 0
+                && !entry.is_salvage
+                && !entry.is_veterancy
+                && !entry.is_unit_crate
+                && !entry.is_heal_crate
+            {
                 continue;
             }
             let pos = obj.get_position();
@@ -16377,6 +16465,56 @@ impl GameLogic {
                 .values()
                 .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
 
+            // C++ HealCrateCollide residual path.
+            if entry.is_heal_crate {
+                let _ = self.execute_heal_crate_behavior(picker_id);
+                if !self
+                    .host_money_crates
+                    .record_pickup(crate_id, 1, 0, is_structure)
+                {
+                    continue;
+                }
+                let pos = self
+                    .find_object(crate_id)
+                    .map(|o| o.get_position())
+                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .unwrap_or(glam::Vec3::ZERO);
+                self.queue_audio_event(
+                    AudioEventRequest::new("CrateHeal")
+                        .with_object(picker_id)
+                        .with_position(pos)
+                        .with_priority(110),
+                );
+                self.destroy_object(crate_id);
+                continue;
+            }
+            // C++ UnitCrateCollide residual path.
+            if entry.is_unit_crate {
+                let _ = self.execute_unit_crate_behavior(
+                    picker_id,
+                    &entry.unit_crate_type,
+                    entry.unit_crate_count,
+                );
+                if !self
+                    .host_money_crates
+                    .record_pickup(crate_id, 1, 0, is_structure)
+                {
+                    continue;
+                }
+                let pos = self
+                    .find_object(crate_id)
+                    .map(|o| o.get_position())
+                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .unwrap_or(glam::Vec3::ZERO);
+                self.queue_audio_event(
+                    AudioEventRequest::new("CrateFreeUnit")
+                        .with_object(picker_id)
+                        .with_position(pos)
+                        .with_priority(110),
+                );
+                self.destroy_object(crate_id);
+                continue;
+            }
             // C++ VeterancyCrateCollide residual path.
             if entry.is_veterancy {
                 let _ = self.execute_veterancy_crate_behavior(
@@ -75167,6 +75305,99 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn heal_crate_heals_all_team_objects() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("H1");
+        t.add_kind_of(KindOf::Infantry);
+        let a = ObjectId(5101);
+        logic.objects.insert(a, {
+            let mut o = Object::new(t.clone(), a, Team::USA);
+            o.health.current = 10.0;
+            o.health.maximum = 100.0;
+            o
+        });
+        let b = ObjectId(5102);
+        logic.objects.insert(b, {
+            let mut o = Object::new(t, b, Team::USA);
+            o.health.current = 50.0;
+            o.health.maximum = 100.0;
+            o
+        });
+        // Enemy not healed
+        let mut et = ThingTemplate::new("E");
+        et.add_kind_of(KindOf::Infantry);
+        let e = ObjectId(5103);
+        logic.objects.insert(e, {
+            let mut o = Object::new(et, e, Team::GLA);
+            o.health.current = 5.0;
+            o.health.maximum = 100.0;
+            o
+        });
+        let n = logic.execute_heal_crate_behavior(a);
+        assert_eq!(n, 2);
+        assert_eq!(logic.objects[&a].health.current, 100.0);
+        assert_eq!(logic.objects[&b].health.current, 100.0);
+        assert_eq!(logic.objects[&e].health.current, 5.0);
+    }
+
+    #[test]
+    fn unit_crate_spawns_units_for_picker_team() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("Picker");
+        t.add_kind_of(KindOf::Infantry);
+        let pid = ObjectId(5110);
+        logic.objects.insert(pid, {
+            let mut o = Object::new(t, pid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        let before = logic.objects.len();
+        let n = logic.execute_unit_crate_behavior(pid, "AmericaTankCrusader", 2);
+        assert_eq!(n, 2);
+        assert_eq!(logic.objects.len(), before + 2);
+        let spawned: Vec<_> = logic
+            .objects
+            .values()
+            .filter(|o| o.template_name.contains("Crusader"))
+            .collect();
+        assert_eq!(spawned.len(), 2);
+        assert!(spawned.iter().all(|o| o.team == Team::USA));
+    }
+
+    #[test]
+    fn heal_crate_collide_path() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "U", true));
+        let mut ut = ThingTemplate::new("U");
+        ut.add_kind_of(KindOf::Infantry);
+        let uid = ObjectId(5120);
+        logic.objects.insert(uid, {
+            let mut o = Object::new(ut, uid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o.health.current = 1.0;
+            o.health.maximum = 80.0;
+            o
+        });
+        let cid = ObjectId(5121);
+        let mut ct = ThingTemplate::new("HealCrate");
+        logic.templates.insert("HealCrate".into(), ct.clone());
+        logic.objects.insert(cid, {
+            let mut o = Object::new(ct, cid, Team::Neutral);
+            o.set_position(glam::Vec3::new(3.0, 0.0, 0.0));
+            o
+        });
+        logic.host_money_crates.register_heal_crate(cid);
+        logic.update_money_crate_collides();
+        assert_eq!(logic.objects[&uid].health.current, 80.0);
+        assert!(!logic.host_money_crates.contains(cid));
     }
 
     #[test]

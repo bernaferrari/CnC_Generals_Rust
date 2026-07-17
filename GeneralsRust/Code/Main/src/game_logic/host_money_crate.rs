@@ -183,6 +183,18 @@ pub struct HostMoneyCrateEntry {
     /// C++ levels to gain (usually 1; pilot path uses owner level).
     #[serde(default = "default_vet_levels")]
     pub veterancy_levels: u8,
+    /// C++ UnitCrateCollide residual.
+    #[serde(default)]
+    pub is_unit_crate: bool,
+    /// Unit template name to spawn (UnitCrateCollide m_unitType).
+    #[serde(default)]
+    pub unit_crate_type: String,
+    /// How many units to spawn (m_unitCount).
+    #[serde(default)]
+    pub unit_crate_count: u32,
+    /// C++ HealCrateCollide residual (heal all objects owned by picker player).
+    #[serde(default)]
+    pub is_heal_crate: bool,
 }
 
 fn default_vet_levels() -> u8 {
@@ -320,6 +332,52 @@ impl HostMoneyCrateRegistry {
         );
     }
 
+    /// C++ UnitCrateCollide residual registration.
+    pub fn register_unit_crate(&mut self, object_id: ObjectId, unit_type: &str, unit_count: u32) {
+        self.crates.insert(
+            object_id,
+            HostMoneyCrateEntry {
+                object_id,
+                money_provided: 0,
+                building_pickup: false,
+                supply_lines_boost: 0,
+                building_pickup_residual_paid: false,
+                is_salvage: false,
+                expires_frame: 0,
+                is_veterancy: false,
+                veterancy_effect_range: 0.0,
+                veterancy_levels: 1,
+                is_unit_crate: true,
+                unit_crate_type: unit_type.to_string(),
+                unit_crate_count: unit_count.max(1),
+                is_heal_crate: false,
+            },
+        );
+    }
+
+    /// C++ HealCrateCollide residual registration.
+    pub fn register_heal_crate(&mut self, object_id: ObjectId) {
+        self.crates.insert(
+            object_id,
+            HostMoneyCrateEntry {
+                object_id,
+                money_provided: 0,
+                building_pickup: false,
+                supply_lines_boost: 0,
+                building_pickup_residual_paid: false,
+                is_salvage: false,
+                expires_frame: 0,
+                is_veterancy: false,
+                veterancy_effect_range: 0.0,
+                veterancy_levels: 1,
+                is_unit_crate: false,
+                unit_crate_type: String::new(),
+                unit_crate_count: 0,
+                is_heal_crate: true,
+            },
+        );
+    }
+
     /// C++ VeterancyCrateCollide residual (Small/Medium LevelUp crates).
     pub fn register_level_up_crate(&mut self, object_id: ObjectId, effect_range: f32, levels: u8) {
         self.crates.insert(
@@ -335,6 +393,10 @@ impl HostMoneyCrateRegistry {
                 is_veterancy: true,
                 veterancy_effect_range: effect_range.max(0.0),
                 veterancy_levels: levels.max(1),
+                is_unit_crate: false,
+                unit_crate_type: String::new(),
+                unit_crate_count: 0,
+                is_heal_crate: false,
             },
         );
     }
@@ -354,6 +416,10 @@ impl HostMoneyCrateRegistry {
                 is_veterancy: false,
                 veterancy_effect_range: 0.0,
                 veterancy_levels: 1,
+                is_unit_crate: false,
+                unit_crate_type: String::new(),
+                unit_crate_count: 0,
+                is_heal_crate: false,
             },
         );
     }
@@ -378,6 +444,10 @@ impl HostMoneyCrateRegistry {
                 is_veterancy: false,
                 veterancy_effect_range: 0.0,
                 veterancy_levels: 1,
+                is_unit_crate: false,
+                unit_crate_type: String::new(),
+                unit_crate_count: 0,
+                is_heal_crate: false,
             },
         );
     }
