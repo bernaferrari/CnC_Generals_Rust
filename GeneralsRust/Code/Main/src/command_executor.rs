@@ -2052,24 +2052,19 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
 
+        // C++ Player::attemptToPurchaseScience residual: science purchase points,
+        // not supply cash. Cost 0 / missing prereqs / insufficient points → fail.
         let unlocked = {
             let Some(player) = self.game_logic.get_player_mut(player_id) else {
                 return CommandResult::InvalidCommand;
             };
-            if player.has_unlocked_science(science_name) {
+            if !player.attempt_to_purchase_science(science_name) {
                 return CommandResult::InvalidCommand;
             }
-
-            let cost = Resources {
-                supplies: Self::resolve_science_cost_supplies(science_name),
-                power: 0,
-            };
-            if !player.spend_resources(&cost) {
-                return CommandResult::InvalidCommand;
-            }
-
-            debug!("Player {} purchasing science: {}", player_id, science_name);
-            player.unlock_science(science_name);
+            debug!(
+                "Player {} purchased science {} (spp left={})",
+                player_id, science_name, player.science_purchase_points
+            );
             true
         };
 

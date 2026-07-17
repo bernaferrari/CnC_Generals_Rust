@@ -652,6 +652,31 @@ impl Player {
         inserted
     }
 
+    /// C++ Player::isCapableOfPurchasingScience residual.
+    pub fn is_capable_of_purchasing_science(&self, science_name: &str) -> bool {
+        crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::is_capable_of_purchasing_science_residual(
+            &self.unlocked_sciences,
+            self.science_purchase_points,
+            science_name,
+        )
+    }
+
+    /// C++ Player::attemptToPurchaseScience residual.
+    ///
+    /// Spends **science purchase points** (not supplies). Cost 0 = not purchasable.
+    pub fn attempt_to_purchase_science(&mut self, science_name: &str) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::science_purchase_point_cost_residual;
+        if !self.is_capable_of_purchasing_science(science_name) {
+            return false;
+        }
+        let cost = science_purchase_point_cost_residual(science_name).unwrap_or(1);
+        if cost > self.science_purchase_points {
+            return false;
+        }
+        self.science_purchase_points -= cost;
+        self.unlock_science(science_name)
+    }
+
     pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {
         self.find_queued_upgrade_name(upgrade_name).is_some()
     }
@@ -81840,6 +81865,66 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn science_purchase_spends_points_not_supplies() {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
+            is_capable_of_purchasing_science_residual, science_purchase_point_cost_residual,
+        };
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let pid = logic
+            .get_player_by_team(Team::USA)
+            .map(|p| p.id)
+            .expect("usa");
+        // Grant faction + rank residual prereqs and points.
+        {
+            let p = logic.get_player_mut(pid).unwrap();
+            p.unlocked_sciences.insert("SCIENCE_AMERICA".into());
+            p.unlocked_sciences.insert("SCIENCE_Rank1".into());
+            p.science_purchase_points = 2;
+            p.resources.supplies = 10_000;
+        }
+        let supplies_before = logic.get_player(pid).unwrap().resources.supplies;
+        assert_eq!(
+            science_purchase_point_cost_residual("SCIENCE_DaisyCutter"),
+            Some(1)
+        );
+        assert!(is_capable_of_purchasing_science_residual(
+            &logic.get_player(pid).unwrap().unlocked_sciences,
+            2,
+            "SCIENCE_DaisyCutter"
+        ));
+        assert!(logic
+            .get_player_mut(pid)
+            .unwrap()
+            .attempt_to_purchase_science("SCIENCE_DaisyCutter"));
+        let p = logic.get_player(pid).unwrap();
+        assert!(p.has_unlocked_science("SCIENCE_DaisyCutter"));
+        assert_eq!(p.science_purchase_points, 1);
+        assert_eq!(
+            p.resources.supplies, supplies_before,
+            "science purchase must not spend supplies residual"
+        );
+        // Cost 0 MOAB not purchasable.
+        assert!(!p.is_capable_of_purchasing_science("SCIENCE_MOAB"));
+        // Insufficient points.
+        {
+            let p = logic.get_player_mut(pid).unwrap();
+            p.science_purchase_points = 0;
+            assert!(!p.attempt_to_purchase_science("SCIENCE_PaladinTank"));
+        }
+        // CashBounty prereq chain residual.
+        {
+            let p = logic.get_player_mut(pid).unwrap();
+            p.unlocked_sciences.insert("SCIENCE_GLA".into());
+            p.unlocked_sciences.insert("SCIENCE_Rank3".into());
+            p.science_purchase_points = 3;
+            assert!(p.attempt_to_purchase_science("SCIENCE_CashBounty1"));
+            assert!(p.attempt_to_purchase_science("SCIENCE_CashBounty2"));
+            assert!((p.cash_bounty_percent - 0.10).abs() < 1e-6);
+        }
     }
 
     #[test]
