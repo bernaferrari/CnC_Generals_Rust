@@ -143,7 +143,7 @@ pub mod locomotor_bootstrap;
 pub mod mission_scripts;
 pub mod object;
 pub use object::{
-    LocomotorBehaviorZ, PhysicsTurningType, DEFAULT_AERO_FRICTION_RESIDUAL,
+    LocomotorAppearance, LocomotorBehaviorZ, PhysicsTurningType, DEFAULT_AERO_FRICTION_RESIDUAL,
     DEFAULT_FORWARD_FRICTION_RESIDUAL, DEFAULT_LATERAL_FRICTION_RESIDUAL,
     DEFAULT_Z_FRICTION_RESIDUAL, MAX_FRICTION_RESIDUAL, MIN_AERO_FRICTION_RESIDUAL,
     MOTIVE_FRAMES_RESIDUAL, PATHFIND_CELL_SIZE_F_RESIDUAL,
