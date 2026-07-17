@@ -1808,6 +1808,17 @@ fn mission_objective_to_display(
     }
 }
 
+/// C++ AIAttackFireWeaponState residual result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttackFireResult {
+    /// C++ STATE_CONTINUE (PRE_ATTACK wind-up).
+    Continue,
+    /// C++ STATE_SUCCESS (shot discharged).
+    Success,
+    /// C++ STATE_FAILURE (dead target / not ready / out of range).
+    Failure,
+}
+
 impl GameLogic {
     fn seed_sample_objectives() -> Vec<ObjectiveDisplay> {
         vec![
@@ -6221,6 +6232,106 @@ impl GameLogic {
     /// C++ AIAttackFireWeaponState readiness residual.
     ///
     /// True when attacker can fire at victim this frame (range + ready + optional LOS).
+
+    /// C++ AIAttackFireWeaponState::onEnter residual — set IS_FIRING_WEAPON.
+    pub fn attack_fire_weapon_enter(&mut self, unit_id: ObjectId) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        if !u.is_alive() {
+            return false;
+        }
+        u.status.is_firing_weapon = true;
+        u.status.attacking = true;
+        u.ai_state = AIState::Attacking;
+        true
+    }
+
+    /// C++ AIAttackFireWeaponState::onExit residual — clear IS_FIRING_WEAPON.
+    pub fn attack_fire_weapon_exit(&mut self, unit_id: ObjectId) {
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.status.is_firing_weapon = false;
+        }
+    }
+
+    /// C++ AIAttackFireWeaponState::update residual — fire once at victim.
+    ///
+    /// Object path only (ground attack uses fire_at with a dummy/position path later).
+    pub fn attack_fire_weapon_update(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        current_time: f32,
+    ) -> AttackFireResult {
+        // Snapshot checks without holding mut.
+        let (alive, can_fire_now, pre_continue, in_range) = {
+            let Some(atk) = self.objects.get(&unit_id) else {
+                return AttackFireResult::Failure;
+            };
+            if !atk.is_alive() {
+                return AttackFireResult::Failure;
+            }
+            let Some(vic) = self.objects.get(&victim_id) else {
+                return AttackFireResult::Failure;
+            };
+            if !vic.is_alive() || vic.status.destroyed {
+                return AttackFireResult::Failure;
+            }
+            let pre_continue = atk.pre_attack_target == Some(victim_id)
+                && atk.pre_attack_ready_at > current_time + 1e-6;
+            let can = atk.can_fire(current_time);
+            let range_ok = atk.is_within_attack_range(vic);
+            (true, can, pre_continue, range_ok)
+        };
+        let _ = alive;
+        if pre_continue {
+            return AttackFireResult::Continue;
+        }
+        if !can_fire_now {
+            // Try fire_at anyway — it may arm pre-attack.
+        }
+        if !in_range && !pre_continue {
+            // Still allow fire_at to arm pre-attack if can_fire and target set.
+            // Out of range without wind-up => failure.
+            let Some(atk) = self.objects.get(&unit_id) else {
+                return AttackFireResult::Failure;
+            };
+            if atk.pre_attack_ready_at <= 0.0 {
+                return AttackFireResult::Failure;
+            }
+        }
+
+        let fired = {
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return AttackFireResult::Failure;
+            };
+            u.status.is_firing_weapon = true;
+            u.target = Some(victim_id);
+            u.ai_state = AIState::Attacking;
+            u.status.attacking = true;
+            u.fire_at(victim_id, current_time)
+        };
+
+        if fired {
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                if u.max_shots_to_fire > 0 {
+                    u.max_shots_to_fire = u.max_shots_to_fire.saturating_sub(1);
+                }
+            }
+            AttackFireResult::Success
+        } else {
+            // fire_at false: either pre-attack armed or cannot fire.
+            let Some(u) = self.objects.get(&unit_id) else {
+                return AttackFireResult::Failure;
+            };
+            if u.pre_attack_ready_at > current_time + 1e-6 {
+                AttackFireResult::Continue
+            } else {
+                AttackFireResult::Failure
+            }
+        }
+    }
+
     pub fn attack_can_fire_at(
         &self,
         attacker_id: ObjectId,
@@ -38938,6 +39049,7 @@ struct ShroudVisibilitySnapshot {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -71839,6 +71951,126 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn attack_fire_weapon_enter_exit_flags() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("FireA");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(1401);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::USA);
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Default::default()
+            });
+            o
+        });
+        assert!(logic.attack_fire_weapon_enter(id));
+        assert!(logic.objects[&id].status.is_firing_weapon);
+        assert_eq!(logic.objects[&id].ai_state, AIState::Attacking);
+        logic.attack_fire_weapon_exit(id);
+        assert!(!logic.objects[&id].status.is_firing_weapon);
+    }
+
+    #[test]
+    fn attack_fire_weapon_update_fires_in_range() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FireAtk");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1402);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("FireVic");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1403);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        let r = logic.attack_fire_weapon_update(aid, vid, 10.0);
+        assert_eq!(r, AttackFireResult::Success);
+        assert!(logic.objects[&aid].status.is_firing_weapon);
+    }
+
+    #[test]
+    fn attack_fire_weapon_update_fails_dead_victim() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FireAtk2");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1404);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("FireVic2");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1405);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.status.destroyed = true;
+            o
+        });
+        let r = logic.attack_fire_weapon_update(aid, vid, 10.0);
+        assert_eq!(r, AttackFireResult::Failure);
+    }
+
+    #[test]
+    fn attack_fire_weapon_update_fails_out_of_range() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FireAtk3");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1406);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 30.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("FireVic3");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1407);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(500.0, 0.0, 0.0));
+            o
+        });
+        let r = logic.attack_fire_weapon_update(aid, vid, 10.0);
+        assert_eq!(r, AttackFireResult::Failure);
     }
 
     #[test]
