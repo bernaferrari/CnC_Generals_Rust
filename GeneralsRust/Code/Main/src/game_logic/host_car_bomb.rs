@@ -97,6 +97,8 @@ pub const HIJACKER_PARACHUTE_NAME: &str = "AmericaParachute";
 pub struct HostCarBombRegistry {
     /// Successful hijack team transfers.
     pub hijacks: u32,
+    /// EVA VehicleStolen residual fires.
+    pub eva_vehicle_stolen: u32,
     /// Successful ConvertToCarBomb conversions (vehicle now IS_CARBOMB).
     pub conversions: u32,
     /// Car-bomb suicide detonations resolved.
@@ -165,6 +167,14 @@ impl HostCarBombRegistry {
     /// Residual honesty: at least one hijack transferred a vehicle.
     pub fn honesty_hijack_ok(&self) -> bool {
         self.hijacks > 0
+    }
+
+    pub fn record_eva_vehicle_stolen(&mut self) {
+        self.eva_vehicle_stolen = self.eva_vehicle_stolen.saturating_add(1);
+    }
+
+    pub fn honesty_eva_vehicle_stolen_ok(&self) -> bool {
+        self.eva_vehicle_stolen > 0
     }
 
     /// Residual honesty: at least one vehicle converted to car bomb.
