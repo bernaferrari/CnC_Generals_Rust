@@ -1363,6 +1363,8 @@ pub struct GameLogic {
     eva_superweapon_ready: u32,
     /// EVA SuperweaponDetected residual honesty fires.
     eva_superweapon_detected: u32,
+    /// EVA SuperweaponLaunched residual honesty fires.
+    eva_superweapon_launched: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2577,6 +2579,7 @@ impl GameLogic {
             eva_general_level_up: 0,
             eva_superweapon_ready: 0,
             eva_superweapon_detected: 0,
+            eva_superweapon_launched: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2941,6 +2944,7 @@ impl GameLogic {
         self.eva_general_level_up = 0;
         self.eva_superweapon_ready = 0;
         self.eva_superweapon_detected = 0;
+        self.eva_superweapon_launched = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -37832,6 +37836,9 @@ impl GameLogic {
             scud_anthrax_tier,
         );
 
+        // C++ SpecialPowerModule SuperweaponLaunched EVA residual.
+        self.try_eva_superweapon_launched(source_team, kind);
+
         // Activation audio residual (observable request path).
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -42433,6 +42440,69 @@ impl GameLogic {
     /// C++ InGameUI SuperweaponReady EVA residual (own/ally/enemy × type).
 
     /// C++ Player::onStructureConstructionComplete SuperweaponDetected EVA residual.
+
+    /// Map HostSuperweaponKind residual to EVA SuperweaponLaunched family key.
+    /// Only ParticleCannon / NuclearMissile / ScudStorm map to C++ launched EVA.
+    pub fn classify_superweapon_launched_kind(
+        kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
+    ) -> Option<&'static str> {
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+        match kind {
+            HostSuperweaponKind::ParticleCannon => Some("particle"),
+            HostSuperweaponKind::NuclearMissile => Some("nuke"),
+            HostSuperweaponKind::ScudStorm => Some("scud"),
+            _ => None,
+        }
+    }
+
+    /// C++ SpecialPowerModule SuperweaponLaunched EVA residual (own/ally/enemy × type).
+    pub fn try_eva_superweapon_launched(
+        &mut self,
+        owner_team: Team,
+        kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
+    ) {
+        let Some(family) = Self::classify_superweapon_launched_kind(kind) else {
+            return;
+        };
+        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+            return;
+        };
+        let local_team = local.team;
+        let local_alliance = local.alliance_team;
+        let owner_alliance = self
+            .players
+            .values()
+            .find(|p| p.team == owner_team)
+            .map(|p| p.alliance_team)
+            .unwrap_or(-1);
+        let relation = if owner_team == local_team {
+            "own"
+        } else if local_alliance >= 0 && local_alliance == owner_alliance {
+            "ally"
+        } else {
+            "enemy"
+        };
+        use gamelogic::helpers::EvaEvent;
+        let event = match (family, relation) {
+            ("particle", "own") => EvaEvent::SuperweaponLaunchedOwnParticleCannon,
+            ("particle", "ally") => EvaEvent::SuperweaponLaunchedAllyParticleCannon,
+            ("particle", _) => EvaEvent::SuperweaponLaunchedEnemyParticleCannon,
+            ("nuke", "own") => EvaEvent::SuperweaponLaunchedOwnNuke,
+            ("nuke", "ally") => EvaEvent::SuperweaponLaunchedAllyNuke,
+            ("nuke", _) => EvaEvent::SuperweaponLaunchedEnemyNuke,
+            ("scud", "own") => EvaEvent::SuperweaponLaunchedOwnScudStorm,
+            ("scud", "ally") => EvaEvent::SuperweaponLaunchedAllyScudStorm,
+            ("scud", _) => EvaEvent::SuperweaponLaunchedEnemyScudStorm,
+            _ => return,
+        };
+        let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        self.eva_superweapon_launched = self.eva_superweapon_launched.saturating_add(1);
+    }
+
+    pub fn honesty_eva_superweapon_launched_ok(&self) -> bool {
+        self.eva_superweapon_launched > 0
+    }
+
     pub fn try_eva_superweapon_detected(&mut self, owner_team: Team, template_name: &str) {
         let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
             return;
@@ -77255,6 +77325,45 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn eva_superweapon_launched_own_particle_and_enemy_scud() {
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+        use crate::game_logic::Team;
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        logic.try_eva_superweapon_launched(Team::USA, HostSuperweaponKind::ParticleCannon);
+        assert!(logic.honesty_eva_superweapon_launched_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponLaunchedOwnParticleCannon),
+            "{events:?}"
+        );
+        let _ = TheEva::drain_events();
+        logic.try_eva_superweapon_launched(Team::GLA, HostSuperweaponKind::ScudStorm);
+        let events2 = TheEva::drain_events().expect("eva2");
+        assert!(
+            events2
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponLaunchedEnemyScudStorm),
+            "{events2:?}"
+        );
+        // DaisyCutter has no SuperweaponLaunched EVA residual.
+        let before = logic.eva_superweapon_launched;
+        logic.try_eva_superweapon_launched(Team::USA, HostSuperweaponKind::DaisyCutter);
+        assert_eq!(logic.eva_superweapon_launched, before);
+        assert_eq!(
+            GameLogic::classify_superweapon_launched_kind(HostSuperweaponKind::NuclearMissile),
+            Some("nuke")
+        );
     }
 
     #[test]
