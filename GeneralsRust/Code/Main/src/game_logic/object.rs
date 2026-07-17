@@ -2481,6 +2481,15 @@ impl Object {
     pub fn is_hijacked(&self) -> bool {
         self.status.hijacked
     }
+    /// C++ Object::m_privateStatus CAPTURED residual (setCaptured).
+    pub fn set_private_captured(&mut self, captured: bool) {
+        self.status.private_captured = captured;
+    }
+
+    /// C++ Object::isCaptured residual.
+    pub fn is_private_captured(&self) -> bool {
+        self.status.private_captured
+    }
 
     /// Apply ConvertToCarBomb residual onto this vehicle (caller sets team).
     ///
