@@ -15784,6 +15784,19 @@ impl GameLogic {
             }
             HostUpgradeKind::DroneArmor => self.apply_drone_armor_to_team(team, upgrade_name),
             HostUpgradeKind::AircraftArmor => self.apply_aircraft_armor_to_team(team, upgrade_name),
+            HostUpgradeKind::ChinaMines => {
+                self.apply_player_unlock_upgrade(team, upgrade_name, "Upgrade_ChinaMines")
+            }
+            HostUpgradeKind::EmpMines => {
+                self.apply_player_unlock_upgrade(team, upgrade_name, "Upgrade_ChinaEMPMines")
+            }
+            HostUpgradeKind::FortifiedStructure => {
+                self.apply_fortified_structure_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::Radar => self.apply_radar_research_to_team(team, upgrade_name),
+            HostUpgradeKind::RadarVanScan => {
+                self.apply_player_unlock_upgrade(team, upgrade_name, "Upgrade_GLARadarVanScan")
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -15821,6 +15834,103 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// Generic player-level upgrade unlock residual (mines / radar scan / flags).
+    fn apply_player_unlock_upgrade(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+        canonical: &str,
+    ) -> u32 {
+        let mut n = 0u32;
+        for p in self.players.values_mut() {
+            if p.team != team {
+                continue;
+            }
+            p.unlocked_sciences.insert(canonical.to_string());
+            p.unlocked_sciences.insert(upgrade_name.to_string());
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// C++ Upgrade_GLAFortifiedStructure residual — +max health on GLA structures.
+    fn apply_fortified_structure_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::{
+            FORTIFIED_STRUCTURE_ADD_MAX_HEALTH, UPGRADE_GLA_FORTIFIED_STRUCTURE,
+        };
+        let add = FORTIFIED_STRUCTURE_ADD_MAX_HEALTH;
+        let mut n = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_GLA_FORTIFIED_STRUCTURE)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_GLA_FORTIFIED_STRUCTURE);
+            obj.max_health = (obj.max_health + add).max(1.0);
+            obj.health.maximum = (obj.health.maximum + add).max(1.0);
+            obj.health.current = (obj.health.current + add).min(obj.health.maximum);
+            n = n.saturating_add(1);
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_GLA_FORTIFIED_STRUCTURE.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
+    }
+
+    /// C++ faction RadarUpgrade residual — unlock + tag radar providers.
+    fn apply_radar_research_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_radar::{is_radar_provider_template, UPGRADE_GLA_RADAR};
+        use crate::game_logic::host_structure_economy_residual::UPGRADE_AMERICA_RADAR;
+
+        let canonical = if upgrade_name.to_ascii_lowercase().contains("china") {
+            "Upgrade_ChinaRadar"
+        } else if upgrade_name.to_ascii_lowercase().contains("gla") {
+            UPGRADE_GLA_RADAR
+        } else {
+            UPGRADE_AMERICA_RADAR
+        };
+
+        let mut n = self.apply_player_unlock_upgrade(team, upgrade_name, canonical);
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_radar_provider_template(&obj.template_name)
+                && !obj.is_command_center()
+                && !obj.is_kind_of(KindOf::CommandCenter)
+            {
+                continue;
+            }
+            if obj.has_upgrade_tag(canonical) || obj.has_upgrade_tag(upgrade_name) {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(canonical);
+            // C++ RadarUpgrade model residual.
+            if let Some(bit) =
+                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                    "RADAR_UPGRADED",
+                )
+            {
+                obj.model_condition_bits |= 1u128 << bit;
+            }
+            n = n.saturating_add(1);
+        }
+        n
     }
 
     /// C++ Upgrade_AmericaDroneArmor residual — +max health on slave drones.
@@ -80909,6 +81019,76 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_mines_radar_fortified() {
+        use crate::game_logic::host_upgrades::{
+            FORTIFIED_STRUCTURE_ADD_MAX_HEALTH, UPGRADE_CHINA_MINES,
+            UPGRADE_GLA_FORTIFIED_STRUCTURE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", true));
+        logic
+            .players
+            .insert(2, Player::new(2, Team::USA, "USA", true));
+
+        let n_m = logic.apply_player_unlock_upgrade(
+            Team::China,
+            UPGRADE_CHINA_MINES,
+            UPGRADE_CHINA_MINES,
+        );
+        assert_eq!(n_m, 1);
+        assert!(logic
+            .players
+            .get(&0)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_CHINA_MINES));
+
+        let mut bm = ThingTemplate::new("GLABlackMarket");
+        bm.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLABlackMarket".into(), bm);
+        let bid = logic
+            .create_object("GLABlackMarket", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("bm");
+        let before = logic.get_object(bid).unwrap().max_health;
+        let n_f =
+            logic.apply_fortified_structure_to_team(Team::GLA, UPGRADE_GLA_FORTIFIED_STRUCTURE);
+        assert_eq!(n_f, 1);
+        let after = logic.get_object(bid).unwrap().max_health;
+        assert!((after - before - FORTIFIED_STRUCTURE_ADD_MAX_HEALTH).abs() < 0.1);
+
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let cid = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let n_r = logic.apply_radar_research_to_team(Team::USA, "Upgrade_AmericaRadar");
+        assert!(n_r >= 1);
+        assert!(logic
+            .get_object(cid)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_AmericaRadar"));
+        assert!(logic
+            .players
+            .get(&2)
+            .unwrap()
+            .unlocked_sciences
+            .contains("Upgrade_AmericaRadar"));
     }
 
     #[test]
