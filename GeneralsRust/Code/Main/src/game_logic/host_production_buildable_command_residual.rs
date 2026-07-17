@@ -250,6 +250,61 @@ pub const CANMAKE_QUEUE_FULL: u32 = 4;
 pub const CANMAKE_PARKING_PLACES_FULL: u32 = 5;
 pub const CANMAKE_MAXED_OUT_FOR_PLAYER: u32 = 6;
 
+/// Retail MaxSimultaneousOfType = 1 residual heroes / unique units.
+///
+/// Fail-closed: not full INI parse matrix — sample of hero infantry + unique
+/// buildings that share MaxSimultaneousOfType=1 in Faction INI residual.
+pub const UNIT_MAX_SIMULTANEOUS_ONE_RESIDUAL: &[&str] = &[
+    "AmericaInfantryColonelBurton",
+    "AirF_AmericaInfantryColonelBurton",
+    "Lazr_AmericaInfantryColonelBurton",
+    "SupW_AmericaInfantryColonelBurton",
+    "Boss_InfantryColonelBurton",
+    "ChinaInfantryBlackLotus",
+    "Infa_ChinaInfantryBlackLotus",
+    "Nuke_ChinaInfantryBlackLotus",
+    "Tank_ChinaInfantryBlackLotus",
+    "Boss_InfantryBlackLotus",
+    "GLAInfantryJarmenKell",
+    "Demo_GLAInfantryJarmenKell",
+    "Chem_GLAInfantryJarmenKell",
+    "GC_Chem_GLAInfantryJarmenKell",
+    "Slth_GLAInfantryJarmenKell",
+    "GC_Slth_GLAInfantryJarmenKell",
+    "Boss_InfantryJarmenKell",
+];
+
+/// C++ MaxSimultaneousOfType residual lookup (None = unlimited).
+pub fn unit_max_simultaneous_of_type_residual(template_name: &str) -> Option<u32> {
+    let n = template_name.to_ascii_lowercase();
+    // Exact residual table.
+    if UNIT_MAX_SIMULTANEOUS_ONE_RESIDUAL
+        .iter()
+        .any(|u| u.eq_ignore_ascii_case(template_name))
+    {
+        return Some(1);
+    }
+    // Name-token residual for generalist heroes / unique units.
+    if (n.contains("colonelburton") || n.contains("blacklotus") || n.contains("jarmenkell"))
+        && !n.contains("cinematic")
+        && !n.contains("cine_")
+    {
+        return Some(1);
+    }
+    None
+}
+
+/// True when living+queued count has reached MaxSimultaneous residual.
+pub fn unit_maxed_out_for_player_residual(
+    owned_or_queued: u32,
+    max_simultaneous: Option<u32>,
+) -> bool {
+    match max_simultaneous {
+        Some(max) => owned_or_queued >= max,
+        None => false,
+    }
+}
+
 /// C++ BuildAssistant::canMakeUnit residual status mapper.
 pub fn can_make_type_from_checks_residual(
     has_prereq: bool,
@@ -616,6 +671,13 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
             == CANMAKE_FACTORY_IS_DISABLED
         && can_make_type_from_checks_residual(true, true, false, true, false, false)
             == CANMAKE_QUEUE_FULL
+        && unit_max_simultaneous_of_type_residual("AmericaInfantryColonelBurton") == Some(1)
+        && unit_max_simultaneous_of_type_residual("ChinaInfantryBlackLotus") == Some(1)
+        && unit_max_simultaneous_of_type_residual("GLAInfantryJarmenKell") == Some(1)
+        && unit_max_simultaneous_of_type_residual("AmericaInfantryRanger").is_none()
+        && unit_maxed_out_for_player_residual(1, Some(1))
+        && !unit_maxed_out_for_player_residual(0, Some(1))
+        && !unit_maxed_out_for_player_residual(5, None)
         && can_make_type_from_checks_residual(true, true, false, false, false, true)
             == CANMAKE_MAXED_OUT_FOR_PLAYER
         && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_PREREQ") == Some(1)
