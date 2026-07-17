@@ -4942,6 +4942,7 @@ impl GameLogic {
         let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
         self.tick_nested_attack_machines(&object_ids, t, frame);
         self.tick_all_turret_state_machines(&object_ids, t, frame);
+        self.tick_mood_auto_acquire(&object_ids);
         self.tick_out_of_ammo_jet_damage();
         self.tick_airfield_parking_heal();
         self.tick_airfield_runway_clear();
@@ -6429,10 +6430,199 @@ impl GameLogic {
         transferred
     }
 
+    /// Drive mood auto-acquire for idle AI-controlled units.
+    pub(crate) fn tick_mood_auto_acquire(&mut self, object_ids: &[ObjectId]) {
+        for &id in object_ids {
+            let (is_player, do_check) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                // Host residual: player-controlled == USA team with Normal attitude default.
+                // Skirmish AI uses other teams / non-zero attitude.
+                let player = matches!(o.team, crate::game_logic::Team::USA) && o.ai_attitude == 0;
+                let idle = matches!(o.ai_state, AIState::Idle) && o.target.is_none();
+                (player, idle && o.auto_acquire_when_idle && o.is_alive())
+            };
+            if do_check && !is_player {
+                let _ = self.try_mood_auto_acquire(id, false);
+            }
+        }
+    }
+
     /// C++ AIUpdateInterface::getMoodMatrixActionAdjustment residual.
     ///
     /// Uses `ai_attitude` on the object (-2 Sleep .. +2 Aggressive).
     /// Player-controlled residual always returns ACTION_OK.
+
+    /// C++ AI vision mood factor residual (AI_VISIONFACTOR_MOOD).
+    pub fn adjusted_vision_range_for_mood(&self, unit_id: ObjectId) -> f32 {
+        let Some(obj) = self.objects.get(&unit_id) else {
+            return 0.0;
+        };
+        let base = obj.vision_range.max(0.0);
+        // Attitude multipliers residual (fail-closed approximate).
+        let mult = match obj.ai_attitude.clamp(-2, 2) {
+            -2 => 0.0, // Sleep: ignore all
+            -1 => 1.0, // Passive: wait-for-attack (range still used for last-attacker)
+            0 => 1.0,  // Normal
+            1 => 1.25, // Alert
+            _ => 1.5,  // Aggressive
+        };
+        base * mult
+    }
+
+    /// C++ AIUpdateInterface::getNextMoodTarget residual.
+    ///
+    /// Returns a candidate enemy to auto-acquire, or None.
+    pub fn get_next_mood_target(
+        &mut self,
+        unit_id: ObjectId,
+        called_by_ai: bool,
+        called_during_idle: bool,
+        is_player_controlled: bool,
+    ) -> Option<ObjectId> {
+        let now = self.frame;
+        // Snapshot gates.
+        let (
+            alive,
+            using_ability,
+            attacking,
+            stealthed,
+            auto_idle,
+            attitude,
+            last_dmg,
+            pos,
+            team,
+            rate,
+            next_check,
+        ) = {
+            let o = self.objects.get(&unit_id)?;
+            if o.is_kind_of(crate::game_logic::KindOf::Projectile) {
+                return None;
+            }
+            (
+                o.is_alive() && !o.status.destroyed,
+                o.status.using_ability,
+                o.status.attacking || o.ai_state == AIState::Attacking,
+                o.status.stealthed && !o.status.detected,
+                o.auto_acquire_when_idle,
+                o.ai_attitude,
+                o.last_damage_source,
+                o.get_position(),
+                o.team,
+                o.mood_attack_check_rate.max(1),
+                o.next_mood_check_time,
+            )
+        };
+        if !alive || using_ability {
+            return None;
+        }
+        if called_during_idle && !auto_idle {
+            return None;
+        }
+        // Stealthed idle acquire residual: block unless contained-fire (not ported).
+        if called_during_idle && stealthed {
+            return None;
+        }
+        // Sleep mood: no acquire.
+        if attitude <= -2 && !is_player_controlled {
+            return None;
+        }
+
+        // Passive mood: return last damage source if legal enemy.
+        if attitude == -1 && !is_player_controlled {
+            if let Some(src) = last_dmg {
+                if src != unit_id {
+                    let ok = matches!(
+                        self.get_able_to_attack_specific_object(
+                            unit_id,
+                            src,
+                            AbleToAttackType::NewTarget,
+                            false
+                        ),
+                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                    );
+                    if ok {
+                        return Some(src);
+                    }
+                }
+            }
+            // Passive without recent attacker: no proactive acquire.
+            return None;
+        }
+
+        if called_by_ai {
+            if now < next_check && next_check != 0 {
+                return None;
+            }
+            // Schedule next check.
+            if let Some(o) = self.objects.get_mut(&unit_id) {
+                o.next_mood_check_time = now.saturating_add(rate);
+            }
+        }
+
+        let mut range = self.adjusted_vision_range_for_mood(unit_id);
+        if range <= 0.0 {
+            return None;
+        }
+        // Container radius residual omitted (fail-closed).
+
+        // Human AI residual: only within attack range.
+        if called_by_ai && is_player_controlled {
+            if let Some(o) = self.objects.get(&unit_id) {
+                let wr = o
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.range)
+                    .or_else(|| o.secondary_weapon.as_ref().map(|w| w.range))
+                    .unwrap_or(0.0);
+                range = wr.min(range);
+            }
+        }
+
+        // Prefer nearest legal enemy via existing decision helper.
+        let candidates =
+            crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(self, pos, team, range);
+        let Some((cand, _dist)) = candidates else {
+            return None;
+        };
+        // Able-to-attack filter.
+        let result = self.get_able_to_attack_specific_object(
+            unit_id,
+            cand,
+            AbleToAttackType::NewTarget,
+            is_player_controlled,
+        );
+        match result {
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => Some(cand),
+            _ => None,
+        }
+    }
+
+    /// Idle mood auto-acquire: if idle and mood allows, set attack target.
+    pub fn try_mood_auto_acquire(
+        &mut self,
+        unit_id: ObjectId,
+        is_player_controlled: bool,
+    ) -> Option<ObjectId> {
+        let idle = self.objects.get(&unit_id).map(|o| {
+            matches!(o.ai_state, AIState::Idle) && !o.status.attacking && o.target.is_none()
+        })?;
+        if !idle {
+            return None;
+        }
+        if !self.mood_allows_attack(unit_id, is_player_controlled) {
+            return None;
+        }
+        let victim = self.get_next_mood_target(unit_id, true, true, is_player_controlled)?;
+        // Enter attack SM.
+        if self.attack_state_enter(unit_id, victim) == AttackMachineResult::Continue {
+            Some(victim)
+        } else {
+            None
+        }
+    }
+
     pub fn get_mood_matrix_action_adjustment(
         &self,
         unit_id: ObjectId,
@@ -73741,6 +73931,160 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn get_next_mood_target_finds_nearby_enemy() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        logic.frame = 100;
+        let mut at = ThingTemplate::new("MoodT1");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2501);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.ai_attitude = 0; // Normal
+            o.vision_range = 200.0;
+            o.next_mood_check_time = 0;
+            o.weapon = Some(Weapon {
+                range: 80.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("MoodT2");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(2502);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(50.0, 0.0, 0.0));
+            o
+        });
+        let t = logic.get_next_mood_target(aid, true, true, false);
+        assert_eq!(t, Some(vid));
+        // Rate limit: immediate second call should be None.
+        assert!(logic.get_next_mood_target(aid, true, true, false).is_none());
+    }
+
+    #[test]
+    fn get_next_mood_target_sleep_returns_none() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("MoodS");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2503);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.ai_attitude = -2;
+            o.vision_range = 200.0;
+            o.weapon = Some(Weapon {
+                range: 80.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("MoodSE");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(2504);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        assert!(logic.get_next_mood_target(aid, true, true, false).is_none());
+    }
+
+    #[test]
+    fn get_next_mood_target_passive_uses_last_damage_source() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        logic.frame = 50;
+        let mut at = ThingTemplate::new("MoodP");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2505);
+        let enemy = ObjectId(2506);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.ai_attitude = -1; // Passive
+            o.last_damage_source = Some(enemy);
+            o.vision_range = 200.0;
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 5.0,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("MoodPE");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        logic.objects.insert(enemy, {
+            let mut o = Object::new(vt, enemy, Team::GLA);
+            o.set_position(Vec3::new(30.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.get_next_mood_target(aid, true, true, false),
+            Some(enemy)
+        );
+    }
+
+    #[test]
+    fn try_mood_auto_acquire_enters_attack() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        logic.frame = 10;
+        let mut at = ThingTemplate::new("MoodAc");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2507);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.ai_state = AIState::Idle;
+            o.ai_attitude = 2; // Aggressive
+            o.vision_range = 200.0;
+            o.next_mood_check_time = 0;
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                last_fire_time: -10.0,
+                reload_time: 1.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("MoodAcE");
+        vt.add_kind_of(KindOf::Infantry);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(2508);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(40.0, 0.0, 0.0));
+            o
+        });
+        let got = logic.try_mood_auto_acquire(aid, false);
+        assert_eq!(got, Some(vid));
+        assert_eq!(logic.objects[&aid].target, Some(vid));
+        assert!(logic.objects[&aid].status.attacking);
     }
 
     #[test]

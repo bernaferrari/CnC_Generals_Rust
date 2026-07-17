@@ -44,6 +44,19 @@ fn default_turret_recenter_frames() -> u32 {
     60
 }
 
+fn default_mood_attack_check_rate() -> u32 {
+    // C++ typical mood check rate residual (~1s @ 30fps).
+    30
+}
+
+fn default_vision_range() -> f32 {
+    150.0
+}
+
+fn default_true_for_auto_acquire() -> bool {
+    true
+}
+
 fn default_max_shots() -> i32 {
     -1
 }
@@ -867,6 +880,18 @@ pub struct Object {
     /// Set when damage is applied with a known attacker id.
     #[serde(default)]
     pub last_damage_source: Option<ObjectId>,
+    /// C++ AIUpdateInterface::m_nextMoodCheckTime residual.
+    #[serde(default)]
+    pub next_mood_check_time: u32,
+    /// C++ m_moodAttackCheckRate residual (logic frames between mood checks).
+    #[serde(default = "default_mood_attack_check_rate")]
+    pub mood_attack_check_rate: u32,
+    /// C++ vision range residual for mood acquire (world units).
+    #[serde(default = "default_vision_range")]
+    pub vision_range: f32,
+    /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
+    #[serde(default = "default_true_for_auto_acquire")]
+    pub auto_acquire_when_idle: bool,
 
     /// CamoNetting StealthUpdate FriendlyOpacity residual (0.5 cloaked / 1.0 revealed).
     /// Fail-closed: not full drawable sub-object camo net mesh visual.
@@ -1307,6 +1332,10 @@ impl Object {
             turret_recenter_frames: default_turret_recenter_frames(),
             ai_attitude: 0, // HostAiAttitude::Normal
             last_damage_source: None,
+            next_mood_check_time: 0,
+            mood_attack_check_rate: default_mood_attack_check_rate(),
+            vision_range: default_vision_range(),
+            auto_acquire_when_idle: true,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
@@ -1554,6 +1583,10 @@ impl Object {
             turret_recenter_frames: default_turret_recenter_frames(),
             ai_attitude: 0, // HostAiAttitude::Normal
             last_damage_source: None,
+            next_mood_check_time: 0,
+            mood_attack_check_rate: default_mood_attack_check_rate(),
+            vision_range: default_vision_range(),
+            auto_acquire_when_idle: true,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
