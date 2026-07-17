@@ -198,6 +198,18 @@ pub struct Object {
     /// Cached velocity magnitude residual (negative = invalid).
     #[serde(default = "default_invalid_vel_mag")]
     pub velocity_magnitude_cache: f32,
+    /// C++ m_originalAllowBounce residual.
+    #[serde(default)]
+    pub original_allow_bounce: bool,
+    /// C++ STICK_TO_GROUND flag residual.
+    #[serde(default)]
+    pub stick_to_ground: bool,
+    /// C++ ALLOW_TO_FALL flag residual.
+    #[serde(default)]
+    pub allow_to_fall: bool,
+    /// C++ WAS_AIRBORNE_LAST_FRAME residual (general physics, not only shock).
+    #[serde(default)]
+    pub was_airborne_last_frame: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -849,6 +861,10 @@ impl Object {
             extra_friction: 0.0,
             apply_friction_2d_when_airborne: false,
             velocity_magnitude_cache: -1.0,
+            original_allow_bounce: false,
+            stick_to_ground: false,
+            allow_to_fall: false,
+            was_airborne_last_frame: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1037,6 +1053,10 @@ impl Object {
             extra_friction: 0.0,
             apply_friction_2d_when_airborne: false,
             velocity_magnitude_cache: -1.0,
+            original_allow_bounce: false,
+            stick_to_ground: false,
+            allow_to_fall: false,
+            was_airborne_last_frame: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2978,6 +2998,127 @@ impl Object {
             self.model_condition_bits |= 1u128 << MC_BIT_SPLATTED;
         }
         damage_amt
+    }
+
+    /// C++ PhysicsBehavior::applyYPRDamping residual.
+    pub fn apply_ypr_damping(&mut self, factor: f32) {
+        self.shock_yaw_rate *= factor;
+        self.shock_pitch_rate *= factor;
+        self.shock_roll_rate *= factor;
+    }
+
+    /// C++ setAllowBouncing residual.
+    pub fn set_allow_bouncing(&mut self, allow: bool) {
+        self.shock_allow_bounce = allow;
+    }
+
+    /// C++ handleBounce force residual (does not mutate velocity; returns force).
+    ///
+    /// Callers apply via `apply_physics_force` when ALLOW_BOUNCE remains set.
+    pub fn compute_ground_bounce_force(
+        &mut self,
+        old_y: f32,
+        new_y: f32,
+        ground_y: f32,
+    ) -> Option<glam::Vec3> {
+        if !self.shock_allow_bounce || new_y > ground_y {
+            return None;
+        }
+        let vy = self.movement.velocity.y;
+        let mut desired_accel_y = 0.0;
+        if old_y > ground_y && vy < 0.0 {
+            let stiffness = Self::GROUND_STIFFNESS.clamp(0.01, 0.99);
+            desired_accel_y = vy.abs() * stiffness;
+        }
+        self.apply_ypr_damping(Self::BOUNCE_YPR_DAMPING);
+        if desired_accel_y > 0.0 {
+            // C++ bounceForce.z = mass * desiredAccelZ
+            let force_y = self.physics_get_mass() * desired_accel_y;
+            // Right orientation residual when inverted.
+            if self.shock_up_z < 0.0 {
+                self.shock_up_z = 1.0;
+            }
+            self.shock_pitch_rate = 0.0;
+            self.shock_roll_rate = 0.0;
+            Some(glam::Vec3::new(0.0, force_y, 0.0))
+        } else {
+            // Restore original allow bounce residual.
+            self.shock_allow_bounce = self.original_allow_bounce;
+            None
+        }
+    }
+
+    /// C++ PhysicsBehavior position integrate + ground clamp residual (one frame).
+    ///
+    /// `ground_y` is terrain height at object XZ. Returns true if a bounce force was applied.
+    pub fn tick_physics_motion_step(&mut self, ground_y: f32) -> bool {
+        if self.status.destroyed || !self.is_alive() {
+            return false;
+        }
+        // Held residual not fully ported — skip if explicitly non-mobile structure without fall.
+        if self.is_kind_of(crate::game_logic::KindOf::Structure) && !self.allow_to_fall {
+            return false;
+        }
+
+        let old_pos = self.get_position();
+        let old_y = old_pos.y;
+        let airborne_start = old_y > ground_y + 0.05;
+
+        // Integrate position from velocity (1 logic frame).
+        let v = self.movement.velocity;
+        let mut new_pos = old_pos + v;
+        // YPR rate integrate residual (orientation presentation).
+        if self.shock_yaw_rate.abs() > 1e-8 {
+            let yaw = self.get_orientation() + self.shock_yaw_rate;
+            self.set_orientation(yaw);
+        }
+
+        let bounce_force = self.compute_ground_bounce_force(old_y, new_pos.y, ground_y);
+        let mut bounced = false;
+
+        // Remember z-vel prior to ground-slam (host Y).
+        if new_pos.y <= ground_y {
+            let dy = ground_y - new_pos.y;
+            self.movement.velocity.y += dy;
+            if self.movement.velocity.y > 0.0 {
+                self.movement.velocity.y = 0.0;
+            }
+            self.invalidate_velocity_magnitude();
+            new_pos.y = ground_y;
+            self.allow_to_fall = false;
+            // Stunned flailing → stunned residual on first ground hit.
+            if self.shock_stun_frames > 0 && !self.shock_grounded_once {
+                self.shock_grounded_once = true;
+            }
+        } else if new_pos.y > ground_y {
+            if self.stick_to_ground && !self.allow_to_fall {
+                new_pos.y = ground_y;
+            }
+        }
+
+        self.set_position(new_pos);
+
+        if let Some(force) = bounce_force {
+            if self.shock_allow_bounce {
+                self.apply_physics_force(force);
+                // Immediate integrate of bounce accel residual (C++ applies same frame).
+                self.integrate_physics_accel();
+                bounced = true;
+                let _ = self.test_stunned_unit_for_destruction();
+            }
+        }
+
+        let airborne_end = new_pos.y > ground_y + 0.05;
+        // Landing damage residual when was airborne last frame.
+        if self.was_airborne_last_frame && !airborne_end && !self.immune_to_falling_damage {
+            // doBounceSound residual already exists elsewhere; falling damage peel.
+            let impact_vy = v.y;
+            let _ = self.apply_shock_fall_damage(impact_vy);
+        }
+        self.was_airborne_last_frame = airborne_end;
+        self.status.airborne_target = airborne_end;
+        let _ = airborne_start; // reserved for future free-fall start residual
+        bounced
     }
 
     /// C++ PhysicsBehavior::handleBounce residual (world-Y = C++ Z).
