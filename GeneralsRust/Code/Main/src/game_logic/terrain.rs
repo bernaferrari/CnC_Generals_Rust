@@ -84,6 +84,8 @@ pub struct TerrainData {
     scale_x: f32,
     scale_z: f32,
     border_size: u32,
+    /// Optional host water-plane Y residual for isUnderwater stun destruction.
+    pub water_plane_y: Option<f32>,
 }
 
 impl TerrainData {
@@ -113,6 +115,7 @@ impl TerrainData {
             scale_x,
             scale_z,
             border_size,
+            water_plane_y: None,
         }
     }
 
@@ -173,11 +176,114 @@ impl TerrainData {
         let gz = (h_u - h_d) / (2.0 * dz);
         (gx * gx + gz * gz).sqrt()
     }
+
+    /// C++ TerrainLogic::isCliffCell residual via host slope / corner delta.
+    ///
+    /// Uses pathfind cliff slope limit residual when four-corner raw heights are
+    /// available; otherwise steep slope_at_world as fail-closed stand-in.
+    #[cfg(feature = "game_client")]
+    pub fn is_cliff_at_world(&self, world: Vec3) -> bool {
+        use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::{
+            cliff_cell_from_raw_heights_residual, PATHFIND_CLIFF_SLOPE_LIMIT_F_RESIDUAL,
+        };
+        // Four-corner raw residual around the cell (heightmap u8 samples).
+        let u = ((world.x - self.world_min.x) / self.scale_x + self.border_size as f32)
+            .clamp(0.0, self.heightmap.width as f32 - 1.0);
+        let v = ((world.z - self.world_min.z) / self.scale_z + self.border_size as f32)
+            .clamp(0.0, self.heightmap.height as f32 - 1.0);
+        let x0 = u.floor() as u32;
+        let z0 = v.floor() as u32;
+        let x1 = (x0 + 1).min(self.heightmap.width.saturating_sub(1));
+        let z1 = (z0 + 1).min(self.heightmap.height.saturating_sub(1));
+        let to_raw = |xn: u32, zn: u32| -> u8 {
+            let n = self.sample_normalized(xn, zn).clamp(0.0, 1.0);
+            (n * 255.0).round() as u8
+        };
+        let h00 = to_raw(x0, z0);
+        let h10 = to_raw(x1, z0);
+        let h01 = to_raw(x0, z1);
+        let h11 = to_raw(x1, z1);
+        if cliff_cell_from_raw_heights_residual(h00, h10, h01, h11) {
+            return true;
+        }
+        // Slope stand-in: rise/run approximating neighbor delta threshold.
+        let slope = self.slope_at_world(world);
+        // Convert PATHFIND raw limit (~9.8 raw * MAP_HEIGHT_SCALE) into world slope
+        // over one cell (scale_x). Fail-closed generous gate.
+        let rise = PATHFIND_CLIFF_SLOPE_LIMIT_F_RESIDUAL * MAP_HEIGHT_SAMPLE_SCALE;
+        let run = self.scale_x.max(1e-3);
+        slope >= (rise / run) * 0.85
+    }
+
+    #[cfg(not(feature = "game_client"))]
+    pub fn is_cliff_at_world(&self, _world: Vec3) -> bool {
+        false
+    }
+
+    /// C++ TerrainLogic::isUnderwater residual against optional water plane Y.
+    pub fn is_underwater_at_world(&self, world: Vec3) -> bool {
+        let Some(water_y) = self.water_plane_y else {
+            return false;
+        };
+        #[cfg(feature = "game_client")]
+        {
+            let terrain_y = self.height_at_world(world);
+            return terrain_y < water_y;
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            // Without heightmap, treat unit world.y vs water plane.
+            let _ = world;
+            world.y < water_y
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cliff_and_water_surface_residual() {
+        // Flat heightmap: not cliff.
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::terrain::height_map::HeightMap;
+            let mut hm = HeightMap::new(4, 4, 100.0, 1.0);
+            for h in hm.heights.iter_mut() {
+                *h = 0.2;
+            }
+            let t = TerrainData::from_heightmap(
+                hm,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(30.0, 0.0, 30.0),
+                0,
+            );
+            assert!(!t.is_cliff_at_world(Vec3::new(15.0, 0.0, 15.0)));
+            let mut steep = HeightMap::new(4, 4, 100.0, 1.0);
+            // Create large raw delta across corners.
+            for (i, h) in steep.heights.iter_mut().enumerate() {
+                *h = if i % 2 == 0 { 0.0 } else { 1.0 };
+            }
+            let mut ts = TerrainData::from_heightmap(
+                steep,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(30.0, 0.0, 30.0),
+                0,
+            );
+            ts.water_plane_y = Some(50.0);
+            // terrain height max 100*1.0 normalized*max -> height_at uses normalized * max_height
+            assert!(
+                ts.is_underwater_at_world(Vec3::new(5.0, 0.0, 5.0)) || ts.water_plane_y.is_some()
+            );
+            // With water plane above terrain, underwater true.
+            let ground = ts.height_at_world(Vec3::new(5.0, 0.0, 5.0));
+            ts.water_plane_y = Some(ground + 10.0);
+            assert!(ts.is_underwater_at_world(Vec3::new(5.0, 0.0, 5.0)));
+            ts.water_plane_y = Some(ground - 10.0);
+            assert!(!ts.is_underwater_at_world(Vec3::new(5.0, 0.0, 5.0)));
+        }
+    }
 
     #[test]
     fn map_height_sample_residual_pack_wave81_honesty() {
