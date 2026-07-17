@@ -43830,6 +43830,7 @@ impl GameLogic {
                         can_produce: obj.building_data.is_some()
                             && !obj.status.under_construction
                             && obj.construction_percent >= 1.0,
+                        production_is_upgrade: false,
                     });
                 }
             }

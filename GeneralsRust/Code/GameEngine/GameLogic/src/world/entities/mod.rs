@@ -16,6 +16,8 @@ pub struct EntityProductionItem {
     pub progress: f32,
     pub total_time: f32,
     pub cost_supplies: u32,
+    /// Host PRODUCTION_UPGRADE residual.
+    pub is_upgrade: bool,
 }
 
 /// Identifier assigned to entities/things in the world.
