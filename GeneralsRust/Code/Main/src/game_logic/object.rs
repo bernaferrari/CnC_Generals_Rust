@@ -908,6 +908,9 @@ pub struct Object {
     /// C++ vision range residual for mood acquire (world units).
     #[serde(default = "default_vision_range")]
     pub vision_range: f32,
+    /// C++ Object::m_shroudClearingRange residual (CarBomb endow path).
+    #[serde(default = "default_vision_range")]
+    pub shroud_clearing_range: f32,
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
     #[serde(default = "default_true_for_auto_acquire")]
     pub auto_acquire_when_idle: bool,
@@ -1365,6 +1368,7 @@ impl Object {
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
+            shroud_clearing_range: default_vision_range(),
             auto_acquire_when_idle: true,
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,
@@ -1623,6 +1627,7 @@ impl Object {
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
+            shroud_clearing_range: default_vision_range(),
             auto_acquire_when_idle: true,
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,
@@ -2323,8 +2328,19 @@ impl Object {
     }
 
     /// Apply ConvertToCarBomb residual onto this vehicle (caller sets team).
+    ///
+    /// C++ ConvertToCarBombCrateCollide residual:
+    /// - WEAPONSET_CARBOMB / SuicideCarBomb weapon
+    /// - OBJECT_STATUS_IS_CARBOMB
+    /// - endow vision + shroudClearing from converter
+    /// - copy converter veterancy level
     /// Binds SuicideCarBomb residual weapon and marks IS_CARBOMB.
     pub fn apply_convert_to_car_bomb(&mut self) {
+        self.apply_convert_to_car_bomb_from(None);
+    }
+
+    /// Convert with optional donor (terrorist) residual endowments.
+    pub fn apply_convert_to_car_bomb_from(&mut self, donor: Option<&Object>) {
         self.status.is_carbomb = true;
         self.status.disabled_unmanned = false;
         self.status.disabled_hacked = false;
@@ -2342,6 +2358,31 @@ impl Object {
         self.target_location = None;
         self.force_attack = false;
         self.ai_state = AIState::Idle;
+        if let Some(d) = donor {
+            // C++ setVisionRange / setShroudClearingRange from converter.
+            self.vision_range = d.vision_range;
+            self.shroud_clearing_range = d.shroud_clearing_range.max(d.vision_range);
+            // C++ ExperienceTracker::setVeterancyLevel(converter level).
+            let donor_level = d.experience.level;
+            if !matches!(donor_level, crate::game_logic::VeterancyLevel::Rookie) {
+                let prev = self.experience.level;
+                self.experience.level = donor_level;
+                // Seed XP to at least the threshold for the donor level residual.
+                let thr = self.thing.template.veterancy_xp_thresholds;
+                let need = match donor_level {
+                    crate::game_logic::VeterancyLevel::Veteran => thr[0],
+                    crate::game_logic::VeterancyLevel::Elite => thr[1],
+                    crate::game_logic::VeterancyLevel::Heroic => thr[2],
+                    crate::game_logic::VeterancyLevel::Rookie => 0.0,
+                };
+                if self.experience.current < need {
+                    self.experience.current = need;
+                }
+                if prev != donor_level {
+                    self.apply_veterancy_bonuses(prev, donor_level);
+                }
+            }
+        }
     }
 
     /// Apply Hijack residual ownership mark (caller sets team).
@@ -7099,7 +7140,7 @@ impl Object {
                 .any(|u| is_advanced_training_upgrade(u))
     }
 
-    fn apply_veterancy_bonuses(
+    pub(crate) fn apply_veterancy_bonuses(
         &mut self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,

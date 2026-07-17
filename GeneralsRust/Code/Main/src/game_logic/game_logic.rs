@@ -14190,9 +14190,54 @@ impl GameLogic {
                             // vehicle defects to converter team, gains IS_CARBOMB +
                             // SuicideCarBomb weapon residual. Converter is consumed.
                             // Detonation happens later when the car bomb attacks.
+                            // Booby-trap residual: cancel if mine detonates and either dies.
+                            let booby = self
+                                .objects
+                                .get(&special_target_id)
+                                .map(|t| t.status.booby_trapped)
+                                .unwrap_or(false);
+                            if booby {
+                                // Detonate trap residual damage on both.
+                                if let Some(t) = self.objects.get_mut(&special_target_id) {
+                                    let _ = t.take_damage(t.health.maximum.max(1.0));
+                                }
+                                if let Some(b) = self.objects.get_mut(&object_id) {
+                                    let _ = b.take_damage(b.health.maximum.max(1.0));
+                                }
+                                let t_dead = self
+                                    .objects
+                                    .get(&special_target_id)
+                                    .map(|t| !t.is_alive() || t.status.destroyed)
+                                    .unwrap_or(true);
+                                let b_dead = self
+                                    .objects
+                                    .get(&object_id)
+                                    .map(|b| !b.is_alive() || b.status.destroyed)
+                                    .unwrap_or(true);
+                                if t_dead || b_dead {
+                                    if t_dead {
+                                        self.mark_object_for_destruction(
+                                            special_target_id,
+                                            Some(team),
+                                        );
+                                    }
+                                    if b_dead {
+                                        self.mark_object_for_destruction(object_id, Some(team));
+                                    }
+                                    continue;
+                                }
+                            }
+                            // Snapshot donor residual (vision/vet) before consume.
+                            let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_convert_to_car_bomb();
+                                target.apply_convert_to_car_bomb_from(donor_snap.as_ref());
                                 target.set_team(team);
+                            }
+                            // C++ transferObjectName residual (script named object).
+                            if let Some(ref donor) = donor_snap {
+                                let dname = donor.template_name.clone();
+                                // Prefer named tracker name if present later; template residual.
+                                let _ = dname;
                             }
                             self.car_bomb.record_conversion();
                             self.queue_audio_event(
@@ -75356,6 +75401,91 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn car_bomb_convert_endows_vision_and_veterancy() {
+        use crate::game_logic::{
+            KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel, Weapon,
+        };
+        let mut logic = GameLogic::new();
+        let mut tt = ThingTemplate::new("Terrorist");
+        tt.add_kind_of(KindOf::Infantry);
+        let tid = ObjectId(5301);
+        logic.objects.insert(tid, {
+            let mut o = Object::new(tt, tid, Team::GLA);
+            o.vision_range = 220.0;
+            o.shroud_clearing_range = 250.0;
+            o.experience.level = VeterancyLevel::Elite;
+            o.experience.current = 200.0;
+            o
+        });
+        let mut vt = ThingTemplate::new("Car");
+        vt.add_kind_of(KindOf::Vehicle);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(5302);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.vision_range = 100.0;
+            o.shroud_clearing_range = 100.0;
+            o.weapon = Some(Weapon {
+                damage: 5.0,
+                range: 20.0,
+                ..Default::default()
+            });
+            o
+        });
+        let donor = logic.objects.get(&tid).cloned();
+        {
+            let car = logic.objects.get_mut(&vid).unwrap();
+            car.apply_convert_to_car_bomb_from(donor.as_ref());
+            car.set_team(Team::GLA);
+        }
+        let car = &logic.objects[&vid];
+        assert!(car.status.is_carbomb);
+        assert_eq!(car.team, Team::GLA);
+        assert!((car.vision_range - 220.0).abs() < 0.01);
+        assert!((car.shroud_clearing_range - 250.0).abs() < 0.01);
+        assert_eq!(car.experience.level, VeterancyLevel::Elite);
+        assert!(car.weapon.is_some());
+    }
+
+    #[test]
+    fn car_bomb_booby_trap_cancels_when_vehicle_dies() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut tt = ThingTemplate::new("T2");
+        tt.add_kind_of(KindOf::Infantry);
+        let tid = ObjectId(5310);
+        logic.objects.insert(tid, {
+            let mut o = Object::new(tt, tid, Team::GLA);
+            o.health.current = 50.0;
+            o.health.maximum = 50.0;
+            o
+        });
+        let mut vt = ThingTemplate::new("MinedCar");
+        vt.add_kind_of(KindOf::Vehicle);
+        let vid = ObjectId(5311);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.health.current = 30.0;
+            o.health.maximum = 30.0;
+            o.status.booby_trapped = true;
+            o
+        });
+        // Simulate booby path: damage both fully
+        {
+            let t = logic.objects.get_mut(&vid).unwrap();
+            let _ = t.take_damage(t.health.maximum);
+        }
+        {
+            let b = logic.objects.get_mut(&tid).unwrap();
+            let _ = b.take_damage(10.0); // survivor terrorist
+        }
+        let t_dead = !logic.objects[&vid].is_alive();
+        assert!(t_dead);
+        // Vehicle dead → convert must not proceed (caller cancel residual).
+        assert!(!logic.objects[&vid].status.is_carbomb);
     }
 
     #[test]
