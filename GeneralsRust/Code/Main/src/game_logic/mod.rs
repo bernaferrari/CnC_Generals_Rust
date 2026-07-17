@@ -1024,6 +1024,12 @@ pub struct ObjectStatus {
     pub parachute_pitch_rate: f32,
     #[serde(default)]
     pub parachute_roll_rate: f32,
+    /// C++ ParachuteContain::m_landingOverride residual (DeliverPayload aim).
+    #[serde(default)]
+    pub parachute_landing_override: Option<glam::Vec3>,
+    /// C++ ParachuteContain::m_isLandingOverrideSet residual.
+    #[serde(default)]
+    pub parachute_landing_override_set: bool,
     /// Original controlling team when DISABLED_UNMANNED was applied.
     /// Host killpilot sets team Neutral; this preserves PartitionFilterPlayer residual.
     #[serde(default)]

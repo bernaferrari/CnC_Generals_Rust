@@ -33520,6 +33520,35 @@ impl GameLogic {
         self.usa_pilot.record_base_center_move();
     }
 
+    /// C++ ParachuteContain::setOverrideDestination residual (DeliverPayload aim).
+    pub fn set_parachute_override_destination(
+        &mut self,
+        chute_or_rider_id: ObjectId,
+        dest: glam::Vec3,
+    ) -> bool {
+        let Some(obj) = self.objects.get_mut(&chute_or_rider_id) else {
+            return false;
+        };
+        if !obj.is_parachuting()
+            && !obj
+                .template_name
+                .eq_ignore_ascii_case(crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME)
+        {
+            // Allow arming on AmericaParachute even before parachuting flag if template matches.
+            if !obj.template_name.to_ascii_lowercase().contains("parachute") {
+                return false;
+            }
+        }
+        obj.set_parachute_override_destination(dest);
+        self.usa_pilot.record_landing_override();
+        true
+    }
+
+    /// Residual honesty: landingOverride aim + horizontal step observed.
+    pub fn honesty_parachute_landing_override_ok(&self) -> bool {
+        self.usa_pilot.honesty_landing_override_ok()
+    }
+
     /// OCL_EjectPilotViaParachute residual: freefall → OpenDist open → sink to ground.
     ///
     /// AmericaParachute residual: freefall at faster rate until fallen
@@ -33549,6 +33578,7 @@ impl GameLogic {
             roll,
             pitch_rate,
             roll_rate,
+            landing_override,
         ) = match self.objects.get(&pilot_id) {
             Some(obj) if obj.is_alive() && obj.is_parachuting() => {
                 let name = obj.template_name.as_str();
@@ -33564,6 +33594,7 @@ impl GameLogic {
                     obj.status.parachute_roll,
                     obj.status.parachute_pitch_rate,
                     obj.status.parachute_roll_rate,
+                    obj.parachute_landing_override(),
                 )
             }
             _ => return,
@@ -33626,7 +33657,31 @@ impl GameLogic {
             None
         };
 
-        let land_pos = Vec3::new(pos.x, if landed { ground } else { new_y }, pos.z);
+        // C++ open chute → aiMoveToPosition(landingOverride) residual.
+        let mut nx = pos.x;
+        let mut nz = pos.z;
+        let mut did_override_step = false;
+        if open && !landed {
+            if let Some(target) = landing_override {
+                use crate::game_logic::host_usa_pilot::{
+                    step_parachute_landing_override, PARACHUTE_LANDING_OVERRIDE_SPEED,
+                };
+                let (sx, sz, moved) = step_parachute_landing_override(
+                    pos.x,
+                    pos.z,
+                    target.x,
+                    target.z,
+                    PARACHUTE_LANDING_OVERRIDE_SPEED,
+                );
+                if moved {
+                    nx = sx;
+                    nz = sz;
+                    did_override_step = true;
+                }
+            }
+        }
+
+        let land_pos = Vec3::new(nx, if landed { ground } else { new_y }, nz);
         let riders_to_release: Vec<ObjectId> = if is_chute && landed {
             self.objects
                 .get(&pilot_id)
@@ -33641,6 +33696,8 @@ impl GameLogic {
                 obj.open_eject_parachute();
             }
             let mut p = obj.get_position();
+            p.x = land_pos.x;
+            p.z = land_pos.z;
             p.y = new_y;
             if landed {
                 p.y = ground;
@@ -33714,6 +33771,9 @@ impl GameLogic {
         }
         if did_sway {
             self.usa_pilot.record_parachute_sway_tick();
+        }
+        if did_override_step {
+            self.usa_pilot.record_landing_override_step();
         }
         if landed {
             self.usa_pilot.record_parachute_land();
@@ -75954,6 +76014,68 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn parachute_landing_override_steers_xz() {
+        use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
+        use crate::game_logic::host_usa_pilot::PARACHUTE_OPEN_DIST;
+        use crate::game_logic::{KindOf, ThingTemplate};
+        let mut logic = GameLogic::new();
+        if !logic.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
+            let mut ct = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
+            ct.add_kind_of(KindOf::Vehicle).set_health(1.0);
+            logic
+                .templates
+                .insert(HIJACKER_PARACHUTE_NAME.to_string(), ct);
+        }
+        // Start high enough that freefall opens after OpenDist.
+        let start_y = PARACHUTE_OPEN_DIST + 80.0;
+        let chute_id = logic
+            .create_object(
+                HIJACKER_PARACHUTE_NAME,
+                Team::USA,
+                glam::Vec3::new(0.0, start_y, 0.0),
+            )
+            .expect("chute");
+        {
+            let c = logic.objects.get_mut(&chute_id).unwrap();
+            c.apply_eject_parachuting();
+        }
+        let dest = glam::Vec3::new(100.0, 0.0, 50.0);
+        assert!(logic.set_parachute_override_destination(chute_id, dest));
+        assert!(logic.objects[&chute_id].has_parachute_landing_override());
+
+        // Tick until open + several override steps.
+        let mut opened = false;
+        for _ in 0..80 {
+            logic.tick_eject_parachute_residual(chute_id);
+            if logic.objects[&chute_id].is_parachute_open() {
+                opened = true;
+            }
+            if opened && logic.usa_pilot_residual().landing_override_steps >= 3 {
+                break;
+            }
+        }
+        assert!(opened, "chute must open");
+        let p = logic.objects[&chute_id].get_position();
+        assert!(
+            p.x > 1.0 || p.z > 1.0,
+            "landingOverride must steer XZ toward dest, got {:?}",
+            p
+        );
+        // Should be closer to dest in XZ than origin.
+        let d0 = (0.0f32.hypot(0.0) - 0.0).abs(); // origin dist to dest xz
+        let dist_origin = (100.0f32.powi(2) + 50.0f32.powi(2)).sqrt();
+        let dist_now = ((p.x - 100.0).powi(2) + (p.z - 50.0).powi(2)).sqrt();
+        assert!(
+            dist_now < dist_origin - 1.0,
+            "must approach override LZ: now {} start {}",
+            dist_now,
+            dist_origin
+        );
+        assert!(logic.honesty_parachute_landing_override_ok());
+        let _ = d0;
+    }
+
     fn america_parachute_midair_death_free_fall_damages_rider() {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
