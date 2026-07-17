@@ -3496,6 +3496,33 @@ impl CarpetBombFactionTier {
             None
         }
     }
+
+    /// Residual faction carpet tier from host team (fail-closed America).
+    pub fn from_team(team: super::Team) -> Self {
+        match team {
+            super::Team::China => CarpetBombFactionTier::China,
+            _ => CarpetBombFactionTier::America,
+        }
+    }
+
+    /// Team baseline + AirForce override from unlocked AirF carpet science/OCL names.
+    pub fn highest_from_team_and_sciences<'a, I>(team: super::Team, sciences: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut best = Self::from_team(team);
+        for s in sciences {
+            if let Some(t) = Self::from_science_or_ocl_name(s) {
+                if matches!(t, CarpetBombFactionTier::AirForce) {
+                    return CarpetBombFactionTier::AirForce;
+                }
+                if matches!(t, CarpetBombFactionTier::China) {
+                    best = CarpetBombFactionTier::China;
+                }
+            }
+        }
+        best
+    }
 }
 
 // --- Artillery Barrage scatter multi-shell residual (retail SUPERWEAPON_ArtilleryBarrage1) ---
@@ -6971,6 +6998,48 @@ impl HostSpecialPowerStrikeRegistry {
         self.strikes.get(&id)
     }
 
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut HostSpecialPowerStrike> {
+        self.strikes.get_mut(&id)
+    }
+
+    /// Apply CarpetBomb faction residual and rebuild once-at-queue OCL points/frames.
+    pub fn apply_carpet_tier(
+        &mut self,
+        id: u32,
+        carpet_tier: CarpetBombFactionTier,
+        activate_frame: u32,
+        target_position: Vec3,
+    ) -> bool {
+        let Some(strike) = self.strikes.get_mut(&id) else {
+            return false;
+        };
+        if strike.kind != HostSuperweaponKind::CarpetBomb {
+            return false;
+        }
+        if strike.carpet_tier == carpet_tier {
+            return true;
+        }
+        strike.carpet_tier = carpet_tier;
+        if strike.kind.is_line_multi_strike() {
+            let points = carpet_bomb_points_for_tier(target_position, carpet_tier);
+            let mut frames = Vec::with_capacity(points.len());
+            for i in 0..points.len() as u32 {
+                frames.push(carpet_bomb_impact_frame_for_tier(
+                    activate_frame,
+                    i,
+                    carpet_tier,
+                ));
+            }
+            strike.ocl_points = points;
+            strike.ocl_shell_frames = frames;
+            strike.ocl_once_at_queue_armed = 1;
+            strike.carpet_bomb_count_applications = 1;
+            strike.carpet_drop_delay_applications = 1;
+            strike.carpet_delivery_distance_applications = 1;
+        }
+        true
+    }
+
     pub fn strikes_snapshot(&self) -> Vec<HostSpecialPowerStrike> {
         let mut v: Vec<_> = self.strikes.values().cloned().collect();
         v.sort_by_key(|s| s.id);
@@ -7154,7 +7223,11 @@ impl HostSpecialPowerStrikeRegistry {
             scud_weapon_special_applications: 0,
             scud_missile_ai_defaults_applications: 0,
             scud_thing_factory_spawn_applications: 0,
-            carpet_tier: CarpetBombFactionTier::America,
+            carpet_tier: if kind == HostSuperweaponKind::CarpetBomb {
+                CarpetBombFactionTier::from_team(source_team)
+            } else {
+                CarpetBombFactionTier::America
+            },
             carpet_residual_pack_armed: 0,
             carpet_preferred_height_applications: 0,
             carpet_drop_delay_applications: 0,
