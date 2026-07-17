@@ -4846,6 +4846,8 @@ impl GameLogic {
         self.tick_airfield_parking_heal();
         self.tick_airfield_runway_clear();
         self.tick_shock_stun_all();
+        // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
+        self.tick_physics_collisions_all();
 
         // Projectiles: drain global fire queue into host CombatSystem and step.
         // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
@@ -6103,6 +6105,55 @@ impl GameLogic {
             );
         }
         Some(weapon)
+    }
+
+    /// C++ partition collide residual: pairwise near-object physics collide.
+    ///
+    /// Fail-closed vs full PartitionManager cell lists — uses selection_radius
+    /// spheres on the XZ ground plane. Advances overlap frame after pairs.
+    /// Returns number of pairs that invoked try_physics_collide successfully.
+    pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
+        // Snapshot candidates: alive, not destroyed.
+        let mut entries: Vec<(ObjectId, glam::Vec3, f32)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && !o.status.destroyed)
+            .map(|(id, o)| {
+                let r = o.selection_radius.max(1.0);
+                (*id, o.get_position(), r)
+            })
+            .collect();
+        // Deterministic order by id.
+        entries.sort_by_key(|(id, _, _)| id.0);
+
+        let mut handled = 0u32;
+        let n = entries.len();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let (a_id, a_pos, a_r) = entries[i];
+                let (b_id, b_pos, b_r) = entries[j];
+                let dx = a_pos.x - b_pos.x;
+                let dz = a_pos.z - b_pos.z;
+                let sum = a_r + b_r;
+                if dx * dx + dz * dz > sum * sum {
+                    continue;
+                }
+                // Try both orders: crush/ignore is directional.
+                if self.try_physics_collide(a_id, b_id, a_r) {
+                    handled = handled.saturating_add(1);
+                } else if self.try_physics_collide(b_id, a_id, b_r) {
+                    handled = handled.saturating_add(1);
+                }
+            }
+        }
+        // C++ previousOverlap = currentOverlap end of physics update residual.
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in ids {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.advance_physics_overlap_frame();
+            }
+        }
+        handled
     }
 
     pub(crate) fn tick_shock_stun_all(&mut self) {
@@ -71394,6 +71445,42 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn tick_physics_collisions_all_crushes_nearby() {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut vt = ThingTemplate::new("DispTank");
+        vt.add_kind_of(KindOf::Vehicle);
+        let tid = ObjectId(501);
+        let mut tank = Object::new(vt, tid, Team::USA);
+        tank.crusher_level = 1;
+        tank.set_orientation(0.0);
+        tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+        tank.set_position(Vec3::new(6.0, 0.0, 0.0));
+        tank.selection_radius = 8.0;
+        logic.objects.insert(tid, tank);
+
+        let mut it = ThingTemplate::new("DispInf");
+        it.add_kind_of(KindOf::Infantry);
+        let iid = ObjectId(502);
+        let mut inf = Object::new(it, iid, Team::GLA);
+        inf.crushable_level = 0;
+        inf.selection_radius = 8.0;
+        inf.set_position(Vec3::new(5.0, 0.0, 0.0));
+        logic.objects.insert(iid, inf);
+
+        let n = logic.tick_physics_collisions_all();
+        assert!(n >= 1, "nearby pair must be processed");
+        let inf = logic.objects.get(&iid).unwrap();
+        assert!(inf.status.destroyed);
+        assert_eq!(inf.status.death_type, HostDeathType::Crushed);
+        // Overlap advanced: previous set, current cleared.
+        let tank = logic.objects.get(&tid).unwrap();
+        assert!(tank.physics_current_overlap.is_none());
     }
 
     #[test]
