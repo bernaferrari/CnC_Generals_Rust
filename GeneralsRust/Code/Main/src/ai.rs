@@ -1629,6 +1629,8 @@ mod cpp_parity_tests {
                         supplies: 225,
                         power: 0,
                     },
+                    quantity_total: 1,
+                    quantity_produced: 0,
                 });
             }
         }
@@ -1642,6 +1644,8 @@ mod cpp_parity_tests {
                         supplies: 700,
                         power: 0,
                     },
+                    quantity_total: 1,
+                    quantity_produced: 0,
                 });
             }
         }

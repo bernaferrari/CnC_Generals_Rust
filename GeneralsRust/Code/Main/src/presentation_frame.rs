@@ -7476,6 +7476,8 @@ mod tests {
                     supplies: 150,
                     power: 0,
                 },
+                quantity_total: 1,
+                quantity_produced: 0,
             });
             bd.rally_point = Some(glam::Vec3::new(12.0, 0.0, 3.0));
             obj.building_data = Some(bd);
@@ -9161,6 +9163,8 @@ mod tests {
                     supplies: 100,
                     power: 0,
                 },
+                quantity_total: 1,
+                quantity_produced: 0,
             });
             o.building_data = Some(bd);
         }
@@ -9459,6 +9463,8 @@ mod tests {
                     supplies: 200,
                     power: 0,
                 },
+                quantity_total: 1,
+                quantity_produced: 0,
             });
             o.building_data = Some(bd);
         }

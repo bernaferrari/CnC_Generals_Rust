@@ -92,6 +92,10 @@ pub struct ProductionItem {
     pub progress: f32,
     pub total_time: f32,
     pub cost: Resources,
+    /// C++ ProductionEntry::m_productionQuantityTotal residual.
+    pub quantity_total: u32,
+    /// C++ ProductionEntry::m_productionQuantityProduced residual.
+    pub quantity_produced: u32,
 }
 
 impl BuildingData {
@@ -144,6 +148,16 @@ impl BuildingData {
     }
 
     pub fn add_to_queue(&mut self, template_name: String, template: &ThingTemplate) -> bool {
+        self.add_to_queue_with_quantity(template_name, template, 1)
+    }
+
+    /// Enqueue with ProductionUpdate QuantityModifier residual count.
+    pub fn add_to_queue_with_quantity(
+        &mut self,
+        template_name: String,
+        template: &ThingTemplate,
+        quantity: u32,
+    ) -> bool {
         if self.can_produce(template)
             && self.production_queue.len() < DEFAULT_PRODUCTION_QUEUE_LIMIT
         {
@@ -152,6 +166,8 @@ impl BuildingData {
                 progress: 0.0,
                 total_time: template.build_time,
                 cost: template.build_cost,
+                quantity_total: quantity.max(1),
+                quantity_produced: 0,
             };
             self.production_queue.push(item);
             true
@@ -174,17 +190,26 @@ impl BuildingData {
         }
         let effective_dt = dt * power_factor.max(0.01);
         if let Some(item) = self.production_queue.first_mut() {
-            item.progress += effective_dt;
+            // Only advance build timer until the batch is fully produced residual.
+            if item.quantity_produced == 0 {
+                item.progress += effective_dt;
+            }
             if item.progress >= item.total_time {
-                // Hold completion until exit delay residual clears.
+                // Hold each unit release until exit delay residual clears.
                 if self.exit_delay_remaining > 0.0 {
                     // Clamp at complete so timer doesn't overshoot residual.
                     item.progress = item.total_time;
                     return None;
                 }
-                // Production complete — start next exit delay residual.
-                let completed_item = self.production_queue.remove(0);
-                return Some(completed_item.template_name);
+                // Release one unit from this ProductionEntry residual.
+                item.progress = item.total_time;
+                item.quantity_produced = item.quantity_produced.saturating_add(1);
+                let name = item.template_name.clone();
+                let done = item.quantity_produced >= item.quantity_total.max(1);
+                if done {
+                    self.production_queue.remove(0);
+                }
+                return Some(name);
             }
         }
         None
@@ -657,6 +682,8 @@ mod tests {
             progress: 12.0,
             total_time: 10.0,
             cost: Resources::default(),
+            quantity_total: 1,
+            quantity_produced: 0,
         });
 
         assert_eq!(building.get_production_progress(), Some(1.0));
@@ -674,6 +701,8 @@ mod tests {
             progress: 0.0,
             total_time: 0.0,
             cost: Resources::default(),
+            quantity_total: 1,
+            quantity_produced: 0,
         });
 
         assert_eq!(building.get_production_progress(), Some(1.0));
