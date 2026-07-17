@@ -273,7 +273,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApRockets
         } else if n.contains("lasermissiles") || n.contains("lasermissile") {
             HostUpgradeKind::LaserMissiles
-        } else if n.contains("nationalism") {
+        } else if n.contains("nationalism") || n.contains("fanaticism") {
+            // Upgrade_Fanaticism is infantry-general Nationalism residual (same horde ROF).
             HostUpgradeKind::Nationalism
         } else if n.contains("chainguns") || n.contains("chaingun") {
             HostUpgradeKind::ChainGuns
