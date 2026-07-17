@@ -318,6 +318,18 @@ pub struct Object {
     /// C++ OVER_WATER model condition residual (hover).
     #[serde(default)]
     pub over_water: bool,
+    /// C++ LocomotorTemplate m_circlingRadius residual (0 = use min turn radius).
+    #[serde(default)]
+    pub circling_radius: f32,
+    /// C++ PRECISE_Z_POS flag residual.
+    #[serde(default)]
+    pub precise_z_pos: bool,
+    /// C++ KINDOF_DOZER residual (skip fixInvalidPosition).
+    #[serde(default)]
+    pub is_dozer: bool,
+    /// Host residual: position is on invalid pathfind cell (set by world).
+    #[serde(default)]
+    pub on_invalid_movement_terrain: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -996,6 +1008,10 @@ impl Object {
             moving_backwards: false,
             no_slow_down_as_approaching_dest: false,
             over_water: false,
+            circling_radius: 0.0,
+            precise_z_pos: false,
+            is_dozer: false,
+            on_invalid_movement_terrain: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1209,6 +1225,10 @@ impl Object {
             moving_backwards: false,
             no_slow_down_as_approaching_dest: false,
             over_water: false,
+            circling_radius: 0.0,
+            precise_z_pos: false,
+            is_dozer: false,
+            on_invalid_movement_terrain: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2708,6 +2728,32 @@ impl Object {
         self.is_braking = false;
         self.physics_turning = PhysicsTurningType::TurnNone;
 
+        // Appearance-specific maintain residual.
+        match self.loco_appearance {
+            LocomotorAppearance::Wings => {
+                // Circling maintain — needs dt; use 1/30 frame residual.
+                self.maintain_position_wings(1.0 / 30.0);
+                return true;
+            }
+            LocomotorAppearance::Thrust => {
+                if let Some(m) = self.maintain_pos {
+                    let spd = self.min_speed.max(1.0);
+                    self.move_towards_thrust(m, 0.0, spd, 1.0 / 30.0);
+                }
+                return true;
+            }
+            LocomotorAppearance::Hover => {
+                self.physics_turning = PhysicsTurningType::TurnNone;
+                if self.is_motive() {
+                    self.scrub_velocity_2d(0.0);
+                }
+                let maintain_y = self.maintain_pos.map(|p| p.y);
+                let _ = self.handle_behavior_z(ground_y, maintain_y);
+                return true;
+            }
+            _ => {}
+        }
+
         // Ground-appearance residual: scrub horizontal velocity (legs/treads/wheels).
         let airborne_loco = self.is_kind_of(crate::game_logic::KindOf::Aircraft)
             || matches!(
@@ -2761,6 +2807,150 @@ impl Object {
         } else {
             999_999.0
         }
+    }
+
+    /// C++ Locomotor::fixInvalidPosition residual.
+    ///
+    /// Fail-closed without full pathfinder neighbor scan: when
+    /// `on_invalid_movement_terrain` or cliff cell, push toward valid via motive force.
+    pub fn fix_invalid_position(&mut self) -> bool {
+        if self.is_dozer || self.is_kind_of(crate::game_logic::KindOf::Aircraft) {
+            return false;
+        }
+        if !self.on_invalid_movement_terrain && !self.cell_is_cliff {
+            return false;
+        }
+        // Push opposite current lateral velocity if sinking into obstacle; else nudge
+        // along facing residual (C++ 3×3 neighbor vote simplified).
+        let mass = self.physics_get_mass();
+        let v = self.movement.velocity;
+        let speed2 = v.x * v.x + v.z * v.z;
+        if speed2 > 0.01 {
+            let inv = 1.0 / speed2.sqrt();
+            let nx = -v.x * inv;
+            let nz = -v.z * inv;
+            // If already leaving (dot with correction > 0.25), skip.
+            let leaving = v.x * nx + v.z * nz; // nx opposite vel so leaving is negative of progress
+                                               // correction direction is opposite into-invalid → along -velocity when moving in
+            if leaving > 0.25 {
+                return false;
+            }
+            let force = glam::Vec3::new(nx * mass / 5.0, 0.0, nz * mass / 5.0);
+            self.apply_motive_force(force);
+            self.integrate_physics_accel();
+            return true;
+        }
+        // Stationary on invalid: nudge along facing.
+        let d = self.unit_direction_vector_2d();
+        let force = glam::Vec3::new(d.x * mass / 5.0, 0.0, d.y * mass / 5.0);
+        self.apply_motive_force(force);
+        self.integrate_physics_accel();
+        true
+    }
+
+    /// C++ maintainCurrentPositionWings residual — circle around maintain pos.
+    pub fn maintain_position_wings(&mut self, dt: f32) {
+        self.physics_turning = PhysicsTurningType::TurnNone;
+        if !self.is_motive() && !self.status.airborne_target {
+            return;
+        }
+        let Some(maintain) = self.maintain_pos else {
+            return;
+        };
+        let mut turn_radius = self.circling_radius;
+        if turn_radius.abs() < 1.0e-4 {
+            turn_radius = self.calc_min_turn_radius();
+        }
+        let us = self.get_position();
+        let dx = maintain.x - us.x;
+        let dz = maintain.z - us.z;
+        let mut angle = if dx * dx + dz * dz < 1.0e-6 {
+            self.get_orientation()
+        } else {
+            (-dz).atan2(dx) // host facing convention for direction to maintain
+        };
+        // C++ aimDir = PI - PI/8
+        let mut aim_dir = std::f32::consts::PI - std::f32::consts::PI / 8.0;
+        if turn_radius < 0.0 {
+            turn_radius = -turn_radius;
+            aim_dir = -aim_dir;
+        }
+        angle += aim_dir;
+        let desired = glam::Vec3::new(
+            maintain.x + angle.cos() * turn_radius,
+            maintain.y,
+            maintain.z + (-angle.sin()) * turn_radius, // match host dir xz from angle
+        );
+        // Drive toward opposite side of circle at min_speed.
+        let spd = self.min_speed.max(self.movement.max_speed * 0.25).max(1.0);
+        self.movement.target_position = Some(desired);
+        // One sub-step of other-like move without recursion into maintain.
+        let (_t, _rel) = self.rotate_towards_position(desired, dt);
+        self.apply_forward_speed_force(spd, dt);
+        let p = self.get_position() + self.movement.velocity * dt;
+        self.set_position(p);
+        // Restore no-order state.
+        self.movement.target_position = None;
+        let gy = p.y;
+        let _ = self.handle_behavior_z(gy, Some(maintain.y));
+    }
+
+    /// C++ moveTowardsPositionThrust residual (simplified 3D force toward goal).
+    pub fn move_towards_thrust(
+        &mut self,
+        goal: glam::Vec3,
+        on_path_dist: f32,
+        mut desired_speed: f32,
+        dt: f32,
+    ) {
+        let max_speed = self.movement.max_speed.max(0.01);
+        desired_speed = desired_speed.clamp(self.min_speed, max_speed);
+        let actual = self.movement.velocity.length();
+        if self.braking > 0.0 && !self.no_slow_down_as_approaching_dest {
+            let slow = (actual / 1.5) * (actual / self.braking.max(1e-3));
+            if on_path_dist < slow {
+                desired_speed = self.min_speed;
+            }
+        }
+        let mut local_goal = goal;
+        if self.loco_preferred_height != 0.0 && !self.precise_z_pos {
+            // surface relative preferred height residual (ground_y ≈ current if unknown)
+            let surface = self.get_position().y; // fail-closed
+            let preferred = self.loco_preferred_height + surface;
+            let mut delta = preferred - self.get_position().y;
+            delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+            local_goal.y = self.get_position().y + delta;
+        }
+        let us = self.get_position();
+        let mut dir = local_goal - us;
+        let len = dir.length();
+        if len < 1e-4 {
+            return;
+        }
+        dir /= len;
+        let speed_delta = desired_speed - actual;
+        let max_accel = if speed_delta > 0.0 || self.braking <= 0.0 {
+            self.movement.acceleration
+        } else {
+            self.braking
+        };
+        // Damped accel residual: thrustDir*maxAccel - vel*damping
+        let damping = (max_accel / max_speed).clamp(0.0, 1.0);
+        let accel = dir * max_accel - self.movement.velocity * damping;
+        let mass = self.physics_get_mass();
+        self.apply_motive_force(accel * mass);
+        self.integrate_physics_accel();
+        // Orient toward velocity residual.
+        if self.movement.velocity.length_squared() > 1e-4 {
+            let v = self.movement.velocity;
+            let desired_yaw = (-v.z).atan2(v.x);
+            let (_t, _) = self.rotate_towards_position(
+                us + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin()),
+                dt,
+            );
+        }
+        let p = us + self.movement.velocity * dt;
+        self.set_position(p);
     }
 
     /// Apply forward motive force to close speedDelta (C++ legs/other residual).
@@ -5683,6 +5873,11 @@ impl Object {
             return;
         }
 
+        // C++ fixInvalidPosition residual when on invalid terrain.
+        if self.fix_invalid_position() {
+            return;
+        }
+
         if self.movement.target_position.is_none() {
             // C++ maintainCurrentPosition when no move order.
             // ground_y unknown here — use current y as layer residual.
@@ -5801,29 +5996,41 @@ impl Object {
                 goal_speed = actual_speed * 0.6;
             }
 
-            // Force/velocity apply residual.
-            self.apply_forward_speed_force(goal_speed, dt);
+            // Wings/Thrust specialized residual (may set position itself).
+            if matches!(self.loco_appearance, LocomotorAppearance::Thrust) {
+                self.move_towards_thrust(target_pos, dist_2d, goal_speed, dt);
+                let _ = self.handle_behavior_z(self.get_position().y, Some(target_pos.y));
+            } else if matches!(self.loco_appearance, LocomotorAppearance::Wings) {
+                // 2D other-like + preferred height via BehaviorZ.
+                self.apply_forward_speed_force(goal_speed, dt);
+                let new_position = current_pos + self.movement.velocity * dt;
+                self.set_position(new_position);
+                let _ = self.handle_behavior_z(new_position.y, Some(target_pos.y));
+            } else {
+                // Force/velocity apply residual (legs/wheels/treads/hover/other).
+                self.apply_forward_speed_force(goal_speed, dt);
 
-            // Hover over-water residual (model condition flag only).
-            if matches!(self.loco_appearance, LocomotorAppearance::Hover) {
-                // Fail-closed: no water table — never set over_water true here.
-                if self.over_water {
-                    self.over_water = false;
+                // Hover over-water residual (model condition flag only).
+                if matches!(self.loco_appearance, LocomotorAppearance::Hover) {
+                    // Fail-closed: no water table — never set over_water true here.
+                    if self.over_water {
+                        self.over_water = false;
+                    }
                 }
+
+                // Arm motive window so collide forces stay lateral while driving.
+                if goal_speed.abs() > 0.1 {
+                    self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
+                }
+
+                // Position integrate (host dt seconds).
+                let new_position = current_pos + self.movement.velocity * dt;
+                self.set_position(new_position);
+
+                // C++ handleBehaviorZ residual after loco XY step.
+                let ground_y = new_position.y; // caller/physics motion step samples terrain
+                let _ = self.handle_behavior_z(ground_y, Some(target_pos.y));
             }
-
-            // Arm motive window so collide forces stay lateral while driving.
-            if goal_speed.abs() > 0.1 {
-                self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
-            }
-
-            // Position integrate (host dt seconds).
-            let new_position = current_pos + self.movement.velocity * dt;
-            self.set_position(new_position);
-
-            // C++ handleBehaviorZ residual after loco XY step.
-            let ground_y = new_position.y; // caller/physics motion step samples terrain
-            let _ = self.handle_behavior_z(ground_y, Some(target_pos.y));
 
             // Arrival residual.
             let distance_to_target = current_pos.distance(target_pos);
