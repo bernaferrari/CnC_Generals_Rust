@@ -214,6 +214,9 @@ pub const MC_BIT_STUNNED: u32 = 109;
 /// C++ MODELCONDITION_FREEFALL residual index.
 pub const MC_BIT_FREEFALL: u32 = 55;
 
+/// C++ MODELCONDITION_SPLATTED residual index.
+pub const MC_BIT_SPLATTED: u32 = 91;
+
 /// C++ ActiveBody::calcDamageState residual (default thresholds).
 pub fn host_calc_body_damage_state(health: f32, max_health: f32) -> HostBodyDamageType {
     if max_health <= 0.0 {

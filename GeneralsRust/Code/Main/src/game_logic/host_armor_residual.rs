@@ -949,6 +949,7 @@ pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Damage
         H::Radiation => DamageType::Radiation,
         H::EMP => DamageType::Microwave,
         H::Unresistable => DamageType::Unresistable,
+        H::Falling => DamageType::Falling,
     }
 }
 
@@ -996,6 +997,7 @@ pub fn map_store_damage_type(
         G::Poison => H::Toxin,
         G::Radiation => H::Radiation,
         G::Microwave => H::EMP,
+        G::Falling => H::Falling,
         G::Unresistable
         | G::Healing
         | G::Status
@@ -1004,7 +1006,6 @@ pub fn map_store_damage_type(
         | G::Deploy
         | G::Disarm
         | G::Penalty
-        | G::Falling
         | G::Toppling
         | G::KillPilot
         | G::KillGarrisoned
