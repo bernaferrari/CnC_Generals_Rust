@@ -204,6 +204,9 @@ pub fn host_command_power_cpp_enum_name(
             Some("SPECIAL_BATTLESHIP_BOMBARDMENT")
         }
         HostCommandSpecialPowerType::LaserCannon => Some("LAZR_SPECIAL_PARTICLE_UPLINK_CANNON"),
+        HostCommandSpecialPowerType::MissileDefenderLaserGuided => {
+            Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
+        }
         HostCommandSpecialPowerType::Invalid => Some("SPECIAL_INVALID"),
         // FireWall is a host FIRE_WEAPON residual (Dragon Tank), not a SpecialPowerType
         // discriminant in C++ SpecialPowerType.h — no unique SPECIAL_* name residual.

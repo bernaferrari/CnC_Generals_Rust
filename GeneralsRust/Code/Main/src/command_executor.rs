@@ -997,7 +997,18 @@ impl<'a> CommandExecutor<'a> {
             // SneakAttack residual delays then spawns a GLA tunnel + shockwave damage.
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
-            if *power_type == SpecialPowerType::CiaIntelligence
+            // Missile Defender laser guided needs an object target (lock secondary + attack).
+            if *power_type == SpecialPowerType::MissileDefenderLaserGuided {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !self
+                    .game_logic
+                    .activate_missile_defender_laser_guided(unit_id, *tid)
+                {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::CiaIntelligence
                 || *power_type == SpecialPowerType::CommunicationsDownload
             {
                 let team = self
