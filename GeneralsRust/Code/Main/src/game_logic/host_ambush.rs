@@ -43,7 +43,9 @@ impl HostAmbushKind {
     /// Map a command-system power type to a host residual ambush, if supported.
     pub fn from_command_power(power: &SpecialPowerType) -> Option<Self> {
         match power {
-            SpecialPowerType::Ambush => Some(HostAmbushKind::GLARebelAmbush),
+            SpecialPowerType::Ambush | SpecialPowerType::TerrorCell => {
+                Some(HostAmbushKind::GLARebelAmbush)
+            }
             _ => None,
         }
     }

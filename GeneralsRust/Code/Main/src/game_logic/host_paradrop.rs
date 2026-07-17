@@ -240,7 +240,9 @@ impl HostParadropKind {
     /// Map a command-system power type to a host residual paradrop, if supported.
     pub fn from_command_power(power: &SpecialPowerType) -> Option<Self> {
         match power {
-            SpecialPowerType::Paradrop => Some(HostParadropKind::AmericaParadrop),
+            SpecialPowerType::Paradrop
+            | SpecialPowerType::InfantryParadrop
+            | SpecialPowerType::TankParadrop => Some(HostParadropKind::AmericaParadrop),
             _ => None,
         }
     }

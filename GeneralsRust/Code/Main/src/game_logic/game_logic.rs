@@ -81356,6 +81356,74 @@ mod tests {
     }
 
     #[test]
+    fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_ambush::HostAmbushKind;
+        use crate::game_logic::host_paradrop::HostParadropKind;
+        use crate::game_logic::special_power_strikes::{
+            honesty_napalm_strike_residual_pack_ok, HostSuperweaponKind, NAPALM_STRIKE_RELOAD_MS,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        assert!(honesty_napalm_strike_residual_pack_ok());
+        assert_eq!(NAPALM_STRIKE_RELOAD_MS, 600_000);
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::NapalmStrike),
+            Some(HostSuperweaponKind::DaisyCutter)
+        );
+        assert_eq!(
+            HostParadropKind::from_command_power(&SpecialPowerType::InfantryParadrop),
+            Some(HostParadropKind::AmericaParadrop)
+        );
+        assert_eq!(
+            HostParadropKind::from_command_power(&SpecialPowerType::TankParadrop),
+            Some(HostParadropKind::AmericaParadrop)
+        );
+        assert_eq!(
+            HostAmbushKind::from_command_power(&SpecialPowerType::TerrorCell),
+            Some(HostAmbushKind::GLARebelAmbush)
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut cc = ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "ChinaCommandCenter",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        assert!(logic
+            .queue_special_power_strike(
+                &SpecialPowerType::NapalmStrike,
+                src,
+                glam::Vec3::new(90.0, 0.0, 0.0),
+            )
+            .is_some());
+        assert!(logic
+            .queue_paradrop(
+                &SpecialPowerType::InfantryParadrop,
+                src,
+                glam::Vec3::new(110.0, 0.0, 0.0),
+            )
+            .is_some());
+        assert!(logic
+            .queue_ambush(
+                &SpecialPowerType::TerrorCell,
+                src,
+                glam::Vec3::new(130.0, 0.0, 0.0),
+            )
+            .is_some());
+    }
+
+    #[test]
     fn black_market_and_dirty_nuke_queue_nuclear_missile_residual() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::special_power_strikes::{

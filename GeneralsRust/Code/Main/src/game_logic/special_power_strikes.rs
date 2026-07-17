@@ -2471,6 +2471,29 @@ pub const DIRTY_NUKE_SPECIAL_ENUM: &str = "SPECIAL_DETONATE_DIRTY_NUKE";
 pub const DIRTY_NUKE_SPECIAL_POWER: &str = "SuperweaponDetonateDirtyNuke";
 
 /// Wave residual honesty: BlackMarketNuke + DirtyNuke map onto NuclearMissile host path.
+/// Retail SuperweaponNapalmStrike ReloadTime residual (msec).
+pub const NAPALM_STRIKE_RELOAD_MS: u32 = 600_000;
+/// NapalmStrike ReloadTime frames residual.
+pub const NAPALM_STRIKE_RELOAD_FRAMES: u32 = 18_000;
+/// Retail RequiredScience residual.
+pub const NAPALM_STRIKE_REQUIRED_SCIENCE: &str = "SCIENCE_NapalmStrike";
+/// Retail Enum residual.
+pub const NAPALM_STRIKE_SPECIAL_ENUM: &str = "SPECIAL_NAPALM_STRIKE";
+/// Retail SuperweaponNapalmStrike name residual.
+pub const NAPALM_STRIKE_SPECIAL_POWER: &str = "SuperweaponNapalmStrike";
+
+/// Wave residual honesty: NapalmStrike maps onto DaisyCutter host blast residual.
+pub fn honesty_napalm_strike_residual_pack_ok() -> bool {
+    NAPALM_STRIKE_RELOAD_MS == 600_000
+        && NAPALM_STRIKE_RELOAD_FRAMES == 18_000
+        && NAPALM_STRIKE_REQUIRED_SCIENCE == "SCIENCE_NapalmStrike"
+        && NAPALM_STRIKE_SPECIAL_ENUM == "SPECIAL_NAPALM_STRIKE"
+        && NAPALM_STRIKE_SPECIAL_POWER == "SuperweaponNapalmStrike"
+        && HostSuperweaponKind::from_command_power(
+            &crate::command_system::SpecialPowerType::NapalmStrike,
+        ) == Some(HostSuperweaponKind::DaisyCutter)
+}
+
 pub fn honesty_black_market_and_dirty_nuke_residual_pack_ok() -> bool {
     BLACK_MARKET_NUKE_RELOAD_MS == 600_000
         && BLACK_MARKET_NUKE_RELOAD_FRAMES == 18_000
@@ -4803,9 +4826,9 @@ impl HostSuperweaponKind {
     /// Map a command-system power type to a host residual strike, if supported.
     pub fn from_command_power(power: &SpecialPowerType) -> Option<Self> {
         match power {
-            SpecialPowerType::DaisyCutter | SpecialPowerType::FuelAirBomb => {
-                Some(HostSuperweaponKind::DaisyCutter)
-            }
+            SpecialPowerType::DaisyCutter
+            | SpecialPowerType::FuelAirBomb
+            | SpecialPowerType::NapalmStrike => Some(HostSuperweaponKind::DaisyCutter),
             SpecialPowerType::Airstrike => Some(HostSuperweaponKind::A10Strike),
             SpecialPowerType::ScudStorm => Some(HostSuperweaponKind::ScudStorm),
             SpecialPowerType::ParticleCannon => Some(HostSuperweaponKind::ParticleCannon),
