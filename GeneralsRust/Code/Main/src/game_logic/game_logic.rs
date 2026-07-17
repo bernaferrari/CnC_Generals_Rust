@@ -13949,24 +13949,28 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Disguise: reject bomb-truck / train name residual targets.
+                    // Disguise: reject bomb-truck / train name residual targets,
+                    // unless the target is already disguised (C++ disguiseAsObject
+                    // copies that appearance — true template may still be bomb truck).
                     if matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. }) {
                         use crate::game_logic::host_bomb_truck_disguise::{
                             is_bomb_truck_template, is_legal_disguise_target_template,
                         };
-                        let target_tpl = self
+                        let (target_tpl, target_disguised) = self
                             .objects
                             .get(&special_target_id)
-                            .map(|t| t.template_name.clone())
+                            .map(|t| (t.template_name.clone(), t.status.disguised))
                             .unwrap_or_default();
-                        if is_bomb_truck_template(&target_tpl)
-                            || !is_legal_disguise_target_template(&target_tpl)
-                        {
-                            self.pending_special_abilities.remove(&object_id);
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                        let reject_bomb = is_bomb_truck_template(&target_tpl) && !target_disguised;
+                        if reject_bomb || !is_legal_disguise_target_template(&target_tpl) {
+                            // is_legal rejects bomb trucks by name; allow when disguised.
+                            if !(target_disguised && is_bomb_truck_template(&target_tpl)) {
+                                self.pending_special_abilities.remove(&object_id);
+                                if let Some(obj) = self.objects.get_mut(&object_id) {
+                                    obj.set_target(None);
+                                }
+                                continue;
                             }
-                            continue;
                         }
                     }
 
@@ -14529,14 +14533,26 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::DisguiseAsVehicle { .. } => {
-                            // C++ StealthUpdate::disguiseAsTemplate residual:
-                            // copy target template + controlling team as appearance;
+                            // C++ StealthUpdate::disguiseAsObject residual:
+                            // if target already disguised, copy *its* disguise
+                            // template + player; else copy target template + team.
                             // set OBJECT_STATUS_DISGUISED + STEALTHED.
-                            let (tpl, as_team) = self
+                            let (tpl, as_team, copied_disguise) = self
                                 .objects
                                 .get(&special_target_id)
-                                .map(|t| (t.template_name.clone(), t.team))
-                                .unwrap_or_else(|| ("UnknownVehicle".to_string(), target_team));
+                                .map(|t| {
+                                    if t.status.disguised {
+                                        if let (Some(dt), Some(dteam)) =
+                                            (t.disguise_as_template.as_ref(), t.disguise_as_team)
+                                        {
+                                            return (dt.clone(), dteam, true);
+                                        }
+                                    }
+                                    (t.template_name.clone(), t.team, false)
+                                })
+                                .unwrap_or_else(|| {
+                                    ("UnknownVehicle".to_string(), target_team, false)
+                                });
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.apply_disguise(&tpl, as_team);
                                 obj.stop_moving();
@@ -14544,6 +14560,9 @@ impl GameLogic {
                                 obj.ai_state = AIState::Idle;
                             }
                             self.bomb_truck_disguise.record_disguise(object_id, &tpl);
+                            if copied_disguise {
+                                self.bomb_truck_disguise.record_disguise_copy();
+                            }
                             self.queue_audio_event(
                                 AudioEventRequest::new(
                                     crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_AUDIO,
@@ -34240,6 +34259,11 @@ impl GameLogic {
     /// Residual honesty: at least one bomb-truck disguise applied.
     pub fn honesty_bomb_truck_disguise_ok(&self) -> bool {
         self.bomb_truck_disguise.honesty_disguise_ok()
+    }
+
+    /// Residual honesty: disguiseAsObject copied from already-disguised target.
+    pub fn honesty_bomb_truck_disguise_copy_ok(&self) -> bool {
+        self.bomb_truck_disguise.honesty_disguise_copy_ok()
     }
 
     /// Residual honesty: at least one bomb-truck disguise reveal.
@@ -76222,6 +76246,72 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn disguise_copies_already_disguised_template() {
+        // C++ StealthUpdate::disguiseAsObject: if target already disguised,
+        // copy its disguise template/player, not the target's true template.
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_bomb_truck_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let truck_a = game_logic
+            .create_object("TestBombTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("truck a");
+        let truck_b = game_logic
+            .create_object("TestBombTruck", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("truck b");
+        let usa_tank = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("usa tank");
+
+        // A disguises as USA tank first.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DisguiseAsVehicle {
+                target_id: usa_tank,
+            },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![truck_a],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[truck_a, usa_tank], 1.0 / 30.0);
+        {
+            let a = game_logic.find_object(truck_a).expect("a");
+            assert!(a.is_disguised());
+            assert_eq!(a.disguise_as_template.as_deref(), Some("TestTank"));
+            assert_eq!(a.disguise_as_team, Some(Team::USA));
+        }
+
+        // B disguises as A (already disguised) → must copy TestTank/USA, not BombTruck/GLA.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DisguiseAsVehicle { target_id: truck_a },
+            player_id: 2,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![truck_b],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[truck_b, truck_a], 1.0 / 30.0);
+
+        let b = game_logic.find_object(truck_b).expect("b after copy");
+        assert!(b.is_disguised(), "B must disguise");
+        assert_eq!(
+            b.disguise_as_template.as_deref(),
+            Some("TestTank"),
+            "must copy A's disguise template, not A's true bomb-truck name"
+        );
+        assert_eq!(b.disguise_as_team, Some(Team::USA));
+        assert!(
+            game_logic.bomb_truck_disguise().honesty_disguise_copy_ok(),
+            "disguise-copy residual honesty"
+        );
     }
 
     #[test]
