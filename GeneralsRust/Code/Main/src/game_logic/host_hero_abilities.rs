@@ -436,6 +436,10 @@ pub struct HostHeroAbilityRegistry {
     pub vehicle_disables: u32,
     /// Black Lotus / hero CaptureBuilding residual completes.
     pub building_captures: u32,
+    /// EVA BuildingBeingStolen residual fires.
+    pub eva_building_being_stolen: u32,
+    /// EVA BuildingStolen residual fires.
+    pub eva_building_stolen: u32,
     /// Black Market emergency cash steals completed (subset of cash_steals).
     #[serde(default)]
     pub black_market_emergency_steals: u32,
@@ -523,6 +527,22 @@ impl HostHeroAbilityRegistry {
     /// Residual honesty: at least one Black Lotus / hero building capture completed.
     pub fn honesty_building_capture_ok(&self) -> bool {
         self.building_captures > 0
+    }
+
+    pub fn record_eva_building_being_stolen(&mut self) {
+        self.eva_building_being_stolen = self.eva_building_being_stolen.saturating_add(1);
+    }
+
+    pub fn honesty_eva_building_being_stolen_ok(&self) -> bool {
+        self.eva_building_being_stolen > 0
+    }
+
+    pub fn record_eva_building_stolen(&mut self) {
+        self.eva_building_stolen = self.eva_building_stolen.saturating_add(1);
+    }
+
+    pub fn honesty_eva_building_stolen_ok(&self) -> bool {
+        self.eva_building_stolen > 0
     }
 
     /// Combined hero residual path honesty (any hero ability observed).
