@@ -249,6 +249,37 @@ pub fn superweapon_max_simultaneous_allowed(limit_superweapons: bool) -> Option<
 ///
 /// Returns `Some(energy)` where negative values drain power (PUC/Nuke **-10**),
 /// Scud Storm **0**. Non-superweapon templates return `None`.
+
+/// Map a superweapon structure template to its host SpecialPowerType residual.
+///
+/// Used by C++ SpecialPowerModule::onSpecialPowerCreation / startPowerRecharge
+/// when a SW structure finishes construction (or is map-placed fully built).
+pub fn special_power_for_superweapon_structure(
+    template_name: &str,
+) -> Option<crate::command_system::SpecialPowerType> {
+    use crate::command_system::SpecialPowerType as P;
+    if !is_superweapon_link_key_template(template_name) {
+        return None;
+    }
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("rebuildhole") {
+        return None;
+    }
+    if n.contains("particlecannon") || n.contains("particleuplink") {
+        return Some(P::ParticleCannon);
+    }
+    if n.contains("scudstorm") || n.contains("scud_storm") {
+        return Some(P::ScudStorm);
+    }
+    if n.contains("nuclearmissile")
+        || n.contains("nuclear_missile")
+        || (n.contains("nuke") && n.contains("launcher"))
+    {
+        return Some(P::NuclearMissile);
+    }
+    None
+}
+
 pub fn superweapon_energy_production_for_template(template_name: &str) -> Option<i32> {
     if !is_superweapon_link_key_template(template_name) {
         return None;
@@ -294,6 +325,13 @@ pub fn honesty_superweapon_max_simultaneous_residual_pack() -> bool {
             == Some(SCUD_STORM_ENERGY_PRODUCTION)
         && apply_energy_production_to_power(SUPERWEAPON_ENERGY_DRAIN) == (0, 10)
         && apply_energy_production_to_power(0) == (0, 0)
+        && special_power_for_superweapon_structure(AMERICA_PARTICLE_CANNON_UPLINK)
+            == Some(crate::command_system::SpecialPowerType::ParticleCannon)
+        && special_power_for_superweapon_structure(GLA_SCUD_STORM)
+            == Some(crate::command_system::SpecialPowerType::ScudStorm)
+        && special_power_for_superweapon_structure(CHINA_NUCLEAR_MISSILE_LAUNCHER)
+            == Some(crate::command_system::SpecialPowerType::NuclearMissile)
+        && special_power_for_superweapon_structure("GLAScudStormRebuildHole").is_none()
 }
 
 #[cfg(test)]

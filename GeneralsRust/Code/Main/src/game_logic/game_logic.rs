@@ -19936,6 +19936,8 @@ impl GameLogic {
                 self.record_structure_completion(team);
                 // Static path/LOS obstacle (C++ pathfind structure residual).
                 self.block_structure_object_path(id);
+                // Map-placed / instant SW: onSpecialPowerCreation residual.
+                self.on_structure_superweapon_creation(id);
             }
             log::debug!(
                 "Created object {} ({}) at {:?}",
@@ -45024,6 +45026,31 @@ impl GameLogic {
         self.radar_extend_completes > 0
     }
 
+    /// C++ SpecialPowerModule::onSpecialPowerCreation residual for SW structures.
+    ///
+    /// Starts full ReloadTime recharge on the structure's PublicTimer power
+    /// (ParticleCannon / NuclearMissile / ScudStorm). SharedNSync science powers
+    /// are handled separately via `on_special_power_science_creation`.
+    pub fn on_structure_superweapon_creation(&mut self, structure_id: ObjectId) {
+        use crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure;
+        let Some(obj) = self.objects.get(&structure_id) else {
+            return;
+        };
+        if !obj.is_alive() || !obj.is_constructed() {
+            return;
+        }
+        let Some(power) = special_power_for_superweapon_structure(&obj.template_name) else {
+            return;
+        };
+        // Non-shared structure SWs: startPowerRecharge only (not express ready-now).
+        if let Some(obj) = self.objects.get_mut(&structure_id) {
+            obj.start_power_recharge(&power);
+        }
+        let _ = self
+            .special_power_strikes
+            .reset_timers_for_source_object(structure_id);
+    }
+
     pub fn notify_structure_construction_complete(&mut self, structure_id: ObjectId) {
         let Some(obj) = self.objects.get_mut(&structure_id) else {
             return;
@@ -45034,6 +45061,9 @@ impl GameLogic {
         let team = obj.team;
         let pos = obj.get_position();
         let name = obj.template_name.clone();
+        // C++ SpecialPowerCreate → onSpecialPowerCreation (all owners, not local-only).
+        // NLL ends `obj` borrow after last field copy above.
+        self.on_structure_superweapon_creation(structure_id);
         let local = self
             .players
             .values()
@@ -82091,6 +82121,114 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn structure_superweapon_creation_starts_full_recharge() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds;
+        use crate::game_logic::host_superweapon_kindof::{
+            AMERICA_PARTICLE_CANNON_UPLINK, CHINA_NUCLEAR_MISSILE_LAUNCHER, GLA_SCUD_STORM,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+
+        for name in [
+            AMERICA_PARTICLE_CANNON_UPLINK,
+            GLA_SCUD_STORM,
+            CHINA_NUCLEAR_MISSILE_LAUNCHER,
+        ] {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::FSSuperweapon)
+                .set_health(4000.0);
+            logic.templates.insert(name.into(), t);
+        }
+
+        let puc = logic
+            .create_object(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("puc");
+        let expected =
+            special_power_reload_seconds(&SpecialPowerType::ParticleCannon).expect("puc reload");
+        {
+            let o = logic.get_object(puc).expect("puc obj");
+            assert!(
+                !o.is_special_power_ready(&SpecialPowerType::ParticleCannon),
+                "PUC must start recharging, not ready-now"
+            );
+            let rem = o
+                .special_power_cooldowns
+                .get(&SpecialPowerType::ParticleCannon)
+                .copied()
+                .unwrap_or(0.0);
+            assert!(
+                (rem - expected).abs() < 0.01,
+                "PUC reload {rem} vs expected {expected}"
+            );
+        }
+
+        // Construction-complete path (dozer residual).
+        let scud_uc = logic
+            .create_object_under_construction(
+                GLA_SCUD_STORM,
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("scud uc");
+        {
+            let o = logic.get_object(scud_uc).expect("scud");
+            // Under construction: not yet recharging (or ready default).
+            assert!(
+                o.is_special_power_ready(&SpecialPowerType::ScudStorm)
+                    || o.special_power_cooldowns
+                        .get(&SpecialPowerType::ScudStorm)
+                        .copied()
+                        .unwrap_or(0.0)
+                        <= 0.0
+            );
+        }
+        // Finish construction residual.
+        if let Some(o) = logic.get_object_mut(scud_uc) {
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+        logic.notify_structure_construction_complete(scud_uc);
+        let scud_cd = special_power_reload_seconds(&SpecialPowerType::ScudStorm).unwrap();
+        {
+            let o = logic.get_object(scud_uc).expect("scud done");
+            assert!(!o.is_special_power_ready(&SpecialPowerType::ScudStorm));
+            let rem = o
+                .special_power_cooldowns
+                .get(&SpecialPowerType::ScudStorm)
+                .copied()
+                .unwrap_or(0.0);
+            assert!((rem - scud_cd).abs() < 0.01, "scud {rem} vs {scud_cd}");
+        }
+
+        let nuke = logic
+            .create_object(
+                CHINA_NUCLEAR_MISSILE_LAUNCHER,
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("nuke");
+        let nuke_cd = special_power_reload_seconds(&SpecialPowerType::NuclearMissile).unwrap();
+        {
+            let o = logic.get_object(nuke).unwrap();
+            assert!(!o.is_special_power_ready(&SpecialPowerType::NuclearMissile));
+            let rem = o
+                .special_power_cooldowns
+                .get(&SpecialPowerType::NuclearMissile)
+                .copied()
+                .unwrap_or(0.0);
+            assert!((rem - nuke_cd).abs() < 0.01);
+        }
     }
 
     #[test]
