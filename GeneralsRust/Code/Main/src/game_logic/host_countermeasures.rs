@@ -15,7 +15,9 @@
 //! Fail-closed honesty:
 //! - Not full CountermeasureFlare OCL spawn / bone volley / MissileDecoyDelay
 //! - Not full calculateCountermeasureToDivertTo closest-flare seeker
-//! - Not MustReloadAtAirfield dock matrix / active-flare lifetime list
+//! - Airfield reload residual: docked at friendly airfield restores full load
+//!   (C++ JetAIUpdate → reloadCountermeasures; ReloadTime=0 / MustReloadAtAirfield)
+//! - Not full active-flare lifetime list / bone volley FX
 //! - Shell `playable_claim` stays false; network deferred
 
 use super::ObjectId;
@@ -56,6 +58,8 @@ pub const REACTION_LAUNCH_LATENCY_MS: u32 = 0;
 
 /// Retail ReloadTime residual msec (0 → airfield-only reload residual).
 pub const RELOAD_TIME_MS: u32 = 0;
+/// Retail MustReloadAtAirfield residual (America air CountermeasuresBehavior).
+pub const MUST_RELOAD_AT_AIRFIELD: bool = true;
 
 /// Retail VolleyArcAngle residual degrees.
 pub const VOLLEY_ARC_ANGLE_DEG: f32 = 90.0;
@@ -146,6 +150,10 @@ impl HostCountermeasuresRegistry {
         self.total_diverts
     }
 
+    pub fn total_reloads(&self) -> u32 {
+        self.total_reloads
+    }
+
     pub fn honesty_divert_ok(&self) -> bool {
         self.total_diverts > 0
     }
@@ -225,6 +233,7 @@ pub fn honesty_countermeasures_residual_pack_ok() -> bool {
         && MISSILE_DECOY_DELAY_FRAMES == 6
         && REACTION_LAUNCH_LATENCY_MS == 0
         && RELOAD_TIME_MS == 0
+        && MUST_RELOAD_AT_AIRFIELD
         && (VOLLEY_ARC_ANGLE_DEG - 90.0).abs() < 1e-3
         && (VOLLEY_VELOCITY_FACTOR - 2.0).abs() < 1e-3
         && UPGRADE_AMERICA_COUNTERMEASURES == "Upgrade_AmericaCountermeasures"
@@ -268,6 +277,24 @@ mod tests {
             999,
             true
         ));
+    }
+
+    #[test]
+    fn airfield_reload_restores_full_load() {
+        let mut reg = HostCountermeasuresRegistry::new();
+        let air = ObjectId(7);
+        {
+            let st = reg.ensure(air);
+            st.available = 0;
+            st.volleys_fired = 5;
+        }
+        assert_eq!(reg.get(air).map(|s| s.available), Some(0));
+        reg.reload_at_airfield(air);
+        assert_eq!(
+            reg.get(air).map(|s| s.available),
+            Some(FULL_LOAD_COUNTERMEASURES)
+        );
+        assert_eq!(reg.total_reloads(), 1);
     }
 
     #[test]
