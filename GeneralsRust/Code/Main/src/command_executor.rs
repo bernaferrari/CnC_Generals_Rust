@@ -3086,6 +3086,8 @@ impl<'a> CommandExecutor<'a> {
             .queue_audio_event(AudioEventRequest::new(translate_audio_event(
                 "Beacon_Placed",
             )));
+        // C++ EVA_BeaconDetected when local is ALLIES with placer.
+        self.game_logic.try_eva_beacon_detected(player_id);
 
         CommandResult::Success
     }
