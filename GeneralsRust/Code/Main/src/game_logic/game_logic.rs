@@ -1361,6 +1361,8 @@ pub struct GameLogic {
     eva_general_level_up: u32,
     /// EVA SuperweaponReady residual honesty fires.
     eva_superweapon_ready: u32,
+    /// EVA SuperweaponDetected residual honesty fires.
+    eva_superweapon_detected: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2574,6 +2576,7 @@ impl GameLogic {
             eva_upgrade_complete: 0,
             eva_general_level_up: 0,
             eva_superweapon_ready: 0,
+            eva_superweapon_detected: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2937,6 +2940,7 @@ impl GameLogic {
         self.eva_upgrade_complete = 0;
         self.eva_general_level_up = 0;
         self.eva_superweapon_ready = 0;
+        self.eva_superweapon_detected = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5399,6 +5403,7 @@ impl GameLogic {
             .map(|obj| (obj.get_position(), obj.team))
             .collect();
 
+        let mut completed_superweapon_detects: Vec<(Team, String)> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
         let mut ready_superweapons: Vec<(ObjectId, Team, String)> = Vec::new();
         for &id in object_ids {
@@ -5428,6 +5433,8 @@ impl GameLogic {
                             id,
                             obj.template_name.clone(),
                         );
+                        // C++ onStructureConstructionComplete SuperweaponDetected residual.
+                        completed_superweapon_detects.push((obj.team, obj.template_name.clone()));
                         completed_structures.push(id);
                     } else {
                         obj.health.current =
@@ -5445,6 +5452,10 @@ impl GameLogic {
         }
         for (id, team, name) in ready_superweapons {
             self.try_eva_superweapon_ready(id, team, &name);
+        }
+
+        for (team, name) in completed_superweapon_detects {
+            self.try_eva_superweapon_detected(team, &name);
         }
 
         // C++ parity: when a structure finishes construction, release any dozers
@@ -42420,6 +42431,51 @@ impl GameLogic {
     }
 
     /// C++ InGameUI SuperweaponReady EVA residual (own/ally/enemy × type).
+
+    /// C++ Player::onStructureConstructionComplete SuperweaponDetected EVA residual.
+    pub fn try_eva_superweapon_detected(&mut self, owner_team: Team, template_name: &str) {
+        let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
+            return;
+        };
+        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+            return;
+        };
+        let local_team = local.team;
+        let local_alliance = local.alliance_team;
+        let owner_alliance = self
+            .players
+            .values()
+            .find(|p| p.team == owner_team)
+            .map(|p| p.alliance_team)
+            .unwrap_or(-1);
+        let relation = if owner_team == local_team {
+            "own"
+        } else if local_alliance >= 0 && local_alliance == owner_alliance {
+            "ally"
+        } else {
+            "enemy"
+        };
+        use gamelogic::helpers::EvaEvent;
+        let event = match (kind, relation) {
+            ("particle", "own") => EvaEvent::SuperweaponDetectedOwnParticleCannon,
+            ("particle", "ally") => EvaEvent::SuperweaponDetectedAllyParticleCannon,
+            ("particle", _) => EvaEvent::SuperweaponDetectedEnemyParticleCannon,
+            ("nuke", "own") => EvaEvent::SuperweaponDetectedOwnNuke,
+            ("nuke", "ally") => EvaEvent::SuperweaponDetectedAllyNuke,
+            ("nuke", _) => EvaEvent::SuperweaponDetectedEnemyNuke,
+            ("scud", "own") => EvaEvent::SuperweaponDetectedOwnScudStorm,
+            ("scud", "ally") => EvaEvent::SuperweaponDetectedAllyScudStorm,
+            ("scud", _) => EvaEvent::SuperweaponDetectedEnemyScudStorm,
+            _ => return,
+        };
+        let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        self.eva_superweapon_detected = self.eva_superweapon_detected.saturating_add(1);
+    }
+
+    pub fn honesty_eva_superweapon_detected_ok(&self) -> bool {
+        self.eva_superweapon_detected > 0
+    }
+
     pub fn try_eva_superweapon_ready(
         &mut self,
         _source_id: ObjectId,
@@ -77199,6 +77255,37 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn eva_superweapon_detected_enemy_nuke() {
+        use crate::game_logic::Team;
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        logic.try_eva_superweapon_detected(Team::China, "ChinaNuclearMissileLauncher");
+        assert!(logic.honesty_eva_superweapon_detected_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponDetectedEnemyNuke),
+            "{events:?}"
+        );
+        // Own particle
+        let _ = TheEva::drain_events();
+        logic.try_eva_superweapon_detected(Team::USA, "AmericaParticleUplinkCannon");
+        let events2 = TheEva::drain_events().expect("eva2");
+        assert!(
+            events2
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponDetectedOwnParticleCannon),
+            "{events2:?}"
+        );
     }
 
     #[test]
