@@ -7092,7 +7092,7 @@ impl Object {
     /// Per-power residual: only this power's timer must be clear (other SWs may
     /// still be reloading). Aggregate `special_power_ready` is refreshed for HUD.
     pub fn is_special_power_ready(&self, power: &SpecialPowerType) -> bool {
-        if !self.is_alive() {
+        if !self.is_alive() || self.is_disabled() {
             return false;
         }
         let remaining = self
