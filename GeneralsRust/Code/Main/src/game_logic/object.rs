@@ -21,6 +21,21 @@ fn actual_speed_is_zero(o: &Object) -> bool {
 }
 
 /// C++ calcSlowDownDist residual (host units).
+/// C++ AIStates isSamePosition residual (2D, dist/10 tolerance).
+pub fn is_same_position_residual(
+    our_pos: glam::Vec3,
+    prev_target: glam::Vec3,
+    cur_target: glam::Vec3,
+) -> bool {
+    let dx = cur_target.x - prev_target.x;
+    let dz = cur_target.z - prev_target.z;
+    let to_x = cur_target.x - our_pos.x;
+    let to_z = cur_target.z - our_pos.z;
+    const TOLERANCE_FACTOR: f32 = 1.0 / 100.0;
+    let tolerance_sqr = (to_x * to_x + to_z * to_z) * TOLERANCE_FACTOR;
+    dx * dx + dz * dz <= tolerance_sqr
+}
+
 pub fn calc_slow_down_dist(cur_speed: f32, desired_speed: f32, max_braking: f32) -> f32 {
     let delta = cur_speed - desired_speed;
     if delta <= 0.0 {
@@ -397,6 +412,15 @@ pub struct Object {
     /// C++ Weapon maxShotCount residual (-1 = unlimited).
     #[serde(default = "default_max_shots")]
     pub max_shots_to_fire: i32,
+    /// C++ AIAttackApproachTargetState m_approachTimestamp residual.
+    #[serde(default)]
+    pub approach_timestamp: u32,
+    /// C++ m_prevVictimPos residual (attack approach).
+    #[serde(default)]
+    pub prev_victim_pos: Option<glam::Vec3>,
+    /// C++ temporary move-to frames remaining (AI_MOVE_TO temporary state).
+    #[serde(default)]
+    pub temporary_move_frames: u32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -856,6 +880,8 @@ pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
 /// C++ PhysicsBehavior default friction residuals (per-frame).
 /// C++ MOTIVE_FRAMES = LOGICFRAMES_PER_SECOND/3 residual.
 pub const MOTIVE_FRAMES_RESIDUAL: u32 = 10;
+/// C++ AIAttackApproachTargetState::MIN_RECOMPUTE_TIME residual.
+pub const MIN_RECOMPUTE_TIME_RESIDUAL: u32 = 10;
 pub const DEFAULT_FORWARD_FRICTION_RESIDUAL: f32 = 0.15;
 pub const DEFAULT_LATERAL_FRICTION_RESIDUAL: f32 = 0.15;
 pub const DEFAULT_Z_FRICTION_RESIDUAL: f32 = 0.8;
@@ -1096,6 +1122,9 @@ impl Object {
             path_timestamp: 0,
             queue_for_path_frames: 0,
             max_shots_to_fire: -1,
+            approach_timestamp: 0,
+            prev_victim_pos: None,
+            temporary_move_frames: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1330,6 +1359,9 @@ impl Object {
             path_timestamp: 0,
             queue_for_path_frames: 0,
             max_shots_to_fire: -1,
+            approach_timestamp: 0,
+            prev_victim_pos: None,
+            temporary_move_frames: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -3112,6 +3144,16 @@ impl Object {
     pub fn tick_path_queue(&mut self) {
         if self.queue_for_path_frames > 0 {
             self.queue_for_path_frames -= 1;
+        }
+        if self.temporary_move_frames > 0 {
+            self.temporary_move_frames -= 1;
+            if self.temporary_move_frames == 0
+                && matches!(self.ai_state, AIState::Moving)
+                && self.movement.target_position.is_none()
+            {
+                // Temporary AI move expired with no destination — idle residual.
+                self.ai_state = AIState::Idle;
+            }
         }
     }
 
@@ -5583,6 +5625,13 @@ impl Object {
         self.movement.path.clear();
         self.movement.current_path_index = 0;
         self.status.moving = false;
+        self.waiting_for_path = false;
+        self.is_attack_path = false;
+        self.is_approach_path = false;
+        self.is_safe_path = false;
+        self.temporary_move_frames = 0;
+        self.is_blocked = false;
+        self.is_blocked_and_stuck = false;
         // Only pure locomotion returns to Idle when the destination is reached.
         // Interaction states (Capturing, Repairing, SpecialAbility, Entering, …)
         // set a destination while remaining in-state; clobbering them to Idle
