@@ -56,6 +56,15 @@ pub struct Object {
     /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
     #[serde(default)]
     pub shock_stun_frames: u32,
+    /// C++ PhysicsBehavior m_yawRate residual from shock random rotation.
+    #[serde(default)]
+    pub shock_yaw_rate: f32,
+    /// C++ PhysicsBehavior m_pitchRate residual from shock random rotation.
+    #[serde(default)]
+    pub shock_pitch_rate: f32,
+    /// C++ PhysicsBehavior m_rollRate residual from shock random rotation.
+    #[serde(default)]
+    pub shock_roll_rate: f32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -554,6 +563,9 @@ impl Object {
             status: ObjectStatus::default(),
             model_condition_bits: 0,
             shock_stun_frames: 0,
+            shock_yaw_rate: 0.0,
+            shock_pitch_rate: 0.0,
+            shock_roll_rate: 0.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -694,6 +706,9 @@ impl Object {
             status: ObjectStatus::default(),
             model_condition_bits: 0,
             shock_stun_frames: 0,
+            shock_yaw_rate: 0.0,
+            shock_pitch_rate: 0.0,
+            shock_roll_rate: 0.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -1702,6 +1717,12 @@ impl Object {
         } else if self.shock_stun_frames > 0 {
             bits |= 1u128 << MC_BIT_STUNNED;
         }
+        // FREEFALL residual: keep while vertical shock velocity is significant.
+        use crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
+        bits &= !(1u128 << MC_BIT_FREEFALL);
+        if self.movement.velocity.y > 4.0 && self.shock_stun_frames > 0 {
+            bits |= 1u128 << MC_BIT_FREEFALL;
+        }
         self.model_condition_bits = bits;
     }
 
@@ -1718,6 +1739,34 @@ impl Object {
     ///
     /// Adds lateral+up velocity impulse and a short stun residual. Airborne /
     /// aircraft / projectiles are immune (C++ isAirborneTarget / KINDOF_PROJECTILE).
+
+    /// C++ PhysicsBehavior defaults for shock random rotation residual.
+    pub const SHOCK_MAX_YAW: f32 = 0.05;
+    pub const SHOCK_MAX_PITCH: f32 = 0.025;
+    pub const SHOCK_MAX_ROLL: f32 = 0.025;
+
+    /// C++ PhysicsBehavior::applyRandomRotation residual.
+    ///
+    /// Adds random yaw/pitch/roll rates and immediately kicks orientation yaw
+    /// so the tumble is observable without a full rigid-body integrator.
+    /// Structures stick-to-ground residual: no rotation.
+    pub fn apply_shock_random_rotation(&mut self, seed: u32) {
+        if self.is_kind_of(KindOf::Structure) {
+            return;
+        }
+        use crate::game_logic::host_rng_residual::pure_logic_random_real;
+        // GameLogicRandomValue(-1, 1) residual via pure stream.
+        let yaw_m = pure_logic_random_real(seed, 10, -1.0, 1.0);
+        let pitch_m = pure_logic_random_real(seed, 11, -1.0, 1.0);
+        let roll_m = pure_logic_random_real(seed, 12, -1.0, 1.0);
+        self.shock_yaw_rate += Self::SHOCK_MAX_YAW * yaw_m;
+        self.shock_pitch_rate += Self::SHOCK_MAX_PITCH * pitch_m;
+        self.shock_roll_rate += Self::SHOCK_MAX_ROLL * roll_m;
+        // Immediate yaw kick (presentation/tumble residual).
+        let ori = self.get_orientation() + self.shock_yaw_rate;
+        self.set_orientation(ori);
+    }
+
     pub fn apply_shock_wave_impulse(&mut self, force: glam::Vec3) -> bool {
         if !self.is_alive() {
             return false;
@@ -1738,6 +1787,19 @@ impl Object {
         if speed > MAX_SHOCK_SPEED {
             self.movement.velocity *= MAX_SHOCK_SPEED / speed;
         }
+        // C++ applyRandomRotation residual (deterministic seed from id + force).
+        let seed = self
+            .id
+            .0
+            .wrapping_mul(0x9E37_79B9)
+            .wrapping_add((force.x.to_bits()).wrapping_mul(0x85EB_CA6B))
+            .wrapping_add(force.z.to_bits());
+        self.apply_shock_random_rotation(seed);
+        // Strong upward impulse residual: freefall model bit while airborne from shock.
+        if self.movement.velocity.y > 8.0 {
+            use crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
+            self.model_condition_bits |= 1u128 << MC_BIT_FREEFALL;
+        }
         // C++ setStunned(true) + MODELCONDITION_STUNNED_FLAILING residual.
         // Duration: 45 frames (~1.5s). First 30 flailing, then STUNNED, then clear.
         const TOTAL: u32 = 45;
@@ -1755,9 +1817,31 @@ impl Object {
     /// Tick shock stun residual (once per logic frame).
     pub fn tick_shock_stun(&mut self) {
         if self.shock_stun_frames == 0 {
+            // Damp residual rates when fully settled.
+            self.shock_yaw_rate *= 0.85;
+            self.shock_pitch_rate *= 0.85;
+            self.shock_roll_rate *= 0.85;
+            if self.shock_yaw_rate.abs() < 1e-4 {
+                self.shock_yaw_rate = 0.0;
+            }
             return;
         }
         self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
+        // Integrate yaw rate residual while stunned (tumble settle).
+        if self.shock_yaw_rate.abs() > 1e-5 {
+            let ori = self.get_orientation() + self.shock_yaw_rate;
+            self.set_orientation(ori);
+            self.shock_yaw_rate *= 0.92; // friction residual
+        }
+        self.shock_pitch_rate *= 0.92;
+        self.shock_roll_rate *= 0.92;
+        // Bleed vertical freefall velocity residual.
+        if self.movement.velocity.y > 0.0 {
+            self.movement.velocity.y *= 0.90;
+            if self.movement.velocity.y < 0.5 {
+                self.movement.velocity.y = 0.0;
+            }
+        }
         self.refresh_model_condition_bits();
     }
 
@@ -4788,6 +4872,39 @@ mod tests {
             o.model_condition_bits,
             MC_BIT_STUNNED
         ));
+    }
+
+    #[test]
+    fn shock_applies_random_rotation_and_optional_freefall_bit() {
+        use crate::game_logic::host_enum_table_residual::{
+            host_model_condition_has, MC_BIT_FREEFALL,
+        };
+        let mut tmpl = ThingTemplate::new("RotVic");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(7), Team::USA);
+        let ori0 = o.get_orientation();
+        o.shock_yaw_rate = 0.0;
+        assert!(o.apply_shock_wave_impulse(glam::Vec3::new(30.0, 20.0, 10.0)));
+        // Random rotation residual should change rates and/or orientation.
+        let rotated = (o.get_orientation() - ori0).abs() > 1e-6
+            || o.shock_yaw_rate.abs() > 1e-6
+            || o.shock_pitch_rate.abs() > 1e-6;
+        assert!(rotated, "shock applies rotation residual");
+        // Strong up velocity may set FREEFALL while stunned.
+        if o.movement.velocity.y > 8.0 {
+            assert!(host_model_condition_has(
+                o.model_condition_bits,
+                MC_BIT_FREEFALL
+            ));
+        }
+        // Structure stick-to-ground: no rotation.
+        let mut st = ThingTemplate::new("RotStruct");
+        st.add_kind_of(KindOf::Structure);
+        let mut s = Object::new(st, ObjectId(8), Team::USA);
+        let s0 = s.get_orientation();
+        s.apply_shock_random_rotation(123);
+        assert!((s.get_orientation() - s0).abs() < 1e-6);
+        assert_eq!(s.shock_yaw_rate, 0.0);
     }
     #[test]
     fn shock_stun_blocks_attack_fire_and_flail_move() {
