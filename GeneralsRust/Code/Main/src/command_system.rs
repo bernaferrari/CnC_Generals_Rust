@@ -2723,8 +2723,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
-    #[test]
     fn command_type_from_button_name_upgrade_and_cancel_residual() {
         let q = command_type_from_button_name("Command_UpgradeAmericaRangerFlashBangGrenade")
             .expect("upgrade");
@@ -2816,6 +2814,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn cancel_upgrade_empty_name_cancels_production_head_residual() {
         use crate::command_system::{CommandType, GameCommand};
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
@@ -2897,6 +2896,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
