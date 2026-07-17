@@ -400,6 +400,8 @@ pub struct UnitDisplayInfo {
     pub production_progress: Option<f32>,
     /// First production queue template name (structures).
     pub production_template: Option<String>,
+    /// Head queue entry is PRODUCTION_UPGRADE residual.
+    pub production_is_upgrade: bool,
     /// Host/presentation command_set_override residual (empty = template default).
     pub command_set_override: String,
     /// Structure can enqueue production residual.
@@ -427,7 +429,7 @@ pub struct ControlBarSelectionPanelState {
     /// Primary production template residual (first queue item).
     pub production_template: Option<String>,
     /// Full production queue residual for selected structure (capped).
-    pub production_queue: Vec<(String, f32)>,
+    pub production_queue: Vec<(String, f32, bool)>,
     /// Max garrison slots residual (0 = not a container).
     pub max_garrison: usize,
     /// Contained unit count residual.
@@ -444,6 +446,8 @@ pub struct ControlBarSelectionPanelState {
     pub special_power_ready: bool,
     /// Special power cooldown remaining residual (seconds).
     pub special_power_cooldown_remaining: f32,
+    /// Head queue entry is PRODUCTION_UPGRADE residual.
+    pub production_is_upgrade: bool,
 }
 
 impl ControlBarSelectionPanelState {
@@ -468,7 +472,7 @@ impl ControlBarSelectionPanelState {
                 .production_template
                 .as_ref()
                 .zip(primary.production_progress)
-                .map(|(t, p)| vec![(t.clone(), p)])
+                .map(|(t, p)| vec![(t.clone(), p, primary.production_is_upgrade)])
                 .unwrap_or_default(),
             max_garrison: 0,
             garrisoned_count: 0,
@@ -478,6 +482,7 @@ impl ControlBarSelectionPanelState {
             rally_point: None,
             special_power_ready: false,
             special_power_cooldown_remaining: 0.0,
+            production_is_upgrade: primary.production_is_upgrade,
         }
     }
 

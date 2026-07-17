@@ -406,6 +406,7 @@ impl GameWorldShadow {
                                     progress: p.progress,
                                     total_time: p.total_time,
                                     cost_supplies: p.cost.supplies,
+                                    is_upgrade: p.is_upgrade(),
                                 })
                                 .collect();
                         }
@@ -686,6 +687,7 @@ impl GameWorldShadow {
                                 progress: p.progress,
                                 total_time: p.total_time,
                                 cost_supplies: p.cost.supplies,
+                                is_upgrade: p.is_upgrade(),
                             })
                             .collect();
                     }

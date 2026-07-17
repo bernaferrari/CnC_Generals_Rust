@@ -38,9 +38,33 @@ pub struct PresentationCanMakeCameo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationProductionItem {
     pub template_name: String,
+    /// Absolute research/build progress seconds residual.
     pub progress: f32,
     pub total_time: f32,
     pub cost_supplies: u32,
+    /// C++ PRODUCTION_UPGRADE residual on producer queue.
+    pub is_upgrade: bool,
+    /// Normalized 0..1 residual for ControlBar / build-queue strip.
+    pub progress_ratio: f32,
+}
+
+impl PresentationProductionItem {
+    #[inline]
+    pub fn from_host_item(item: &crate::game_logic::buildings::ProductionItem) -> Self {
+        let ratio = if item.total_time <= 0.0 {
+            1.0
+        } else {
+            (item.progress / item.total_time).clamp(0.0, 1.0)
+        };
+        Self {
+            template_name: item.template_name.clone(),
+            progress: item.progress,
+            total_time: item.total_time,
+            cost_supplies: item.cost.supplies,
+            is_upgrade: item.is_upgrade(),
+            progress_ratio: ratio,
+        }
+    }
 }
 
 /// Snapshot-owned veterancy rank (host Experience residual).
@@ -2283,12 +2307,7 @@ impl PresentationFrame {
                     .map(|b| {
                         b.production_queue
                             .iter()
-                            .map(|p| PresentationProductionItem {
-                                template_name: p.template_name.clone(),
-                                progress: p.progress,
-                                total_time: p.total_time,
-                                cost_supplies: p.cost.supplies,
-                            })
+                            .map(PresentationProductionItem::from_host_item)
                             .collect()
                     })
                     .unwrap_or_default(),
@@ -4579,6 +4598,12 @@ impl PresentationFrame {
                         progress: p.progress,
                         total_time: p.total_time,
                         cost_supplies: p.cost_supplies,
+                        is_upgrade: p.is_upgrade,
+                        progress_ratio: if p.total_time <= 0.0 {
+                            1.0
+                        } else {
+                            (p.progress / p.total_time).clamp(0.0, 1.0)
+                        },
                     })
                     .collect();
                 if obj.production_queue != q {
@@ -4987,11 +5012,17 @@ impl PresentationFrame {
     }
 
     fn unit_display_info_from_renderable(ro: &RenderableObject) -> crate::ui::UnitDisplayInfo {
-        let (production_template, production_progress) = ro
+        let (production_template, production_progress, production_is_upgrade) = ro
             .production_queue
             .first()
-            .map(|p| (Some(p.template_name.clone()), Some(p.progress)))
-            .unwrap_or((None, None));
+            .map(|p| {
+                (
+                    Some(p.template_name.clone()),
+                    Some(p.progress_ratio),
+                    p.is_upgrade,
+                )
+            })
+            .unwrap_or((None, None, false));
         crate::ui::UnitDisplayInfo {
             object_id: ro.id,
             name: ro.template_name.clone(),
@@ -5009,13 +5040,18 @@ impl PresentationFrame {
             } else if ro.moving {
                 "Move".into()
             } else if production_template.is_some() {
-                "Produce".into()
+                if production_is_upgrade {
+                    "Research".into()
+                } else {
+                    "Produce".into()
+                }
             } else {
                 "Idle".into()
             },
             veterancy_overlay: ro.veterancy.chevron_overlay().map(str::to_string),
             production_progress,
             production_template,
+            production_is_upgrade,
             command_set_override: ro.command_set_override.clone(),
             can_produce: ro.can_produce,
         }
@@ -5250,8 +5286,8 @@ impl PresentationFrame {
             for item in &o.production_queue {
                 build_queue.push(BuildQueueEntry {
                     template_name: item.template_name.clone(),
-                    percent_complete: item.progress.clamp(0.0, 1.0),
-                    time_remaining: (item.total_time * (1.0 - item.progress.clamp(0.0, 1.0)))
+                    percent_complete: item.progress_ratio.clamp(0.0, 1.0),
+                    time_remaining: (item.total_time * (1.0 - item.progress_ratio.clamp(0.0, 1.0)))
                         .max(0.0),
                 });
             }
@@ -5634,13 +5670,18 @@ impl PresentationFrame {
                 panel.production_queue = ro
                     .production_queue
                     .iter()
-                    .map(|p| (p.template_name.clone(), p.progress))
+                    .map(|p| (p.template_name.clone(), p.progress_ratio, p.is_upgrade))
                     .collect();
                 if panel.production_progress.is_none() {
-                    panel.production_progress = panel.production_queue.first().map(|(_, p)| *p);
+                    panel.production_progress = panel.production_queue.first().map(|(_, p, _)| *p);
                     panel.production_template =
-                        panel.production_queue.first().map(|(t, _)| t.clone());
+                        panel.production_queue.first().map(|(t, _, _)| t.clone());
                 }
+                panel.production_is_upgrade = panel
+                    .production_queue
+                    .first()
+                    .map(|(_, _, u)| *u)
+                    .unwrap_or(false);
                 if panel.veterancy_overlay.is_none() {
                     panel.veterancy_overlay = ro.veterancy.chevron_overlay().map(str::to_string);
                 }
@@ -7455,6 +7496,72 @@ mod tests {
     }
 
     #[test]
+    fn production_upgrade_queue_freezes_is_upgrade_and_ratio_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        logic.add_player(player);
+        let mut bar = ThingTemplate::new("TestBarracks");
+        bar.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("TestBarracks".into(), bar);
+        let bid = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.building_data = Some(crate::game_logic::BuildingData::new(
+                crate::game_logic::buildings::BuildingType::Barracks,
+            ));
+        }
+        logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_FLASHBANG.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![bid],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        logic.process_commands();
+        // Partial research progress residual (half of residual 1-frame ≈ tiny).
+        if let Some(o) = logic.get_object_mut(bid) {
+            if let Some(bd) = o.building_data.as_mut() {
+                if let Some(item) = bd.production_queue.first_mut() {
+                    item.progress = item.total_time * 0.5;
+                }
+            }
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame
+            .objects
+            .iter()
+            .find(|o| o.id == bid)
+            .expect("barracks ro");
+        assert_eq!(ro.production_queue.len(), 1);
+        assert!(ro.production_queue[0].is_upgrade, "upgrade residual");
+        assert!(ro.production_queue[0]
+            .template_name
+            .eq_ignore_ascii_case(UPGRADE_AMERICA_FLASHBANG));
+        assert!((ro.production_queue[0].progress_ratio - 0.5).abs() < 0.01);
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert!(
+            ui.build_queue.iter().any(|e| {
+                e.template_name
+                    .eq_ignore_ascii_case(UPGRADE_AMERICA_FLASHBANG)
+                    && (e.percent_complete - 0.5).abs() < 0.01
+            }),
+            "build queue strip freezes upgrade ratio"
+        );
+    }
+
+    #[test]
     fn production_queue_freezes_from_building_data() {
         use crate::game_logic::buildings::{BuildingData, BuildingType, ProductionItem};
         use crate::game_logic::{KindOf, Resources, Team, ThingTemplate};
@@ -7490,6 +7597,8 @@ mod tests {
         assert_eq!(ro.production_queue[0].template_name, "Ranger");
         assert!((ro.production_queue[0].progress - 0.4).abs() < 0.01);
         assert_eq!(ro.production_queue[0].cost_supplies, 150);
+        assert!(!ro.production_queue[0].is_upgrade);
+        assert!((ro.production_queue[0].progress_ratio - 0.04).abs() < 0.001);
         assert_eq!(ro.rally_point, Some(glam::Vec3::new(12.0, 0.0, 3.0)));
         assert_eq!(ro.guard_position, Some(glam::Vec3::new(1.0, 0.0, 1.0)));
         assert_eq!(frame.structures_with_production().len(), 1);
