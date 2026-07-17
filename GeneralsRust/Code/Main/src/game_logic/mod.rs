@@ -889,6 +889,9 @@ pub struct ObjectStatus {
     pub selected: bool,
     pub moving: bool,
     pub attacking: bool,
+    /// C++ OBJECT_STATUS_IS_FIRING_WEAPON residual (AttackFireWeaponState).
+    #[serde(default)]
+    pub is_firing_weapon: bool,
     /// C++ OBJECT_STATUS_IS_USING_ABILITY residual (SpecialAbilityUpdate prep/fire).
     /// CamoNetting StealthForbiddenConditions USING_ABILITY residual gate.
     #[serde(default)]
