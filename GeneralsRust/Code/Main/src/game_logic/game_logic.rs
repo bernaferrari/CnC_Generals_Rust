@@ -44040,16 +44040,15 @@ impl GameLogic {
         template_name: &str,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            legal_build_code_from_checks_full_residual, legal_build_objects_in_the_way_residual,
-            legal_build_too_close_to_supplies_residual, min_dist_from_map_edge_residual,
-            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
+            cell_shroud_blocks_build_residual, legal_build_code_from_checks_full_shroud_residual,
+            legal_build_objects_in_the_way_residual, legal_build_too_close_to_supplies_residual,
+            min_dist_from_map_edge_residual, STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
         };
         use crate::game_logic::host_structure_economy_residual::{
             is_legal_build_distance_from_map_edge, is_supply_warehouse_template,
             MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
         };
         use crate::game_logic::host_upgrades::is_supply_center_template;
-        let _ = team; // shroud residual deferred
         let (min, max) = self.world_bounds();
         // Use real map extent (no generous pad) for C++ off-map / edge residual.
         let min_x = min.x;
@@ -44108,7 +44107,47 @@ impl GameLogic {
         } else {
             false
         };
-        legal_build_code_from_checks_full_residual(in_bounds, in_way, too_close, too_close_edge)
+        // C++ SHROUD_REVEALED residual: require CELLSHROUD_CLEAR for human build.
+        // When fog_of_war is off or no shroud grid is initialized, fail-open (clear).
+        let shrouded = if !self.skirmish_rules.fog_of_war {
+            false
+        } else {
+            let player_id = self
+                .players
+                .values()
+                .find(|p| p.team == team)
+                .map(|p| p.id)
+                .unwrap_or(0);
+            let clear = self.is_build_location_shroud_clear(player_id, position);
+            cell_shroud_blocks_build_residual(clear)
+        };
+        legal_build_code_from_checks_full_shroud_residual(
+            in_bounds,
+            shrouded,
+            in_way,
+            too_close,
+            too_close_edge,
+        )
+    }
+
+    /// C++ PartitionManager::getShroudStatusForPlayer == CELLSHROUD_CLEAR residual.
+    ///
+    /// Fail-open when shroud grid is not initialized (synthetic/host tests).
+    fn is_build_location_shroud_clear(&self, player_id: u32, position: glam::Vec3) -> bool {
+        use gamelogic::common::Coord3D;
+        use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
+        let Ok(shroud) = get_shroud_manager().lock() else {
+            return true;
+        };
+        if !shroud.has_shroud_grid() {
+            return true;
+        }
+        // Match host vision residual Coord3D axis order (x, z, y).
+        let coord = Coord3D::new(position.x, position.z, position.y);
+        matches!(
+            shroud.get_shroud_state(player_id, &coord),
+            ShroudState::Visible
+        )
     }
 
     /// True when residual LegalBuildCode is LBC_OK.
@@ -82306,6 +82345,74 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn structure_placement_rejects_shrouded_location_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            cell_shroud_blocks_build_residual, LBC_OK, LBC_SHROUD,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        assert!(cell_shroud_blocks_build_residual(false));
+        assert!(!cell_shroud_blocks_build_residual(true));
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.override_world_size(400.0, 400.0);
+        logic.set_skirmish_rules(true, true, false, true, 1.0); // fog on
+        let mut t = ThingTemplate::new("TestShroudBarracks");
+        t.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("TestShroudBarracks".into(), t);
+
+        // Init shroud grid residual covering world.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.init_shroud_grid(400.0, 400.0);
+            // Leave map shrouded (default Hidden) — do not reveal.
+        }
+        let pos = glam::Vec3::new(0.0, 0.0, 0.0);
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, pos, "TestShroudBarracks"),
+            LBC_SHROUD
+        );
+        assert!(logic
+            .create_object_under_construction("TestShroudBarracks", Team::USA, pos)
+            .is_none());
+
+        // Permanent reveal → CELLSHROUD_CLEAR residual (active lookers).
+        // Temporary reveal only leaves FOGGED, which still blocks build residual.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            let _ = shroud.reveal_map_for_player_permanently(0);
+        }
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, pos, "TestShroudBarracks"),
+            LBC_OK
+        );
+        assert!(logic
+            .create_object_under_construction("TestShroudBarracks", Team::USA, pos)
+            .is_some());
+
+        // fog_of_war off → fail-open even if shrouded again.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            let _ = shroud.shroud_map_for_player(0);
+        }
+        logic.set_skirmish_rules(false, true, false, true, 1.0);
+        assert_eq!(
+            logic.legal_build_code_at(
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+                "TestShroudBarracks"
+            ),
+            LBC_OK
+        );
+        // Leave permanent reveal so later fog-on tests see CLEAR residual.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            let _ = shroud.reveal_map_for_player_permanently(0);
+        }
     }
 
     #[test]
