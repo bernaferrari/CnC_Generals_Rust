@@ -400,6 +400,16 @@ pub fn construction_complete_model_bit() -> u32 {
     model_condition_bit_name_index("CONSTRUCTION_COMPLETE").unwrap_or(55) as u32
 }
 
+/// C++ MODELCONDITION_RADAR_EXTENDING residual bit index from name table.
+pub fn radar_extending_model_bit() -> u32 {
+    model_condition_bit_name_index("RADAR_EXTENDING").unwrap_or(56) as u32
+}
+
+/// C++ MODELCONDITION_RADAR_UPGRADED residual bit index from name table.
+pub fn radar_upgraded_model_bit() -> u32 {
+    model_condition_bit_name_index("RADAR_UPGRADED").unwrap_or(57) as u32
+}
+
 pub fn model_condition_bit_name_index(name: &str) -> Option<usize> {
     MODEL_CONDITION_BIT_NAME_LIST
         .iter()
