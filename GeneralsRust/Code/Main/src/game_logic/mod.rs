@@ -877,6 +877,8 @@ pub enum KindOf {
     AttackNeedsLineOfSight,
     /// C++ KINDOF_IMMOBILE — structures/defenses; skip terrain LOS detour residual.
     Immobile,
+    /// C++ KINDOF_CAN_BE_REPULSED — civilians flee OBJECT_STATUS_REPULSOR.
+    CanBeRepulsed,
     /// C++ KINDOF_AIRCRAFT_PATH_AROUND — tall buildings aircraft path around.
     AircraftPathAround,
 }
@@ -885,6 +887,9 @@ pub enum KindOf {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ObjectStatus {
     pub destroyed: bool,
+    /// C++ OBJECT_STATUS_REPULSOR residual (script SetRepulsor / dead civs).
+    #[serde(default)]
+    pub repulsor: bool,
     pub under_construction: bool,
     pub selected: bool,
     pub moving: bool,
