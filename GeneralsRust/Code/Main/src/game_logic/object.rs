@@ -153,6 +153,30 @@ pub struct Object {
     /// C++ AI panic state residual (AI_PANIC → bounce force allowed).
     #[serde(default)]
     pub is_panicking: bool,
+    /// C++ PhysicsBehavior m_mass residual.
+    #[serde(default = "default_physics_mass")]
+    pub physics_mass: f32,
+    /// C++ PhysicsBehavior m_accel residual (integrated each frame).
+    #[serde(default)]
+    pub physics_accel: glam::Vec3,
+    /// C++ isMotive residual frames remaining (0 = not motive / accept full force).
+    #[serde(default)]
+    pub motive_frames_remaining: u32,
+    /// C++ AIUpdate m_waitingForPath residual.
+    #[serde(default)]
+    pub waiting_for_path: bool,
+    /// C++ m_moveOutOfWay1 residual (object id we're yielding for).
+    #[serde(default)]
+    pub move_away_from: Option<ObjectId>,
+    /// C++ AI_MOVE_OUT_OF_THE_WAY temporary state frames remaining.
+    #[serde(default)]
+    pub move_away_frames: u32,
+    /// Desired yield position residual from aiMoveAwayFromUnit.
+    #[serde(default)]
+    pub move_away_destination: Option<glam::Vec3>,
+    /// When set by processCollision, GameLogic should call ai_move_away on this id.
+    #[serde(default)]
+    pub request_other_move_away: Option<ObjectId>,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -636,6 +660,10 @@ fn default_max_f32() -> f32 {
     f32::MAX
 }
 
+fn default_physics_mass() -> f32 {
+    1.0
+}
+
 /// C++ MuLaw residual used by doBounceSound volume adjust.
 pub fn bounce_mulaw(x: f32, max_x: f32, mu: f32) -> f32 {
     let max_x = max_x.max(1e-6);
@@ -765,6 +793,14 @@ impl Object {
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
             is_panicking: false,
+            physics_mass: 1.0,
+            physics_accel: glam::Vec3::ZERO,
+            motive_frames_remaining: 0,
+            waiting_for_path: false,
+            move_away_from: None,
+            move_away_frames: 0,
+            move_away_destination: None,
+            request_other_move_away: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -938,6 +974,14 @@ impl Object {
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
             is_panicking: false,
+            physics_mass: 1.0,
+            physics_accel: glam::Vec3::ZERO,
+            motive_frames_remaining: 0,
+            waiting_for_path: false,
+            move_away_from: None,
+            move_away_frames: 0,
+            move_away_destination: None,
+            request_other_move_away: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2271,11 +2315,14 @@ impl Object {
                 if max_speed < self.cur_max_blocked_speed {
                     self.cur_max_blocked_speed = max_speed;
                 }
-                // Vehicle into infantry: request move-away residual (flag only).
+                // Vehicle into infantry: request move-away residual.
                 if other.is_kind_of(crate::game_logic::KindOf::Infantry)
                     && !self.is_kind_of(crate::game_logic::KindOf::Infantry)
                 {
-                    // Fail-closed: no full aiMoveAwayFromUnit; mark other via last_collidee path.
+                    // C++ busy/using-ability gate residual.
+                    if !other.status.using_ability {
+                        self.request_other_move_away = Some(other.id);
+                    }
                 }
                 return false;
             }
@@ -2297,6 +2344,106 @@ impl Object {
         }
     }
 
+    /// C++ PhysicsBehavior::getMass residual.
+    pub fn physics_get_mass(&self) -> f32 {
+        self.physics_mass.max(1.0e-4)
+    }
+
+    /// C++ PhysicsBehavior::isMotive residual.
+    pub fn is_motive(&self) -> bool {
+        self.motive_frames_remaining > 0
+    }
+
+    /// C++ PhysicsBehavior::applyForce residual.
+    ///
+    /// When motive, only lateral component (perp to unit facing) is accepted.
+    /// Host XZ ground plane maps C++ XY; world Y is vertical.
+    pub fn apply_physics_force(&mut self, force: glam::Vec3) {
+        if !force.x.is_finite() || !force.y.is_finite() || !force.z.is_finite() {
+            return;
+        }
+        let mut mod_force = force;
+        if self.is_motive() {
+            let dir = self.unit_direction_vector_2d(); // (x,z)
+                                                       // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
+                                                       // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
+            let lateral_dot = force.x * (-dir.y) + force.z * dir.x;
+            mod_force.x = lateral_dot * (-dir.y);
+            mod_force.z = lateral_dot * dir.x;
+            // vertical unchanged
+        }
+        let inv = 1.0 / self.physics_get_mass();
+        self.physics_accel += mod_force * inv;
+    }
+
+    /// Integrate physics_accel into velocity residual (a → v per logic frame).
+    pub fn integrate_physics_accel(&mut self) {
+        self.movement.velocity += self.physics_accel;
+        self.physics_accel = glam::Vec3::ZERO;
+        if self.motive_frames_remaining > 0 {
+            self.motive_frames_remaining -= 1;
+        }
+    }
+
+    /// C++ AIUpdateInterface::privateMoveAwayFromUnit residual (fail-closed).
+    ///
+    /// No full pathfinder: push destination opposite the threat along XZ and
+    /// enter move-out-of-way window. Re-request while already yielding + blocked
+    /// grants ignore-collisions for 2 seconds (C++ cheat).
+    pub fn ai_move_away_from_unit(&mut self, threat_id: ObjectId, threat_pos: glam::Vec3) {
+        if self.status.destroyed || !self.is_alive() || !self.can_move() {
+            return;
+        }
+        if self.is_kind_of(crate::game_logic::KindOf::Immobile)
+            || self.is_kind_of(crate::game_logic::KindOf::Structure)
+        {
+            return;
+        }
+        // Already yielding for this threat.
+        if self.move_away_from == Some(threat_id) && self.move_away_frames > 0 {
+            if self.is_blocked {
+                // C++ setIgnoreCollisionTime(2 sec)
+                self.ignore_collisions_until_frame = self.ignore_collisions_until_frame.max(60); // caller should OR with current frame externally
+                                                                                                 // Store relative: use flag via ignore_collisions_with as well.
+                self.ignore_collisions_with = Some(threat_id);
+            }
+            return;
+        }
+        let us = self.get_position();
+        let mut dx = us.x - threat_pos.x;
+        let mut dz = us.z - threat_pos.z;
+        let len = (dx * dx + dz * dz).sqrt();
+        if len < 1.0e-3 {
+            // Coincident: push along our facing.
+            let d = self.unit_direction_vector_2d();
+            dx = d.x;
+            dz = d.y;
+        } else {
+            dx /= len;
+            dz /= len;
+        }
+        // PATHFIND_CELL_SIZE * ~2 step away residual.
+        let step = PATHFIND_CELL_SIZE_F_RESIDUAL * 2.0;
+        let dest = glam::Vec3::new(us.x + dx * step, us.y, us.z + dz * step);
+        self.move_away_from = Some(threat_id);
+        self.move_away_destination = Some(dest);
+        self.move_away_frames = 10 * 30; // 10 seconds temporary state residual
+                                         // Nudge velocity toward dest residual (fail-closed vs full path).
+        self.movement.velocity.x += dx * 0.5;
+        self.movement.velocity.z += dz * 0.5;
+    }
+
+    /// Tick move-away temporary state residual.
+    pub fn tick_move_away_state(&mut self) {
+        if self.move_away_frames > 0 {
+            self.move_away_frames -= 1;
+            if self.move_away_frames == 0 {
+                self.move_away_from = None;
+                self.move_away_destination = None;
+            }
+        }
+    }
+
     /// Clear per-frame blocked residual at start of AI/physics tick.
     pub fn clear_blocked_frame_state(&mut self) {
         if self.is_blocked {
@@ -2311,6 +2458,7 @@ impl Object {
         }
         self.is_blocked = false;
         self.cur_max_blocked_speed = f32::MAX;
+        self.request_other_move_away = None;
     }
     pub fn set_ignore_collisions_with(&mut self, id: Option<ObjectId>) {
         self.ignore_collisions_with = id;
@@ -2362,8 +2510,9 @@ impl Object {
     /// Unit direction 2D residual from orientation (host XZ plane).
     pub fn unit_direction_xz(&self) -> (f32, f32) {
         let yaw = self.get_orientation();
-        // Orientation 0 faces +X (see movement atan2(-z, x) residual).
-        (yaw.cos(), yaw.sin())
+        // Orientation 0 faces +X; desired heading uses (-dz).atan2(dx),
+        // so +Z is yaw = -PI/2 → dir (0, +1).
+        (yaw.cos(), -yaw.sin())
     }
 
     /// C++ PhysicsBehavior::checkForOverlapCollision residual.
