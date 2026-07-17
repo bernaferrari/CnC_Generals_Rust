@@ -324,6 +324,12 @@ pub struct Player {
     pub radar_disabled: bool,
     /// C++ Player::m_logicalRetaliationModeEnabled residual (options Auto-Retaliate).
     pub logical_retaliation_mode_enabled: bool,
+    /// C++ Player::m_rankLevel residual (1-based retail ranks).
+    pub rank_level: u32,
+    /// C++ Player::m_skillPoints residual.
+    pub skill_points: i32,
+    /// C++ Player::m_sciencePurchasePoints residual.
+    pub science_purchase_points: i32,
 }
 
 impl Player {
@@ -358,6 +364,9 @@ impl Player {
             radar_count: 0,
             radar_disabled: false,
             logical_retaliation_mode_enabled: false,
+            rank_level: 1,
+            skill_points: 0,
+            science_purchase_points: 0,
         }
     }
 
@@ -412,6 +421,37 @@ impl Player {
             );
         }
         bounty
+    }
+
+    /// C++ Player::addSkillPoints residual — returns true if rank increased.
+    pub fn add_skill_points(&mut self, points: i32) -> bool {
+        use crate::game_logic::host_science_rank::{
+            retail_cumulative_science_points_through, retail_rank_for_level,
+            retail_rank_level_for_skill_points,
+        };
+        if points <= 0 {
+            return false;
+        }
+        self.skill_points = self.skill_points.saturating_add(points);
+        let new_level = retail_rank_level_for_skill_points(self.skill_points).max(1);
+        if new_level <= self.rank_level {
+            return false;
+        }
+        let old = self.rank_level;
+        self.rank_level = new_level;
+        // Grant cumulative science points delta residual.
+        let old_spp = retail_cumulative_science_points_through(old);
+        let new_spp = retail_cumulative_science_points_through(new_level);
+        let delta = (new_spp - old_spp).max(0);
+        self.science_purchase_points = self.science_purchase_points.saturating_add(delta);
+        // Unlock rank sciences residual.
+        for lvl in (old + 1)..=new_level {
+            if let Some(row) = retail_rank_for_level(lvl) {
+                self.unlocked_sciences
+                    .insert(row.science_granted.to_string());
+            }
+        }
+        true
     }
 
     pub fn can_afford(&self, cost: &Resources) -> bool {
@@ -1315,6 +1355,10 @@ pub struct GameLogic {
     eva_insufficient_funds: u32,
     /// Next frame InsufficientFunds may re-fire.
     eva_insufficient_funds_next_frame: u32,
+    /// EVA UpgradeComplete residual honesty fires.
+    eva_upgrade_complete: u32,
+    /// EVA GeneralLevelUp residual honesty fires.
+    eva_general_level_up: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2525,6 +2569,8 @@ impl GameLogic {
             eva_low_power_active: false,
             eva_insufficient_funds: 0,
             eva_insufficient_funds_next_frame: 0,
+            eva_upgrade_complete: 0,
+            eva_general_level_up: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2885,6 +2931,8 @@ impl GameLogic {
         self.eva_low_power_active = false;
         self.eva_insufficient_funds = 0;
         self.eva_insufficient_funds_next_frame = 0;
+        self.eva_upgrade_complete = 0;
+        self.eva_general_level_up = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -15218,6 +15266,16 @@ impl GameLogic {
         let _ = self.try_friends_retaliate(target_id, attacker_id);
         if destroyed {
             log::debug!("Object {} destroyed object {}", attacker_id, target_id);
+            // C++ generals experience residual: skill points on kill → possible rank-up EVA.
+            if let Some(pid) = self
+                .players
+                .values()
+                .find(|p| p.team == attacker_team)
+                .map(|p| p.id)
+            {
+                // Simple residual: 1 skill point per kill (not full GeneralsExperience table).
+                let _ = self.add_player_skill_points(pid, 1);
+            }
             self.mark_object_for_destruction(target_id, Some(attacker_team));
             let wname = self.objects.get(&attacker_id).and_then(|a| {
                 a.thing
@@ -15347,7 +15405,9 @@ impl GameLogic {
             units_affected
         );
 
-        // EVA residual audio for local player upgrades.
+        // C++ ProductionUpdate: TheEva->setShouldPlay(EVA_UpgradeComplete) residual
+        // when no custom researchCompleteSound (generic EVA path).
+        self.try_eva_upgrade_complete(player_id);
         if self.is_local_player(player_id) {
             self.queue_audio_event(
                 AudioEventRequest::new("EVA_UpgradeComplete").with_priority(140),
@@ -42322,6 +42382,49 @@ impl GameLogic {
     /// structures owned by local / allied players.
 
     /// C++ Eva::shouldPlayLowPower residual for the local player.
+
+    /// C++ TheEva->setShouldPlay(EVA_UpgradeComplete) residual (local player).
+    pub fn try_eva_upgrade_complete(&mut self, player_id: u32) {
+        if !self.is_local_player(player_id) {
+            return;
+        }
+        let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::UpgradeComplete,
+        );
+        self.eva_upgrade_complete = self.eva_upgrade_complete.saturating_add(1);
+    }
+
+    /// C++ TheEva->setShouldPlay(EVA_GeneralLevelUp) residual (local player).
+    pub fn try_eva_general_level_up(&mut self, player_id: u32) {
+        if !self.is_local_player(player_id) {
+            return;
+        }
+        let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::GeneralLevelUp,
+        );
+        self.eva_general_level_up = self.eva_general_level_up.saturating_add(1);
+    }
+
+    /// Award skill points and fire GeneralLevelUp EVA on rank change residual.
+    pub fn add_player_skill_points(&mut self, player_id: u32, points: i32) -> bool {
+        let Some(p) = self.players.get_mut(&player_id) else {
+            return false;
+        };
+        let leveled = p.add_skill_points(points);
+        if leveled {
+            self.try_eva_general_level_up(player_id);
+        }
+        leveled
+    }
+
+    pub fn honesty_eva_upgrade_complete_ok(&self) -> bool {
+        self.eva_upgrade_complete > 0
+    }
+
+    pub fn honesty_eva_general_level_up_ok(&self) -> bool {
+        self.eva_general_level_up > 0
+    }
+
     pub fn update_eva_low_power(&mut self) {
         use crate::game_logic::host_ui_presentation_residual::EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL;
         let local_low = self
@@ -77009,6 +77112,39 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn eva_upgrade_complete_and_general_level_up() {
+        use crate::game_logic::host_science_rank::RANK2_SKILL_POINTS_NEEDED;
+        use crate::game_logic::Team;
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        logic.try_eva_upgrade_complete(0);
+        assert!(logic.honesty_eva_upgrade_complete_ok());
+        // Rank 1 → 2 at 800 skill points.
+        assert!(logic.add_player_skill_points(0, RANK2_SKILL_POINTS_NEEDED));
+        assert!(logic.honesty_eva_general_level_up_ok());
+        let p = logic.players.get(&0).expect("p");
+        assert_eq!(p.rank_level, 2);
+        assert!(p.skill_points >= RANK2_SKILL_POINTS_NEEDED);
+        assert!(p.unlocked_sciences.contains("SCIENCE_Rank2"));
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::UpgradeComplete),
+            "{events:?}"
+        );
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::GeneralLevelUp),
+            "{events:?}"
+        );
+        // No re-level with 0 points.
+        assert!(!logic.add_player_skill_points(0, 0));
     }
 
     #[test]
