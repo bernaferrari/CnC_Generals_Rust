@@ -129,6 +129,15 @@ pub struct Object {
     /// C++ PhysicsBehavior m_lastCollidee residual.
     #[serde(default)]
     pub last_collidee: Option<ObjectId>,
+    /// C++ PhysicsBehaviorModuleData m_allowCollideForce residual (default true).
+    #[serde(default = "default_true")]
+    pub allow_collide_force: bool,
+    /// C++ AIUpdate m_canPathThroughUnits residual.
+    #[serde(default)]
+    pub can_path_through_units: bool,
+    /// C++ AIUpdate m_ignoreCollisionsUntil frame residual (0 = inactive).
+    #[serde(default)]
+    pub ignore_collisions_until_frame: u32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -602,6 +611,10 @@ fn default_crushable_level() -> u8 {
     255
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// C++ MuLaw residual used by doBounceSound volume adjust.
 pub fn bounce_mulaw(x: f32, max_x: f32, mu: f32) -> f32 {
     let max_x = max_x.max(1e-6);
@@ -723,6 +736,9 @@ impl Object {
             physics_previous_overlap: None,
             ignore_collisions_with: None,
             last_collidee: None,
+            allow_collide_force: true,
+            can_path_through_units: false,
+            ignore_collisions_until_frame: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -888,6 +904,9 @@ impl Object {
             physics_previous_overlap: None,
             ignore_collisions_with: None,
             last_collidee: None,
+            allow_collide_force: true,
+            can_path_through_units: false,
+            ignore_collisions_until_frame: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2076,6 +2095,42 @@ impl Object {
     /// If desired < 0.001, zero lateral velocity. Else scale down if faster than desired.
 
     /// C++ PhysicsBehavior::setIgnoreCollisionsWith residual.
+
+    /// C++ AIUpdateInterface::processCollision residual (force-apply gate).
+    ///
+    /// Returns true if physics should apply bounce force. Fail-closed simplified:
+    /// no force while path-through, ignore-until active, or both ground-moving AI.
+    pub fn ai_process_collision_allows_force(&self, other: &Object, current_frame: u32) -> bool {
+        if !self.allow_collide_force {
+            return false;
+        }
+        if self.can_path_through_units {
+            return false;
+        }
+        if self.ignore_collisions_until_frame > 0
+            && current_frame < self.ignore_collisions_until_frame
+        {
+            return false;
+        }
+        // Both need "AI" residual: host uses can_move as stand-in for AI unit.
+        if !other.can_move() {
+            return true; // immobile handled elsewhere; force ok if reached
+        }
+        let self_ground = self.can_move() && !self.status.airborne_target && !self.is_parachuting();
+        let other_ground =
+            other.can_move() && !other.status.airborne_target && !other.is_parachuting();
+        if !self_ground || !other_ground {
+            return false;
+        }
+        let self_moving = self.movement.velocity.length_squared() > 0.01;
+        // C++: if self moving and blocked path, typically no bounce force (steer instead).
+        // Host residual: mobile-mobile ground → no force (AI handles separation).
+        if self_moving {
+            return false;
+        }
+        true
+    }
+
     pub fn set_ignore_collisions_with(&mut self, id: Option<ObjectId>) {
         self.ignore_collisions_with = id;
     }
