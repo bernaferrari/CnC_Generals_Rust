@@ -2718,6 +2718,7 @@ mod tests {
                     },
                     quantity_total: 1,
                     quantity_produced: 0,
+                    kind: crate::game_logic::buildings::ProductionKind::Unit,
                 },
                 ProductionItem {
                     template_name: "UnitB".into(),
@@ -2729,6 +2730,7 @@ mod tests {
                     },
                     quantity_total: 1,
                     quantity_produced: 0,
+                    kind: crate::game_logic::buildings::ProductionKind::Unit,
                 },
             ];
             obj.building_data = Some(bd);
@@ -3210,6 +3212,7 @@ mod tests {
                 },
                 quantity_total: 1,
                 quantity_produced: 0,
+                kind: crate::game_logic::buildings::ProductionKind::Unit,
             });
             bd.rally_point = Some(glam::Vec3::new(20.0, 0.0, 20.0));
             bd.garrisoned_units = vec![crate::game_logic::ObjectId(99)];

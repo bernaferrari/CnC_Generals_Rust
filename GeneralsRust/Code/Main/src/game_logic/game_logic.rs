@@ -739,7 +739,7 @@ impl Player {
         self.find_queued_upgrade_name(upgrade_name).is_some()
     }
 
-    fn find_queued_upgrade_name(&self, upgrade_name: &str) -> Option<String> {
+    pub fn find_queued_upgrade_name(&self, upgrade_name: &str) -> Option<String> {
         let expected = normalize_upgrade_name(upgrade_name);
         self.queued_upgrades
             .iter()
@@ -5674,6 +5674,8 @@ impl GameLogic {
         // C++: TheBuildAssistant->UPDATE();
         // Production queues update after AI so build orders issued by AI this
         // frame can be immediately reflected.
+        // Drain prior-frame upgrade presentation events before research advances.
+        self.host_upgrades.clear_frame_events();
         self.update_production(dt);
         self.update_player_upgrades();
         if let Some(mut build_assistant) = get_build_assistant() {
@@ -5920,8 +5922,11 @@ impl GameLogic {
         //   if ratio < 1.0: rate = min(rate, 0.8)
         let team_power_factor = self.compute_team_power_factors();
 
-        // (team, template, spawn_pos, rally, producer_id)
-        let mut completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)> = Vec::new();
+        use crate::game_logic::buildings::ProductionKind;
+        // Unit completions: (team, template, spawn_pos, rally, producer_id)
+        let mut unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)> = Vec::new();
+        // Upgrade completions: (team, upgrade_name, producer_id)
+        let mut upgrade_completions: Vec<(Team, String, ObjectId)> = Vec::new();
 
         for (&id, obj) in self.objects.iter_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
@@ -5934,38 +5939,78 @@ impl GameLogic {
             }
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
-                if let Some(completed) = building.update_production(dt, pf) {
-                    let rally = building.rally_point;
-                    // Spawn slightly offset from the building facing to reduce clumping.
-                    let forward = obj.thing.get_direction_vector();
-                    let base = obj.get_position() + forward * obj.selection_radius.max(10.0);
-                    // Deterministic jitter based on template bytes (simple FNV-1a).
-                    let mut hash: u32 = 0x811c9dc5;
-                    for &b in completed.as_bytes() {
-                        hash ^= b as u32;
-                        hash = hash.wrapping_mul(0x01000193);
+                if let Some((completed, kind)) = building.update_production(dt, pf) {
+                    match kind {
+                        ProductionKind::Upgrade => {
+                            upgrade_completions.push((obj.team, completed, id));
+                        }
+                        ProductionKind::Unit => {
+                            let rally = building.rally_point;
+                            // Spawn slightly offset from the building facing to reduce clumping.
+                            let forward = obj.thing.get_direction_vector();
+                            let base =
+                                obj.get_position() + forward * obj.selection_radius.max(10.0);
+                            // Deterministic jitter based on template bytes (simple FNV-1a).
+                            let mut hash: u32 = 0x811c9dc5;
+                            for &b in completed.as_bytes() {
+                                hash ^= b as u32;
+                                hash = hash.wrapping_mul(0x01000193);
+                            }
+                            let angle = (hash as f32) * 0.001;
+                            let radius = 3.0 + (hash as f32 % 5.0);
+                            let jitter = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
+                            let mut spawn_pos = base + jitter;
+                            // C++ UnitCreatePoint residual sample for China barracks family.
+                            let pname = obj.template_name.to_ascii_lowercase();
+                            if pname.contains("chinabarracks")
+                                || (pname.contains("barracks") && pname.contains("china"))
+                            {
+                                spawn_pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                                    obj.get_position(),
+                                    forward,
+                                    crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_UNIT_CREATE_MODEL,
+                                );
+                            }
+                            unit_completions.push((obj.team, completed, spawn_pos, rally, id));
+                        }
                     }
-                    let angle = (hash as f32) * 0.001;
-                    let radius = 3.0 + (hash as f32 % 5.0);
-                    let jitter = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
-                    let mut spawn_pos = base + jitter;
-                    // C++ UnitCreatePoint residual sample for China barracks family.
-                    let pname = obj.template_name.to_ascii_lowercase();
-                    if pname.contains("chinabarracks")
-                        || (pname.contains("barracks") && pname.contains("china"))
-                    {
-                        spawn_pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                            obj.get_position(),
-                            forward,
-                            crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_UNIT_CREATE_MODEL,
-                        );
-                    }
-                    completions.push((obj.team, completed, spawn_pos, rally, id));
                 }
             }
         }
 
-        for (team, template, mut spawn_pos, rally, producer_id) in completions {
+        // C++ ProductionUpdate PRODUCTION_UPGRADE complete residual.
+        for (team, upgrade_name, producer_id) in upgrade_completions {
+            // Door + construction-complete flash residual on producer.
+            if let Some(prod) = self.objects.get_mut(&producer_id) {
+                let now = self.frame.max(1);
+                prod.set_construction_complete_condition_at(now);
+                prod.start_production_door_cycle(self.frame);
+                self.production_door_cycles = self.production_door_cycles.saturating_add(1);
+            }
+            // Unlock via player queue drain + host apply path.
+            let player_id = self.players.values().find(|p| p.team == team).map(|p| p.id);
+            if let Some(pid) = player_id {
+                let already = self
+                    .players
+                    .get(&pid)
+                    .map(|p| p.has_unlocked_upgrade(&upgrade_name))
+                    .unwrap_or(false);
+                if let Some(player) = self.players.get_mut(&pid) {
+                    // Remove from queued set without refund (research finished).
+                    if let Some(queued) = player.find_queued_upgrade_name(&upgrade_name) {
+                        player.queued_upgrades.remove(&queued);
+                    }
+                    if !player.has_unlocked_upgrade(&upgrade_name) {
+                        player.unlocked_sciences.insert(upgrade_name.clone());
+                    }
+                }
+                if !already {
+                    self.apply_host_upgrade_complete(team, pid, &upgrade_name);
+                }
+            }
+        }
+
+        for (team, template, mut spawn_pos, rally, producer_id) in unit_completions {
             // Push spawn a bit off the footprint center to reduce stacking.
             let jitter_dir = Vec3::new(
                 (spawn_pos.x * 17.0 + spawn_pos.z).sin(),
@@ -15898,22 +15943,112 @@ impl GameLogic {
     }
 
     fn update_player_upgrades(&mut self) {
-        // Residual: drain queued research into unlocked_sciences, then apply
-        // observable unlocks (Capture ability flag, FlashBang secondary, etc.).
-        self.host_upgrades.clear_frame_events();
+        // Residual: complete research when residual frames elapse for entries
+        // that are NOT still advancing on a building PRODUCTION_UPGRADE queue.
+        // Building-path completions are applied in `update_production`.
+        // Frame event clear runs at the start of the production phase so
+        // building-path `record_complete` events survive presentation freeze.
 
+        use crate::game_logic::buildings::ProductionKind;
+        use crate::game_logic::host_upgrades::HostUpgradePhase;
+
+        // Upgrades currently researching on a producer building.
+        let mut building_researching: std::collections::HashSet<(u32, String)> =
+            std::collections::HashSet::new();
+        for obj in self.objects.values() {
+            let Some(building) = obj.building_data.as_ref() else {
+                continue;
+            };
+            let Some(player_id) = self
+                .players
+                .values()
+                .find(|p| p.team == obj.team)
+                .map(|p| p.id)
+            else {
+                continue;
+            };
+            for item in &building.production_queue {
+                if item.kind == ProductionKind::Upgrade {
+                    building_researching.insert((
+                        player_id,
+                        crate::game_logic::host_upgrades::normalize_upgrade_identity(
+                            &item.template_name,
+                        ),
+                    ));
+                }
+            }
+        }
+
+        let frame = self.frame;
         let mut completed: Vec<(Team, u32, String)> = Vec::new();
-        for player in self.players.values_mut() {
-            let team = player.team;
-            let player_id = player.id;
-            let done = player.complete_queued_upgrades();
-            for name in done {
-                completed.push((team, player_id, name));
+        for entry in self.host_upgrades.entries_snapshot() {
+            if entry.phase != HostUpgradePhase::Queued {
+                continue;
+            }
+            let key = (
+                entry.player_id,
+                crate::game_logic::host_upgrades::normalize_upgrade_identity(&entry.name),
+            );
+            // Building owns the timer while the PRODUCTION_UPGRADE entry is live.
+            if building_researching.contains(&key) {
+                continue;
+            }
+            let needed = entry.residual_research_frames.max(1);
+            // Count the current simulation step as one research frame residual
+            // (frame counter increments after update_simulation returns).
+            let elapsed = frame.saturating_sub(entry.queue_frame).saturating_add(1);
+            if elapsed >= needed {
+                completed.push((entry.team, entry.player_id, entry.name.clone()));
+            }
+        }
+
+        // Direct player.queue_upgrade without host record (unit-test path):
+        // complete after one simulation frame residual.
+        for player in self.players.values() {
+            for name in &player.queued_upgrades {
+                let key = (
+                    player.id,
+                    crate::game_logic::host_upgrades::normalize_upgrade_identity(name),
+                );
+                if building_researching.contains(&key) {
+                    continue;
+                }
+                let already = completed
+                    .iter()
+                    .any(|(t, pid, n)| *pid == player.id && n.eq_ignore_ascii_case(name));
+                if already {
+                    continue;
+                }
+                // No host entry → residual complete this update (legacy test path).
+                let has_host = self.host_upgrades.entries_snapshot().iter().any(|e| {
+                    e.player_id == player.id
+                        && e.phase == HostUpgradePhase::Queued
+                        && crate::game_logic::host_upgrades::normalize_upgrade_identity(&e.name)
+                            == key.1
+                });
+                if !has_host {
+                    completed.push((player.team, player.id, name.clone()));
+                }
             }
         }
 
         for (team, player_id, name) in completed {
-            self.apply_host_upgrade_complete(team, player_id, &name);
+            let already = self
+                .players
+                .get(&player_id)
+                .map(|p| p.has_unlocked_upgrade(&name))
+                .unwrap_or(false);
+            if let Some(player) = self.players.get_mut(&player_id) {
+                if let Some(queued) = player.find_queued_upgrade_name(&name) {
+                    player.queued_upgrades.remove(&queued);
+                }
+                if !player.has_unlocked_upgrade(&name) {
+                    player.unlocked_sciences.insert(name.clone());
+                }
+            }
+            if !already {
+                self.apply_host_upgrade_complete(team, player_id, &name);
+            }
         }
     }
 
@@ -65199,6 +65334,86 @@ mod tests {
 
     /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
     /// Fail-closed: not full science tree / SpecialAbility module parity.
+
+    #[test]
+    fn production_upgrade_researches_on_building_queue_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::buildings::ProductionKind;
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_FLASHBANG};
+
+        let mut logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        logic.add_player(player);
+        ensure_test_barracks_template(&mut logic);
+
+        let barracks_id = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks");
+
+        logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_FLASHBANG.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        logic.process_commands();
+
+        // PRODUCTION_UPGRADE residual sits on the producer queue.
+        let (kind, qty, progress) = logic
+            .get_object(barracks_id)
+            .and_then(|o| o.building_data.as_ref())
+            .and_then(|b| b.production_queue.first())
+            .map(|i| (i.kind, i.quantity_total, i.progress))
+            .expect("upgrade queue entry");
+        assert_eq!(kind, ProductionKind::Upgrade);
+        assert_eq!(qty, 1);
+        assert_eq!(progress, 0.0);
+        assert!(
+            logic
+                .get_player(0)
+                .map(|p| p.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG))
+                .unwrap_or(false),
+            "player has queued upgrade"
+        );
+        assert!(
+            !logic
+                .get_player(0)
+                .map(|p| p.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG))
+                .unwrap_or(true),
+            "not unlocked before research"
+        );
+
+        // residual_research_frames = 1 → one logic update completes.
+        logic.update();
+
+        assert!(
+            logic
+                .get_player(0)
+                .map(|p| p.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG))
+                .unwrap_or(false),
+            "unlock after residual research frames"
+        );
+        assert!(
+            logic
+                .get_object(barracks_id)
+                .and_then(|o| o.building_data.as_ref())
+                .map(|b| b.production_queue.is_empty())
+                .unwrap_or(false),
+            "queue cleared after upgrade complete"
+        );
+        assert!(
+            logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::FlashBangGrenade),
+            "host honesty complete"
+        );
+    }
+
     #[test]
     fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         use crate::command_system::{CommandType, GameCommand};
@@ -87678,6 +87893,7 @@ mod tests {
                         },
                         quantity_total: 1,
                         quantity_produced: 0,
+                        kind: crate::game_logic::buildings::ProductionKind::Unit,
                     });
             }
         }

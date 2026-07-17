@@ -4897,6 +4897,7 @@ impl SnapshotBuilder {
                                 },
                                 quantity_total: 1,
                                 quantity_produced: 0,
+                                kind: crate::game_logic::buildings::ProductionKind::Unit,
                             });
                         }
                     }
