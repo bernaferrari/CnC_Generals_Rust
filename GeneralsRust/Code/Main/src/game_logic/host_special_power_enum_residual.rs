@@ -256,6 +256,97 @@ pub fn special_power_bit_name_index(name: &str) -> Option<usize> {
 /// Wave 80 honesty: SpecialPower enum residual discriminants pack.
 ///
 /// Fail-closed: not full SpecialPowerStore Xfer rebind / mask ops.
+
+/// Residual SpecialPower ReloadTime in seconds for host cooldown consume path.
+///
+/// Fail-closed: unknown powers keep object template cooldown (caller default).
+pub fn special_power_reload_seconds(
+    power: &crate::command_system::SpecialPowerType,
+) -> Option<f32> {
+    use crate::command_system::SpecialPowerType as P;
+    use crate::game_logic::host_ambush::AMBUSH_RELOAD_TIME_MS;
+    use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_RELOAD_MS;
+    use crate::game_logic::host_emergency_repair::EMERGENCY_REPAIR_RELOAD_TIME_MS;
+    use crate::game_logic::host_frenzy::FRENZY_RELOAD_TIME_MS;
+    use crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_RELOAD_MS;
+    use crate::game_logic::host_helix_napalm::HELIX_NAPALM_RELOAD_MS;
+    use crate::game_logic::host_leaflet_drop::LEAFLET_RELOAD_MS;
+    use crate::game_logic::host_missile_defender::LASER_GUIDED_RELOAD_MS;
+    use crate::game_logic::host_paradrop::PARADROP_RELOAD_MS;
+    use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_RELOAD_TIME_MS;
+    use crate::game_logic::host_tank_hunter::TNT_RELOAD_MS;
+    use crate::game_logic::special_power_strikes::{
+        A10_STRIKE_RELOAD_MS, AIRF_CARPET_RELOAD_MS, BLACK_MARKET_NUKE_RELOAD_MS,
+        CARPET_BOMB_RELOAD_MS, DAISY_CUTTER_RELOAD_MS, DIRTY_NUKE_RELOAD_MS,
+        EARLY_CHINA_CARPET_RELOAD_MS, NAPALM_STRIKE_RELOAD_MS, NUCLEAR_MISSILE_RELOAD_MS,
+        SPECTRE_AIRF_RELOAD_MS, SPECTRE_RELOAD_MS,
+    };
+
+    let ms: Option<u32> = match power {
+        P::DaisyCutter | P::FuelAirBomb | P::AirForceDaisyCutter => Some(DAISY_CUTTER_RELOAD_MS),
+        P::Airstrike | P::AirForceAirstrike => Some(A10_STRIKE_RELOAD_MS),
+        P::NapalmStrike => Some(NAPALM_STRIKE_RELOAD_MS),
+        P::NuclearMissile | P::BaikonurRocket => Some(NUCLEAR_MISSILE_RELOAD_MS),
+        P::BlackMarketNuke => Some(BLACK_MARKET_NUKE_RELOAD_MS),
+        P::DetonateDirtyNuke => Some(DIRTY_NUKE_RELOAD_MS),
+        P::NukeNeutronMissile => Some(300_000),
+        P::SuperweaponNeutronMissile => Some(240_000),
+        P::SpectreGunship => Some(SPECTRE_RELOAD_MS),
+        P::AirForceSpectreGunship => Some(SPECTRE_AIRF_RELOAD_MS),
+        P::CarpetBomb => Some(CARPET_BOMB_RELOAD_MS),
+        P::AirForceCarpetBomb => Some(AIRF_CARPET_RELOAD_MS),
+        P::EarlyChinaCarpetBomb | P::NukeChinaCarpetBomb => Some(EARLY_CHINA_CARPET_RELOAD_MS),
+        P::ParticleCannon | P::LaserCannon => Some(240_000),
+        P::SuperweaponParticleCannon => Some(180_000),
+        P::ScudStorm => Some(300_000),
+        P::AnthraxBomb => Some(360_000),
+        P::Artillery | P::BattleshipBombardment => Some(240_000),
+        P::CruiseMissile => Some(120_000),
+        P::ClusterMines | P::NukeDrop => Some(240_000),
+        P::EmpPulse => Some(240_000),
+        P::Paradrop | P::InfantryParadrop | P::TankParadrop => Some(PARADROP_RELOAD_MS),
+        P::Ambush | P::TerrorCell => Some(AMBUSH_RELOAD_TIME_MS),
+        P::LeafletDrop | P::EarlyLeafletDrop => Some(LEAFLET_RELOAD_MS),
+        P::Frenzy | P::EarlyFrenzy => Some(FRENZY_RELOAD_TIME_MS),
+        P::EmergencyRepair | P::EarlyEmergencyRepair => Some(EMERGENCY_REPAIR_RELOAD_TIME_MS),
+        P::GpsScrambler | P::StealthGpsScrambler => Some(GPS_SCRAMBLER_RELOAD_MS),
+        P::CiaIntelligence => Some(CIA_INTELLIGENCE_RELOAD_MS),
+        P::CommunicationsDownload => Some(10_000),
+        P::CashHack => Some(240_000),
+        P::CrateDrop => Some(600_000),
+        P::SneakAttack => Some(SNEAK_ATTACK_RELOAD_TIME_MS),
+        P::HelixNapalmBomb | P::HelixNukeBomb => Some(HELIX_NAPALM_RELOAD_MS),
+        P::TankHunterTnt => Some(TNT_RELOAD_MS),
+        P::MissileDefenderLaserGuided | P::LaserGuidedHowitzer => Some(LASER_GUIDED_RELOAD_MS),
+        P::DemoRebelTimedCharges => Some(30_000),
+        P::BattleBusDemoTrapRollout => Some(7_500),
+        P::DemoKellTimedCharges
+        | P::DemoKellStickyCharges
+        | P::DemoKellRemoteCharges
+        | P::BurtonTimedCharges
+        | P::BurtonRemoteCharges => Some(0),
+        // Unit ability specials with short/no shared SW timer residual.
+        P::HackerDisableBuilding => Some(500),
+        P::MicrowaveDisableBuilding => Some(4_000),
+        P::BlackLotusDisableVehicle => Some(0),
+        P::BlackLotusStealCash => Some(2_000),
+        P::BlackLotusCaptureBuilding => Some(0),
+        P::RangerCaptureBuilding
+        | P::RedGuardCaptureBuilding
+        | P::RebelCaptureBuilding
+        | P::DisguiseAsVehiclePower => Some(0),
+        P::SpySatellite => Some(60_000),
+        P::SpyDrone => Some(60_000),
+        P::RadarScan => Some(60_000),
+        P::CleanupArea => Some(0),
+        P::BattlePlanBombardment | P::BattlePlanHoldTheLine | P::BattlePlanSearchAndDestroy => {
+            Some(0)
+        }
+        _ => None,
+    };
+    ms.map(|m| m as f32 / 1000.0)
+}
+
 pub fn honesty_special_power_enum_residual_pack_wave80() -> bool {
     SPECIALPOWER_COUNT == 67
         && SPECIAL_POWER_BIT_NAME_LIST.len() == 67
