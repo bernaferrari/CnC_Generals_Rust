@@ -179,6 +179,12 @@ pub struct Object {
     /// C++ ModelConditionFlags residual bits (ALLOW_SURRENDER-off index layout).
     #[serde(default)]
     pub model_condition_bits: u128,
+    /// C++ RadarUpdate m_extendDoneFrame residual (0 = inactive).
+    pub radar_extend_done_frame: u32,
+    /// C++ RadarUpdate m_extendComplete residual.
+    pub radar_extend_complete: bool,
+    /// C++ RadarUpdate m_radarActive residual.
+    pub radar_active: bool,
     /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
     #[serde(default)]
     pub shock_stun_frames: u32,
@@ -1169,6 +1175,9 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             model_condition_bits: 0,
+            radar_extend_done_frame: 0,
+            radar_extend_complete: false,
+            radar_active: false,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -1436,6 +1445,9 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             model_condition_bits: 0,
+            radar_extend_done_frame: 0,
+            radar_extend_complete: false,
+            radar_active: false,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -2771,6 +2783,41 @@ impl Object {
     /// C++ ActiveBody visual condition + Drawable::reactToBodyDamageStateChange residual.
 
     /// C++ ProductionUpdate MODELCONDITION_CONSTRUCTION_COMPLETE residual.
+
+    /// C++ RadarUpdate::extendRadar residual.
+    pub fn extend_radar(&mut self, done_frame: u32) {
+        use crate::game_logic::host_enum_table_residual::radar_extending_model_bit;
+        let bit = radar_extending_model_bit();
+        self.model_condition_bits |= 1u128 << bit;
+        // Clear upgraded while extending.
+        use crate::game_logic::host_enum_table_residual::radar_upgraded_model_bit;
+        self.model_condition_bits &= !(1u128 << radar_upgraded_model_bit());
+        self.radar_extend_done_frame = done_frame;
+        self.radar_extend_complete = false;
+        self.radar_active = true;
+        self.refresh_model_condition_bits();
+    }
+
+    /// C++ RadarUpdate::update extend completion residual.
+    /// Returns true when extension just completed this tick.
+    pub fn tick_radar_extend(&mut self, current_frame: u32) -> bool {
+        if self.radar_extend_done_frame == 0 || self.radar_extend_complete {
+            return false;
+        }
+        if current_frame <= self.radar_extend_done_frame {
+            return false;
+        }
+        use crate::game_logic::host_enum_table_residual::{
+            radar_extending_model_bit, radar_upgraded_model_bit,
+        };
+        self.radar_extend_complete = true;
+        self.radar_extend_done_frame = 0;
+        self.model_condition_bits &= !(1u128 << radar_extending_model_bit());
+        self.model_condition_bits |= 1u128 << radar_upgraded_model_bit();
+        self.refresh_model_condition_bits();
+        true
+    }
+
     pub fn set_construction_complete_condition(&mut self) {
         use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
         let bit = construction_complete_model_bit();
@@ -2839,6 +2886,15 @@ impl Object {
             bits &= !(1u128 << MC_BIT_STUNNED_FLAILING);
             bits |= 1u128 << MC_BIT_STUNNED;
         }
+        // Radar extend residual sticks across body/motion refresh.
+        use crate::game_logic::host_enum_table_residual::{
+            radar_extending_model_bit, radar_upgraded_model_bit,
+        };
+        let had_radar_ext =
+            (self.model_condition_bits & (1u128 << radar_extending_model_bit())) != 0;
+        let had_radar_upg =
+            (self.model_condition_bits & (1u128 << radar_upgraded_model_bit())) != 0;
+
         // SPLATTED residual sticks after fatal falling damage.
         use crate::game_logic::host_enum_table_residual::MC_BIT_SPLATTED;
         let had_splat = (self.model_condition_bits & (1u128 << MC_BIT_SPLATTED)) != 0;
@@ -2848,6 +2904,19 @@ impl Object {
                     == crate::game_logic::host_usa_pilot::HostDeathType::Splatted)
         {
             bits |= 1u128 << MC_BIT_SPLATTED;
+        }
+        if had_radar_ext {
+            bits |= 1u128 << radar_extending_model_bit();
+        }
+        if had_radar_upg {
+            bits |= 1u128 << radar_upgraded_model_bit();
+        }
+        // Construction complete residual sticks.
+        use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
+        let had_cc =
+            (self.model_condition_bits & (1u128 << construction_complete_model_bit())) != 0;
+        if had_cc {
+            bits |= 1u128 << construction_complete_model_bit();
         }
         self.model_condition_bits = bits;
     }

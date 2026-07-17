@@ -1377,6 +1377,10 @@ pub struct GameLogic {
     structure_complete_events: u32,
     /// Unit production-complete residual honesty fires.
     unit_ready_events: u32,
+    /// RadarUpdate extendRadar residual starts.
+    radar_extend_starts: u32,
+    /// RadarUpdate extend completion residual fires.
+    radar_extend_completes: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2598,6 +2602,8 @@ impl GameLogic {
             radar_upgrade_events: 0,
             structure_complete_events: 0,
             unit_ready_events: 0,
+            radar_extend_starts: 0,
+            radar_extend_completes: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2969,6 +2975,8 @@ impl GameLogic {
         self.radar_upgrade_events = 0;
         self.structure_complete_events = 0;
         self.unit_ready_events = 0;
+        self.radar_extend_starts = 0;
+        self.radar_extend_completes = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5434,6 +5442,7 @@ impl GameLogic {
         let mut completed_superweapon_detects: Vec<(Team, String)> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
         let mut ready_superweapons: Vec<(ObjectId, Team, String)> = Vec::new();
+        let mut radar_extend_done: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
@@ -5476,10 +5485,17 @@ impl GameLogic {
                     // Defer EVA until after borrow ends.
                     ready_superweapons.push((id, team, name));
                 }
+                if obj.tick_radar_extend(self.frame) {
+                    radar_extend_done.push(id);
+                }
             }
         }
         for (id, team, name) in ready_superweapons {
             self.try_eva_superweapon_ready(id, team, &name);
+        }
+
+        for _id in radar_extend_done {
+            self.radar_extend_completes = self.radar_extend_completes.saturating_add(1);
         }
 
         for (team, name) in completed_superweapon_detects {
@@ -5504,6 +5520,8 @@ impl GameLogic {
             }
             // C++ onStructureConstructionComplete feedback residual.
             self.notify_structure_construction_complete(completed_id);
+            // C++ RadarUpgrade/RadarUpdate extendRadar residual on radar providers.
+            self.maybe_start_radar_extend(completed_id);
             // Constructed footprint is a static path/LOS obstacle.
             self.block_structure_object_path(completed_id);
         }
@@ -42777,6 +42795,31 @@ impl GameLogic {
 
     /// C++ structure construction-complete residual feedback for local owner:
     /// radar message + BuildingComplete audio honesty + model condition bit.
+
+    /// Start radar dish extend residual on a newly completed radar provider.
+    pub fn maybe_start_radar_extend(&mut self, structure_id: ObjectId) {
+        use crate::game_logic::host_radar::is_legal_radar_provider;
+        use crate::game_logic::host_radar_stealth_vision_residual::RADAR_EXTEND_TIME_FRAMES_RESIDUAL;
+        let Some(obj) = self.objects.get_mut(&structure_id) else {
+            return;
+        };
+        let is_cc = obj.is_command_center() || obj.is_kind_of(KindOf::CommandCenter);
+        if !is_legal_radar_provider(obj.is_alive(), true, is_cc, &obj.template_name) {
+            return;
+        }
+        let done = self.frame.saturating_add(RADAR_EXTEND_TIME_FRAMES_RESIDUAL);
+        obj.extend_radar(done);
+        self.radar_extend_starts = self.radar_extend_starts.saturating_add(1);
+    }
+
+    pub fn honesty_radar_extend_start_ok(&self) -> bool {
+        self.radar_extend_starts > 0
+    }
+
+    pub fn honesty_radar_extend_complete_ok(&self) -> bool {
+        self.radar_extend_completes > 0
+    }
+
     pub fn notify_structure_construction_complete(&mut self, structure_id: ObjectId) {
         let Some(obj) = self.objects.get_mut(&structure_id) else {
             return;
@@ -77611,6 +77654,53 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn radar_extend_sets_extending_then_upgraded_bits() {
+        use crate::game_logic::host_enum_table_residual::{
+            host_model_condition_has, radar_extending_model_bit, radar_upgraded_model_bit,
+        };
+        use crate::game_logic::host_radar_stealth_vision_residual::RADAR_EXTEND_TIME_FRAMES_RESIDUAL;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("AmericaCommandCenter");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        logic.maybe_start_radar_extend(id);
+        assert!(logic.honesty_radar_extend_start_ok());
+        let obj = logic.get_object(id).expect("o");
+        assert!(host_model_condition_has(
+            obj.model_condition_bits,
+            radar_extending_model_bit()
+        ));
+        assert!(!obj.radar_extend_complete);
+        assert!(obj.radar_active);
+        // Advance past extend window.
+        logic.frame = RADAR_EXTEND_TIME_FRAMES_RESIDUAL.saturating_add(1);
+        let frame = logic.frame;
+        if let Some(o) = logic.get_object_mut(id) {
+            assert!(o.tick_radar_extend(frame));
+        }
+        let obj = logic.get_object(id).expect("o2");
+        assert!(obj.radar_extend_complete);
+        assert!(host_model_condition_has(
+            obj.model_condition_bits,
+            radar_upgraded_model_bit()
+        ));
+        assert!(!host_model_condition_has(
+            obj.model_condition_bits,
+            radar_extending_model_bit()
+        ));
     }
 
     #[test]
