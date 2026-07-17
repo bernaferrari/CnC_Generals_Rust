@@ -42,6 +42,7 @@ pub mod host_combat_chinook;
 pub mod host_combat_cycle;
 pub mod host_combat_sim_residual;
 pub mod host_command_button_residual;
+pub mod host_countermeasures;
 pub mod host_deliver_payload;
 pub mod host_demo_suicide_bomb;
 pub mod host_dock_contain_exit_heal_residual;
