@@ -7118,6 +7118,70 @@ impl GameLogic {
     /// When an AI computer unit kills and a money crate is spawned nearby, notify.
     ///
     /// C++ CreateCrateDie: only PLAYER_COMPUTER killers get notifyCrate.
+
+    /// C++ CreateCrateDie::onDie residual for host destruction processing.
+    ///
+    /// Uses victim template `create_crate_data` list + last_damage_source as killer.
+    /// Spawns money crates and notifies computer killers.
+    pub fn try_create_crates_on_die(
+        &mut self,
+        victim_id: ObjectId,
+        victim_pos: glam::Vec3,
+        victim_team: Team,
+        crate_data: &[String],
+        killer_id: Option<ObjectId>,
+    ) -> usize {
+        if crate_data.is_empty() {
+            return 0;
+        }
+        // Ally kill → no crate (C++ Relationship ALLIES).
+        if let Some(kid) = killer_id {
+            if let Some(k) = self.objects.get(&kid) {
+                if k.team == victim_team {
+                    return 0;
+                }
+            }
+        }
+        let seed = crate::game_logic::host_create_crate_die::crate_die_seed(
+            victim_id, killer_id, self.frame,
+        );
+        let mut spawned = 0usize;
+        for (i, name) in crate_data.iter().enumerate() {
+            let draw = (i as u32).wrapping_mul(7);
+            let Some(req) =
+                crate::game_logic::host_create_crate_die::try_roll_crate_spawn(name, seed, draw)
+            else {
+                continue;
+            };
+            // Spawn offset residual (fail-closed vs findPositionAround).
+            let ang = (seed.wrapping_add(i as u32) as f32) * 0.7;
+            let pos = glam::Vec3::new(
+                victim_pos.x + ang.cos() * 5.0,
+                victim_pos.y,
+                victim_pos.z + ang.sin() * 5.0,
+            );
+            // Ensure template exists.
+            if !self.templates.contains_key(&req.object_name) {
+                let t = ThingTemplate::new(&req.object_name);
+                // Crates are non-combat pickups.
+                self.templates.insert(req.object_name.clone(), t);
+            }
+            let Some(crate_id) = self.create_object(&req.object_name, Team::Neutral, pos) else {
+                continue;
+            };
+            self.host_money_crates.register(
+                crate_id,
+                req.money_provided,
+                req.building_pickup,
+                if req.building_pickup { 25 } else { 0 },
+            );
+            if let Some(kid) = killer_id {
+                let _ = self.notify_computer_killer_of_crate(kid, crate_id);
+            }
+            spawned += 1;
+        }
+        spawned
+    }
     pub fn notify_computer_killer_of_crate(
         &mut self,
         killer_id: ObjectId,
@@ -17805,7 +17869,7 @@ impl GameLogic {
         id
     }
 
-    fn process_destroy_list(&mut self) {
+    pub(crate) fn process_destroy_list(&mut self) {
         let mut destroyed_structure = false;
         while let Some(event) = self.objects_to_destroy.pop_front() {
             self.pending_special_abilities.remove(&event.id);
@@ -17813,6 +17877,28 @@ impl GameLogic {
                 .retain(|_, ability| ability.target_id() != event.id);
 
             self.cancel_all_production(event.id);
+
+            // Snapshot CreateCrateDie residual fields before remove.
+            let (crate_data, death_pos_pre, death_team_pre, last_src) =
+                if let Some(o) = self.objects.get(&event.id) {
+                    (
+                        o.thing.template.create_crate_data.clone(),
+                        o.get_position(),
+                        o.team,
+                        o.last_damage_source,
+                    )
+                } else {
+                    (Vec::new(), glam::Vec3::ZERO, Team::Neutral, None)
+                };
+            if !crate_data.is_empty() {
+                let _ = self.try_create_crates_on_die(
+                    event.id,
+                    death_pos_pre,
+                    death_team_pre,
+                    &crate_data,
+                    last_src,
+                );
+            }
 
             if let Some(obj) = self.objects.remove(&event.id) {
                 crate::game_logic::host_destroy_log::record(event.id);
@@ -74879,6 +74965,78 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn create_crate_die_spawns_salvage_and_notifies_ai() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "AI", false));
+
+        // Killer AI unit
+        let mut kt = ThingTemplate::new("AiKiller");
+        kt.add_kind_of(KindOf::Infantry);
+        let kid = ObjectId(4701);
+        logic.objects.insert(kid, {
+            let mut o = Object::new(kt, kid, Team::China);
+            o.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+            o
+        });
+
+        // Victim with CreateCrateDie SalvageCrateData
+        let mut vt = ThingTemplate::new("VicCrate");
+        vt.add_kind_of(KindOf::Vehicle);
+        vt.add_create_crate_data("SalvageCrateData");
+        let vid = ObjectId(4702);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+            o.last_damage_source = Some(kid);
+            o.health.current = 0.0;
+            o.status.destroyed = true;
+            o
+        });
+
+        logic.mark_object_for_destruction(vid, Some(Team::China));
+        logic.process_destroy_list();
+
+        // Victim gone
+        assert!(logic.objects.get(&vid).is_none());
+        // At least one money crate registered
+        assert!(
+            logic.host_money_crates.crate_count() >= 1,
+            "expected salvage crate spawn"
+        );
+        // AI killer notified
+        assert!(
+            logic.objects[&kid].crate_created.is_some(),
+            "computer killer should be notified"
+        );
+    }
+
+    #[test]
+    fn create_crate_die_skips_ally_killer() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut kt = ThingTemplate::new("AllyK");
+        kt.add_kind_of(KindOf::Infantry);
+        let kid = ObjectId(4710);
+        logic.objects.insert(kid, Object::new(kt, kid, Team::USA));
+
+        let mut vt = ThingTemplate::new("VicAlly");
+        vt.add_create_crate_data("SalvageCrateData");
+        let vid = ObjectId(4711);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.last_damage_source = Some(kid);
+            o.status.destroyed = true;
+            o
+        });
+        logic.mark_object_for_destruction(vid, Some(Team::USA));
+        logic.process_destroy_list();
+        assert_eq!(logic.host_money_crates.crate_count(), 0);
     }
 
     #[test]

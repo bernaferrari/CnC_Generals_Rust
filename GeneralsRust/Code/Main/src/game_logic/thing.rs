@@ -36,6 +36,9 @@ pub struct ThingTemplate {
     /// Locomotor.ini SET_NORMAL template name (resolved via Common LocomotorStore).
     /// Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
     pub locomotor_name: Option<String>,
+    /// C++ CreateCrateDieModuleData::m_crateNameList residual (CrateData names).
+    #[serde(default)]
+    pub create_crate_data: Vec<String>,
 }
 
 impl ThingTemplate {
@@ -59,10 +62,20 @@ impl ThingTemplate {
             secondary_weapon: None,
             secondary_weapon_name: None,
             locomotor_name: None,
+            create_crate_data: Vec::new(),
         }
     }
 
     /// Attach host primary weapon stats (damage/range/reload) to this template.
+    /// C++ CreateCrateDie CrateData residual append.
+    pub fn add_create_crate_data(&mut self, crate_data_name: &str) -> &mut Self {
+        let n = crate_data_name.trim();
+        if !n.is_empty() {
+            self.create_crate_data.push(n.to_string());
+        }
+        self
+    }
+
     pub fn set_primary_weapon(&mut self, weapon: Weapon) -> &mut Self {
         self.primary_weapon = Some(weapon);
         self
