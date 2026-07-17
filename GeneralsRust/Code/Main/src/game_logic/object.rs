@@ -538,6 +538,21 @@ pub struct Object {
     /// C++ AIUpdateInterface::m_crateCreated residual (notifyCrate).
     #[serde(default)]
     pub crate_created: Option<ObjectId>,
+    /// C++ HijackerUpdate::m_targetID residual (vehicle being driven).
+    #[serde(default)]
+    pub hijack_vehicle_id: Option<ObjectId>,
+    /// C++ HijackerUpdate::m_isInVehicle residual.
+    #[serde(default)]
+    pub hijacker_in_vehicle: bool,
+    /// C++ HijackerUpdate::m_update residual.
+    #[serde(default)]
+    pub hijacker_update_active: bool,
+    /// C++ HijackerUpdate::m_wasTargetAirborne residual.
+    #[serde(default)]
+    pub hijacker_was_airborne: bool,
+    /// C++ HijackerUpdate::m_ejectPos residual.
+    #[serde(default)]
+    pub hijacker_eject_pos: Option<glam::Vec3>,
     /// C++ WEAPONSET_CRATEUPGRADE_ONE/TWO residual (0/1/2).
     #[serde(default)]
     pub weapon_crate_upgrade: u8,
@@ -1269,6 +1284,11 @@ impl Object {
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
+            hijack_vehicle_id: None,
+            hijacker_in_vehicle: false,
+            hijacker_update_active: false,
+            hijacker_was_airborne: false,
+            hijacker_eject_pos: None,
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             guard_target: None,
@@ -1528,6 +1548,11 @@ impl Object {
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
+            hijack_vehicle_id: None,
+            hijacker_in_vehicle: false,
+            hijacker_update_active: false,
+            hijacker_was_airborne: false,
+            hijacker_eject_pos: None,
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             guard_target: None,
@@ -1712,6 +1737,9 @@ impl Object {
     pub fn is_selectable(&self) -> bool {
         self.is_alive()
             && self.is_kind_of(KindOf::Selectable)
+            && !self.status.masked
+            && !self.status.unselectable
+            && !self.hijacker_in_vehicle
             && !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
     }
 
@@ -2387,6 +2415,85 @@ impl Object {
 
     /// Apply Hijack residual ownership mark (caller sets team).
     /// C++ ConvertToHijackedVehicleCrateCollide: OBJECT_STATUS_HIJACKED + idle AI.
+
+    /// C++ HijackerUpdate enter-vehicle residual (hide hijacker with vehicle).
+    pub fn begin_hijacker_in_vehicle(&mut self, vehicle_id: ObjectId) {
+        self.hijack_vehicle_id = Some(vehicle_id);
+        self.hijacker_in_vehicle = true;
+        self.hijacker_update_active = true;
+        self.status.no_collisions = true;
+        self.status.masked = true;
+        self.status.unselectable = true;
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.ai_state = AIState::Idle;
+        // Soft-hide: not destroyed, not selectable.
+    }
+
+    /// C++ HijackerUpdate exit when vehicle dies residual.
+    pub fn end_hijacker_in_vehicle(&mut self, eject_pos: glam::Vec3, was_airborne: bool) {
+        self.hijack_vehicle_id = None;
+        self.hijacker_in_vehicle = false;
+        self.hijacker_update_active = false;
+        self.status.no_collisions = false;
+        self.status.masked = false;
+        self.status.unselectable = false;
+        self.hijacker_was_airborne = was_airborne;
+        self.hijacker_eject_pos = Some(eject_pos);
+        self.set_position(eject_pos);
+        self.ai_state = AIState::Idle;
+        self.stop_moving();
+        self.target = None;
+    }
+
+    /// Sync ride residual: copy vehicle position + MAX veterancy.
+    pub fn tick_hijacker_in_vehicle(
+        &mut self,
+        vehicle_pos: glam::Vec3,
+        vehicle_airborne: bool,
+        vehicle_level: crate::game_logic::VeterancyLevel,
+        vehicle_xp: f32,
+    ) {
+        if !self.hijacker_in_vehicle {
+            return;
+        }
+        self.set_position(vehicle_pos);
+        self.hijacker_was_airborne = vehicle_airborne;
+        self.hijacker_eject_pos = Some(vehicle_pos);
+        // MAX veterancy residual between jacker and vehicle.
+        use crate::game_logic::VeterancyLevel;
+        let rank = |l: VeterancyLevel| -> u8 {
+            match l {
+                VeterancyLevel::Rookie => 0,
+                VeterancyLevel::Veteran => 1,
+                VeterancyLevel::Elite => 2,
+                VeterancyLevel::Heroic => 3,
+            }
+        };
+        let highest = if rank(vehicle_level) >= rank(self.experience.level) {
+            vehicle_level
+        } else {
+            self.experience.level
+        };
+        if rank(highest) > rank(self.experience.level) {
+            let prev = self.experience.level;
+            self.experience.level = highest;
+            let thr = self.thing.template.veterancy_xp_thresholds;
+            let need = match highest {
+                VeterancyLevel::Veteran => thr[0],
+                VeterancyLevel::Elite => thr[1],
+                VeterancyLevel::Heroic => thr[2],
+                VeterancyLevel::Rookie => 0.0,
+            };
+            if self.experience.current < need.max(vehicle_xp) {
+                self.experience.current = need.max(vehicle_xp);
+            }
+            self.apply_veterancy_bonuses(prev, highest);
+        }
+    }
+
     pub fn apply_hijacked(&mut self) {
         self.apply_hijacked_from(None);
     }

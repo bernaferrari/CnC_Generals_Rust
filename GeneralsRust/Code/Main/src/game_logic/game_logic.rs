@@ -5893,6 +5893,8 @@ impl GameLogic {
 
         // GuardRetaliate victim-death / return residual.
         self.tick_guard_retaliate_states();
+        // HijackerUpdate ride residual.
+        self.tick_hijacker_updates();
 
         // Apply all AI commands
         for command in ai_commands {
@@ -7148,6 +7150,106 @@ impl GameLogic {
     ///
     /// Moves a script-visible name from `from_id` to `to_id` via host name field
     /// + NamedObjectTracker when available.
+
+    /// C++ targetCanEject residual: vehicle has EjectPilotDie interface.
+    ///
+    /// Host residual: eligible eject-pilot template + vehicle kind.
+    pub fn vehicle_supports_hijacker_ride(&self, vehicle_id: ObjectId) -> bool {
+        use crate::game_logic::host_usa_pilot::is_eject_pilot_eligible_template;
+        let Some(v) = self.objects.get(&vehicle_id) else {
+            return false;
+        };
+        if !v.is_alive() || v.status.destroyed {
+            return false;
+        }
+        if v.is_kind_of(KindOf::Aircraft) || v.object_type == ObjectType::Aircraft {
+            return false;
+        }
+        if !(v.is_kind_of(KindOf::Vehicle) || v.object_type == ObjectType::Vehicle) {
+            return false;
+        }
+        is_eject_pilot_eligible_template(&v.template_name)
+    }
+
+    /// Tick HijackerUpdate residual for all in-vehicle hijackers.
+    pub fn tick_hijacker_updates(&mut self) {
+        let riders: Vec<(ObjectId, ObjectId)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.hijacker_in_vehicle)
+            .filter_map(|(id, o)| o.hijack_vehicle_id.map(|vid| (*id, vid)))
+            .collect();
+        for (rider_id, vehicle_id) in riders {
+            let vehicle_alive = self
+                .objects
+                .get(&vehicle_id)
+                .map(|v| v.is_alive() && !v.status.destroyed)
+                .unwrap_or(false);
+            if !vehicle_alive {
+                let (epos, air) = {
+                    let r = self.objects.get(&rider_id);
+                    (
+                        r.and_then(|o| o.hijacker_eject_pos)
+                            .or_else(|| r.map(|o| o.get_position()))
+                            .unwrap_or(glam::Vec3::ZERO),
+                        r.map(|o| o.hijacker_was_airborne).unwrap_or(false),
+                    )
+                };
+                if let Some(r) = self.objects.get_mut(&rider_id) {
+                    r.end_hijacker_in_vehicle(epos, air);
+                }
+                // Airborne eject residual: mark parachuting fail-closed.
+                if air {
+                    if let Some(r) = self.objects.get_mut(&rider_id) {
+                        r.status.parachuting = true;
+                        let mut p = r.get_position();
+                        p.y = p.y.max(50.0);
+                        r.set_position(p);
+                    }
+                }
+                continue;
+            }
+            let (vpos, air, vlevel, vxp) = {
+                let v = self.objects.get(&vehicle_id).unwrap();
+                (
+                    v.get_position(),
+                    v.status.airborne_target || v.get_position().y > 5.0,
+                    v.experience.level,
+                    v.experience.current,
+                )
+            };
+            // Sync vehicle veterancy MAX back onto vehicle too.
+            if let Some(v) = self.objects.get_mut(&vehicle_id) {
+                // Will re-read rider level after tick
+                let _ = v;
+            }
+            if let Some(r) = self.objects.get_mut(&rider_id) {
+                r.tick_hijacker_in_vehicle(vpos, air, vlevel, vxp);
+            }
+            // Apply MAX level to vehicle from rider after tick.
+            let rlevel = self
+                .objects
+                .get(&rider_id)
+                .map(|r| r.experience.level)
+                .unwrap_or(vlevel);
+            if let Some(v) = self.objects.get_mut(&vehicle_id) {
+                use crate::game_logic::VeterancyLevel;
+                let rank = |l: VeterancyLevel| -> u8 {
+                    match l {
+                        VeterancyLevel::Rookie => 0,
+                        VeterancyLevel::Veteran => 1,
+                        VeterancyLevel::Elite => 2,
+                        VeterancyLevel::Heroic => 3,
+                    }
+                };
+                if rank(rlevel) > rank(v.experience.level) {
+                    let prev = v.experience.level;
+                    v.experience.level = rlevel;
+                    v.apply_veterancy_bonuses(prev, rlevel);
+                }
+            }
+        }
+    }
     pub fn transfer_script_object_name(&mut self, from_id: ObjectId, to_id: ObjectId) -> bool {
         use gamelogic::scripting::engine::get_named_object_tracker;
         let name = self
@@ -13961,10 +14063,18 @@ impl GameLogic {
                             let msg =
                                 localization::localize("hud.hijack.complete", "Vehicle hijacked");
                             self.queue_radar_message_for_team(team, msg);
-                            if let Some(hijacker) = self.objects.get_mut(&object_id) {
-                                hijacker.status.destroyed = true;
+                            // C++: if target has EjectPilotDie → hide hijacker in vehicle;
+                            // else destroy hijacker immediately.
+                            if self.vehicle_supports_hijacker_ride(special_target_id) {
+                                if let Some(h) = self.objects.get_mut(&object_id) {
+                                    h.begin_hijacker_in_vehicle(special_target_id);
+                                }
+                            } else {
+                                if let Some(hijacker) = self.objects.get_mut(&object_id) {
+                                    hijacker.status.destroyed = true;
+                                }
+                                self.mark_object_for_destruction(object_id, Some(team));
                             }
-                            self.mark_object_for_destruction(object_id, Some(team));
                         }
                         PendingSpecialAbility::Sabotage { .. } => {
                             // C++ Sabotage*CrateCollide residual: type-specific structure
@@ -49239,8 +49349,9 @@ mod tests {
         {
             let h = game_logic.find_object_mut(crushed_id).expect("crushed");
             h.experience.level = VeterancyLevel::Veteran;
-            h.status.death_type = HostDeathType::Crushed;
             let _ = h.take_damage(h.max_health * 2.0);
+            // take_damage sets death_type from damage class — restore DieMux residual.
+            h.status.death_type = HostDeathType::Crushed;
             h.status.destroyed = true;
         }
         game_logic.mark_object_for_destruction(crushed_id, Some(Team::GLA));
@@ -49276,8 +49387,8 @@ mod tests {
         {
             let h = game_logic.find_object_mut(splat_id).expect("splat");
             h.experience.level = VeterancyLevel::Veteran;
-            h.status.death_type = HostDeathType::Splatted;
             let _ = h.take_damage(h.max_health * 2.0);
+            h.status.death_type = HostDeathType::Splatted;
             h.status.destroyed = true;
         }
         game_logic.mark_object_for_destruction(splat_id, Some(Team::GLA));
@@ -49306,6 +49417,8 @@ mod tests {
             h.experience.level = VeterancyLevel::Veteran;
             h.apply_hijacked();
             let _ = h.take_damage(h.max_health * 2.0);
+            // Preserve HIJACKED after damage residual.
+            h.status.hijacked = true;
             h.status.destroyed = true;
         }
         game_logic.mark_object_for_destruction(hijack_id, Some(Team::GLA));
@@ -75433,6 +75546,74 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn hijack_hides_in_eject_capable_vehicle() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+        let mut logic = GameLogic::new();
+        let mut ht = ThingTemplate::new("GLAInfantryHijacker");
+        ht.add_kind_of(KindOf::Infantry);
+        let hid = ObjectId(5501);
+        logic.objects.insert(hid, {
+            let mut o = Object::new(ht, hid, Team::GLA);
+            o.name = "Jack".into();
+            o
+        });
+        let mut vt = ThingTemplate::new("AmericaTankCrusader");
+        vt.add_kind_of(KindOf::Vehicle);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(5502);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+            o
+        });
+        assert!(logic.vehicle_supports_hijacker_ride(vid));
+        let donor = logic.objects.get(&hid).cloned();
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.apply_hijacked_from(donor.as_ref());
+            v.set_team(Team::GLA);
+        }
+        {
+            let h = logic.objects.get_mut(&hid).unwrap();
+            h.begin_hijacker_in_vehicle(vid);
+        }
+        assert!(logic.objects[&hid].hijacker_in_vehicle);
+        assert!(logic.objects[&hid].status.masked);
+        assert!(!logic.objects[&hid].is_selectable());
+        // Move vehicle → rider follows
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.set_position(glam::Vec3::new(40.0, 0.0, 5.0));
+        }
+        logic.tick_hijacker_updates();
+        let hp = logic.objects[&hid].get_position();
+        assert!((hp.x - 40.0).abs() < 0.01);
+        // Kill vehicle → rider restored
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.status.destroyed = true;
+            v.health.current = 0.0;
+        }
+        logic.tick_hijacker_updates();
+        let h = &logic.objects[&hid];
+        assert!(!h.hijacker_in_vehicle);
+        assert!(!h.status.masked);
+        assert!(h.is_alive());
+    }
+
+    #[test]
+    fn hijack_destroys_rider_when_no_eject() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        // Non-eject vehicle (generic)
+        let mut vt = ThingTemplate::new("SomeTruck");
+        vt.add_kind_of(KindOf::Vehicle);
+        let vid = ObjectId(5510);
+        logic.objects.insert(vid, Object::new(vt, vid, Team::USA));
+        assert!(!logic.vehicle_supports_hijacker_ride(vid));
     }
 
     #[test]
