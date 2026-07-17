@@ -412,14 +412,34 @@ impl Player {
     }
 
     /// Tick SharedSyncedTimer residual cooldowns.
-    pub fn tick_shared_special_power_timers(&mut self, dt: f32) {
+    ///
+    /// Returns powers that just became ready this tick (C++ PublicTimer ready edge).
+    pub fn tick_shared_special_power_timers(
+        &mut self,
+        dt: f32,
+    ) -> Vec<crate::command_system::SpecialPowerType> {
+        let mut became_ready = Vec::new();
         if dt <= 0.0 || self.shared_special_power_cooldowns.is_empty() {
-            return;
+            return became_ready;
         }
-        self.shared_special_power_cooldowns.retain(|_, rem| {
+        let keys: Vec<_> = self
+            .shared_special_power_cooldowns
+            .keys()
+            .cloned()
+            .collect();
+        for power in keys {
+            let Some(rem) = self.shared_special_power_cooldowns.get_mut(&power) else {
+                continue;
+            };
+            let was = *rem;
             *rem = (*rem - dt).max(0.0);
-            *rem > 0.0
-        });
+            if was > 0.0 && *rem <= 0.0 {
+                became_ready.push(power.clone());
+            }
+        }
+        self.shared_special_power_cooldowns
+            .retain(|_, rem| *rem > 0.0);
+        became_ready
     }
 
     /// C++ Player::hasRadar residual: radar_count > 0 && !radar_disabled.
@@ -20200,12 +20220,43 @@ impl GameLogic {
     }
 
     /// Tick all players' SharedSyncedTimer residual cooldowns.
+    ///
+    /// Fires EVA SuperweaponReady residual when a PublicTimer power finishes
+    /// recharging (own/ally/enemy classification via try_eva_superweapon_ready).
     pub fn tick_shared_special_power_timers(&mut self, dt: f32) {
         if dt <= 0.0 {
             return;
         }
+        let mut ready_events: Vec<(Team, String)> = Vec::new();
         for player in self.players.values_mut() {
-            player.tick_shared_special_power_timers(dt);
+            let team = player.team;
+            for power in player.tick_shared_special_power_timers(dt) {
+                use crate::game_logic::host_special_power_enum_residual::special_power_has_public_timer;
+                if !special_power_has_public_timer(&power) {
+                    continue;
+                }
+                // Map power → structure template name residual for EVA classifier.
+                let template = match power {
+                    crate::command_system::SpecialPowerType::ParticleCannon
+                    | crate::command_system::SpecialPowerType::SuperweaponParticleCannon
+                    | crate::command_system::SpecialPowerType::LaserCannon => {
+                        "AmericaParticleCannonUplink"
+                    }
+                    crate::command_system::SpecialPowerType::NuclearMissile
+                    | crate::command_system::SpecialPowerType::NukeNeutronMissile
+                    | crate::command_system::SpecialPowerType::SuperweaponNeutronMissile
+                    | crate::command_system::SpecialPowerType::BaikonurRocket => {
+                        "ChinaNuclearMissileLauncher"
+                    }
+                    crate::command_system::SpecialPowerType::ScudStorm => "GLAScudStorm",
+                    _ => continue, // EVA only for PUC/Nuke/Scud residual family
+                };
+                ready_events.push((team, template.to_string()));
+            }
+        }
+        for (team, name) in ready_events {
+            // source id unused by try_eva_superweapon_ready residual.
+            self.try_eva_superweapon_ready(crate::game_logic::ObjectId(0), team, &name);
         }
     }
 
@@ -81920,6 +81971,34 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn shared_timer_ready_fires_eva_superweapon_ready_residual() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+            p.is_local = true;
+            p.apply_faction_intrinsic_sciences();
+            p.shared_special_power_cooldowns
+                .insert(SpecialPowerType::ParticleCannon, 0.05);
+        }
+        assert!(!logic.honesty_eva_superweapon_ready_ok());
+        // Tick past remaining residual.
+        logic.tick_shared_special_power_timers(0.1);
+        assert!(
+            logic.honesty_eva_superweapon_ready_ok(),
+            "PUC shared timer ready edge must fire EVA SuperweaponReady residual"
+        );
+        // Timer removed when ready.
+        let rem = logic.get_player_by_team(Team::USA).and_then(|p| {
+            p.shared_special_power_cooldowns
+                .get(&SpecialPowerType::ParticleCannon)
+                .copied()
+        });
+        assert!(rem.is_none() || rem == Some(0.0));
     }
 
     #[test]
