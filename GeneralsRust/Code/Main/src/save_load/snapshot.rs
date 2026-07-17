@@ -4843,6 +4843,11 @@ impl SnapshotBuilder {
         object.special_power_ready = status.special_power_ready;
         object.special_power_cooldown = status.special_power_cooldown;
         object.special_power_cooldown_remaining = status.special_power_cooldown_remaining;
+        // Per-power map not in older snaps — seed from aggregate residual when cooling down.
+        object.special_power_cooldowns.clear();
+        if object.special_power_cooldown_remaining > 0.0 {
+            // Unknown power key residual: keep aggregate only until next consume.
+        }
         object.active_weapon_slot = status.active_weapon_slot;
 
         // Not represented in `ObjectStatus` in `Code/Main/src/game_logic/mod.rs`.
