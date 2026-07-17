@@ -4906,6 +4906,7 @@ impl GameLogic {
 
         // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
         self.update_money_crate_collides();
+        self.update_crate_deletion_updates();
 
         // Host GLA Rebel Ambush residual: spawn infantry near target after fade delay.
         // Fail-closed vs full OCL CreateObject / science upgrade tiers.
@@ -7234,6 +7235,12 @@ impl GameLogic {
                     if req.building_pickup { 25 } else { 0 },
                 );
             }
+            // C++ DeletionUpdate residual on crate object.
+            self.host_money_crates.arm_default_deletion(
+                crate_id,
+                self.frame,
+                crate_id.0.wrapping_add(self.frame),
+            );
             if let Some(kid) = killer_id {
                 let _ = self.notify_computer_killer_of_crate(kid, crate_id);
             }
@@ -16014,6 +16021,11 @@ impl GameLogic {
             if let Some(id) = spawned_id {
                 // Residual MoneyCrateCollide registration (unit + BuildingPickup).
                 self.host_money_crates.register_supply_drop_crate(id);
+                self.host_money_crates.arm_default_deletion(
+                    id,
+                    self.frame,
+                    id.0.wrapping_add(self.frame),
+                );
                 // AmericaCrateParachute residual: freefall → OpenDist → open → land.
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.apply_crate_parachuting();
@@ -16099,6 +16111,20 @@ impl GameLogic {
     /// - ExecuteAnimation MoneyPickUp residual presentation descriptor on collect
     ///
     /// Fail-closed: not full CollideModule partition pairs / Anim2D GPU / EVA text.
+
+    /// C++ DeletionUpdate::update residual for money/salvage crates.
+    ///
+    /// Destroys (NOT kills) crates whose dieFrame has elapsed.
+    pub fn update_crate_deletion_updates(&mut self) {
+        let expired = self.host_money_crates.expired_ids(self.frame);
+        for id in expired {
+            self.host_money_crates.forget(id);
+            // Destroy object if still present (C++ destroyObject, not kill).
+            if self.objects.contains_key(&id) {
+                self.mark_object_for_destruction(id, None);
+            }
+        }
+    }
     pub fn update_money_crate_collides(&mut self) {
         use crate::game_logic::host_deliver_payload::crate_is_above_terrain;
         use crate::game_logic::host_money_crate::{
@@ -75059,6 +75085,72 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn crate_deletion_update_destroys_expired() {
+        use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cid = ObjectId(4901);
+        let mut t = ThingTemplate::new("SalvageCrate");
+        logic.templates.insert("SalvageCrate".into(), t.clone());
+        logic.objects.insert(cid, {
+            let mut o = Object::new(t, cid, Team::Neutral);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        logic.host_money_crates.register_salvage_crate(cid, 40);
+        // Expire immediately
+        if let Some(e) = logic.host_money_crates.get(cid).cloned() {
+            let _ = e;
+        }
+        // Force expires_frame via arm with min=max=1 from frame 0
+        logic.frame = 0;
+        logic.host_money_crates.arm_deletion_update(cid, 0, 1, 1, 0);
+        assert_eq!(logic.host_money_crates.get(cid).unwrap().expires_frame, 1);
+        logic.frame = 1;
+        logic.update_crate_deletion_updates();
+        assert!(!logic.host_money_crates.contains(cid));
+        // Destruction queued
+        logic.process_destroy_list();
+        assert!(logic.objects.get(&cid).is_none());
+    }
+
+    #[test]
+    fn create_crate_die_arms_deletion_lifetime() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "AI", false));
+        let mut kt = ThingTemplate::new("K");
+        kt.add_kind_of(KindOf::Infantry);
+        let kid = ObjectId(4910);
+        logic.objects.insert(kid, Object::new(kt, kid, Team::China));
+        let mut vt = ThingTemplate::new("V");
+        vt.add_create_crate_data("SalvageCrateData");
+        let vid = ObjectId(4911);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            o.last_damage_source = Some(kid);
+            o.status.destroyed = true;
+            o
+        });
+        logic.frame = 50;
+        logic.mark_object_for_destruction(vid, Some(Team::China));
+        logic.process_destroy_list();
+        // Find spawned crate
+        let crate_id = logic
+            .host_money_crates
+            .ids()
+            .into_iter()
+            .next()
+            .expect("crate");
+        let exp = logic.host_money_crates.get(crate_id).unwrap().expires_frame;
+        assert!(
+            exp >= 50 + 900,
+            "salvage lifetime armed, expires={exp} frame=50"
+        );
     }
 
     #[test]
