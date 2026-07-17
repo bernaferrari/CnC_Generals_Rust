@@ -193,6 +193,12 @@ pub struct RenderableObject {
     pub destroyed: bool,
     /// C++ ModelConditionFlags residual (ALLOW_SURRENDER-off bit layout, low 128).
     pub model_condition_bits: u128,
+    /// C++ RadarUpdate m_radarActive residual.
+    pub radar_active: bool,
+    /// C++ RadarUpdate m_extendComplete residual.
+    pub radar_extend_complete: bool,
+    /// C++ ProductionUpdate door residual phase (0 idle .. 3 closing).
+    pub production_door_phase: u8,
     /// C++ BodyDamageType residual ordinal (0 pristine .. 3 rubble).
     pub body_damage_state: u8,
     /// C++ DeathType residual name for death FX (empty when alive).
@@ -410,6 +416,10 @@ pub struct UnitRenderInput {
     pub selection_radius: f32,
     /// C++ Drawable selection flash envelope residual frames remaining.
     pub selection_flash_remaining: u32,
+    /// Frozen ModelConditionFlags residual for mesh subobject selection.
+    pub model_condition_bits: u128,
+    /// Production door residual phase.
+    pub production_door_phase: u8,
     pub is_structure: bool,
     pub is_unit: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
@@ -440,6 +450,8 @@ impl UnitRenderInput {
             selected: ro.selected,
             selection_radius: ro.selection_radius.max(5.0),
             selection_flash_remaining: ro.selection_flash_remaining,
+            model_condition_bits: ro.model_condition_bits,
+            production_door_phase: ro.production_door_phase,
             is_structure: ro.is_structure,
             is_unit: ro.is_unit,
             engine_bridged: ro.engine_bridged,
@@ -2284,6 +2296,9 @@ impl PresentationFrame {
                     }
                     bits
                 },
+                radar_active: obj.radar_active,
+                radar_extend_complete: obj.radar_extend_complete,
+                production_door_phase: obj.production_door_phase,
                 body_damage_state: {
                     use crate::game_logic::host_enum_table_residual::{
                         host_calc_body_damage_state, HostBodyDamageType,
@@ -5513,6 +5528,8 @@ mod tests {
             selected: false,
             selection_radius: 5.0,
             selection_flash_remaining: 0,
+            model_condition_bits: 0,
+            production_door_phase: 0,
             is_structure: false,
             is_unit: true,
             engine_bridged: false,
@@ -7351,6 +7368,43 @@ mod tests {
             ui.radar_pings
         );
         assert_eq!(ui.last_radar_ping.map(|p| p.x), Some(100.0));
+    }
+
+    #[test]
+    fn production_door_opening_freezes_into_presentation() {
+        use crate::game_logic::game_logic::GameLogic;
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_opening_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("AmericaBarracks");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), st);
+        let id = logic
+            .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.start_production_door_cycle(0);
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert_eq!(ro.production_door_phase, 1);
+        assert!(host_model_condition_has(
+            ro.model_condition_bits,
+            door_1_opening_model_bit()
+        ));
+        // UnitRenderInput also freezes bits.
+        let uri = frame.unit_render_inputs();
+        if let Some(u) = uri.iter().find(|u| u.id == id) {
+            assert!(host_model_condition_has(
+                u.model_condition_bits,
+                door_1_opening_model_bit()
+            ));
+            assert_eq!(u.production_door_phase, 1);
+        }
     }
 
     #[test]
