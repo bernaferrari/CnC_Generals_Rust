@@ -209,7 +209,10 @@ pub fn cash_bounty_percent_for_science(name: &str) -> Option<f32> {
         Some(CASH_BOUNTY3_PERCENT)
     } else if n.contains("cashbounty2") {
         Some(CASH_BOUNTY2_PERCENT)
-    } else if n.contains("cashbounty1") || n == "cashbounty" {
+    } else if n.contains("cashbounty1") {
+        Some(CASH_BOUNTY1_PERCENT)
+    } else if n == "cashbounty" || n == "upgradecashbounty" || n.contains("upgradecashbounty") {
+        // Upgrade_CashBounty residual maps to tier-1 default when tier omitted.
         Some(CASH_BOUNTY1_PERCENT)
     } else {
         None
