@@ -652,6 +652,33 @@ impl Player {
         inserted
     }
 
+    /// C++ Player::resetSciences / IntrinsicSciences + Rank1 residual at match start.
+    ///
+    /// Grants faction SCIENCE_AMERICA/CHINA/GLA, SCIENCE_Rank1, and Rank1
+    /// SciencePurchasePointsGranted (**1**). Fail-closed: not full PlayerTemplate
+    /// multi-science vector / multiplayer override matrix.
+    pub fn apply_faction_intrinsic_sciences(&mut self) {
+        use crate::game_logic::host_faction_skirmish_residual::intrinsic_science_for_team;
+        use crate::game_logic::host_science_rank::{
+            retail_rank_for_level, RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1,
+        };
+        if let Some(sci) = intrinsic_science_for_team(self.team) {
+            self.unlocked_sciences.insert(sci.to_string());
+        }
+        self.unlocked_sciences.insert(SCIENCE_RANK1.to_string());
+        // Rank level starts at 1 residual.
+        if self.rank_level < 1 {
+            self.rank_level = 1;
+        }
+        // Ensure at least Rank1 science purchase points residual if still zero.
+        if self.science_purchase_points <= 0 {
+            let grant = retail_rank_for_level(1)
+                .map(|r| r.science_purchase_points_granted)
+                .unwrap_or(RANK_SCIENCE_POINTS_DEFAULT);
+            self.science_purchase_points = grant;
+        }
+    }
+
     /// C++ Player::isCapableOfPurchasingScience residual.
     pub fn is_capable_of_purchasing_science(&self, science_name: &str) -> bool {
         crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::is_capable_of_purchasing_science_residual(
