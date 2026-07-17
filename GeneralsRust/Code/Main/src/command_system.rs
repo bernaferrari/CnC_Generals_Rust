@@ -286,6 +286,8 @@ pub enum SpecialPowerType {
     ClusterMines,
     DaisyCutter,
     EmergencyRepair,
+    /// Early Emergency Repair residual (EARLY_SPECIAL_REPAIR_VEHICLES).
+    EarlyEmergencyRepair,
     FuelAirBomb,
     Healing,
     IonCannon,
@@ -328,6 +330,9 @@ pub enum SpecialPowerType {
     /// Temporary ally attack buff in radius (WEAPONBONUSCONDITION_FRENZY_*).
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
     Frenzy,
+    /// China Airforce Early Frenzy residual (EARLY_SPECIAL_FRENZY /
+    /// Early_SuperweaponFrenzy). Same residual levels; Early science gate.
+    EarlyFrenzy,
     /// USA Strategy Center Bombardment battle plan residual
     /// (`SpecialAbilityChangeBattlePlans` OPTION_ONE / PLANSTATUS_BOMBARDMENT).
     /// Army-wide DAMAGE 120% residual for legal members.
