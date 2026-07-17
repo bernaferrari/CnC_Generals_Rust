@@ -116,6 +116,30 @@ pub const MONEY_CRATE_KIND_OF: &str = "PARACHUTABLE CRATE";
 
 /// Retail OCL_AmericaSupplyDropZoneCrateDrop name residual.
 pub const MONEY_CRATE_OCL_SUPPLY_DROP: &str = "OCL_AmericaSupplyDropZoneCrateDrop";
+/// Retail SUPERWEAPON_CrateDrop OCL residual name.
+pub const SUPERWEAPON_CRATE_DROP_OCL: &str = "SUPERWEAPON_CrateDrop";
+/// Retail SuperweaponCrateDrop Payload residual (`200DollarCrate 10`).
+pub const SUPERWEAPON_CRATE_DROP_COUNT: u32 = 10;
+/// Retail 200DollarCrate MoneyProvided residual.
+pub const SUPERWEAPON_CRATE_DROP_MONEY: u32 = 200;
+/// Retail SUPERWEAPON_CrateDrop DropDelay residual (msec).
+pub const SUPERWEAPON_CRATE_DROP_DELAY_MS: u32 = 300;
+/// DropDelay 300ms → 9 frames @ 30 FPS.
+pub const SUPERWEAPON_CRATE_DROP_DELAY_FRAMES: u32 = 9;
+/// Residual approach delay before first crate (cargo inbound residual).
+pub const SUPERWEAPON_CRATE_DROP_APPROACH_FRAMES: u32 = 90;
+/// Retail DeliveryDistance residual.
+pub const SUPERWEAPON_CRATE_DROP_DELIVERY_DISTANCE: f32 = 250.0;
+/// Retail RequiredScience residual.
+pub const SUPERWEAPON_CRATE_DROP_REQUIRED_SCIENCE: &str = "SCIENCE_CrateDrop";
+/// Retail Enum residual.
+pub const SUPERWEAPON_CRATE_DROP_SPECIAL_ENUM: &str = "SPECIAL_CRATE_DROP";
+/// Retail SuperweaponCrateDrop name residual.
+pub const SUPERWEAPON_CRATE_DROP_SPECIAL_POWER: &str = "SuperweaponCrateDrop";
+/// Residual horizontal spacing between crate spawn points.
+pub const SUPERWEAPON_CRATE_DROP_SPACING: f32 = 18.0;
+/// Activate audio residual.
+pub const SUPERWEAPON_CRATE_DROP_ACTIVATE_AUDIO: &str = "SupplyDropZoneDrop";
 /// Retail OCL Payload count residual.
 pub const MONEY_CRATE_OCL_PAYLOAD_COUNT: u32 = 6;
 /// Retail DeliverPayload DropDelay residual (msec).
@@ -762,6 +786,20 @@ impl HostMoneyCrateRegistry {
             && (MONEY_FLOATING_TEXT_Z_OFFSET - 20.0).abs() < 0.01
             && MONEY_FLOATING_TEXT_COLOR_RGBA == (0, 255, 0, 255)
     }
+}
+
+/// Wave residual honesty: SuperweaponCrateDrop OCL payload pack.
+pub fn honesty_superweapon_crate_drop_residual_pack_ok() -> bool {
+    SUPERWEAPON_CRATE_DROP_OCL == "SUPERWEAPON_CrateDrop"
+        && SUPERWEAPON_CRATE_DROP_COUNT == 10
+        && SUPERWEAPON_CRATE_DROP_MONEY == 200
+        && SUPERWEAPON_CRATE_DROP_DELAY_MS == 300
+        && SUPERWEAPON_CRATE_DROP_DELAY_FRAMES == 9
+        && SUPERWEAPON_CRATE_DROP_APPROACH_FRAMES == 90
+        && (SUPERWEAPON_CRATE_DROP_DELIVERY_DISTANCE - 250.0).abs() < 0.01
+        && SUPERWEAPON_CRATE_DROP_REQUIRED_SCIENCE == "SCIENCE_CrateDrop"
+        && SUPERWEAPON_CRATE_DROP_SPECIAL_ENUM == "SPECIAL_CRATE_DROP"
+        && SUPERWEAPON_CRATE_DROP_SPECIAL_POWER == "SuperweaponCrateDrop"
 }
 
 // --- Wave 64 residual honesty packs ---
