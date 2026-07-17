@@ -15820,6 +15820,16 @@ impl GameLogic {
             HostUpgradeKind::CashBounty => {
                 self.apply_cash_bounty_upgrade_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::HelixNapalmBomb => self.apply_helix_bomb_upgrade_to_team(
+                team,
+                upgrade_name,
+                crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NAPALM_BOMB,
+            ),
+            HostUpgradeKind::HelixNukeBomb => self.apply_helix_bomb_upgrade_to_team(
+                team,
+                upgrade_name,
+                crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB,
+            ),
             HostUpgradeKind::Other => 0,
         };
 
@@ -15860,6 +15870,45 @@ impl GameLogic {
     }
 
     /// C++ CashBountyPower / SCIENCE_CashBounty residual via upgrade complete.
+    /// Tag Helix casters with Napalm/Nuke bomb upgrade residual unlock.
+    fn apply_helix_bomb_upgrade_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+        canonical_tag: &str,
+    ) -> u32 {
+        use crate::game_logic::host_helix_napalm::is_helix_napalm_caster;
+        let mut n = 0u32;
+        let ids: Vec<_> = self.objects.keys().copied().collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_helix_napalm_caster(&obj.template_name) {
+                continue;
+            }
+            if obj.has_upgrade_tag(canonical_tag) || obj.has_upgrade_tag(upgrade_name) {
+                continue;
+            }
+            obj.apply_upgrade_tag(canonical_tag);
+            if upgrade_name != canonical_tag {
+                obj.apply_upgrade_tag(upgrade_name);
+            }
+            n = n.saturating_add(1);
+        }
+        // Player unlock residual for science/UI gates.
+        if let Some(p) = self.get_player_mut_by_team(team) {
+            p.unlocked_sciences.insert(canonical_tag.to_string());
+            if upgrade_name != canonical_tag {
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
+    }
+
     fn apply_cash_bounty_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science;
 
@@ -81435,6 +81484,48 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_helix_nuke_bomb_tags_helix() {
+        use crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB;
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(
+            HostUpgradeKind::from_name("Nuke_Upgrade_HelixNukeBomb"),
+            HostUpgradeKind::HelixNukeBomb
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_HelixNapalmBomb"),
+            HostUpgradeKind::HelixNapalmBomb
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut helix = ThingTemplate::new("ChinaHelix");
+        helix
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(400.0);
+        logic.templates.insert("ChinaHelix".into(), helix);
+        let id = logic
+            .create_object("ChinaHelix", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("helix");
+        let n = logic.apply_helix_bomb_upgrade_to_team(
+            Team::China,
+            "Nuke_Upgrade_HelixNukeBomb",
+            UPGRADE_HELIX_NUKE_BOMB,
+        );
+        assert!(n >= 1);
+        assert!(logic
+            .get_object(id)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_HELIX_NUKE_BOMB));
+        assert!(logic
+            .activate_helix_napalm_bomb(id, glam::Vec3::new(5.0, 0.0, 0.0))
+            .is_some());
     }
 
     #[test]
