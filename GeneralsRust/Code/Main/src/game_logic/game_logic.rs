@@ -688,6 +688,11 @@ impl Default for SkirmishRulesState {
 /// Main GameLogic system
 
 /// C++ BuildAssistant FRAMES_TO_ALLOW_SCAFFOLD residual (LOGICFRAMES_PER_SECOND * 1.5 = 45).
+
+/// C++ RebuildHoleBehavior WorkerRespawnDelay residual sample (fail-closed 10s → 300f).
+const REBUILD_HOLE_WORKER_RESPAWN_FRAMES: u32 = 300;
+/// C++ HoleMaxHealth residual default for GLA holes.
+const REBUILD_HOLE_MAX_HEALTH_RESIDUAL: f32 = 500.0;
 const FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL: u32 = 45;
 /// C++ TOTAL_FRAMES_TO_SELL_OBJECT residual (LOGICFRAMES_PER_SECOND * 3.0 = 90).
 const TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL: u32 = 90;
@@ -1426,6 +1431,10 @@ pub struct GameLogic {
     dozer_bored_repair_events: u32,
     /// C++ DozerPrimaryIdleState bored mine-clear residual events.
     dozer_bored_mine_clear_events: u32,
+    /// C++ RebuildHoleExposeDie spawn residual events.
+    rebuild_hole_spawns: u32,
+    /// C++ RebuildHoleBehavior reconstruct residual events.
+    rebuild_hole_reconstructs: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2663,6 +2672,8 @@ impl GameLogic {
             sole_benefactor_repair_rejects: 0,
             dozer_bored_repair_events: 0,
             dozer_bored_mine_clear_events: 0,
+            rebuild_hole_spawns: 0,
+            rebuild_hole_reconstructs: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3050,6 +3061,8 @@ impl GameLogic {
         self.sole_benefactor_repair_rejects = 0;
         self.dozer_bored_repair_events = 0;
         self.dozer_bored_mine_clear_events = 0;
+        self.rebuild_hole_spawns = 0;
+        self.rebuild_hole_reconstructs = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5115,6 +5128,8 @@ impl GameLogic {
         self.update_sell_list();
         // C++ DozerPrimaryIdleState bored auto-repair residual.
         self.update_dozer_bored_repair();
+        // C++ RebuildHoleBehavior update residual.
+        self.update_rebuild_holes();
         self.update_movement(&object_ids, dt);
 
         // Special power cooldown/timer updates
@@ -19038,6 +19053,9 @@ impl GameLogic {
                 .retain(|_, ability| ability.target_id() != event.id);
 
             self.cancel_all_production(event.id);
+
+            // C++ RebuildHoleExposeDie residual (GLA structures → hole).
+            let _ = self.maybe_spawn_rebuild_hole(event.id);
 
             // Snapshot CreateCrateDie residual fields before remove.
             let (crate_data, death_pos_pre, death_team_pre, last_src) =
@@ -43476,6 +43494,126 @@ impl GameLogic {
 
     pub fn honesty_dozer_bored_repair_ok(&self) -> bool {
         self.dozer_bored_repair_events > 0
+    }
+
+    /// C++ RebuildHoleExposeDie HoleName residual for common GLA structures.
+    fn rebuild_hole_name_for_template(template_name: &str) -> Option<&'static str> {
+        let n = template_name.to_ascii_lowercase();
+        if n.contains("tunnel") {
+            return Some("GLAHoleTunnelNetwork");
+        }
+        if n.contains("stinger") {
+            return Some("GLAHoleStingerSite");
+        }
+        if n.contains("blackmarket") {
+            return Some("GLAHoleBlackMarket");
+        }
+        if n.contains("barracks") || n.contains("armsdealer") {
+            return Some("GLAHole");
+        }
+        if n.contains("palace") || n.contains("command") {
+            return Some("GLAHole");
+        }
+        if n.contains("supply") || n.contains("demo") || n.contains("scud") {
+            return Some("GLAHole");
+        }
+        if n.starts_with("gla") || n.contains("gla_") {
+            return Some("GLAHole");
+        }
+        None
+    }
+
+    /// C++ RebuildHoleExposeDie::onDie residual — spawn hole for GLA structures.
+    pub fn maybe_spawn_rebuild_hole(&mut self, destroyed_id: ObjectId) -> Option<ObjectId> {
+        let (team, pos, orient, template_name, under_construction, is_structure, is_hole) = {
+            let o = self.objects.get(&destroyed_id)?;
+            (
+                o.team,
+                o.get_position(),
+                o.get_orientation(),
+                o.template_name.clone(),
+                o.status.under_construction,
+                o.is_kind_of(KindOf::Structure),
+                o.is_rebuild_hole,
+            )
+        };
+        if is_hole || !is_structure || under_construction {
+            return None;
+        }
+        if !matches!(team, Team::GLA) {
+            return None;
+        }
+        let hole_name = Self::rebuild_hole_name_for_template(&template_name)?;
+        if !self.templates.contains_key(hole_name) {
+            let mut ht = ThingTemplate::new(hole_name);
+            ht.add_kind_of(KindOf::Structure)
+                .set_health(REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
+            self.templates.insert(hole_name.to_string(), ht);
+        }
+        let hole_id = self.create_object(hole_name, team, pos)?;
+        if let Some(h) = self.objects.get_mut(&hole_id) {
+            h.set_orientation(orient);
+            h.status.under_construction = false;
+            h.construction_percent = 1.0;
+            h.health.current = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
+            h.health.maximum = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
+            h.is_rebuild_hole = true;
+            h.rebuild_template_name = Some(template_name);
+            h.rebuild_spawner_id = Some(destroyed_id);
+            h.rebuild_ready_frame = self
+                .frame
+                .max(1)
+                .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
+        }
+        self.rebuild_hole_spawns = self.rebuild_hole_spawns.saturating_add(1);
+        Some(hole_id)
+    }
+
+    /// C++ RebuildHoleBehavior::update residual — reconstruct after worker delay.
+    pub fn update_rebuild_holes(&mut self) {
+        let now = self.frame;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.is_rebuild_hole)
+            .map(|(id, _)| *id)
+            .collect();
+        for hole_id in ids {
+            let (team, pos, rebuild_name, orient) = {
+                let Some(h) = self.objects.get(&hole_id) else {
+                    continue;
+                };
+                if h.rebuild_ready_frame == 0 || now < h.rebuild_ready_frame {
+                    continue;
+                }
+                (
+                    h.team,
+                    h.get_position(),
+                    h.rebuild_template_name.clone(),
+                    h.get_orientation(),
+                )
+            };
+            let Some(rebuild_name) = rebuild_name else {
+                continue;
+            };
+            // Remove hole immediately so reconstruction can occupy the footprint.
+            self.objects.remove(&hole_id);
+            let Some(new_id) = self.create_object(&rebuild_name, team, pos) else {
+                continue;
+            };
+            if let Some(o) = self.objects.get_mut(&new_id) {
+                o.set_orientation(orient);
+                o.status.under_construction = true;
+                o.construction_percent = 0.0;
+                o.set_under_construction_model_conditions(false);
+                o.health.current = (o.health.maximum * 0.1).max(1.0);
+            }
+            self.rebuild_hole_reconstructs = self.rebuild_hole_reconstructs.saturating_add(1);
+        }
+    }
+
+    pub fn honesty_rebuild_hole_ok(&self) -> bool {
+        self.rebuild_hole_spawns > 0 && self.rebuild_hole_reconstructs > 0
     }
 
     pub fn honesty_dozer_bored_mine_clear_ok(&self) -> bool {
@@ -78279,6 +78417,60 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        let mut st = ThingTemplate::new("GLATunnelNetwork");
+        st.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), st);
+        let sid = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(50.0, 0.0, 50.0),
+            )
+            .expect("tn");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+        assert!(logic.get_object(hole).unwrap().is_rebuild_hole);
+        assert_eq!(
+            logic
+                .get_object(hole)
+                .unwrap()
+                .rebuild_template_name
+                .as_deref(),
+            Some("GLATunnelNetwork")
+        );
+        assert!(logic.rebuild_hole_spawns > 0);
+        // Force ready and reconstruct.
+        let now = logic.frame.max(1);
+        if let Some(h) = logic.get_object_mut(hole) {
+            h.rebuild_ready_frame = now;
+        }
+        logic.frame = now;
+        logic.update_rebuild_holes();
+        logic.process_destroy_list();
+        assert!(logic.rebuild_hole_reconstructs > 0);
+        // Hole gone, new under-construction structure present.
+        assert!(logic.get_object(hole).is_none());
+        let rebuilt = logic
+            .get_objects()
+            .values()
+            .find(|o| {
+                o.template_name == "GLATunnelNetwork" && o.status.under_construction && o.id != sid
+            })
+            .map(|o| o.id);
+        assert!(rebuilt.is_some(), "expected reconstructing structure");
+        assert!(logic.honesty_rebuild_hole_ok());
     }
 
     #[test]

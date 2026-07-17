@@ -191,6 +191,14 @@ pub struct Object {
     pub production_door_phase_end_frame: u32,
     /// C++ ProductionUpdate DoorInfo::m_holdOpen residual (ParkingPlace).
     pub production_door_hold_open: bool,
+    /// C++ RebuildHoleBehavior residual: this object is a rebuild hole.
+    pub is_rebuild_hole: bool,
+    /// Template name to reconstruct (C++ m_rebuildTemplate).
+    pub rebuild_template_name: Option<String>,
+    /// Absolute frame when hole may spawn reconstruction (worker delay residual).
+    pub rebuild_ready_frame: u32,
+    /// Original structure that spawned this hole.
+    pub rebuild_spawner_id: Option<ObjectId>,
     /// C++ ProductionUpdate m_constructionCompleteFrame residual.
     /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
     pub construction_complete_clear_frame: u32,
@@ -1196,6 +1204,10 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             production_door_hold_open: false,
+            is_rebuild_hole: false,
+            rebuild_template_name: None,
+            rebuild_ready_frame: 0,
+            rebuild_spawner_id: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
@@ -1473,6 +1485,10 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             production_door_hold_open: false,
+            is_rebuild_hole: false,
+            rebuild_template_name: None,
+            rebuild_ready_frame: 0,
+            rebuild_spawner_id: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
