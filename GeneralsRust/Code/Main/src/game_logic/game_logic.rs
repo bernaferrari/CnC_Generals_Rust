@@ -1443,6 +1443,8 @@ pub struct GameLogic {
     capture_tech_model_updates: u32,
     /// C++ infantry→unmanned vehicle recrew residual events.
     unmanned_reclaims: u32,
+    /// C++ car-bomb dead-man on DISABLED_UNMANNED residual events.
+    carbomb_unmanned_detonations: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2713,6 +2715,7 @@ impl GameLogic {
             capture_tunnel_last_ejects: 0,
             capture_tech_model_updates: 0,
             unmanned_reclaims: 0,
+            carbomb_unmanned_detonations: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3120,6 +3123,7 @@ impl GameLogic {
         self.capture_tunnel_last_ejects = 0;
         self.capture_tech_model_updates = 0;
         self.unmanned_reclaims = 0;
+        self.carbomb_unmanned_detonations = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -14801,7 +14805,15 @@ impl GameLogic {
                         PendingSpecialAbility::SnipeVehicle { .. } => {
                             // C++ DAMAGE_KILLPILOT residual: no HP damage; vehicle becomes
                             // unmanned + Neutral so it can be recrewed/captured.
-                            if let Some(target) = self.objects.get_mut(&special_target_id) {
+                            // C++ car-bomb dead-man: IS_CARBOMB detonates instead.
+                            let is_bomb = self
+                                .objects
+                                .get(&special_target_id)
+                                .map(|t| t.is_car_bomb())
+                                .unwrap_or(false);
+                            if is_bomb {
+                                let _ = self.maybe_detonate_carbomb_on_unmanned(special_target_id);
+                            } else if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_kill_pilot_unmanned();
                                 target.set_team(Team::Neutral);
                             }
@@ -30740,6 +30752,7 @@ impl GameLogic {
         let mut vehicles_unmanned = 0u32;
         let mut vehicle_kills = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        let mut bomb_detonate_ids: Vec<ObjectId> = Vec::new();
 
         let candidates: Vec<ObjectId> = self
             .objects
@@ -30799,10 +30812,15 @@ impl GameLogic {
                     }
                 }
                 NeutronEffect::UnmanVehicle => {
-                    obj.apply_kill_pilot_unmanned();
-                    // C++ NeutronBlastBehavior: setTeam(neutral) residual.
-                    obj.team = Team::Neutral;
-                    vehicles_unmanned = vehicles_unmanned.saturating_add(1);
+                    if obj.is_car_bomb() {
+                        // Dead-man trigger residual — detonate after this borrow ends.
+                        bomb_detonate_ids.push(id);
+                    } else {
+                        obj.apply_kill_pilot_unmanned();
+                        // C++ NeutronBlastBehavior: setTeam(neutral) residual.
+                        obj.team = Team::Neutral;
+                        vehicles_unmanned = vehicles_unmanned.saturating_add(1);
+                    }
                 }
                 NeutronEffect::KillVehicle => {
                     let _ = obj.take_damage(obj.health.current.max(1.0) * 10.0);
@@ -30815,6 +30833,9 @@ impl GameLogic {
 
         for id in destroy_ids {
             self.mark_object_for_destruction(id, Some(caster_team));
+        }
+        for id in bomb_detonate_ids {
+            let _ = self.maybe_detonate_carbomb_on_unmanned(id);
         }
 
         self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);
@@ -43226,6 +43247,31 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
+
+    /// C++ Object::setDisabled(DISABLED_UNMANNED) car-bomb dead-man trigger residual.
+    ///
+    /// If vehicle has WEAPONSET_CARBOMB / IS_CARBOMB, sniping the pilot detonates
+    /// it instead of leaving an unmanned car bomb.
+    pub fn maybe_detonate_carbomb_on_unmanned(&mut self, vehicle_id: ObjectId) -> bool {
+        let is_bomb = self
+            .objects
+            .get(&vehicle_id)
+            .map(|o| o.is_alive() && o.is_car_bomb())
+            .unwrap_or(false);
+        if !is_bomb {
+            return false;
+        }
+        // Clear unmanned so detonation path owns the object (not recrewable).
+        if let Some(o) = self.objects.get_mut(&vehicle_id) {
+            o.status.disabled_unmanned = false;
+            o.status.unmanned_owner_team = None;
+        }
+        let ok = self.detonate_car_bomb(vehicle_id);
+        if ok {
+            self.carbomb_unmanned_detonations = self.carbomb_unmanned_detonations.saturating_add(1);
+        }
+        ok
+    }
 
     /// C++ PhysicsUpdate infantry→unmanned vehicle pilot residual.
     ///
@@ -80014,6 +80060,62 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn car_bomb_detonates_when_pilot_sniped_unmanned() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", true));
+
+        let mut car = ThingTemplate::new("GLAVehicleTechnical");
+        car.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        logic.templates.insert("GLAVehicleTechnical".into(), car);
+        let mut shack = ThingTemplate::new("GLABarracks");
+        shack
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(500.0);
+        logic.templates.insert("GLABarracks".into(), shack);
+
+        let cid = logic
+            .create_object(
+                "GLAVehicleTechnical",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("car");
+        if let Some(c) = logic.get_object_mut(cid) {
+            c.apply_convert_to_car_bomb();
+        }
+        let sid = logic
+            .create_object("GLABarracks", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("shack");
+        let before_hp = logic.get_object(sid).unwrap().health.current;
+
+        assert!(logic.maybe_detonate_carbomb_on_unmanned(cid));
+        assert!(logic.carbomb_unmanned_detonations > 0);
+        // Car destroyed.
+        assert!(
+            logic.get_object(cid).is_none()
+                || logic
+                    .get_object(cid)
+                    .map(|o| !o.is_alive() || o.status.destroyed)
+                    .unwrap_or(true)
+        );
+        // Nearby structure should take splash residual.
+        logic.process_destroy_list();
+        if let Some(s) = logic.get_object(sid) {
+            assert!(
+                s.health.current < before_hp || !s.is_alive(),
+                "car bomb splash must damage nearby structure"
+            );
+        }
     }
 
     #[test]
