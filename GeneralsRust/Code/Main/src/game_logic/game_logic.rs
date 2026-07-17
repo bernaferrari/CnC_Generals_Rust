@@ -332,6 +332,9 @@ pub struct Player {
     pub skill_points: i32,
     /// C++ Player::m_sciencePurchasePoints residual.
     pub science_purchase_points: i32,
+    /// C++ Player::m_specialPowerReadyTimerList residual (seconds remaining).
+    /// SharedSyncedTimer superweapons sync across a player's command centers.
+    pub shared_special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
 }
 
 impl Player {
@@ -369,7 +372,54 @@ impl Player {
             rank_level: 1,
             skill_points: 0,
             science_purchase_points: 0,
+            shared_special_power_cooldowns: HashMap::new(),
         }
+    }
+
+    /// C++ Player::getOrStartSpecialPowerReadyFrame residual (seconds remaining).
+    /// Missing entry means ready (C++ starts timer at "now" on first query).
+    pub fn shared_special_power_remaining(
+        &self,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> f32 {
+        self.shared_special_power_cooldowns
+            .get(power)
+            .copied()
+            .unwrap_or(0.0)
+            .max(0.0)
+    }
+
+    pub fn is_shared_special_power_ready(
+        &self,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> bool {
+        self.shared_special_power_remaining(power) <= 0.0
+    }
+
+    /// C++ Player::resetOrStartSpecialPowerReadyFrame residual.
+    pub fn reset_shared_special_power_timer(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        reload_seconds: f32,
+    ) {
+        let cd = reload_seconds.max(0.0);
+        if cd <= 0.0 {
+            self.shared_special_power_cooldowns.remove(power);
+        } else {
+            self.shared_special_power_cooldowns
+                .insert(power.clone(), cd);
+        }
+    }
+
+    /// Tick SharedSyncedTimer residual cooldowns.
+    pub fn tick_shared_special_power_timers(&mut self, dt: f32) {
+        if dt <= 0.0 || self.shared_special_power_cooldowns.is_empty() {
+            return;
+        }
+        self.shared_special_power_cooldowns.retain(|_, rem| {
+            *rem = (*rem - dt).max(0.0);
+            *rem > 0.0
+        });
     }
 
     /// C++ Player::hasRadar residual: radar_count > 0 && !radar_disabled.
@@ -5714,6 +5764,9 @@ impl GameLogic {
                 }
             }
         }
+        // C++ Player sharedNSync timers advance with the logic frame.
+        self.tick_shared_special_power_timers(dt);
+
         for (id, team, name) in ready_superweapons {
             self.try_eva_superweapon_ready(id, team, &name);
         }
@@ -19965,6 +20018,93 @@ impl GameLogic {
         self.players.get_mut(&key)
     }
 
+    pub fn get_player_by_team(&self, team: Team) -> Option<&Player> {
+        self.players.values().find(|p| p.team == team)
+    }
+
+    /// Combined object + SharedSyncedTimer residual ready gate.
+    pub fn is_special_power_ready_for(
+        &self,
+        object_id: ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> bool {
+        let Some(obj) = self.get_object(object_id) else {
+            return false;
+        };
+        if !obj.is_alive() {
+            return false;
+        }
+        if crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+            power,
+        ) {
+            // C++ getReadyFrame via Player::getOrStartSpecialPowerReadyFrame.
+            if let Some(player) = self.get_player_by_team(obj.team) {
+                if !player.is_shared_special_power_ready(power) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        obj.is_special_power_ready(power)
+    }
+
+    /// Consume charge with SharedSyncedTimer residual when applicable.
+    pub fn consume_special_power_charge_for(
+        &mut self,
+        object_id: ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> bool {
+        if !self.is_special_power_ready_for(object_id, power) {
+            return false;
+        }
+        let team = match self.get_object(object_id) {
+            Some(o) => o.team,
+            None => return false,
+        };
+        let reload =
+            crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+                power,
+            )
+            .unwrap_or_else(|| {
+                self.get_object(object_id)
+                    .map(|o| o.special_power_cooldown)
+                    .unwrap_or(10.0)
+            });
+
+        if crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+            power,
+        ) {
+            if let Some(player) = self.get_player_mut_by_team(team) {
+                player.reset_shared_special_power_timer(power, reload);
+            }
+            // Mirror onto all living same-team objects for HUD/presentation residual.
+            for obj in self.objects.values_mut() {
+                if obj.team != team || !obj.is_alive() {
+                    continue;
+                }
+                if reload > 0.0 {
+                    obj.special_power_cooldowns.insert(power.clone(), reload);
+                } else {
+                    obj.special_power_cooldowns.remove(power);
+                }
+                obj.refresh_special_power_aggregate_cooldown();
+            }
+        } else if let Some(obj) = self.get_object_mut(object_id) {
+            obj.consume_special_power_charge(power);
+        }
+        true
+    }
+
+    /// Tick all players' SharedSyncedTimer residual cooldowns.
+    pub fn tick_shared_special_power_timers(&mut self, dt: f32) {
+        if dt <= 0.0 {
+            return;
+        }
+        for player in self.players.values_mut() {
+            player.tick_shared_special_power_timers(dt);
+        }
+    }
+
     pub fn team_has_completed_capture_upgrade(&self, team: Team) -> bool {
         let Some(player) = self.players.values().find(|player| player.team == team) else {
             return true;
@@ -20073,7 +20213,7 @@ impl GameLogic {
             }
 
             log::debug!(
-                "Player {} selected {} objects",
+                "{} selected {} objects",
                 player_id,
                 player.selected_objects.len()
             );
@@ -20105,7 +20245,7 @@ impl GameLogic {
                 self.move_object_with_pathfinding(object_id, target_position, None);
             }
             log::trace!(
-                "Player {} commanded {} units to move to {:?}",
+                "{} commanded {} units to move to {:?}",
                 player_id,
                 selected.len(),
                 target_position
@@ -20152,7 +20292,7 @@ impl GameLogic {
                 }
             }
             log::trace!(
-                "Player {} commanded {} units to attack object {}",
+                "{} commanded {} units to attack object {}",
                 player_id,
                 selected.len(),
                 target_id
@@ -40781,7 +40921,7 @@ impl GameLogic {
             }
 
             log::trace!(
-                "Player {} selected {} objects in area",
+                "{} selected {} objects in area",
                 player_id,
                 selected_objects.len()
             );
@@ -40837,7 +40977,7 @@ impl GameLogic {
                     }
                 }
 
-                log::trace!("Player {} selected object {}", player_id, selected_id);
+                log::trace!("{} selected object {}", player_id, selected_id);
                 Some(selected_id)
             } else {
                 // Clear selection if clicking on empty space and not adding
@@ -40848,7 +40988,7 @@ impl GameLogic {
                         }
                     }
                     player.selected_objects.clear();
-                    log::trace!("Player {} cleared selection", player_id);
+                    log::trace!("{} cleared selection", player_id);
                 }
                 None
             }
@@ -40868,11 +41008,7 @@ impl GameLogic {
                     obj.ai_state = AIState::Idle;
                 }
             }
-            log::trace!(
-                "Player {} commanded {} units to stop",
-                player_id,
-                selected.len()
-            );
+            log::trace!("{} commanded {} units to stop", player_id, selected.len());
         }
     }
 
@@ -40895,7 +41031,7 @@ impl GameLogic {
                 }
             }
             log::trace!(
-                "Player {} commanded {} units to attack-move to {:?}",
+                "{} commanded {} units to attack-move to {:?}",
                 player_id,
                 selected.len(),
                 target_position
@@ -81489,6 +81625,61 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn shared_synced_special_power_timer_is_player_wide() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        cc.special_power_cooldown = 10.0;
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let cc1 = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc1");
+        let cc2 = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("cc2");
+        assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::Airstrike));
+        assert!(logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike));
+        assert!(logic.consume_special_power_charge_for(cc1, &SpecialPowerType::Airstrike));
+        // Second command center must share the A10 timer residual.
+        assert!(
+            !logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike),
+            "shared synced A10 must block sibling CC"
+        );
+        assert!(
+            !crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+                &SpecialPowerType::TankHunterTnt
+            )
+        );
+        assert!(
+            crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+                &SpecialPowerType::Airstrike
+            )
+        );
+        // Tick 240s clears shared residual.
+        logic.tick_shared_special_power_timers(240.0);
+        if let Some(o) = logic.get_object_mut(cc1) {
+            let _ = o.tick_timers(240.0);
+        }
+        if let Some(o) = logic.get_object_mut(cc2) {
+            let _ = o.tick_timers(240.0);
+        }
+        assert!(logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike));
     }
 
     #[test]

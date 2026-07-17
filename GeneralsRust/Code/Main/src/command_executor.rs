@@ -959,17 +959,21 @@ impl<'a> CommandExecutor<'a> {
         );
         let mut any = false;
         for &unit_id in units {
+            // SharedSyncedTimer residual: player-wide gate for superweapons.
             let ready = self
                 .game_logic
-                .get_object(unit_id)
-                .map(|unit| unit.is_special_power_ready(power_type))
-                .unwrap_or(false);
+                .is_special_power_ready_for(unit_id, power_type);
             if !ready {
                 continue;
             }
 
+            if !self
+                .game_logic
+                .consume_special_power_charge_for(unit_id, power_type)
+            {
+                continue;
+            }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.consume_special_power_charge(power_type);
                 unit.set_ai_state(AIState::SpecialAbility);
             }
 
