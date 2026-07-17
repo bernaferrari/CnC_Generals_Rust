@@ -5896,6 +5896,29 @@ impl GameLogic {
     ///
     /// Returns true if bounce was applied. Vehicle crash path is separate
     /// (`apply_vehicle_crash_into_immobile`).
+
+    /// C++ PhysicsBehavior::checkForOverlapCollision residual between two objects.
+    ///
+    /// `same_team` treats relationship as allies (no crush).
+    pub fn apply_overlap_crush_check(
+        &mut self,
+        crusher_id: ObjectId,
+        crushee_id: ObjectId,
+        same_team: bool,
+    ) -> bool {
+        // Split borrow: take crushee out, mutate both, put back.
+        let Some(mut crushee) = self.objects.remove(&crushee_id) else {
+            return false;
+        };
+        let result = if let Some(crusher) = self.objects.get_mut(&crusher_id) {
+            crusher.check_for_overlap_collision(&mut crushee, same_team)
+        } else {
+            false
+        };
+        self.objects.insert(crushee_id, crushee);
+        result
+    }
+
     pub fn apply_immobile_collide_bounce(
         &mut self,
         mover_id: ObjectId,
@@ -71287,6 +71310,37 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn apply_overlap_crush_check_crushes_enemy_infantry() {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut vt = ThingTemplate::new("TankC");
+        vt.add_kind_of(KindOf::Vehicle);
+        let tid = ObjectId(101);
+        let mut tank = Object::new(vt, tid, Team::USA);
+        tank.crusher_level = 1;
+        tank.set_orientation(0.0);
+        tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+        tank.set_position(Vec3::new(6.0, 0.0, 0.0));
+        logic.objects.insert(tid, tank);
+
+        let mut it = ThingTemplate::new("InfC");
+        it.add_kind_of(KindOf::Infantry);
+        let iid = ObjectId(102);
+        let mut inf = Object::new(it, iid, Team::GLA);
+        inf.crushable_level = 0;
+        inf.selection_radius = 10.0;
+        inf.set_position(Vec3::new(5.0, 0.0, 0.0));
+        logic.objects.insert(iid, inf);
+
+        assert!(logic.apply_overlap_crush_check(tid, iid, false));
+        let inf = logic.objects.get(&iid).unwrap();
+        assert!(inf.status.destroyed);
+        assert_eq!(inf.status.death_type, HostDeathType::Crushed);
     }
 
     #[test]
