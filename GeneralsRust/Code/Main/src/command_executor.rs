@@ -1177,6 +1177,12 @@ impl<'a> CommandExecutor<'a> {
                     {
                         continue;
                     }
+                } else if *power_type == SpecialPowerType::CrateDrop {
+                    let _n = self.game_logic.activate_crate_drop(
+                        self.current_player_id,
+                        pos,
+                        Some(unit_id),
+                    );
                 } else if *power_type == SpecialPowerType::CashHack {
                     let _stolen = self
                         .game_logic

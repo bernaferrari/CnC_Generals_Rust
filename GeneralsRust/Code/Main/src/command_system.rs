@@ -290,6 +290,10 @@ pub enum SpecialPowerType {
     /// AirF_SuperweaponCarpetBomb). AirForce payload matrix (12 bombs / 130ms delay).
     AirForceCarpetBomb,
     ClusterMines,
+    /// USA Superweapon Crate Drop residual (SPECIAL_CRATE_DROP / SuperweaponCrateDrop).
+    /// Spawns residual 200DollarCrate × 10 near target.
+    /// Fail-closed vs full AmericaJetCargoPlane OCL DeliverPayload Object.
+    CrateDrop,
     DaisyCutter,
     EmergencyRepair,
     /// Early Emergency Repair residual (EARLY_SPECIAL_REPAIR_VEHICLES).

@@ -784,6 +784,8 @@ pub struct GameLogic {
     last_cash_hack_request_amount: u32,
     /// Residual: last SuperweaponCashHack stolen amount.
     last_cash_hack_stolen_amount: u32,
+    /// Residual: last SuperweaponCrateDrop spawned crate count.
+    last_crate_drop_spawned: u32,
 
     /// Host USA Leaflet Drop residual.
     /// Queues on DoSpecialPower; after Delay disables enemy infantry/vehicles
@@ -2434,6 +2436,7 @@ impl GameLogic {
             host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry::new(),
             last_cash_hack_request_amount: 0,
             last_cash_hack_stolen_amount: 0,
+            last_crate_drop_spawned: 0,
             host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry::new(
             ),
             host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry::new(
@@ -37004,6 +37007,78 @@ impl GameLogic {
     /// Residual honesty: last SuperweaponCashHack stolen amount.
     pub fn last_cash_hack_stolen_amount(&self) -> u32 {
         self.last_cash_hack_stolen_amount
+    }
+
+    /// Residual honesty: last SuperweaponCrateDrop spawned crate count.
+    pub fn last_crate_drop_spawned(&self) -> u32 {
+        self.last_crate_drop_spawned
+    }
+
+    /// Activate SuperweaponCrateDrop residual: spawn 200DollarCrate × 10 near target.
+    ///
+    /// Matches retail SUPERWEAPON_CrateDrop payload residual (MoneyProvided 200 × 10).
+    /// Fail-closed: scatter spawn + MoneyCrateCollide registration —
+    /// not full AmericaJetCargoPlane DeliverPayload flight Object / parachute container.
+    pub fn activate_crate_drop(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> u32 {
+        use crate::game_logic::host_money_crate::{
+            SUPERWEAPON_CRATE_DROP_ACTIVATE_AUDIO, SUPERWEAPON_CRATE_DROP_COUNT,
+            SUPERWEAPON_CRATE_DROP_MONEY, SUPERWEAPON_CRATE_DROP_SPACING,
+        };
+
+        let team = caster_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+            .or_else(|| self.players.get(&player_id).map(|p| p.team))
+            .unwrap_or(Team::Neutral);
+
+        let tpl_name = "200DollarCrate";
+        if !self.templates.contains_key(tpl_name) {
+            let mut t = ThingTemplate::new(tpl_name);
+            t.add_kind_of(KindOf::Resource)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates.insert(tpl_name.to_string(), t);
+        }
+
+        let n = SUPERWEAPON_CRATE_DROP_COUNT.max(1) as usize;
+        let mut spawned: u32 = 0;
+        for i in 0..n {
+            let offset = (i as f32 - (n as f32 - 1.0) * 0.5) * SUPERWEAPON_CRATE_DROP_SPACING;
+            let pos = Vec3::new(location.x + offset, location.y + 40.0, location.z);
+            if let Some(id) = self.create_object(tpl_name, team, pos) {
+                self.host_money_crates
+                    .register(id, SUPERWEAPON_CRATE_DROP_MONEY, false, 0);
+                self.host_money_crates.arm_default_deletion(
+                    id,
+                    self.frame,
+                    id.0.wrapping_add(self.frame),
+                );
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.apply_crate_parachuting();
+                }
+                spawned = spawned.saturating_add(1);
+            }
+        }
+
+        self.queue_audio_event(
+            AudioEventRequest::new(SUPERWEAPON_CRATE_DROP_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(160),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::DeathExplosion,
+            location,
+            self.frame,
+            caster_id,
+            None,
+        );
+        self.last_crate_drop_spawned = spawned;
+        spawned
     }
 
     pub fn activate_cash_hack(&mut self, player_id: u32, caster_id: Option<ObjectId>) -> u32 {
@@ -81353,6 +81428,49 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn superweapon_crate_drop_spawns_ten_200_dollar_crates() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_money_crate::{
+            honesty_superweapon_crate_drop_residual_pack_ok, SUPERWEAPON_CRATE_DROP_COUNT,
+            SUPERWEAPON_CRATE_DROP_MONEY,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_superweapon_crate_drop_residual_pack_ok());
+        assert_eq!(SUPERWEAPON_CRATE_DROP_COUNT, 10);
+        assert_eq!(SUPERWEAPON_CRATE_DROP_MONEY, 200);
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let n = logic.activate_crate_drop(0, glam::Vec3::new(50.0, 0.0, 0.0), Some(src));
+        assert_eq!(n, SUPERWEAPON_CRATE_DROP_COUNT);
+        assert_eq!(
+            logic.last_crate_drop_spawned(),
+            SUPERWEAPON_CRATE_DROP_COUNT
+        );
+        let crates = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("200Dollar") && o.is_alive())
+            .count();
+        assert_eq!(crates as u32, SUPERWEAPON_CRATE_DROP_COUNT);
+        let _ = SpecialPowerType::CrateDrop;
     }
 
     #[test]
