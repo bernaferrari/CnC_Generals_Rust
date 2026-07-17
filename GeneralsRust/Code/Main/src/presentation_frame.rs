@@ -210,6 +210,8 @@ pub struct RenderableObject {
     pub sold: bool,
     /// C++ OBJECT_STATUS_UNSELECTABLE residual frozen for presentation/UI.
     pub unselectable: bool,
+    /// C++ RebuildHole residual frozen for presentation/UI.
+    pub is_rebuild_hole: bool,
     /// Veterancy rank residual for chevrons / UI.
     pub veterancy: PresentationVeterancy,
     /// Experience points residual (display / debug).
@@ -2324,6 +2326,7 @@ impl PresentationFrame {
                 construction_percent: obj.construction_percent.clamp(0.0, 1.0),
                 sold: obj.status.sold,
                 unselectable: obj.status.unselectable,
+                is_rebuild_hole: obj.is_rebuild_hole,
                 veterancy: PresentationVeterancy::from_host(obj.experience.level),
                 experience_points: obj.experience.current.max(0.0),
                 moving: obj.status.moving,
