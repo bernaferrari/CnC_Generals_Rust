@@ -69,6 +69,10 @@ pub const UPGRADE_GLA_AP_BULLETS: &str = "Upgrade_GLAAPBullets";
 pub const UPGRADE_GLA_ANTHRAX_BETA: &str = "Upgrade_GLAAnthraxBeta";
 /// GLA Toxin Shells residual.
 pub const UPGRADE_GLA_TOXIN_SHELLS: &str = "Upgrade_GLAToxinShells";
+/// America Advanced Training residual.
+pub const UPGRADE_AMERICA_ADVANCED_TRAINING: &str = "Upgrade_AmericaAdvancedTraining";
+/// China Tactical Nuke MiG residual.
+pub const UPGRADE_CHINA_TACTICAL_NUKE_MIG: &str = "Upgrade_ChinaTacticalNukeMig";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -157,6 +161,10 @@ pub enum HostUpgradeKind {
     AnthraxBeta,
     /// GLA Toxin Shells SCUD secondary residual.
     ToxinShells,
+    /// America Advanced Training XP scalar residual.
+    AdvancedTraining,
+    /// China Tactical Nuke MiG residual.
+    TacticalNukeMig,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -223,6 +231,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::AnthraxBeta
         } else if n.contains("toxinshells") || n.contains("toxinshell") {
             HostUpgradeKind::ToxinShells
+        } else if n.contains("advancedtraining") {
+            HostUpgradeKind::AdvancedTraining
+        } else if n.contains("tacticalnukemig") || n.contains("nukemig") {
+            HostUpgradeKind::TacticalNukeMig
         } else {
             HostUpgradeKind::Other
         }
@@ -258,6 +270,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApBullets => "ApBullets",
             HostUpgradeKind::AnthraxBeta => "AnthraxBeta",
             HostUpgradeKind::ToxinShells => "ToxinShells",
+            HostUpgradeKind::AdvancedTraining => "AdvancedTraining",
+            HostUpgradeKind::TacticalNukeMig => "TacticalNukeMig",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -297,6 +311,8 @@ impl HostUpgradeKind {
             | HostUpgradeKind::ApBullets
             | HostUpgradeKind::AnthraxBeta
             | HostUpgradeKind::ToxinShells
+            | HostUpgradeKind::AdvancedTraining
+            | HostUpgradeKind::TacticalNukeMig
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -335,6 +351,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApBullets => 1500,
             HostUpgradeKind::AnthraxBeta => 2000,
             HostUpgradeKind::ToxinShells => 1000,
+            HostUpgradeKind::AdvancedTraining => 1500,
+            HostUpgradeKind::TacticalNukeMig => 2000,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -370,6 +388,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::ApBullets => 45.0,
             HostUpgradeKind::AnthraxBeta => 60.0,
             HostUpgradeKind::ToxinShells => 30.0,
+            HostUpgradeKind::AdvancedTraining => 30.0,
+            HostUpgradeKind::TacticalNukeMig => 60.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -1003,6 +1023,18 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn advanced_training_tactical_nuke_kinds_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaAdvancedTraining"),
+            HostUpgradeKind::AdvancedTraining
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaTacticalNukeMig"),
+            HostUpgradeKind::TacticalNukeMig
+        );
     }
 
     #[test]
