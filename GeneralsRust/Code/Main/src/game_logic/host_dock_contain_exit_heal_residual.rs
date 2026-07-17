@@ -482,6 +482,25 @@ pub fn exit_door_is_real(door: i32) -> bool {
     door >= EXIT_DOOR_1_RESIDUAL && door < EXIT_DOOR_COUNT_MAX_RESIDUAL
 }
 
+/// QueueProductionExitUpdate ExitDelay residual seconds for a producer template.
+///
+/// Retail ChinaBarracks **300**ms; default **0**. Fail-closed vs full INI parse.
+pub fn queue_exit_delay_seconds_for_template(template_name: &str) -> f32 {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("chinabarracks") || n.contains("china_barracks") || n.contains("redguard") {
+        // Red Guard barracks family residual.
+        return QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS as f32 / 1000.0;
+    }
+    if n.contains("chinainfantry") {
+        return 0.0;
+    }
+    // Generic China barracks token residual.
+    if n.contains("barracks") && n.contains("china") {
+        return QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS as f32 / 1000.0;
+    }
+    QUEUE_EXIT_DEFAULT_EXIT_DELAY_FRAMES as f32 / 30.0
+}
+
 /// Wave 98 honesty: exit residual pack.
 pub fn honesty_exit_residual_pack_wave98() -> bool {
     EXIT_DOOR_1_RESIDUAL == 0
@@ -518,6 +537,8 @@ pub fn honesty_exit_residual_pack_wave98() -> bool {
         && transport_exit_is_busy(9)
         && transport_exit_countdown_tick(9) == 8
         && transport_exit_countdown_tick(0) == 0
+        && (queue_exit_delay_seconds_for_template("ChinaBarracks") - 0.3).abs() < 0.001
+        && queue_exit_delay_seconds_for_template("AmericaBarracks") == 0.0
 }
 
 // ---------------------------------------------------------------------------

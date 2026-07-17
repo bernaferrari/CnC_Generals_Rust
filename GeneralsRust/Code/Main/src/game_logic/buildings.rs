@@ -9,6 +9,9 @@ pub const DEFAULT_PRODUCTION_QUEUE_LIMIT: usize = 9;
 pub struct BuildingData {
     pub building_type: BuildingType,
     pub production_queue: Vec<ProductionItem>,
+    /// C++ QueueProductionExitUpdate exit countdown residual (seconds).
+    /// While > 0, factory cannot release the next completed unit residual.
+    pub exit_delay_remaining: f32,
     pub rally_point: Option<Vec3>,
     pub power_output: i32,
     pub power_requirement: i32,
@@ -117,6 +120,7 @@ impl BuildingData {
         Self {
             building_type,
             production_queue: Vec::new(),
+            exit_delay_remaining: 0.0,
             rally_point: None,
             power_output,
             power_requirement,
@@ -163,16 +167,36 @@ impl BuildingData {
     ///   if ratio < 1.0: rate = min(rate, MAX_SPEED)
     /// Defaults: MIN=0.5, MAX=0.8, modifier=1.0  (GameData.ini).
     pub fn update_production(&mut self, dt: f32, power_factor: f32) -> Option<String> {
+        // C++ QueueProductionExitUpdate: while exit delay busy, hold next release.
+        if self.exit_delay_remaining > 0.0 {
+            self.exit_delay_remaining = (self.exit_delay_remaining - dt).max(0.0);
+            // Still advance progress residual while door/exit holds release.
+        }
         let effective_dt = dt * power_factor.max(0.01);
         if let Some(item) = self.production_queue.first_mut() {
             item.progress += effective_dt;
             if item.progress >= item.total_time {
-                // Production complete
+                // Hold completion until exit delay residual clears.
+                if self.exit_delay_remaining > 0.0 {
+                    // Clamp at complete so timer doesn't overshoot residual.
+                    item.progress = item.total_time;
+                    return None;
+                }
+                // Production complete — start next exit delay residual.
                 let completed_item = self.production_queue.remove(0);
                 return Some(completed_item.template_name);
             }
         }
         None
+    }
+
+    /// Arm QueueProductionExitUpdate residual after a unit exits.
+    pub fn arm_exit_delay(&mut self, delay_seconds: f32) {
+        self.exit_delay_remaining = delay_seconds.max(0.0);
+    }
+
+    pub fn exit_delay_remaining(&self) -> f32 {
+        self.exit_delay_remaining
     }
 
     pub fn cancel_production(&mut self, index: usize) -> Option<ProductionItem> {
