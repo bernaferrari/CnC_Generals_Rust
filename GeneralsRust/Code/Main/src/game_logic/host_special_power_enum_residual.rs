@@ -218,6 +218,19 @@ pub fn host_command_power_cpp_enum_name(
         | HostCommandSpecialPowerType::BurtonTimedCharges => Some("SPECIAL_TIMED_CHARGES"),
         HostCommandSpecialPowerType::DemoKellRemoteCharges
         | HostCommandSpecialPowerType::BurtonRemoteCharges => Some("SPECIAL_REMOTE_CHARGES"),
+        HostCommandSpecialPowerType::HackerDisableBuilding
+        | HostCommandSpecialPowerType::MicrowaveDisableBuilding => {
+            Some("SPECIAL_HACKER_DISABLE_BUILDING")
+        }
+        HostCommandSpecialPowerType::BlackLotusDisableVehicle => {
+            Some("SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK")
+        }
+        HostCommandSpecialPowerType::BlackLotusStealCash => {
+            Some("SPECIAL_BLACKLOTUS_STEAL_CASH_HACK")
+        }
+        HostCommandSpecialPowerType::BlackLotusCaptureBuilding => {
+            Some("SPECIAL_BLACKLOTUS_CAPTURE_BUILDING")
+        }
         HostCommandSpecialPowerType::Invalid => Some("SPECIAL_INVALID"),
         // FireWall is a host FIRE_WEAPON residual (Dragon Tank), not a SpecialPowerType
         // discriminant in C++ SpecialPowerType.h — no unique SPECIAL_* name residual.

@@ -470,6 +470,16 @@ pub enum SpecialPowerType {
     BurtonTimedCharges,
     /// Colonel Burton remote charges residual (SPECIAL_REMOTE_CHARGES).
     BurtonRemoteCharges,
+    /// China Hacker disable building residual (SPECIAL_HACKER_DISABLE_BUILDING).
+    HackerDisableBuilding,
+    /// Black Lotus disable vehicle residual (SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK).
+    BlackLotusDisableVehicle,
+    /// Black Lotus steal cash residual (SPECIAL_BLACKLOTUS_STEAL_CASH_HACK).
+    BlackLotusStealCash,
+    /// Black Lotus capture building residual (SPECIAL_BLACKLOTUS_CAPTURE_BUILDING).
+    BlackLotusCaptureBuilding,
+    /// Microwave Tank disable building residual (SPECIAL_MICROWAVE_DISABLE_BUILDING).
+    MicrowaveDisableBuilding,
     Invalid,
 }
 
