@@ -470,6 +470,26 @@ pub fn special_power_public_timer_icon(
     }
 }
 
+/// True for structure-bound PublicTimer superweapons that are **not** SharedNSync.
+///
+/// Retail: Particle Uplink / Neutron Missile / Scud Storm use PublicTimer=Yes with
+/// no SharedNSync — ready frame is per-structure (C++ SpecialPowerModule).
+pub fn special_power_is_structure_bound_public_timer(
+    power: &crate::command_system::SpecialPowerType,
+) -> bool {
+    use crate::command_system::SpecialPowerType as P;
+    matches!(
+        power,
+        P::ParticleCannon
+            | P::SuperweaponParticleCannon
+            | P::LaserCannon
+            | P::NuclearMissile
+            | P::NukeNeutronMissile
+            | P::SuperweaponNeutronMissile
+            | P::ScudStorm
+    )
+}
+
 pub fn special_power_uses_shared_synced_timer(
     power: &crate::command_system::SpecialPowerType,
 ) -> bool {
@@ -482,22 +502,17 @@ pub fn special_power_uses_shared_synced_timer(
         | P::Airstrike
         | P::AirForceAirstrike
         | P::NapalmStrike
-        | P::NuclearMissile
+        // Structure PublicTimer SWs (PUC/Nuke/Scud) are NOT SharedNSync in retail
+        // SpecialPower.ini — countdown lives on the building module, not Player.
         | P::BaikonurRocket
         | P::BlackMarketNuke
         | P::DetonateDirtyNuke
-        | P::NukeNeutronMissile
-        | P::SuperweaponNeutronMissile
         | P::SpectreGunship
         | P::AirForceSpectreGunship
         | P::CarpetBomb
         | P::AirForceCarpetBomb
         | P::EarlyChinaCarpetBomb
         | P::NukeChinaCarpetBomb
-        | P::ParticleCannon
-        | P::LaserCannon
-        | P::SuperweaponParticleCannon
-        | P::ScudStorm
         | P::AnthraxBomb
         | P::Artillery
         | P::BattleshipBombardment
@@ -658,6 +673,17 @@ pub fn honesty_special_power_enum_residual_pack_wave80() -> bool {
         && SPECIAL_POWER_BIT_NAME_LIST[42] == "SPECIAL_SPECTRE_GUNSHIP"
         && SPECIAL_POWER_BIT_NAME_LIST[63] == "SUPR_SPECIAL_CRUISE_MISSILE"
         && SPECIAL_POWER_BIT_NAME_LIST[66] == "SPECIAL_BATTLESHIP_BOMBARDMENT"
+        && {
+            use crate::command_system::SpecialPowerType as P;
+            special_power_is_structure_bound_public_timer(&P::ParticleCannon)
+                && special_power_is_structure_bound_public_timer(&P::ScudStorm)
+                && special_power_is_structure_bound_public_timer(&P::NuclearMissile)
+                && !special_power_uses_shared_synced_timer(&P::ParticleCannon)
+                && !special_power_uses_shared_synced_timer(&P::ScudStorm)
+                && !special_power_uses_shared_synced_timer(&P::NuclearMissile)
+                && special_power_uses_shared_synced_timer(&P::DaisyCutter)
+                && special_power_uses_shared_synced_timer(&P::Airstrike)
+        }
         // Host superweapon ordinal ↔ name table residual.
         && [
             HostSuperweaponKind::DaisyCutter,

@@ -2682,16 +2682,45 @@ impl PresentationFrame {
                 };
                 let unlocked = science_ok && structure_ok;
                 // Only list unlocked PublicTimer rows (C++ addSuperweapon when present).
+                // C++ ~SpecialPowerModule removeSuperweapon: destroyed/sold structure drops row.
                 if !unlocked {
                     continue;
                 }
                 let reload = special_power_reload_seconds(power).unwrap_or(0.0).max(0.0);
-                let remaining = p
-                    .shared_special_power_cooldowns
-                    .get(power)
-                    .copied()
-                    .unwrap_or(0.0)
-                    .max(0.0);
+                // Structure-bound PublicTimer SWs: remaining from living structure module
+                // residual (not Player SharedSyncedTimer — retail SharedNSync absent).
+                let remaining = if crate::game_logic::host_special_power_enum_residual::special_power_is_structure_bound_public_timer(
+                    power,
+                ) {
+                    // Per-structure module residual: soonest ready among owned SW buildings.
+                    let mut any = false;
+                    let mut min_rem = f32::MAX;
+                    for obj in logic.get_objects().values() {
+                        if obj.team != p.team || !obj.is_alive() || !obj.is_constructed() {
+                            continue;
+                        }
+                        if !template_provides_public_timer_power(power, &obj.template_name) {
+                            continue;
+                        }
+                        any = true;
+                        let rem = obj
+                            .special_power_cooldowns
+                            .get(power)
+                            .copied()
+                            .unwrap_or(obj.special_power_cooldown_remaining)
+                            .max(0.0);
+                        if rem < min_rem {
+                            min_rem = rem;
+                        }
+                    }
+                    if any { min_rem } else { 0.0 }
+                } else {
+                    p.shared_special_power_cooldowns
+                        .get(power)
+                        .copied()
+                        .unwrap_or(0.0)
+                        .max(0.0)
+                };
                 let ready = remaining <= 0.0;
                 superweapon_timers.push(PresentationSuperweaponTimer {
                     name: special_power_public_timer_display_name(power).to_string(),
@@ -6484,8 +6513,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
-    #[test]
     fn presentation_freezes_public_timer_superweapons() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
@@ -6493,8 +6520,9 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut p = Player::new(0, Team::USA, "USA", true);
         p.apply_faction_intrinsic_sciences();
+        // Shared map must not drive structure PublicTimer residual.
         p.shared_special_power_cooldowns
-            .insert(SpecialPowerType::ParticleCannon, 120.0);
+            .insert(SpecialPowerType::ParticleCannon, 999.0);
         logic.add_player(p);
         // Without SW structure: no PublicTimer PUC row residual.
         let frame0 = PresentationFrame::build_from_logic(&logic, 0);
@@ -6524,6 +6552,11 @@ mod tests {
         if let Some(o) = logic.get_object_mut(id) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
+            // Structure module residual remaining (not SharedNSync player timer).
+            o.special_power_cooldowns
+                .insert(SpecialPowerType::ParticleCannon, 120.0);
+            o.special_power_cooldown_remaining = 120.0;
+            o.special_power_ready = false;
         }
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         let puc_t = frame
@@ -6532,7 +6565,11 @@ mod tests {
             .find(|t| t.name.contains("Particle"))
             .expect("PUC");
         assert!(puc_t.unlocked);
-        assert!((puc_t.remaining - 120.0).abs() < 0.5);
+        assert!(
+            (puc_t.remaining - 120.0).abs() < 0.5,
+            "remaining {} from structure module residual",
+            puc_t.remaining
+        );
         assert!(!puc_t.ready);
         // Apply to construction panel residual.
         let mut panel = crate::ui::construction_panel::ConstructionPanel::new(0, 0);
