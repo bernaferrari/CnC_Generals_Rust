@@ -2388,6 +2388,17 @@ impl Object {
     /// Apply Hijack residual ownership mark (caller sets team).
     /// C++ ConvertToHijackedVehicleCrateCollide: OBJECT_STATUS_HIJACKED + idle AI.
     pub fn apply_hijacked(&mut self) {
+        self.apply_hijacked_from(None);
+    }
+
+    /// Hijack with optional donor (hijacker) residual endowments.
+    ///
+    /// C++ residual:
+    /// - OBJECT_STATUS_HIJACKED
+    /// - aiIdle after brief move-to-self
+    /// - cancel dozer tasks
+    /// - MAX(target, jacker) veterancy on both (jacker may be destroyed after)
+    pub fn apply_hijacked_from(&mut self, donor: Option<&Object>) {
         self.status.hijacked = true;
         self.status.disabled_unmanned = false;
         self.status.disabled_hacked = false;
@@ -2401,7 +2412,46 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.force_attack = false;
+        // C++ aiMoveToPosition(self) then aiIdle — host: clear move + Idle.
         self.ai_state = AIState::Idle;
+        // Cancel dozer construction/repair residual.
+        if self.is_kind_of(KindOf::Worker) || self.is_worker() {
+            self.ai_state = AIState::Idle;
+            // Clear construction target residual if any.
+            self.target = None;
+        }
+        if let Some(d) = donor {
+            use crate::game_logic::VeterancyLevel;
+            // MAX of target and jacker veterancy residual.
+            let rank = |l: VeterancyLevel| -> u8 {
+                match l {
+                    VeterancyLevel::Rookie => 0,
+                    VeterancyLevel::Veteran => 1,
+                    VeterancyLevel::Elite => 2,
+                    VeterancyLevel::Heroic => 3,
+                }
+            };
+            let highest = if rank(d.experience.level) >= rank(self.experience.level) {
+                d.experience.level
+            } else {
+                self.experience.level
+            };
+            if rank(highest) > rank(self.experience.level) {
+                let prev = self.experience.level;
+                self.experience.level = highest;
+                let thr = self.thing.template.veterancy_xp_thresholds;
+                let need = match highest {
+                    VeterancyLevel::Veteran => thr[0],
+                    VeterancyLevel::Elite => thr[1],
+                    VeterancyLevel::Heroic => thr[2],
+                    VeterancyLevel::Rookie => 0.0,
+                };
+                if self.experience.current < need {
+                    self.experience.current = need;
+                }
+                self.apply_veterancy_bonuses(prev, highest);
+            }
+        }
     }
 
     /// True when this aircraft is parked at an airfield (ParkingPlace residual).
