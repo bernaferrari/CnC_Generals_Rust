@@ -5008,6 +5008,7 @@ impl GameLogic {
         let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
         self.tick_nested_attack_machines(&object_ids, t, frame);
         self.tick_all_turret_state_machines(&object_ids, t, frame);
+        self.sync_attack_priority_from_script_engine();
         self.tick_mood_auto_acquire(&object_ids);
         self.tick_out_of_ammo_jet_damage();
         self.tick_airfield_parking_heal();
@@ -6551,6 +6552,65 @@ impl GameLogic {
     /// set, uses priority-distance scoring (C++ modPriority = pri - dist/modifier).
 
     /// Register/replace a named AttackPriorityInfo set.
+
+    /// Bridge C++ ScriptEngine AttackPriorityInfo / object sets into host GameLogic.
+    ///
+    /// Copies named priority sets and applies per-object set names so
+    /// `find_closest_enemy` priority scoring matches script actions.
+    pub fn sync_attack_priority_from_script_engine(&mut self) {
+        use gamelogic::scripting::engine::get_script_engine;
+        let engine_arc = get_script_engine();
+        let Ok(guard) = engine_arc.read() else {
+            return;
+        };
+        let Some(engine) = guard.as_ref() else {
+            return;
+        };
+
+        // Import all named attack priority sets from script engine.
+        // Engine stores Vec with index 0 default; named entries from 1..
+        // Public API: get_attack_info by name; also iterate via reflection if available.
+        // Fail-closed: pull known sets from object_attack_priority_sets values + common names.
+        let mut names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        // Collect set names referenced by objects.
+        // We need access to object_attack_priority_sets - use public get if exists.
+        // Engine may only expose get_object_attack_priority_set per id.
+
+        // Sync all host objects that have engine IDs.
+        let object_ids: Vec<(ObjectId, Option<u32>)> = self
+            .objects
+            .iter()
+            .map(|(id, o)| (*id, o.engine_object_id.or(Some(id.0))))
+            .collect();
+
+        for (host_id, eng_opt) in object_ids {
+            let Some(eng_id) = eng_opt else {
+                continue;
+            };
+            let set_name = engine
+                .get_object_attack_priority_set(eng_id)
+                .map(|s| s.to_string());
+            if let Some(ref name) = set_name {
+                names.insert(name.clone());
+            }
+            if let Some(u) = self.objects.get_mut(&host_id) {
+                u.attack_priority_set = set_name.filter(|s| !s.is_empty());
+            }
+        }
+
+        // Also import any set already registered on host (no-op) and pull definitions.
+        for name in names {
+            if let Some(info) = engine.get_attack_info(&name) {
+                let mut host = AttackPriorityInfo::new(info.get_name());
+                host.default_priority = info.default_priority;
+                for (tmpl, pri) in &info.priority_map {
+                    host.set_priority_template(tmpl, *pri);
+                }
+                self.register_attack_priority_set(host);
+            }
+        }
+    }
+
     pub fn register_attack_priority_set(&mut self, info: AttackPriorityInfo) {
         let key = info.name.to_ascii_lowercase();
         self.attack_priority_sets.insert(key, info);
@@ -74165,6 +74225,89 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn script_priority_set_applies_to_unit_via_host_api() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut info = AttackPriorityInfo::new("ScriptHunt");
+        info.default_priority = 1;
+        info.set_priority_template("PriorityTarget", 80);
+        logic.register_attack_priority_set(info);
+
+        let mut at = ThingTemplate::new("ScriptHunter");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2801);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::China);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 300.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+        // C++ NamedApplyAttackPrioritySet residual via host setter.
+        logic.set_unit_attack_priority_set(aid, Some("ScriptHunt"));
+        assert_eq!(
+            logic.objects[&aid].attack_priority_set.as_deref(),
+            Some("ScriptHunt")
+        );
+
+        let mut lt = ThingTemplate::new("Filler");
+        lt.add_kind_of(KindOf::Infantry);
+        lt.add_kind_of(KindOf::Attackable);
+        let lid = ObjectId(2802);
+        logic.objects.insert(lid, {
+            let mut o = Object::new(lt, lid, Team::GLA);
+            o.set_position(Vec3::new(30.0, 0.0, 0.0));
+            o
+        });
+        let mut ht = ThingTemplate::new("PriorityTarget");
+        ht.add_kind_of(KindOf::Infantry);
+        ht.add_kind_of(KindOf::Attackable);
+        let hid = ObjectId(2803);
+        logic.objects.insert(hid, {
+            let mut o = Object::new(ht, hid, Team::GLA);
+            o.set_position(Vec3::new(100.0, 0.0, 0.0));
+            o
+        });
+        assert_eq!(
+            logic.find_closest_enemy(aid, 400.0, find_enemy_flags::CAN_ATTACK),
+            Some(hid)
+        );
+        // Clear set → closest wins.
+        logic.set_unit_attack_priority_set(aid, None);
+        assert_eq!(
+            logic.find_closest_enemy(aid, 400.0, find_enemy_flags::CAN_ATTACK),
+            Some(lid)
+        );
+    }
+
+    #[test]
+    fn set_default_and_kind_priority_residual() {
+        let mut info = AttackPriorityInfo::new("KindSet");
+        info.default_priority = 2;
+        info.set_priority_kind("vehicle", 40);
+        info.set_priority_template("SpecInf", 10);
+        assert_eq!(info.get_priority_for_template("Unknown"), 2);
+        assert_eq!(info.get_priority_for_template("SpecInf"), 10);
+        // kind priority applied in attack_priority_for_target
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.register_attack_priority_set(info);
+        let mut vt = ThingTemplate::new("TankX");
+        vt.add_kind_of(KindOf::Vehicle);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(2810);
+        let v = Object::new(vt, vid, Team::GLA);
+        let pinfo = logic.attack_priority_sets.get("kindset").unwrap();
+        assert_eq!(logic.attack_priority_for_target(pinfo, &v), 40);
     }
 
     #[test]
