@@ -7129,6 +7129,55 @@ impl GameLogic {
     ///
     /// Priority: armor set → weapon set (chance) → level (chance) → money.
     /// Returns (kind label, money granted).
+
+    /// C++ VeterancyCrateCollide::executeCrateBehavior residual (non-pilot AOE).
+    ///
+    /// Grants `levels` to picker and same-team allies within effect_range
+    /// (0 range = picker only). Fail-closed: not full pilot goal-object gate.
+    pub fn execute_veterancy_crate_behavior(
+        &mut self,
+        picker_id: ObjectId,
+        effect_range: f32,
+        levels: u8,
+    ) -> usize {
+        let (team, origin) = match self.objects.get(&picker_id) {
+            Some(p) if p.is_alive() => (p.team, p.get_position()),
+            _ => return 0,
+        };
+        let levels = levels.max(1);
+        let range_sq = effect_range.max(0.0) * effect_range.max(0.0);
+        let targets: Vec<ObjectId> = if effect_range <= 0.0 {
+            vec![picker_id]
+        } else {
+            self.objects
+                .iter()
+                .filter(|(id, o)| {
+                    o.team == team
+                        && o.is_alive()
+                        && !o.status.destroyed
+                        && !o.is_kind_of(KindOf::Structure)
+                        && {
+                            let p = o.get_position();
+                            let dx = p.x - origin.x;
+                            let dz = p.z - origin.z;
+                            dx * dx + dz * dz <= range_sq
+                        }
+                })
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        let mut n = 0usize;
+        for tid in targets {
+            if let Some(o) = self.objects.get_mut(&tid) {
+                // can_level_up = trainable residual: not heroic already handled inside
+                let g = o.gain_exp_for_level(levels, true);
+                if g > 0 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
     pub fn execute_salvage_crate_behavior(
         &mut self,
         picker_id: ObjectId,
@@ -7224,7 +7273,13 @@ impl GameLogic {
             let Some(crate_id) = self.create_object(&req.object_name, Team::Neutral, pos) else {
                 continue;
             };
-            if req.object_name.eq_ignore_ascii_case("SalvageCrate") {
+            if req.is_veterancy {
+                self.host_money_crates.register_level_up_crate(
+                    crate_id,
+                    req.veterancy_effect_range,
+                    req.veterancy_levels,
+                );
+            } else if req.object_name.eq_ignore_ascii_case("SalvageCrate") {
                 self.host_money_crates
                     .register_salvage_crate(crate_id, req.money_provided);
             } else {
@@ -16165,7 +16220,7 @@ impl GameLogic {
             if entry.building_pickup_residual_paid {
                 continue;
             }
-            if entry.money_provided == 0 && !entry.is_salvage {
+            if entry.money_provided == 0 && !entry.is_salvage && !entry.is_veterancy {
                 continue;
             }
             let pos = obj.get_position();
@@ -16322,6 +16377,33 @@ impl GameLogic {
                 .values()
                 .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
 
+            // C++ VeterancyCrateCollide residual path.
+            if entry.is_veterancy {
+                let _ = self.execute_veterancy_crate_behavior(
+                    picker_id,
+                    entry.veterancy_effect_range,
+                    entry.veterancy_levels,
+                );
+                if !self
+                    .host_money_crates
+                    .record_pickup(crate_id, 1, 0, is_structure)
+                {
+                    continue;
+                }
+                let pos = self
+                    .find_object(crate_id)
+                    .map(|o| o.get_position())
+                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .unwrap_or(glam::Vec3::ZERO);
+                self.queue_audio_event(
+                    AudioEventRequest::new("CratePromote")
+                        .with_object(picker_id)
+                        .with_position(pos)
+                        .with_priority(110),
+                );
+                self.destroy_object(crate_id);
+                continue;
+            }
             // C++ SalvageCrateCollide residual path.
             let (amount, boost) = if entry.is_salvage {
                 let seed = crate_id
@@ -75085,6 +75167,80 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn veterancy_crate_levels_picker_and_ally_in_range() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "U", true));
+
+        let mut t1 = ThingTemplate::new("R1");
+        t1.add_kind_of(KindOf::Infantry);
+        let a = ObjectId(5001);
+        logic.objects.insert(a, {
+            let mut o = Object::new(t1, a, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        let mut t2 = ThingTemplate::new("R2");
+        t2.add_kind_of(KindOf::Infantry);
+        let b = ObjectId(5002);
+        logic.objects.insert(b, {
+            let mut o = Object::new(t2, b, Team::USA);
+            o.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+            o
+        });
+        // Far ally outside 100 range
+        let mut t3 = ThingTemplate::new("R3");
+        t3.add_kind_of(KindOf::Infantry);
+        let c = ObjectId(5003);
+        logic.objects.insert(c, {
+            let mut o = Object::new(t3, c, Team::USA);
+            o.set_position(glam::Vec3::new(300.0, 0.0, 0.0));
+            o
+        });
+
+        let n = logic.execute_veterancy_crate_behavior(a, 100.0, 1);
+        assert!(n >= 2, "picker + near ally, got {n}");
+        use crate::game_logic::VeterancyLevel;
+        assert_ne!(logic.objects[&a].experience.level, VeterancyLevel::Rookie);
+        assert_ne!(logic.objects[&b].experience.level, VeterancyLevel::Rookie);
+        assert_eq!(logic.objects[&c].experience.level, VeterancyLevel::Rookie);
+    }
+
+    #[test]
+    fn level_up_crate_collide_path() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "U", true));
+        let mut ut = ThingTemplate::new("Unit");
+        ut.add_kind_of(KindOf::Infantry);
+        let uid = ObjectId(5010);
+        logic.objects.insert(uid, {
+            let mut o = Object::new(ut, uid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o
+        });
+        let cid = ObjectId(5011);
+        let mut ct = ThingTemplate::new("SmallLevelUpCrate");
+        logic
+            .templates
+            .insert("SmallLevelUpCrate".into(), ct.clone());
+        logic.objects.insert(cid, {
+            let mut o = Object::new(ct, cid, Team::Neutral);
+            o.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+            o
+        });
+        logic.host_money_crates.register_level_up_crate(cid, 0.0, 1);
+        logic.update_money_crate_collides();
+        use crate::game_logic::VeterancyLevel;
+        assert_ne!(logic.objects[&uid].experience.level, VeterancyLevel::Rookie);
+        assert!(!logic.host_money_crates.contains(cid));
     }
 
     #[test]
