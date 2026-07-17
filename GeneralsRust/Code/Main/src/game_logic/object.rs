@@ -4682,7 +4682,11 @@ impl Object {
     pub fn can_target_with_slot(&self, target: &Object, weapon: &Weapon, slot: Option<u8>) -> bool {
         // C++ WeaponSet: stealthed + undetected cannot be attacked
         // (including force-fire against pure stealth; disguise exception not residual).
-        if target.is_effectively_stealthed() && target.team != self.team {
+        // OBJECT_STATUS_IGNORING_STEALTH residual bypasses this gate.
+        if target.is_effectively_stealthed()
+            && target.team != self.team
+            && !self.status.ignoring_stealth
+        {
             return false;
         }
 
