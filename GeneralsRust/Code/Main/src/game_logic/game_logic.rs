@@ -43162,7 +43162,7 @@ impl GameLogic {
         if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
             return false;
         }
-        if obj.status.sold {
+        if obj.status.sold || obj.status.under_construction || obj.status.reconstructing {
             return false;
         }
         if self.sell_list.iter().any(|s| s.id == object_id) {
@@ -79364,6 +79364,44 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn sell_rejects_under_construction_and_reconstructing() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        st.build_cost.supplies = 800;
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = true;
+            o.construction_percent = 0.5;
+        }
+        assert!(!logic.start_sell_object(id));
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.status.reconstructing = true;
+        }
+        assert!(!logic.start_sell_object(id));
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.reconstructing = false;
+        }
+        assert!(logic.start_sell_object(id));
+        assert!(logic.is_object_being_sold(id));
     }
 
     #[test]
