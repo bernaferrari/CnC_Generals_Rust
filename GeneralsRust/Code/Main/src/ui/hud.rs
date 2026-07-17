@@ -248,6 +248,19 @@ struct ConstructionButton {
 }
 
 impl ConstructionPanel {
+    /// Apply CanMake available residual onto construction buttons by item_name.
+    pub fn apply_can_make_availability(
+        &mut self,
+        by_name: &std::collections::HashMap<String, bool>,
+    ) {
+        for btn in &mut self.construction_buttons {
+            let key = btn.item_name.to_ascii_lowercase();
+            if let Some(available) = by_name.get(&key) {
+                btn.enabled = *available;
+            }
+        }
+    }
+
     pub fn new(x: i32, y: i32) -> Self {
         Self {
             position: (x, y),
@@ -428,7 +441,7 @@ pub struct GameHUD {
     /// Minimap UI state (FOW/camera-aware)
     minimap_panel: MinimapUIState,
     /// Construction panel
-    construction_panel: ConstructionPanel,
+    pub(crate) construction_panel: ConstructionPanel,
     /// Selected units
     selected_units: Vec<ObjectId>,
     /// Selected unit identity (health/name) from PresentationFrame when available.
@@ -491,6 +504,18 @@ impl Default for GameHUD {
 }
 
 impl GameHUD {
+    /// Apply presentation CanMake residual onto construction buttons (enable/gray).
+    pub fn apply_can_make_cameos(&mut self, cameos: &[(&str, bool, u32, Option<&str>)]) {
+        if cameos.is_empty() {
+            return;
+        }
+        let lookup: std::collections::HashMap<String, bool> = cameos
+            .iter()
+            .map(|(n, a, _, _)| (n.to_ascii_lowercase(), *a))
+            .collect();
+        self.construction_panel.apply_can_make_availability(&lookup);
+    }
+
     /// Create new game HUD
     pub fn new() -> Self {
         let screen_size = (1024, 768);

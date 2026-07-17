@@ -5397,9 +5397,25 @@ impl PresentationFrame {
             timer.unlocked = t.unlocked;
             panel.add_superweapon_timer(timer);
         }
+        self.apply_can_make_cameos_to_panel(panel);
     }
 
     pub fn apply_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
+        // ControlBar construction button enable residual from CanMake freeze.
+        hud.apply_can_make_cameos(
+            &self
+                .can_make_cameos
+                .iter()
+                .map(|c| {
+                    (
+                        c.template_name.as_str(),
+                        c.available,
+                        c.can_make,
+                        c.help_status.as_deref(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
         let (credits, power, max_power) = self.hud_resource_triple();
         hud.update_resources(credits, power, max_power);
         let units = self.hud_minimap_units();
@@ -5658,6 +5674,26 @@ impl PresentationFrame {
     #[cfg(feature = "game_client")]
 
     /// Feed ControlBar HelpBox CanMake residual from presentation.
+
+    /// Feed ConstructionPanel CanMake residual from presentation.
+    pub fn apply_can_make_cameos_to_panel(
+        &self,
+        panel: &mut crate::ui::construction_panel::ConstructionPanel,
+    ) {
+        panel.apply_can_make_cameos(
+            &self
+                .can_make_cameos
+                .iter()
+                .map(|c| crate::ui::hud_state::CanMakeCameoUi {
+                    template_name: c.template_name.clone(),
+                    can_make: c.can_make,
+                    available: c.available,
+                    help_status: c.help_status.clone(),
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+
     pub fn apply_can_make_cameos_to_ui_state(&self, ui: &mut crate::ui::hud_state::GameUIState) {
         ui.can_make_cameos = self
             .can_make_cameos
