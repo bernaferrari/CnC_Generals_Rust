@@ -59,6 +59,10 @@ pub const UPGRADE_AMERICA_LASER_MISSILES: &str = "Upgrade_AmericaLaserMissiles";
 pub const UPGRADE_CHINA_NATIONALISM: &str = "Upgrade_ChinaNationalism";
 /// China Chain Guns residual.
 pub const UPGRADE_CHINA_CHAIN_GUNS: &str = "Upgrade_ChinaChainGuns";
+/// China Uranium Shells residual.
+pub const UPGRADE_CHINA_URANIUM_SHELLS: &str = "Upgrade_ChinaUraniumShells";
+/// China Black Napalm residual.
+pub const UPGRADE_CHINA_BLACK_NAPALM: &str = "Upgrade_ChinaBlackNapalm";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -137,6 +141,10 @@ pub enum HostUpgradeKind {
     Nationalism,
     /// China Chain Guns gattling/minigun damage residual.
     ChainGuns,
+    /// China Uranium Shells tank damage residual.
+    UraniumShells,
+    /// China Black Napalm fire-field residual.
+    BlackNapalm,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -193,6 +201,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::Nationalism
         } else if n.contains("chainguns") || n.contains("chaingun") {
             HostUpgradeKind::ChainGuns
+        } else if n.contains("uraniumshells") || n.contains("uraniumshell") {
+            HostUpgradeKind::UraniumShells
+        } else if n.contains("blacknapalm") {
+            HostUpgradeKind::BlackNapalm
         } else {
             HostUpgradeKind::Other
         }
@@ -223,6 +235,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::LaserMissiles => "LaserMissiles",
             HostUpgradeKind::Nationalism => "Nationalism",
             HostUpgradeKind::ChainGuns => "ChainGuns",
+            HostUpgradeKind::UraniumShells => "UraniumShells",
+            HostUpgradeKind::BlackNapalm => "BlackNapalm",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -257,6 +271,8 @@ impl HostUpgradeKind {
             | HostUpgradeKind::LaserMissiles
             | HostUpgradeKind::Nationalism
             | HostUpgradeKind::ChainGuns
+            | HostUpgradeKind::UraniumShells
+            | HostUpgradeKind::BlackNapalm
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -290,6 +306,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::LaserMissiles => 1500,
             HostUpgradeKind::Nationalism => 2000,
             HostUpgradeKind::ChainGuns => 1500,
+            HostUpgradeKind::UraniumShells => 2000,
+            HostUpgradeKind::BlackNapalm => 2000,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -320,6 +338,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::LaserMissiles => 40.0,
             HostUpgradeKind::Nationalism => 60.0,
             HostUpgradeKind::ChainGuns => 40.0,
+            HostUpgradeKind::UraniumShells => 60.0,
+            HostUpgradeKind::BlackNapalm => 60.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -953,6 +973,18 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn uranium_black_napalm_kinds_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaUraniumShells"),
+            HostUpgradeKind::UraniumShells
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaBlackNapalm"),
+            HostUpgradeKind::BlackNapalm
+        );
     }
 
     #[test]
