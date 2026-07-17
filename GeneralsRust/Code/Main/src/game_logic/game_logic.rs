@@ -71549,6 +71549,72 @@ mod tests {
     }
 
     #[test]
+    fn apply_motive_force_arms_lateral_window() {
+        use crate::game_logic::{
+            KindOf, Object, ObjectId, Team, ThingTemplate, MOTIVE_FRAMES_RESIDUAL,
+        };
+        use glam::Vec3;
+        assert_eq!(MOTIVE_FRAMES_RESIDUAL, 10);
+        let mut t = ThingTemplate::new("MotF");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(941), Team::USA);
+        o.set_orientation(0.0);
+        o.physics_mass = 1.0;
+        // Motive force applies full forward push then arms motive.
+        o.apply_motive_force(Vec3::new(10.0, 0.0, 0.0));
+        assert_eq!(o.motive_frames_remaining, MOTIVE_FRAMES_RESIDUAL);
+        o.integrate_physics_accel();
+        assert!(o.movement.velocity.x > 1.0);
+        // While motive, lateral-only on subsequent apply_physics_force.
+        let vx_before = o.movement.velocity.x;
+        o.apply_physics_force(Vec3::new(5.0, 0.0, 0.0)); // forward stripped
+        o.integrate_physics_accel();
+        assert!(
+            (o.movement.velocity.x - vx_before).abs() < 1e-3,
+            "forward force while motive should be stripped"
+        );
+    }
+
+    #[test]
+    fn reset_dynamic_physics_clears_motion() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Rst");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(942), Team::USA);
+        o.movement.velocity = Vec3::new(1.0, 2.0, 3.0);
+        o.physics_accel = Vec3::ONE;
+        o.shock_yaw_rate = 0.5;
+        o.motive_frames_remaining = 5;
+        o.reset_dynamic_physics();
+        assert_eq!(o.movement.velocity, Vec3::ZERO);
+        assert_eq!(o.physics_accel, Vec3::ZERO);
+        assert_eq!(o.shock_yaw_rate, 0.0);
+        assert_eq!(o.motive_frames_remaining, 0);
+    }
+
+    #[test]
+    fn motion_step_kills_when_resting() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("RestKill");
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(943), Team::USA);
+        // Already settled on ground with near-zero velocity (C++ isVerySmall3D).
+        o.set_position(Vec3::new(0.0, 0.0, 0.0));
+        o.movement.velocity = Vec3::ZERO;
+        o.status.airborne_target = false;
+        o.was_airborne_last_frame = false;
+        o.kill_when_resting_on_ground = true;
+        o.immune_to_falling_damage = true;
+        let _ = o.tick_physics_motion_step(0.0);
+        assert!(
+            o.status.destroyed || !o.is_alive(),
+            "killWhenRestingOnGround should kill settled infantry"
+        );
+    }
+
+    #[test]
     fn tick_physics_motion_step_clamps_ground() {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
         use glam::Vec3;
