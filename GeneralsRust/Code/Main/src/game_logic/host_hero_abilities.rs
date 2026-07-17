@@ -376,6 +376,34 @@ pub fn cash_hack_money_for_science_tier(tier: u8) -> u32 {
     }
 }
 
+/// Select highest unlocked SCIENCE_CashHack* tier (1/2/3), fail-closed → 1.
+pub fn highest_cash_hack_tier_from_sciences<'a, I>(sciences: I) -> u8
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut best: u8 = 1;
+    for s in sciences {
+        let n = s.to_ascii_lowercase().replace('_', "").replace('-', "");
+        if n.contains("cashhack3") {
+            return 3;
+        }
+        if n.contains("cashhack2") {
+            best = 2;
+        } else if n.contains("cashhack1") || n.contains("cashhack") {
+            // keep at least 1
+        }
+    }
+    best
+}
+
+/// Money amount for highest unlocked CashHack science among names.
+pub fn cash_hack_money_from_sciences<'a, I>(sciences: I) -> u32
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    cash_hack_money_for_science_tier(highest_cash_hack_tier_from_sciences(sciences))
+}
+
 /// Name residual for SCIENCE_CashHack* markers.
 pub fn is_cash_hack_science_name(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
