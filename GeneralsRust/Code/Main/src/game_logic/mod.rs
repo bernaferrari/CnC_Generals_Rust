@@ -880,6 +880,10 @@ pub enum KindOf {
     Immobile,
     /// C++ KINDOF_CAN_BE_REPULSED — civilians flee OBJECT_STATUS_REPULSOR.
     CanBeRepulsed,
+    /// C++ KINDOF_CANNOT_RETALIATE — excluded from friend retaliation.
+    CannotRetaliate,
+    /// C++ KINDOF_DRONE — drones never retaliate.
+    Drone,
     /// C++ KINDOF_AIRCRAFT_PATH_AROUND — tall buildings aircraft path around.
     AircraftPathAround,
 }

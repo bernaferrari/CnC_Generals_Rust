@@ -4975,6 +4975,7 @@ impl SnapshotBuilder {
                 // update_player_radar residual pass (fail-closed restore).
                 radar_count: 0,
                 radar_disabled: false,
+                logical_retaliation_mode_enabled: false,
             });
         }
 
