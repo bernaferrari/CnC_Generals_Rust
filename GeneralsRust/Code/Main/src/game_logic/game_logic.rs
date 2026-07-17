@@ -1427,6 +1427,8 @@ pub struct GameLogic {
     sell_passengers_ejected: u32,
     /// C++ ParkingPlaceBehavior::killAllParkedUnits residual.
     sell_parked_units_killed: u32,
+    /// C++ TunnelContain::onSelling last-tunnel eject residual.
+    sell_tunnel_last_ejects: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2689,6 +2691,7 @@ impl GameLogic {
             sell_owned_mines_destroyed: 0,
             sell_passengers_ejected: 0,
             sell_parked_units_killed: 0,
+            sell_tunnel_last_ejects: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3088,6 +3091,7 @@ impl GameLogic {
         self.sell_owned_mines_destroyed = 0;
         self.sell_passengers_ejected = 0;
         self.sell_parked_units_killed = 0;
+        self.sell_tunnel_last_ejects = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -43243,6 +43247,60 @@ impl GameLogic {
             self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
         }
 
+        // C++ TunnelContain::onSelling: last tunnel kicks shared pool passengers.
+        let is_tunnel = self
+            .objects
+            .get(&structure_id)
+            .map(|o| {
+                o.is_tunnel_network_style_container()
+                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                        &o.template_name,
+                    )
+            })
+            .unwrap_or(false);
+        if is_tunnel {
+            let team = self.objects.get(&structure_id).map(|o| o.team);
+            if let Some(team) = team {
+                let tunnel_count = self
+                    .objects
+                    .values()
+                    .filter(|o| {
+                        o.is_alive()
+                            && o.team == team
+                            && o.id != structure_id
+                            && !o.status.sold
+                            && (o.is_tunnel_network_style_container()
+                                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                                    &o.template_name,
+                                ))
+                    })
+                    .count();
+                // friend_getTunnelCount()==1 means this is the last (others already gone).
+                // Count other live tunnels; if 0, we are last.
+                if tunnel_count == 0 {
+                    let units = self.tunnel_network.contained_for_team(team);
+                    for (i, uid) in units.into_iter().enumerate() {
+                        let _ = self.tunnel_network.record_exit(team, uid, structure_id);
+                        if let Some(unit) = self.objects.get_mut(&uid) {
+                            let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
+                            let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
+                            unit.stop_moving();
+                            unit.set_position(pos + offset);
+                            unit.set_target(None);
+                            unit.contained_by = None;
+                            unit.ai_state = AIState::Idle;
+                            unit.status.moving = false;
+                            unit.status.attacking = false;
+                        }
+                        self.sell_passengers_ejected =
+                            self.sell_passengers_ejected.saturating_add(1);
+                        self.sell_tunnel_last_ejects =
+                            self.sell_tunnel_last_ejects.saturating_add(1);
+                    }
+                }
+            }
+        }
+
         // Also kill any jet with contained_by = structure (hangar roster residual).
         if is_airfield {
             let parked: Vec<ObjectId> = self
@@ -79661,6 +79719,44 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn sell_last_tunnel_ejects_shared_pool() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+        let mut tn = ThingTemplate::new("GLATunnelNetwork");
+        tn.add_kind_of(KindOf::Structure).set_health(1000.0);
+        tn.build_cost.supplies = 800;
+        logic.templates.insert("GLATunnelNetwork".into(), tn);
+        let mut ranger = ThingTemplate::new("GLARebel");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLARebel".into(), ranger);
+        let tid = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tn");
+        if let Some(o) = logic.get_object_mut(tid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let uid = logic
+            .create_object("GLARebel", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("unit");
+        assert!(logic.tunnel_network.record_enter(Team::GLA, uid, tid));
+        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+        assert!(logic.start_sell_object(tid));
+        assert!(logic.sell_tunnel_last_ejects > 0);
+        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
+        let u = logic.get_object(uid).expect("ejected");
+        assert!(u.contained_by.is_none());
+        assert_eq!(u.ai_state, AIState::Idle);
     }
 
     #[test]
