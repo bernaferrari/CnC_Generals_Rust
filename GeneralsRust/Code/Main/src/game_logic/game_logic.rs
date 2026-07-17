@@ -1373,6 +1373,10 @@ pub struct GameLogic {
     eva_special_launched_misc: u32,
     /// RADAR_EVENT_UPGRADE residual honesty fires.
     radar_upgrade_events: u32,
+    /// Structure construction-complete residual honesty fires.
+    structure_complete_events: u32,
+    /// Unit production-complete residual honesty fires.
+    unit_ready_events: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2592,6 +2596,8 @@ impl GameLogic {
             eva_hero_detected: 0,
             eva_special_launched_misc: 0,
             radar_upgrade_events: 0,
+            structure_complete_events: 0,
+            unit_ready_events: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2961,6 +2967,8 @@ impl GameLogic {
         self.eva_hero_detected = 0;
         self.eva_special_launched_misc = 0;
         self.radar_upgrade_events = 0;
+        self.structure_complete_events = 0;
+        self.unit_ready_events = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5494,6 +5502,8 @@ impl GameLogic {
             if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
                 self.record_structure_completion(team);
             }
+            // C++ onStructureConstructionComplete feedback residual.
+            self.notify_structure_construction_complete(completed_id);
             // Constructed footprint is a static path/LOS obstacle.
             self.block_structure_object_path(completed_id);
         }
@@ -5558,6 +5568,8 @@ impl GameLogic {
                     template.clone(),
                     new_id,
                 );
+                // C++ VoiceCreated + UnitReady residual.
+                self.notify_unit_production_complete(new_id, producer_id, &template);
                 // SCIENCE_StealthFighter residual: record gated production spawn.
                 if crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science(
                     &template,
@@ -42762,6 +42774,79 @@ impl GameLogic {
     ///
     /// Creates a radar event at a producer structure (or team centroid residual)
     /// and queues a localized upgrade-complete radar message for the local player.
+
+    /// C++ structure construction-complete residual feedback for local owner:
+    /// radar message + BuildingComplete audio honesty + model condition bit.
+    pub fn notify_structure_construction_complete(&mut self, structure_id: ObjectId) {
+        let Some(obj) = self.objects.get_mut(&structure_id) else {
+            return;
+        };
+        obj.set_construction_complete_condition();
+        let team = obj.team;
+        let pos = obj.get_position();
+        let name = obj.template_name.clone();
+        let local = self
+            .players
+            .values()
+            .any(|p| p.is_local && p.is_alive && p.team == team);
+        if !local {
+            self.structure_complete_events = self.structure_complete_events.saturating_add(1);
+            return;
+        }
+        let msg = localization::localize(
+            "GUI:ConstructionComplete",
+            &format!("Construction complete: {name}"),
+        );
+        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        self.queue_audio_event(
+            AudioEventRequest::new("BuildingComplete")
+                .with_object(structure_id)
+                .with_position(pos)
+                .with_priority(150),
+        );
+        self.structure_complete_events = self.structure_complete_events.saturating_add(1);
+    }
+
+    /// C++ unit production complete residual: VoiceCreated + UnitReady radar for local.
+    pub fn notify_unit_production_complete(
+        &mut self,
+        unit_id: ObjectId,
+        producer_id: ObjectId,
+        template_name: &str,
+    ) {
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return;
+        };
+        let team = unit.team;
+        let pos = unit.get_position();
+        let local = self
+            .players
+            .values()
+            .any(|p| p.is_local && p.is_alive && p.team == team);
+        // C++ VoiceCreated on new unit always (all owners).
+        self.queue_audio_event(
+            AudioEventRequest::new("VoiceCreated")
+                .with_object(unit_id)
+                .with_position(pos)
+                .with_priority(140),
+        );
+        if local {
+            let msg =
+                localization::localize("GUI:UnitReady", &format!("Unit ready: {template_name}"));
+            self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        }
+        let _ = producer_id;
+        self.unit_ready_events = self.unit_ready_events.saturating_add(1);
+    }
+
+    pub fn honesty_structure_complete_ok(&self) -> bool {
+        self.structure_complete_events > 0
+    }
+
+    pub fn honesty_unit_ready_ok(&self) -> bool {
+        self.unit_ready_events > 0
+    }
+
     pub fn try_radar_upgrade_complete(
         &mut self,
         player_id: u32,
@@ -77526,6 +77611,49 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn structure_and_unit_complete_notify_local_feedback() {
+        use crate::game_logic::host_enum_table_residual::{
+            construction_complete_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let sid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(1.0, 0.0, 2.0),
+            )
+            .expect("pp");
+        logic.notify_structure_construction_complete(sid);
+        assert!(logic.honesty_structure_complete_ok());
+        let bit = construction_complete_model_bit();
+        let obj = logic.get_object(sid).expect("o");
+        assert!(host_model_condition_has(obj.model_condition_bits, bit));
+
+        let mut unit = ThingTemplate::new("AmericaInfantryRanger");
+        unit.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), unit);
+        let uid = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(3.0, 0.0, 4.0),
+            )
+            .expect("r");
+        logic.notify_unit_production_complete(uid, sid, "AmericaInfantryRanger");
+        assert!(logic.honesty_unit_ready_ok());
     }
 
     #[test]
