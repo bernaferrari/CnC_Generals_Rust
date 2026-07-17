@@ -174,6 +174,19 @@ pub struct HostMoneyCrateEntry {
     /// C++ DeletionUpdate m_dieFrame residual (0 = never / not armed).
     #[serde(default)]
     pub expires_frame: u32,
+    /// C++ VeterancyCrateCollide residual.
+    #[serde(default)]
+    pub is_veterancy: bool,
+    /// C++ m_rangeOfEffect residual (0 = picker only).
+    #[serde(default)]
+    pub veterancy_effect_range: f32,
+    /// C++ levels to gain (usually 1; pilot path uses owner level).
+    #[serde(default = "default_vet_levels")]
+    pub veterancy_levels: u8,
+}
+
+fn default_vet_levels() -> u8 {
+    1
 }
 
 /// Result of a residual crate pickup.
@@ -307,6 +320,25 @@ impl HostMoneyCrateRegistry {
         );
     }
 
+    /// C++ VeterancyCrateCollide residual (Small/Medium LevelUp crates).
+    pub fn register_level_up_crate(&mut self, object_id: ObjectId, effect_range: f32, levels: u8) {
+        self.crates.insert(
+            object_id,
+            HostMoneyCrateEntry {
+                object_id,
+                money_provided: 0,
+                building_pickup: false,
+                supply_lines_boost: 0,
+                building_pickup_residual_paid: false,
+                is_salvage: false,
+                expires_frame: 0,
+                is_veterancy: true,
+                veterancy_effect_range: effect_range.max(0.0),
+                veterancy_levels: levels.max(1),
+            },
+        );
+    }
+
     /// C++ SalvageCrate residual registration.
     pub fn register_salvage_crate(&mut self, object_id: ObjectId, money_provided: u32) {
         self.crates.insert(
@@ -319,6 +351,9 @@ impl HostMoneyCrateRegistry {
                 building_pickup_residual_paid: false,
                 is_salvage: true,
                 expires_frame: 0,
+                is_veterancy: false,
+                veterancy_effect_range: 0.0,
+                veterancy_levels: 1,
             },
         );
     }
@@ -340,6 +375,9 @@ impl HostMoneyCrateRegistry {
                 building_pickup_residual_paid: false,
                 is_salvage: false,
                 expires_frame: 0,
+                is_veterancy: false,
+                veterancy_effect_range: 0.0,
+                veterancy_levels: 1,
             },
         );
     }

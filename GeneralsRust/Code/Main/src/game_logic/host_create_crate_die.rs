@@ -28,6 +28,9 @@ pub struct HostCrateCreationEntry {
     pub crate_chance: f32,
     pub money_provided: u32,
     pub building_pickup: bool,
+    pub is_veterancy: bool,
+    pub veterancy_effect_range: f32,
+    pub veterancy_levels: u8,
 }
 
 /// Host residual CrateTemplate subset.
@@ -44,6 +47,9 @@ static SALVAGE_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
     crate_chance: 1.0,
     money_provided: 50, // midpoint residual [25,75] default
     building_pickup: false,
+    is_veterancy: false,
+    veterancy_effect_range: 0.0,
+    veterancy_levels: 1,
 }];
 
 static DOLLAR_1000_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -51,6 +57,9 @@ static DOLLAR_1000_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     crate_chance: 1.0,
     money_provided: DOLLAR_CRATE_1000_MONEY,
     building_pickup: false,
+    is_veterancy: false,
+    veterancy_effect_range: 0.0,
+    veterancy_levels: 1,
 }];
 
 static DOLLAR_2500_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -58,6 +67,9 @@ static DOLLAR_2500_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     crate_chance: 1.0,
     money_provided: DOLLAR_CRATE_2500_MONEY,
     building_pickup: false,
+    is_veterancy: false,
+    veterancy_effect_range: 0.0,
+    veterancy_levels: 1,
 }];
 
 static SUPPLY_DROP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
@@ -65,6 +77,29 @@ static SUPPLY_DROP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     crate_chance: 1.0,
     money_provided: SUPPLY_DROP_CRATE_MONEY_PROVIDED,
     building_pickup: true,
+    is_veterancy: false,
+    veterancy_effect_range: 0.0,
+    veterancy_levels: 1,
+}];
+
+static SMALL_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
+    crate_object_name: "SmallLevelUpCrate",
+    crate_chance: 1.0,
+    money_provided: 0,
+    building_pickup: false,
+    is_veterancy: true,
+    veterancy_effect_range: 100.0,
+    veterancy_levels: 1,
+}];
+
+static MEDIUM_LEVEL_UP_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntry {
+    crate_object_name: "MediumLevelUpCrate",
+    crate_chance: 1.0,
+    money_provided: 0,
+    building_pickup: false,
+    is_veterancy: true,
+    veterancy_effect_range: 250.0,
+    veterancy_levels: 1,
 }];
 
 /// Built-in host crate templates (Crate.ini name residual keys).
@@ -93,6 +128,16 @@ pub static HOST_CRATE_TEMPLATES: &[HostCrateTemplate] = &[
         name: "SupplyDropZoneCrateData",
         creation_chance: 1.0,
         possible: SUPPLY_DROP_POSSIBLE,
+    },
+    HostCrateTemplate {
+        name: "SmallLevelUpCrateData",
+        creation_chance: 1.0,
+        possible: SMALL_LEVEL_UP_POSSIBLE,
+    },
+    HostCrateTemplate {
+        name: "MediumLevelUpCrateData",
+        creation_chance: 1.0,
+        possible: MEDIUM_LEVEL_UP_POSSIBLE,
     },
 ];
 
@@ -153,6 +198,9 @@ pub struct HostCrateSpawnRequest {
     pub object_name: String,
     pub money_provided: u32,
     pub building_pickup: bool,
+    pub is_veterancy: bool,
+    pub veterancy_effect_range: f32,
+    pub veterancy_levels: u8,
 }
 
 pub fn try_roll_crate_spawn(
@@ -170,6 +218,9 @@ pub fn try_roll_crate_spawn(
         object_name: entry.crate_object_name.to_string(),
         money_provided: money,
         building_pickup: entry.building_pickup,
+        is_veterancy: entry.is_veterancy,
+        veterancy_effect_range: entry.veterancy_effect_range,
+        veterancy_levels: entry.veterancy_levels,
     })
 }
 

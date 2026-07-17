@@ -7022,6 +7022,26 @@ impl Object {
         self.gain_experience(add);
     }
 
+    /// C++ ExperienceTracker::gainExpForLevel residual.
+    ///
+    /// Grants just enough XP to gain `levels` veterancy ranks (clamped to Heroic).
+    /// `can_level_up` false skips (non-trainable residual).
+    pub fn gain_exp_for_level(&mut self, levels: u8, can_level_up: bool) -> u8 {
+        if levels == 0 || !can_level_up {
+            return 0;
+        }
+        use crate::game_logic::VeterancyLevel;
+        let mut gained = 0u8;
+        for _ in 0..levels {
+            if matches!(self.experience.level, VeterancyLevel::Heroic) {
+                break;
+            }
+            self.apply_salvage_level_gain();
+            gained += 1;
+        }
+        gained
+    }
+
     pub fn gain_experience(&mut self, amount: f32) {
         // Wave 79: AdvancedTraining ExperienceScalarUpgrade residual application.
         // C++ AddXPScalar 1.0 → double XP when the upgrade tag is present.
