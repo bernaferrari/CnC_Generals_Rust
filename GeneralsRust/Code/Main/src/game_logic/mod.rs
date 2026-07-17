@@ -6,6 +6,7 @@ pub mod game_logic;
 pub mod host_ai_ability_upgrade_residual;
 pub mod host_damage_log;
 pub mod host_heal_log;
+pub mod host_repulsor_gate;
 pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
 pub mod host_attack_log;
 pub mod host_construction_log;
