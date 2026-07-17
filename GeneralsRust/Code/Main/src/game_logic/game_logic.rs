@@ -5867,7 +5867,25 @@ impl GameLogic {
 
     /// C++ shockwave residual around an impact (hit or miss splash).
 
+    /// Sample TerrainLogic-ish cliff/water residual at world position for stun destruction.
+    pub(crate) fn sample_stun_surface_at(&self, pos: glam::Vec3) -> (bool, bool) {
+        if let Some(t) = self.terrain.as_ref() {
+            return (t.is_cliff_at_world(pos), t.is_underwater_at_world(pos));
+        }
+        // Fall back to gamelogic TerrainLogic singleton when Main terrain is unset.
+        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+            // Host XZ ground plane == C++ XY for terrain queries.
+            let cliff = tl.is_cliff_cell(pos.x, pos.z);
+            let water = tl.is_underwater(pos.x, pos.z, None, None);
+            return (cliff, water);
+        }
+        (false, false)
+    }
+
     /// Advance Physics stun residual on all shocked units.
+    ///
+    /// Refreshes cell_is_cliff / cell_is_underwater from terrain before each tick
+    /// so testStunnedUnitForDestruction sees live surface residual.
     pub(crate) fn tick_shock_stun_all(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
@@ -5876,7 +5894,15 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
+            let pos = self
+                .objects
+                .get(&id)
+                .map(|o| o.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            let (cliff, water) = self.sample_stun_surface_at(pos);
             if let Some(o) = self.objects.get_mut(&id) {
+                o.cell_is_cliff = cliff;
+                o.cell_is_underwater = water;
                 o.tick_shock_stun();
             }
         }
@@ -71130,6 +71156,46 @@ mod tests {
             } else {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
+        }
+    }
+
+    #[test]
+    fn tick_shock_stun_all_samples_terrain_surface() {
+        use crate::game_logic::terrain::TerrainData;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::terrain::height_map::HeightMap;
+            let mut logic = GameLogic::new();
+            let mut hm = HeightMap::new(8, 8, 100.0, 1.0);
+            for h in hm.heights.iter_mut() {
+                *h = 0.1;
+            }
+            let mut terrain = TerrainData::from_heightmap(
+                hm,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(70.0, 0.0, 70.0),
+                0,
+            );
+            let ground = terrain.height_at_world(Vec3::new(10.0, 0.0, 10.0));
+            terrain.water_plane_y = Some(ground + 5.0);
+            logic.terrain = Some(terrain);
+
+            let mut tmpl = ThingTemplate::new("StunSurf");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            let id = ObjectId(9001);
+            let mut o = Object::new(tmpl, id, Team::USA);
+            o.set_position(Vec3::new(10.0, ground, 10.0));
+            o.shock_stun_frames = 10;
+            o.cell_is_underwater = false;
+            logic.objects.insert(id, o);
+            logic.tick_shock_stun_all();
+            let o = logic.objects.get(&id).expect("obj");
+            assert!(
+                o.cell_is_underwater,
+                "tick must sample underwater from terrain water plane"
+            );
         }
     }
 
