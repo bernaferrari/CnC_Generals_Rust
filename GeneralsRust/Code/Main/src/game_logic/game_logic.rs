@@ -15774,6 +15774,8 @@ impl GameLogic {
             HostUpgradeKind::UraniumShells => self.apply_uranium_shells_to_team(team, upgrade_name),
             HostUpgradeKind::BlackNapalm => self.apply_black_napalm_to_team(team, upgrade_name),
             HostUpgradeKind::ApBullets => self.apply_ap_bullets_to_team(team, upgrade_name),
+            HostUpgradeKind::AnthraxBeta => self.apply_anthrax_beta_to_team(team, upgrade_name),
+            HostUpgradeKind::ToxinShells => self.apply_toxin_shells_to_team(team, upgrade_name),
             HostUpgradeKind::Other => 0,
         };
 
@@ -15811,6 +15813,75 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ Upgrade_GLAAnthraxBeta residual — toxin tractor + SCUD + scud storm tier.
+    fn apply_anthrax_beta_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_scud_launcher::{
+            is_scud_launcher_template, UPGRADE_GLA_ANTHRAX_BETA,
+        };
+        use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
+
+        let mut n = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            let is_tt = is_toxin_tractor_template(&obj.template_name);
+            let is_scud = is_scud_launcher_template(&obj.template_name);
+            if !is_tt && !is_scud {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA) || obj.has_upgrade_tag(upgrade_name) {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA);
+            obj.applied_upgrades
+                .insert(UPGRADE_GLA_ANTHRAX_BETA.to_string());
+            n = n.saturating_add(1);
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_GLA_ANTHRAX_BETA.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
+    }
+
+    /// C++ Upgrade_GLAToxinShells residual — enables SCUD toxin secondary path.
+    fn apply_toxin_shells_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
+        use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
+
+        let mut n = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_scud_launcher_template(&obj.template_name) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS) || obj.has_upgrade_tag(upgrade_name) {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS);
+            obj.applied_upgrades
+                .insert(UPGRADE_GLA_TOXIN_SHELLS.to_string());
+            // Toxin shells residual also unlocks toxin secondary preference.
+            n = n.saturating_add(1);
+        }
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.unlocked_sciences
+                    .insert(UPGRADE_GLA_TOXIN_SHELLS.to_string());
+                p.unlocked_sciences.insert(upgrade_name.to_string());
+            }
+        }
+        n
     }
 
     /// C++ Upgrade_GLAAPBullets residual — Rebel / Jarmen / Technical / Quad.
@@ -80688,6 +80759,67 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
+        use crate::game_logic::host_scud_launcher::UPGRADE_GLA_ANTHRAX_BETA;
+        use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "GLA", true));
+
+        let mut tt = ThingTemplate::new("GLAVehicleToxinTruck");
+        tt.add_kind_of(KindOf::Vehicle).set_health(240.0);
+        logic.templates.insert("GLAVehicleToxinTruck".into(), tt);
+        let mut scud = ThingTemplate::new("GLAVehicleScudLauncher");
+        scud.add_kind_of(KindOf::Vehicle).set_health(180.0);
+        logic
+            .templates
+            .insert("GLAVehicleScudLauncher".into(), scud);
+
+        let tid = logic
+            .create_object(
+                "GLAVehicleToxinTruck",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("toxin");
+        let sid = logic
+            .create_object(
+                "GLAVehicleScudLauncher",
+                Team::GLA,
+                glam::Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("scud");
+
+        let n_a = logic.apply_anthrax_beta_to_team(Team::GLA, UPGRADE_GLA_ANTHRAX_BETA);
+        assert!(n_a >= 2);
+        assert!(logic
+            .get_object(tid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
+        assert!(logic
+            .get_object(sid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
+
+        // Fresh scud for toxin shells residual.
+        let sid2 = logic
+            .create_object(
+                "GLAVehicleScudLauncher",
+                Team::GLA,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("scud2");
+        let n_t = logic.apply_toxin_shells_to_team(Team::GLA, UPGRADE_GLA_TOXIN_SHELLS);
+        assert!(n_t >= 1);
+        assert!(logic
+            .get_object(sid2)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS));
     }
 
     #[test]
