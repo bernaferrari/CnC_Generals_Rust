@@ -65,6 +65,10 @@ pub const UPGRADE_CHINA_URANIUM_SHELLS: &str = "Upgrade_ChinaUraniumShells";
 pub const UPGRADE_CHINA_BLACK_NAPALM: &str = "Upgrade_ChinaBlackNapalm";
 /// GLA AP Bullets residual.
 pub const UPGRADE_GLA_AP_BULLETS: &str = "Upgrade_GLAAPBullets";
+/// GLA Anthrax Beta residual.
+pub const UPGRADE_GLA_ANTHRAX_BETA: &str = "Upgrade_GLAAnthraxBeta";
+/// GLA Toxin Shells residual.
+pub const UPGRADE_GLA_TOXIN_SHELLS: &str = "Upgrade_GLAToxinShells";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -149,6 +153,10 @@ pub enum HostUpgradeKind {
     BlackNapalm,
     /// GLA AP Bullets damage residual (Rebel/Jarmen/Technical/Quad).
     ApBullets,
+    /// GLA Anthrax Beta toxin upgrade residual.
+    AnthraxBeta,
+    /// GLA Toxin Shells SCUD secondary residual.
+    ToxinShells,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -211,6 +219,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::BlackNapalm
         } else if n.contains("apbullets") || n.contains("apbullet") {
             HostUpgradeKind::ApBullets
+        } else if n.contains("anthraxbeta") {
+            HostUpgradeKind::AnthraxBeta
+        } else if n.contains("toxinshells") || n.contains("toxinshell") {
+            HostUpgradeKind::ToxinShells
         } else {
             HostUpgradeKind::Other
         }
@@ -244,6 +256,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::UraniumShells => "UraniumShells",
             HostUpgradeKind::BlackNapalm => "BlackNapalm",
             HostUpgradeKind::ApBullets => "ApBullets",
+            HostUpgradeKind::AnthraxBeta => "AnthraxBeta",
+            HostUpgradeKind::ToxinShells => "ToxinShells",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -281,6 +295,8 @@ impl HostUpgradeKind {
             | HostUpgradeKind::UraniumShells
             | HostUpgradeKind::BlackNapalm
             | HostUpgradeKind::ApBullets
+            | HostUpgradeKind::AnthraxBeta
+            | HostUpgradeKind::ToxinShells
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -317,6 +333,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::UraniumShells => 2000,
             HostUpgradeKind::BlackNapalm => 2000,
             HostUpgradeKind::ApBullets => 1500,
+            HostUpgradeKind::AnthraxBeta => 2000,
+            HostUpgradeKind::ToxinShells => 1000,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -350,6 +368,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::UraniumShells => 60.0,
             HostUpgradeKind::BlackNapalm => 60.0,
             HostUpgradeKind::ApBullets => 45.0,
+            HostUpgradeKind::AnthraxBeta => 60.0,
+            HostUpgradeKind::ToxinShells => 30.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -983,6 +1003,18 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn anthrax_toxin_kinds_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLAAnthraxBeta"),
+            HostUpgradeKind::AnthraxBeta
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLAToxinShells"),
+            HostUpgradeKind::ToxinShells
+        );
     }
 
     #[test]
