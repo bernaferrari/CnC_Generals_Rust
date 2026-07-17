@@ -2079,6 +2079,9 @@ impl<'a> CommandExecutor<'a> {
             if crate::game_logic::host_stealth_fighter::is_stealth_fighter_science(science_name) {
                 self.game_logic.record_stealth_fighter_science_unlock();
             }
+            // C++ SpecialPowerModule::onSpecialPowerCreation residual.
+            self.game_logic
+                .on_special_power_science_creation(player_id, science_name);
             return CommandResult::Success;
         }
         CommandResult::InvalidCommand
