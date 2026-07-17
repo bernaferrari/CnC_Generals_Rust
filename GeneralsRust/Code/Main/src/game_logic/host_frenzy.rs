@@ -229,6 +229,23 @@ pub fn frenzy_level_from_science(science: &str) -> HostFrenzyLevel {
         SCIENCE_FRENZY1 | "Early_SCIENCE_Frenzy1" | _ => HostFrenzyLevel::One,
     }
 }
+/// Select highest unlocked Frenzy science tier (fail-closed → Level1).
+pub fn highest_frenzy_level_from_sciences<'a, I>(sciences: I) -> HostFrenzyLevel
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut best = HostFrenzyLevel::One;
+    for s in sciences {
+        let n = s.to_ascii_lowercase().replace('_', "").replace('-', "");
+        if n.contains("frenzy3") {
+            return HostFrenzyLevel::Three;
+        }
+        if n.contains("frenzy2") {
+            best = HostFrenzyLevel::Two;
+        }
+    }
+    best
+}
 
 /// Whether residual target can receive Frenzy / Rage attack buff.
 ///
