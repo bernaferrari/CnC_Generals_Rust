@@ -36564,7 +36564,11 @@ impl GameLogic {
                 return None;
             }
             let has_upgrade = obj.has_upgrade_tag(UPGRADE_HELIX_NAPALM_BOMB)
-                || obj.has_upgrade_tag("Upgrade_HelixNapalmBomb");
+                || obj.has_upgrade_tag("Upgrade_HelixNapalmBomb")
+                || obj
+                    .has_upgrade_tag(crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB)
+                || obj.has_upgrade_tag("Nuke_Upgrade_HelixNukeBomb")
+                || obj.has_upgrade_tag("Upgrade_HelixNukeBomb");
             let unlocked = helix_napalm_unlocked(&obj.template_name, has_upgrade);
             if !unlocked {
                 return None;
@@ -81431,6 +81435,56 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn helix_nuke_bomb_maps_to_helix_napalm_residual() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_helix_napalm::{
+            honesty_helix_nuke_bomb_residual_pack_ok, UPGRADE_HELIX_NUKE_BOMB,
+        };
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_helix_nuke_bomb_residual_pack_ok());
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::HelixNukeBomb),
+            Some("SPECIAL_HELIX_NAPALM_BOMB")
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut helix = ThingTemplate::new("ChinaHelix");
+        helix
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(400.0);
+        logic.templates.insert("ChinaHelix".into(), helix);
+        let mut enemy = ThingTemplate::new("GLAInfantryRebel");
+        enemy.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), enemy);
+        let src = logic
+            .create_object("ChinaHelix", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("helix");
+        // Without upgrade: fail-closed.
+        assert!(logic
+            .activate_helix_napalm_bomb(src, glam::Vec3::new(10.0, 0.0, 0.0))
+            .is_none());
+        if let Some(o) = logic.get_object_mut(src) {
+            o.apply_upgrade_tag(UPGRADE_HELIX_NUKE_BOMB);
+        }
+        let _e = logic
+            .create_object(
+                "GLAInfantryRebel",
+                Team::GLA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        assert!(logic
+            .activate_helix_napalm_bomb(src, glam::Vec3::new(10.0, 0.0, 0.0))
+            .is_some());
+        let _ = SpecialPowerType::HelixNukeBomb;
     }
 
     #[test]

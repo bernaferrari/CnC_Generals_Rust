@@ -1175,7 +1175,9 @@ impl<'a> CommandExecutor<'a> {
                     if self.game_logic.activate_firewall(unit_id, pos).is_none() {
                         continue;
                     }
-                } else if *power_type == SpecialPowerType::HelixNapalmBomb {
+                } else if *power_type == SpecialPowerType::HelixNapalmBomb
+                    || *power_type == SpecialPowerType::HelixNukeBomb
+                {
                     if self
                         .game_logic
                         .activate_helix_napalm_bomb(unit_id, pos)

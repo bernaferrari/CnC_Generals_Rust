@@ -411,6 +411,10 @@ pub enum SpecialPowerType {
     /// Fail-closed: not full SpecialObject NapalmBomb fall / HeightDieUpdate /
     /// FirestormDynamicGeometryInfoUpdate expand animation.
     HelixNapalmBomb,
+    /// Nuke General Helix NukeBomb residual (`Nuke_SpecialAbilityHelixNukeBomb`).
+    /// Same SPECIAL_HELIX_NAPALM_BOMB enum; host maps to Helix napalm residual path
+    /// with Nuke_Upgrade_HelixNukeBomb unlock residual.
+    HelixNukeBomb,
     /// China SuperweaponCashHack residual (SPECIAL_CASH_HACK / SuperweaponCashHack).
     /// Instant steal from richest enemy player by SCIENCE_CashHack1/2/3 amount
     /// (1000/2000/4000). Fail-closed vs full CashHackSpecialPower victim clamp /
