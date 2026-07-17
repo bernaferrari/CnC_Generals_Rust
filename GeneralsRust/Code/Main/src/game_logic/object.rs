@@ -2751,7 +2751,7 @@ impl Object {
     pub fn refresh_model_condition_bits(&mut self) {
         use crate::game_logic::host_enum_table_residual::{
             host_apply_body_damage_model_bits, host_calc_body_damage_state, HostBodyDamageType,
-            MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
+            MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING,
         };
         let health = self.health.current;
         let max_h = self.health.maximum.max(0.0);
@@ -2777,6 +2777,11 @@ impl Object {
             bits |= 1u128 << MC_BIT_DYING;
         } else {
             bits &= !(1u128 << MC_BIT_DYING);
+        }
+        if self.status.disguised {
+            bits |= 1u128 << MC_BIT_DISGUISED;
+        } else {
+            bits &= !(1u128 << MC_BIT_DISGUISED);
         }
         // C++ Physics stun model conditions residual.
         use crate::game_logic::host_enum_table_residual::{

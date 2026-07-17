@@ -245,6 +245,10 @@ pub struct RenderableObject {
     pub disguise_as_template: Option<String>,
     /// Apparent team while disguised.
     pub disguise_as_team: Option<Team>,
+    /// C++ OBJECT_STATUS_DISGUISED residual.
+    pub disguised: bool,
+    /// C++ StealthUpdate disguise transition opacity residual (0..1).
+    pub disguise_transition_opacity: f32,
     /// Stealth detector range residual (0 = none).
     pub detection_range: f32,
     /// Host detection_rate_frames residual (0 = continuous).
@@ -2167,7 +2171,19 @@ impl PresentationFrame {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: obj.team,
-                team_color: obj.team_color,
+                team_color: {
+                    // C++: enemies see disguise player color; allies see true colors.
+                    // Host residual: when DISGUISED, present disguise team color.
+                    if obj.status.disguised {
+                        if let Some(dt) = obj.disguise_as_team {
+                            dt.get_color()
+                        } else {
+                            obj.team_color
+                        }
+                    } else {
+                        obj.team_color
+                    }
+                },
                 // Use accessors so presentation matches authoritative transform state.
                 position: pos,
                 orientation: obj.get_orientation(),
@@ -2249,6 +2265,12 @@ impl PresentationFrame {
                     } else {
                         bits &= !(1u128 << MC_BIT_DYING);
                     }
+                    use crate::game_logic::host_enum_table_residual::MC_BIT_DISGUISED;
+                    if obj.status.disguised {
+                        bits |= 1u128 << MC_BIT_DISGUISED;
+                    } else {
+                        bits &= !(1u128 << MC_BIT_DISGUISED);
+                    }
                     bits
                 },
                 body_damage_state: {
@@ -2310,6 +2332,12 @@ impl PresentationFrame {
                 camo_stealth_look: obj.camo_stealth_look,
                 disguise_as_template: obj.disguise_as_template.clone(),
                 disguise_as_team: obj.disguise_as_team,
+                disguised: obj.status.disguised,
+                disguise_transition_opacity: if obj.status.disguise_transition_frames > 0 {
+                    obj.status.disguise_transition_opacity
+                } else {
+                    1.0
+                },
                 detection_range: obj.detection_range.max(0.0),
                 detection_rate_frames: obj.detection_rate_frames,
                 stealth_breaks_on_attack: obj.stealth_breaks_on_attack,
@@ -6690,6 +6718,13 @@ mod tests {
         assert!((u.detection_range - 300.0).abs() < 0.01);
         assert_eq!(u.disguise_as_template.as_deref(), Some("ChinaTroopCrawler"));
         assert_eq!(u.disguise_as_team, Some(Team::China));
+        assert!(u.disguised);
+        assert!((u.disguise_transition_opacity - 1.0).abs() < 0.01);
+        // DISGUISED model condition residual bit 116.
+        use crate::game_logic::host_enum_table_residual::MC_BIT_DISGUISED;
+        assert_ne!(u.model_condition_bits & (1u128 << MC_BIT_DISGUISED), 0);
+        // Disguise team color residual (China) replaces true USA tint.
+        assert_eq!(u.team_color, Team::China.get_color());
         assert_eq!(frame.attacking_units().len(), 1);
         assert_eq!(frame.contained_units().len(), 1);
         // pure stealth unit without disguise

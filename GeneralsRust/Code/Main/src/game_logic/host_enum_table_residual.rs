@@ -204,6 +204,8 @@ pub const MC_BIT_REALLYDAMAGED: u32 = 4;
 pub const MC_BIT_RUBBLE: u32 = 5;
 pub const MC_BIT_ATTACKING: u32 = 34;
 pub const MC_BIT_MOVING: u32 = 49;
+/// C++ MODELCONDITION_DISGUISED residual bit index.
+pub const MC_BIT_DISGUISED: u32 = 116;
 pub const MC_BIT_DYING: u32 = 50;
 
 /// C++ MODELCONDITION_STUNNED_FLAILING residual index (ALLOW_SURRENDER off).
