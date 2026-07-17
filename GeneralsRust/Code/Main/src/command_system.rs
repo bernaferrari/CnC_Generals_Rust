@@ -2316,10 +2316,19 @@ mod tests {
                 CommandResult::Success
             );
 
+            // C++ BuildAssistant::sellObject cancels production at sell start;
+            // structure refund deposits when sell finishes (~90 frames).
             assert_eq!(
                 game_logic.get_player(0).unwrap().resources.supplies,
-                1_500,
-                "selling should refund both the structure sell value and queued production"
+                1_000,
+                "sell start should refund queued production immediately"
+            );
+            assert!(
+                game_logic
+                    .find_object(barracks_id)
+                    .map(|object| object.status.sold)
+                    .unwrap_or(false),
+                "sell start should mark structure sold residual"
             );
             assert!(
                 game_logic
@@ -2327,7 +2336,26 @@ mod tests {
                     .and_then(|object| object.building_data.as_ref())
                     .map(|building| building.production_queue.is_empty())
                     .unwrap_or(true),
-                "sell should drain queued production before destroying the producer"
+                "sell should drain queued production at sell start"
+            );
+
+            // Advance multi-frame sell residual to completion.
+            for step in 1..=200u64 {
+                game_logic.set_current_frame(step);
+                game_logic.update_sell_list();
+                game_logic.process_destroy_list();
+                if game_logic.find_object(barracks_id).is_none() {
+                    break;
+                }
+            }
+            assert!(
+                game_logic.find_object(barracks_id).is_none(),
+                "sell finish should destroy structure"
+            );
+            assert_eq!(
+                game_logic.get_player(0).unwrap().resources.supplies,
+                1_500,
+                "selling should refund both the structure sell value and queued production"
             );
         });
     }
@@ -2382,6 +2410,19 @@ mod tests {
                 CommandResult::Success
             );
 
+            // Structure refund deposits at sell finish (C++ BuildAssistant::update).
+            for step in 1..=200u64 {
+                game_logic.set_current_frame(step);
+                game_logic.update_sell_list();
+                game_logic.process_destroy_list();
+                if game_logic.find_object(barracks_id).is_none() {
+                    break;
+                }
+            }
+            assert!(
+                game_logic.find_object(barracks_id).is_none(),
+                "sell finish should destroy structure"
+            );
             assert_eq!(
                 game_logic.get_player(0).unwrap().resources.supplies,
                 250,

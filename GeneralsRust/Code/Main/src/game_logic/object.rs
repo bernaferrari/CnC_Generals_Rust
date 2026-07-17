@@ -2903,6 +2903,41 @@ impl Object {
     /// - Clears ACTIVELY_BEING when dozer leaves.
 
     /// C++ MODELCONDITION_ACTIVELY_CONSTRUCTING residual (dozer or factory).
+
+    /// C++ BuildAssistant sell scaffold model residual (start of sell).
+    pub fn apply_sell_scaffold_model_conditions(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, construction_complete_model_bit,
+            partially_constructed_model_bit, sold_model_bit,
+        };
+        let part_b = partially_constructed_model_bit();
+        let active_b = actively_being_constructed_model_bit();
+        let sold_b = sold_model_bit();
+        let complete_b = construction_complete_model_bit();
+        self.model_condition_bits &= !(1u128 << sold_b);
+        self.model_condition_bits &= !(1u128 << complete_b);
+        self.model_condition_bits |= 1u128 << part_b;
+        self.model_condition_bits |= 1u128 << active_b;
+        self.refresh_model_condition_bits();
+    }
+
+    /// C++ BuildAssistant: when construction percent crosses to <= 0 during sell.
+    pub fn apply_sold_model_condition(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, awaiting_construction_model_bit,
+            partially_constructed_model_bit, sold_model_bit,
+        };
+        let await_b = awaiting_construction_model_bit();
+        let part_b = partially_constructed_model_bit();
+        let active_b = actively_being_constructed_model_bit();
+        let sold_b = sold_model_bit();
+        self.model_condition_bits &= !(1u128 << await_b);
+        self.model_condition_bits &= !(1u128 << part_b);
+        self.model_condition_bits &= !(1u128 << active_b);
+        self.model_condition_bits |= 1u128 << sold_b;
+        self.refresh_model_condition_bits();
+    }
+
     pub fn set_actively_constructing(&mut self, active: bool) {
         use crate::game_logic::host_enum_table_residual::actively_constructing_model_bit;
         let bit = actively_constructing_model_bit();
@@ -3093,6 +3128,11 @@ impl Object {
             (self.model_condition_bits & (1u128 << actively_constructing_model_bit())) != 0;
         if had_ac {
             bits |= 1u128 << actively_constructing_model_bit();
+        }
+        use crate::game_logic::host_enum_table_residual::sold_model_bit;
+        let had_sold_mc = (self.model_condition_bits & (1u128 << sold_model_bit())) != 0;
+        if had_sold_mc {
+            bits |= 1u128 << sold_model_bit();
         }
         self.model_condition_bits = bits;
     }
