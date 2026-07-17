@@ -87,6 +87,11 @@ pub const SUICIDE_CAR_BOMB_AUTO_RELOADS: bool = false;
 /// Retail DelayBetweenShots residual (msec).
 pub const SUICIDE_CAR_BOMB_DELAY_MS: u32 = 0;
 
+/// C++ HijackerUpdateModuleData::m_parachuteName residual.
+///
+/// Retail GLAInfantryHijacker HijackerUpdate ParachuteName = AmericaParachute.
+pub const HIJACKER_PARACHUTE_NAME: &str = "AmericaParachute";
+
 /// Host residual honesty counters for Hijack / CarBomb residual.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostCarBombRegistry {
@@ -98,6 +103,8 @@ pub struct HostCarBombRegistry {
     pub detonations: u32,
     /// Total residual HP damage dealt by car-bomb detonations (observable).
     pub detonation_damage_dealt: f32,
+    /// C++ HijackerUpdate airborne PutInContainer AmericaParachute residual.
+    pub airborne_parachute_puts: u32,
 }
 
 impl HostCarBombRegistry {
@@ -124,6 +131,15 @@ impl HostCarBombRegistry {
         }
     }
 
+    pub fn record_airborne_parachute_put(&mut self) {
+        self.airborne_parachute_puts = self.airborne_parachute_puts.saturating_add(1);
+    }
+
+    /// Residual honesty: airborne hijack eject put rider in AmericaParachute.
+    pub fn honesty_airborne_parachute_ok(&self) -> bool {
+        self.airborne_parachute_puts > 0
+    }
+
     /// Residual honesty: at least one hijack transferred a vehicle.
     pub fn honesty_hijack_ok(&self) -> bool {
         self.hijacks > 0
@@ -141,7 +157,10 @@ impl HostCarBombRegistry {
 
     /// Combined residual path honesty (hijack / convert / detonate).
     pub fn honesty_any_ok(&self) -> bool {
-        self.honesty_hijack_ok() || self.honesty_convert_ok() || self.honesty_detonate_ok()
+        self.honesty_hijack_ok()
+            || self.honesty_convert_ok()
+            || self.honesty_detonate_ok()
+            || self.honesty_airborne_parachute_ok()
     }
 }
 
