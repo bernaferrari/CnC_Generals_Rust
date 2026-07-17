@@ -5886,6 +5886,68 @@ impl GameLogic {
     ///
     /// Refreshes cell_is_cliff / cell_is_underwater from terrain before each tick
     /// so testStunnedUnitForDestruction sees live surface residual.
+
+    /// C++ PhysicsBehavior onCollide vehicle crash weapon residual.
+    ///
+    /// Fires temp crash weapon name residual (splash damage at vehicle) and
+    /// destroys the vehicle when falling into a structure.
+    pub fn apply_vehicle_crash_into_immobile(
+        &mut self,
+        vehicle_id: ObjectId,
+        other_id: ObjectId,
+    ) -> Option<&'static str> {
+        use crate::game_logic::host_partition_collision_physics_residual::{
+            vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name,
+        };
+        let outcome = {
+            let Some(v) = self.objects.get(&vehicle_id) else {
+                return None;
+            };
+            let Some(o) = self.objects.get(&other_id) else {
+                return None;
+            };
+            v.evaluate_vehicle_crash_into(o)
+        };
+        let weapon = vehicle_crash_weapon_name(outcome)?;
+        let pos = self
+            .objects
+            .get(&vehicle_id)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::ZERO);
+        // Residual temp weapon: deal explosion damage to vehicle (and mark crash).
+        // Fail-closed vs full WeaponStore::createAndFireTempWeapon OCL/FX matrix.
+        const CRASH_DAMAGE: f32 = 100.0;
+        if let Some(v) = self.objects.get_mut(&vehicle_id) {
+            let _ = v.take_damage_from_typed(
+                CRASH_DAMAGE,
+                Some(vehicle_id),
+                crate::game_logic::combat::DamageType::Explosive,
+            );
+        }
+        if vehicle_crash_destroys_vehicle(outcome) {
+            if let Some(v) = self.objects.get_mut(&vehicle_id) {
+                v.health.current = 0.0;
+                v.status.destroyed = true;
+                v.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Exploded;
+            }
+            // Also queue crash audio residual.
+            self.queue_audio_event(
+                AudioEventRequest::new(weapon)
+                    .with_object(vehicle_id)
+                    .with_position(pos)
+                    .with_priority(200),
+            );
+        } else {
+            self.queue_audio_event(
+                AudioEventRequest::new(weapon)
+                    .with_object(vehicle_id)
+                    .with_position(pos)
+                    .with_priority(160),
+            );
+        }
+        Some(weapon)
+    }
+
     pub(crate) fn tick_shock_stun_all(&mut self) {
         // Include bounce_audio_pending so land audio drains even after stun ends.
         let ids: Vec<ObjectId> = self
@@ -71175,6 +71237,35 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn apply_vehicle_crash_into_building_destroys() {
+        use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut vt = ThingTemplate::new("VCrash");
+        vt.add_kind_of(KindOf::Vehicle);
+        let vid = ObjectId(61);
+        let mut v = Object::new(vt, vid, Team::USA);
+        v.set_position(Vec3::new(0.0, 4.0, 0.0));
+        v.movement.velocity = Vec3::new(0.0, -2.0, 0.0);
+        v.health.current = 200.0;
+        logic.objects.insert(vid, v);
+
+        let mut st = ThingTemplate::new("SCrash");
+        st.add_kind_of(KindOf::Structure);
+        st.add_kind_of(KindOf::Immobile);
+        let sid = ObjectId(62);
+        logic.objects.insert(sid, Object::new(st, sid, Team::GLA));
+
+        let w = logic
+            .apply_vehicle_crash_into_immobile(vid, sid)
+            .expect("weapon");
+        assert_eq!(w, PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON);
+        assert!(logic.objects.get(&vid).unwrap().status.destroyed);
+        assert!(logic.queued_audio_event_count_for_test() > 0);
     }
 
     #[test]
