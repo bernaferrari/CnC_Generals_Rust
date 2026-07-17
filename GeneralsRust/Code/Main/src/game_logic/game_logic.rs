@@ -1422,6 +1422,8 @@ pub struct GameLogic {
     repair_complete_events: u32,
     /// C++ attemptHealingFromSoleBenefactor reject residual (dozer repair).
     sole_benefactor_repair_rejects: u32,
+    /// C++ DozerPrimaryIdleState bored auto-repair residual events.
+    dozer_bored_repair_events: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2657,6 +2659,7 @@ impl GameLogic {
             resume_construction_events: 0,
             repair_complete_events: 0,
             sole_benefactor_repair_rejects: 0,
+            dozer_bored_repair_events: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3042,6 +3045,7 @@ impl GameLogic {
         self.resume_construction_events = 0;
         self.repair_complete_events = 0;
         self.sole_benefactor_repair_rejects = 0;
+        self.dozer_bored_repair_events = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5105,6 +5109,8 @@ impl GameLogic {
         self.update_construction(&object_ids, dt);
         // C++ BuildAssistant::update sell list residual (multi-frame sell).
         self.update_sell_list();
+        // C++ DozerPrimaryIdleState bored auto-repair residual.
+        self.update_dozer_bored_repair();
         self.update_movement(&object_ids, dt);
 
         // Special power cooldown/timer updates
@@ -43304,6 +43310,91 @@ impl GameLogic {
         self.repair_complete_events > 0
     }
 
+    /// C++ DozerAIUpdate findObjectToRepair residual (same player, structure, damaged).
+    pub fn find_dozer_bored_repair_target(&self, dozer_id: ObjectId) -> Option<ObjectId> {
+        let dozer = self.objects.get(&dozer_id)?;
+        if !dozer.is_alive() || !dozer.can_repair() {
+            return None;
+        }
+        let pos = dozer.get_position();
+        let team = dozer.team;
+        let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
+        let range_sq = range * range;
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == dozer_id || !obj.is_alive() {
+                continue;
+            }
+            if obj.team != team || !obj.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            if obj.status.under_construction || obj.status.sold {
+                continue;
+            }
+            if obj.health.current + 0.01 >= obj.health.maximum {
+                continue;
+            }
+            // 2D distance residual (FROM_CENTER_2D).
+            let d = obj.get_position();
+            let dx = d.x - pos.x;
+            let dz = d.z - pos.z;
+            let dist_sq = dx * dx + dz * dz;
+            if dist_sq > range_sq {
+                continue;
+            }
+            match best {
+                None => best = Some((*id, dist_sq)),
+                Some((_, best_d)) if dist_sq < best_d => best = Some((*id, dist_sq)),
+                _ => {}
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
+    /// C++ DozerPrimaryIdleState bored auto-repair residual.
+    pub fn update_dozer_bored_repair(&mut self) {
+        let now = self.frame;
+        let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !obj.is_alive() || !obj.can_repair() {
+                continue;
+            }
+            // Track idle timestamp residual.
+            if matches!(obj.ai_state, AIState::Idle) {
+                if obj.idle_since_frame == 0 {
+                    obj.idle_since_frame = now.max(1);
+                }
+            } else {
+                obj.idle_since_frame = 0;
+                continue;
+            }
+            let idle_since = obj.idle_since_frame;
+            if now.saturating_sub(idle_since) < bored {
+                continue;
+            }
+            // Reset stamp so we don't scan every frame (C++ resets idle timestamp).
+            obj.idle_since_frame = now.max(1);
+            let Some(target_id) = self.find_dozer_bored_repair_target(id) else {
+                continue;
+            };
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.target = Some(target_id);
+                obj.ai_state = AIState::Repairing;
+                obj.set_actively_constructing(true);
+                obj.idle_since_frame = 0;
+            }
+            self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
+        }
+    }
+
+    pub fn honesty_dozer_bored_repair_ok(&self) -> bool {
+        self.dozer_bored_repair_events > 0
+    }
+
     pub fn honesty_sole_benefactor_repair_ok(&self) -> bool {
         self.sole_benefactor_repair_rejects > 0
     }
@@ -78101,6 +78192,62 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn dozer_bored_auto_repair_assigns_damaged_structure() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+        let sid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.health.current = 400.0;
+        }
+        let did = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(5.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        if let Some(o) = logic.get_object_mut(did) {
+            o.ai_state = AIState::Idle;
+            o.idle_since_frame = 1;
+        }
+        // Before bored time: no assign.
+        logic.frame = 50;
+        logic.update_dozer_bored_repair();
+        assert_eq!(logic.get_object(did).unwrap().ai_state, AIState::Idle);
+        // After bored time (150f).
+        logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
+        logic.update_dozer_bored_repair();
+        let d = logic.get_object(did).expect("d");
+        assert_eq!(d.ai_state, AIState::Repairing);
+        assert_eq!(d.target, Some(sid));
+        assert!(logic.honesty_dozer_bored_repair_ok());
     }
 
     #[test]
