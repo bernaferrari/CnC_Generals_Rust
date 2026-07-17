@@ -1172,6 +1172,20 @@ impl<'a> CommandExecutor<'a> {
                     ) {
                         continue;
                     }
+                } else if *power_type == SpecialPowerType::SpyDrone {
+                    let team = self
+                        .game_logic
+                        .get_object(unit_id)
+                        .map(|o| o.team)
+                        .unwrap_or(crate::game_logic::Team::Neutral);
+                    if !self.game_logic.activate_spy_drone(
+                        self.current_player_id,
+                        team,
+                        pos,
+                        Some(unit_id),
+                    ) {
+                        continue;
+                    }
                 } else if *power_type == SpecialPowerType::EmpPulse {
                     if !self.game_logic.activate_emp_pulse(
                         self.current_player_id,

@@ -1019,6 +1019,7 @@ pub struct GameLogic {
 
     /// Host SpySatellite FOW temporary-reveal residual.
     /// Fail-closed: not full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
+    spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry,
     spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
 
     /// Host CIA Intelligence / SpyVision residual (setUnitsVisionSpied).
@@ -2551,6 +2552,7 @@ impl GameLogic {
             hellfire_drone_residual_attaches: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
+            spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry::new(),
             cia_intelligence:
                 crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
@@ -2975,6 +2977,7 @@ impl GameLogic {
         self.hellfire_drone_residual_attaches = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
+        self.spy_drones.clear();
         self.hero_abilities.clear();
         self.black_markets.clear();
         self.oil_derricks.clear();
@@ -37450,9 +37453,154 @@ impl GameLogic {
         fow_reveal_ok || self.spy_satellites.activations() > 0
     }
 
+    /// Host SpyDrone residual: spawn AmericaVehicleSpyDrone + temporary FOW reveal.
+    /// Fail-closed: not full DynamicShroud grow/shrink / stealth module matrix.
+    pub fn activate_spy_drone(
+        &mut self,
+        player_id: u32,
+        team: Team,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_spy_drone::{
+            HostSpyDrone, SPY_DRONE_ACTIVATE_AUDIO, SPY_DRONE_FOW_DURATION_FRAMES,
+            SPY_DRONE_MAX_HEALTH, SPY_DRONE_RADIUS, SPY_DRONE_TEMPLATE, SPY_DRONE_VISION_RANGE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+        use gamelogic::common::Coord3D;
+
+        // Ensure template residual exists for spawn.
+        if !self.templates.contains_key(SPY_DRONE_TEMPLATE) {
+            let mut tpl = ThingTemplate::new(SPY_DRONE_TEMPLATE);
+            tpl.set_health(SPY_DRONE_MAX_HEALTH);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Drone);
+            // Vision residual for FOW / presentation.
+            tpl.sight_range = SPY_DRONE_VISION_RANGE;
+            tpl.model_name = Some(crate::game_logic::host_spy_drone::SPY_DRONE_MODEL.to_string());
+            self.templates.insert(SPY_DRONE_TEMPLATE.into(), tpl);
+        }
+
+        let spawned_id = self.create_object(SPY_DRONE_TEMPLATE, team, location);
+        let spawn_ok = spawned_id.is_some();
+        if let Some(id) = spawned_id {
+            if let Some(obj) = self.get_object_mut(id) {
+                obj.health.current = SPY_DRONE_MAX_HEALTH;
+                obj.health.maximum = SPY_DRONE_MAX_HEALTH;
+                // Innate stealth residual (StealthUpdate InnateStealth=Yes).
+                obj.status.stealthed = true;
+                obj.innate_stealth = true;
+                obj.is_detector = true;
+                obj.detection_range = SPY_DRONE_VISION_RANGE;
+            }
+        }
+
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+        let mut player_mask = 0u32;
+        for (&pid, player) in &self.players {
+            if player.team == team {
+                player_mask |= 1u32 << pid.min(31);
+            }
+        }
+        if player_mask == 0 {
+            player_mask = 1u32 << player_id.min(31);
+        }
+
+        let center = Coord3D::new(location.x, location.z, location.y);
+        let radius = SPY_DRONE_RADIUS;
+        let duration = SPY_DRONE_FOW_DURATION_FRAMES;
+        let frame = self.frame;
+
+        let fow_reveal_ok = {
+            let shroud = get_shroud_manager();
+            let mut shroud_mgr = match shroud.lock() {
+                Ok(mgr) => mgr,
+                Err(_) => {
+                    // Still record spawn residual even if shroud lock fails.
+                    let act_id = self.spy_drones.alloc_id();
+                    self.spy_drones.record_activation(HostSpyDrone {
+                        id: act_id,
+                        player_id,
+                        player_mask,
+                        location,
+                        radius,
+                        activate_frame: frame,
+                        expires_frame: frame.saturating_add(duration),
+                        caster_id,
+                        spawned_id,
+                        fow_reveal_ok: false,
+                        spawn_ok,
+                        dynamic_shroud_applied: true,
+                        stealth_detector_applied: true,
+                    });
+                    self.queue_audio_event(
+                        AudioEventRequest::new(SPY_DRONE_ACTIVATE_AUDIO)
+                            .with_position(location)
+                            .with_priority(150),
+                    );
+                    return spawn_ok;
+                }
+            };
+            if !shroud_mgr.has_shroud_grid() {
+                shroud_mgr.init_shroud_grid(world_w, world_h);
+            }
+            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+            shroud_mgr.queue_undo_shroud_reveal(&center, radius, player_mask, duration, frame);
+            let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
+            if !visible {
+                for bit in 0..32u32 {
+                    if (player_mask & (1u32 << bit)) != 0
+                        && shroud_mgr.is_position_visible(bit, &center)
+                    {
+                        visible = true;
+                        break;
+                    }
+                }
+            }
+            visible
+        };
+
+        let act_id = self.spy_drones.alloc_id();
+        self.spy_drones.record_activation(HostSpyDrone {
+            id: act_id,
+            player_id,
+            player_mask,
+            location,
+            radius,
+            activate_frame: frame,
+            expires_frame: frame.saturating_add(duration),
+            caster_id,
+            spawned_id,
+            fow_reveal_ok,
+            spawn_ok,
+            dynamic_shroud_applied: true,
+            stealth_detector_applied: true,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(SPY_DRONE_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(150),
+        );
+
+        spawn_ok || fow_reveal_ok
+    }
+
+    /// Residual honesty: SpyDrone activated at least once.
+    pub fn honesty_spy_drone_activate_ok(&self) -> bool {
+        self.spy_drones.honesty_activate_ok()
+    }
+
+    /// Residual honesty: SpyDrone spawned AmericaVehicleSpyDrone at least once.
+    pub fn honesty_spy_drone_spawn_ok(&self) -> bool {
+        self.spy_drones.honesty_spawn_ok()
+    }
+
     /// Advance SpySatellite residual: expire bookkeeping + process shroud undos.
     fn update_spy_satellites(&mut self) {
         self.spy_satellites.prune_expired(self.frame);
+        self.spy_drones.prune_expired(self.frame);
         if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
         }
@@ -81641,6 +81789,56 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn spy_drone_special_power_spawns_vehicle_residual() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_spy_drone::{
+            honesty_spy_drone_residual_pack_ok, SPY_DRONE_REQUIRED_SCIENCE, SPY_DRONE_TEMPLATE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_spy_drone_residual_pack_ok());
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let cc1 = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        // Science gate residual.
+        assert!(!logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpyDrone));
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+            p.unlock_science(SPY_DRONE_REQUIRED_SCIENCE);
+        }
+        assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpyDrone));
+        let before = logic.get_objects().len();
+        assert!(logic.activate_spy_drone(
+            0,
+            Team::USA,
+            glam::Vec3::new(50.0, 0.0, 50.0),
+            Some(cc1),
+        ));
+        assert!(logic.honesty_spy_drone_activate_ok());
+        assert!(logic.honesty_spy_drone_spawn_ok());
+        assert!(logic.get_objects().len() > before);
+        let drone = logic
+            .get_objects()
+            .values()
+            .find(|o| o.template_name == SPY_DRONE_TEMPLATE)
+            .expect("drone spawned");
+        assert!(drone.is_alive());
+        assert_eq!(drone.team, Team::USA);
+        // Consume shared timer residual.
+        assert!(logic.consume_special_power_charge_for(cc1, &SpecialPowerType::SpyDrone));
+        assert!(!logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpyDrone));
     }
 
     #[test]
