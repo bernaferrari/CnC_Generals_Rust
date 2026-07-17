@@ -189,6 +189,9 @@ pub struct Object {
     pub production_door_phase: u8,
     /// Frame when current door residual phase ends.
     pub production_door_phase_end_frame: u32,
+    /// C++ ProductionUpdate m_constructionCompleteFrame residual.
+    /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
+    pub construction_complete_clear_frame: u32,
     /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
     #[serde(default)]
     pub shock_stun_frames: u32,
@@ -1184,6 +1187,7 @@ impl Object {
             radar_active: false,
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
+            construction_complete_clear_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -1456,6 +1460,7 @@ impl Object {
             radar_active: false,
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
+            construction_complete_clear_frame: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
@@ -2987,11 +2992,54 @@ impl Object {
         self.refresh_model_condition_bits();
     }
 
+    /// C++ ProductionUpdate ConstructionCompleteDuration residual (default 45f / 1500ms).
+    pub const CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL: u32 = 45;
+
     pub fn set_construction_complete_condition(&mut self) {
+        self.set_construction_complete_condition_at(0);
+    }
+
+    /// Set CONSTRUCTION_COMPLETE and schedule clear after residual duration.
+    /// `now==0` keeps bit sticky (legacy structure-complete path until tick).
+    pub fn set_construction_complete_condition_at(&mut self, now: u32) {
         use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
         let bit = construction_complete_model_bit();
         self.model_condition_bits |= 1u128 << bit;
+        if now > 0 {
+            self.construction_complete_clear_frame =
+                now.saturating_add(Self::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL);
+        } else {
+            // Structure build-complete path: clear after residual duration from next tick
+            // when caller supplies frame via arm helper.
+            self.construction_complete_clear_frame = 0;
+        }
         self.refresh_model_condition_bits();
+    }
+
+    /// Arm clear deadline for CONSTRUCTION_COMPLETE (C++ m_constructionCompleteFrame).
+    pub fn arm_construction_complete_clear(&mut self, now: u32) {
+        if now == 0 {
+            return;
+        }
+        self.construction_complete_clear_frame =
+            now.saturating_add(Self::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL);
+    }
+
+    /// C++ ProductionUpdate clear CONSTRUCTION_COMPLETE after duration.
+    /// Returns true when the bit was cleared this tick.
+    pub fn tick_construction_complete_clear(&mut self, now: u32) -> bool {
+        if self.construction_complete_clear_frame == 0 {
+            return false;
+        }
+        if now < self.construction_complete_clear_frame {
+            return false;
+        }
+        use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
+        let bit = construction_complete_model_bit();
+        self.model_condition_bits &= !(1u128 << bit);
+        self.construction_complete_clear_frame = 0;
+        self.refresh_model_condition_bits();
+        true
     }
 
     pub fn refresh_model_condition_bits(&mut self) {
