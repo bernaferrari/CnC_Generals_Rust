@@ -27,6 +27,12 @@ pub const SUPERWEAPON_ENERGY_DRAIN: i32 = -10;
 /// Retail EnergyProduction residual for unpowered Scud Storm.
 pub const SCUD_STORM_ENERGY_PRODUCTION: i32 = 0;
 
+/// Retail MaxSimultaneousLinkKey residual string ("Superweapon").
+/// Counts all FS_SUPERWEAPON buildings **and** GLA Scud Storm rebuild holes as one type.
+pub const SUPERWEAPON_LINK_KEY: &str = "Superweapon";
+/// Retail multiplayer DeterminedBySuperweaponRestriction residual when limited.
+pub const SUPERWEAPON_MAX_SIMULTANEOUS_WHEN_LIMITED: u32 = 1;
+
 /// Object template residual names.
 pub const AMERICA_PARTICLE_CANNON_UPLINK: &str = "AmericaParticleCannonUplink";
 pub const GLA_SCUD_STORM: &str = "GLAScudStorm";
@@ -193,6 +199,61 @@ pub fn honesty_superweapon_kindof_residual_pack_wave80() -> bool {
                 && (p.build_time_sec - SUPERWEAPON_BUILD_TIME_SEC).abs() < 0.01
                 && (p.max_health - SUPERWEAPON_MAX_HEALTH).abs() < 0.01
         })
+}
+
+/// True when template is counted under MaxSimultaneousLinkKey=Superweapon residual.
+///
+/// Includes baseline PUC / Nuke / Scud + rebuild-hole residual name tokens.
+pub fn is_superweapon_link_key_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("rebuildhole") && (n.contains("scud") || n.contains("superweapon")) {
+        return true;
+    }
+    if n.contains("particlecannon")
+        || n.contains("particleuplink")
+        || n.contains("scudstorm")
+        || n.contains("nuclearmissile")
+        || n.contains("nuclear_missile")
+    {
+        return true;
+    }
+    // Exact retail names residual.
+    matches!(
+        template_name,
+        AMERICA_PARTICLE_CANNON_UPLINK
+            | GLA_SCUD_STORM
+            | CHINA_NUCLEAR_MISSILE_LAUNCHER
+            | "AmericaParticleUplinkCannon"
+            | "SupW_AmericaParticleCannonUplink"
+            | "Lazr_AmericaParticleCannonUplink"
+            | "Nuke_ChinaNuclearMissileLauncher"
+            | "Chem_GLAScudStorm"
+    )
+}
+
+/// C++ MaxSimultaneousOfType=DeterminedBySuperweaponRestriction residual.
+///
+/// When `limit_superweapons` is false (default skirmish/SP residual), unlimited.
+/// When true (MP option residual), max simultaneous = 1 across Superweapon link key.
+pub fn superweapon_max_simultaneous_allowed(limit_superweapons: bool) -> Option<u32> {
+    if limit_superweapons {
+        Some(SUPERWEAPON_MAX_SIMULTANEOUS_WHEN_LIMITED)
+    } else {
+        None
+    }
+}
+
+/// Honesty pack residual for MaxSimultaneous link key.
+pub fn honesty_superweapon_max_simultaneous_residual_pack() -> bool {
+    SUPERWEAPON_LINK_KEY == "Superweapon"
+        && SUPERWEAPON_MAX_SIMULTANEOUS_WHEN_LIMITED == 1
+        && is_superweapon_link_key_template(AMERICA_PARTICLE_CANNON_UPLINK)
+        && is_superweapon_link_key_template(GLA_SCUD_STORM)
+        && is_superweapon_link_key_template(CHINA_NUCLEAR_MISSILE_LAUNCHER)
+        && is_superweapon_link_key_template("GLAScudStormRebuildHole")
+        && !is_superweapon_link_key_template("AmericaCommandCenter")
+        && superweapon_max_simultaneous_allowed(false).is_none()
+        && superweapon_max_simultaneous_allowed(true) == Some(1)
 }
 
 #[cfg(test)]
