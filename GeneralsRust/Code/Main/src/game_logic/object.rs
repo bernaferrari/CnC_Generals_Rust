@@ -65,6 +65,15 @@ pub struct Object {
     /// C++ PhysicsBehavior m_rollRate residual from shock random rotation.
     #[serde(default)]
     pub shock_roll_rate: f32,
+    /// C++ PhysicsBehavior ALLOW_BOUNCE residual (enabled by applyRandomRotation).
+    #[serde(default)]
+    pub shock_allow_bounce: bool,
+    /// C++ WAS_AIRBORNE_LAST_FRAME residual during shock freefall.
+    #[serde(default)]
+    pub shock_was_airborne: bool,
+    /// First ground contact while stunned: STUNNED_FLAILING → STUNNED residual.
+    #[serde(default)]
+    pub shock_grounded_once: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -566,6 +575,9 @@ impl Object {
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
+            shock_allow_bounce: false,
+            shock_was_airborne: false,
+            shock_grounded_once: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -709,6 +721,9 @@ impl Object {
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
+            shock_allow_bounce: false,
+            shock_was_airborne: false,
+            shock_grounded_once: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -1717,11 +1732,20 @@ impl Object {
         } else if self.shock_stun_frames > 0 {
             bits |= 1u128 << MC_BIT_STUNNED;
         }
-        // FREEFALL residual: keep while vertical shock velocity is significant.
+        // FREEFALL residual: airborne while stunned (C++ IS_IN_FREEFALL path).
         use crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
         bits &= !(1u128 << MC_BIT_FREEFALL);
-        if self.movement.velocity.y > 4.0 && self.shock_stun_frames > 0 {
+        let airborne = self.get_position().y > 0.05 || self.movement.velocity.y > 1.0;
+        if airborne && self.shock_stun_frames > 0 && self.shock_was_airborne {
             bits |= 1u128 << MC_BIT_FREEFALL;
+        }
+        // After first ground contact, prefer STUNNED over FLAILING even if frames high.
+        if self.shock_grounded_once && self.shock_stun_frames > 0 {
+            use crate::game_logic::host_enum_table_residual::{
+                MC_BIT_STUNNED, MC_BIT_STUNNED_FLAILING,
+            };
+            bits &= !(1u128 << MC_BIT_STUNNED_FLAILING);
+            bits |= 1u128 << MC_BIT_STUNNED;
         }
         self.model_condition_bits = bits;
     }
@@ -1795,10 +1819,14 @@ impl Object {
             .wrapping_add((force.x.to_bits()).wrapping_mul(0x85EB_CA6B))
             .wrapping_add(force.z.to_bits());
         self.apply_shock_random_rotation(seed);
+        // C++ applyRandomRotation sets ALLOW_BOUNCE until bounce completes.
+        self.shock_allow_bounce = true;
+        self.shock_grounded_once = false;
         // Strong upward impulse residual: freefall model bit while airborne from shock.
         if self.movement.velocity.y > 8.0 {
             use crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
             self.model_condition_bits |= 1u128 << MC_BIT_FREEFALL;
+            self.shock_was_airborne = true;
         }
         // C++ setStunned(true) + MODELCONDITION_STUNNED_FLAILING residual.
         // Duration: 45 frames (~1.5s). First 30 flailing, then STUNNED, then clear.
@@ -1814,6 +1842,43 @@ impl Object {
         true
     }
 
+    /// C++ GlobalData::m_groundStiffness default residual.
+    pub const GROUND_STIFFNESS: f32 = 0.5;
+    /// Host gravity residual (world-Y up) while shock-airborne.
+    pub const SHOCK_GRAVITY: f32 = -0.8;
+    /// C++ handleBounce YPR damping residual.
+    pub const BOUNCE_YPR_DAMPING: f32 = 0.7;
+
+    /// C++ PhysicsBehavior::handleBounce residual (world-Y = C++ Z).
+    ///
+    /// Returns upward bounce velocity applied (0 if no bounce).
+    pub fn handle_shock_ground_bounce(&mut self, old_y: f32, new_y: f32, ground_y: f32) -> f32 {
+        if !self.shock_allow_bounce || new_y > ground_y {
+            return 0.0;
+        }
+        let mut bounce_vy = 0.0;
+        let vy = self.movement.velocity.y;
+        if old_y > ground_y && vy < 0.0 {
+            let stiffness = Self::GROUND_STIFFNESS.clamp(0.01, 0.99);
+            // C++ desiredAccelZ = fabs(vz)*stiffness; mass≈1 → velocity kick.
+            bounce_vy = vy.abs() * stiffness;
+        }
+        // Damp tumble rates on bounce.
+        self.shock_yaw_rate *= Self::BOUNCE_YPR_DAMPING;
+        self.shock_pitch_rate *= Self::BOUNCE_YPR_DAMPING;
+        self.shock_roll_rate *= Self::BOUNCE_YPR_DAMPING;
+        if bounce_vy > 0.0 {
+            self.movement.velocity.y = bounce_vy;
+            // Right the object residual: keep yaw, zero pitch/roll presentation rates.
+            self.shock_pitch_rate = 0.0;
+            self.shock_roll_rate = 0.0;
+            return bounce_vy;
+        }
+        // Bounce complete — restore original allow (host: off).
+        self.shock_allow_bounce = false;
+        0.0
+    }
+
     /// Tick shock stun residual (once per logic frame).
     pub fn tick_shock_stun(&mut self) {
         if self.shock_stun_frames == 0 {
@@ -1823,6 +1888,12 @@ impl Object {
             self.shock_roll_rate *= 0.85;
             if self.shock_yaw_rate.abs() < 1e-4 {
                 self.shock_yaw_rate = 0.0;
+            }
+            // Grounded settle: clear freefall leftovers.
+            if self.movement.velocity.y.abs() < 0.25 {
+                self.movement.velocity.y = 0.0;
+                self.shock_was_airborne = false;
+                self.shock_allow_bounce = false;
             }
             return;
         }
@@ -1835,12 +1906,51 @@ impl Object {
         }
         self.shock_pitch_rate *= 0.92;
         self.shock_roll_rate *= 0.92;
-        // Bleed vertical freefall velocity residual.
-        if self.movement.velocity.y > 0.0 {
-            self.movement.velocity.y *= 0.90;
-            if self.movement.velocity.y < 0.5 {
+
+        // Vertical freefall / bounce residual (host Y-up == C++ Z).
+        let ground_y = 0.0;
+        let old_y = self.get_position().y;
+        // Gravity while airborne or still carrying vertical velocity.
+        if old_y > ground_y + 0.01 || self.movement.velocity.y.abs() > 0.01 {
+            self.movement.velocity.y += Self::SHOCK_GRAVITY;
+            let mut pos = self.get_position();
+            let new_y = pos.y + self.movement.velocity.y;
+            if new_y <= ground_y {
+                let bounced = self.handle_shock_ground_bounce(old_y, new_y, ground_y);
+                pos.y = ground_y;
+                self.set_position(pos);
+                // C++ first ground hit while stunned: FLAILING → STUNNED.
+                if !self.shock_grounded_once {
+                    self.shock_grounded_once = true;
+                    // Force model into STUNNED band (frames 1..=15) if still flailing.
+                    if self.shock_stun_frames > 15 {
+                        self.shock_stun_frames = 15;
+                    }
+                }
+                if bounced <= 0.0 {
+                    // Slam residual: clamp downward vel at ground.
+                    if self.movement.velocity.y < 0.0 {
+                        self.movement.velocity.y = 0.0;
+                    }
+                    self.shock_was_airborne = false;
+                } else {
+                    self.shock_was_airborne = true;
+                }
+            } else {
+                pos.y = new_y;
+                self.set_position(pos);
+                self.shock_was_airborne = true;
+            }
+        } else {
+            // Lateral bleed only when grounded.
+            if self.movement.velocity.y.abs() < 0.5 {
                 self.movement.velocity.y = 0.0;
             }
+        }
+        // Lateral friction residual while stunned on ground.
+        if self.get_position().y <= ground_y + 0.01 {
+            self.movement.velocity.x *= 0.92;
+            self.movement.velocity.z *= 0.92;
         }
         self.refresh_model_condition_bits();
     }
@@ -4874,6 +4984,65 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn shock_bounce_settles_freefall_and_switches_to_stunned() {
+        use crate::game_logic::host_enum_table_residual::{
+            host_model_condition_has, MC_BIT_FREEFALL, MC_BIT_STUNNED, MC_BIT_STUNNED_FLAILING,
+        };
+        let mut tmpl = ThingTemplate::new("BounceVic");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(9), Team::USA);
+        o.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+        assert!(o.apply_shock_wave_impulse(glam::Vec3::new(10.0, 40.0, 0.0)));
+        assert!(o.shock_allow_bounce);
+        // Climb while velocity positive.
+        let mut saw_air = false;
+        let mut saw_bounce = false;
+        let mut max_y = 0.0f32;
+        let mut saw_stunned_after_ground = false;
+        for _ in 0..120 {
+            o.tick_shock_stun();
+            let y = o.get_position().y;
+            max_y = max_y.max(y);
+            if y > 0.5 {
+                saw_air = true;
+            }
+            if o.shock_grounded_once {
+                saw_bounce = true;
+                // While still stunned after first ground hit: STUNNED, not FLAILING.
+                if o.shock_stun_frames > 0 {
+                    assert!(
+                        host_model_condition_has(o.model_condition_bits, MC_BIT_STUNNED),
+                        "frames={} bits={:#x}",
+                        o.shock_stun_frames,
+                        o.model_condition_bits
+                    );
+                    assert!(!host_model_condition_has(
+                        o.model_condition_bits,
+                        MC_BIT_STUNNED_FLAILING
+                    ));
+                    saw_stunned_after_ground = true;
+                }
+            }
+            if o.shock_stun_frames == 0 && o.get_position().y <= 0.01 {
+                break;
+            }
+        }
+        assert!(saw_air || max_y > 0.0, "shock lift should leave ground");
+        assert!(saw_bounce || o.shock_grounded_once, "must hit ground");
+        assert!(
+            saw_stunned_after_ground,
+            "must observe STUNNED bit after ground while stun active"
+        );
+        // Settled: no freefall bit when grounded.
+        if o.get_position().y <= 0.01 && o.movement.velocity.y.abs() < 0.5 {
+            assert!(!host_model_condition_has(
+                o.model_condition_bits,
+                MC_BIT_FREEFALL
+            ));
+        }
+        assert!(o.get_position().y >= -0.01, "must not sink below ground");
+    }
     #[test]
     fn shock_applies_random_rotation_and_optional_freefall_bit() {
         use crate::game_logic::host_enum_table_residual::{
