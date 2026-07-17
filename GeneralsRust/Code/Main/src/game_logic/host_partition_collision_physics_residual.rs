@@ -533,6 +533,66 @@ pub const PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON: &str = "VehicleCrashesIn
 pub const PHYSICS_VEHICLE_CRASHES_INTO_NON_BUILDING_WEAPON: &str =
     "VehicleCrashesIntoNonBuildingWeapon";
 
+/// C++ GlobalData::m_defaultStructureRubbleHeight residual.
+pub const PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL: f32 = 1.0;
+/// C++ MINBOUNCESPEED residual (1/(LOGICFRAMES_PER_SECOND*5)).
+pub const PHYSICS_MIN_BOUNCE_SPEED_RESIDUAL: f32 = 1.0 / (30.0 * 5.0);
+
+/// C++ PhysicsBehavior onCollide vehicle-into-immobile crash residual outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VehicleCrashImmobileOutcome {
+    None,
+    /// Fire VehicleCrashesIntoBuildingWeapon and destroy the vehicle.
+    DestroyWithBuildingWeapon,
+    /// Fire VehicleCrashesIntoNonBuildingWeapon; vehicle continues.
+    DamageWithNonBuildingWeapon,
+}
+
+/// C++ PhysicsBehavior onCollide residual when falling into immobile other.
+///
+/// Requires vehicle, immobile other, downward motion, and height >= rubble height.
+pub fn vehicle_crash_into_immobile_outcome(
+    is_vehicle: bool,
+    other_is_structure: bool,
+    other_is_immobile: bool,
+    falling_down: bool,
+    vehicle_world_height: f32,
+    rubble_height: f32,
+) -> VehicleCrashImmobileOutcome {
+    if !is_vehicle || !other_is_immobile || !falling_down {
+        return VehicleCrashImmobileOutcome::None;
+    }
+    if vehicle_world_height < rubble_height {
+        return VehicleCrashImmobileOutcome::None;
+    }
+    if other_is_structure {
+        VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
+    } else {
+        VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon
+    }
+}
+
+/// Weapon template name for crash outcome residual.
+pub fn vehicle_crash_weapon_name(outcome: VehicleCrashImmobileOutcome) -> Option<&'static str> {
+    match outcome {
+        VehicleCrashImmobileOutcome::None => None,
+        VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon => {
+            Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
+        }
+        VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon => {
+            Some(PHYSICS_VEHICLE_CRASHES_INTO_NON_BUILDING_WEAPON)
+        }
+    }
+}
+
+/// Whether crash outcome destroys the vehicle (building path).
+pub fn vehicle_crash_destroys_vehicle(outcome: VehicleCrashImmobileOutcome) -> bool {
+    matches!(
+        outcome,
+        VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
+    )
+}
+
 /// C++ `PhysicsTurningType` residual: TURN_NEGATIVE.
 pub const PHYSICS_TURN_NEGATIVE: i32 = -1;
 /// C++ `TURN_NONE` residual.
@@ -657,6 +717,35 @@ pub fn honesty_physics_residual_pack_wave96() -> bool {
             == "VehicleCrashesIntoBuildingWeapon"
         && PHYSICS_VEHICLE_CRASHES_INTO_NON_BUILDING_WEAPON
             == "VehicleCrashesIntoNonBuildingWeapon"
+        && PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL == 1.0
+        && vehicle_crash_into_immobile_outcome(
+            true,
+            true,
+            true,
+            true,
+            2.0,
+            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        ) == VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
+        && vehicle_crash_into_immobile_outcome(
+            true,
+            false,
+            true,
+            true,
+            2.0,
+            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        ) == VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon
+        && vehicle_crash_into_immobile_outcome(
+            true,
+            true,
+            true,
+            false,
+            2.0,
+            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        ) == VehicleCrashImmobileOutcome::None
+        && vehicle_crash_weapon_name(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
+            == Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
+        && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
+        && !vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon)
 }
 
 // ---------------------------------------------------------------------------

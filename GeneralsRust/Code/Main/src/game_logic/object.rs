@@ -2026,6 +2026,32 @@ impl Object {
     }
 
     /// C++ PhysicsBehavior::doBounceSound residual (event count + fall dy + volume).
+
+    /// C++ PhysicsBehavior onCollide vehicle-into-immobile crash residual.
+    pub fn evaluate_vehicle_crash_into(
+        &self,
+        other: &Object,
+    ) -> crate::game_logic::host_partition_collision_physics_residual::VehicleCrashImmobileOutcome
+    {
+        use crate::game_logic::host_partition_collision_physics_residual::{
+            vehicle_crash_into_immobile_outcome, PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        };
+        let is_vehicle = self.is_kind_of(KindOf::Vehicle);
+        let other_structure = other.is_kind_of(KindOf::Structure);
+        let other_immobile =
+            other_structure || other.is_kind_of(KindOf::Immobile) || !other.can_move();
+        // C++ delta.z < 0 → host Y-up falling.
+        let falling = self.movement.velocity.y < 0.0;
+        vehicle_crash_into_immobile_outcome(
+            is_vehicle,
+            other_structure,
+            other_immobile,
+            falling,
+            self.get_position().y,
+            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+        )
+    }
+
     pub fn record_bounce_land(&mut self, prev_y: f32) {
         let dy = (prev_y - self.get_position().y).abs();
         self.last_bounce_fall_dy = dy;
@@ -5347,6 +5373,38 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn vehicle_crash_into_structure_residual() {
+        use crate::game_logic::host_partition_collision_physics_residual::{
+            vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name, VehicleCrashImmobileOutcome,
+            PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON,
+        };
+        let mut vt = ThingTemplate::new("CrashVic");
+        vt.add_kind_of(KindOf::Vehicle);
+        let mut v = Object::new(vt, ObjectId(51), Team::USA);
+        v.set_position(glam::Vec3::new(0.0, 5.0, 0.0));
+        v.movement.velocity = glam::Vec3::new(0.0, -3.0, 0.0);
+
+        let mut st = ThingTemplate::new("CrashBldg");
+        st.add_kind_of(KindOf::Structure);
+        st.add_kind_of(KindOf::Immobile);
+        let s = Object::new(st, ObjectId(52), Team::China);
+
+        let o = v.evaluate_vehicle_crash_into(&s);
+        assert_eq!(o, VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon);
+        assert!(vehicle_crash_destroys_vehicle(o));
+        assert_eq!(
+            vehicle_crash_weapon_name(o),
+            Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
+        );
+
+        // Rising vehicle: no crash.
+        v.movement.velocity.y = 2.0;
+        assert_eq!(
+            v.evaluate_vehicle_crash_into(&s),
+            VehicleCrashImmobileOutcome::None
+        );
+    }
     #[test]
     fn kill_when_resting_and_bounce_land_residual() {
         let mut tmpl = ThingTemplate::new("RestKillVic");
