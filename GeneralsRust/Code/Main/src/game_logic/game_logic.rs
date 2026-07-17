@@ -1412,6 +1412,8 @@ pub struct GameLogic {
     /// Sell residual process starts / finishes.
     sell_process_starts: u32,
     sell_process_finishes: u32,
+    /// CONSTRUCTION_COMPLETE duration clears residual.
+    construction_complete_clears: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2642,6 +2644,7 @@ impl GameLogic {
             sell_list: Vec::new(),
             sell_process_starts: 0,
             sell_process_finishes: 0,
+            construction_complete_clears: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3022,6 +3025,7 @@ impl GameLogic {
         self.sell_list.clear();
         self.sell_process_starts = 0;
         self.sell_process_finishes = 0;
+        self.construction_complete_clears = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5542,6 +5546,10 @@ impl GameLogic {
                     radar_extend_done.push(id);
                 }
                 let _ = obj.tick_production_door(self.frame);
+                if obj.tick_construction_complete_clear(self.frame) {
+                    self.construction_complete_clears =
+                        self.construction_complete_clears.saturating_add(1);
+                }
             }
         }
         for (id, team, name) in ready_superweapons {
@@ -5644,8 +5652,10 @@ impl GameLogic {
                 );
                 // C++ VoiceCreated + UnitReady residual.
                 self.notify_unit_production_complete(new_id, producer_id, &template);
-                // C++ ProductionUpdate door residual on producer.
+                // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.
                 if let Some(prod) = self.objects.get_mut(&producer_id) {
+                    let now = self.frame.max(1);
+                    prod.set_construction_complete_condition_at(now);
                     prod.start_production_door_cycle(self.frame);
                     self.production_door_cycles = self.production_door_cycles.saturating_add(1);
                 }
@@ -42885,7 +42895,9 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&structure_id) else {
             return;
         };
-        obj.set_construction_complete_condition();
+        // C++ ProductionUpdate CONSTRUCTION_COMPLETE + duration residual.
+        let now = self.frame.max(1);
+        obj.set_construction_complete_condition_at(now);
         let team = obj.team;
         let pos = obj.get_position();
         let name = obj.template_name.clone();
@@ -43123,6 +43135,10 @@ impl GameLogic {
 
     pub fn honesty_sell_process_ok(&self) -> bool {
         self.sell_process_starts > 0 && self.sell_process_finishes > 0
+    }
+
+    pub fn honesty_construction_complete_clear_ok(&self) -> bool {
+        self.construction_complete_clears > 0
     }
 
     pub fn is_object_being_sold(&self, id: ObjectId) -> bool {
@@ -77910,6 +77926,69 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn construction_complete_clears_after_duration() {
+        use crate::game_logic::host_enum_table_residual::{
+            construction_complete_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::object::Object;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        logic.frame = 10;
+        logic.notify_structure_construction_complete(id);
+        let o = logic.get_object(id).expect("o");
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            construction_complete_model_bit()
+        ));
+        assert_eq!(
+            o.construction_complete_clear_frame,
+            10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL
+        );
+        // Before duration elapses: bit remains.
+        let before = 10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL - 1;
+        logic.frame = before;
+        if let Some(o) = logic.get_object_mut(id) {
+            assert!(!o.tick_construction_complete_clear(before));
+        }
+        assert!(host_model_condition_has(
+            logic.get_object(id).unwrap().model_condition_bits,
+            construction_complete_model_bit()
+        ));
+        // At deadline: clear.
+        let at = 10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL;
+        logic.frame = at;
+        if let Some(o) = logic.get_object_mut(id) {
+            assert!(o.tick_construction_complete_clear(at));
+        }
+        assert!(!host_model_condition_has(
+            logic.get_object(id).unwrap().model_condition_bits,
+            construction_complete_model_bit()
+        ));
+        assert_eq!(
+            logic
+                .get_object(id)
+                .unwrap()
+                .construction_complete_clear_frame,
+            0
+        );
     }
 
     #[test]
