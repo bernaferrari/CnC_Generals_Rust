@@ -4875,6 +4875,10 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // Weapon fire and damage application as part of the object update pass.
         self.update_combat(&object_ids, dt);
+        // Nested AttackStateMachine residual (privateAttackObject enter path).
+        let frame = self.frame;
+        let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
+        self.tick_nested_attack_machines(&object_ids, t, frame);
         self.tick_out_of_ammo_jet_damage();
         self.tick_airfield_parking_heal();
         self.tick_airfield_runway_clear();
@@ -6309,6 +6313,58 @@ impl GameLogic {
         }
     }
 
+    /// Drive nested AttackStateMachine for units that entered via attack_state_enter.
+    ///
+    /// Units owned by the SM have is_aiming_weapon / is_firing_weapon or a non-Aim
+    /// substate after approach. Legacy update_combat still owns plain Attacking units.
+    pub(crate) fn tick_nested_attack_machines(
+        &mut self,
+        object_ids: &[ObjectId],
+        current_time: f32,
+        logic_frame: u32,
+    ) {
+        let mut stop: Vec<ObjectId> = Vec::new();
+        for &id in object_ids {
+            let (drive, victim) = {
+                let Some(u) = self.objects.get(&id) else {
+                    continue;
+                };
+                if u.ai_state != AIState::Attacking {
+                    continue;
+                }
+                let sm_owned = u.status.is_aiming_weapon
+                    || u.status.is_firing_weapon
+                    || !matches!(
+                        u.attack_substate,
+                        crate::game_logic::AttackSubState::AimAtTarget
+                    );
+                if !sm_owned {
+                    continue;
+                }
+                let Some(vid) = u.target else {
+                    stop.push(id);
+                    continue;
+                };
+                (true, vid)
+            };
+            if !drive {
+                continue;
+            }
+            match self.tick_attack_state_machine(id, victim, current_time, logic_frame, 0.35) {
+                AttackMachineResult::Continue => {}
+                AttackMachineResult::Success | AttackMachineResult::Failure => {
+                    stop.push(id);
+                }
+            }
+        }
+        for id in stop {
+            self.attack_state_exit(id);
+            if let Some(u) = self.objects.get_mut(&id) {
+                u.stop_attack();
+            }
+        }
+    }
+
     /// C++ AttackStateMachine + AIAttackState::update residual (object attack).
     pub fn tick_attack_state_machine(
         &mut self,
@@ -6820,15 +6876,15 @@ impl GameLogic {
             _ => return false,
         };
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.target = Some(victim_id);
-            u.ai_state = AIState::Attacking;
-            u.status.attacking = true;
             u.set_max_shots_to_fire(max_shots);
         } else {
             return false;
         }
+        // C++ AIAttackState::onEnter residual via nested AttackStateMachine.
+        if self.attack_state_enter(unit_id, victim_id) == AttackMachineResult::Failure {
+            return false;
+        }
         // Prefer attack path if out of range / LOS blocked residual handled by assign.
-        // State is already set; path failure still allows in-place fire residual.
         let _ = self.request_attack_path(unit_id, Some(victim_id), victim_pos);
         true
     }
@@ -7812,6 +7868,16 @@ impl GameLogic {
                 }
                 // ECM jam residual: C++ canFireWeapon DISABLED_SUBDUED — no fire while jammed.
                 if attacker.status.weapons_jammed || attacker.is_disabled() {
+                    continue;
+                }
+                // Nested AttackStateMachine residual owns aim/fire/approach for these units.
+                if attacker.status.is_aiming_weapon
+                    || attacker.status.is_firing_weapon
+                    || !matches!(
+                        attacker.attack_substate,
+                        crate::game_logic::AttackSubState::AimAtTarget
+                    )
+                {
                     continue;
                 }
                 // Interaction orders set `target` without being attacks.
@@ -72237,6 +72303,52 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn private_attack_object_enters_attack_state_machine() {
+        use crate::game_logic::{
+            AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+        };
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("PaA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1701);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("PaV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1702);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        assert!(logic.private_attack_object(aid, vid, -1));
+        assert!(logic.objects[&aid].status.is_aiming_weapon);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::AimAtTarget
+        );
+        // Nested tick should promote Aim → Fire when facing.
+        logic.tick_nested_attack_machines(&[aid], 10.0, 1);
+        assert_eq!(
+            logic.objects[&aid].attack_substate,
+            AttackSubState::FireWeapon
+        );
     }
 
     #[test]
