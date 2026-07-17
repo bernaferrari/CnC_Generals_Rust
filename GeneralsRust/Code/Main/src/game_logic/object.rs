@@ -39,6 +39,11 @@ fn default_turret_turn_rate() -> f32 {
     0.01
 }
 
+/// C++ default recenter wait residual (2 * LOGICFRAMES_PER_SECOND).
+fn default_turret_recenter_frames() -> u32 {
+    60
+}
+
 fn default_max_shots() -> i32 {
     -1
 }
@@ -843,6 +848,15 @@ pub struct Object {
     /// C++ MODELCONDITION_TURRET_ROTATE residual.
     #[serde(default)]
     pub turret_rotating: bool,
+    /// C++ TurretAIData NaturalTurretAngle residual (deg).
+    #[serde(default)]
+    pub turret_natural_angle_deg: f32,
+    /// C++ TurretAIData NaturalTurretPitch residual (deg).
+    #[serde(default)]
+    pub turret_natural_pitch_deg: f32,
+    /// C++ TurretAIData::m_recenterTime residual (logic frames).
+    #[serde(default = "default_turret_recenter_frames")]
+    pub turret_recenter_frames: u32,
 
     /// C++ AIUpdateInterface AttitudeType residual (AI_SLEEP..AI_AGGRESSIVE).
     /// Host residual for TurretAI mood matrix Sleep/Passive gates.
@@ -1288,6 +1302,9 @@ impl Object {
             turret_turn_rate_rad: default_turret_turn_rate(),
             turret_substate: TurretSubState::Idle,
             turret_rotating: false,
+            turret_natural_angle_deg: 0.0,
+            turret_natural_pitch_deg: 0.0,
+            turret_recenter_frames: default_turret_recenter_frames(),
             ai_attitude: 0, // HostAiAttitude::Normal
             last_damage_source: None,
             camo_friendly_opacity: 1.0,
@@ -1532,6 +1549,9 @@ impl Object {
             turret_turn_rate_rad: default_turret_turn_rate(),
             turret_substate: TurretSubState::Idle,
             turret_rotating: false,
+            turret_natural_angle_deg: 0.0,
+            turret_natural_pitch_deg: 0.0,
+            turret_recenter_frames: default_turret_recenter_frames(),
             ai_attitude: 0, // HostAiAttitude::Normal
             last_damage_source: None,
             camo_friendly_opacity: 1.0,
@@ -5232,6 +5252,28 @@ impl Object {
     }
 
     /// C++ TurretAI::setTurretTargetObject residual (object-local).
+
+    /// C++ TurretAI::friend_turnTowardsPitch residual.
+    pub fn turn_turret_towards_pitch_rad(
+        &mut self,
+        desired_pitch_rad: f32,
+        rate_modifier: f32,
+    ) -> bool {
+        let desired = Self::normalize_angle_rad(desired_pitch_rad);
+        let mut actual = Self::normalize_angle_rad(self.turret_pitch_deg.to_radians());
+        let pitch_rate = (self.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
+        let diff = Self::normalize_angle_rad(desired - actual);
+        if diff.abs() < pitch_rate {
+            actual = desired;
+        } else if diff > 0.0 {
+            actual = Self::normalize_angle_rad(actual + pitch_rate);
+        } else {
+            actual = Self::normalize_angle_rad(actual - pitch_rate);
+        }
+        self.turret_pitch_deg = actual.to_degrees();
+        Self::normalize_angle_rad(actual - desired).abs() <= 1e-4
+    }
+
     pub fn set_turret_target_object(&mut self, victim: Option<ObjectId>, force_attacking: bool) {
         if !self.turret_enabled {
             return;

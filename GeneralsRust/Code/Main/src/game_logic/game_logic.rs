@@ -4879,6 +4879,7 @@ impl GameLogic {
         let frame = self.frame;
         let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
         self.tick_nested_attack_machines(&object_ids, t, frame);
+        self.tick_all_turret_state_machines(&object_ids, t, frame);
         self.tick_out_of_ammo_jet_damage();
         self.tick_airfield_parking_heal();
         self.tick_airfield_runway_clear();
@@ -6662,12 +6663,24 @@ impl GameLogic {
             if !alive {
                 if let Some(u) = self.objects.get_mut(&unit_id) {
                     u.set_turret_target_object(None, false);
+                    if u.turret_substate == crate::game_logic::object::TurretSubState::Hold {
+                        u.turret_hold_until_frame =
+                            self.frame.saturating_add(u.turret_recenter_frames.max(1));
+                        u.turret_holding = true;
+                    }
                 }
                 return;
             }
         }
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_turret_target_object(victim_id, force_attacking);
+            if victim_id.is_none()
+                && u.turret_substate == crate::game_logic::object::TurretSubState::Hold
+            {
+                u.turret_hold_until_frame =
+                    self.frame.saturating_add(u.turret_recenter_frames.max(1));
+                u.turret_holding = true;
+            }
         }
     }
 
@@ -6675,6 +6688,157 @@ impl GameLogic {
     ///
     /// Returns Success when within REL_THRESH (~2°), Continue while turning,
     /// Failure if no target / dead.
+
+    /// C++ TurretAI state machine residual (AIM/FIRE/HOLD/RECENTER).
+    ///
+    /// Call once per frame for turret-enabled units.
+    pub fn tick_turret_state_machine(
+        &mut self,
+        unit_id: ObjectId,
+        current_time: f32,
+        logic_frame: u32,
+    ) -> AttackAimResult {
+        use crate::game_logic::object::TurretSubState;
+
+        let (enabled, sub, tid) = {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return AttackAimResult::Failure;
+            };
+            if !u.turret_enabled || !u.is_alive() {
+                return AttackAimResult::Failure;
+            }
+            (true, u.turret_substate, u.turret_target_id)
+        };
+        let _ = enabled;
+
+        match sub {
+            TurretSubState::Idle | TurretSubState::IdleScan => {
+                // Idle residual owned by strategy-center host; no-op here.
+                AttackAimResult::Continue
+            }
+            TurretSubState::Aim => {
+                let Some(vid) = tid else {
+                    // No target → HOLD
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.turret_substate = TurretSubState::Hold;
+                        u.turret_hold_until_frame =
+                            logic_frame.saturating_add(u.turret_recenter_frames.max(1));
+                        u.turret_holding = true;
+                    }
+                    return AttackAimResult::Continue;
+                };
+                // Dead victim → HOLD
+                let alive = self
+                    .objects
+                    .get(&vid)
+                    .map(|v| v.is_alive() && !v.status.destroyed)
+                    .unwrap_or(false);
+                if !alive {
+                    self.set_turret_target_object(unit_id, None, false);
+                    return AttackAimResult::Continue;
+                }
+                // OOR while aiming stays in AIM (body approach elsewhere).
+                match self.tick_turret_aim(unit_id, 1.0) {
+                    AttackAimResult::Success => {
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.turret_substate = TurretSubState::Fire;
+                        }
+                        let _ = self.attack_fire_weapon_enter(unit_id);
+                        AttackAimResult::Success
+                    }
+                    other => other,
+                }
+            }
+            TurretSubState::Fire => {
+                let Some(vid) = tid else {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.turret_substate = TurretSubState::Aim;
+                    }
+                    return AttackAimResult::Continue;
+                };
+                // C++ fireConditions: outOfWeaponRangeObject → AIM
+                if self.out_of_weapon_range_object(unit_id, vid) {
+                    self.attack_fire_weapon_exit(unit_id);
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.turret_substate = TurretSubState::Aim;
+                    }
+                    return AttackAimResult::Continue;
+                }
+                let fire = self.attack_fire_weapon_update(unit_id, vid, current_time);
+                match fire {
+                    AttackFireResult::Continue => AttackAimResult::Continue,
+                    AttackFireResult::Success | AttackFireResult::Failure => {
+                        // C++ FIRE success and failure both return to AIM.
+                        self.attack_fire_weapon_exit(unit_id);
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.turret_substate = TurretSubState::Aim;
+                        }
+                        AttackAimResult::Continue
+                    }
+                }
+            }
+            TurretSubState::Hold => {
+                let done = {
+                    let Some(u) = self.objects.get(&unit_id) else {
+                        return AttackAimResult::Failure;
+                    };
+                    logic_frame >= u.turret_hold_until_frame && u.turret_hold_until_frame > 0
+                };
+                if done {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.turret_holding = false;
+                        u.turret_hold_until_frame = 0;
+                        u.turret_substate = TurretSubState::Recenter;
+                        u.turret_idle_recentering = true;
+                    }
+                }
+                AttackAimResult::Continue
+            }
+            TurretSubState::Recenter => {
+                // C++ rate modifier 0.5 toward natural angle/pitch.
+                let (ang_ok, pitch_ok) = {
+                    let Some(u) = self.objects.get_mut(&unit_id) else {
+                        return AttackAimResult::Failure;
+                    };
+                    let nat_a = u.turret_natural_angle_deg.to_radians();
+                    let nat_p = u.turret_natural_pitch_deg.to_radians();
+                    let a = u.turn_turret_towards_angle_rad(nat_a, 0.5, 0.0);
+                    let p = u.turn_turret_towards_pitch_rad(nat_p, 0.5);
+                    (a, p)
+                };
+                if ang_ok && pitch_ok {
+                    if let Some(u) = self.objects.get_mut(&unit_id) {
+                        u.turret_substate = TurretSubState::Idle;
+                        u.turret_idle_recentering = false;
+                        u.turret_rotating = false;
+                    }
+                    AttackAimResult::Success
+                } else {
+                    AttackAimResult::Continue
+                }
+            }
+        }
+    }
+
+    /// Drive TurretAI SM for all turret-enabled objects.
+    pub(crate) fn tick_all_turret_state_machines(
+        &mut self,
+        object_ids: &[ObjectId],
+        current_time: f32,
+        logic_frame: u32,
+    ) {
+        for &id in object_ids {
+            let enabled = self
+                .objects
+                .get(&id)
+                .map(|o| o.turret_enabled && o.is_alive())
+                .unwrap_or(false);
+            if enabled {
+                let _ = self.tick_turret_state_machine(id, current_time, logic_frame);
+            }
+        }
+    }
+
     pub fn tick_turret_aim(
         &mut self,
         unit_id: ObjectId,
@@ -72610,6 +72774,167 @@ mod tests {
             logic.objects[&aid].attack_substate,
             AttackSubState::FireWeapon
         );
+    }
+
+    #[test]
+    fn turret_sm_aim_to_fire_when_aligned() {
+        use crate::game_logic::object::TurretSubState;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("TsmA");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2101);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.turret_enabled = true;
+            o.turret_angle_deg = 0.0;
+            o.turret_turn_rate_rad = 1.0;
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("TsmV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2102);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        logic.set_turret_target_object(aid, Some(vid), false);
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
+        let r = logic.tick_turret_state_machine(aid, 10.0, 1);
+        assert_eq!(r, AttackAimResult::Success);
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Fire);
+    }
+
+    #[test]
+    fn turret_sm_fire_returns_to_aim() {
+        use crate::game_logic::object::TurretSubState;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("TsmA2");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2103);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.turret_enabled = true;
+            o.turret_angle_deg = 0.0;
+            o.turret_substate = TurretSubState::Fire;
+            o.turret_target_id = Some(ObjectId(2104));
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("TsmV2");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2104);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(15.0, 0.0, 0.0));
+            o
+        });
+        let _ = logic.tick_turret_state_machine(aid, 10.0, 1);
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
+    }
+
+    #[test]
+    fn turret_sm_clear_target_holds_then_recenters() {
+        use crate::game_logic::object::TurretSubState;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        logic.frame = 100;
+        let mut at = ThingTemplate::new("TsmA3");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2105);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.turret_enabled = true;
+            o.turret_angle_deg = 45.0;
+            o.turret_natural_angle_deg = 0.0;
+            o.turret_turn_rate_rad = 1.0;
+            o.turret_recenter_frames = 5;
+            o.turret_substate = TurretSubState::Aim;
+            o.turret_target_id = Some(ObjectId(99));
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        });
+        logic.set_turret_target_object(aid, None, false);
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Hold);
+        assert!(logic.objects[&aid].turret_holding);
+        // Hold not elapsed
+        let _ = logic.tick_turret_state_machine(aid, 0.0, 102);
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Hold);
+        // Hold elapsed → Recenter
+        let _ = logic.tick_turret_state_machine(aid, 0.0, 200);
+        assert_eq!(
+            logic.objects[&aid].turret_substate,
+            TurretSubState::Recenter
+        );
+        // Recenter to natural
+        for f in 201..220 {
+            let r = logic.tick_turret_state_machine(aid, 0.0, f);
+            if logic.objects[&aid].turret_substate == TurretSubState::Idle {
+                assert_eq!(r, AttackAimResult::Success);
+                break;
+            }
+        }
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Idle);
+        assert!(logic.objects[&aid].turret_angle_deg.abs() < 1.0);
+    }
+
+    #[test]
+    fn turret_sm_fire_oor_returns_to_aim() {
+        use crate::game_logic::object::TurretSubState;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("TsmA4");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2106);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.turret_enabled = true;
+            o.turret_substate = TurretSubState::Fire;
+            o.turret_target_id = Some(ObjectId(2107));
+            o.weapon = Some(Weapon {
+                range: 30.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("TsmV4");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2107);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(400.0, 0.0, 0.0));
+            o
+        });
+        let _ = logic.tick_turret_state_machine(aid, 10.0, 1);
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
     }
 
     #[test]
