@@ -12,6 +12,10 @@ fn default_braking() -> f32 {
     50.0
 }
 
+fn actual_speed_is_zero(o: &Object) -> bool {
+    o.movement.velocity.x.abs() < 1e-4 && o.movement.velocity.z.abs() < 1e-4
+}
+
 fn default_strategy_center_turret_angle() -> f32 {
     crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
 }
@@ -52,6 +56,22 @@ pub enum LocomotorBehaviorZ {
     SurfaceRelativeHeight = 2,
     AbsoluteHeight = 3,
     SmoothRelativeToHighestLayer = 4,
+}
+
+/// C++ LocomotorAppearance residual (subset used by host update_movement).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum LocomotorAppearance {
+    #[default]
+    Other = 0,
+    LegsTwo = 1,
+    WheelsFour = 2,
+    Treads = 3,
+    Hover = 4,
+    Wings = 5,
+    Thrust = 6,
+    Motorcycle = 7,
+    Climber = 8,
 }
 
 /// Game Object - the main entity class for all game units, buildings, etc.
@@ -274,6 +294,30 @@ pub struct Object {
     pub maintain_pos_valid: bool,
     #[serde(default)]
     pub maintain_pos: Option<glam::Vec3>,
+    /// C++ Locomotor appearance residual.
+    #[serde(default)]
+    pub loco_appearance: LocomotorAppearance,
+    /// C++ m_minTurnSpeed residual (host units/sec).
+    #[serde(default)]
+    pub min_turn_speed: f32,
+    /// C++ m_minSpeed residual (host units/sec).
+    #[serde(default)]
+    pub min_speed: f32,
+    /// C++ ULTRA_ACCURATE flag residual.
+    #[serde(default)]
+    pub ultra_accurate: bool,
+    /// C++ canMoveBackward residual (wheeled).
+    #[serde(default)]
+    pub can_move_backward: bool,
+    /// C++ MOVING_BACKWARDS residual.
+    #[serde(default)]
+    pub moving_backwards: bool,
+    /// C++ NO_SLOW_DOWN_AS_APPROACHING_DEST residual.
+    #[serde(default)]
+    pub no_slow_down_as_approaching_dest: bool,
+    /// C++ OVER_WATER model condition residual (hover).
+    #[serde(default)]
+    pub over_water: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -944,6 +988,14 @@ impl Object {
             loco_preferred_height_damping: 1.0,
             maintain_pos_valid: false,
             maintain_pos: None,
+            loco_appearance: LocomotorAppearance::Other,
+            min_turn_speed: 0.0,
+            min_speed: 0.0,
+            ultra_accurate: false,
+            can_move_backward: false,
+            moving_backwards: false,
+            no_slow_down_as_approaching_dest: false,
+            over_water: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1149,6 +1201,14 @@ impl Object {
             loco_preferred_height_damping: 1.0,
             maintain_pos_valid: false,
             maintain_pos: None,
+            loco_appearance: LocomotorAppearance::Other,
+            min_turn_speed: 0.0,
+            min_speed: 0.0,
+            ultra_accurate: false,
+            can_move_backward: false,
+            moving_backwards: false,
+            no_slow_down_as_approaching_dest: false,
+            over_water: false,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2668,13 +2728,91 @@ impl Object {
 
     /// C++ Locomotor::setPhysicsOptions residual.
     pub fn set_locomotor_physics_options(&mut self) {
-        // Ultra-accurate residual not fully ported — base extra friction only.
-        self.extra_friction = self.loco_extra_2d_friction;
+        // C++ EXTRA_FRIC 0.5 when ULTRA_ACCURATE.
+        let ultra = if self.ultra_accurate { 0.5 } else { 0.0 };
+        self.extra_friction = self.loco_extra_2d_friction + ultra;
         self.apply_friction_2d_when_airborne = self.loco_apply_2d_friction_airborne;
         // Walking units stick to ground residual.
         if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
             self.stick_to_ground = true;
+            if matches!(self.loco_appearance, LocomotorAppearance::Other) {
+                self.loco_appearance = LocomotorAppearance::LegsTwo;
+            }
+        } else if self.is_kind_of(crate::game_logic::KindOf::Aircraft) {
+            if matches!(self.loco_appearance, LocomotorAppearance::Other) {
+                self.loco_appearance = LocomotorAppearance::Wings;
+            }
+        } else if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
+            if matches!(self.loco_appearance, LocomotorAppearance::Other) {
+                // Fail-closed: vehicles default treads-like (tanks common in host).
+                self.loco_appearance = LocomotorAppearance::Treads;
+            }
         }
+    }
+
+    /// C++ Locomotor::calcMinTurnRadius residual (host units).
+    pub fn calc_min_turn_radius(&self) -> f32 {
+        let min_speed = self.min_speed.max(0.0);
+        // turn_rate is rad/sec; convert to per-frame for C++ parity radius.
+        let max_turn_rate = self.movement.turn_rate / 30.0;
+        if max_turn_rate > 1.0e-6 {
+            // minSpeed is units/sec → per-frame for C++ formula minSpeed/maxTurnRate
+            (min_speed / 30.0) / max_turn_rate
+        } else {
+            999_999.0
+        }
+    }
+
+    /// Apply forward motive force to close speedDelta (C++ legs/other residual).
+    fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32) {
+        let actual = self.forward_speed_2d();
+        // When moving backwards residual, treat signed speed.
+        let actual = if self.moving_backwards {
+            -actual.abs()
+        } else {
+            actual
+        };
+        let speed_delta = goal_speed - actual;
+        if speed_delta.abs() < 1.0e-5 {
+            return;
+        }
+        let mass = self.physics_get_mass();
+        // Host Movement accel is units/sec²; convert impulse for one logic frame.
+        let frame_dt = (dt * 30.0).clamp(0.5, 2.0) / 30.0; // ~one frame
+        let acceleration = if speed_delta > 0.0 {
+            self.movement.acceleration
+        } else {
+            -self.braking.max(self.movement.acceleration)
+        };
+        let mut accel_force = mass * acceleration * frame_dt * 30.0; // N-ish
+        let max_force_needed = mass * speed_delta;
+        if accel_force.abs() > max_force_needed.abs() {
+            accel_force = max_force_needed;
+        }
+        let dir = self.unit_direction_vector_2d();
+        let sign = if self.moving_backwards { -1.0 } else { 1.0 };
+        self.apply_motive_force(glam::Vec3::new(
+            accel_force * dir.x * sign,
+            0.0,
+            accel_force * dir.y * sign,
+        ));
+        // Integrate immediately so this frame's movement sees it (host dt path).
+        self.integrate_physics_accel();
+        // Also blend velocity toward goal for host-second dt residual.
+        let dir = self.unit_direction_vector_2d();
+        let target = glam::Vec3::new(
+            dir.x * goal_speed * sign,
+            self.movement.velocity.y,
+            dir.y * goal_speed * sign,
+        );
+        let max_accel = self.movement.acceleration * dt;
+        let diff = target - self.movement.velocity;
+        if diff.length() <= max_accel {
+            self.movement.velocity = target;
+        } else if diff.length() > 1e-6 {
+            self.movement.velocity += diff.normalize() * max_accel;
+        }
+        self.invalidate_velocity_magnitude();
     }
 
     /// C++ PhysicsBehavior::applyMotiveForce residual.
@@ -5591,52 +5729,91 @@ impl Object {
             // C++ rotateTowardsPosition residual.
             let (_turning, angle_diff) = self.rotate_towards_position(target_pos, dt);
 
-            // Treads-like: modulate speed by turn amount (C++ QUARTER_PI coeff).
+            // Appearance-specific speed residual (C++ moveTowardsPosition*).
             let quarter_pi = std::f32::consts::FRAC_PI_4;
             let mut angle_coeff = angle_diff.abs() / quarter_pi;
             if angle_coeff > 1.0 {
                 angle_coeff = 1.0;
             }
-            let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
 
-            // Braking residual near destination.
+            // Wheels: can only turn while moving — cap to minTurnSpeed when turning.
+            if matches!(
+                self.loco_appearance,
+                LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
+            ) {
+                let mut turn_speed = self.min_turn_speed;
+                if turn_speed < desired_speed / 4.0 {
+                    turn_speed = desired_speed / 4.0;
+                }
+                let small_turn = std::f32::consts::PI / 20.0;
+                if angle_diff.abs() > small_turn && desired_speed > turn_speed {
+                    desired_speed = turn_speed;
+                }
+                // Reverse residual when goal is behind and can_move_backward.
+                if self.can_move_backward
+                    && actual_speed_is_zero(self)
+                    && angle_diff.abs() > std::f32::consts::FRAC_PI_2
+                {
+                    self.moving_backwards = true;
+                }
+                if self.moving_backwards && angle_diff.abs() < std::f32::consts::FRAC_PI_2 {
+                    self.moving_backwards = false;
+                }
+            }
+
+            let mut goal_speed = match self.loco_appearance {
+                LocomotorAppearance::LegsTwo
+                | LocomotorAppearance::Climber
+                | LocomotorAppearance::Treads => (1.0 - angle_coeff) * desired_speed,
+                LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle => desired_speed,
+                LocomotorAppearance::Hover
+                | LocomotorAppearance::Wings
+                | LocomotorAppearance::Thrust
+                | LocomotorAppearance::Other => desired_speed,
+            };
+
+            // Braking residual near destination (unless NO_SLOW_DOWN).
             let actual_speed = self.forward_speed_2d().abs();
             let braking = self.braking.max(1.0e-3);
             let slow_down_time = actual_speed / braking;
             let slow_down_dist = (actual_speed / 1.50) * slow_down_time;
-            if dist_2d < slow_down_dist && !self.is_braking {
-                self.is_braking = true;
-                self.braking_factor = 1.1;
+            if !self.no_slow_down_as_approaching_dest {
+                if dist_2d < slow_down_dist && !self.is_braking {
+                    self.is_braking = true;
+                    self.braking_factor = 1.1;
+                }
+                if dist_2d > PATHFIND_CELL_SIZE_F_RESIDUAL && dist_2d > 2.0 * slow_down_dist {
+                    self.is_braking = false;
+                    self.braking_factor = 1.0;
+                }
+                if self.is_braking {
+                    let floor = self.min_speed.max(0.0);
+                    goal_speed = goal_speed
+                        .min(actual_speed * 0.85 / self.braking_factor.max(1.0))
+                        .max(floor);
+                }
             }
-            if dist_2d > PATHFIND_CELL_SIZE_F_RESIDUAL && dist_2d > 2.0 * slow_down_dist {
-                self.is_braking = false;
-                self.braking_factor = 1.0;
-            }
-            if self.is_braking {
-                goal_speed = goal_speed.min(actual_speed * 0.85 / self.braking_factor.max(1.0));
-            }
-            if dist_2d < 2.0 * PATHFIND_CELL_SIZE_F_RESIDUAL && angle_coeff > 0.05 {
+            // Treads near-goal tight turn residual.
+            if matches!(self.loco_appearance, LocomotorAppearance::Treads)
+                && dist_2d < 2.0 * PATHFIND_CELL_SIZE_F_RESIDUAL
+                && angle_coeff > 0.05
+            {
                 goal_speed = actual_speed * 0.6;
             }
 
-            // Apply motive acceleration along facing (C++ applyMotiveForce residual).
-            // Host Movement is units/sec; force ≈ mass * accel for one frame then integrate
-            // is handled by velocity lerp below for host dt-seconds path (fail-closed).
-            let dir = self.unit_direction_vector_2d();
-            let target_vx = dir.x * goal_speed;
-            let target_vz = dir.y * goal_speed;
-            let target_velocity = Vec3::new(target_vx, self.movement.velocity.y, target_vz);
-            let velocity_diff = target_velocity - self.movement.velocity;
-            let max_accel = self.movement.acceleration * dt;
-            if velocity_diff.length() <= max_accel {
-                self.movement.velocity = target_velocity;
-            } else if velocity_diff.length() > 1.0e-6 {
-                self.movement.velocity += velocity_diff.normalize() * max_accel;
+            // Force/velocity apply residual.
+            self.apply_forward_speed_force(goal_speed, dt);
+
+            // Hover over-water residual (model condition flag only).
+            if matches!(self.loco_appearance, LocomotorAppearance::Hover) {
+                // Fail-closed: no water table — never set over_water true here.
+                if self.over_water {
+                    self.over_water = false;
+                }
             }
-            self.invalidate_velocity_magnitude();
 
             // Arm motive window so collide forces stay lateral while driving.
-            if goal_speed > 0.1 {
+            if goal_speed.abs() > 0.1 {
                 self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
             }
 

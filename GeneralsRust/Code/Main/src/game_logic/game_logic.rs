@@ -71549,6 +71549,51 @@ mod tests {
     }
 
     #[test]
+    fn wheels_cap_speed_while_turning() {
+        use crate::game_logic::{
+            KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
+        };
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Wheel");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(971), Team::USA);
+        o.loco_appearance = LocomotorAppearance::WheelsFour;
+        o.set_orientation(0.0);
+        o.movement.max_speed = 60.0;
+        o.movement.acceleration = 1000.0;
+        o.movement.turn_rate = 0.5;
+        o.min_turn_speed = 15.0;
+        o.movement.target_position = Some(Vec3::new(0.0, 0.0, 100.0));
+        o.update_movement(1.0 / 30.0);
+        // Hard turn: wheels should not instantly reach 60.
+        assert!(o.movement.velocity.length() < 40.0);
+    }
+
+    #[test]
+    fn calc_min_turn_radius_finite() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("R");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(972), Team::USA);
+        o.min_speed = 30.0;
+        o.movement.turn_rate = std::f32::consts::PI; // rad/sec
+        let r = o.calc_min_turn_radius();
+        assert!(r.is_finite() && r > 0.0 && r < 1000.0, "r={r}");
+    }
+
+    #[test]
+    fn ultra_accurate_adds_extra_friction() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("UA");
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(973), Team::USA);
+        o.loco_extra_2d_friction = 0.1;
+        o.ultra_accurate = true;
+        o.set_locomotor_physics_options();
+        assert!((o.extra_friction - 0.6).abs() < 1e-5);
+    }
+
+    #[test]
     fn rotate_towards_position_sets_turning() {
         use crate::game_logic::{
             KindOf, Object, ObjectId, PhysicsTurningType, Team, ThingTemplate,
