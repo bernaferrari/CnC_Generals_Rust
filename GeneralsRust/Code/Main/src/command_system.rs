@@ -449,6 +449,13 @@ pub enum SpecialPowerType {
     /// (SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES).
     /// Locks secondary laser weapon + attack target (StartAbilityRange 200).
     MissileDefenderLaserGuided,
+    /// China Tank Hunter TNT special residual (SPECIAL_TANKHUNTER_TNT_ATTACK).
+    /// Plants sticky timed charge (StartAbilityRange 5, Reload 7500ms).
+    TankHunterTnt,
+    /// Laser General Howitzer laser guided residual
+    /// (shares SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES enum).
+    /// Host maps to secondary laser-lock attack residual.
+    LaserGuidedHowitzer,
     Invalid,
 }
 

@@ -278,6 +278,11 @@ pub fn tnt_ready(current_frame: u32, last_tnt_frame: Option<u32>) -> bool {
     }
 }
 
+/// Whether planter is within StartAbilityRange residual for TNT plant.
+pub fn tnt_in_start_range(distance: f32) -> bool {
+    distance <= TNT_START_ABILITY_RANGE
+}
+
 /// Whether target is legal for TNT residual (structure or ground vehicle).
 pub fn is_legal_tnt_target(
     target_alive: bool,

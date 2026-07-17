@@ -30502,6 +30502,11 @@ impl GameLogic {
     ///
     /// Fail-closed: not full PreparationTime / PersistentPrepTime / LaserBeam object matrix.
     /// SpecialPower ReloadTime = 0 residual (always ready).
+    /// Residual last TNT plant frame for a Tank Hunter (ReloadTime gate).
+    pub fn tank_hunter_tnt_last_plant_frame(&self, object_id: ObjectId) -> Option<u32> {
+        self.tank_hunter_tnt_last_frame.get(&object_id).copied()
+    }
+
     pub fn activate_missile_defender_laser_guided(
         &mut self,
         object_id: ObjectId,
@@ -81484,6 +81489,98 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_missile_defender::{
+            is_missile_defender_template, missile_defender_laser_guided_weapon,
+            missile_defender_primary_weapon,
+        };
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        use crate::game_logic::host_tank_hunter::{
+            is_tank_hunter_template, tnt_in_start_range, TNT_START_ABILITY_RANGE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::TankHunterTnt),
+            Some("SPECIAL_TANKHUNTER_TNT_ATTACK")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::LaserGuidedHowitzer),
+            Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
+        );
+        assert!(is_tank_hunter_template("ChinaInfantryTankHunter"));
+        assert!(tnt_in_start_range(TNT_START_ABILITY_RANGE));
+        assert!(!tnt_in_start_range(TNT_START_ABILITY_RANGE + 1.0));
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut th = ThingTemplate::new("ChinaInfantryTankHunter");
+        th.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("ChinaInfantryTankHunter".into(), th);
+        let mut structure = ThingTemplate::new("GLATunnelNetwork");
+        structure.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), structure);
+
+        let src = logic
+            .create_object(
+                "ChinaInfantryTankHunter",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("th");
+        let tgt = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(3.0, 0.0, 0.0),
+            )
+            .expect("struct");
+        // Direct plant path residual (in range).
+        let planted = logic.place_timed_demo_charge(
+            Team::China,
+            glam::Vec3::new(3.0, 0.0, 0.0),
+            Some(src),
+            Some(tgt),
+            None,
+        );
+        assert!(planted.is_some());
+
+        // Laser howitzer shares MD laser residual path for laser-capable infantry.
+        let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+        md.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".into(), md);
+        let md_id = logic
+            .create_object(
+                "AmericaInfantryMissileDefender",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("md");
+        if let Some(o) = logic.get_object_mut(md_id) {
+            o.weapon = Some(missile_defender_primary_weapon());
+            o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+        }
+        let enemy = logic
+            .create_object(
+                "GLATunnelNetwork",
+                Team::GLA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("e2");
+        assert!(logic.activate_missile_defender_laser_guided(md_id, enemy));
+        assert!(is_missile_defender_template(
+            "AmericaInfantryMissileDefender"
+        ));
+        let _ = SpecialPowerType::TankHunterTnt;
+        let _ = SpecialPowerType::LaserGuidedHowitzer;
     }
 
     #[test]
