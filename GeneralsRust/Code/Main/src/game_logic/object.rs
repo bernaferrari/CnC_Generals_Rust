@@ -86,6 +86,18 @@ pub struct Object {
     /// Host TerrainLogic::isUnderwater residual for stun destruction (set by world).
     #[serde(default)]
     pub cell_is_underwater: bool,
+    /// C++ PhysicsBehaviorModuleData::m_killWhenRestingOnGround residual.
+    #[serde(default)]
+    pub kill_when_resting_on_ground: bool,
+    /// C++ IMMUNE_TO_FALLING_DAMAGE residual (projectiles / special).
+    #[serde(default)]
+    pub immune_to_falling_damage: bool,
+    /// Host residual: bounce-land audio events (doBounceSound count).
+    #[serde(default)]
+    pub bounce_land_events: u32,
+    /// Last bounce vertical displacement residual for volume (prevY - y).
+    #[serde(default)]
+    pub last_bounce_fall_dy: f32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -542,6 +554,8 @@ pub const LOCO_SURFACE_WATER: u32 = 1 << 1;
 pub const LOCO_SURFACE_CLIFF: u32 = 1 << 2;
 pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
 pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
+/// C++ PhysicsBehavior isVerySmall3D residual threshold.
+pub const VERY_SMALL_VEL: f32 = 0.01;
 
 impl Object {
     pub fn new(template: ThingTemplate, id: ObjectId, team: Team) -> Self {
@@ -605,6 +619,10 @@ impl Object {
             locomotor_surfaces: 0,
             cell_is_cliff: false,
             cell_is_underwater: false,
+            kill_when_resting_on_ground: false,
+            immune_to_falling_damage: false,
+            bounce_land_events: 0,
+            last_bounce_fall_dy: 0.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -755,6 +773,10 @@ impl Object {
             locomotor_surfaces: 0,
             cell_is_cliff: false,
             cell_is_underwater: false,
+            kill_when_resting_on_ground: false,
+            immune_to_falling_damage: false,
+            bounce_land_events: 0,
+            last_bounce_fall_dy: 0.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -1927,8 +1949,44 @@ impl Object {
     ///
     /// `impact_vy` is world-Y velocity at impact (negative when falling).
     /// Returns damage applied (0 if none).
+
+    /// C++ isVerySmall3D residual on velocity.
+    pub fn velocity_is_very_small(&self) -> bool {
+        let v = self.movement.velocity;
+        v.x.abs() < VERY_SMALL_VEL && v.y.abs() < VERY_SMALL_VEL && v.z.abs() < VERY_SMALL_VEL
+    }
+
+    /// C++ PhysicsBehavior::doBounceSound residual (event count + fall dy).
+    pub fn record_bounce_land(&mut self, prev_y: f32) {
+        let dy = (prev_y - self.get_position().y).abs();
+        self.last_bounce_fall_dy = dy;
+        self.bounce_land_events = self.bounce_land_events.saturating_add(1);
+    }
+
+    /// C++ killWhenRestingOnGround residual.
+    ///
+    /// When settled on ground with near-zero velocity, kill non-drone (or
+    /// unmanned/dead drones).
+    pub fn maybe_kill_when_resting_on_ground(&mut self) -> bool {
+        if !self.kill_when_resting_on_ground || self.status.destroyed {
+            return false;
+        }
+        if self.get_position().y > 0.05 {
+            return false;
+        }
+        if !self.velocity_is_very_small() {
+            return false;
+        }
+        let is_drone = self.template_name.to_ascii_lowercase().contains("drone");
+        // C++: kill if !drone OR dead OR unmanned.
+        if is_drone && self.is_alive() && !self.status.disabled_unmanned {
+            return false;
+        }
+        self.kill_from_stun_destruction()
+    }
+
     pub fn apply_shock_fall_damage(&mut self, impact_vy: f32) -> f32 {
-        if self.is_kind_of(KindOf::Projectile) {
+        if self.immune_to_falling_damage || self.is_kind_of(KindOf::Projectile) {
             return 0.0;
         }
         // netSpeed = -activeVelZ - minFall (C++ Z-up); host Y-up equivalent.
@@ -2093,6 +2151,7 @@ impl Object {
                 self.shock_was_airborne = false;
                 self.shock_allow_bounce = false;
                 self.status.disabled_freefall = false;
+                let _ = self.maybe_kill_when_resting_on_ground();
             }
             return;
         }
@@ -2129,8 +2188,9 @@ impl Object {
                         self.shock_stun_frames = 15;
                     }
                 }
-                // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd → falling damage.
+                // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd → bounce sound + fall damage.
                 if was_air {
+                    self.record_bounce_land(old_y);
                     let _ = self.apply_shock_fall_damage(impact_vy);
                 }
                 if bounced <= 0.0 {
@@ -2169,6 +2229,8 @@ impl Object {
             if self.movement.velocity.y <= 0.01 {
                 self.status.disabled_freefall = false;
             }
+            // C++ killWhenRestingOnGround after settle.
+            let _ = self.maybe_kill_when_resting_on_ground();
         }
         self.refresh_model_condition_bits();
     }
@@ -5202,6 +5264,64 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn kill_when_resting_and_bounce_land_residual() {
+        let mut tmpl = ThingTemplate::new("RestKillVic");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(41), Team::USA);
+        o.kill_when_resting_on_ground = true;
+        o.shock_stun_frames = 5;
+        o.set_position(glam::Vec3::ZERO);
+        o.movement.velocity = glam::Vec3::ZERO;
+        assert!(o.maybe_kill_when_resting_on_ground());
+        assert!(o.status.destroyed);
+
+        // Drone alive with flag does not kill.
+        let mut td = ThingTemplate::new("CombatDrone");
+        td.add_kind_of(KindOf::Vehicle);
+        let mut d = Object::new(td, ObjectId(42), Team::USA);
+        d.kill_when_resting_on_ground = true;
+        d.shock_stun_frames = 5;
+        d.set_position(glam::Vec3::ZERO);
+        d.movement.velocity = glam::Vec3::ZERO;
+        assert!(!d.maybe_kill_when_resting_on_ground());
+        assert!(!d.status.destroyed);
+        // Unmanned drone does kill.
+        d.status.disabled_unmanned = true;
+        assert!(d.maybe_kill_when_resting_on_ground());
+        assert!(d.status.destroyed);
+
+        // Bounce land event on airborne ground hit.
+        let mut tb = ThingTemplate::new("BounceSnd");
+        tb.add_kind_of(KindOf::Vehicle);
+        let mut b = Object::new(tb, ObjectId(43), Team::USA);
+        b.shock_stun_frames = 30;
+        b.shock_allow_bounce = false;
+        b.shock_was_airborne = true;
+        b.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
+        b.movement.velocity = glam::Vec3::new(0.0, -5.0, 0.0);
+        b.immune_to_falling_damage = true; // isolate bounce event
+        for _ in 0..20 {
+            b.tick_shock_stun();
+            if b.bounce_land_events > 0 {
+                break;
+            }
+        }
+        assert!(
+            b.bounce_land_events > 0,
+            "landing records bounce sound residual"
+        );
+        assert!(b.last_bounce_fall_dy > 0.0);
+
+        // Immune falling takes no damage.
+        let mut ti = ThingTemplate::new("ImmuneFall");
+        ti.add_kind_of(KindOf::Vehicle);
+        let mut i = Object::new(ti, ObjectId(44), Team::USA);
+        i.health.current = 100.0;
+        i.immune_to_falling_damage = true;
+        assert_eq!(i.apply_shock_fall_damage(-30.0), 0.0);
+        assert_eq!(i.health.current, 100.0);
+    }
     #[test]
     fn stunned_off_map_cliff_water_kills_without_loco() {
         use crate::game_logic::host_deliver_payload::{
