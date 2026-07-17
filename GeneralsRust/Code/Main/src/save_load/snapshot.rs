@@ -3802,6 +3802,7 @@ impl XferData for HostUpgradeKind {
             HostUpgradeKind::AnthraxGamma => 14,
             HostUpgradeKind::CamoNetting => 15,
             HostUpgradeKind::SuicideBomb => 16,
+            HostUpgradeKind::AdvancedControlRods => 17,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -3822,6 +3823,7 @@ impl XferData for HostUpgradeKind {
             14 => HostUpgradeKind::AnthraxGamma,
             15 => HostUpgradeKind::CamoNetting,
             16 => HostUpgradeKind::SuicideBomb,
+            17 => HostUpgradeKind::AdvancedControlRods,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostUpgradeKind discriminant: {other}"

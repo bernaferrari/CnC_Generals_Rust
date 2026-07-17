@@ -1457,6 +1457,10 @@ pub struct GameLogic {
     overcharge_drain_ticks: u32,
     /// C++ OverchargeBehavior exhausted auto-disable residual events.
     overcharge_exhaustions: u32,
+    /// C++ PowerPlantUpgrade Advanced Control Rods residual completions.
+    control_rods_upgrades: u32,
+    /// Plants that received EnergyBonus from control rods residual.
+    control_rods_plants_affected: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -2731,6 +2735,8 @@ impl GameLogic {
             overcharge_toggles: 0,
             overcharge_drain_ticks: 0,
             overcharge_exhaustions: 0,
+            control_rods_upgrades: 0,
+            control_rods_plants_affected: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -3142,6 +3148,8 @@ impl GameLogic {
         self.overcharge_toggles = 0;
         self.overcharge_drain_ticks = 0;
         self.overcharge_exhaustions = 0;
+        self.control_rods_upgrades = 0;
+        self.control_rods_plants_affected = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -15742,6 +15750,9 @@ impl GameLogic {
             HostUpgradeKind::SuicideBomb => {
                 self.apply_demo_suicide_bomb_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::AdvancedControlRods => {
+                self.apply_advanced_control_rods_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -15779,6 +15790,58 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ PowerPlantUpgrade Advanced Control Rods residual.
+    ///
+    /// Tags America power plants and adds EnergyBonus to power_provided;
+    /// sets POWER_PLANT_UPGRADED model condition (extendRods residual).
+    fn apply_advanced_control_rods_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+        use crate::game_logic::host_structure_economy_residual::{
+            is_power_plant_template, AMERICA_POWER_ENERGY_BONUS,
+            UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+        };
+
+        let bonus = AMERICA_POWER_ENERGY_BONUS;
+        let bit = model_condition_bit_name_index("POWER_PLANT_UPGRADED");
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            let is_plant = is_power_plant_template(&obj.template_name)
+                || obj.is_kind_of(KindOf::PowerPlant)
+                || obj.is_kind_of(KindOf::FSPower);
+            if !is_plant {
+                continue;
+            }
+            // America plants only residual (China uses OverchargeBehavior).
+            let n = obj.template_name.to_ascii_lowercase();
+            let america = n.contains("america") || n.contains("usa") || n.contains("coldfusion");
+            if !america {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
+            obj.power_provided = obj.power_provided.saturating_add(bonus);
+            if let Some(b) = bit {
+                obj.model_condition_bits |= 1u128 << b;
+            }
+            affected = affected.saturating_add(1);
+        }
+        self.control_rods_upgrades = self.control_rods_upgrades.saturating_add(1);
+        self.control_rods_plants_affected =
+            self.control_rods_plants_affected.saturating_add(affected);
+        affected
     }
 
     /// Apply WorkerShoes residual: speed 30 + upgrade tag on GLA workers.
@@ -80190,6 +80253,70 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn advanced_control_rods_boosts_america_power_plant_energy() {
+        use crate::game_logic::host_structure_economy_residual::{
+            AMERICA_POWER_ENERGY_BONUS, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+
+        let mut plant = ThingTemplate::new("AmericaPowerPlant");
+        plant
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::PowerPlant)
+            .set_health(800.0);
+        logic.templates.insert("AmericaPowerPlant".into(), plant);
+        // China plant must not receive America rods residual.
+        let mut china = ThingTemplate::new("ChinaPowerPlant");
+        china
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::PowerPlant)
+            .set_health(1500.0);
+        logic.templates.insert("ChinaPowerPlant".into(), china);
+
+        let aid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("usa plant");
+        let cid = logic
+            .create_object(
+                "ChinaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("china plant");
+        if let Some(o) = logic.get_object_mut(aid) {
+            o.power_provided = 5;
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+        if let Some(o) = logic.get_object_mut(cid) {
+            o.power_provided = 10;
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+
+        let n = logic
+            .apply_advanced_control_rods_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
+        assert_eq!(n, 1);
+        assert!(logic.control_rods_upgrades > 0);
+        let usa = logic.get_object(aid).unwrap();
+        assert_eq!(usa.power_provided, 5 + AMERICA_POWER_ENERGY_BONUS);
+        assert!(usa.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS));
+        let ch = logic.get_object(cid).unwrap();
+        assert_eq!(
+            ch.power_provided, 10,
+            "China plant must not get America rods"
         );
     }
 
