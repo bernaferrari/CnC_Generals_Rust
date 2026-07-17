@@ -5975,6 +5975,15 @@ impl GameLogic {
         }
         // Immobile bounce path.
         if b_immobile {
+            // Still honor allowCollideForce residual.
+            let allow = self
+                .objects
+                .get(&a_id)
+                .map(|a| a.allow_collide_force)
+                .unwrap_or(true);
+            if !allow {
+                return true; // handled as no-force
+            }
             let handled = self.apply_immobile_collide_bounce(a_id, b_id, us_radius);
             if handled {
                 if let Some(a) = self.objects.get_mut(&a_id) {
@@ -5982,6 +5991,23 @@ impl GameLogic {
                 }
             }
             return handled;
+        }
+        // Mobile-mobile: AI processCollision residual (usually no bounce force).
+        let frame = self.frame;
+        let allow_force = {
+            let Some(a) = self.objects.get(&a_id) else {
+                return false;
+            };
+            let Some(b) = self.objects.get(&b_id) else {
+                return false;
+            };
+            a.ai_process_collision_allows_force(b, frame)
+        };
+        if !allow_force {
+            if let Some(a) = self.objects.get_mut(&a_id) {
+                a.last_collidee = Some(b_id);
+            }
+            return true; // AI handled / no force
         }
         false
     }
@@ -6109,39 +6135,53 @@ impl GameLogic {
 
     /// C++ partition collide residual: pairwise near-object physics collide.
     ///
-    /// Fail-closed vs full PartitionManager cell lists — uses selection_radius
-    /// spheres on the XZ ground plane. Advances overlap frame after pairs.
+    /// Partition cell broadphase (cell size 40) + selection_radius XZ spheres.
+    /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
-        // Snapshot candidates: alive, not destroyed.
-        let mut entries: Vec<(ObjectId, glam::Vec3, f32)> = self
-            .objects
-            .iter()
-            .filter(|(_, o)| o.is_alive() && !o.status.destroyed)
-            .map(|(id, o)| {
-                let r = o.selection_radius.max(1.0);
-                (*id, o.get_position(), r)
-            })
-            .collect();
-        // Deterministic order by id.
+        // Rebuild partition cells (C++ registerObject residual each update).
+        // Keep FOW reveal residual; only re-register live objects.
+        self.partition_manager.clear_registered_objects();
+        let mut entries: Vec<(ObjectId, glam::Vec3, f32)> = Vec::new();
+        for (id, o) in self.objects.iter() {
+            if !o.is_alive() || o.status.destroyed {
+                continue;
+            }
+            let pos = o.get_position();
+            let r = o.selection_radius.max(1.0);
+            self.partition_manager
+                .register_object_at(id.0, pos.x, pos.z);
+            entries.push((*id, pos, r));
+        }
         entries.sort_by_key(|(id, _, _)| id.0);
 
         let mut handled = 0u32;
-        let n = entries.len();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let (a_id, a_pos, a_r) = entries[i];
-                let (b_id, b_pos, b_r) = entries[j];
+        let mut seen_pairs: std::collections::HashSet<(u32, u32)> =
+            std::collections::HashSet::new();
+        for (a_id, a_pos, a_r) in &entries {
+            let neighbors = self.partition_manager.neighbor_object_ids(a_pos.x, a_pos.z);
+            for b_raw in neighbors {
+                if b_raw == a_id.0 {
+                    continue;
+                }
+                let lo = a_id.0.min(b_raw);
+                let hi = a_id.0.max(b_raw);
+                if !seen_pairs.insert((lo, hi)) {
+                    continue;
+                }
+                let b_id = ObjectId(b_raw);
+                let Some((_, b_pos, b_r)) = entries.iter().find(|(id, _, _)| *id == b_id) else {
+                    continue;
+                };
                 let dx = a_pos.x - b_pos.x;
                 let dz = a_pos.z - b_pos.z;
                 let sum = a_r + b_r;
                 if dx * dx + dz * dz > sum * sum {
                     continue;
                 }
-                // Try both orders: crush/ignore is directional.
-                if self.try_physics_collide(a_id, b_id, a_r) {
+                if self.try_physics_collide(*a_id, b_id, *a_r) {
                     handled = handled.saturating_add(1);
-                } else if self.try_physics_collide(b_id, a_id, b_r) {
+                } else if self.try_physics_collide(b_id, *a_id, *b_r) {
                     handled = handled.saturating_add(1);
                 }
             }
@@ -71445,6 +71485,55 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn partition_cell_broadphase_and_collide_force() {
+        use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        assert_eq!(PARTITION_CELL_SIZE_RESIDUAL, 40.0);
+        let mut logic = GameLogic::new();
+        // Far objects different cells — no crush.
+        let mut vt = ThingTemplate::new("FarTank");
+        vt.add_kind_of(KindOf::Vehicle);
+        let tid = ObjectId(601);
+        let mut tank = Object::new(vt, tid, Team::USA);
+        tank.crusher_level = 1;
+        tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+        tank.set_position(Vec3::new(0.0, 0.0, 0.0));
+        tank.selection_radius = 5.0;
+        logic.objects.insert(tid, tank);
+
+        let mut it = ThingTemplate::new("FarInf");
+        it.add_kind_of(KindOf::Infantry);
+        let iid = ObjectId(602);
+        let mut inf = Object::new(it, iid, Team::GLA);
+        inf.crushable_level = 0;
+        inf.set_position(Vec3::new(200.0, 0.0, 200.0));
+        inf.selection_radius = 5.0;
+        logic.objects.insert(iid, inf);
+        let _ = logic.tick_physics_collisions_all();
+        assert!(!logic.objects.get(&iid).unwrap().status.destroyed);
+        assert!(logic.partition_manager.registered_count() >= 2);
+
+        // allowCollideForce false on structure bounce.
+        let mut st = ThingTemplate::new("StiffOff");
+        st.add_kind_of(KindOf::Structure);
+        let sid = ObjectId(603);
+        logic.objects.insert(sid, Object::new(st, sid, Team::China));
+        logic.objects.get_mut(&tid).unwrap().allow_collide_force = false;
+        logic
+            .objects
+            .get_mut(&tid)
+            .unwrap()
+            .set_position(Vec3::new(0.0, 1.0, 0.0));
+        logic
+            .objects
+            .get_mut(&sid)
+            .unwrap()
+            .set_position(Vec3::new(2.0, 1.0, 0.0));
+        assert!(logic.try_physics_collide(tid, sid, 10.0));
     }
 
     #[test]
