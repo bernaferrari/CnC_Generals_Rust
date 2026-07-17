@@ -71549,6 +71549,55 @@ mod tests {
     }
 
     #[test]
+    fn rotate_towards_position_sets_turning() {
+        use crate::game_logic::{
+            KindOf, Object, ObjectId, PhysicsTurningType, Team, ThingTemplate,
+        };
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Rot");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(961), Team::USA);
+        o.set_orientation(0.0);
+        o.movement.turn_rate = std::f32::consts::FRAC_PI_2; // 90 deg/sec
+        let (turning, rel) = o.rotate_towards_position(Vec3::new(0.0, 0.0, 10.0), 1.0 / 30.0);
+        assert!(rel.abs() > 0.1);
+        assert_ne!(turning, PhysicsTurningType::TurnNone);
+        assert_eq!(o.physics_turning, turning);
+    }
+
+    #[test]
+    fn maintain_position_scrubs_ground_velocity() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Maint");
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(962), Team::USA);
+        o.movement.velocity = Vec3::new(5.0, 0.0, 3.0);
+        o.movement.target_position = None;
+        o.update_movement(1.0 / 30.0);
+        assert!(o.maintain_pos_valid);
+        assert!(
+            o.movement.velocity.x.abs() < 1e-3 && o.movement.velocity.z.abs() < 1e-3,
+            "ground maintain should scrub 2D vel"
+        );
+    }
+
+    #[test]
+    fn handle_behavior_z_sea_level_snaps() {
+        use crate::game_logic::{
+            KindOf, LocomotorBehaviorZ, Object, ObjectId, Team, ThingTemplate,
+        };
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Sea");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(963), Team::USA);
+        o.loco_behavior_z = LocomotorBehaviorZ::SeaLevel;
+        o.set_position(Vec3::new(0.0, 12.0, 0.0));
+        assert!(o.handle_behavior_z(3.0, None));
+        assert!((o.get_position().y - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
     fn loco_turn_modulates_speed() {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
         use glam::Vec3;
