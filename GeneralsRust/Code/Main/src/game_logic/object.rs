@@ -123,6 +123,12 @@ pub struct Object {
     /// C++ PhysicsBehavior m_previousOverlap residual.
     #[serde(default)]
     pub physics_previous_overlap: Option<ObjectId>,
+    /// C++ PhysicsBehavior m_ignoreCollisionsWith residual.
+    #[serde(default)]
+    pub ignore_collisions_with: Option<ObjectId>,
+    /// C++ PhysicsBehavior m_lastCollidee residual.
+    #[serde(default)]
+    pub last_collidee: Option<ObjectId>,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -715,6 +721,8 @@ impl Object {
             back_crushed: false,
             physics_current_overlap: None,
             physics_previous_overlap: None,
+            ignore_collisions_with: None,
+            last_collidee: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -878,6 +886,8 @@ impl Object {
             back_crushed: false,
             physics_current_overlap: None,
             physics_previous_overlap: None,
+            ignore_collisions_with: None,
+            last_collidee: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2065,6 +2075,33 @@ impl Object {
     ///
     /// If desired < 0.001, zero lateral velocity. Else scale down if faster than desired.
 
+    /// C++ PhysicsBehavior::setIgnoreCollisionsWith residual.
+    pub fn set_ignore_collisions_with(&mut self, id: Option<ObjectId>) {
+        self.ignore_collisions_with = id;
+    }
+
+    /// C++ PhysicsBehavior::isIgnoringCollisionsWith residual.
+    pub fn is_ignoring_collisions_with(&self, id: ObjectId) -> bool {
+        self.ignore_collisions_with == Some(id)
+    }
+
+    /// C++ PhysicsBehavior::isCurrentlyOverlapped residual.
+    pub fn is_currently_overlapped(&self, id: ObjectId) -> bool {
+        self.physics_current_overlap == Some(id)
+    }
+
+    /// C++ PhysicsBehavior::wasPreviouslyOverlapped residual.
+    pub fn was_previously_overlapped(&self, id: ObjectId) -> bool {
+        self.physics_previous_overlap == Some(id)
+    }
+
+    /// C++ PhysicsBehavior::addOverlap residual.
+    pub fn add_physics_overlap(&mut self, id: ObjectId) {
+        if !self.is_currently_overlapped(id) {
+            self.physics_current_overlap = Some(id);
+        }
+    }
+
     fn ensure_crush_levels(&mut self) {
         // Host residual defaults when unset: vehicles crush infantry.
         if self.crusher_level == 0 && self.is_kind_of(KindOf::Vehicle) {
@@ -2121,7 +2158,7 @@ impl Object {
         let oid = other.id;
         let first =
             self.physics_previous_overlap != Some(oid) && self.physics_current_overlap != Some(oid);
-        self.physics_current_overlap = Some(oid);
+        self.add_physics_overlap(oid);
         if first {
             // 0-amount crush damage residual (DamageFX trigger only).
             let _ = other.take_damage_from_typed_death(
@@ -5629,6 +5666,33 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn ignore_collisions_and_overlap_helpers() {
+        let mut a = Object::new(
+            {
+                let mut t = ThingTemplate::new("IgnA");
+                t.add_kind_of(KindOf::Vehicle);
+                t
+            },
+            ObjectId(301),
+            Team::USA,
+        );
+        let b_id = ObjectId(302);
+        assert!(!a.is_ignoring_collisions_with(b_id));
+        a.set_ignore_collisions_with(Some(b_id));
+        assert!(a.is_ignoring_collisions_with(b_id));
+        a.set_ignore_collisions_with(None);
+        assert!(!a.is_ignoring_collisions_with(b_id));
+
+        a.add_physics_overlap(b_id);
+        assert!(a.is_currently_overlapped(b_id));
+        assert!(!a.was_previously_overlapped(b_id));
+        a.advance_physics_overlap_frame();
+        assert!(!a.is_currently_overlapped(b_id));
+        assert!(a.was_previously_overlapped(b_id));
+        a.last_collidee = Some(b_id);
+        assert_eq!(a.last_collidee, Some(b_id));
+    }
     #[test]
     fn crush_selects_front_or_back_by_approach() {
         use crate::game_logic::host_partition_collision_physics_residual::{
