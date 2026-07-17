@@ -2811,20 +2811,24 @@ impl Object {
 
     /// C++ RadarUpdate::extendRadar residual.
 
-    /// C++ ProductionUpdate door open residual (DOOR_1_OPENING → WAITING_OPEN → CLOSING).
+    /// C++ ProductionUpdate door residual:
+    /// OPENING → WAITING_OPEN → WAITING_TO_CLOSE → CLOSING → idle.
     ///
-    /// Retail barracks/warfactory often have door animations; residual uses door 1
-    /// timings: open 15f, wait 30f, close 15f (fail-closed vs full INI Door*Time).
+    /// Retail residual timings (fail-closed vs full INI Door*Time):
+    /// open 15f, wait-open 30f, wait-to-close 1f, close 15f.
     pub fn start_production_door_cycle(&mut self, now: u32) {
         use crate::game_logic::host_enum_table_residual::{
             door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit,
         };
         // Clear door 1 bits then set OPENING.
         let open_b = door_1_opening_model_bit();
         let wait_b = door_1_waiting_open_model_bit();
+        let wait_close_b = door_1_waiting_to_close_model_bit();
         let close_b = door_1_closing_model_bit();
         self.model_condition_bits &= !(1u128 << open_b);
         self.model_condition_bits &= !(1u128 << wait_b);
+        self.model_condition_bits &= !(1u128 << wait_close_b);
         self.model_condition_bits &= !(1u128 << close_b);
         self.model_condition_bits |= 1u128 << open_b;
         self.production_door_phase = 1;
@@ -2842,9 +2846,11 @@ impl Object {
         }
         use crate::game_logic::host_enum_table_residual::{
             door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit,
         };
         let open_b = door_1_opening_model_bit();
         let wait_b = door_1_waiting_open_model_bit();
+        let wait_close_b = door_1_waiting_to_close_model_bit();
         let close_b = door_1_closing_model_bit();
         match self.production_door_phase {
             1 => {
@@ -2857,15 +2863,25 @@ impl Object {
                 false
             }
             2 => {
-                // WAITING_OPEN → CLOSING
+                // WAITING_OPEN → WAITING_TO_CLOSE residual (C++ theWaitingToCloseFlags).
                 self.model_condition_bits &= !(1u128 << wait_b);
-                self.model_condition_bits |= 1u128 << close_b;
+                self.model_condition_bits |= 1u128 << wait_close_b;
                 self.production_door_phase = 3;
-                self.production_door_phase_end_frame = now.saturating_add(15);
+                // Minimal hold before CLOSING residual (INI DoorCloseTime path).
+                self.production_door_phase_end_frame = now.saturating_add(1);
                 self.refresh_model_condition_bits();
                 false
             }
             3 => {
+                // WAITING_TO_CLOSE → CLOSING
+                self.model_condition_bits &= !(1u128 << wait_close_b);
+                self.model_condition_bits |= 1u128 << close_b;
+                self.production_door_phase = 4;
+                self.production_door_phase_end_frame = now.saturating_add(15);
+                self.refresh_model_condition_bits();
+                false
+            }
+            4 => {
                 // CLOSING → idle
                 self.model_condition_bits &= !(1u128 << close_b);
                 self.production_door_phase = 0;
@@ -3152,11 +3168,14 @@ impl Object {
             (self.model_condition_bits & (1u128 << radar_upgraded_model_bit())) != 0;
         use crate::game_logic::host_enum_table_residual::{
             door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit,
         };
         let had_door_open =
             (self.model_condition_bits & (1u128 << door_1_opening_model_bit())) != 0;
         let had_door_wait =
             (self.model_condition_bits & (1u128 << door_1_waiting_open_model_bit())) != 0;
+        let had_door_wait_close =
+            (self.model_condition_bits & (1u128 << door_1_waiting_to_close_model_bit())) != 0;
         let had_door_close =
             (self.model_condition_bits & (1u128 << door_1_closing_model_bit())) != 0;
 
@@ -3181,6 +3200,9 @@ impl Object {
         }
         if had_door_wait {
             bits |= 1u128 << door_1_waiting_open_model_bit();
+        }
+        if had_door_wait_close {
+            bits |= 1u128 << door_1_waiting_to_close_model_bit();
         }
         if had_door_close {
             bits |= 1u128 << door_1_closing_model_bit();
