@@ -7478,6 +7478,7 @@ mod tests {
                 },
                 quantity_total: 1,
                 quantity_produced: 0,
+                kind: crate::game_logic::buildings::ProductionKind::Unit,
             });
             bd.rally_point = Some(glam::Vec3::new(12.0, 0.0, 3.0));
             obj.building_data = Some(bd);
@@ -9165,6 +9166,7 @@ mod tests {
                 },
                 quantity_total: 1,
                 quantity_produced: 0,
+                kind: crate::game_logic::buildings::ProductionKind::Unit,
             });
             o.building_data = Some(bd);
         }
@@ -9465,6 +9467,7 @@ mod tests {
                 },
                 quantity_total: 1,
                 quantity_produced: 0,
+                kind: crate::game_logic::buildings::ProductionKind::Unit,
             });
             o.building_data = Some(bd);
         }
