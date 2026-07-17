@@ -77,6 +77,22 @@ pub const UPGRADE_CHINA_TACTICAL_NUKE_MIG: &str = "Upgrade_ChinaTacticalNukeMig"
 pub const UPGRADE_AMERICA_DRONE_ARMOR: &str = "Upgrade_AmericaDroneArmor";
 /// China Aircraft Armor residual.
 pub const UPGRADE_CHINA_AIRCRAFT_ARMOR: &str = "Upgrade_ChinaAircraftArmor";
+/// China Mines residual.
+pub const UPGRADE_CHINA_MINES: &str = "Upgrade_ChinaMines";
+/// China EMP Mines residual.
+pub const UPGRADE_CHINA_EMP_MINES: &str = "Upgrade_ChinaEMPMines";
+/// GLA Fortified Structure residual.
+pub const UPGRADE_GLA_FORTIFIED_STRUCTURE: &str = "Upgrade_GLAFortifiedStructure";
+/// America Radar residual.
+pub const UPGRADE_AMERICA_RADAR: &str = "Upgrade_AmericaRadar";
+/// China Radar residual.
+pub const UPGRADE_CHINA_RADAR: &str = "Upgrade_ChinaRadar";
+/// GLA Radar residual.
+pub const UPGRADE_GLA_RADAR: &str = "Upgrade_GLARadar";
+/// GLA Radar Van Scan residual.
+pub const UPGRADE_GLA_RADAR_VAN_SCAN: &str = "Upgrade_GLARadarVanScan";
+/// Fortified structure AddMaxHealth residual (retail BlackMarket path honesty).
+pub const FORTIFIED_STRUCTURE_ADD_MAX_HEALTH: f32 = 500.0;
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -173,6 +189,16 @@ pub enum HostUpgradeKind {
     DroneArmor,
     /// China Aircraft Armor max-health residual.
     AircraftArmor,
+    /// China building mines residual unlock.
+    ChinaMines,
+    /// China EMP mines residual unlock.
+    EmpMines,
+    /// GLA Fortified Structure armor residual.
+    FortifiedStructure,
+    /// Faction radar research residual unlock.
+    Radar,
+    /// GLA Radar Van Scan unlock residual.
+    RadarVanScan,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -247,6 +273,22 @@ impl HostUpgradeKind {
             HostUpgradeKind::DroneArmor
         } else if n.contains("aircraftarmor") {
             HostUpgradeKind::AircraftArmor
+        } else if n.contains("empmines") {
+            HostUpgradeKind::EmpMines
+        } else if n.contains("chinamines") || n == "upgradechinamines" {
+            HostUpgradeKind::ChinaMines
+        } else if n.contains("fortifiedstructure") {
+            HostUpgradeKind::FortifiedStructure
+        } else if n.contains("radarvanscan") {
+            HostUpgradeKind::RadarVanScan
+        } else if n.contains("americaradar")
+            || n.contains("chinaradar")
+            || n.contains("glaradar")
+            || n == "upgradeamericaradar"
+            || n == "upgradechinaradar"
+            || n == "upgradeglaradar"
+        {
+            HostUpgradeKind::Radar
         } else {
             HostUpgradeKind::Other
         }
@@ -286,6 +328,11 @@ impl HostUpgradeKind {
             HostUpgradeKind::TacticalNukeMig => "TacticalNukeMig",
             HostUpgradeKind::DroneArmor => "DroneArmor",
             HostUpgradeKind::AircraftArmor => "AircraftArmor",
+            HostUpgradeKind::ChinaMines => "ChinaMines",
+            HostUpgradeKind::EmpMines => "EmpMines",
+            HostUpgradeKind::FortifiedStructure => "FortifiedStructure",
+            HostUpgradeKind::Radar => "Radar",
+            HostUpgradeKind::RadarVanScan => "RadarVanScan",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -329,6 +376,11 @@ impl HostUpgradeKind {
             | HostUpgradeKind::TacticalNukeMig
             | HostUpgradeKind::DroneArmor
             | HostUpgradeKind::AircraftArmor
+            | HostUpgradeKind::ChinaMines
+            | HostUpgradeKind::EmpMines
+            | HostUpgradeKind::FortifiedStructure
+            | HostUpgradeKind::Radar
+            | HostUpgradeKind::RadarVanScan
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -371,6 +423,11 @@ impl HostUpgradeKind {
             HostUpgradeKind::TacticalNukeMig => 2000,
             HostUpgradeKind::DroneArmor => 500,
             HostUpgradeKind::AircraftArmor => 1500,
+            HostUpgradeKind::ChinaMines => 1000,
+            HostUpgradeKind::EmpMines => 1500,
+            HostUpgradeKind::FortifiedStructure => 1000,
+            HostUpgradeKind::Radar => 1000,
+            HostUpgradeKind::RadarVanScan => 500,
             HostUpgradeKind::Other => 0,
         }
     }
@@ -410,6 +467,11 @@ impl HostUpgradeKind {
             HostUpgradeKind::TacticalNukeMig => 60.0,
             HostUpgradeKind::DroneArmor => 40.0,
             HostUpgradeKind::AircraftArmor => 45.0,
+            HostUpgradeKind::ChinaMines => 30.0,
+            HostUpgradeKind::EmpMines => 45.0,
+            HostUpgradeKind::FortifiedStructure => 30.0,
+            HostUpgradeKind::Radar => 30.0,
+            HostUpgradeKind::RadarVanScan => 15.0,
             HostUpgradeKind::Other => 0.0,
         }
     }
@@ -1043,6 +1105,30 @@ mod camouflage_template_tests {
         assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
         assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
         assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn mines_radar_fortified_kinds_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaMines"),
+            HostUpgradeKind::ChinaMines
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaEMPMines"),
+            HostUpgradeKind::EmpMines
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLAFortifiedStructure"),
+            HostUpgradeKind::FortifiedStructure
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_AmericaRadar"),
+            HostUpgradeKind::Radar
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLARadarVanScan"),
+            HostUpgradeKind::RadarVanScan
+        );
     }
 
     #[test]
