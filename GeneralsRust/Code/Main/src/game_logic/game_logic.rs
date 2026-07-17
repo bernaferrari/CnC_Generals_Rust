@@ -1369,6 +1369,8 @@ pub struct GameLogic {
     eva_beacon_detected: u32,
     /// EVA hero Own/Enemy *Detected residual honesty fires.
     eva_hero_detected: u32,
+    /// EVA SuperweaponLaunched GPS/Sneak residual honesty fires.
+    eva_special_launched_misc: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2586,6 +2588,7 @@ impl GameLogic {
             eva_superweapon_launched: 0,
             eva_beacon_detected: 0,
             eva_hero_detected: 0,
+            eva_special_launched_misc: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2953,6 +2956,7 @@ impl GameLogic {
         self.eva_superweapon_launched = 0;
         self.eva_beacon_detected = 0;
         self.eva_hero_detected = 0;
+        self.eva_special_launched_misc = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -32916,6 +32920,9 @@ impl GameLogic {
             grants,
         });
 
+        // C++ SuperweaponLaunched GPS Scrambler EVA residual.
+        self.try_eva_special_launched_misc(caster_team, "gps");
+
         self.queue_audio_event(
             AudioEventRequest::new(GPS_SCRAMBLER_ACTIVATE_AUDIO)
                 .with_position(location)
@@ -38807,6 +38814,9 @@ impl GameLogic {
             tunnel_template,
         );
 
+        // C++ SuperweaponLaunched Sneak Attack EVA residual.
+        self.try_eva_special_launched_misc(source_team, "sneak");
+
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
                 .with_object(source_object)
@@ -42469,6 +42479,47 @@ impl GameLogic {
 
     /// C++ GameLogicDispatch beacon place residual:
     /// EVA_BeaconDetected when local player is ALLIES with the placer (not self).
+
+    /// C++ SpecialPowerModule SuperweaponLaunched GPS Scrambler / Sneak Attack residual.
+    ///
+    /// `kind`: "gps" | "sneak"
+    pub fn try_eva_special_launched_misc(&mut self, owner_team: Team, kind: &str) {
+        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+            return;
+        };
+        let local_team = local.team;
+        let local_alliance = local.alliance_team;
+        let owner_alliance = self
+            .players
+            .values()
+            .find(|p| p.team == owner_team)
+            .map(|p| p.alliance_team)
+            .unwrap_or(-1);
+        let relation = if owner_team == local_team {
+            "own"
+        } else if local_alliance >= 0 && local_alliance == owner_alliance {
+            "ally"
+        } else {
+            "enemy"
+        };
+        use gamelogic::helpers::EvaEvent;
+        let event = match (kind, relation) {
+            ("gps", "own") => EvaEvent::SuperweaponLaunchedOwnGpsScrambler,
+            ("gps", "ally") => EvaEvent::SuperweaponLaunchedAllyGpsScrambler,
+            ("gps", _) => EvaEvent::SuperweaponLaunchedEnemyGpsScrambler,
+            ("sneak", "own") => EvaEvent::SuperweaponLaunchedOwnSneakAttack,
+            ("sneak", "ally") => EvaEvent::SuperweaponLaunchedAllySneakAttack,
+            ("sneak", _) => EvaEvent::SuperweaponLaunchedEnemySneakAttack,
+            _ => return,
+        };
+        let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        self.eva_special_launched_misc = self.eva_special_launched_misc.saturating_add(1);
+    }
+
+    pub fn honesty_eva_special_launched_misc_ok(&self) -> bool {
+        self.eva_special_launched_misc > 0
+    }
+
     pub fn try_eva_beacon_detected(&mut self, placer_player_id: u32) {
         let Some(placer) = self.players.get(&placer_player_id) else {
             return;
@@ -77426,6 +77477,36 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn eva_gps_and_sneak_launched_own_enemy() {
+        use crate::game_logic::Team;
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        logic.try_eva_special_launched_misc(Team::USA, "gps");
+        assert!(logic.honesty_eva_special_launched_misc_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponLaunchedOwnGpsScrambler),
+            "{events:?}"
+        );
+        let _ = TheEva::drain_events();
+        logic.try_eva_special_launched_misc(Team::GLA, "sneak");
+        let events2 = TheEva::drain_events().expect("eva2");
+        assert!(
+            events2
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponLaunchedEnemySneakAttack),
+            "{events2:?}"
+        );
     }
 
     #[test]
