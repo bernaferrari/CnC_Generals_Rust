@@ -5806,6 +5806,8 @@ impl GameLogic {
             self.try_auto_find_healing_residual(object_id);
             // C++ AIIdleState: CAN_BE_REPULSED idle units flee closest repulsor.
             let _ = self.try_idle_repulse(object_id);
+            // C++ AIIdleState: checkForCrateToPickup → aiMoveToObject.
+            let _ = self.try_idle_crate_pickup(object_id);
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
                 if dense_world
@@ -7047,6 +7049,96 @@ impl GameLogic {
     ///
     /// For KINDOF_CAN_BE_REPULSED idle units: flee closest repulsor via
     /// ai_move_away_from_unit / request_safe_path residual.
+
+    /// C++ AIUpdateInterface::notifyCrate host bridge.
+    pub fn notify_unit_crate(&mut self, unit_id: ObjectId, crate_id: ObjectId) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        u.notify_crate(crate_id);
+        true
+    }
+
+    /// C++ AIIdleState crate branch residual.
+    ///
+    /// If unit has a pending crate notification and the crate still exists in
+    /// the money-crate registry (or as a live object), move to pick it up.
+    pub fn try_idle_crate_pickup(&mut self, unit_id: ObjectId) -> bool {
+        let crate_id = {
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            if !u.is_alive() || u.status.destroyed {
+                return false;
+            }
+            // C++ only while idle
+            if !matches!(u.ai_state, AIState::Idle) || u.target.is_some() {
+                return false;
+            }
+            // Computer AI residual: humans don't auto-notify; path still works if notified.
+            match u.check_for_crate_to_pickup() {
+                Some(id) => id,
+                None => return false,
+            }
+        };
+        // Crate must still exist and be a registered money crate (or live object).
+        let crate_alive = self
+            .objects
+            .get(&crate_id)
+            .map(|c| c.is_alive() && !c.status.destroyed)
+            .unwrap_or(false);
+        if !crate_alive {
+            return false;
+        }
+        // Prefer registered money crates (wouldLikeToCollide residual).
+        let is_money = self.host_money_crates.get(crate_id).is_some();
+        if !is_money {
+            // Fail-closed: only money crate residual for now.
+            return false;
+        }
+        let crate_pos = self.objects.get(&crate_id).map(|c| c.get_position());
+        let Some(pos) = crate_pos else {
+            return false;
+        };
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            if !u.can_move() {
+                return false;
+            }
+            // C++ aiMoveToObject residual.
+            u.move_to(pos);
+            u.ai_state = AIState::Moving;
+            // Remember crate as approach target via requested_victim residual optional.
+            u.requested_victim_id = Some(crate_id);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// When an AI computer unit kills and a money crate is spawned nearby, notify.
+    ///
+    /// C++ CreateCrateDie: only PLAYER_COMPUTER killers get notifyCrate.
+    pub fn notify_computer_killer_of_crate(
+        &mut self,
+        killer_id: ObjectId,
+        crate_id: ObjectId,
+    ) -> bool {
+        let killer_team = match self.objects.get(&killer_id) {
+            Some(k) if k.is_alive() => k.team,
+            _ => return false,
+        };
+        // Computer = non-local player residual.
+        let is_computer = self
+            .players
+            .values()
+            .find(|p| p.team == killer_team)
+            .map(|p| !p.is_local)
+            .unwrap_or(true); // no player record → treat as AI
+        if !is_computer {
+            return false;
+        }
+        self.notify_unit_crate(killer_id, crate_id)
+    }
     pub fn try_idle_repulse(&mut self, unit_id: ObjectId) -> bool {
         if !self.enable_repulsors {
             return false;
@@ -74787,6 +74879,90 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn notify_crate_and_check_pickup_clears_marker() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("Killer");
+        t.add_kind_of(KindOf::Infantry);
+        let kid = ObjectId(4601);
+        logic.objects.insert(kid, Object::new(t, kid, Team::China));
+        let cid = ObjectId(4602);
+        assert!(logic.notify_unit_crate(kid, cid));
+        assert_eq!(logic.objects[&kid].crate_created, Some(cid));
+        let got = logic
+            .objects
+            .get_mut(&kid)
+            .unwrap()
+            .check_for_crate_to_pickup();
+        assert_eq!(got, Some(cid));
+        assert!(logic.objects[&kid].crate_created.is_none());
+        // Second check empty
+        assert!(logic
+            .objects
+            .get_mut(&kid)
+            .unwrap()
+            .check_for_crate_to_pickup()
+            .is_none());
+    }
+
+    #[test]
+    fn try_idle_crate_pickup_moves_to_money_crate() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut ut = ThingTemplate::new("AIUnit");
+        ut.add_kind_of(KindOf::Infantry);
+        let uid = ObjectId(4610);
+        let mut unit = Object::new(ut, uid, Team::China);
+        unit.ai_state = AIState::Idle;
+        unit.movement.max_speed = 8.0;
+        unit.set_position(glam::Vec3::ZERO);
+        logic.objects.insert(uid, unit);
+
+        let mut ct = ThingTemplate::new("SupplyDropZoneCrate");
+        let cid = ObjectId(4611);
+        let mut crate_obj = Object::new(ct, cid, Team::Neutral);
+        crate_obj.set_position(glam::Vec3::new(100.0, 0.0, 0.0));
+        logic.objects.insert(cid, crate_obj);
+        logic.host_money_crates.register_supply_drop_crate(cid);
+
+        assert!(logic.notify_unit_crate(uid, cid));
+        assert!(logic.try_idle_crate_pickup(uid));
+        let u = &logic.objects[&uid];
+        assert_eq!(u.ai_state, AIState::Moving);
+        assert!(u.movement.target_position.is_some() || u.requested_victim_id == Some(cid));
+        // Marker consumed
+        assert!(u.crate_created.is_none());
+    }
+
+    #[test]
+    fn notify_computer_killer_only() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Human", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "AI", false));
+
+        let mut ht = ThingTemplate::new("Hum");
+        ht.add_kind_of(KindOf::Infantry);
+        let hid = ObjectId(4620);
+        logic.objects.insert(hid, Object::new(ht, hid, Team::USA));
+
+        let mut at = ThingTemplate::new("AiK");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(4621);
+        logic.objects.insert(aid, Object::new(at, aid, Team::China));
+
+        let cid = ObjectId(4622);
+        assert!(!logic.notify_computer_killer_of_crate(hid, cid));
+        assert!(logic.objects[&hid].crate_created.is_none());
+        assert!(logic.notify_computer_killer_of_crate(aid, cid));
+        assert_eq!(logic.objects[&aid].crate_created, Some(cid));
     }
 
     #[test]
