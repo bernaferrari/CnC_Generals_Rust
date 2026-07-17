@@ -811,7 +811,8 @@ impl<'a> CommandExecutor<'a> {
             if obj.team != player_team {
                 return CommandResult::InvalidTarget;
             }
-            if !obj.status.under_construction {
+            // C++ MSG_DOZER_CANCEL_CONSTRUCT: must be under construction, not sold/reconstructing.
+            if !obj.status.under_construction || obj.status.sold {
                 return CommandResult::InvalidCommand;
             }
             let refund = obj.thing.template.build_cost.supplies;
@@ -820,6 +821,8 @@ impl<'a> CommandExecutor<'a> {
                     player.resources.supplies = player.resources.supplies.saturating_add(refund);
                 }
             }
+            // C++ killing the building causes dozer cancelTask residual.
+            self.game_logic.cancel_dozers_building(object_id);
             self.game_logic.destroy_object(object_id);
             debug!("Canceled construction of object {}", object_id.0);
             CommandResult::Success
