@@ -81349,6 +81349,45 @@ mod tests {
     }
 
     #[test]
+    fn early_leaflet_drop_queues_same_delay_residual() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_leaflet_drop::{
+            honesty_early_leaflet_drop_residual_pack_ok, HostLeafletDropKind, LEAFLET_DELAY_FRAMES,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_early_leaflet_drop_residual_pack_ok());
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let id = logic
+            .queue_leaflet_drop(
+                &SpecialPowerType::EarlyLeafletDrop,
+                src,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("early leaflet");
+        let m = logic.host_leaflet_drops().get(id).expect("mission");
+        assert_eq!(m.kind, HostLeafletDropKind::UsaEarlyLeafletDrop);
+        assert_eq!(
+            m.impact_frame.saturating_sub(m.activate_frame),
+            LEAFLET_DELAY_FRAMES
+        );
+    }
+
+    #[test]
     fn host_upgrade_complete_fanaticism_maps_to_nationalism() {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
         use crate::game_logic::{KindOf, Team, ThingTemplate};

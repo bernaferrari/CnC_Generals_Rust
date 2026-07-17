@@ -161,6 +161,7 @@ pub fn host_command_power_cpp_enum_name(
         }
         HostCommandSpecialPowerType::GpsScrambler => Some("SPECIAL_GPS_SCRAMBLER"),
         HostCommandSpecialPowerType::LeafletDrop => Some("SPECIAL_LEAFLET_DROP"),
+        HostCommandSpecialPowerType::EarlyLeafletDrop => Some("EARLY_SPECIAL_LEAFLET_DROP"),
         HostCommandSpecialPowerType::SneakAttack => Some("SPECIAL_SNEAK_ATTACK"),
         HostCommandSpecialPowerType::CruiseMissile => Some("SUPR_SPECIAL_CRUISE_MISSILE"),
         HostCommandSpecialPowerType::CleanupArea => Some("SPECIAL_CLEANUP_AREA"),
