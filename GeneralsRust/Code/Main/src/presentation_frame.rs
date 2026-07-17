@@ -206,6 +206,10 @@ pub struct RenderableObject {
     pub under_construction: bool,
     /// Construction progress 0..1 residual (structures / dozer builds).
     pub construction_percent: f32,
+    /// C++ OBJECT_STATUS_SOLD residual frozen for presentation/UI.
+    pub sold: bool,
+    /// C++ OBJECT_STATUS_UNSELECTABLE residual frozen for presentation/UI.
+    pub unselectable: bool,
     /// Veterancy rank residual for chevrons / UI.
     pub veterancy: PresentationVeterancy,
     /// Experience points residual (display / debug).
@@ -2318,6 +2322,8 @@ impl PresentationFrame {
                 },
                 under_construction: obj.status.under_construction,
                 construction_percent: obj.construction_percent.clamp(0.0, 1.0),
+                sold: obj.status.sold,
+                unselectable: obj.status.unselectable,
                 veterancy: PresentationVeterancy::from_host(obj.experience.level),
                 experience_points: obj.experience.current.max(0.0),
                 moving: obj.status.moving,
@@ -7368,6 +7374,45 @@ mod tests {
             ui.radar_pings
         );
         assert_eq!(ui.last_radar_ping.map(|p| p.x), Some(100.0));
+    }
+
+    #[test]
+    fn sold_status_freezes_into_presentation() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        st.build_cost.supplies = 800;
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        assert!(logic.start_sell_object(id));
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .expect("renderable");
+        assert!(ro.sold, "sold residual must freeze");
+        assert!(ro.unselectable, "unselectable residual must freeze");
+        assert!(
+            (ro.model_condition_bits
+                & (1u128
+                    << crate::game_logic::host_enum_table_residual::partially_constructed_model_bit()))
+                != 0
+        );
     }
 
     #[test]
