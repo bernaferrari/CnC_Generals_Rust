@@ -199,6 +199,10 @@ pub struct Object {
     pub rebuild_ready_frame: u32,
     /// Original structure that spawned this hole.
     pub rebuild_spawner_id: Option<ObjectId>,
+    /// C++ RebuildHoleBehavior m_workerID residual.
+    pub rebuild_worker_id: Option<ObjectId>,
+    /// C++ RebuildHoleBehavior m_reconstructingID residual.
+    pub rebuild_reconstructing_id: Option<ObjectId>,
     /// C++ ProductionUpdate m_constructionCompleteFrame residual.
     /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
     pub construction_complete_clear_frame: u32,
@@ -1208,6 +1212,8 @@ impl Object {
             rebuild_template_name: None,
             rebuild_ready_frame: 0,
             rebuild_spawner_id: None,
+            rebuild_worker_id: None,
+            rebuild_reconstructing_id: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
@@ -1489,6 +1495,8 @@ impl Object {
             rebuild_template_name: None,
             rebuild_ready_frame: 0,
             rebuild_spawner_id: None,
+            rebuild_worker_id: None,
+            rebuild_reconstructing_id: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,

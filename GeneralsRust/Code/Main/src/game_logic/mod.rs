@@ -906,6 +906,9 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_SOLD residual (BuildAssistant sell process).
     #[serde(default)]
     pub sold: bool,
+    /// C++ OBJECT_STATUS_RECONSTRUCTING residual (RebuildHoleBehavior).
+    #[serde(default)]
+    pub reconstructing: bool,
     pub selected: bool,
     pub moving: bool,
     pub attacking: bool,
