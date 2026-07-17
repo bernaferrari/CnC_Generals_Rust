@@ -82137,6 +82137,77 @@ mod tests {
     }
 
     #[test]
+    fn disabled_freezes_structure_superweapon_countdown() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+
+        let mut t = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .add_kind_of(KindOf::Powered)
+            .set_health(4000.0);
+        logic
+            .templates
+            .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
+
+        let puc = logic
+            .create_object(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("puc");
+        // Start mid-recharge residual.
+        if let Some(o) = logic.get_object_mut(puc) {
+            o.thing.template.add_kind_of(KindOf::Powered);
+            o.special_power_cooldowns
+                .insert(SpecialPowerType::ParticleCannon, 100.0);
+            o.special_power_cooldown_remaining = 100.0;
+            o.special_power_ready = false;
+            o.status.disabled_underpowered = false;
+        }
+        // Tick while enabled: countdown advances.
+        if let Some(o) = logic.get_object_mut(puc) {
+            let _ = o.tick_timers(10.0);
+            let rem = o
+                .special_power_cooldowns
+                .get(&SpecialPowerType::ParticleCannon)
+                .copied()
+                .unwrap_or(0.0);
+            assert!((rem - 90.0).abs() < 0.01, "advanced to {rem}");
+        }
+        // Disable (underpowered residual) → freeze.
+        if let Some(o) = logic.get_object_mut(puc) {
+            o.status.disabled_underpowered = true;
+            let _ = o.tick_timers(50.0);
+            let rem = o
+                .special_power_cooldowns
+                .get(&SpecialPowerType::ParticleCannon)
+                .copied()
+                .unwrap_or(0.0);
+            assert!(
+                (rem - 90.0).abs() < 0.01,
+                "frozen at {rem} while disabled (C++ getReadyFrame residual)"
+            );
+        }
+        // Re-enable → resume.
+        if let Some(o) = logic.get_object_mut(puc) {
+            o.status.disabled_underpowered = false;
+            let _ = o.tick_timers(5.0);
+            let rem = o
+                .special_power_cooldowns
+                .get(&SpecialPowerType::ParticleCannon)
+                .copied()
+                .unwrap_or(0.0);
+            assert!((rem - 85.0).abs() < 0.01, "resumed to {rem}");
+        }
+    }
+
+    #[test]
     fn disabled_underpowered_blocks_structure_superweapon_fire() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
