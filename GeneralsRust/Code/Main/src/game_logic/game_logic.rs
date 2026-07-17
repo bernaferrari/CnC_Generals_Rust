@@ -19887,6 +19887,14 @@ impl GameLogic {
     }
 
     /// Get mutable player by ID
+    /// Unlocked science names for a player (empty when unknown).
+    pub fn player_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
+        self.players
+            .get(&player_id)
+            .map(|p| p.unlocked_sciences.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
     pub fn get_player_mut(&mut self, player_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&player_id)
     }
@@ -81211,6 +81219,45 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn emergency_repair_and_frenzy_science_tier_from_unlocked() {
+        use crate::game_logic::host_emergency_repair::{
+            highest_emergency_repair_level_from_sciences, HostEmergencyRepairLevel,
+            SCIENCE_EMERGENCY_REPAIR3,
+        };
+        use crate::game_logic::host_frenzy::{
+            highest_frenzy_level_from_sciences, HostFrenzyLevel, SCIENCE_FRENZY2, SCIENCE_FRENZY3,
+        };
+        assert_eq!(
+            highest_emergency_repair_level_from_sciences([SCIENCE_EMERGENCY_REPAIR3]),
+            HostEmergencyRepairLevel::Three
+        );
+        assert_eq!(
+            highest_frenzy_level_from_sciences([SCIENCE_FRENZY2, SCIENCE_FRENZY3]),
+            HostFrenzyLevel::Three
+        );
+        assert_eq!(
+            highest_frenzy_level_from_sciences(["SCIENCE_CashBounty1"]),
+            HostFrenzyLevel::One
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert(SCIENCE_EMERGENCY_REPAIR3.to_string());
+        let sciences = logic.player_unlocked_sciences(0);
+        assert_eq!(
+            highest_emergency_repair_level_from_sciences(sciences.iter().map(|s| s.as_str())),
+            HostEmergencyRepairLevel::Three
         );
     }
 
