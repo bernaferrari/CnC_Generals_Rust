@@ -847,6 +847,50 @@ pub fn honesty_faction_skirmish_residual_pack_wave85() -> bool {
         && honesty_victory_condition_residual_pack_wave85()
 }
 
+/// Map host Team residual to retail IntrinsicSciences token.
+pub fn intrinsic_science_for_team(team: crate::game_logic::Team) -> Option<&'static str> {
+    use crate::game_logic::Team;
+    match team {
+        Team::USA => Some("SCIENCE_AMERICA"),
+        Team::China => Some("SCIENCE_CHINA"),
+        Team::GLA => Some("SCIENCE_GLA"),
+        Team::Neutral => None,
+    }
+}
+
+/// Intrinsic science residual for a faction/template name (skirmish slot).
+pub fn intrinsic_science_for_faction_name(faction: &str) -> Option<&'static str> {
+    let f = faction.to_ascii_lowercase();
+    if f.contains("china") {
+        return Some("SCIENCE_CHINA");
+    }
+    if f.contains("gla") {
+        return Some("SCIENCE_GLA");
+    }
+    if f.contains("america")
+        || f.contains("usa")
+        || f.contains("airf")
+        || f.contains("laser")
+        || f.contains("supw")
+        || f.contains("superweapon")
+    {
+        return Some("SCIENCE_AMERICA");
+    }
+    // PlayerTemplate residual table lookup.
+    for row in PLAYER_TEMPLATE_RESIDUAL_SEEDS {
+        if row.template_name.eq_ignore_ascii_case(faction)
+            || row.side.eq_ignore_ascii_case(faction)
+            || row.base_side.eq_ignore_ascii_case(faction)
+        {
+            if row.intrinsic_science == "None" || row.intrinsic_science.is_empty() {
+                return None;
+            }
+            return Some(row.intrinsic_science);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
