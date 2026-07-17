@@ -32,6 +32,28 @@ pub enum ObjectType {
     Neutral,
 }
 
+/// C++ PhysicsTurningType residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(i8)]
+pub enum PhysicsTurningType {
+    TurnNegative = -1,
+    #[default]
+    TurnNone = 0,
+    TurnPositive = 1,
+}
+
+/// C++ LocomotorBehaviorZ residual (subset).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum LocomotorBehaviorZ {
+    #[default]
+    NoZMotiveForce = 0,
+    SeaLevel = 1,
+    SurfaceRelativeHeight = 2,
+    AbsoluteHeight = 3,
+    SmoothRelativeToHighestLayer = 4,
+}
+
 /// Game Object - the main entity class for all game units, buildings, etc.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
@@ -235,6 +257,23 @@ pub struct Object {
     /// C++ Locomotor extra2DFriction residual (added to physics extra_friction).
     #[serde(default)]
     pub loco_extra_2d_friction: f32,
+    /// C++ PhysicsBehavior m_turning residual.
+    #[serde(default)]
+    pub physics_turning: PhysicsTurningType,
+    /// C++ Locomotor m_behaviorZ residual.
+    #[serde(default)]
+    pub loco_behavior_z: LocomotorBehaviorZ,
+    /// C++ Locomotor m_preferredHeight residual (world Y).
+    #[serde(default)]
+    pub loco_preferred_height: f32,
+    /// C++ preferredHeightDamping residual (0..1).
+    #[serde(default = "default_one_f32")]
+    pub loco_preferred_height_damping: f32,
+    /// C++ MAINTAIN_POS_IS_VALID + m_maintainPos residual.
+    #[serde(default)]
+    pub maintain_pos_valid: bool,
+    #[serde(default)]
+    pub maintain_pos: Option<glam::Vec3>,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -899,6 +938,12 @@ impl Object {
             braking: 50.0,
             loco_apply_2d_friction_airborne: false,
             loco_extra_2d_friction: 0.0,
+            physics_turning: PhysicsTurningType::TurnNone,
+            loco_behavior_z: LocomotorBehaviorZ::NoZMotiveForce,
+            loco_preferred_height: 0.0,
+            loco_preferred_height_damping: 1.0,
+            maintain_pos_valid: false,
+            maintain_pos: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -1098,6 +1143,12 @@ impl Object {
             braking: 50.0,
             loco_apply_2d_friction_airborne: false,
             loco_extra_2d_friction: 0.0,
+            physics_turning: PhysicsTurningType::TurnNone,
+            loco_behavior_z: LocomotorBehaviorZ::NoZMotiveForce,
+            loco_preferred_height: 0.0,
+            loco_preferred_height_damping: 1.0,
+            maintain_pos_valid: false,
+            maintain_pos: None,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2490,6 +2541,129 @@ impl Object {
         }
         let inv = 1.0 / self.physics_get_mass();
         self.physics_accel += mod_force * inv;
+    }
+
+    /// C++ Locomotor::rotateTowardsPosition residual.
+    ///
+    /// Turns object toward goal on XZ; returns turning enum and optional rel angle.
+    pub fn rotate_towards_position(
+        &mut self,
+        goal: glam::Vec3,
+        dt: f32,
+    ) -> (PhysicsTurningType, f32) {
+        let us = self.get_position();
+        let dx = goal.x - us.x;
+        let dz = goal.z - us.z;
+        if dx * dx + dz * dz < 1.0e-8 {
+            self.physics_turning = PhysicsTurningType::TurnNone;
+            return (PhysicsTurningType::TurnNone, 0.0);
+        }
+        let desired = (-dz).atan2(dx);
+        let current = self.get_orientation();
+        let mut rel = desired - current;
+        while rel > std::f32::consts::PI {
+            rel -= std::f32::consts::TAU;
+        }
+        while rel < -std::f32::consts::PI {
+            rel += std::f32::consts::TAU;
+        }
+        let max_turn = self.movement.turn_rate * dt;
+        let applied = if rel.abs() <= max_turn {
+            self.set_orientation(desired);
+            rel
+        } else {
+            let step = max_turn * rel.signum();
+            self.set_orientation(current + step);
+            step
+        };
+        let turning = if applied > 1.0e-5 {
+            PhysicsTurningType::TurnPositive
+        } else if applied < -1.0e-5 {
+            PhysicsTurningType::TurnNegative
+        } else {
+            PhysicsTurningType::TurnNone
+        };
+        self.physics_turning = turning;
+        (turning, rel)
+    }
+
+    /// C++ Locomotor::handleBehaviorZ residual (fail-closed subset).
+    ///
+    /// `ground_y` is terrain height at object XZ. Returns true if needs constant calling.
+    pub fn handle_behavior_z(&mut self, ground_y: f32, goal_y: Option<f32>) -> bool {
+        match self.loco_behavior_z {
+            LocomotorBehaviorZ::NoZMotiveForce => false,
+            LocomotorBehaviorZ::SeaLevel => {
+                // Fail-closed: no water table — snap to ground layer.
+                let mut p = self.get_position();
+                p.y = ground_y;
+                self.set_position(p);
+                true
+            }
+            LocomotorBehaviorZ::SurfaceRelativeHeight
+            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+                if self.loco_preferred_height == 0.0 && goal_y.is_none() {
+                    return true;
+                }
+                let mut p = self.get_position();
+                let preferred = if let Some(gy) = goal_y {
+                    gy
+                } else {
+                    self.loco_preferred_height + ground_y
+                };
+                let mut delta = preferred - p.y;
+                delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+                let preferred = p.y + delta;
+                // Lift force residual: motive vertical force = mass * lift.
+                let lift = preferred - p.y;
+                if lift.abs() > 1.0e-4 {
+                    let force_y = lift * self.physics_get_mass() * 30.0; // per-frame→impulse-ish
+                    self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));
+                }
+                true
+            }
+            LocomotorBehaviorZ::AbsoluteHeight => {
+                if self.loco_preferred_height == 0.0 && goal_y.is_none() {
+                    return true;
+                }
+                let mut p = self.get_position();
+                let preferred = goal_y.unwrap_or(self.loco_preferred_height);
+                let mut delta = preferred - p.y;
+                delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+                p.y += delta;
+                self.set_position(p);
+                true
+            }
+        }
+    }
+
+    /// C++ Locomotor::locoUpdate_maintainCurrentPosition residual (ground units).
+    ///
+    /// Stops horizontal motion for legs/treads/wheels; hover/wings need constant Z.
+    pub fn loco_maintain_current_position(&mut self, ground_y: f32) -> bool {
+        if !self.maintain_pos_valid {
+            self.maintain_pos = Some(self.get_position());
+            self.maintain_pos_valid = true;
+        }
+        self.is_braking = false;
+        self.physics_turning = PhysicsTurningType::TurnNone;
+
+        // Ground-appearance residual: scrub horizontal velocity (legs/treads/wheels).
+        let airborne_loco = self.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            || matches!(
+                self.loco_behavior_z,
+                LocomotorBehaviorZ::SurfaceRelativeHeight
+                    | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                    | LocomotorBehaviorZ::AbsoluteHeight
+            );
+        if !airborne_loco {
+            self.scrub_velocity_2d(0.0);
+        }
+
+        let maintain_y = self.maintain_pos.map(|p| p.y);
+        let needs_z = self.handle_behavior_z(ground_y, maintain_y);
+        // Hover/air need constant calling; ground settled does not.
+        airborne_loco || needs_z
     }
 
     /// C++ Locomotor::setPhysicsOptions residual.
@@ -5371,6 +5545,17 @@ impl Object {
             return;
         }
 
+        if self.movement.target_position.is_none() {
+            // C++ maintainCurrentPosition when no move order.
+            // ground_y unknown here — use current y as layer residual.
+            let gy = self.get_position().y;
+            let _ = self.loco_maintain_current_position(gy);
+            return;
+        }
+
+        // Moving: invalidate maintain pos residual.
+        self.maintain_pos_valid = false;
+
         if let Some(target_pos) = self.movement.target_position {
             let current_pos = self.get_position();
             let dx = target_pos.x - current_pos.x;
@@ -5403,23 +5588,8 @@ impl Object {
                 desired_speed = desired_speed.min(blocked_per_sec);
             }
 
-            // Orient toward goal (host facing convention).
-            let desired_angle = (-dz).atan2(dx);
-            let current_angle = self.get_orientation();
-            let mut angle_diff = desired_angle - current_angle;
-            while angle_diff > std::f32::consts::PI {
-                angle_diff -= std::f32::consts::TAU;
-            }
-            while angle_diff < -std::f32::consts::PI {
-                angle_diff += std::f32::consts::TAU;
-            }
-            let max_turn = self.movement.turn_rate * dt;
-            let new_angle = if angle_diff.abs() <= max_turn {
-                desired_angle
-            } else {
-                current_angle + max_turn * angle_diff.signum()
-            };
-            self.set_orientation(new_angle);
+            // C++ rotateTowardsPosition residual.
+            let (_turning, angle_diff) = self.rotate_towards_position(target_pos, dt);
 
             // Treads-like: modulate speed by turn amount (C++ QUARTER_PI coeff).
             let quarter_pi = std::f32::consts::FRAC_PI_4;
@@ -5473,6 +5643,10 @@ impl Object {
             // Position integrate (host dt seconds).
             let new_position = current_pos + self.movement.velocity * dt;
             self.set_position(new_position);
+
+            // C++ handleBehaviorZ residual after loco XY step.
+            let ground_y = new_position.y; // caller/physics motion step samples terrain
+            let _ = self.handle_behavior_z(ground_y, Some(target_pos.y));
 
             // Arrival residual.
             let distance_to_target = current_pos.distance(target_pos);
