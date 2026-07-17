@@ -116,6 +116,15 @@ pub struct UiSuperweaponTimer {
     pub ready: bool,
 }
 
+/// ControlBar CanMake residual UI freeze.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CanMakeCameoUi {
+    pub template_name: String,
+    pub can_make: u32,
+    pub available: bool,
+    pub help_status: Option<String>,
+}
+
 /// UI State extracted from game logic.
 #[derive(Debug, Clone)]
 pub struct GameUIState {
@@ -135,6 +144,8 @@ pub struct GameUIState {
     /// ControlBar rank bar 0..100 residual.
     pub rank_progress_percent: i32,
     /// PublicTimer superweapon countdown residual (presentation-fed).
+    pub can_make_cameos: Vec<CanMakeCameoUi>,
+    pub can_make_producer_id: Option<u32>,
     pub superweapon_timers: Vec<UiSuperweaponTimer>,
     pub selected_units: Vec<ObjectId>,
     pub selected_unit_infos: Vec<UnitDisplayInfo>,
@@ -239,6 +250,8 @@ impl Default for GameUIState {
             skill_points: 0,
             science_purchase_points: 0,
             rank_progress_percent: 0,
+            can_make_cameos: Vec::new(),
+            can_make_producer_id: None,
             superweapon_timers: Vec::new(),
             selected_units: Vec::new(),
             selected_unit_infos: Vec::new(),

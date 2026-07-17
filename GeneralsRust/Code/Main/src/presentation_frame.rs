@@ -21,6 +21,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LogicFrame(pub u32);
 
+/// ControlBar production cameo CanMake residual frozen for presentation/UI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationCanMakeCameo {
+    pub template_name: String,
+    /// C++ CanMakeType ordinal residual (CANMAKE_*).
+    pub can_make: u32,
+    /// True when CANMAKE_OK residual.
+    pub available: bool,
+    /// Optional HelpBox status message residual (None when OK / silent statuses).
+    pub help_status: Option<String>,
+}
+
 /// Snapshot-owned factory production queue entry (host BuildingData residual).
 /// Fail-closed: not full ControlBar queue UI / cancel-button WND parity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2049,6 +2061,11 @@ pub struct PresentationFrame {
     /// InGameUI PublicTimer superweapon countdown residual (local player).
     /// Fail-closed: not full font flash / multi-CC SW map / script hide.
     pub superweapon_timers: Vec<PresentationSuperweaponTimer>,
+    /// Selected producer CanMake residual cameos (ControlBar HelpBox feed).
+    pub can_make_cameos: Vec<PresentationCanMakeCameo>,
+    /// Selected producer object id residual for can_make_cameos.
+    pub can_make_producer_id: Option<u32>,
+
     /// Queued upgrade template names residual (capped).
     pub local_queued_upgrades: Vec<String>,
     pub selected: Vec<ObjectId>,
@@ -2736,6 +2753,83 @@ impl PresentationFrame {
             superweapon_timers.sort_by(|a, b| a.name.cmp(&b.name));
             superweapon_timers.truncate(16);
         }
+
+        // ControlBar CanMake residual for selected local producer (HelpBox feed).
+        let mut can_make_cameos: Vec<PresentationCanMakeCameo> = Vec::new();
+        let mut can_make_producer_id: Option<u32> = None;
+        if let Some(p) = local {
+            use crate::game_logic::host_ui_presentation_residual::can_make_type_help_box_message_residual;
+            let is_producer = |o: &crate::game_logic::Object| {
+                o.team == p.team
+                    && o.is_alive()
+                    && !o.status.destroyed
+                    && o.building_data.is_some()
+                    && !o.status.under_construction
+            };
+            // Prefer first selected producer residual; fall back to any local factory.
+            let producer = p
+                .selected_objects
+                .iter()
+                .copied()
+                .find(|&id| logic.get_object(id).is_some_and(is_producer))
+                .or_else(|| {
+                    logic
+                        .get_objects()
+                        .iter()
+                        .find(|(_, o)| is_producer(o))
+                        .map(|(id, _)| *id)
+                });
+            if let Some(pid) = producer {
+                can_make_producer_id = Some(pid.0);
+                // Sample residual templates by factory kind.
+                let samples: &[&str] = {
+                    let o = logic.get_object(pid);
+                    let bt = o
+                        .and_then(|o| o.building_data.as_ref())
+                        .map(|b| b.building_type);
+                    use crate::game_logic::buildings::BuildingType;
+                    match bt {
+                        Some(BuildingType::Barracks) => &[
+                            "AmericaInfantryRanger",
+                            "AmericaInfantryMissileDefender",
+                            "AmericaInfantryColonelBurton",
+                            "TestInfantry",
+                        ],
+                        Some(BuildingType::WarFactory) => &[
+                            "AmericaTankCrusader",
+                            "AmericaVehicleHumvee",
+                            "TestVehicleUnit",
+                        ],
+                        Some(BuildingType::Airfield) => {
+                            &["AmericaJetRaptor", "AmericaJetAurora", "TestRaptor"]
+                        }
+                        Some(BuildingType::CommandCenter) => &["AmericaVehicleDozer", "TestDozer"],
+                        _ => &["TestInfantry", "TestRaptor", "AmericaInfantryColonelBurton"],
+                    }
+                };
+                for name in samples {
+                    if !logic.templates.contains_key(*name) {
+                        // Still query residual — can_make returns NO_PREREQ without template.
+                    }
+                    let status = logic.can_make_unit(pid, name);
+                    let is_struct = logic
+                        .templates
+                        .get(*name)
+                        .map(|t| t.is_kind_of(crate::game_logic::KindOf::Structure))
+                        .unwrap_or(false);
+                    let help = can_make_type_help_box_message_residual(status, is_struct)
+                        .map(|s| s.to_string());
+                    can_make_cameos.push(PresentationCanMakeCameo {
+                        template_name: (*name).to_string(),
+                        can_make: status,
+                        available: status
+                            == crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK,
+                        help_status: help,
+                    });
+                }
+                can_make_cameos.truncate(12);
+            }
+        }
         let selected = local
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -2951,6 +3045,8 @@ impl PresentationFrame {
             local_rank_progress_percent,
             local_unlocked_sciences,
             superweapon_timers,
+            can_make_cameos,
+            can_make_producer_id,
             local_queued_upgrades,
             selected,
             events,
@@ -4932,6 +5028,8 @@ impl PresentationFrame {
     /// so a prior live `update_ui_state` walk cannot leave stale identity when a frame
     /// is available.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
+        self.apply_can_make_cameos_to_ui_state(ui);
+
         ui.rank_level = self.local_rank_level;
         ui.skill_points = self.local_skill_points;
         ui.science_purchase_points = self.local_science_purchase_points;
@@ -5558,6 +5656,22 @@ impl PresentationFrame {
 
     /// Headless-safe: uses only presentation fields. Does not claim full WND shell.
     #[cfg(feature = "game_client")]
+
+    /// Feed ControlBar HelpBox CanMake residual from presentation.
+    pub fn apply_can_make_cameos_to_ui_state(&self, ui: &mut crate::ui::hud_state::GameUIState) {
+        ui.can_make_cameos = self
+            .can_make_cameos
+            .iter()
+            .map(|c| crate::ui::hud_state::CanMakeCameoUi {
+                template_name: c.template_name.clone(),
+                can_make: c.can_make,
+                available: c.available,
+                help_status: c.help_status.clone(),
+            })
+            .collect();
+        ui.can_make_producer_id = self.can_make_producer_id;
+    }
+
     pub fn apply_to_control_bar(
         &self,
         control_bar: &mut game_client::gui::control_bar::ControlBar,
@@ -6513,6 +6627,132 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn presentation_freezes_can_make_cameos_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            CANMAKE_MAXED_OUT_FOR_PLAYER, CANMAKE_OK,
+        };
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        use crate::presentation_frame::PresentationFrame;
+
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "USA", true);
+        p.resources.supplies = 100_000;
+        p.selected_objects.clear();
+        logic.add_player(p);
+        // Barracks + Burton residual templates.
+        let mut bar = ThingTemplate::new("TestBarracks");
+        bar.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("TestBarracks".into(), bar);
+        // ensure building type barracks
+        let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+        burton
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Hero)
+            .set_health(200.0)
+            .set_cost(1500, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryColonelBurton".into(), burton);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .set_health(100.0)
+            .set_cost(100, 0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+
+        let bid = logic
+            .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.building_data = Some(crate::game_logic::BuildingData::new(
+                crate::game_logic::BuildingType::Barracks,
+            ));
+        }
+        if let Some(pl) = logic.get_player_mut(0) {
+            pl.selected_objects = vec![bid];
+        }
+
+        // Direct residual probe before presentation freeze.
+        assert_eq!(
+            logic.can_make_unit(bid, "AmericaInfantryColonelBurton"),
+            CANMAKE_OK,
+            "direct can_make Burton"
+        );
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(
+            frame.can_make_producer_id,
+            Some(bid.0),
+            "producer id; cameos={:?}",
+            frame.can_make_cameos
+        );
+        assert!(
+            !frame.can_make_cameos.is_empty(),
+            "cameos empty; producer={:?}",
+            frame.can_make_producer_id
+        );
+        let burton_c = frame
+            .can_make_cameos
+            .iter()
+            .find(|c| c.template_name.contains("Burton"))
+            .unwrap_or_else(|| panic!("Burton cameo missing in {:?}", frame.can_make_cameos));
+        assert!(burton_c.available, "burton={burton_c:?}");
+        assert_eq!(burton_c.can_make, CANMAKE_OK);
+
+        // Max out Burton residual.
+        assert!(logic.enqueue_production(bid, "AmericaInfantryColonelBurton".into()));
+        assert_eq!(
+            logic.can_make_unit(bid, "AmericaInfantryColonelBurton"),
+            CANMAKE_MAXED_OUT_FOR_PLAYER,
+            "direct maxed after enqueue"
+        );
+        assert!(
+            logic.get_player(0).is_some(),
+            "player0 missing after enqueue"
+        );
+        assert!(
+            logic
+                .get_object(bid)
+                .is_some_and(|o| o.building_data.is_some()),
+            "barracks lost building_data"
+        );
+        // Keep selection residual for freeze.
+        if let Some(pl) = logic.get_player_mut(0) {
+            pl.selected_objects = vec![bid];
+            pl.is_local = true;
+        }
+        let frame2 = PresentationFrame::build_from_logic(&logic, 0); // same local id residual
+        assert_eq!(
+            frame2.can_make_producer_id,
+            Some(bid.0),
+            "frame2 producer; local_sel={:?} objs={}",
+            logic.get_player(0).map(|p| p.selected_objects.clone()),
+            logic.get_objects().len()
+        );
+        let burton2 = frame2
+            .can_make_cameos
+            .iter()
+            .find(|c| c.template_name.contains("Burton"))
+            .unwrap_or_else(|| panic!("Burton cameo2 missing in {:?}", frame2.can_make_cameos));
+        assert!(!burton2.available, "burton2={burton2:?}");
+        assert_eq!(burton2.can_make, CANMAKE_MAXED_OUT_FOR_PLAYER);
+        assert!(burton2
+            .help_status
+            .as_deref()
+            .is_some_and(|s| s.contains("maximum")));
+
+        // apply_to_ui_state residual feed.
+        let mut ui = crate::ui::GameUIState::default();
+        frame2.apply_to_ui_state(&mut ui);
+        assert_eq!(ui.can_make_producer_id, Some(bid.0));
+        assert!(ui
+            .can_make_cameos
+            .iter()
+            .any(|c| !c.available && c.template_name.contains("Burton")));
+    }
+
     fn presentation_freezes_public_timer_superweapons() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
