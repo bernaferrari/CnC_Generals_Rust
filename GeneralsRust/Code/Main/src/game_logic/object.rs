@@ -1547,10 +1547,12 @@ impl Object {
         // fire-from-garrison). Docked transport cargo and units mid-enter cannot.
         // Docked aircraft may attack (ParkingPlace takeoff/sortie residual).
         // weapons_jammed: C++ canFireWeapon DISABLED_SUBDUED residual (ECM field).
+        // shock stun: C++ Physics IS_STUNNED residual — cannot acquire/fire while stunned.
         let parked_aircraft = self.is_parked_at_airfield();
         self.is_alive()
             && self.weapon.is_some()
             && !self.is_disabled()
+            && !self.is_shock_stunned()
             && !self.status.weapons_jammed
             && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Entering))
     }
@@ -2296,7 +2298,8 @@ impl Object {
 
     pub fn can_fire(&self, current_time: f32) -> bool {
         // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
-        if self.status.weapons_jammed || self.is_disabled() {
+        // Shock stun residual blocks weapon fire while flailing/stunned.
+        if self.status.weapons_jammed || self.is_disabled() || self.is_shock_stunned() {
             return false;
         }
         if let Some(weapon) = &self.weapon {
@@ -3070,6 +3073,10 @@ impl Object {
         if !self.is_alive() {
             return;
         }
+        // Shock stun residual: ignore new attack orders while stunned.
+        if self.is_shock_stunned() {
+            return;
+        }
         // Jet takeoff residual: leave hangar before engaging.
         let _ = self.takeoff_from_airfield_parking();
         if self.can_attack() {
@@ -3152,13 +3159,17 @@ impl Object {
         // weapons_jammed intentionally does NOT block movement (weapons-only residual).
         // disabled_subdued blocks move (C++ DISABLED_SUBDUED full disable for non-projectile).
         // Docked aircraft may move (takeoff/sortie residual).
+        // Shock flailing residual: block commanded move while STUNNED_FLAILING
+        // (stun_frames > 15). Settled STUNNED phase may still stagger via velocity.
         let parked_aircraft = self.is_parked_at_airfield();
+        let flailing = self.shock_stun_frames > 15;
         self.is_mobile()
             && self.is_alive()
             && !self.status.disabled_unmanned
             && !self.status.disabled_hacked
             && !self.status.disabled_emp
             && !self.status.disabled_subdued
+            && !flailing
             && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned))
     }
 
@@ -4777,5 +4788,45 @@ mod tests {
             o.model_condition_bits,
             MC_BIT_STUNNED
         ));
+    }
+    #[test]
+    fn shock_stun_blocks_attack_fire_and_flail_move() {
+        let mut tmpl = ThingTemplate::new("StunBlock");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(42), Team::USA);
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        assert!(o.can_attack());
+        assert!(o.can_fire(0.0));
+        assert!(o.can_move());
+        assert!(o.apply_shock_wave_impulse(glam::Vec3::new(10.0, 5.0, 0.0)));
+        assert!(o.is_shock_stunned());
+        assert!(!o.can_attack(), "stunned cannot attack");
+        assert!(!o.can_fire(0.0), "stunned cannot fire");
+        // Flailing phase blocks commanded move.
+        assert!(o.shock_stun_frames > 15);
+        assert!(!o.can_move(), "flailing cannot take move orders");
+        // Settled stunned phase: move orders allowed (stagger), still no fire.
+        o.shock_stun_frames = 10;
+        o.refresh_model_condition_bits();
+        assert!(!o.can_attack());
+        assert!(!o.can_fire(1.0));
+        assert!(o.can_move(), "settled stun may stagger-move");
+        // attack_target ignored while stunned.
+        o.shock_stun_frames = 20;
+        o.attack_target(ObjectId(99));
+        assert!(o.target.is_none() || o.ai_state != AIState::Attacking || !o.can_attack());
+        // After stun clears, combat again.
+        o.shock_stun_frames = 0;
+        o.refresh_model_condition_bits();
+        assert!(o.can_attack());
+        assert!(o.can_fire(2.0));
+        assert!(o.can_move());
     }
 }
