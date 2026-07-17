@@ -140,6 +140,7 @@ pub fn host_command_power_cpp_enum_name(
         HostCommandSpecialPowerType::CarpetBomb => Some("SPECIAL_CARPET_BOMB"),
         HostCommandSpecialPowerType::ClusterMines => Some("SPECIAL_CLUSTER_MINES"),
         HostCommandSpecialPowerType::EmergencyRepair => Some("SPECIAL_REPAIR_VEHICLES"),
+        HostCommandSpecialPowerType::EarlyEmergencyRepair => Some("EARLY_SPECIAL_REPAIR_VEHICLES"),
         HostCommandSpecialPowerType::NapalmStrike => Some("SPECIAL_NAPALM_STRIKE"),
         HostCommandSpecialPowerType::NuclearMissile => Some("SPECIAL_NEUTRON_MISSILE"),
         HostCommandSpecialPowerType::Paradrop => Some("SPECIAL_PARADROP_AMERICA"),
@@ -154,6 +155,7 @@ pub fn host_command_power_cpp_enum_name(
         HostCommandSpecialPowerType::SpectreGunship => Some("SPECIAL_SPECTRE_GUNSHIP"),
         HostCommandSpecialPowerType::EmpPulse => Some("SPECIAL_EMP_PULSE"),
         HostCommandSpecialPowerType::Frenzy => Some("SPECIAL_FRENZY"),
+        HostCommandSpecialPowerType::EarlyFrenzy => Some("EARLY_SPECIAL_FRENZY"),
         HostCommandSpecialPowerType::BattlePlanBombardment
         | HostCommandSpecialPowerType::BattlePlanHoldTheLine
         | HostCommandSpecialPowerType::BattlePlanSearchAndDestroy => {

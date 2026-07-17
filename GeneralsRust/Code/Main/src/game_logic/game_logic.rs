@@ -81349,6 +81349,91 @@ mod tests {
     }
 
     #[test]
+    fn early_frenzy_and_emergency_repair_powers_activate() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_emergency_repair::{
+            highest_emergency_repair_level_from_sciences, HostEmergencyRepairLevel,
+        };
+        use crate::game_logic::host_frenzy::{highest_frenzy_level_from_sciences, HostFrenzyLevel};
+        use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::EarlyFrenzy),
+            Some("EARLY_SPECIAL_FRENZY")
+        );
+        assert_eq!(
+            host_command_power_cpp_enum_name(&SpecialPowerType::EarlyEmergencyRepair),
+            Some("EARLY_SPECIAL_REPAIR_VEHICLES")
+        );
+        assert_eq!(
+            highest_frenzy_level_from_sciences(["Early_SCIENCE_Frenzy2"]),
+            HostFrenzyLevel::Two
+        );
+        assert_eq!(
+            highest_emergency_repair_level_from_sciences(["Early_SCIENCE_EmergencyRepair3"]),
+            HostEmergencyRepairLevel::Three
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert("Early_SCIENCE_Frenzy1".to_string());
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert("Early_SCIENCE_EmergencyRepair1".to_string());
+        let mut cc = ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let mut tank = ThingTemplate::new("ChinaTankBattleMaster");
+        tank.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("ChinaTankBattleMaster".into(), tank);
+        let src = logic
+            .create_object(
+                "ChinaCommandCenter",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let veh = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        // Damage vehicle so repair has a target.
+        if let Some(o) = logic.get_object_mut(veh) {
+            let _ = o.take_damage(100.0);
+        }
+        assert!(logic.activate_frenzy(
+            0,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+            Some(src),
+            HostFrenzyLevel::One,
+        ));
+        assert!(logic.activate_emergency_repair(
+            0,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+            Some(src),
+            HostEmergencyRepairLevel::One,
+        ));
+        let _ = SpecialPowerType::EarlyFrenzy;
+        let _ = SpecialPowerType::EarlyEmergencyRepair;
+    }
+
+    #[test]
     fn early_leaflet_drop_queues_same_delay_residual() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_leaflet_drop::{
