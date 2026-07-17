@@ -713,6 +713,12 @@ pub struct Object {
     /// Template the unit is currently disguised as (None when not disguised).
     #[serde(default)]
     pub disguise_as_template: Option<String>,
+    /// Pending disguise template while transition residual runs (pre-halfpoint).
+    #[serde(default)]
+    pub disguise_pending_template: Option<String>,
+    /// Pending disguise team while transition residual runs.
+    #[serde(default)]
+    pub disguise_pending_team: Option<Team>,
     /// Team residual the unit appears as to non-allied viewers while disguised.
     #[serde(default)]
     pub disguise_as_team: Option<Team>,
@@ -1333,6 +1339,8 @@ impl Object {
             stealth_breaks_on_move: false,
             innate_stealth: false,
             disguise_as_template: None,
+            disguise_pending_template: None,
+            disguise_pending_team: None,
             disguise_as_team: None,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
@@ -1597,6 +1605,8 @@ impl Object {
             stealth_breaks_on_move: false,
             innate_stealth: false,
             disguise_as_template: None,
+            disguise_pending_template: None,
+            disguise_pending_team: None,
             disguise_as_team: None,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
@@ -4863,30 +4873,129 @@ impl Object {
         self.status.disguised
     }
 
-    /// Apply Bomb Truck disguise residual (StealthUpdate::disguiseAsTemplate).
-    /// Stores disguise template/team and sets DISGUISED + STEALTHED residual.
+    /// Apply Bomb Truck disguise residual (StealthUpdate::disguiseAsObject).
+    ///
+    /// C++ residual: start DisguiseTransitionTime frames; at halfpoint
+    /// `changeVisualDisguise` sets DISGUISED + model. Host residual: arm
+    /// pending template/team, tick opacity, commit at halfpoint.
     pub fn apply_disguise(&mut self, template_name: &str, as_team: Team) {
+        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
         if self.status.destroyed {
             return;
         }
-        self.status.disguised = true;
+        self.disguise_pending_template = Some(template_name.to_string());
+        self.disguise_pending_team = Some(as_team);
+        // Not fully disguised until halfpoint residual.
+        self.status.disguised = false;
         self.status.stealthed = true;
         self.status.detected = false;
         self.detection_expires_frame = 0;
-        self.disguise_as_template = Some(template_name.to_string());
-        self.disguise_as_team = Some(as_team);
+        self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
+        self.status.disguise_transitioning_to = true;
+        self.status.disguise_halfpoint_reached = false;
+        self.status.disguise_transition_opacity = 1.0;
+        // Keep previous appearance until halfpoint if any.
     }
 
-    /// Clear disguise residual (reveal). Also clears STEALTHED residual for
-    /// DisguisesAsTeam casters (C++ clearStatus STEALTHED on finish reveal).
+    /// Clear disguise residual (reveal transition).
+    ///
+    /// C++ residual: DisguiseRevealTransitionTime frames; halfpoint restores
+    /// true visual; end clears STEALTHED.
     pub fn clear_disguise(&mut self) {
+        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
+        if !self.status.disguised
+            && self.disguise_as_template.is_none()
+            && self.disguise_pending_template.is_none()
+            && self.status.disguise_transition_frames == 0
+        {
+            return;
+        }
+        // Begin reveal transition residual (losing disguise look).
+        self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
+        self.status.disguise_transitioning_to = false;
+        self.status.disguise_halfpoint_reached = false;
+        self.status.disguise_transition_opacity = 1.0;
+        // Keep disguise_as_* until halfpoint swap back.
+    }
+
+    /// Force-clear disguise residual immediately (no transition).
+    pub fn clear_disguise_instant(&mut self) {
         self.status.disguised = false;
         self.disguise_as_template = None;
         self.disguise_as_team = None;
-        // Bomb truck disguise path ends stealth when fully revealed.
+        self.disguise_pending_template = None;
+        self.disguise_pending_team = None;
         self.status.stealthed = false;
         self.status.detected = false;
         self.detection_expires_frame = 0;
+        self.status.disguise_transition_frames = 0;
+        self.status.disguise_transitioning_to = false;
+        self.status.disguise_halfpoint_reached = false;
+        self.status.disguise_transition_opacity = 1.0;
+    }
+
+    /// C++ StealthUpdate disguise transition residual tick.
+    ///
+    /// Returns true when halfpoint model-swap residual fired this frame.
+    pub fn tick_disguise_transition(&mut self) -> bool {
+        if self.status.disguise_transition_frames == 0 {
+            return false;
+        }
+        use crate::game_logic::host_bomb_truck_disguise::{
+            BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES, BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES,
+        };
+        self.status.disguise_transition_frames =
+            self.status.disguise_transition_frames.saturating_sub(1);
+        let total = if self.status.disguise_transitioning_to {
+            BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES.max(1)
+        } else {
+            BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES.max(1)
+        };
+        let remaining = self.status.disguise_transition_frames;
+        // factor 0 → 1 over transition (C++).
+        let factor = 1.0 - (remaining as f32 / total as f32);
+        // Opacity: full → none at midpoint → full (fabs(1 - factor*2)).
+        let opacity = (1.0 - factor * 2.0).abs();
+        self.status.disguise_transition_opacity = opacity;
+
+        let mut halfpoint = false;
+        if factor >= 0.5 && !self.status.disguise_halfpoint_reached {
+            self.status.disguise_halfpoint_reached = true;
+            halfpoint = true;
+            if self.status.disguise_transitioning_to {
+                // changeVisualDisguise residual: commit pending appearance.
+                if let Some(tpl) = self.disguise_pending_template.take() {
+                    self.disguise_as_template = Some(tpl);
+                }
+                if let Some(team) = self.disguise_pending_team.take() {
+                    self.disguise_as_team = Some(team);
+                }
+                self.status.disguised = true;
+                self.status.stealthed = true;
+                self.status.detected = false;
+            } else {
+                // Reveal halfpoint: restore true look residual.
+                self.status.disguised = false;
+                self.disguise_as_template = None;
+                self.disguise_as_team = None;
+                self.disguise_pending_template = None;
+                self.disguise_pending_team = None;
+            }
+        }
+
+        if remaining == 0 && !self.status.disguise_transitioning_to {
+            // Finished removing disguise — clear stealth residual.
+            self.status.stealthed = false;
+            self.status.detected = false;
+            self.detection_expires_frame = 0;
+            self.status.disguise_transition_opacity = 1.0;
+        }
+        halfpoint
+    }
+
+    /// Whether disguise transition residual is active.
+    pub fn is_disguise_transitioning(&self) -> bool {
+        self.status.disguise_transition_frames > 0
     }
 
     /// Apparent team residual for a viewer (see host_bomb_truck_disguise).
