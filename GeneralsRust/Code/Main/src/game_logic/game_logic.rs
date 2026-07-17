@@ -19972,7 +19972,7 @@ impl GameLogic {
         position: Vec3,
     ) -> Option<ObjectId> {
         // C++ BuildAssistant isLocationLegalToBuild residual (objects-in-way / bounds).
-        if !self.is_location_legal_to_build(team, position) {
+        if !self.is_location_legal_to_build(team, position, template_name) {
             log::debug!(
                 "Blocked construction {} at {:?} (LegalBuildCode residual)",
                 template_name,
@@ -44030,13 +44030,23 @@ impl GameLogic {
 
     /// C++ BuildAssistant::isLocationLegalToBuild residual (subset).
     ///
-    /// Checks world bounds + living structure/immobile overlap. Fail-closed vs
-    /// full terrain slope / shroud / supply-dock distance matrix.
-    pub fn legal_build_code_at(&self, team: Team, position: glam::Vec3) -> u32 {
+    /// Checks world bounds, living structure overlap, and for supply centers
+    /// LBC_TOO_CLOSE_TO_SUPPLIES vs SUPPLY_SOURCE residual. Fail-closed vs full
+    /// terrain slope / shroud graph.
+    pub fn legal_build_code_at(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            legal_build_code_from_checks_residual, legal_build_objects_in_the_way_residual, LBC_OK,
-            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
+            legal_build_code_from_checks_ex_residual, legal_build_objects_in_the_way_residual,
+            legal_build_too_close_to_supplies_residual, STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
         };
+        use crate::game_logic::host_structure_economy_residual::{
+            is_supply_warehouse_template, SUPPLY_BUILD_BORDER,
+        };
+        use crate::game_logic::host_upgrades::is_supply_center_template;
         let _ = team; // shroud residual deferred
         let (min, max) = self.world_bounds();
         let pad = 50.0;
@@ -44052,29 +44062,54 @@ impl GameLogic {
             && position.z <= max_z;
         let place_r = STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
+        let mut supply_sources: Vec<(f32, f32, f32)> = Vec::new();
         for obj in self.objects.values() {
             if !obj.is_alive() {
                 continue;
             }
-            // Immobile / structure residual blocks placement (C++ KINDOF_IMMOBILE).
-            // Structure residual occupies the pad (C++ KINDOF_IMMOBILE subset).
-            let immobile = obj.is_kind_of(KindOf::Structure);
-            if !immobile {
-                continue;
-            }
-            // Under-construction and complete both occupy the pad residual.
             let p = obj.get_position();
-            blockers.push((p.x, p.z, Self::structure_place_radius(obj)));
+            let r = Self::structure_place_radius(obj);
+            if obj.is_kind_of(KindOf::Structure) {
+                blockers.push((p.x, p.z, r));
+            }
+            // C++ KINDOF_SUPPLY_SOURCE residual (docks/piles/warehouses).
+            if is_supply_warehouse_template(&obj.template_name)
+                || obj.is_kind_of(KindOf::Harvestable)
+                || obj.is_kind_of(KindOf::Resource)
+            {
+                supply_sources.push((p.x, p.z, r.max(10.0)));
+            }
         }
         let in_way =
             legal_build_objects_in_the_way_residual((position.x, position.z), place_r, &blockers);
-        legal_build_code_from_checks_residual(in_bounds, in_way)
+        // C++ CANNOT_BUILD_NEAR_SUPPLIES: supply centers only.
+        let lower = template_name.to_ascii_lowercase();
+        let too_close = if is_supply_center_template(template_name)
+            || lower.contains("supplycenter")
+            || lower.contains("supply_center")
+            || lower.contains("supplystash")
+        {
+            legal_build_too_close_to_supplies_residual(
+                (position.x, position.z),
+                place_r,
+                &supply_sources,
+                SUPPLY_BUILD_BORDER,
+            )
+        } else {
+            false
+        };
+        legal_build_code_from_checks_ex_residual(in_bounds, in_way, too_close)
     }
 
     /// True when residual LegalBuildCode is LBC_OK.
-    pub fn is_location_legal_to_build(&self, team: Team, position: glam::Vec3) -> bool {
+    pub fn is_location_legal_to_build(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+    ) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::LBC_OK;
-        self.legal_build_code_at(team, position) == LBC_OK
+        self.legal_build_code_at(team, position, template_name) == LBC_OK
     }
 
     /// Count living/under-construction Superweapon-link-key objects for a team residual.
@@ -82264,6 +82299,98 @@ mod tests {
     }
 
     #[test]
+    fn supply_center_placement_rejects_too_close_to_supplies_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            LBC_OK, LBC_TOO_CLOSE_TO_SUPPLIES,
+        };
+        use crate::game_logic::host_structure_economy_residual::SUPPLY_BUILD_BORDER;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!((SUPPLY_BUILD_BORDER - 20.0).abs() < 0.01);
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+
+        let mut pile = ThingTemplate::new("SupplyWarehouse");
+        pile.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Harvestable)
+            .add_kind_of(KindOf::Resource)
+            .set_health(1.0);
+        logic.templates.insert("SupplyWarehouse".into(), pile);
+        let mut sc = ThingTemplate::new("AmericaSupplyCenter");
+        sc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::SupplyCenter)
+            .set_health(2000.0);
+        logic.templates.insert("AmericaSupplyCenter".into(), sc);
+        // CC for prereq residual.
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let _ = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(-500.0, 0.0, 0.0),
+            )
+            .expect("cc");
+
+        let _ = logic
+            .create_object(
+                "SupplyWarehouse",
+                Team::Neutral,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pile");
+
+        // Outside structure pad clearance (~40) but inside SupplyBuildBorder band
+        // so residual returns LBC_TOO_CLOSE_TO_SUPPLIES (not OBJECTS_IN_THE_WAY).
+        assert_eq!(
+            logic.legal_build_code_at(
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+                "AmericaSupplyCenter"
+            ),
+            LBC_TOO_CLOSE_TO_SUPPLIES
+        );
+        assert!(logic
+            .create_object_under_construction(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .is_none());
+        // Far enough residual.
+        assert_eq!(
+            logic.legal_build_code_at(
+                Team::USA,
+                glam::Vec3::new(300.0, 0.0, 0.0),
+                "AmericaSupplyCenter"
+            ),
+            LBC_OK
+        );
+        assert!(logic
+            .create_object_under_construction(
+                "AmericaSupplyCenter",
+                Team::USA,
+                glam::Vec3::new(300.0, 0.0, 0.0),
+            )
+            .is_some());
+        // Non-supply building near pile is OK for this residual (only CANNOT_BUILD_NEAR).
+        let mut bar = ThingTemplate::new("TestBarracksNearPile");
+        bar.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("TestBarracksNearPile".into(), bar);
+        assert_eq!(
+            logic.legal_build_code_at(
+                Team::USA,
+                glam::Vec3::new(80.0, 0.0, 0.0),
+                "TestBarracksNearPile"
+            ),
+            LBC_OK
+        );
+    }
+
+    #[test]
     fn structure_placement_rejects_objects_in_the_way_residual() {
         use crate::game_logic::host_production_buildable_command_residual::{
             LBC_OBJECTS_IN_THE_WAY, LBC_OK,
@@ -82285,7 +82412,7 @@ mod tests {
             )
             .expect("first pad");
         assert_eq!(
-            logic.legal_build_code_at(Team::USA, glam::Vec3::new(0.0, 0.0, 0.0)),
+            logic.legal_build_code_at(Team::USA, glam::Vec3::new(0.0, 0.0, 0.0), "TestBarracksPad"),
             LBC_OBJECTS_IN_THE_WAY
         );
         assert!(
@@ -82300,7 +82427,11 @@ mod tests {
         );
         // Far enough residual.
         assert_eq!(
-            logic.legal_build_code_at(Team::USA, glam::Vec3::new(200.0, 0.0, 0.0)),
+            logic.legal_build_code_at(
+                Team::USA,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+                "TestBarracksPad"
+            ),
             LBC_OK
         );
         assert!(logic
