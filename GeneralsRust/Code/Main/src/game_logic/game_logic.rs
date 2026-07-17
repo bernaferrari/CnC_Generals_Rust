@@ -44040,26 +44040,36 @@ impl GameLogic {
         template_name: &str,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            legal_build_code_from_checks_ex_residual, legal_build_objects_in_the_way_residual,
-            legal_build_too_close_to_supplies_residual, STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
+            legal_build_code_from_checks_full_residual, legal_build_objects_in_the_way_residual,
+            legal_build_too_close_to_supplies_residual, min_dist_from_map_edge_residual,
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
         };
         use crate::game_logic::host_structure_economy_residual::{
-            is_supply_warehouse_template, SUPPLY_BUILD_BORDER,
+            is_legal_build_distance_from_map_edge, is_supply_warehouse_template,
+            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
         };
         use crate::game_logic::host_upgrades::is_supply_center_template;
         let _ = team; // shroud residual deferred
         let (min, max) = self.world_bounds();
-        let pad = 50.0;
-        let min_x = min.x.min(-1000.0) - pad;
-        let max_x = max.x.max(1000.0) + pad;
-        let min_z = min.z.min(-1000.0) - pad;
-        let max_z = max.z.max(1000.0) + pad;
+        // Use real map extent (no generous pad) for C++ off-map / edge residual.
+        let min_x = min.x;
+        let max_x = max.x;
+        let min_z = min.z;
+        let max_z = max.z;
         let in_bounds = position.x.is_finite()
             && position.z.is_finite()
             && position.x >= min_x
             && position.x <= max_x
             && position.z >= min_z
             && position.z <= max_z;
+        let edge_dist = min_dist_from_map_edge_residual(
+            (position.x, position.z),
+            (min_x, min_z),
+            (max_x, max_z),
+        );
+        let too_close_edge = in_bounds
+            && MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD > 0.0
+            && !is_legal_build_distance_from_map_edge(edge_dist);
         let place_r = STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
         let mut supply_sources: Vec<(f32, f32, f32)> = Vec::new();
@@ -44098,7 +44108,7 @@ impl GameLogic {
         } else {
             false
         };
-        legal_build_code_from_checks_ex_residual(in_bounds, in_way, too_close)
+        legal_build_code_from_checks_full_residual(in_bounds, in_way, too_close, too_close_edge)
     }
 
     /// True when residual LegalBuildCode is LBC_OK.
@@ -82299,6 +82309,45 @@ mod tests {
     }
 
     #[test]
+    fn structure_placement_rejects_map_edge_residual() {
+        use crate::game_logic::host_production_buildable_command_residual::LBC_RESTRICTED_TERRAIN;
+        use crate::game_logic::host_structure_economy_residual::MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!((MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD - 30.0).abs() < 0.01);
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        // Authoritative small map residual.
+        logic.override_world_size(200.0, 200.0);
+        let (min, max) = logic.world_bounds();
+        assert!((max.x - min.x - 200.0).abs() < 0.1);
+
+        let mut t = ThingTemplate::new("TestEdgeBarracks");
+        t.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("TestEdgeBarracks".into(), t);
+
+        // 5 units from +X edge → restricted residual.
+        let near_edge = glam::Vec3::new(max.x - 5.0, 0.0, 0.0);
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, near_edge, "TestEdgeBarracks"),
+            LBC_RESTRICTED_TERRAIN
+        );
+        assert!(logic
+            .create_object_under_construction("TestEdgeBarracks", Team::USA, near_edge)
+            .is_none());
+
+        // Center of map OK.
+        let center = glam::Vec3::new(0.0, 0.0, 0.0);
+        assert_eq!(
+            logic.legal_build_code_at(Team::USA, center, "TestEdgeBarracks"),
+            crate::game_logic::host_production_buildable_command_residual::LBC_OK
+        );
+        assert!(logic
+            .create_object_under_construction("TestEdgeBarracks", Team::USA, center)
+            .is_some());
+    }
+
+    #[test]
     fn supply_center_placement_rejects_too_close_to_supplies_residual() {
         use crate::game_logic::host_production_buildable_command_residual::{
             LBC_OK, LBC_TOO_CLOSE_TO_SUPPLIES,
@@ -82309,6 +82358,7 @@ mod tests {
 
         let mut logic = GameLogic::new();
         ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
 
         let mut pile = ThingTemplate::new("SupplyWarehouse");
         pile.add_kind_of(KindOf::Structure)
@@ -82399,7 +82449,8 @@ mod tests {
 
         let mut logic = GameLogic::new();
         ensure_test_player_for_team(&mut logic, Team::USA);
-        // Barracks not in prereq table → fail-open prereq residual.
+        logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
+                                                   // Barracks not in prereq table → fail-open prereq residual.
         let mut t = ThingTemplate::new("TestBarracksPad");
         t.add_kind_of(KindOf::Structure).set_health(1000.0);
         logic.templates.insert("TestBarracksPad".into(), t);
@@ -82451,6 +82502,7 @@ mod tests {
 
         let mut logic = GameLogic::new();
         ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
 
         // Seed templates residual for climb: CC free → Supply → WF → Strategy → PUC.
         for name in [
@@ -82559,6 +82611,7 @@ mod tests {
 
         let mut logic = GameLogic::new();
         ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
 
         for name in [
             AMERICA_PARTICLE_CANNON_UPLINK,
@@ -83002,6 +83055,7 @@ mod tests {
 
         let mut logic = GameLogic::new();
         ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
         logic.set_skirmish_rules(true, true, true, true, 1.0); // limit_superweapons=true
 
         let mut puc = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);

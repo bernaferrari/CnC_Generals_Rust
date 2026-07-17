@@ -371,14 +371,34 @@ pub fn legal_build_code_from_checks_residual(
     legal_build_code_from_checks_ex_residual(in_world_bounds, objects_in_the_way, false)
 }
 
-/// Extended LegalBuildCode residual including supply-border gate.
+/// Extended LegalBuildCode residual including supply-border + map-edge gates.
 pub fn legal_build_code_from_checks_ex_residual(
     in_world_bounds: bool,
     objects_in_the_way: bool,
     too_close_to_supplies: bool,
 ) -> u32 {
+    legal_build_code_from_checks_full_residual(
+        in_world_bounds,
+        objects_in_the_way,
+        too_close_to_supplies,
+        false,
+    )
+}
+
+/// Full residual LegalBuildCode mapper (bounds / objects / supplies / map edge).
+pub fn legal_build_code_from_checks_full_residual(
+    in_world_bounds: bool,
+    objects_in_the_way: bool,
+    too_close_to_supplies: bool,
+    too_close_to_map_edge: bool,
+) -> u32 {
     if !in_world_bounds {
-        return LBC_GENERIC_FAILURE;
+        // C++ off-map → LBC_RESTRICTED_TERRAIN.
+        return LBC_RESTRICTED_TERRAIN;
+    }
+    // C++ MinDistFromEdgeOfMapForBuild samples set terrainRestricted → LBC_RESTRICTED_TERRAIN.
+    if too_close_to_map_edge {
+        return LBC_RESTRICTED_TERRAIN;
     }
     if objects_in_the_way {
         return LBC_OBJECTS_IN_THE_WAY;
@@ -387,6 +407,20 @@ pub fn legal_build_code_from_checks_ex_residual(
         return LBC_TOO_CLOSE_TO_SUPPLIES;
     }
     LBC_OK
+}
+
+/// Min distance from map edge residual helper (world units).
+pub fn min_dist_from_map_edge_residual(
+    pos: (f32, f32),
+    map_min: (f32, f32),
+    map_max: (f32, f32),
+) -> f32 {
+    let (x, z) = pos;
+    let (min_x, min_z) = map_min;
+    let (max_x, max_z) = map_max;
+    let dx = (x - min_x).min(max_x - x);
+    let dz = (z - min_z).min(max_z - z);
+    dx.min(dz)
 }
 
 /// Wave 99 honesty: buildable residual pack.
@@ -415,8 +449,12 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         )
         && legal_build_code_from_checks_residual(true, false) == LBC_OK
         && legal_build_code_from_checks_residual(true, true) == LBC_OBJECTS_IN_THE_WAY
-        && legal_build_code_from_checks_residual(false, false) == LBC_GENERIC_FAILURE
+        && legal_build_code_from_checks_residual(false, false) == LBC_RESTRICTED_TERRAIN
         && legal_build_code_from_checks_ex_residual(true, false, true) == LBC_TOO_CLOSE_TO_SUPPLIES
+        && legal_build_code_from_checks_full_residual(true, false, false, true)
+            == LBC_RESTRICTED_TERRAIN
+        && min_dist_from_map_edge_residual((0.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 100.0
+        && min_dist_from_map_edge_residual((90.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 10.0
         && legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(5.0, 0.0, 5.0)], 20.0)
         && !legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(200.0, 0.0, 5.0)], 20.0)
         && buildable_status_allows_human_residual(BSTATUS_IGNORE_PREREQUISITES)
