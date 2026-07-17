@@ -14132,6 +14132,8 @@ impl GameLogic {
                             let _ = self.transfer_script_object_name(object_id, special_target_id);
                             // Local victim EVA residual → radar message already.
                             self.car_bomb.record_hijack();
+                            // C++ ConvertToHijackedVehicleCrateCollide tryInfiltrationEvent.
+                            self.try_infiltration_event(special_target_id);
                             self.queue_audio_event(
                                 AudioEventRequest::new(
                                     crate::game_logic::host_car_bomb::HIJACK_AUDIO,
@@ -14283,6 +14285,9 @@ impl GameLogic {
                                         }
                                     }
                                     self.saboteur.record(kind, cash_stolen);
+                                    // C++ TheRadar->tryInfiltrationEvent(other) residual
+                                    // (victim local player warning).
+                                    self.try_infiltration_event(special_target_id);
                                     let audio = if kind.steals_cash() {
                                         SABOTEUR_CASH_STEAL_AUDIO
                                     } else if kind.resets_special_power() {
@@ -42039,6 +42044,51 @@ impl GameLogic {
     pub fn queue_radar_ally<S: Into<String>>(&mut self, message: S) {
         self.queue_radar_message_at(message, Vec3::ZERO, radar_notifications::RadarKind::Ally);
         self.maybe_play_radar_audio("Radar_Ally");
+    }
+
+    /// C++ Radar::tryInfiltrationEvent residual.
+    ///
+    /// Notifies the **victim** controlling team (local player residual) with
+    /// RADAR_EVENT_INFILTRATION + audio honesty. Saboteur / hijack / special
+    /// ability paths call this when an enemy structure/vehicle is compromised.
+
+    /// Residual honesty: last radar message text (tests / presentation bridge).
+    pub fn last_radar_message_text(&self) -> Option<&str> {
+        self.last_radar_event.as_ref().map(|e| e.text.as_str())
+    }
+
+    pub fn try_infiltration_event(&mut self, victim_id: ObjectId) {
+        let Some(obj) = self.objects.get(&victim_id) else {
+            return;
+        };
+        if !obj.is_alive() {
+            return;
+        }
+        let victim_team = obj.team;
+        let pos = obj.get_position();
+        // Local-player residual: only warn if a local player owns the victim team.
+        let local_victim = self
+            .players
+            .values()
+            .any(|p| p.team == victim_team && p.is_local);
+        if !local_victim {
+            // Still record honesty for AI-vs-AI residual observability when any
+            // player on that team exists (fail-open for headless host tests).
+            if !self.players.values().any(|p| p.team == victim_team) {
+                return;
+            }
+        }
+        let msg = localization::localize("RADAR:Infiltration", "Infiltration event");
+        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
+        self.queue_audio_event(
+            AudioEventRequest::new(
+                crate::game_logic::host_radar_stealth_vision_residual::RADAR_INFILTRATION_AUDIO,
+            )
+            .with_object(victim_id)
+            .with_position(pos)
+            .with_priority(175),
+        );
+        self.saboteur.record_infiltration_event();
     }
 
     pub fn queue_radar_message_for_team<S: Into<String>>(&mut self, team: Team, message: S) {
@@ -76416,6 +76466,41 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn try_infiltration_event_queues_victim_radar() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        // Local USA player residual.
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
+        );
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(25.0, 0.0, 40.0),
+            )
+            .expect("pp");
+        logic.try_infiltration_event(id);
+        assert!(
+            logic.saboteur.honesty_infiltration_event_ok(),
+            "infiltration residual honesty"
+        );
+        assert!(
+            logic
+                .last_radar_message_text()
+                .map(|t| t.to_ascii_lowercase().contains("infiltrat"))
+                .unwrap_or(false),
+            "radar message residual must mention infiltration"
+        );
     }
 
     #[test]
