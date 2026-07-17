@@ -64,6 +64,14 @@ pub const CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS: f32 = 150.0;
 
 /// Activate audio residual (SpecialPower.ini InitiateSound).
 pub const CIA_INTELLIGENCE_ACTIVATE_AUDIO: &str = "CIAIntelligenceActivate";
+/// Retail SpecialPowerCommunicationsDownload name residual.
+pub const COMMUNICATIONS_DOWNLOAD_SPECIAL_POWER: &str = "SpecialPowerCommunicationsDownload";
+/// Retail Enum residual.
+pub const COMMUNICATIONS_DOWNLOAD_SPECIAL_ENUM: &str = "SPECIAL_COMMUNICATIONS_DOWNLOAD";
+/// Retail CommunicationsDownload ReloadTime residual (msec).
+pub const COMMUNICATIONS_DOWNLOAD_RELOAD_MS: u32 = 10_000;
+/// ReloadTime 10000ms → 300 frames @ 30 FPS.
+pub const COMMUNICATIONS_DOWNLOAD_RELOAD_FRAMES: u32 = 300;
 
 /// Convert residual milliseconds to logic frames @ 30 FPS (round half-up).
 pub fn cia_intelligence_ms_to_frames(ms: u32) -> u32 {
@@ -274,6 +282,15 @@ impl HostCiaIntelligenceRegistry {
             })
         })
     }
+}
+
+/// Wave residual honesty: CommunicationsDownload maps onto CIA SpyVision residual.
+pub fn honesty_communications_download_residual_pack_ok() -> bool {
+    COMMUNICATIONS_DOWNLOAD_SPECIAL_POWER == "SpecialPowerCommunicationsDownload"
+        && COMMUNICATIONS_DOWNLOAD_SPECIAL_ENUM == "SPECIAL_COMMUNICATIONS_DOWNLOAD"
+        && COMMUNICATIONS_DOWNLOAD_RELOAD_MS == 10_000
+        && COMMUNICATIONS_DOWNLOAD_RELOAD_FRAMES == 300
+        && CIA_INTELLIGENCE_ACTIVATE_AUDIO == "CIAIntelligenceActivate"
 }
 
 // --- Wave 66 residual honesty packs ---
