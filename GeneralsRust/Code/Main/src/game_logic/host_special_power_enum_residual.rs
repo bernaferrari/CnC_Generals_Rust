@@ -138,6 +138,9 @@ pub fn host_command_power_cpp_enum_name(
         HostCommandSpecialPowerType::Airstrike => Some("SPECIAL_A10_THUNDERBOLT_STRIKE"),
         HostCommandSpecialPowerType::Artillery => Some("SPECIAL_ARTILLERY_BARRAGE"),
         HostCommandSpecialPowerType::CarpetBomb => Some("SPECIAL_CARPET_BOMB"),
+        HostCommandSpecialPowerType::EarlyChinaCarpetBomb => {
+            Some("EARLY_SPECIAL_CHINA_CARPET_BOMB")
+        }
         HostCommandSpecialPowerType::ClusterMines => Some("SPECIAL_CLUSTER_MINES"),
         HostCommandSpecialPowerType::EmergencyRepair => Some("SPECIAL_REPAIR_VEHICLES"),
         HostCommandSpecialPowerType::EarlyEmergencyRepair => Some("EARLY_SPECIAL_REPAIR_VEHICLES"),
