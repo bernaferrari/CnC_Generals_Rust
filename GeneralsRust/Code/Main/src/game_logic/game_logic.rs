@@ -6557,6 +6557,121 @@ impl GameLogic {
     ///
     /// Copies named priority sets and applies per-object set names so
     /// `find_closest_enemy` priority scoring matches script actions.
+
+    /// Parse C++ AttitudeType name/ordinal residual to host i8.
+    pub fn parse_attitude_token(token: &str) -> i8 {
+        use crate::game_logic::host_strategy_center::HostAiAttitude;
+        match token.trim().to_ascii_uppercase().as_str() {
+            "SLEEP" | "-2" => HostAiAttitude::Sleep.as_i8(),
+            "PASSIVE" | "-1" => HostAiAttitude::Passive.as_i8(),
+            "NORMAL" | "0" => HostAiAttitude::Normal.as_i8(),
+            "ALERT" | "DEFENSIVE" | "1" => HostAiAttitude::Alert.as_i8(),
+            "AGGRESSIVE" | "2" => HostAiAttitude::Aggressive.as_i8(),
+            _ => HostAiAttitude::Normal.as_i8(),
+        }
+    }
+
+    /// C++ AIUpdateInterface::setAttitude residual (host mood matrix field).
+    pub fn set_unit_attitude(&mut self, unit_id: ObjectId, attitude_i8: i8) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        u.ai_attitude = attitude_i8.clamp(-2, 2);
+        true
+    }
+
+    /// C++ ScriptActions::updateNamedSetAttitude residual.
+    pub fn set_named_unit_attitude(&mut self, unit_name: &str, attitude_token: &str) -> bool {
+        let id = self.find_object_id_by_name(unit_name);
+        let Some(id) = id else {
+            return false;
+        };
+        self.set_unit_attitude(id, Self::parse_attitude_token(attitude_token))
+    }
+
+    /// Apply attack priority set name to all objects on a host team.
+    pub fn apply_attack_priority_set_to_team(
+        &mut self,
+        team: crate::game_logic::Team,
+        set_name: Option<&str>,
+    ) -> usize {
+        let mut n = 0usize;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.team == team)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            self.set_unit_attack_priority_set(id, set_name);
+            n += 1;
+        }
+        n
+    }
+
+    /// Inherit team prototype attack priority + initial attitude when missing.
+    ///
+    /// C++ Object creation: ai->setAttitude(proto initial); setAttackInfo(proto priority name).
+    pub fn inherit_team_ai_defaults(&mut self, unit_id: ObjectId) {
+        let team = match self.objects.get(&unit_id).map(|o| o.team) {
+            Some(t) => t,
+            None => return,
+        };
+        let team_name = match team {
+            crate::game_logic::Team::USA => "America",
+            crate::game_logic::Team::China => "China",
+            crate::game_logic::Team::GLA => "GLA",
+            crate::game_logic::Team::Neutral => return,
+        };
+        let prio_name = {
+            let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+                return;
+            };
+            factory
+                .find_team_prototype(team_name)
+                .map(|proto| proto.get_attack_priority_name().as_str().to_string())
+                .unwrap_or_default()
+        };
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            if u.attack_priority_set.is_none() && !prio_name.is_empty() {
+                u.attack_priority_set = Some(prio_name);
+            }
+        }
+    }
+
+    /// Look up host ObjectId by unit name (named object tracker residual).
+    pub fn find_object_id_by_name(&self, name: &str) -> Option<ObjectId> {
+        // Prefer engine named tracker.
+        let eng_id = gamelogic::scripting::engine::get_named_object_tracker()
+            .get_object_id(name)
+            .ok()
+            .flatten();
+        if let Some(id) = eng_id {
+            if let Some((hid, _)) = self
+                .objects
+                .iter()
+                .find(|(_, o)| o.engine_object_id == Some(id))
+            {
+                return Some(*hid);
+            }
+            let hid = ObjectId(id);
+            if self.objects.contains_key(&hid) {
+                return Some(hid);
+            }
+        }
+        // Fail-closed name match on template residual.
+        let lower = name.to_ascii_lowercase();
+        self.objects.iter().find_map(|(id, o)| {
+            if o.thing.template.name.eq_ignore_ascii_case(name)
+                || o.thing.template.name.to_ascii_lowercase().contains(&lower)
+            {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn sync_attack_priority_from_script_engine(&mut self) {
         use gamelogic::scripting::engine::get_script_engine;
         let engine_arc = get_script_engine();
@@ -6608,6 +6723,18 @@ impl GameLogic {
                 }
                 self.register_attack_priority_set(host);
             }
+        }
+        // Drop engine borrow before inheriting team defaults.
+        drop(guard);
+        drop(engine_arc);
+        let need_inherit: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.attack_priority_set.is_none() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in need_inherit {
+            self.inherit_team_ai_defaults(id);
         }
     }
 
@@ -74225,6 +74352,68 @@ mod tests {
         assert!(logic.choose_best_weapon_for_target(aid, Some(vid), 10.0));
         // Prefer secondary vs structure when damage higher (select_combat residual).
         assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn set_unit_attitude_affects_mood_matrix() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AttA");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(2901);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::China);
+            o.weapon = Some(Weapon {
+                range: 50.0,
+                ..Default::default()
+            });
+            o
+        });
+        assert!(logic.set_unit_attitude(id, GameLogic::parse_attitude_token("SLEEP")));
+        assert!(!logic.mood_allows_attack(id, false));
+        assert!(logic.set_unit_attitude(id, GameLogic::parse_attitude_token("AGGRESSIVE")));
+        assert!(logic.mood_allows_attack(id, false));
+        assert_eq!(logic.objects[&id].ai_attitude, 2);
+    }
+
+    #[test]
+    fn apply_attack_priority_set_to_team_members() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut info = AttackPriorityInfo::new("TeamHunt");
+        logic.register_attack_priority_set(info);
+        for i in 0..3u32 {
+            let name = format!("Mem{i}");
+            let mut t = ThingTemplate::new(&name);
+            t.add_kind_of(KindOf::Infantry);
+            let id = ObjectId(2910 + i);
+            logic.objects.insert(id, Object::new(t, id, Team::GLA));
+        }
+        // USA unit should not be touched.
+        let mut t = ThingTemplate::new("UsaX");
+        t.add_kind_of(KindOf::Infantry);
+        logic
+            .objects
+            .insert(ObjectId(2999), Object::new(t, ObjectId(2999), Team::USA));
+        let n = logic.apply_attack_priority_set_to_team(Team::GLA, Some("TeamHunt"));
+        assert_eq!(n, 3);
+        assert_eq!(
+            logic.objects[&ObjectId(2910)]
+                .attack_priority_set
+                .as_deref(),
+            Some("TeamHunt")
+        );
+        assert!(logic.objects[&ObjectId(2999)].attack_priority_set.is_none());
+    }
+
+    #[test]
+    fn parse_attitude_token_covers_cpp_names() {
+        assert_eq!(GameLogic::parse_attitude_token("sleep"), -2);
+        assert_eq!(GameLogic::parse_attitude_token("Passive"), -1);
+        assert_eq!(GameLogic::parse_attitude_token("normal"), 0);
+        assert_eq!(GameLogic::parse_attitude_token("ALERT"), 1);
+        assert_eq!(GameLogic::parse_attitude_token("defensive"), 1);
+        assert_eq!(GameLogic::parse_attitude_token("aggressive"), 2);
     }
 
     #[test]
