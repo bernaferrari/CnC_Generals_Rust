@@ -1424,6 +1424,8 @@ pub struct GameLogic {
     sole_benefactor_repair_rejects: u32,
     /// C++ DozerPrimaryIdleState bored auto-repair residual events.
     dozer_bored_repair_events: u32,
+    /// C++ DozerPrimaryIdleState bored mine-clear residual events.
+    dozer_bored_mine_clear_events: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2660,6 +2662,7 @@ impl GameLogic {
             repair_complete_events: 0,
             sole_benefactor_repair_rejects: 0,
             dozer_bored_repair_events: 0,
+            dozer_bored_mine_clear_events: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3046,6 +3049,7 @@ impl GameLogic {
         self.repair_complete_events = 0;
         self.sole_benefactor_repair_rejects = 0;
         self.dozer_bored_repair_events = 0;
+        self.dozer_bored_mine_clear_events = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -43351,7 +43355,56 @@ impl GameLogic {
         best.map(|(id, _)| id)
     }
 
-    /// C++ DozerPrimaryIdleState bored auto-repair residual.
+    /// C++ DozerAIUpdate findMine residual (enemy/neutral mines in BoredRange).
+    pub fn find_dozer_bored_mine_target(&self, dozer_id: ObjectId) -> Option<ObjectId> {
+        use crate::game_logic::host_mines::{can_clear_mine_kind, is_mine_clearer};
+        let dozer = self.objects.get(&dozer_id)?;
+        if !dozer.is_alive() {
+            return None;
+        }
+        if !is_mine_clearer(dozer.is_worker(), &dozer.template_name) {
+            return None;
+        }
+        let pos = dozer.get_position();
+        let team = dozer.team;
+        let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
+        let range_sq = range * range;
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == dozer_id || !obj.is_alive() {
+                continue;
+            }
+            // C++ ALLOW_ENEMIES | ALLOW_NEUTRAL only (not allies / own mines).
+            if obj.team == team {
+                continue;
+            }
+            let is_mine = obj.mine_data.is_some()
+                || crate::game_logic::host_mines::infer_mine_kind(&obj.template_name).is_some();
+            if !is_mine {
+                continue;
+            }
+            if let Some(md) = obj.mine_data.as_ref() {
+                if !can_clear_mine_kind(md.kind) {
+                    continue;
+                }
+            }
+            let d = obj.get_position();
+            let dx = d.x - pos.x;
+            let dz = d.z - pos.z;
+            let dist_sq = dx * dx + dz * dz;
+            if dist_sq > range_sq {
+                continue;
+            }
+            match best {
+                None => best = Some((*id, dist_sq)),
+                Some((_, best_d)) if dist_sq < best_d => best = Some((*id, dist_sq)),
+                _ => {}
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
+    /// C++ DozerPrimaryIdleState bored residual: repair, else mine-clear.
     pub fn update_dozer_bored_repair(&mut self) {
         let now = self.frame;
         let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
@@ -43378,21 +43431,45 @@ impl GameLogic {
             }
             // Reset stamp so we don't scan every frame (C++ resets idle timestamp).
             obj.idle_since_frame = now.max(1);
-            let Some(target_id) = self.find_dozer_bored_repair_target(id) else {
+
+            if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.target = Some(target_id);
+                    obj.ai_state = AIState::Repairing;
+                    obj.set_actively_constructing(true);
+                    obj.idle_since_frame = 0;
+                }
+                self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
                 continue;
-            };
-            if let Some(obj) = self.objects.get_mut(&id) {
-                obj.target = Some(target_id);
-                obj.ai_state = AIState::Repairing;
-                obj.set_actively_constructing(true);
-                obj.idle_since_frame = 0;
             }
-            self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
+
+            // C++ else branch: WEAPONSET_MINE_CLEARING_DETAIL + findMine + aiAttackObject.
+            if let Some(mine_id) = self.find_dozer_bored_mine_target(id) {
+                let mine_pos = self
+                    .objects
+                    .get(&mine_id)
+                    .map(|m| m.get_position())
+                    .unwrap_or(glam::Vec3::ZERO);
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.target = Some(mine_id);
+                    obj.ai_state = AIState::Attacking;
+                    obj.status.attacking = true;
+                    obj.idle_since_frame = 0;
+                }
+                // Approach residual — attack resolution happens in combat update.
+                self.path_approach_with_state(id, mine_pos, AIState::Attacking);
+                self.dozer_bored_mine_clear_events =
+                    self.dozer_bored_mine_clear_events.saturating_add(1);
+            }
         }
     }
 
     pub fn honesty_dozer_bored_repair_ok(&self) -> bool {
         self.dozer_bored_repair_events > 0
+    }
+
+    pub fn honesty_dozer_bored_mine_clear_ok(&self) -> bool {
+        self.dozer_bored_mine_clear_events > 0
     }
 
     pub fn honesty_sole_benefactor_repair_ok(&self) -> bool {
@@ -78192,6 +78269,54 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn dozer_bored_mine_clear_assigns_enemy_mine() {
+        use crate::game_logic::host_mines::{HostMineData, HostMineKind};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+        let mut mine_t = ThingTemplate::new("GLAStandardMine");
+        mine_t.set_health(50.0);
+        logic.templates.insert("GLAStandardMine".into(), mine_t);
+        let mid = logic
+            .create_object(
+                "GLAStandardMine",
+                Team::GLA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("mine");
+        if let Some(o) = logic.get_object_mut(mid) {
+            o.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
+        }
+        let did = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        if let Some(o) = logic.get_object_mut(did) {
+            o.ai_state = AIState::Idle;
+            o.idle_since_frame = 1;
+        }
+        logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
+        logic.update_dozer_bored_repair();
+        let d = logic.get_object(did).expect("d");
+        assert_eq!(d.ai_state, AIState::Attacking);
+        assert_eq!(d.target, Some(mid));
+        assert!(logic.honesty_dozer_bored_mine_clear_ok());
     }
 
     #[test]
