@@ -1365,6 +1365,10 @@ pub struct GameLogic {
     eva_superweapon_detected: u32,
     /// EVA SuperweaponLaunched residual honesty fires.
     eva_superweapon_launched: u32,
+    /// EVA BeaconDetected residual honesty fires.
+    eva_beacon_detected: u32,
+    /// EVA hero Own/Enemy *Detected residual honesty fires.
+    eva_hero_detected: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2580,6 +2584,8 @@ impl GameLogic {
             eva_superweapon_ready: 0,
             eva_superweapon_detected: 0,
             eva_superweapon_launched: 0,
+            eva_beacon_detected: 0,
+            eva_hero_detected: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2945,6 +2951,8 @@ impl GameLogic {
         self.eva_superweapon_ready = 0;
         self.eva_superweapon_detected = 0;
         self.eva_superweapon_launched = 0;
+        self.eva_beacon_detected = 0;
+        self.eva_hero_detected = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -37101,6 +37109,8 @@ impl GameLogic {
                     if detected_by_troop_crawler {
                         self.troop_crawler.record_detect();
                     }
+                    // C++ hero stealth detection EVA residual (Own/Enemy *Detected).
+                    self.try_eva_hero_detected(sid);
                 }
             }
         }
@@ -42456,6 +42466,97 @@ impl GameLogic {
     }
 
     /// C++ SpecialPowerModule SuperweaponLaunched EVA residual (own/ally/enemy × type).
+
+    /// C++ GameLogicDispatch beacon place residual:
+    /// EVA_BeaconDetected when local player is ALLIES with the placer (not self).
+    pub fn try_eva_beacon_detected(&mut self, placer_player_id: u32) {
+        let Some(placer) = self.players.get(&placer_player_id) else {
+            return;
+        };
+        let placer_team = placer.team;
+        let placer_alliance = placer.alliance_team;
+        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+            return;
+        };
+        // C++ relationship ALLIES — exclude self / same controlling player.
+        if local.id == placer_player_id || local.team == placer_team {
+            return;
+        }
+        let is_ally = local.alliance_team >= 0 && local.alliance_team == placer_alliance;
+        if !is_ally {
+            return;
+        }
+        let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::BeaconDetected,
+        );
+        self.eva_beacon_detected = self.eva_beacon_detected.saturating_add(1);
+    }
+
+    pub fn honesty_eva_beacon_detected_ok(&self) -> bool {
+        self.eva_beacon_detected > 0
+    }
+
+    /// C++ stealth detector hero EVA residual (own vs enemy).
+    ///
+    /// When a stealth hero is newly detected, fire Own* if local owns the hero,
+    /// else Enemy* if local is hostile to the hero team.
+    pub fn try_eva_hero_detected(&mut self, hero_id: ObjectId) {
+        let Some(obj) = self.objects.get(&hero_id) else {
+            return;
+        };
+        if !obj.is_alive() {
+            return;
+        }
+        let name = obj.template_name.to_ascii_lowercase();
+        let team = obj.team;
+        let kind =
+            if crate::game_logic::host_hero_abilities::is_black_lotus_template(&obj.template_name)
+                || name.contains("blacklotus")
+                || name.contains("black_lotus")
+            {
+                "lotus"
+            } else if name.contains("jarmen") || name.contains("kell") {
+                "jarmen"
+            } else if name.contains("burton") || name.contains("colonel") {
+                "burton"
+            } else {
+                return;
+            };
+        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+            return;
+        };
+        let local_team = local.team;
+        let local_alliance = local.alliance_team;
+        let owner_alliance = self
+            .players
+            .values()
+            .find(|p| p.team == team)
+            .map(|p| p.alliance_team)
+            .unwrap_or(-1);
+        let is_own = team == local_team;
+        let is_ally = !is_own && local_alliance >= 0 && local_alliance == owner_alliance;
+        // Enemy residual for non-own non-ally; ally residual fail-closed (no ally EVA names).
+        if is_ally {
+            return;
+        }
+        use gamelogic::helpers::EvaEvent;
+        let event = match (kind, is_own) {
+            ("lotus", true) => EvaEvent::OwnBlackLotusDetected,
+            ("lotus", false) => EvaEvent::EnemyBlackLotusDetected,
+            ("jarmen", true) => EvaEvent::OwnJarmenKellDetected,
+            ("jarmen", false) => EvaEvent::EnemyJarmenKellDetected,
+            ("burton", true) => EvaEvent::OwnColonelBurtonDetected,
+            ("burton", false) => EvaEvent::EnemyColonelBurtonDetected,
+            _ => return,
+        };
+        let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        self.eva_hero_detected = self.eva_hero_detected.saturating_add(1);
+    }
+
+    pub fn honesty_eva_hero_detected_ok(&self) -> bool {
+        self.eva_hero_detected > 0
+    }
+
     pub fn try_eva_superweapon_launched(
         &mut self,
         owner_team: Team,
@@ -77325,6 +77426,107 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn eva_beacon_detected_for_ally_placer_only() {
+        use crate::game_logic::Team;
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        // Local USA alliance 1
+        let mut local = crate::game_logic::Player::new(0, Team::USA, "Local", true);
+        local.alliance_team = 1;
+        logic.players.insert(0, local);
+        // Ally China alliance 1
+        let mut ally = crate::game_logic::Player::new(1, Team::China, "Ally", false);
+        ally.alliance_team = 1;
+        logic.players.insert(1, ally);
+        // Enemy GLA alliance 2
+        let mut enemy = crate::game_logic::Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        logic.players.insert(2, enemy);
+
+        // Ally place → EVA
+        logic.try_eva_beacon_detected(1);
+        assert!(logic.honesty_eva_beacon_detected_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::BeaconDetected),
+            "{events:?}"
+        );
+        // Self place → no EVA
+        let before = logic.eva_beacon_detected;
+        logic.try_eva_beacon_detected(0);
+        assert_eq!(logic.eva_beacon_detected, before);
+        // Enemy place → no EVA
+        logic.try_eva_beacon_detected(2);
+        assert_eq!(logic.eva_beacon_detected, before);
+    }
+
+    #[test]
+    fn eva_hero_detected_own_and_enemy_lotus() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::China, "China", false),
+        );
+        let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Hero)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryBlackLotus".into(), lotus);
+        let enemy = logic
+            .create_object(
+                "ChinaInfantryBlackLotus",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("enemy lotus");
+        logic.try_eva_hero_detected(enemy);
+        assert!(logic.honesty_eva_hero_detected_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::EnemyBlackLotusDetected),
+            "{events:?}"
+        );
+        // Own lotus residual
+        let mut own_t = ThingTemplate::new("AmericaInfantryColonelBurton");
+        own_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Hero)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryColonelBurton".into(), own_t);
+        let own = logic
+            .create_object(
+                "AmericaInfantryColonelBurton",
+                Team::USA,
+                glam::Vec3::new(5.0, 0.0, 5.0),
+            )
+            .expect("own burton");
+        let _ = TheEva::drain_events();
+        logic.try_eva_hero_detected(own);
+        let events2 = TheEva::drain_events().expect("eva2");
+        assert!(
+            events2
+                .iter()
+                .any(|e| *e == EvaEvent::OwnColonelBurtonDetected),
+            "{events2:?}"
+        );
     }
 
     #[test]
