@@ -434,6 +434,9 @@ pub enum SpecialPowerType {
     NukeDrop,
     /// Battleship Bombardment residual (SPECIAL_BATTLESHIP_BOMBARDMENT).
     BattleshipBombardment,
+    /// Laser General Particle Uplink residual (LAZR_SPECIAL_PARTICLE_UPLINK_CANNON).
+    /// Host maps to ParticleCannon residual path.
+    LaserCannon,
     Invalid,
 }
 

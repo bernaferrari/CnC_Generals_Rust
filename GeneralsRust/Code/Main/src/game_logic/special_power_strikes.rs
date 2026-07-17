@@ -2494,6 +2494,8 @@ pub fn honesty_general_special_power_alias_pack_ok() -> bool {
             == Some(HostSuperweaponKind::SpectreGunship)
         && HostSuperweaponKind::from_command_power(&P::SuperweaponParticleCannon)
             == Some(HostSuperweaponKind::ParticleCannon)
+        && HostSuperweaponKind::from_command_power(&P::LaserCannon)
+            == Some(HostSuperweaponKind::ParticleCannon)
         && HostSuperweaponKind::from_command_power(&P::NukeNeutronMissile)
             == Some(HostSuperweaponKind::NuclearMissile)
         && HostSuperweaponKind::from_command_power(&P::SuperweaponNeutronMissile)
@@ -4857,9 +4859,9 @@ impl HostSuperweaponKind {
                 Some(HostSuperweaponKind::A10Strike)
             }
             SpecialPowerType::ScudStorm => Some(HostSuperweaponKind::ScudStorm),
-            SpecialPowerType::ParticleCannon | SpecialPowerType::SuperweaponParticleCannon => {
-                Some(HostSuperweaponKind::ParticleCannon)
-            }
+            SpecialPowerType::ParticleCannon
+            | SpecialPowerType::SuperweaponParticleCannon
+            | SpecialPowerType::LaserCannon => Some(HostSuperweaponKind::ParticleCannon),
             SpecialPowerType::NuclearMissile
             | SpecialPowerType::BlackMarketNuke
             | SpecialPowerType::DetonateDirtyNuke
