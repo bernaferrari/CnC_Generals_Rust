@@ -2435,6 +2435,21 @@ pub fn honesty_a10_strike_residual_pack() -> bool {
 /// Combined Wave 72 special-power residual honesty pack (free constant packs).
 ///
 /// Consolidates carpet/cruise/artillery/nuke/anthrax + DaisyCutter/A10 deepen.
+
+/// Wave residual honesty: Early China CarpetBomb science/enum/reload pack.
+pub fn honesty_early_china_carpet_bomb_residual_pack_ok() -> bool {
+    EARLY_CHINA_CARPET_REQUIRED_SCIENCE == "Early_SCIENCE_ChinaCarpetBomb"
+        && EARLY_CHINA_CARPET_SPECIAL_ENUM == "EARLY_SPECIAL_CHINA_CARPET_BOMB"
+        && EARLY_CHINA_CARPET_SPECIAL_POWER == "Early_SuperweaponChinaCarpetBomb"
+        && EARLY_CHINA_CARPET_RELOAD_MS == 150_000
+        && EARLY_CHINA_CARPET_RELOAD_FRAMES == 4_500
+        && CarpetBombFactionTier::from_science_or_ocl_name("Early_SCIENCE_ChinaCarpetBomb")
+            == Some(CarpetBombFactionTier::China)
+        && HostSuperweaponKind::from_command_power(
+            &crate::command_system::SpecialPowerType::EarlyChinaCarpetBomb,
+        ) == Some(HostSuperweaponKind::CarpetBomb)
+}
+
 pub fn honesty_special_power_residual_pack_ok() -> bool {
     honesty_carpet_bomb_residual_pack()
         && honesty_cruise_missile_residual_pack()
@@ -3306,6 +3321,16 @@ pub const CARPET_BOMB_RELOAD_AIRF_MS: u32 = 240_000;
 pub const CARPET_BOMB_RELOAD_AIRF_FRAMES: u32 = 7_200;
 /// Retail Nuke_SuperweaponChinaCarpetBomb ReloadTime residual (msec).
 pub const CARPET_BOMB_RELOAD_NUKE_MS: u32 = 180_000;
+/// Retail Early_SuperweaponChinaCarpetBomb ReloadTime residual (msec).
+pub const EARLY_CHINA_CARPET_RELOAD_MS: u32 = 150_000;
+/// Early China Carpet ReloadTime frames residual.
+pub const EARLY_CHINA_CARPET_RELOAD_FRAMES: u32 = 4_500;
+/// Retail Early_SuperweaponChinaCarpetBomb RequiredScience residual.
+pub const EARLY_CHINA_CARPET_REQUIRED_SCIENCE: &str = "Early_SCIENCE_ChinaCarpetBomb";
+/// Retail Early_SuperweaponChinaCarpetBomb Enum residual.
+pub const EARLY_CHINA_CARPET_SPECIAL_ENUM: &str = "EARLY_SPECIAL_CHINA_CARPET_BOMB";
+/// Retail Early_SuperweaponChinaCarpetBomb name residual.
+pub const EARLY_CHINA_CARPET_SPECIAL_POWER: &str = "Early_SuperweaponChinaCarpetBomb";
 /// Nuke China CarpetBomb ReloadTime 180000ms → 5400 frames @ 30 FPS.
 pub const CARPET_BOMB_RELOAD_NUKE_FRAMES: u32 = 5_400;
 /// Retail SuperweaponChinaCarpetBomb / AirF RadiusCursorRadius residual.
@@ -4725,7 +4750,9 @@ impl HostSuperweaponKind {
             SpecialPowerType::NuclearMissile => Some(HostSuperweaponKind::NuclearMissile),
             SpecialPowerType::AnthraxBomb => Some(HostSuperweaponKind::AnthraxBomb),
             SpecialPowerType::SpectreGunship => Some(HostSuperweaponKind::SpectreGunship),
-            SpecialPowerType::CarpetBomb => Some(HostSuperweaponKind::CarpetBomb),
+            SpecialPowerType::CarpetBomb | SpecialPowerType::EarlyChinaCarpetBomb => {
+                Some(HostSuperweaponKind::CarpetBomb)
+            }
             SpecialPowerType::Artillery => Some(HostSuperweaponKind::ArtilleryBarrage),
             SpecialPowerType::CruiseMissile => Some(HostSuperweaponKind::CruiseMissile),
             _ => None,

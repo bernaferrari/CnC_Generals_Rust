@@ -39307,11 +39307,16 @@ impl GameLogic {
         );
         // CarpetBomb faction residual (America / AirForce / China payload matrix).
         if kind == HostSuperweaponKind::CarpetBomb {
+            use crate::command_system::SpecialPowerType;
             use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
-            let carpet = CarpetBombFactionTier::highest_from_team_and_sciences(
-                source_team,
-                sciences.iter().map(|s| s.as_str()),
-            );
+            let carpet = if matches!(*power, SpecialPowerType::EarlyChinaCarpetBomb) {
+                CarpetBombFactionTier::China
+            } else {
+                CarpetBombFactionTier::highest_from_team_and_sciences(
+                    source_team,
+                    sciences.iter().map(|s| s.as_str()),
+                )
+            };
             let _ =
                 self.special_power_strikes
                     .apply_carpet_tier(id, carpet, frame, target_position);
@@ -81345,6 +81350,54 @@ mod tests {
                 .unwrap()
                 .construction_complete_clear_frame,
             0
+        );
+    }
+
+    #[test]
+    fn early_china_carpet_bomb_forces_china_payload_tier() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::special_power_strikes::{
+            honesty_early_china_carpet_bomb_residual_pack_ok, CarpetBombFactionTier,
+            HostSuperweaponKind, CARPET_BOMB_COUNT_CHINA,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_early_china_carpet_bomb_residual_pack_ok());
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::EarlyChinaCarpetBomb),
+            Some(HostSuperweaponKind::CarpetBomb)
+        );
+
+        let mut logic = GameLogic::new();
+        // USA caster + EarlyChinaCarpetBomb still forces China payload residual.
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        let id = logic
+            .queue_special_power_strike(
+                &SpecialPowerType::EarlyChinaCarpetBomb,
+                src,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("early china carpet");
+        assert_eq!(
+            logic.special_power_strike_carpet_tier(id),
+            Some(CarpetBombFactionTier::China)
+        );
+        assert_eq!(
+            CarpetBombFactionTier::China.bomb_count(),
+            CARPET_BOMB_COUNT_CHINA
         );
     }
 

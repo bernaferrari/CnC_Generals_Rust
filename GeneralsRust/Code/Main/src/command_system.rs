@@ -283,6 +283,9 @@ pub enum SpecialPowerType {
     /// Fail-closed: not full B52/ChinaJet OCL DeliverPayload / DropVariance /
     /// staggered DropDelay / science-tier upgrade path.
     CarpetBomb,
+    /// China Airforce Early Carpet Bomb residual (EARLY_SPECIAL_CHINA_CARPET_BOMB /
+    /// Early_SuperweaponChinaCarpetBomb). China payload matrix + Early science gate.
+    EarlyChinaCarpetBomb,
     ClusterMines,
     DaisyCutter,
     EmergencyRepair,
