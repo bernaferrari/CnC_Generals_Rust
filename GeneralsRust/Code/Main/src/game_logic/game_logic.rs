@@ -14158,6 +14158,9 @@ impl GameLogic {
                             // walk → transfer team + OBJECT_STATUS_HIJACKED; hijacker
                             // consumed (fail-closed vs hide-in-vehicle HijackerUpdate).
                             // Endow MAX veterancy + cancel dozer tasks via apply_hijacked_from.
+                            // C++ order: tryInfiltrationEvent → EVA_VehicleStolen → setTeam.
+                            self.try_infiltration_event(special_target_id);
+                            self.try_eva_vehicle_stolen(special_target_id);
                             let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_hijacked_from(donor_snap.as_ref());
@@ -14165,10 +14168,7 @@ impl GameLogic {
                             }
                             // C++ transferObjectName residual.
                             let _ = self.transfer_script_object_name(object_id, special_target_id);
-                            // Local victim EVA residual → radar message already.
                             self.car_bomb.record_hijack();
-                            // C++ ConvertToHijackedVehicleCrateCollide tryInfiltrationEvent.
-                            self.try_infiltration_event(special_target_id);
                             self.queue_audio_event(
                                 AudioEventRequest::new(
                                     crate::game_logic::host_car_bomb::HIJACK_AUDIO,
@@ -42218,6 +42218,18 @@ impl GameLogic {
     }
 
     /// C++ TheEva->setShouldPlay(EVA_BuildingBeingStolen) when capture prep starts.
+
+    /// C++ TheEva->setShouldPlay(EVA_VehicleStolen) when hijack victim is local.
+    pub fn try_eva_vehicle_stolen(&mut self, victim_id: ObjectId) {
+        if !self.is_object_locally_controlled(victim_id) {
+            return;
+        }
+        let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::VehicleStolen,
+        );
+        self.car_bomb.record_eva_vehicle_stolen();
+    }
+
     pub fn try_eva_building_being_stolen(&mut self, victim_id: ObjectId) {
         if !self.is_object_locally_controlled(victim_id) {
             return;
@@ -76668,6 +76680,35 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn hijack_queues_eva_vehicle_stolen_for_local_victim() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use gamelogic::helpers::{EvaEvent, TheEva};
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Victim", true),
+        );
+        let mut v = ThingTemplate::new("AmericaTankCrusader");
+        v.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("AmericaTankCrusader".into(), v);
+        let id = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        logic.try_eva_vehicle_stolen(id);
+        assert!(logic.car_bomb.honesty_eva_vehicle_stolen_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::VehicleStolen),
+            "{events:?}"
+        );
     }
 
     #[test]
