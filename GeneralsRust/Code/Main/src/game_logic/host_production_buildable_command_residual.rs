@@ -111,6 +111,54 @@ pub const QUANTITY_MODIFIER_SAMPLE_COUNT: i32 = 2;
 /// QuantityModifier parse default count residual when count token absent.
 pub const QUANTITY_MODIFIER_DEFAULT_COUNT: i32 = 1;
 
+/// Resolve ProductionUpdate QuantityModifier residual count for a producer/unit pair.
+///
+/// Retail China barracks: `ChinaInfantryRedguard` × **2**. Default **1**.
+/// Fail-closed: name residual only (not full INI ProductionUpdate module matrix).
+pub fn production_quantity_modifier(producer_template: &str, unit_template: &str) -> u32 {
+    let p = producer_template.to_ascii_lowercase();
+    let u = unit_template.to_ascii_lowercase();
+    // China barracks family (stock / Nuke_ / Tank_ / Boss_).
+    let is_china_barracks =
+        p.contains("chinabarracks") || (p.contains("barracks") && p.contains("china"));
+    let is_redguard = u.contains("redguard") || u.contains("red_guard");
+    if is_china_barracks && is_redguard {
+        return QUANTITY_MODIFIER_SAMPLE_COUNT.max(1) as u32;
+    }
+    QUANTITY_MODIFIER_DEFAULT_COUNT.max(1) as u32
+}
+
+/// Model-space NaturalRallyPoint residual sample (ChinaBarracks: X:36 Y:-25).
+pub const CHINA_BARRACKS_NATURAL_RALLY_MODEL: (f32, f32, f32) = (36.0, -25.0, 0.0);
+/// Model-space UnitCreatePoint residual sample (ChinaBarracks: X:0 Y:-25).
+pub const CHINA_BARRACKS_UNIT_CREATE_MODEL: (f32, f32, f32) = (0.0, -25.0, 0.0);
+
+/// Transform a model-space exit offset into world space using producer yaw residual.
+///
+/// C++ applies the building transform matrix; residual uses orientation about Y
+/// (forward = -Z in model when yaw=0 is common W3D layout). Host uses the
+/// object's direction vector as +X-local forward residual:
+/// world = pos + right*local_x + up*local_z + forward*local_y
+/// with local (x,y,z) from INI UnitCreate/NaturalRally.
+pub fn transform_model_exit_offset(
+    producer_pos: glam::Vec3,
+    forward: glam::Vec3,
+    local: (f32, f32, f32),
+) -> glam::Vec3 {
+    let f = {
+        let mut v = glam::Vec3::new(forward.x, 0.0, forward.z);
+        if v.length_squared() < 1e-6 {
+            v = glam::Vec3::new(0.0, 0.0, -1.0);
+        }
+        v.normalize()
+    };
+    // Right = cross(up, forward) with up = +Y.
+    let right = glam::Vec3::Y.cross(f).normalize_or_zero();
+    let (lx, ly, lz) = local;
+    // INI X → right, INI Y → forward residual, INI Z → up.
+    producer_pos + right * lx + f * ly + glam::Vec3::Y * lz
+}
+
 /// C++ `BuildCompletionType` residual count (BC_NUM_TYPES).
 pub const BUILD_COMPLETION_NUM_TYPES: usize = 3;
 /// Ordered BuildCompletionNames residual.

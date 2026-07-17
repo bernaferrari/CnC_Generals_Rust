@@ -5948,7 +5948,18 @@ impl GameLogic {
                     let angle = (hash as f32) * 0.001;
                     let radius = 3.0 + (hash as f32 % 5.0);
                     let jitter = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
-                    let spawn_pos = base + jitter;
+                    let mut spawn_pos = base + jitter;
+                    // C++ UnitCreatePoint residual sample for China barracks family.
+                    let pname = obj.template_name.to_ascii_lowercase();
+                    if pname.contains("chinabarracks")
+                        || (pname.contains("barracks") && pname.contains("china"))
+                    {
+                        spawn_pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                            obj.get_position(),
+                            forward,
+                            crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_UNIT_CREATE_MODEL,
+                        );
+                    }
                     completions.push((obj.team, completed, spawn_pos, rally, id));
                 }
             }
@@ -5998,8 +6009,37 @@ impl GameLogic {
                 if let Some(unit) = self.objects.get_mut(&new_id) {
                     unit.set_position(spawn_pos);
                 }
+                // C++ QueueProductionExitUpdate exit path residual:
+                // natural rally first; custom rally appended; else double natural
+                // so Red Guards do not stack on the door.
+                let (natural, forward) = if let Some(prod) = self.objects.get(&producer_id) {
+                    let f = prod.thing.get_direction_vector();
+                    let natural = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                        prod.get_position(),
+                        f,
+                        crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_NATURAL_RALLY_MODEL,
+                    );
+                    // Generic residual: if producer is not China barracks family, fall back
+                    // to forward * selection_radius natural.
+                    let p_name = prod.template_name.to_ascii_lowercase();
+                    let natural = if p_name.contains("chinabarracks")
+                        || (p_name.contains("barracks") && p_name.contains("china"))
+                    {
+                        natural
+                    } else {
+                        prod.get_position() + f * prod.selection_radius.max(10.0)
+                    };
+                    (natural, f)
+                } else {
+                    (spawn_pos, glam::Vec3::new(0.0, 0.0, -1.0))
+                };
+                self.path_approach_with_state(new_id, natural, AIState::Moving);
                 if let Some(rally_point) = rally {
-                    self.path_approach_with_state(new_id, rally_point, AIState::Moving);
+                    let _ = self.append_unit_waypoint(new_id, rally_point);
+                } else {
+                    // Double natural residual (C++ exitPath.push_back(tmp) twice).
+                    let doubled = natural + forward.normalize_or_zero() * 5.0;
+                    let _ = self.append_unit_waypoint(new_id, doubled);
                 }
             }
         }
@@ -44586,9 +44626,18 @@ impl GameLogic {
             }
         }
 
+        let producer_template_name = self
+            .objects
+            .get(&producer_id)
+            .map(|o| o.template_name.clone())
+            .unwrap_or_default();
+        let quantity = crate::game_logic::host_production_buildable_command_residual::production_quantity_modifier(
+            &producer_template_name,
+            &template_name,
+        );
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
-                if building.add_to_queue(template_name.clone(), &template) {
+                if building.add_to_queue_with_quantity(template_name.clone(), &template, quantity) {
                     if science_gated && science_ok {
                         self.stealth_fighter_science.record_production_enqueue();
                     }
@@ -59456,6 +59505,102 @@ mod tests {
             .production_queue;
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].template_name, "USA_Humvee");
+    }
+
+    #[test]
+    fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
+        use crate::game_logic::buildings::BuildingType;
+        use crate::game_logic::host_production_buildable_command_residual::{
+            production_quantity_modifier, QUANTITY_MODIFIER_SAMPLE_COUNT,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate, VeterancyLevel};
+        assert_eq!(QUANTITY_MODIFIER_SAMPLE_COUNT, 2);
+        assert_eq!(
+            production_quantity_modifier("ChinaBarracks", "ChinaInfantryRedguard"),
+            2
+        );
+        assert_eq!(
+            production_quantity_modifier("AmericaBarracks", "AmericaInfantryRanger"),
+            1
+        );
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        let mut bar = ThingTemplate::new("ChinaBarracks");
+        bar.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("ChinaBarracks".into(), bar);
+        let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+        rg.add_kind_of(KindOf::Infantry)
+            .set_health(100.0)
+            .set_cost(100, 0);
+        rg.build_time = 0.05;
+        logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+
+        let bid = logic
+            .create_object(
+                "ChinaBarracks",
+                Team::China,
+                glam::Vec3::new(100.0, 0.0, 100.0),
+            )
+            .expect("barracks");
+        if let Some(o) = logic.get_object_mut(bid) {
+            o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+            // Orient for deterministic natural rally residual.
+            o.thing.set_orientation(0.0);
+        }
+        // One queue entry pays once, QuantityModifier yields two exits.
+        assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
+        let qlen = logic
+            .get_object(bid)
+            .and_then(|o| o.building_data.as_ref())
+            .map(|b| b.production_queue.len())
+            .unwrap_or(0);
+        assert_eq!(qlen, 1, "single queue entry for modifier batch");
+        let qty = logic
+            .get_object(bid)
+            .and_then(|o| o.building_data.as_ref())
+            .and_then(|b| b.production_queue.first())
+            .map(|i| i.quantity_total)
+            .unwrap_or(0);
+        assert_eq!(qty, 2, "Redguard quantity_total residual");
+
+        // Drain build + exit delays for both units (~0.05 + 0.3 + 0.3).
+        for _ in 0..40 {
+            logic.update();
+        }
+        let living = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+            .count();
+        assert_eq!(
+            living, 2,
+            "QuantityModifier residual spawns two Redguards from one enqueue, living={living}"
+        );
+        // Queue empty after batch.
+        let qlen_end = logic
+            .get_object(bid)
+            .and_then(|o| o.building_data.as_ref())
+            .map(|b| b.production_queue.len())
+            .unwrap_or(99);
+        assert_eq!(qlen_end, 0);
+        // Exit path residual: units should be Moving toward natural/doubled rally.
+        let moving = logic
+            .get_objects()
+            .values()
+            .filter(|o| {
+                o.template_name.contains("Redguard")
+                    && o.is_alive()
+                    && matches!(o.ai_state, AIState::Moving)
+            })
+            .count();
+        assert!(
+            moving >= 1,
+            "at least one Redguard should be on exit path residual, moving={moving}"
+        );
+        let _ = VeterancyLevel::Rookie;
     }
 
     #[test]
@@ -87531,6 +87676,8 @@ mod tests {
                             supplies: 0,
                             power: 0,
                         },
+                        quantity_total: 1,
+                        quantity_produced: 0,
                     });
             }
         }

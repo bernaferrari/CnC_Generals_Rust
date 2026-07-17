@@ -4895,6 +4895,8 @@ impl SnapshotBuilder {
                                     supplies: entry.cost,
                                     power: template_power,
                                 },
+                                quantity_total: 1,
+                                quantity_produced: 0,
                             });
                         }
                     }
