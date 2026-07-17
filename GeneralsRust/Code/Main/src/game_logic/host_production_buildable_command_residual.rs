@@ -304,6 +304,48 @@ pub fn sell_refund_residual(cost: u32) -> u32 {
     ((cost as f32) * SELL_PERCENTAGE_RESIDUAL).floor() as u32
 }
 
+/// Default structure placement clearance residual (world units).
+///
+/// Simplified vs full GeometryInfo geomCollidesWithGeom matrix — enough to
+/// reject stacking buildings on the same pad (LBC_OBJECTS_IN_THE_WAY).
+pub const STRUCTURE_PLACE_CLEARANCE_RESIDUAL: f32 = 40.0;
+
+/// C++ BuildAssistant LBC_OBJECTS_IN_THE_WAY residual (simplified circle test).
+///
+/// Returns true when `place_pos` is too close to an existing living structure
+/// (or immobile). Units/mobile objects do not block residual placement.
+pub fn legal_build_objects_in_the_way_residual(
+    place_pos: (f32, f32),
+    place_radius: f32,
+    blockers: &[(f32, f32, f32)], // (x, z, radius)
+) -> bool {
+    let (px, pz) = place_pos;
+    let pr = place_radius.max(1.0);
+    for &(bx, bz, br) in blockers {
+        let dx = px - bx;
+        let dz = pz - bz;
+        let min_dist = pr + br.max(1.0);
+        if dx * dx + dz * dz < min_dist * min_dist {
+            return true; // in the way
+        }
+    }
+    false
+}
+
+/// Map residual LegalBuildCode from simplified checks.
+pub fn legal_build_code_from_checks_residual(
+    in_world_bounds: bool,
+    objects_in_the_way: bool,
+) -> u32 {
+    if !in_world_bounds {
+        return LBC_GENERIC_FAILURE;
+    }
+    if objects_in_the_way {
+        return LBC_OBJECTS_IN_THE_WAY;
+    }
+    LBC_OK
+}
+
 /// Wave 99 honesty: buildable residual pack.
 pub fn honesty_buildable_residual_pack_wave99() -> bool {
     BUILDABLE_STATUS_NUM_TYPES == 4
@@ -318,6 +360,19 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         && BSTATUS_NO == 2
         && BSTATUS_ONLY_BY_AI == 3
         && buildable_status_allows_human_residual(BSTATUS_YES)
+        && !legal_build_objects_in_the_way_residual(
+            (0.0, 0.0),
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
+            &[],
+        )
+        && legal_build_objects_in_the_way_residual(
+            (0.0, 0.0),
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
+            &[(10.0, 0.0, STRUCTURE_PLACE_CLEARANCE_RESIDUAL)],
+        )
+        && legal_build_code_from_checks_residual(true, false) == LBC_OK
+        && legal_build_code_from_checks_residual(true, true) == LBC_OBJECTS_IN_THE_WAY
+        && legal_build_code_from_checks_residual(false, false) == LBC_GENERIC_FAILURE
         && buildable_status_allows_human_residual(BSTATUS_IGNORE_PREREQUISITES)
         && !buildable_status_allows_human_residual(BSTATUS_NO)
         && !buildable_status_allows_human_residual(BSTATUS_ONLY_BY_AI)
