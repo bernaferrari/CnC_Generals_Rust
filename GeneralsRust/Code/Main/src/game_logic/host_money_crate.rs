@@ -160,6 +160,9 @@ pub struct HostMoneyCrateEntry {
     /// When true, bulk BuildingPickup residual already paid for this crate
     /// (unit pickup must not double-credit).
     pub building_pickup_residual_paid: bool,
+    /// C++ SalvageCrateCollide residual (not MoneyCrateCollide).
+    #[serde(default)]
+    pub is_salvage: bool,
 }
 
 /// Result of a residual crate pickup.
@@ -267,6 +270,21 @@ impl HostMoneyCrateRegistry {
         );
     }
 
+    /// C++ SalvageCrate residual registration.
+    pub fn register_salvage_crate(&mut self, object_id: ObjectId, money_provided: u32) {
+        self.crates.insert(
+            object_id,
+            HostMoneyCrateEntry {
+                object_id,
+                money_provided,
+                building_pickup: false,
+                supply_lines_boost: 0,
+                building_pickup_residual_paid: false,
+                is_salvage: true,
+            },
+        );
+    }
+
     pub fn register(
         &mut self,
         object_id: ObjectId,
@@ -282,6 +300,7 @@ impl HostMoneyCrateRegistry {
                 building_pickup,
                 supply_lines_boost,
                 building_pickup_residual_paid: false,
+                is_salvage: false,
             },
         );
     }

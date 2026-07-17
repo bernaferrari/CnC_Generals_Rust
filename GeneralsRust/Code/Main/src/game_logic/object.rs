@@ -538,6 +538,12 @@ pub struct Object {
     /// C++ AIUpdateInterface::m_crateCreated residual (notifyCrate).
     #[serde(default)]
     pub crate_created: Option<ObjectId>,
+    /// C++ WEAPONSET_CRATEUPGRADE_ONE/TWO residual (0/1/2).
+    #[serde(default)]
+    pub weapon_crate_upgrade: u8,
+    /// C++ ARMORSET_CRATE_UPGRADE_ONE/TWO residual (0/1/2).
+    #[serde(default)]
+    pub armor_crate_upgrade: u8,
     /// C++ setGoalPositionClipped anchor for GuardRetaliate return residual.
     #[serde(default)]
     pub guard_retaliate_anchor: Option<Vec3>,
@@ -1260,6 +1266,8 @@ impl Object {
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
+            weapon_crate_upgrade: 0,
+            armor_crate_upgrade: 0,
             guard_target: None,
             force_attack: false,
             show_health_bar: true, // Show health bars by default
@@ -1516,6 +1524,8 @@ impl Object {
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
+            weapon_crate_upgrade: 0,
+            armor_crate_upgrade: 0,
             guard_target: None,
             force_attack: false,
             show_health_bar: true,
@@ -6973,6 +6983,43 @@ impl Object {
                 }
             }
         }
+    }
+
+    /// C++ SalvageCrateCollide::doWeaponSet residual.
+    pub fn apply_salvage_weapon_upgrade(&mut self) {
+        if self.weapon_crate_upgrade >= 2 {
+            return;
+        }
+        self.weapon_crate_upgrade = self.weapon_crate_upgrade.saturating_add(1);
+        if let Some(w) = self.weapon.as_mut() {
+            w.damage *= 1.15;
+        }
+    }
+
+    /// C++ SalvageCrateCollide::doArmorSet residual.
+    pub fn apply_salvage_armor_upgrade(&mut self) {
+        if self.armor_crate_upgrade >= 2 {
+            return;
+        }
+        self.armor_crate_upgrade = self.armor_crate_upgrade.saturating_add(1);
+        self.thing.template.armor += 10.0;
+    }
+
+    /// C++ SalvageCrateCollide::doLevelGain residual.
+    pub fn apply_salvage_level_gain(&mut self) {
+        use crate::game_logic::VeterancyLevel;
+        let cur = self.experience.level;
+        if matches!(cur, VeterancyLevel::Heroic) {
+            return;
+        }
+        let need = match cur {
+            VeterancyLevel::Rookie => self.thing.template.veterancy_xp_thresholds[0],
+            VeterancyLevel::Veteran => self.thing.template.veterancy_xp_thresholds[1],
+            VeterancyLevel::Elite => self.thing.template.veterancy_xp_thresholds[2],
+            VeterancyLevel::Heroic => return,
+        };
+        let add = (need - self.experience.current).max(1.0);
+        self.gain_experience(add);
     }
 
     pub fn gain_experience(&mut self, amount: f32) {
