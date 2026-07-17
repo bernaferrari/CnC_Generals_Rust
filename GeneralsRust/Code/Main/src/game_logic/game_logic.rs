@@ -7171,6 +7171,82 @@ impl GameLogic {
         is_eject_pilot_eligible_template(&v.template_name)
     }
 
+    /// C++ HijackerUpdate airborne exit residual: ThingFactory newObject
+    /// (ParachuteName) + ContainModule::addToContain(hijacker).
+    ///
+    /// Host residual: spawn AmericaParachute, dock rider inside, apply
+    /// AmericaParachute freefall/open residual on both container and rider.
+    fn put_hijacker_in_airborne_parachute(&mut self, rider_id: ObjectId, eject_pos: glam::Vec3) {
+        use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        // Ensure AmericaParachute template exists for residual spawn.
+        // C++ KINDOF_PARACHUTE — host has no Parachute kind; Vehicle + max_transport=1
+        // residual so ContainModule::addToContain bookkeeping can hold the rider.
+        if !self.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
+            let mut chute_tpl = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
+            chute_tpl.add_kind_of(KindOf::Vehicle).set_health(1.0);
+            self.templates
+                .insert(HIJACKER_PARACHUTE_NAME.to_string(), chute_tpl);
+        }
+
+        let rider_team = self
+            .objects
+            .get(&rider_id)
+            .map(|o| o.team)
+            .unwrap_or(crate::game_logic::Team::Neutral);
+
+        let mut pos = eject_pos;
+        // Keep elevated for freefall residual (C++ m_ejectPos may already be high).
+        if pos.y < 50.0 {
+            pos.y = 50.0;
+        }
+
+        let Some(chute_id) = self.create_object(HIJACKER_PARACHUTE_NAME, rider_team, pos) else {
+            // Fail-closed: still parachute the rider without a container object.
+            if let Some(r) = self.objects.get_mut(&rider_id) {
+                r.set_position(pos);
+                r.apply_eject_parachuting();
+            }
+            return;
+        };
+
+        // Container residual bookkeeping + parachute physics on chute.
+        {
+            if let Some(chute) = self.objects.get_mut(&chute_id) {
+                // Force 1-slot AmericaParachute residual capacity.
+                chute.max_transport = 1;
+                if !chute.enter_transport(rider_id) {
+                    // Fail-closed: force occupant list even if kind gate rejects.
+                    if !chute.occupants.contains(&rider_id) {
+                        chute.occupants.push(rider_id);
+                    }
+                }
+                chute.apply_eject_parachuting();
+                // Parachute is not selectable residual (C++ drawable on container).
+                chute.status.unselectable = true;
+                chute.status.no_collisions = true;
+            }
+        }
+
+        // Rider: contained + parachuting residual (hidden inside chute).
+        if let Some(r) = self.objects.get_mut(&rider_id) {
+            r.contained_by = Some(chute_id);
+            r.ai_state = crate::game_logic::AIState::Docked;
+            r.set_position(pos);
+            r.apply_eject_parachuting();
+            // Still not selectable while in chute (partition restore already cleared
+            // MASKED from vehicle ride; chute contain keeps soft-hide).
+            r.status.unselectable = true;
+            r.status.no_collisions = true;
+            r.status.masked = true;
+        }
+
+        self.car_bomb.record_airborne_parachute_put();
+        // Tag air path honesty shared with EjectPilotDie air OCL residual.
+        self.usa_pilot.record_air_ejection();
+    }
+
     /// Tick HijackerUpdate residual for all in-vehicle hijackers.
     pub fn tick_hijacker_updates(&mut self) {
         let riders: Vec<(ObjectId, ObjectId)> = self
@@ -7198,14 +7274,10 @@ impl GameLogic {
                 if let Some(r) = self.objects.get_mut(&rider_id) {
                     r.end_hijacker_in_vehicle(epos, air);
                 }
-                // Airborne eject residual: mark parachuting fail-closed.
+                // C++ HijackerUpdate: if m_wasTargetAirborne → PutInContainer
+                // AmericaParachute (m_parachuteName) at m_ejectPos.
                 if air {
-                    if let Some(r) = self.objects.get_mut(&rider_id) {
-                        r.status.parachuting = true;
-                        let mut p = r.get_position();
-                        p.y = p.y.max(50.0);
-                        r.set_position(p);
-                    }
+                    self.put_hijacker_in_airborne_parachute(rider_id, epos);
                 }
                 continue;
             }
@@ -75602,6 +75674,75 @@ mod tests {
         assert!(!h.hijacker_in_vehicle);
         assert!(!h.status.masked);
         assert!(h.is_alive());
+    }
+
+    #[test]
+    fn hijack_airborne_eject_puts_in_america_parachute() {
+        use crate::game_logic::host_car_bomb::{HostCarBombRegistry, HIJACKER_PARACHUTE_NAME};
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut ht = ThingTemplate::new("GLAInfantryHijacker");
+        ht.add_kind_of(KindOf::Infantry);
+        let hid = ObjectId(5521);
+        logic.objects.insert(hid, {
+            let mut o = Object::new(ht, hid, Team::GLA);
+            o
+        });
+        let mut vt = ThingTemplate::new("AmericaTankCrusader");
+        vt.add_kind_of(KindOf::Vehicle);
+        vt.add_kind_of(KindOf::Attackable);
+        let vid = ObjectId(5522);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::USA);
+            // Airborne residual (significantly above terrain).
+            o.set_position(glam::Vec3::new(10.0, 80.0, 0.0));
+            o.status.airborne_target = true;
+            o
+        });
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.apply_hijacked();
+            v.set_team(Team::GLA);
+        }
+        {
+            let h = logic.objects.get_mut(&hid).unwrap();
+            h.begin_hijacker_in_vehicle(vid);
+        }
+        // Sync airborne flag onto rider.
+        logic.tick_hijacker_updates();
+        assert!(logic.objects[&hid].hijacker_was_airborne);
+
+        // Kill airborne vehicle → PutInContainer AmericaParachute.
+        {
+            let v = logic.objects.get_mut(&vid).unwrap();
+            v.status.destroyed = true;
+            v.health.current = 0.0;
+        }
+        logic.tick_hijacker_updates();
+
+        let h = &logic.objects[&hid];
+        assert!(!h.hijacker_in_vehicle);
+        assert!(h.is_alive());
+        assert!(
+            h.status.parachuting,
+            "rider must parachute after airborne eject"
+        );
+        assert!(
+            h.contained_by.is_some(),
+            "rider must be PutInContainer AmericaParachute"
+        );
+        let chute_id = h.contained_by.unwrap();
+        let chute = logic.objects.get(&chute_id).expect("parachute object");
+        assert_eq!(chute.template_name, HIJACKER_PARACHUTE_NAME);
+        assert!(
+            chute.contained_units().contains(&hid),
+            "chute must contain hijacker"
+        );
+        assert!(
+            logic.car_bomb.honesty_airborne_parachute_ok(),
+            "airborne PutInContainer honesty"
+        );
+        assert!(logic.usa_pilot_residual().air_ejections >= 1);
     }
 
     #[test]
