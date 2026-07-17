@@ -5900,6 +5900,90 @@ impl GameLogic {
     /// C++ PhysicsBehavior::checkForOverlapCollision residual between two objects.
     ///
     /// `same_team` treats relationship as allies (no crush).
+
+    /// C++ PhysicsBehavior::onCollide residual orchestration (host).
+    ///
+    /// Order: ignore-collisions gate → mutual parachute skip → overlap crush
+    /// → immobile bounce/crash. Sets last_collidee when a real collide runs.
+    /// Returns true if the pair was handled (skip generic bounce force).
+    pub fn try_physics_collide(&mut self, a_id: ObjectId, b_id: ObjectId, us_radius: f32) -> bool {
+        // Snapshot flags without holding borrows across mutates.
+        let (
+            a_ignore_b,
+            b_ignore_a,
+            a_para,
+            b_para,
+            a_team,
+            b_team,
+            b_immobile,
+            a_infantry,
+            b_unmanned,
+        ) = {
+            let Some(a) = self.objects.get(&a_id) else {
+                return false;
+            };
+            let Some(b) = self.objects.get(&b_id) else {
+                return false;
+            };
+            (
+                a.is_ignoring_collisions_with(b_id),
+                b.is_ignoring_collisions_with(a_id),
+                a.is_parachuting(),
+                b.is_parachuting(),
+                a.team,
+                b.team,
+                b.is_kind_of(crate::game_logic::KindOf::Structure)
+                    || b.is_kind_of(crate::game_logic::KindOf::Immobile)
+                    || !b.can_move(),
+                a.is_kind_of(crate::game_logic::KindOf::Infantry),
+                b.status.disabled_unmanned,
+            )
+        };
+        if a_ignore_b || b_ignore_a {
+            return true; // ignore = handled (no bounce)
+        }
+        // C++ both parachuting: never collide.
+        if a_para && b_para {
+            return true;
+        }
+        // C++ infantry into unmanned vehicle residual (ignored obstacle special case simplified).
+        if a_infantry && b_unmanned {
+            if let Some(b) = self.objects.get_mut(&b_id) {
+                b.status.disabled_unmanned = false;
+                // Capture residual: transfer team to infantry's team.
+                b.team = a_team;
+            }
+            if let Some(a) = self.objects.get_mut(&a_id) {
+                a.health.current = 0.0;
+                a.status.destroyed = true;
+            }
+            if let Some(a) = self.objects.get_mut(&a_id) {
+                a.last_collidee = Some(b_id);
+            }
+            return true;
+        }
+
+        let same_team = a_team == b_team;
+        // Overlap crush (may handle the pair).
+        if self.apply_overlap_crush_check(a_id, b_id, same_team) {
+            if let Some(a) = self.objects.get_mut(&a_id) {
+                a.last_collidee = Some(b_id);
+            }
+            return true;
+        }
+        // Immobile bounce path.
+        if b_immobile {
+            let handled = self.apply_immobile_collide_bounce(a_id, b_id, us_radius);
+            if handled {
+                if let Some(a) = self.objects.get_mut(&a_id) {
+                    a.last_collidee = Some(b_id);
+                }
+            }
+            return handled;
+        }
+        false
+    }
+
     pub fn apply_overlap_crush_check(
         &mut self,
         crusher_id: ObjectId,
@@ -71310,6 +71394,63 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn try_physics_collide_respects_ignore_and_parachute() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut ta = ThingTemplate::new("ColA");
+        ta.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(401);
+        let mut a = Object::new(ta, aid, Team::USA);
+        a.set_position(Vec3::ZERO);
+        a.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+
+        let mut tb = ThingTemplate::new("ColB");
+        tb.add_kind_of(KindOf::Infantry);
+        let bid = ObjectId(402);
+        let mut b = Object::new(tb, bid, Team::GLA);
+        b.crushable_level = 0;
+        b.set_position(Vec3::new(1.0, 0.0, 0.0));
+
+        a.set_ignore_collisions_with(Some(bid));
+        logic.objects.insert(aid, a);
+        logic.objects.insert(bid, b);
+        assert!(logic.try_physics_collide(aid, bid, 10.0));
+        // Ignored: infantry not crushed.
+        assert!(!logic.objects.get(&bid).unwrap().status.destroyed);
+
+        // Clear ignore, parachute both → skip.
+        logic
+            .objects
+            .get_mut(&aid)
+            .unwrap()
+            .set_ignore_collisions_with(None);
+        logic.objects.get_mut(&aid).unwrap().status.parachuting = true;
+        logic.objects.get_mut(&bid).unwrap().status.parachuting = true;
+        assert!(logic.try_physics_collide(aid, bid, 10.0));
+        assert!(!logic.objects.get(&bid).unwrap().status.destroyed);
+
+        // Unmanned vehicle boarded by infantry.
+        logic.objects.get_mut(&aid).unwrap().status.parachuting = false;
+        logic.objects.get_mut(&bid).unwrap().status.parachuting = false;
+        let mut tv = ThingTemplate::new("UnmannedV");
+        tv.add_kind_of(KindOf::Vehicle);
+        let vid = ObjectId(403);
+        let mut v = Object::new(tv, vid, Team::Neutral);
+        v.status.disabled_unmanned = true;
+        logic.objects.insert(vid, v);
+        let mut ti = ThingTemplate::new("PilotInf");
+        ti.add_kind_of(KindOf::Infantry);
+        let iid = ObjectId(404);
+        let mut inf = Object::new(ti, iid, Team::USA);
+        logic.objects.insert(iid, inf);
+        assert!(logic.try_physics_collide(iid, vid, 5.0));
+        assert!(logic.objects.get(&iid).unwrap().status.destroyed);
+        assert!(!logic.objects.get(&vid).unwrap().status.disabled_unmanned);
+        assert_eq!(logic.objects.get(&vid).unwrap().team, Team::USA);
     }
 
     #[test]
