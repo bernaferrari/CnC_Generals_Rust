@@ -81349,6 +81349,42 @@ mod tests {
     }
 
     #[test]
+    fn host_upgrade_complete_fanaticism_maps_to_nationalism() {
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_Fanaticism"),
+            HostUpgradeKind::Nationalism
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_ChinaNationalism"),
+            HostUpgradeKind::Nationalism
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+        rg.add_kind_of(KindOf::Infantry).set_health(120.0);
+        logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+        let id = logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("rg");
+        // Fanaticism is infantry-general Nationalism residual (same apply path).
+        let n = logic.apply_nationalism_to_team(Team::China, "Upgrade_Fanaticism");
+        assert!(n >= 1, "fanaticism nationalism residual n={n}");
+        assert!(logic
+            .get_object(id)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_Fanaticism"));
+    }
+
+    #[test]
     fn superweapon_cash_hack_science_tier_steals_amount() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_hero_abilities::{
