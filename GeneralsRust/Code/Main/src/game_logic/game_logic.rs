@@ -780,6 +780,10 @@ pub struct GameLogic {
     /// Queues on DoSpecialPower and spawns infantry near target after fade delay —
     /// fail-closed vs full OCL CreateObject / science upgrade tiers.
     host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry,
+    /// Residual: last SuperweaponCashHack requested science-tier amount.
+    last_cash_hack_request_amount: u32,
+    /// Residual: last SuperweaponCashHack stolen amount.
+    last_cash_hack_stolen_amount: u32,
 
     /// Host USA Leaflet Drop residual.
     /// Queues on DoSpecialPower; after Delay disables enemy infantry/vehicles
@@ -2428,6 +2432,8 @@ impl GameLogic {
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
             host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry::new(),
             host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry::new(),
+            last_cash_hack_request_amount: 0,
+            last_cash_hack_stolen_amount: 0,
             host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry::new(
             ),
             host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry::new(
@@ -36981,6 +36987,88 @@ impl GameLogic {
     ///
     /// Fail-closed: not OCL object spawn / grow-shrink curve / stealth detector /
     /// CIA Intelligence SpyVisionUpdate setUnitsVisionSpied path.
+    /// Activate SuperweaponCashHack residual: steal science-tier cash from richest enemy.
+    ///
+    /// Matches retail CashHackSpecialPower MoneyAmount residual:
+    /// - SCIENCE_CashHack1 → 1000
+    /// - SCIENCE_CashHack2 → 2000
+    /// - SCIENCE_CashHack3 → 4000
+    ///
+    /// Fail-closed: steals from richest enemy player economy (not full victim object
+    /// clamp path / multiplayer academy classification).
+    /// Residual honesty: last SuperweaponCashHack requested science-tier amount.
+    pub fn last_cash_hack_request_amount(&self) -> u32 {
+        self.last_cash_hack_request_amount
+    }
+
+    /// Residual honesty: last SuperweaponCashHack stolen amount.
+    pub fn last_cash_hack_stolen_amount(&self) -> u32 {
+        self.last_cash_hack_stolen_amount
+    }
+
+    pub fn activate_cash_hack(&mut self, player_id: u32, caster_id: Option<ObjectId>) -> u32 {
+        use crate::game_logic::host_hero_abilities::{
+            cash_hack_money_from_sciences, CASH_HACK_ACTIVATE_AUDIO,
+        };
+
+        let caster_team = caster_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+            .or_else(|| self.players.get(&player_id).map(|p| p.team))
+            .unwrap_or(Team::Neutral);
+
+        let sciences: Vec<String> = self
+            .players
+            .get(&player_id)
+            .map(|p| p.unlocked_sciences.iter().cloned().collect())
+            .unwrap_or_default();
+        let amount = cash_hack_money_from_sciences(sciences.iter().map(|s| s.as_str()));
+
+        let mut victim_team: Option<Team> = None;
+        let mut victim_cash: u32 = 0;
+        for p in self.players.values() {
+            if p.team == caster_team || p.team == Team::Neutral {
+                continue;
+            }
+            let cash = p.resources.supplies;
+            if victim_team.is_none() || cash > victim_cash {
+                victim_cash = cash;
+                victim_team = Some(p.team);
+            }
+        }
+
+        let stolen = if let Some(from_team) = victim_team {
+            self.steal_cash_from_team(from_team, caster_team, amount)
+        } else {
+            0
+        };
+        if stolen > 0 {
+            if let Some(p) = self.get_player_mut_by_team(caster_team) {
+                p.add_money_earned(stolen);
+            }
+            self.hero_abilities.record_cash_steal(stolen);
+        }
+        if let Some(cid) = caster_id {
+            let pos = self
+                .objects
+                .get(&cid)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            self.queue_audio_event(
+                AudioEventRequest::new(CASH_HACK_ACTIVATE_AUDIO)
+                    .with_object(cid)
+                    .with_position(pos)
+                    .with_priority(180),
+            );
+            if stolen > 0 {
+                self.spawn_sabotage_cash_floating_texts(cid, cid, stolen);
+            }
+        }
+        // Honesty residual: last requested science-tier amount.
+        self.last_cash_hack_request_amount = amount;
+        self.last_cash_hack_stolen_amount = stolen;
+        stolen
+    }
+
     pub fn activate_spy_satellite(
         &mut self,
         player_id: u32,
@@ -81258,6 +81346,75 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn superweapon_cash_hack_science_tier_steals_amount() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_hero_abilities::{
+            cash_hack_money_from_sciences, CASH_HACK_MONEY_AMOUNT_DEFAULT,
+            CASH_HACK_MONEY_AMOUNT_TIER3, SCIENCE_CASH_HACK_3,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        assert_eq!(
+            cash_hack_money_from_sciences(["SCIENCE_CashHack1"]),
+            CASH_HACK_MONEY_AMOUNT_DEFAULT
+        );
+        assert_eq!(
+            cash_hack_money_from_sciences([SCIENCE_CASH_HACK_3]),
+            CASH_HACK_MONEY_AMOUNT_TIER3
+        );
+
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "USA", false));
+        logic.players.get_mut(&0).unwrap().resources.supplies = 0;
+        logic.players.get_mut(&1).unwrap().resources.supplies = 10_000;
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlocked_sciences
+            .insert(SCIENCE_CASH_HACK_3.to_string());
+
+        let mut cc = ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let src = logic
+            .create_object(
+                "ChinaCommandCenter",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+
+        let stolen = logic.activate_cash_hack(0, Some(src));
+        assert_eq!(stolen, CASH_HACK_MONEY_AMOUNT_TIER3);
+        assert_eq!(
+            logic.last_cash_hack_request_amount(),
+            CASH_HACK_MONEY_AMOUNT_TIER3
+        );
+        assert_eq!(logic.last_cash_hack_stolen_amount(), stolen);
+        assert_eq!(
+            logic.players.get(&0).unwrap().resources.supplies,
+            CASH_HACK_MONEY_AMOUNT_TIER3
+        );
+        assert_eq!(
+            logic.players.get(&1).unwrap().resources.supplies,
+            10_000 - CASH_HACK_MONEY_AMOUNT_TIER3
+        );
+
+        // DoSpecialPower path residual.
+        let stolen2 = logic.activate_cash_hack(0, Some(src));
+        assert_eq!(stolen2, CASH_HACK_MONEY_AMOUNT_TIER3);
+        let _ = SpecialPowerType::CashHack;
     }
 
     #[test]

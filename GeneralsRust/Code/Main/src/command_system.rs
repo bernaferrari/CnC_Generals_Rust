@@ -373,6 +373,11 @@ pub enum SpecialPowerType {
     /// Fail-closed: not full SpecialObject NapalmBomb fall / HeightDieUpdate /
     /// FirestormDynamicGeometryInfoUpdate expand animation.
     HelixNapalmBomb,
+    /// China SuperweaponCashHack residual (SPECIAL_CASH_HACK / SuperweaponCashHack).
+    /// Instant steal from richest enemy player by SCIENCE_CashHack1/2/3 amount
+    /// (1000/2000/4000). Fail-closed vs full CashHackSpecialPower victim clamp /
+    /// floating text / multiplayer academy path.
+    CashHack,
     Invalid,
 }
 
