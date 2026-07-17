@@ -4,6 +4,18 @@ use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// C++ TurretAI state residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TurretSubState {
+    #[default]
+    Idle,
+    IdleScan,
+    Aim,
+    Fire,
+    Hold,
+    Recenter,
+}
+
 /// C++ AttackStateMachine substate residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum AttackSubState {
@@ -20,6 +32,11 @@ pub enum AttackSubState {
 
 fn default_one_f32() -> f32 {
     1.0
+}
+
+/// C++ DEFAULT_TURN_RATE residual (radians/frame).
+fn default_turret_turn_rate() -> f32 {
+    0.01
 }
 
 fn default_max_shots() -> i32 {
@@ -808,6 +825,25 @@ pub struct Object {
     /// Cleared when mood target leaves range / dies (C++ m_targetWasSetByIdleMood).
     #[serde(default)]
     pub turret_mood_target: bool,
+    /// C++ TurretAI goal object residual.
+    #[serde(default)]
+    pub turret_target_id: Option<ObjectId>,
+    /// C++ TurretAI m_target forceAttacking residual.
+    #[serde(default)]
+    pub turret_force_attacking: bool,
+    /// C++ TurretAI enabled residual (false until unit has a turret slot).
+    #[serde(default)]
+    pub turret_enabled: bool,
+    /// C++ TurretAIData::m_turnRate residual (radians per logic frame).
+    #[serde(default = "default_turret_turn_rate")]
+    pub turret_turn_rate_rad: f32,
+    /// C++ TurretAI state machine residual.
+    #[serde(default)]
+    pub turret_substate: TurretSubState,
+    /// C++ MODELCONDITION_TURRET_ROTATE residual.
+    #[serde(default)]
+    pub turret_rotating: bool,
+
     /// C++ AIUpdateInterface AttitudeType residual (AI_SLEEP..AI_AGGRESSIVE).
     /// Host residual for TurretAI mood matrix Sleep/Passive gates.
     /// Ordinals: -2=Sleep, -1=Passive, 0=Normal, 1=Alert, 2=Aggressive.
@@ -1246,6 +1282,12 @@ impl Object {
             turret_hold_until_frame: 0,
             turret_idle_recentering: false,
             turret_mood_target: false,
+            turret_target_id: None,
+            turret_force_attacking: false,
+            turret_enabled: false,
+            turret_turn_rate_rad: default_turret_turn_rate(),
+            turret_substate: TurretSubState::Idle,
+            turret_rotating: false,
             ai_attitude: 0, // HostAiAttitude::Normal
             last_damage_source: None,
             camo_friendly_opacity: 1.0,
@@ -1484,6 +1526,12 @@ impl Object {
             turret_hold_until_frame: 0,
             turret_idle_recentering: false,
             turret_mood_target: false,
+            turret_target_id: None,
+            turret_force_attacking: false,
+            turret_enabled: false,
+            turret_turn_rate_rad: default_turret_turn_rate(),
+            turret_substate: TurretSubState::Idle,
+            turret_rotating: false,
             ai_attitude: 0, // HostAiAttitude::Normal
             last_damage_source: None,
             camo_friendly_opacity: 1.0,
@@ -5138,6 +5186,85 @@ impl Object {
     }
 
     /// C++ PartitionManager::getRelativeAngle2D residual to a world position.
+
+    /// Normalize angle to (-PI, PI].
+    pub fn normalize_angle_rad(a: f32) -> f32 {
+        let mut x = a % (std::f32::consts::TAU);
+        if x > std::f32::consts::PI {
+            x -= std::f32::consts::TAU;
+        } else if x <= -std::f32::consts::PI {
+            x += std::f32::consts::TAU;
+        }
+        x
+    }
+
+    /// C++ TurretAI::friend_turnTowardsAngle residual.
+    ///
+    /// `desired_rel_rad` is desired world-relative aim angle of the body-to-target
+    /// relative heading; host stores turret yaw in degrees absolute-ish residual
+    /// matching Strategy Center path (body-relative when body ori is applied).
+    /// Returns true when |angle - desired| <= rel_thresh.
+    pub fn turn_turret_towards_angle_rad(
+        &mut self,
+        desired_rel_rad: f32,
+        rate_modifier: f32,
+        rel_thresh: f32,
+    ) -> bool {
+        let desired = Self::normalize_angle_rad(desired_rel_rad);
+        let orig = self.turret_angle_deg.to_radians();
+        let mut actual = Self::normalize_angle_rad(orig);
+        let turn_rate = (self.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
+        let angle_diff = Self::normalize_angle_rad(desired - actual);
+        if angle_diff.abs() < turn_rate {
+            actual = desired;
+            self.turret_rotating = false;
+        } else {
+            if angle_diff > 0.0 {
+                actual += turn_rate;
+            } else {
+                actual -= turn_rate;
+            }
+            actual = Self::normalize_angle_rad(actual);
+            self.turret_rotating = true;
+        }
+        self.turret_angle_deg = actual.to_degrees();
+        Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0)
+    }
+
+    /// C++ TurretAI::setTurretTargetObject residual (object-local).
+    pub fn set_turret_target_object(&mut self, victim: Option<ObjectId>, force_attacking: bool) {
+        if !self.turret_enabled {
+            return;
+        }
+        match victim {
+            None => {
+                self.turret_target_id = None;
+                self.turret_force_attacking = false;
+                if matches!(
+                    self.turret_substate,
+                    TurretSubState::Aim | TurretSubState::Fire
+                ) {
+                    self.turret_substate = TurretSubState::Hold;
+                }
+            }
+            Some(id) => {
+                self.turret_target_id = Some(id);
+                self.turret_force_attacking = force_attacking;
+                if !matches!(
+                    self.turret_substate,
+                    TurretSubState::Aim | TurretSubState::Fire
+                ) {
+                    self.turret_substate = TurretSubState::Aim;
+                }
+            }
+        }
+    }
+
+    /// C++ TurretAI::isTryingToAimAtTarget residual.
+    pub fn is_trying_to_aim_at_target(&self, victim: ObjectId) -> bool {
+        self.turret_substate == TurretSubState::Aim && self.turret_target_id == Some(victim)
+    }
+
     pub fn relative_angle_2d_to(&self, target_pos: Vec3) -> f32 {
         crate::game_logic::weapon_bootstrap::relative_angle_2d(
             self.get_position(),

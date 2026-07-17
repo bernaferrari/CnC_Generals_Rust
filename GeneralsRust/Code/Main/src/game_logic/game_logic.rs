@@ -6646,19 +6646,112 @@ impl GameLogic {
         }
     }
 
-    pub fn attack_aim_at_target_enter(&mut self, unit_id: ObjectId) -> bool {
-        let Some(u) = self.objects.get_mut(&unit_id) else {
-            return false;
+    /// C++ AIUpdateInterface::setTurretTargetObject residual.
+    pub fn set_turret_target_object(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        force_attacking: bool,
+    ) {
+        if let Some(vid) = victim_id {
+            let alive = self
+                .objects
+                .get(&vid)
+                .map(|v| v.is_alive() && !v.status.destroyed)
+                .unwrap_or(false);
+            if !alive {
+                if let Some(u) = self.objects.get_mut(&unit_id) {
+                    u.set_turret_target_object(None, false);
+                }
+                return;
+            }
+        }
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.set_turret_target_object(victim_id, force_attacking);
+        }
+    }
+
+    /// C++ TurretAIAimTurretState::update residual — rotate turret toward victim.
+    ///
+    /// Returns Success when within REL_THRESH (~2°), Continue while turning,
+    /// Failure if no target / dead.
+    pub fn tick_turret_aim(
+        &mut self,
+        unit_id: ObjectId,
+        max_rate_modifier: f32,
+    ) -> AttackAimResult {
+        const REL_THRESH: f32 = 0.035; // ~2 degrees
+        let (victim_pos, has_target) = {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return AttackAimResult::Failure;
+            };
+            if !u.turret_enabled {
+                return AttackAimResult::Failure;
+            }
+            let Some(tid) = u.turret_target_id else {
+                return AttackAimResult::Failure;
+            };
+            let Some(v) = self.objects.get(&tid) else {
+                return AttackAimResult::Failure;
+            };
+            if !v.is_alive() || v.status.destroyed {
+                return AttackAimResult::Failure;
+            }
+            (v.get_position(), true)
         };
-        if !u.is_alive() {
+        let _ = has_target;
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return AttackAimResult::Failure;
+        };
+        u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
+        // Relative angle body→target in world, convert to body-relative turret aim.
+        // Host residual: body orientation + turret angle compose aim direction.
+        let body_ori = u.get_orientation();
+        let rel_world = u.relative_angle_2d_to(victim_pos); // already body-relative
+                                                            // Desired turret angle = current body-relative target heading.
+                                                            // relative_angle_2d_to returns how much body must turn; for turret,
+                                                            // desired turret yaw (body-relative) = current turret + (rel - 0) wait:
+                                                            // C++: relAngle = getRelativeAngle2D(obj, enemyPos) which is target bearing
+                                                            // relative to object orientation. Turret angle is also relative to parent.
+                                                            // So desired turret angle = relAngle (if turret 0 faces body forward).
+        let desired_turret = rel_world;
+        let aligned = u.turn_turret_towards_angle_rad(
+            desired_turret,
+            max_rate_modifier.max(0.01),
+            REL_THRESH,
+        );
+        // Clear unused body_ori warning path: used for future pitch.
+        let _ = body_ori;
+        if aligned {
+            AttackAimResult::Success
+        } else {
+            AttackAimResult::Continue
+        }
+    }
+
+    pub fn attack_aim_at_target_enter(&mut self, unit_id: ObjectId) -> bool {
+        let (alive, has_wpn, tid) = {
+            let Some(u) = self.objects.get(&unit_id) else {
+                return false;
+            };
+            (
+                u.is_alive(),
+                u.weapon.is_some() || u.secondary_weapon.is_some(),
+                u.target,
+            )
+        };
+        if !alive || !has_wpn {
             return false;
         }
-        if u.weapon.is_none() && u.secondary_weapon.is_none() {
-            return false;
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.status.is_aiming_weapon = true;
+            u.status.attacking = true;
+            u.ai_state = AIState::Attacking;
         }
-        u.status.is_aiming_weapon = true;
-        u.status.attacking = true;
-        u.ai_state = AIState::Attacking;
+        // C++ AIAttackAimAtTargetState sets turret target when tur != INVALID.
+        if let Some(vid) = tid {
+            self.set_turret_target_object(unit_id, Some(vid), false);
+        }
         true
     }
 
@@ -6690,49 +6783,58 @@ impl GameLogic {
             v.get_position()
         };
 
-        let Some(u) = self.objects.get_mut(&unit_id) else {
-            return AttackAimResult::Failure;
-        };
-        if !u.is_alive() {
-            return AttackAimResult::Failure;
-        }
-        if u.weapon.is_none() && u.secondary_weapon.is_none() {
-            return AttackAimResult::Failure;
-        }
-        u.status.is_aiming_weapon = true;
-        u.target = Some(victim_id);
+        // Ensure turret tracks the same victim (C++ setTurretTargetObject).
+        self.set_turret_target_object(unit_id, Some(victim_id), false);
 
-        // Range gate while HELD residual: if out of range, Failure.
-        // Host residual: always check range if weapon present.
-        // (Held check not fully ported; range failure only when far and not turning.)
-        let slot = u.active_weapon_slot;
-        let aimed = u.turn_toward_position(victim_pos, slot, max_turn_rad.max(0.05));
-        if aimed {
-            AttackAimResult::Success
-        } else {
-            // If completely out of attack range, fail so approach can resume.
-            // Need immutable borrow of victim again.
-            let range_ok = {
-                // self-borrow: get positions from u and re-check via stored weapon range
-                let us = u.get_position();
-                let dx = victim_pos.x - us.x;
-                let dz = victim_pos.z - us.z;
-                let dist = (dx * dx + dz * dz).sqrt();
-                let range = u
-                    .weapon
-                    .as_ref()
-                    .map(|w| w.range)
-                    .or_else(|| u.secondary_weapon.as_ref().map(|w| w.range))
-                    .unwrap_or(0.0)
-                    * u.battle_plan_range_multiplier();
-                dist <= range + 1e-3
+        let (body_aimed, range_ok, turret_enabled) = {
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return AttackAimResult::Failure;
             };
-            if !range_ok {
-                AttackAimResult::Failure
-            } else {
-                AttackAimResult::Continue
+            if !u.is_alive() {
+                return AttackAimResult::Failure;
             }
+            if u.weapon.is_none() && u.secondary_weapon.is_none() {
+                return AttackAimResult::Failure;
+            }
+            u.status.is_aiming_weapon = true;
+            u.target = Some(victim_id);
+            let slot = u.active_weapon_slot;
+            let body_aimed = u.turn_toward_position(victim_pos, slot, max_turn_rad.max(0.05));
+            let us = u.get_position();
+            let dx = victim_pos.x - us.x;
+            let dz = victim_pos.z - us.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            let range = u
+                .weapon
+                .as_ref()
+                .map(|w| w.range)
+                .or_else(|| u.secondary_weapon.as_ref().map(|w| w.range))
+                .unwrap_or(0.0)
+                * u.battle_plan_range_multiplier();
+            let range_ok = dist <= range + 1e-3;
+            (body_aimed, range_ok, u.turret_enabled)
+        };
+
+        // C++ body-aim path: if no turret turn rate, body alignment is enough.
+        // When turret enabled, both body (or immobile) and turret must align.
+        let turret_res = if turret_enabled {
+            self.tick_turret_aim(unit_id, 1.0)
+        } else {
+            AttackAimResult::Success
+        };
+
+        let turret_ok = matches!(turret_res, AttackAimResult::Success);
+        if body_aimed && turret_ok {
+            return AttackAimResult::Success;
         }
+        if !range_ok && !body_aimed {
+            return AttackAimResult::Failure;
+        }
+        // Still turning body or turret.
+        if matches!(turret_res, AttackAimResult::Failure) && !body_aimed {
+            return AttackAimResult::Failure;
+        }
+        AttackAimResult::Continue
     }
 
     pub fn attack_fire_weapon_enter(&mut self, unit_id: ObjectId) -> bool {
@@ -72508,6 +72610,128 @@ mod tests {
             logic.objects[&aid].attack_substate,
             AttackSubState::FireWeapon
         );
+    }
+
+    #[test]
+    fn set_turret_target_object_enters_aim() {
+        use crate::game_logic::object::TurretSubState;
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("TurA");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2001);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.turret_enabled = true;
+            o.turret_angle_deg = 0.0;
+            o.turret_turn_rate_rad = 0.5; // fast for test
+            o.weapon = Some(Weapon {
+                range: 100.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("TurV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2002);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o
+        });
+        logic.set_turret_target_object(aid, Some(vid), false);
+        assert_eq!(logic.objects[&aid].turret_target_id, Some(vid));
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
+        assert!(logic.objects[&aid].is_trying_to_aim_at_target(vid));
+        logic.set_turret_target_object(aid, None, false);
+        assert!(logic.objects[&aid].turret_target_id.is_none());
+        assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Hold);
+    }
+
+    #[test]
+    fn tick_turret_aim_aligns_toward_target() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("TurA2");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2003);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.turret_enabled = true;
+            o.turret_angle_deg = 0.0;
+            // Slow turn so first tick Continues if target is behind... use front.
+            o.turret_turn_rate_rad = 0.02;
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("TurV2");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2004);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(50.0, 0.0, 0.0)); // +X, rel ~0
+            o
+        });
+        logic.set_turret_target_object(aid, Some(vid), false);
+        // Already facing: one tick should Success.
+        let r = logic.tick_turret_aim(aid, 1.0);
+        assert_eq!(r, AttackAimResult::Success);
+    }
+
+    #[test]
+    fn tick_turret_aim_continues_while_turning() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("TurA3");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(2005);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.set_orientation(0.0);
+            o.turret_enabled = true;
+            o.turret_angle_deg = 0.0;
+            o.turret_turn_rate_rad = 0.02; // ~1.1 deg/frame
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("TurV3");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(2006);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            // Behind: ~180 deg turn
+            o.set_position(Vec3::new(-50.0, 0.0, 0.0));
+            o
+        });
+        logic.set_turret_target_object(aid, Some(vid), false);
+        let r = logic.tick_turret_aim(aid, 1.0);
+        assert_eq!(r, AttackAimResult::Continue);
+        assert!(logic.objects[&aid].turret_rotating);
+    }
+
+    #[test]
+    fn turn_turret_towards_angle_snaps_within_rate() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("Snap");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(2007), Team::USA);
+        o.turret_enabled = true;
+        o.turret_angle_deg = 0.0;
+        o.turret_turn_rate_rad = 0.5;
+        // desired 0.1 rad — within rate → snap success
+        assert!(o.turn_turret_towards_angle_rad(0.1, 1.0, 0.035));
+        assert!((o.turret_angle_deg.to_radians() - 0.1).abs() < 1e-4);
+        assert!(!o.turret_rotating);
     }
 
     #[test]
