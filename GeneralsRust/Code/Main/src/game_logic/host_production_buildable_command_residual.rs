@@ -332,16 +332,59 @@ pub fn legal_build_objects_in_the_way_residual(
     false
 }
 
+/// C++ LBC_TOO_CLOSE_TO_SUPPLIES residual for CANNOT_BUILD_NEAR_SUPPLIES templates.
+///
+/// `supply_sources` are (x,z,radius) of KINDOF_SUPPLY_SOURCE residual objects.
+/// `border` is GameData.ini SupplyBuildBorder (**20**).
+pub fn legal_build_too_close_to_supplies_residual(
+    place_pos: (f32, f32),
+    place_radius: f32,
+    supply_sources: &[(f32, f32, f32)],
+    border: f32,
+) -> bool {
+    use crate::game_logic::host_structure_economy_residual::is_legal_supply_center_distance;
+    let (px, pz) = place_pos;
+    let pr = place_radius.max(1.0);
+    for &(sx, sz, sr) in supply_sources {
+        let dx = px - sx;
+        let dz = pz - sz;
+        let dist = (dx * dx + dz * dz).sqrt();
+        // Simplified: center-to-center minus radii must exceed SupplyBuildBorder.
+        let clearance = dist - pr - sr.max(0.0);
+        if !is_legal_supply_center_distance(clearance) && clearance < border {
+            return true;
+        }
+        // Also fail when overlapping expanded footprint residual.
+        let min_dist = pr + sr.max(0.0) + border.max(0.0);
+        if dist < min_dist {
+            return true;
+        }
+    }
+    false
+}
+
 /// Map residual LegalBuildCode from simplified checks.
 pub fn legal_build_code_from_checks_residual(
     in_world_bounds: bool,
     objects_in_the_way: bool,
+) -> u32 {
+    legal_build_code_from_checks_ex_residual(in_world_bounds, objects_in_the_way, false)
+}
+
+/// Extended LegalBuildCode residual including supply-border gate.
+pub fn legal_build_code_from_checks_ex_residual(
+    in_world_bounds: bool,
+    objects_in_the_way: bool,
+    too_close_to_supplies: bool,
 ) -> u32 {
     if !in_world_bounds {
         return LBC_GENERIC_FAILURE;
     }
     if objects_in_the_way {
         return LBC_OBJECTS_IN_THE_WAY;
+    }
+    if too_close_to_supplies {
+        return LBC_TOO_CLOSE_TO_SUPPLIES;
     }
     LBC_OK
 }
@@ -373,6 +416,9 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         && legal_build_code_from_checks_residual(true, false) == LBC_OK
         && legal_build_code_from_checks_residual(true, true) == LBC_OBJECTS_IN_THE_WAY
         && legal_build_code_from_checks_residual(false, false) == LBC_GENERIC_FAILURE
+        && legal_build_code_from_checks_ex_residual(true, false, true) == LBC_TOO_CLOSE_TO_SUPPLIES
+        && legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(5.0, 0.0, 5.0)], 20.0)
+        && !legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(200.0, 0.0, 5.0)], 20.0)
         && buildable_status_allows_human_residual(BSTATUS_IGNORE_PREREQUISITES)
         && !buildable_status_allows_human_residual(BSTATUS_NO)
         && !buildable_status_allows_human_residual(BSTATUS_ONLY_BY_AI)
