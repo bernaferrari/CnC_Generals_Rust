@@ -1414,6 +1414,8 @@ pub struct GameLogic {
     sell_process_finishes: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
+    /// C++ DozerAIUpdate::cancelTask residual events.
+    dozer_cancel_task_events: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2645,6 +2647,7 @@ impl GameLogic {
             sell_process_starts: 0,
             sell_process_finishes: 0,
             construction_complete_clears: 0,
+            dozer_cancel_task_events: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3026,6 +3029,7 @@ impl GameLogic {
         self.sell_process_starts = 0;
         self.sell_process_finishes = 0;
         self.construction_complete_clears = 0;
+        self.dozer_cancel_task_events = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -43137,6 +43141,46 @@ impl GameLogic {
         self.sell_process_starts > 0 && self.sell_process_finishes > 0
     }
 
+    /// C++ DozerAIUpdate::cancelTask residual when construction is cancelled/killed.
+    ///
+    /// Dozers targeting `structure_id` (or actively Constructing nearby same team)
+    /// go Idle and clear ACTIVELY_CONSTRUCTING model residual.
+    pub fn cancel_dozers_building(&mut self, structure_id: ObjectId) {
+        let team = self.objects.get(&structure_id).map(|o| o.team);
+        let build_pos = self.objects.get(&structure_id).map(|o| o.get_position());
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let mut cancelled = 0u32;
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !obj.is_alive() || !obj.can_construct() {
+                continue;
+            }
+            let targeting = obj.target == Some(structure_id);
+            let constructing = matches!(obj.ai_state, AIState::Constructing);
+            let nearby = match (team, build_pos) {
+                (Some(t), Some(bp)) => obj.team == t && obj.get_position().distance(bp) <= 40.0,
+                _ => false,
+            };
+            if targeting || (constructing && nearby) {
+                obj.target = None;
+                obj.ai_state = AIState::Idle;
+                obj.set_actively_constructing(false);
+                cancelled = cancelled.saturating_add(1);
+            }
+        }
+        if cancelled > 0 {
+            self.dozer_cancel_task_events = self.dozer_cancel_task_events.saturating_add(cancelled);
+            // Refresh ACTIVELY_CONSTRUCTING residual globally after cancel.
+            self.update_actively_constructing_model_conditions();
+        }
+    }
+
+    pub fn honesty_dozer_cancel_task_ok(&self) -> bool {
+        self.dozer_cancel_task_events > 0
+    }
+
     pub fn honesty_construction_complete_clear_ok(&self) -> bool {
         self.construction_complete_clears > 0
     }
@@ -77926,6 +77970,68 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn cancel_construction_clears_dozer_actively_constructing() {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_constructing_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        st.build_cost.supplies = 500;
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+        let sid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = true;
+            o.construction_percent = 0.4;
+        }
+        let did = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(5.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        if let Some(o) = logic.get_object_mut(did) {
+            o.ai_state = AIState::Constructing;
+            o.target = Some(sid);
+            o.set_actively_constructing(true);
+        }
+        assert!(host_model_condition_has(
+            logic.get_object(did).unwrap().model_condition_bits,
+            actively_constructing_model_bit()
+        ));
+        logic.cancel_dozers_building(sid);
+        let d = logic.get_object(did).expect("d");
+        assert_eq!(d.ai_state, AIState::Idle);
+        assert!(d.target.is_none());
+        assert!(!host_model_condition_has(
+            d.model_condition_bits,
+            actively_constructing_model_bit()
+        ));
+        assert!(logic.honesty_dozer_cancel_task_ok());
     }
 
     #[test]
