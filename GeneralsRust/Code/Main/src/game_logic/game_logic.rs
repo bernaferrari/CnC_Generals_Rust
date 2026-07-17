@@ -279,6 +279,8 @@ pub struct PlayerStatistics {
     pub structures_captured: u32,
     /// Alias honesty counter for academy capture residual.
     pub academy_building_captures: u32,
+    /// C++ ScoreKeeper::addObjectCaptured residual count.
+    pub objects_captured: u32,
     /// C++ EVA UnitLost residual fires attributed to this player.
     pub eva_unit_lost: u32,
     /// C++ EVA BuildingLost residual fires attributed to this player.
@@ -511,6 +513,10 @@ impl Player {
         self.statistics.structures_captured = self.statistics.structures_captured.saturating_add(1);
         self.statistics.academy_building_captures =
             self.statistics.academy_building_captures.saturating_add(1);
+    }
+    /// C++ ScoreKeeper::addObjectCaptured residual.
+    pub fn record_object_captured(&mut self) {
+        self.statistics.objects_captured = self.statistics.objects_captured.saturating_add(1);
     }
 
     pub fn add_money_earned(&mut self, amount: u32) {
@@ -43424,7 +43430,13 @@ impl GameLogic {
             obj.ai_state = AIState::Idle;
             obj.status.moving = false;
             obj.status.attacking = false;
+            // C++ Object::setCaptured(true) residual (sticky private status).
+            obj.set_private_captured(true);
             // C++ clearScriptStatus(OBJECT_STATUS_SCRIPT_UNSELLABLE) residual.
+        }
+        // C++ ScoreKeeper::addObjectCaptured residual for new owner.
+        if let Some(p) = self.get_player_mut_by_team(new_team) {
+            p.record_object_captured();
         }
 
         // C++ TechBuildingBehavior MODELCONDITION_CAPTURED residual:
@@ -80060,6 +80072,42 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn capture_sets_private_captured_and_score() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::GLA, "GLA", true));
+
+        let mut b = ThingTemplate::new("AmericaBarracks");
+        b.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), b);
+
+        let id = logic
+            .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks");
+        assert!(!logic.get_object(id).unwrap().is_private_captured());
+
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_team(Team::GLA);
+        }
+        logic.on_capture_object_residual(id, Team::USA, Team::GLA);
+
+        assert!(logic.get_object(id).unwrap().is_private_captured());
+        let captured = logic
+            .players
+            .get(&1)
+            .map(|p| p.statistics.objects_captured)
+            .unwrap_or(0);
+        assert!(captured >= 1, "new owner score must count object captured");
     }
 
     #[test]

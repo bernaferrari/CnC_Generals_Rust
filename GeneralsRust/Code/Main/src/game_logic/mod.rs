@@ -978,6 +978,10 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_HIJACKED residual (ConvertToHijackedVehicleCrateCollide).
     #[serde(default)]
     pub hijacked: bool,
+    /// C++ Object::m_privateStatus CAPTURED residual (setCaptured).
+    /// Sticky once true (C++ rarely clears).
+    #[serde(default)]
+    pub private_captured: bool,
     /// C++ OBJECT_STATUS_NO_COLLISIONS residual (hijacker in vehicle / parachute).
     #[serde(default)]
     pub no_collisions: bool,
