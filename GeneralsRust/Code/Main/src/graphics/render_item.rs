@@ -60,6 +60,9 @@ pub struct RenderItem {
     pub uv_offset_override: Option<Vec2>,
 
     pub animation_frame: f32,
+
+    /// C++ selection flash envelope residual intensity 0..1 (presentation-owned).
+    pub selection_flash_intensity: f32,
 }
 
 impl RenderItem {
@@ -101,10 +104,37 @@ impl RenderItem {
             fow_visibility: ObjectVisibility::default(),
             uv_offset_override: None,
             animation_frame: 0.0,
+            selection_flash_intensity: 0.0,
         }
     }
 
     /// Generate sorting key for render ordering - equivalent to C++ RenderItem::GenerateSortingKey()
+
+    /// Apply C++ flashAsSelected residual as emissive boost (white flash default).
+    pub fn apply_selection_flash(&mut self, intensity: f32, team_color: [f32; 4]) {
+        let i = intensity.clamp(0.0, 1.0);
+        if i <= 0.0 {
+            self.selection_flash_intensity = 0.0;
+            return;
+        }
+        self.selection_flash_intensity = i;
+        // C++ default SelectionFlashHouseColor=false → white flash; house color optional.
+        // Mix white with a touch of team color for residual house-tint option.
+        let r = 1.0 * i + team_color[0] * 0.0;
+        let g = 1.0 * i + team_color[1] * 0.0;
+        let b = 1.0 * i + team_color[2] * 0.0;
+        self.material.emissive_color.x = (self.material.emissive_color.x + r).min(2.0);
+        self.material.emissive_color.y = (self.material.emissive_color.y + g).min(2.0);
+        self.material.emissive_color.z = (self.material.emissive_color.z + b).min(2.0);
+        // Slight diffuse lift so unlit paths still show flash residual.
+        self.material.diffuse_color.x =
+            (self.material.diffuse_color.x * (1.0 - 0.35 * i) + 1.0 * 0.35 * i).min(1.5);
+        self.material.diffuse_color.y =
+            (self.material.diffuse_color.y * (1.0 - 0.35 * i) + 1.0 * 0.35 * i).min(1.5);
+        self.material.diffuse_color.z =
+            (self.material.diffuse_color.z * (1.0 - 0.35 * i) + 1.0 * 0.35 * i).min(1.5);
+    }
+
     fn generate_sorting_key(render_pass: RenderPass, material_key: &str, distance: f32) -> u64 {
         // Sorting key format (64-bit):
         // Bits 56-63: Render pass (8 bits)

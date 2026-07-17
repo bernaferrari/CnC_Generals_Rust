@@ -89,6 +89,16 @@ pub const SABOTEUR_RESET_TIMER_AUDIO: &str = "SabotageResetTimerBuilding";
 pub const SABOTEUR_SHUTDOWN_AUDIO: &str = "SabotageShutDownBuilding";
 /// C++ Drawable::flashAsSelected envelope decay residual (play color,0,4).
 pub const SABOTEUR_FLASH_DECAY_FRAMES: u32 = 4;
+
+/// Linear residual intensity for selection flash envelope (1.0 → 0.0).
+#[inline]
+pub fn selection_flash_intensity(remaining: u32) -> f32 {
+    if remaining == 0 || SABOTEUR_FLASH_DECAY_FRAMES == 0 {
+        return 0.0;
+    }
+    (remaining as f32 / SABOTEUR_FLASH_DECAY_FRAMES as f32).clamp(0.0, 1.0)
+}
+
 /// C++ GUI:AddCash floating text over saboteur (pos.z + 20).
 pub const SABOTEUR_ADD_CASH_Z_OFFSET: f32 = 20.0;
 /// C++ GUI:LoseCash floating text over victim (pos.z + 30).

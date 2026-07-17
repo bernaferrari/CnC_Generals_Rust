@@ -1419,6 +1419,8 @@ impl RenderPipeline {
                 selection_radius,
                 model_hint_owned,
                 snapshot_fow,
+                selection_flash_intensity,
+                team_color,
             ) = match &source {
                 UnitPassSource::Presentation(u) => {
                     // engine_bridged already filtered in unit_render_inputs; keep guard.
@@ -1434,6 +1436,8 @@ impl RenderPipeline {
                         u.selection_radius,
                         Some(u.model_key.clone()),
                         Some(u.fow_visibility),
+                        u.selection_flash_intensity(),
+                        u.team_color,
                     )
                 }
                 UnitPassSource::Live(id) => {
@@ -1462,6 +1466,10 @@ impl RenderPipeline {
                         object.selection_radius.max(5.0),
                         object.get_template().model_name.clone(),
                         None,
+                        crate::game_logic::host_saboteur::selection_flash_intensity(
+                            object.selection_flash_remaining,
+                        ),
+                        object.team_color,
                     )
                 }
             };
@@ -1684,6 +1692,12 @@ impl RenderPipeline {
                                 );
                                 render_item.distance = world_position.distance(camera_position);
                                 render_item.set_fow_visibility(fow_visibility);
+                                if selection_flash_intensity > 0.0 {
+                                    render_item.apply_selection_flash(
+                                        selection_flash_intensity,
+                                        team_color,
+                                    );
+                                }
 
                                 self.render_items.push(render_item);
                             }
@@ -1732,6 +1746,12 @@ impl RenderPipeline {
                                 );
                                 render_item.distance = world_position.distance(camera_position);
                                 render_item.set_fow_visibility(fow_visibility);
+                                if selection_flash_intensity > 0.0 {
+                                    render_item.apply_selection_flash(
+                                        selection_flash_intensity,
+                                        team_color,
+                                    );
+                                }
 
                                 self.render_items.push(render_item);
                             }
