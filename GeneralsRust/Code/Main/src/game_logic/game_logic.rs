@@ -6170,6 +6170,63 @@ impl GameLogic {
     /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
 
+    /// C++ AIUpdateInterface::requestAttackPath residual.
+    ///
+    /// Rate-limits repath (<3 frames → queue 2s). On accept, runs findAttackPath.
+    pub fn request_attack_path(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        victim_pos: glam::Vec3,
+    ) -> bool {
+        let frame = self.frame;
+        let can_compute = {
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            if !u.can_move() || !u.is_alive() {
+                return false;
+            }
+            u.begin_request_attack_path(victim_id, victim_pos, frame)
+        };
+        if !can_compute {
+            return false; // deferred
+        }
+        let ok = self.assign_unit_attack_path(unit_id, victim_id, victim_pos);
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.waiting_for_path = false;
+            if !ok {
+                u.is_attack_path = false;
+            }
+        }
+        ok
+    }
+
+    /// C++ AIUpdateInterface::privateAttackObject residual.
+    pub fn private_attack_object(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        max_shots: i32,
+    ) -> bool {
+        let victim_pos = match self.objects.get(&victim_id) {
+            Some(v) if v.is_alive() => v.get_position(),
+            _ => return false,
+        };
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.target = Some(victim_id);
+            u.ai_state = AIState::Attacking;
+            u.status.attacking = true;
+            u.set_max_shots_to_fire(max_shots);
+        } else {
+            return false;
+        }
+        // Prefer attack path if out of range / LOS blocked residual handled by assign.
+        // State is already set; path failure still allows in-place fire residual.
+        let _ = self.request_attack_path(unit_id, Some(victim_id), victim_pos);
+        true
+    }
+
     /// C++ AIUpdateInterface::requestPath residual.
     ///
     /// Uses host PathfindingSystem A* when available; fail-closed straight path.
@@ -6215,6 +6272,7 @@ impl GameLogic {
         for o in self.objects.values_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
+            o.tick_path_queue();
             // C++ PhysicsBehavior update residual order: friction → integrate accel → motion.
             if o.can_move() && !o.status.destroyed {
                 o.apply_frictional_forces();
@@ -71572,6 +71630,80 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn request_attack_path_sets_flags() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("Atk");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(1101);
+        let mut a = Object::new(at, aid, Team::USA);
+        a.set_position(Vec3::new(0.0, 0.0, 0.0));
+        a.movement.max_speed = 30.0;
+        logic.objects.insert(aid, a);
+
+        let mut vt = ThingTemplate::new("Vic");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1102);
+        let mut v = Object::new(vt, vid, Team::GLA);
+        v.set_position(Vec3::new(80.0, 0.0, 0.0));
+        logic.objects.insert(vid, v);
+
+        logic.frame = 10;
+        let _ = logic.request_attack_path(aid, Some(vid), Vec3::new(80.0, 0.0, 0.0));
+        let a = logic.objects.get(&aid).unwrap();
+        assert!(a.is_attack_path || a.movement.target_position.is_some() || a.status.attacking);
+        assert_eq!(a.requested_victim_id, Some(vid));
+    }
+
+    #[test]
+    fn request_attack_path_rate_limits() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("RL");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1111);
+        let mut a = Object::new(at, aid, Team::USA);
+        a.set_position(Vec3::ZERO);
+        logic.objects.insert(aid, a);
+        logic.frame = 100;
+        let _ = logic.request_attack_path(aid, None, Vec3::new(10.0, 0.0, 0.0));
+        logic.frame = 101; // within 3 frames
+        let deferred = !logic.request_attack_path(aid, None, Vec3::new(20.0, 0.0, 0.0));
+        let a = logic.objects.get(&aid).unwrap();
+        assert!(deferred || a.queue_for_path_frames > 0);
+    }
+
+    #[test]
+    fn private_attack_object_sets_target_and_shots() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("PA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1121);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o
+        });
+        let mut vt = ThingTemplate::new("PV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1122);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(5.0, 0.0, 0.0));
+            o
+        });
+        assert!(logic.private_attack_object(aid, vid, 3));
+        let a = logic.objects.get(&aid).unwrap();
+        assert_eq!(a.target, Some(vid));
+        assert_eq!(a.max_shots_to_fire, 3);
+        assert!(a.status.attacking);
     }
 
     #[test]
