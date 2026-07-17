@@ -195,6 +195,9 @@ pub struct HostMoneyCrateEntry {
     /// C++ HealCrateCollide residual (heal all objects owned by picker player).
     #[serde(default)]
     pub is_heal_crate: bool,
+    /// C++ ShroudCrateCollide residual (revealMapForPlayer).
+    #[serde(default)]
+    pub is_shroud_crate: bool,
 }
 
 fn default_vet_levels() -> u8 {
@@ -333,6 +336,30 @@ impl HostMoneyCrateRegistry {
     }
 
     /// C++ UnitCrateCollide residual registration.
+    /// C++ ShroudCrateCollide residual registration.
+    pub fn register_shroud_crate(&mut self, object_id: ObjectId) {
+        self.crates.insert(
+            object_id,
+            HostMoneyCrateEntry {
+                object_id,
+                money_provided: 0,
+                building_pickup: false,
+                supply_lines_boost: 0,
+                building_pickup_residual_paid: false,
+                is_salvage: false,
+                expires_frame: 0,
+                is_veterancy: false,
+                veterancy_effect_range: 0.0,
+                veterancy_levels: 1,
+                is_unit_crate: false,
+                unit_crate_type: String::new(),
+                unit_crate_count: 0,
+                is_heal_crate: false,
+                is_shroud_crate: true,
+            },
+        );
+    }
+
     pub fn register_unit_crate(&mut self, object_id: ObjectId, unit_type: &str, unit_count: u32) {
         self.crates.insert(
             object_id,
@@ -351,6 +378,7 @@ impl HostMoneyCrateRegistry {
                 unit_crate_type: unit_type.to_string(),
                 unit_crate_count: unit_count.max(1),
                 is_heal_crate: false,
+                is_shroud_crate: false,
             },
         );
     }
@@ -374,6 +402,7 @@ impl HostMoneyCrateRegistry {
                 unit_crate_type: String::new(),
                 unit_crate_count: 0,
                 is_heal_crate: true,
+                is_shroud_crate: false,
             },
         );
     }
@@ -397,6 +426,7 @@ impl HostMoneyCrateRegistry {
                 unit_crate_type: String::new(),
                 unit_crate_count: 0,
                 is_heal_crate: false,
+                is_shroud_crate: false,
             },
         );
     }
@@ -420,6 +450,7 @@ impl HostMoneyCrateRegistry {
                 unit_crate_type: String::new(),
                 unit_crate_count: 0,
                 is_heal_crate: false,
+                is_shroud_crate: false,
             },
         );
     }
@@ -448,6 +479,7 @@ impl HostMoneyCrateRegistry {
                 unit_crate_type: String::new(),
                 unit_crate_count: 0,
                 is_heal_crate: false,
+                is_shroud_crate: false,
             },
         );
     }
