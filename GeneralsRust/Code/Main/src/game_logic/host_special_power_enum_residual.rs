@@ -181,6 +181,8 @@ pub fn host_command_power_cpp_enum_name(
         HostCommandSpecialPowerType::CruiseMissile => Some("SUPR_SPECIAL_CRUISE_MISSILE"),
         HostCommandSpecialPowerType::CleanupArea => Some("SPECIAL_CLEANUP_AREA"),
         HostCommandSpecialPowerType::HelixNapalmBomb => Some("SPECIAL_HELIX_NAPALM_BOMB"),
+        // Retail Nuke_SpecialAbilityHelixNukeBomb shares SPECIAL_HELIX_NAPALM_BOMB enum.
+        HostCommandSpecialPowerType::HelixNukeBomb => Some("SPECIAL_HELIX_NAPALM_BOMB"),
         HostCommandSpecialPowerType::CashHack => Some("SPECIAL_CASH_HACK"),
         HostCommandSpecialPowerType::AirForceDaisyCutter => Some("AIRF_SPECIAL_DAISY_CUTTER"),
         HostCommandSpecialPowerType::AirForceAirstrike => {

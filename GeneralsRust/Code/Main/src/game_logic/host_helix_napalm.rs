@@ -93,6 +93,10 @@ pub const HELIX_FIRESTORM_DURATION_FRAMES: u32 = 180;
 
 /// Retail upgrade that unpauses Helix NapalmBomb special power.
 pub const UPGRADE_HELIX_NAPALM_BOMB: &str = "Upgrade_HelixNapalmBomb";
+/// Retail Nuke_Upgrade_HelixNukeBomb residual unlock name.
+pub const UPGRADE_HELIX_NUKE_BOMB: &str = "Nuke_Upgrade_HelixNukeBomb";
+/// Retail Nuke_SpecialAbilityHelixNukeBomb name residual.
+pub const HELIX_NUKE_BOMB_SPECIAL_POWER: &str = "Nuke_SpecialAbilityHelixNukeBomb";
 
 /// Retail BlackNapalm player upgrade (swaps NapalmBomb → BlackNapalmBomb weapon).
 pub const UPGRADE_CHINA_BLACK_NAPALM: &str = "Upgrade_ChinaBlackNapalm";
@@ -458,6 +462,13 @@ pub fn honesty_helix_napalm_upgrade_residual_ok() -> bool {
 }
 
 /// Combined Wave 70 Helix Napalm residual honesty pack.
+/// Wave residual honesty: HelixNukeBomb maps onto Helix napalm residual path.
+pub fn honesty_helix_nuke_bomb_residual_pack_ok() -> bool {
+    HELIX_NUKE_BOMB_SPECIAL_POWER == "Nuke_SpecialAbilityHelixNukeBomb"
+        && UPGRADE_HELIX_NUKE_BOMB == "Nuke_Upgrade_HelixNukeBomb"
+        && HELIX_NAPALM_SPECIAL_POWER == "SpecialAbilityHelixNapalmBomb"
+}
+
 pub fn honesty_helix_napalm_residual_pack_ok() -> bool {
     honesty_helix_napalm_weapon_residual_ok()
         && honesty_helix_napalm_ability_residual_ok()
