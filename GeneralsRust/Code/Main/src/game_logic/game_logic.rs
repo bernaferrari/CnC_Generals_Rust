@@ -1421,6 +1421,8 @@ pub struct GameLogic {
     /// Sell residual process starts / finishes.
     sell_process_starts: u32,
     sell_process_finishes: u32,
+    /// C++ sellObject destroy owned mines residual.
+    sell_owned_mines_destroyed: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
@@ -1448,6 +1450,8 @@ pub struct GameLogic {
     rebuild_hole_bomb_transfers: u32,
     /// C++ RECONSTRUCTING death → hole restart residual events.
     rebuild_hole_recon_deaths: u32,
+    /// C++ newWorkerRespawnProcess residual events.
+    rebuild_hole_worker_restarts: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2678,6 +2682,7 @@ impl GameLogic {
             sell_list: Vec::new(),
             sell_process_starts: 0,
             sell_process_finishes: 0,
+            sell_owned_mines_destroyed: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -2693,6 +2698,7 @@ impl GameLogic {
             rebuild_hole_attack_transfers: 0,
             rebuild_hole_bomb_transfers: 0,
             rebuild_hole_recon_deaths: 0,
+            rebuild_hole_worker_restarts: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -3073,6 +3079,7 @@ impl GameLogic {
         self.sell_list.clear();
         self.sell_process_starts = 0;
         self.sell_process_finishes = 0;
+        self.sell_owned_mines_destroyed = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;
@@ -3088,6 +3095,7 @@ impl GameLogic {
         self.rebuild_hole_attack_transfers = 0;
         self.rebuild_hole_bomb_transfers = 0;
         self.rebuild_hole_recon_deaths = 0;
+        self.rebuild_hole_worker_restarts = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -43203,6 +43211,33 @@ impl GameLogic {
             },
         );
         self.sell_process_starts = self.sell_process_starts.saturating_add(1);
+        // C++ sellObject: destroy mines owned by this structure (producerID).
+        let mine_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() {
+                    return None;
+                }
+                let is_mine = o.mine_data.is_some()
+                    || crate::game_logic::host_mines::infer_mine_kind(&o.template_name).is_some();
+                if !is_mine {
+                    return None;
+                }
+                let producer = o
+                    .producer_id
+                    .or_else(|| o.mine_data.as_ref().and_then(|m| m.producer_id));
+                if producer == Some(object_id) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for mid in mine_ids {
+            self.destroy_object(mid);
+            self.sell_owned_mines_destroyed = self.sell_owned_mines_destroyed.saturating_add(1);
+        }
         let _ = team;
         true
     }
@@ -43712,7 +43747,47 @@ impl GameLogic {
                 }
             }
 
-            // If reconstructing building finished, destroy hole.
+            // C++ newWorkerRespawnProcess: worker gone → restart delay residual.
+            {
+                let (worker_id, recon_id) = {
+                    let Some(h) = self.objects.get(&hole_id) else {
+                        continue;
+                    };
+                    (h.rebuild_worker_id, h.rebuild_reconstructing_id)
+                };
+                let worker_gone = match worker_id {
+                    Some(wid) => self
+                        .objects
+                        .get(&wid)
+                        .map(|w| !w.is_alive())
+                        .unwrap_or(true),
+                    None => false,
+                };
+                if worker_gone {
+                    let recon_alive = match recon_id {
+                        Some(rid) => self
+                            .objects
+                            .get(&rid)
+                            .map(|b| b.is_alive())
+                            .unwrap_or(false),
+                        None => false,
+                    };
+                    if let Some(h) = self.objects.get_mut(&hole_id) {
+                        h.rebuild_worker_id = None;
+                        if !recon_alive {
+                            h.rebuild_reconstructing_id = None;
+                            h.status.masked = false;
+                        }
+                        h.rebuild_ready_frame = now
+                            .max(1)
+                            .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
+                        self.rebuild_hole_worker_restarts =
+                            self.rebuild_hole_worker_restarts.saturating_add(1);
+                    }
+                }
+            }
+
+            // If reconstructing building finished, destroy hole.// If reconstructing building finished, destroy hole.
             let recon_done = {
                 let Some(h) = self.objects.get(&hole_id) else {
                     continue;
@@ -79487,6 +79562,50 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn sell_destroys_owned_mines_by_producer() {
+        use crate::game_logic::host_mines::{HostMineData, HostMineKind};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        st.build_cost.supplies = 800;
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let mut mine_t = ThingTemplate::new("StandardMine");
+        mine_t.set_health(50.0);
+        logic.templates.insert("StandardMine".into(), mine_t);
+        let sid = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(sid) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+        }
+        let mid = logic
+            .create_object("StandardMine", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("mine");
+        if let Some(o) = logic.get_object_mut(mid) {
+            let mut md = HostMineData::new(HostMineKind::LandMine);
+            md.producer_id = Some(sid);
+            o.mine_data = Some(md);
+            o.producer_id = Some(sid);
+        }
+        assert!(logic.start_sell_object(sid));
+        logic.process_destroy_list();
+        assert!(logic.get_object(mid).is_none() || logic.sell_owned_mines_destroyed > 0);
+        // Mine should be marked for destroy
+        assert!(logic.sell_owned_mines_destroyed > 0);
     }
 
     #[test]
