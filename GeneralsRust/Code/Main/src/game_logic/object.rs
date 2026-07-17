@@ -1198,10 +1198,24 @@ impl Object {
 
         let special_power_cooldown = template.special_power_cooldown;
 
-        let (power_provided, power_consumed) = building_data
+        let (mut power_provided, mut power_consumed) = building_data
             .as_ref()
             .map(|data| (data.power_output, data.power_requirement))
             .unwrap_or((0, 0));
+        // C++ EnergyProduction residual for superweapon buildings (PUC/Nuke -10, Scud 0).
+        // Overrides BuildingType::from_template_name fallback (CommandCenter -3 residual).
+        if let Some(energy) =
+            crate::game_logic::host_superweapon_kindof::superweapon_energy_production_for_template(
+                &template_name,
+            )
+        {
+            let (p, c) =
+                crate::game_logic::host_superweapon_kindof::apply_energy_production_to_power(
+                    energy,
+                );
+            power_provided = p;
+            power_consumed = c;
+        }
 
         Self {
             thing: Thing::new(template),

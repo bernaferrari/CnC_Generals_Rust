@@ -82094,6 +82094,100 @@ mod tests {
     }
 
     #[test]
+    fn superweapon_energy_production_drains_team_power() {
+        use crate::game_logic::host_superweapon_kindof::{
+            AMERICA_PARTICLE_CANNON_UPLINK, CHINA_NUCLEAR_MISSILE_LAUNCHER, GLA_SCUD_STORM,
+            SUPERWEAPON_ENERGY_DRAIN,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        // Power plant residual so team has production.
+        let mut plant = ThingTemplate::new("AmericaColdFusionReactor");
+        plant
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Powered);
+        logic
+            .templates
+            .insert("AmericaColdFusionReactor".into(), plant);
+        let plant_id = logic
+            .create_object(
+                "AmericaColdFusionReactor",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("plant");
+        if let Some(o) = logic.get_object_mut(plant_id) {
+            // Explicit plant residual (BuildingType::PowerPlant default is also 10).
+            o.power_provided = 10;
+            o.power_consumed = 0;
+        }
+
+        for name in [
+            AMERICA_PARTICLE_CANNON_UPLINK,
+            CHINA_NUCLEAR_MISSILE_LAUNCHER,
+            GLA_SCUD_STORM,
+        ] {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::FSSuperweapon);
+            if name != GLA_SCUD_STORM {
+                t.add_kind_of(KindOf::Powered);
+            }
+            logic.templates.insert(name.into(), t);
+        }
+
+        let puc = logic
+            .create_object(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("puc");
+        {
+            let o = logic.get_object(puc).expect("puc obj");
+            assert_eq!(o.power_provided, 0, "PUC does not produce");
+            assert_eq!(
+                o.power_consumed,
+                SUPERWEAPON_ENERGY_DRAIN.abs(),
+                "PUC EnergyProduction -10 residual"
+            );
+        }
+        let scud = logic
+            .create_object(GLA_SCUD_STORM, Team::USA, glam::Vec3::new(100.0, 0.0, 0.0))
+            .expect("scud");
+        {
+            let o = logic.get_object(scud).expect("scud obj");
+            assert_eq!(o.power_provided, 0);
+            assert_eq!(o.power_consumed, 0, "Scud Storm unpowered residual");
+        }
+        let nuke = logic
+            .create_object(
+                CHINA_NUCLEAR_MISSILE_LAUNCHER,
+                Team::USA,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+            )
+            .expect("nuke");
+        {
+            let o = logic.get_object(nuke).expect("nuke obj");
+            assert_eq!(o.power_consumed, SUPERWEAPON_ENERGY_DRAIN.abs());
+        }
+
+        // Tick resources to recompute team power.
+        logic.update();
+        let player = logic
+            .get_players()
+            .values()
+            .find(|p| p.team == Team::USA)
+            .expect("usa");
+        // plant 10 - PUC 10 - Nuke 10 - Scud 0 = -10 available
+        assert_eq!(player.power_produced, 10);
+        assert_eq!(player.power_consumed, 20);
+        assert_eq!(player.power_available, -10);
+    }
+
+    #[test]
     fn superweapon_max_simultaneous_blocks_second_when_limited() {
         use crate::game_logic::host_superweapon_kindof::{
             honesty_superweapon_max_simultaneous_residual_pack, AMERICA_PARTICLE_CANNON_UPLINK,
