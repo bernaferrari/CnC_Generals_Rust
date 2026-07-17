@@ -501,6 +501,24 @@ impl HostUpgradeRegistry {
         Some(id)
     }
 
+    /// Most recent completed/queued upgrade residual source object for radar event.
+    pub fn last_source_object_for(
+        &self,
+        player_id: u32,
+        upgrade_name: &str,
+    ) -> Option<crate::game_logic::ObjectId> {
+        // Prefer highest-id matching research entry with a source.
+        self.entries
+            .values()
+            .filter(|r| {
+                r.player_id == player_id
+                    && r.name.eq_ignore_ascii_case(upgrade_name)
+                    && r.source_object.is_some()
+            })
+            .max_by_key(|r| r.id)
+            .and_then(|r| r.source_object)
+    }
+
     /// Cancel a pending research (refund path).
     pub fn record_cancel(&mut self, name: &str, player_id: u32) -> bool {
         let key = (player_id, normalize_upgrade_identity(name));

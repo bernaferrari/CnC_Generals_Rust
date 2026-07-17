@@ -1371,6 +1371,8 @@ pub struct GameLogic {
     eva_hero_detected: u32,
     /// EVA SuperweaponLaunched GPS/Sneak residual honesty fires.
     eva_special_launched_misc: u32,
+    /// RADAR_EVENT_UPGRADE residual honesty fires.
+    radar_upgrade_events: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2589,6 +2591,7 @@ impl GameLogic {
             eva_beacon_detected: 0,
             eva_hero_detected: 0,
             eva_special_launched_misc: 0,
+            radar_upgrade_events: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2957,6 +2960,7 @@ impl GameLogic {
         self.eva_beacon_detected = 0;
         self.eva_hero_detected = 0;
         self.eva_special_launched_misc = 0;
+        self.radar_upgrade_events = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -15453,6 +15457,11 @@ impl GameLogic {
                 AudioEventRequest::new("EVA_UpgradeComplete").with_priority(140),
             );
         }
+        // C++ TheRadar->createEvent(pos, RADAR_EVENT_UPGRADE) residual.
+        let source = self
+            .host_upgrades
+            .last_source_object_for(player_id, upgrade_name);
+        self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
     }
 
     /// Apply WorkerShoes residual: speed 30 + upgrade tag on GLA workers.
@@ -42747,6 +42756,46 @@ impl GameLogic {
 
     pub fn honesty_eva_superweapon_ready_ok(&self) -> bool {
         self.eva_superweapon_ready > 0
+    }
+
+    /// C++ ProductionUpdate RADAR_EVENT_UPGRADE + UPGRADE:UpgradeComplete residual.
+    ///
+    /// Creates a radar event at a producer structure (or team centroid residual)
+    /// and queues a localized upgrade-complete radar message for the local player.
+    pub fn try_radar_upgrade_complete(
+        &mut self,
+        player_id: u32,
+        team: Team,
+        upgrade_name: &str,
+        source_object: Option<ObjectId>,
+    ) {
+        if !self.is_local_player(player_id) {
+            return;
+        }
+        let pos = source_object
+            .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
+            .or_else(|| {
+                // Prefer command center / any structure residual position.
+                self.objects
+                    .values()
+                    .filter(|o| o.team == team && o.is_alive() && o.is_kind_of(KindOf::Structure))
+                    .map(|o| o.get_position())
+                    .next()
+            })
+            .unwrap_or(glam::Vec3::ZERO);
+
+        let msg = localization::localize(
+            "UPGRADE:UpgradeComplete",
+            &format!("Upgrade complete: {upgrade_name}"),
+        );
+        // C++ TheRadar->createEvent(..., RADAR_EVENT_UPGRADE) residual.
+        // Host maps upgrade events as Generic radar kind with upgrade honesty.
+        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        self.radar_upgrade_events = self.radar_upgrade_events.saturating_add(1);
+    }
+
+    pub fn honesty_radar_upgrade_event_ok(&self) -> bool {
+        self.radar_upgrade_events > 0
     }
 
     pub fn try_eva_upgrade_complete(&mut self, player_id: u32) {
@@ -77477,6 +77526,46 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn radar_upgrade_complete_queues_local_event() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        let mut st = ThingTemplate::new("AmericaWarFactory");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSWarFactory)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaWarFactory".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(12.0, 0.0, 34.0),
+            )
+            .expect("wf");
+        logic.try_radar_upgrade_complete(0, Team::USA, "Upgrade_AmericaCompositeArmor", Some(id));
+        assert!(logic.honesty_radar_upgrade_event_ok());
+        let text = logic
+            .last_radar_message_text()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        assert!(
+            text.contains("upgrade") || text.contains("complete"),
+            "radar text: {text}"
+        );
+        // Non-local player must not fire.
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::China, "AI", false),
+        );
+        let before = logic.radar_upgrade_events;
+        logic.try_radar_upgrade_complete(1, Team::China, "Upgrade_ChinaNationalism", None);
+        assert_eq!(logic.radar_upgrade_events, before);
     }
 
     #[test]
