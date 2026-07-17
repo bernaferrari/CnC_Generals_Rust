@@ -74,6 +74,9 @@ pub struct Object {
     /// First ground contact while stunned: STUNNED_FLAILING → STUNNED residual.
     #[serde(default)]
     pub shock_grounded_once: bool,
+    /// C++ transform Z-up residual (1 upright, <0 inverted / splat candidate).
+    #[serde(default = "default_shock_up_z")]
+    pub shock_up_z: f32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -520,6 +523,10 @@ pub enum AIState {
     Capturing,
 }
 
+fn default_shock_up_z() -> f32 {
+    1.0
+}
+
 impl Object {
     pub fn new(template: ThingTemplate, id: ObjectId, team: Team) -> Self {
         let max_health = template.max_health;
@@ -578,6 +585,7 @@ impl Object {
             shock_allow_bounce: false,
             shock_was_airborne: false,
             shock_grounded_once: false,
+            shock_up_z: 1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -724,6 +732,7 @@ impl Object {
             shock_allow_bounce: false,
             shock_was_airborne: false,
             shock_grounded_once: false,
+            shock_up_z: 1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -981,7 +990,13 @@ impl Object {
             || self.status.disabled_emp
             || self.status.disabled_paralyzed
             || self.status.disabled_subdued
+            || self.status.disabled_freefall
             || self.status.under_construction
+    }
+
+    /// C++ DISABLED_FREEFALL residual.
+    pub fn is_freefall_disabled(&self) -> bool {
+        self.status.disabled_freefall
     }
 
     /// C++ DISABLED_UNMANNED residual (Jarmen Kell kill-pilot snipe).
@@ -1799,6 +1814,14 @@ impl Object {
         // Immediate yaw kick (presentation/tumble residual).
         let ori = self.get_orientation() + self.shock_yaw_rate;
         self.set_orientation(ori);
+        // Tumble upright residual: strong pitch/roll can invert (Z-up < 0).
+        self.shock_up_z -= (pitch_m.abs() + roll_m.abs()) * 0.75;
+        if self.shock_up_z < -1.0 {
+            self.shock_up_z = -1.0;
+        }
+        if self.shock_up_z > 1.0 {
+            self.shock_up_z = 1.0;
+        }
     }
 
     pub fn apply_shock_wave_impulse(&mut self, force: glam::Vec3) -> bool {
@@ -1832,6 +1855,7 @@ impl Object {
         // C++ applyRandomRotation sets ALLOW_BOUNCE until bounce completes.
         self.shock_allow_bounce = true;
         self.shock_grounded_once = false;
+        self.shock_up_z = 1.0;
         // Strong upward impulse residual: freefall model bit while airborne from shock.
         if self.movement.velocity.y > 8.0 {
             use crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
@@ -1939,14 +1963,54 @@ impl Object {
         self.shock_roll_rate *= Self::BOUNCE_YPR_DAMPING;
         if bounce_vy > 0.0 {
             self.movement.velocity.y = bounce_vy;
+            // C++ testStunnedUnitForDestruction on successful bounce force.
+            if self.test_stunned_unit_for_destruction() {
+                return 0.0;
+            }
             // Right the object residual: keep yaw, zero pitch/roll presentation rates.
             self.shock_pitch_rate = 0.0;
             self.shock_roll_rate = 0.0;
+            // C++ setAngles after bounce rights pitch/roll when not killed.
+            if self.shock_up_z < 0.0 {
+                // Already handled by kill path; keep.
+            } else {
+                self.shock_up_z = 1.0;
+            }
             return bounce_vy;
         }
         // Bounce complete — restore original allow (host: off).
         self.shock_allow_bounce = false;
         0.0
+    }
+
+    /// C++ PhysicsBehavior::testStunnedUnitForDestruction residual.
+    ///
+    /// Called on bounce. Upside-down stunned units are killed. Cliff/water/off-map
+    /// surface checks are fail-closed without full TerrainLogic/AI locomotor.
+    pub fn test_stunned_unit_for_destruction(&mut self) -> bool {
+        if !self.is_shock_stunned() || self.status.destroyed {
+            return false;
+        }
+        // Upside down when transform Z-up residual is negative.
+        if self.shock_up_z < 0.0 {
+            return self.kill_from_stun_destruction();
+        }
+        false
+    }
+
+    fn kill_from_stun_destruction(&mut self) -> bool {
+        if self.status.destroyed {
+            return false;
+        }
+        self.health.current = 0.0;
+        self.status.destroyed = true;
+        self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
+        self.ai_state = AIState::Idle;
+        self.target = None;
+        self.shock_stun_frames = 0;
+        self.status.disabled_freefall = false;
+        self.refresh_model_condition_bits();
+        true
     }
 
     /// Tick shock stun residual (once per logic frame).
@@ -1964,6 +2028,7 @@ impl Object {
                 self.movement.velocity.y = 0.0;
                 self.shock_was_airborne = false;
                 self.shock_allow_bounce = false;
+                self.status.disabled_freefall = false;
             }
             return;
         }
@@ -2010,24 +2075,36 @@ impl Object {
                         self.movement.velocity.y = 0.0;
                     }
                     self.shock_was_airborne = false;
+                    // C++ clear IS_IN_FREEFALL / DISABLED_FREEFALL when grounded.
+                    self.status.disabled_freefall = false;
                 } else {
+                    // Bounce still airborne residual.
                     self.shock_was_airborne = true;
+                    self.status.disabled_freefall = true;
                 }
             } else {
                 pos.y = new_y;
                 self.set_position(pos);
                 self.shock_was_airborne = true;
+                // C++ IS_IN_FREEFALL → DISABLED_FREEFALL + MODELCONDITION_FREEFALL.
+                self.status.disabled_freefall = true;
             }
         } else {
             // Lateral bleed only when grounded.
             if self.movement.velocity.y.abs() < 0.5 {
                 self.movement.velocity.y = 0.0;
             }
+            self.status.disabled_freefall = false;
+            self.shock_was_airborne = false;
         }
         // Lateral friction residual while stunned on ground.
         if self.get_position().y <= ground_y + 0.01 {
             self.movement.velocity.x *= 0.92;
             self.movement.velocity.z *= 0.92;
+            // Ground contact residual: freefall disable only while airborne.
+            if self.movement.velocity.y <= 0.01 {
+                self.status.disabled_freefall = false;
+            }
         }
         self.refresh_model_condition_bits();
     }
@@ -5061,6 +5138,55 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn stunned_upside_down_bounce_kills_and_freefall_disables() {
+        let mut tmpl = ThingTemplate::new("StunKill");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.max_health = 100.0;
+        let mut o = Object::new(tmpl, ObjectId(21), Team::USA);
+        o.health.current = 100.0;
+        assert!(o.apply_shock_wave_impulse(glam::Vec3::new(5.0, 30.0, 0.0)));
+        // Force inverted residual (C++ Get_Z_Vector().Z < 0).
+        o.shock_up_z = -0.5;
+        o.shock_allow_bounce = true;
+        o.shock_stun_frames = 40;
+        // Simulate bounce path with downward impact from above ground.
+        o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+        o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+        let bounced = o.handle_shock_ground_bounce(2.0, -0.1, 0.0);
+        assert!(o.status.destroyed, "upside-down stunned must die on bounce");
+        assert_eq!(bounced, 0.0);
+        // Freefall disable residual while airborne.
+        let mut t2 = ThingTemplate::new("FreeFallDis");
+        t2.add_kind_of(KindOf::Vehicle);
+        let mut a = Object::new(t2, ObjectId(22), Team::USA);
+        assert!(a.apply_shock_wave_impulse(glam::Vec3::new(0.0, 50.0, 0.0)));
+        a.set_position(glam::Vec3::ZERO);
+        // Climb a few frames.
+        for _ in 0..5 {
+            if a.get_position().y > 0.2 {
+                break;
+            }
+            a.tick_shock_stun();
+        }
+        if a.get_position().y > 0.05 {
+            assert!(a.status.disabled_freefall || a.is_disabled());
+            assert!(a.is_freefall_disabled() || a.is_disabled());
+        }
+        // Land fully.
+        for _ in 0..80 {
+            a.tick_shock_stun();
+            if a.shock_stun_frames == 0 && a.get_position().y <= 0.01 {
+                break;
+            }
+        }
+        if a.get_position().y <= 0.01 && !a.status.destroyed {
+            assert!(
+                !a.status.disabled_freefall,
+                "grounded clears DISABLED_FREEFALL"
+            );
+        }
+    }
     #[test]
     fn shock_fall_damage_splats_on_hard_landing() {
         use crate::game_logic::combat::DamageType;
