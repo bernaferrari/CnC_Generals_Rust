@@ -998,7 +998,17 @@ impl<'a> CommandExecutor<'a> {
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             // Missile Defender laser guided needs an object target (lock secondary + attack).
-            if *power_type == SpecialPowerType::MissileDefenderLaserGuided {
+            if *power_type == SpecialPowerType::TankHunterTnt {
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                // Walk-to-target then plant timed charge residual (same as command path).
+                if !self.queue_tank_hunter_tnt(unit_id, *tid) {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::MissileDefenderLaserGuided
+                || *power_type == SpecialPowerType::LaserGuidedHowitzer
+            {
                 let PowerTarget::Object(tid) = target else {
                     continue;
                 };
@@ -2945,6 +2955,61 @@ impl<'a> CommandExecutor<'a> {
     /// C++ residual: any ground vehicle target (ally/enemy/neutral) except
     /// bomb trucks / trains / aircraft. Completes without approach walk
     /// (StartAbilityRange = 1e6). Fail-closed: not full drawable model swap.
+    /// Tank Hunter TNT special residual: path to target and plant timed sticky charge.
+    fn queue_tank_hunter_tnt(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+        use crate::game_logic::host_tank_hunter::{
+            is_tank_hunter_template, tnt_in_start_range, tnt_ready, TNT_START_ABILITY_RANGE,
+        };
+        use crate::game_logic::{AIState, PendingSpecialAbility};
+
+        let Some(unit) = self.game_logic.get_object(unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() || !is_tank_hunter_template(&unit.template_name) {
+            return false;
+        }
+        if !tnt_ready(
+            self.game_logic.get_frame(),
+            self.game_logic.tank_hunter_tnt_last_plant_frame(unit_id),
+        ) {
+            return false;
+        }
+        let Some(target) = self.game_logic.get_object(target_id) else {
+            return false;
+        };
+        if !target.is_alive() {
+            return false;
+        }
+        let target_pos = target.get_position();
+        // Always queue walk-to; plant resolves on reach (StartAbilityRange 5 residual).
+        if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+            u.stop_moving();
+            u.status.attacking = false;
+            u.target = Some(target_id);
+            u.target_location = None;
+        }
+        if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            // If already in range, still queue plant.
+            let unit_pos = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|o| o.get_position())
+                .unwrap_or(target_pos);
+            let dx = unit_pos.x - target_pos.x;
+            let dz = unit_pos.z - target_pos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            if !tnt_in_start_range(dist) && dist > TNT_START_ABILITY_RANGE * 2.0 {
+                return false;
+            }
+        }
+        self.game_logic.queue_pending_special_ability(
+            unit_id,
+            PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+        );
+        let _ = TNT_START_ABILITY_RANGE;
+        true
+    }
+
     fn execute_disguise_as_vehicle(
         &mut self,
         units: &[ObjectId],
