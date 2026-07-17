@@ -105,6 +105,8 @@ pub struct HostCarBombRegistry {
     pub detonation_damage_dealt: f32,
     /// C++ HijackerUpdate airborne PutInContainer AmericaParachute residual.
     pub airborne_parachute_puts: u32,
+    /// C++ ParachuteContain::onCollide land residual after airborne hijack eject.
+    pub airborne_parachute_lands: u32,
 }
 
 impl HostCarBombRegistry {
@@ -135,9 +137,18 @@ impl HostCarBombRegistry {
         self.airborne_parachute_puts = self.airborne_parachute_puts.saturating_add(1);
     }
 
+    pub fn record_airborne_parachute_land(&mut self) {
+        self.airborne_parachute_lands = self.airborne_parachute_lands.saturating_add(1);
+    }
+
     /// Residual honesty: airborne hijack eject put rider in AmericaParachute.
     pub fn honesty_airborne_parachute_ok(&self) -> bool {
         self.airborne_parachute_puts > 0
+    }
+
+    /// Residual honesty: AmericaParachute ground collide released rider.
+    pub fn honesty_airborne_parachute_land_ok(&self) -> bool {
+        self.airborne_parachute_lands > 0
     }
 
     /// Residual honesty: at least one hijack transferred a vehicle.
