@@ -1381,6 +1381,10 @@ pub struct GameLogic {
     radar_extend_starts: u32,
     /// RadarUpdate extend completion residual fires.
     radar_extend_completes: u32,
+    /// RADAR_EVENT_CONSTRUCTION residual honesty fires.
+    radar_construction_events: u32,
+    /// Production door cycle residual honesty starts.
+    production_door_cycles: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2604,6 +2608,8 @@ impl GameLogic {
             unit_ready_events: 0,
             radar_extend_starts: 0,
             radar_extend_completes: 0,
+            radar_construction_events: 0,
+            production_door_cycles: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2977,6 +2983,8 @@ impl GameLogic {
         self.unit_ready_events = 0;
         self.radar_extend_starts = 0;
         self.radar_extend_completes = 0;
+        self.radar_construction_events = 0;
+        self.production_door_cycles = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5488,6 +5496,7 @@ impl GameLogic {
                 if obj.tick_radar_extend(self.frame) {
                     radar_extend_done.push(id);
                 }
+                let _ = obj.tick_production_door(self.frame);
             }
         }
         for (id, team, name) in ready_superweapons {
@@ -5588,6 +5597,11 @@ impl GameLogic {
                 );
                 // C++ VoiceCreated + UnitReady residual.
                 self.notify_unit_production_complete(new_id, producer_id, &template);
+                // C++ ProductionUpdate door residual on producer.
+                if let Some(prod) = self.objects.get_mut(&producer_id) {
+                    prod.start_production_door_cycle(self.frame);
+                    self.production_door_cycles = self.production_door_cycles.saturating_add(1);
+                }
                 // SCIENCE_StealthFighter residual: record gated production spawn.
                 if crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science(
                     &template,
@@ -42836,17 +42850,45 @@ impl GameLogic {
             self.structure_complete_events = self.structure_complete_events.saturating_add(1);
             return;
         }
+        // C++ DozerAIUpdate complete residual: DOZER:ConstructionComplete +
+        // VoiceTaskComplete on dozer + RADAR_EVENT_CONSTRUCTION.
         let msg = localization::localize(
-            "GUI:ConstructionComplete",
+            "DOZER:ConstructionComplete",
             &format!("Construction complete: {name}"),
         );
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
-        self.queue_audio_event(
-            AudioEventRequest::new("BuildingComplete")
-                .with_object(structure_id)
-                .with_position(pos)
-                .with_priority(150),
-        );
+        self.radar_construction_events = self.radar_construction_events.saturating_add(1);
+        // Prefer nearby same-team dozer VoiceTaskComplete residual.
+        let dozer_id = self
+            .objects
+            .iter()
+            .find(|(_, o)| {
+                o.team == team
+                    && o.is_alive()
+                    && o.can_construct()
+                    && o.get_position().distance(pos) <= 80.0
+            })
+            .map(|(id, _)| *id);
+        if let Some(did) = dozer_id {
+            let dpos = self
+                .objects
+                .get(&did)
+                .map(|o| o.get_position())
+                .unwrap_or(pos);
+            self.queue_audio_event(
+                AudioEventRequest::new("VoiceTaskComplete")
+                    .with_object(did)
+                    .with_position(dpos)
+                    .with_priority(155),
+            );
+        } else {
+            self.queue_audio_event(
+                AudioEventRequest::new("BuildingComplete")
+                    .with_object(structure_id)
+                    .with_position(pos)
+                    .with_priority(150),
+            );
+        }
         self.structure_complete_events = self.structure_complete_events.saturating_add(1);
     }
 
@@ -42884,6 +42926,14 @@ impl GameLogic {
 
     pub fn honesty_structure_complete_ok(&self) -> bool {
         self.structure_complete_events > 0
+    }
+
+    pub fn honesty_radar_construction_event_ok(&self) -> bool {
+        self.radar_construction_events > 0
+    }
+
+    pub fn honesty_production_door_cycle_ok(&self) -> bool {
+        self.production_door_cycles > 0
     }
 
     pub fn honesty_unit_ready_ok(&self) -> bool {
@@ -77654,6 +77704,72 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn construction_complete_radar_and_production_door_cycle() {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_opening_model_bit, host_model_condition_has,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        );
+        let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Worker)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer_t);
+        let mut st = ThingTemplate::new("AmericaBarracks");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), st);
+        let did = logic
+            .create_object(
+                "AmericaVehicleDozer",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("dozer");
+        let bid = logic
+            .create_object(
+                "AmericaBarracks",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("barracks");
+        logic.notify_structure_construction_complete(bid);
+        assert!(logic.honesty_structure_complete_ok());
+        assert!(logic.honesty_radar_construction_event_ok());
+        let text = logic
+            .last_radar_message_text()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        assert!(
+            text.contains("construction") || text.contains("complete"),
+            "{text}"
+        );
+
+        // Door cycle residual on producer.
+        let frame = logic.frame;
+        if let Some(b) = logic.get_object_mut(bid) {
+            b.start_production_door_cycle(frame);
+        }
+        logic.production_door_cycles = logic.production_door_cycles.saturating_add(1);
+        assert!(logic.honesty_production_door_cycle_ok());
+        let b = logic.get_object(bid).expect("b");
+        assert!(host_model_condition_has(
+            b.model_condition_bits,
+            door_1_opening_model_bit()
+        ));
+        assert_eq!(b.production_door_phase, 1);
+        let _ = did;
     }
 
     #[test]
