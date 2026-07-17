@@ -15805,6 +15805,9 @@ impl GameLogic {
             HostUpgradeKind::Countermeasures => {
                 self.apply_countermeasures_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::SlaveDrone => {
+                self.apply_slave_drone_upgrade_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -15842,6 +15845,47 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+    }
+
+    /// C++ America Scout/Battle/Hellfire drone object-upgrade residual.
+    ///
+    /// Attaches the residual slave drone to each living master vehicle that does
+    /// not already have the upgrade tag (ObjectCreationUpgrade attach residual).
+    fn apply_slave_drone_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_slave_drones::{
+            is_slave_drone_master_template, SlaveDroneKind,
+        };
+
+        let kind = SlaveDroneKind::from_upgrade_name(upgrade_name).unwrap_or(SlaveDroneKind::Scout);
+        let tag = kind.upgrade_name();
+
+        let masters: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.team == team
+                    && o.is_alive()
+                    && !o.status.under_construction
+                    && is_slave_drone_master_template(&o.template_name)
+                    && !o.has_upgrade_tag(tag)
+                    && !o.has_upgrade_tag(upgrade_name)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        let mut n = 0u32;
+        for mid in masters {
+            if self.residual_attach_slave_drone(mid, kind).is_some() {
+                if let Some(m) = self.objects.get_mut(&mid) {
+                    m.apply_upgrade_tag(upgrade_name);
+                    m.apply_upgrade_tag(tag);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        // Player unlock residual for production UI / late builds.
+        let _ = self.apply_player_unlock_upgrade(team, upgrade_name, tag);
+        n
     }
 
     /// C++ Upgrade_AmericaChemicalSuits residual — ChemSuitHumanArmor on infantry.
@@ -81102,6 +81146,68 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
+        use crate::game_logic::host_slave_drones::{
+            UPGRADE_AMERICA_BATTLE_DRONE, UPGRADE_AMERICA_SCOUT_DRONE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".into(), humvee);
+
+        let mid = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+
+        let n = logic.apply_slave_drone_upgrade_to_team(Team::USA, UPGRADE_AMERICA_SCOUT_DRONE);
+        assert_eq!(n, 1);
+        assert!(logic
+            .get_object(mid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE));
+        // Scout drone object should exist.
+        let drones: Vec<_> = logic
+            .objects
+            .values()
+            .filter(|o| {
+                o.template_name.to_ascii_lowercase().contains("scoutdrone")
+                    || o.template_name.contains("ScoutDrone")
+            })
+            .collect();
+        assert!(!drones.is_empty(), "scout drone must spawn");
+        assert!(logic.honesty_scout_drone_attach_ok());
+
+        // Battle drone on second master.
+        let mid2 = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("humvee2");
+        let n2 = logic.apply_slave_drone_upgrade_to_team(Team::USA, UPGRADE_AMERICA_BATTLE_DRONE);
+        assert!(n2 >= 1);
+        assert!(logic
+            .get_object(mid2)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_AMERICA_BATTLE_DRONE));
     }
 
     #[test]
