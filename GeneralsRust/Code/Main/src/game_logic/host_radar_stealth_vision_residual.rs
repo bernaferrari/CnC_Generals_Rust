@@ -29,6 +29,9 @@
 // ---------------------------------------------------------------------------
 
 /// Logic frames per second residual (host fixed step).
+/// C++ MiscAudio m_radarInfiltrationSound residual honesty.
+pub const RADAR_INFILTRATION_AUDIO: &str = "RadarInfiltration";
+
 pub const RADAR_STEALTH_VISION_LOGIC_FPS: f32 = 30.0;
 
 /// Convert msec residual → logic frames @ 30 FPS (exact for multiples of 100/1000).
