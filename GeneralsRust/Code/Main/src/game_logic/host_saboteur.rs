@@ -169,6 +169,10 @@ pub struct HostSaboteurRegistry {
     pub internet_spy_vision_disables: u32,
     /// Contained hackers DISABLED_HACKED residual count.
     pub internet_hackers_disabled: u32,
+    /// Superweapon startPowerRecharge residual applications.
+    pub superweapon_power_resets: u32,
+    /// Fake building DETONATED residual kills.
+    pub fake_detonated: u32,
     /// Fake buildings destroyed.
     pub fakes_destroyed: u32,
     /// Saboteurs consumed on success.
@@ -224,6 +228,22 @@ impl HostSaboteurRegistry {
 
     pub fn honesty_internet_hackers_disabled_ok(&self) -> bool {
         self.internet_hackers_disabled > 0
+    }
+
+    pub fn record_superweapon_power_reset(&mut self) {
+        self.superweapon_power_resets = self.superweapon_power_resets.saturating_add(1);
+    }
+
+    pub fn record_fake_detonated(&mut self) {
+        self.fake_detonated = self.fake_detonated.saturating_add(1);
+    }
+
+    pub fn honesty_superweapon_power_reset_ok(&self) -> bool {
+        self.superweapon_power_resets > 0
+    }
+
+    pub fn honesty_fake_detonated_ok(&self) -> bool {
+        self.fake_detonated > 0
     }
 
     pub fn honesty_sabotage_ok(&self) -> bool {
