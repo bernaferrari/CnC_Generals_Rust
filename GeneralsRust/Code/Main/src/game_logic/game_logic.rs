@@ -6170,6 +6170,96 @@ impl GameLogic {
     /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
 
+    /// C++ AIUpdateInterface::privateFaceObject residual.
+    pub fn private_face_object(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+        let Some(target_pos) = self.objects.get(&target_id).map(|o| o.get_position()) else {
+            return false;
+        };
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        if !u.can_move() {
+            return false;
+        }
+        u.is_blocked = false;
+        u.is_blocked_and_stuck = false;
+        u.target = Some(target_id);
+        // Face without full path — spin in place residual.
+        let _ = u.face_position(target_pos, 1.0 / 30.0);
+        true
+    }
+
+    /// C++ AIUpdateInterface::privateFacePosition residual.
+    pub fn private_face_position(&mut self, unit_id: ObjectId, pos: glam::Vec3) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        if !u.can_move() {
+            return false;
+        }
+        u.is_blocked = false;
+        u.is_blocked_and_stuck = false;
+        let _ = u.face_position(pos, 1.0 / 30.0);
+        true
+    }
+
+    /// C++ AIUpdateInterface::privateIdle residual.
+    pub fn private_idle(&mut self, unit_id: ObjectId) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
+            return false;
+        }
+        u.stop_moving();
+        u.status.attacking = false;
+        u.target = None;
+        u.ai_state = AIState::Idle;
+        true
+    }
+
+    /// C++ AIAttackFireWeaponState readiness residual.
+    ///
+    /// True when attacker can fire at victim this frame (range + ready + optional LOS).
+    pub fn attack_can_fire_at(
+        &self,
+        attacker_id: ObjectId,
+        victim_id: ObjectId,
+        current_time: f32,
+        require_los: bool,
+    ) -> bool {
+        let Some(atk) = self.objects.get(&attacker_id) else {
+            return false;
+        };
+        let Some(vic) = self.objects.get(&victim_id) else {
+            return false;
+        };
+        if !atk.is_alive() || !vic.is_alive() {
+            return false;
+        }
+        if !atk.can_fire(current_time) {
+            return false;
+        }
+        if !atk.is_within_attack_range(vic) {
+            return false;
+        }
+        if require_los {
+            let from = atk.get_position();
+            let to = vic.get_position();
+            if self.pathfinding_system.is_attack_view_blocked(from, to) {
+                return false;
+            }
+            let eye_a = atk.selection_radius.max(5.0) * 0.5;
+            let eye_b = vic.selection_radius.max(5.0) * 0.5;
+            let a = glam::Vec3::new(from.x, from.y + eye_a, from.z);
+            let b = glam::Vec3::new(to.x, to.y + eye_b, to.z);
+            if !self.is_clear_line_of_sight_terrain(a, b) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// C++ AIUpdateInterface::privateMoveToPosition residual.
     pub fn private_move_to_position(&mut self, unit_id: ObjectId, pos: glam::Vec3) -> bool {
         let Some(u) = self.objects.get(&unit_id) else {
@@ -71749,6 +71839,135 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn is_within_attack_range_object() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut at = ThingTemplate::new("RngA");
+        at.add_kind_of(KindOf::Infantry);
+        let mut a = Object::new(at, ObjectId(1301), Team::USA);
+        a.set_position(Vec3::ZERO);
+        a.weapon = Some(Weapon {
+            range: 50.0,
+            min_range: 0.0,
+            ..Default::default()
+        });
+        let mut vt = ThingTemplate::new("RngV");
+        vt.add_kind_of(KindOf::Infantry);
+        let mut v = Object::new(vt, ObjectId(1302), Team::GLA);
+        v.set_position(Vec3::new(40.0, 0.0, 0.0));
+        assert!(a.is_within_attack_range(&v));
+        v.set_position(Vec3::new(80.0, 0.0, 0.0));
+        assert!(!a.is_within_attack_range(&v));
+    }
+
+    #[test]
+    fn private_idle_clears_state() {
+        use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("Idl");
+        t.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(1311);
+        logic.objects.insert(id, {
+            let mut o = Object::new(t, id, Team::USA);
+            o.ai_state = AIState::Attacking;
+            o.status.attacking = true;
+            o.target = Some(ObjectId(1));
+            o.movement.target_position = Some(Vec3::ONE);
+            o
+        });
+        assert!(logic.private_idle(id));
+        let o = logic.objects.get(&id).unwrap();
+        assert_eq!(o.ai_state, AIState::Idle);
+        assert!(!o.status.attacking);
+    }
+
+    #[test]
+    fn private_face_turns_toward_target() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FcA");
+        at.add_kind_of(KindOf::Vehicle);
+        let aid = ObjectId(1321);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_orientation(0.0);
+            o.movement.turn_rate = std::f32::consts::PI * 30.0;
+            o.set_position(Vec3::ZERO);
+            o
+        });
+        let mut vt = ThingTemplate::new("FcV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1322);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(0.0, 0.0, 10.0));
+            o
+        });
+        let yaw0 = logic.objects.get(&aid).unwrap().get_orientation();
+        assert!(logic.private_face_object(aid, vid));
+        let yaw1 = logic.objects.get(&aid).unwrap().get_orientation();
+        assert!((yaw1 - yaw0).abs() > 1e-4);
+    }
+
+    #[test]
+    fn attack_can_fire_at_requires_range() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("FireA");
+        at.add_kind_of(KindOf::Infantry);
+        let aid = ObjectId(1331);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 30.0,
+                reload_time: 0.0,
+                ..Default::default()
+            });
+            o
+        });
+        let mut vt = ThingTemplate::new("FireV");
+        vt.add_kind_of(KindOf::Infantry);
+        let vid = ObjectId(1332);
+        logic.objects.insert(vid, {
+            let mut o = Object::new(vt, vid, Team::GLA);
+            o.set_position(Vec3::new(20.0, 0.0, 0.0));
+            o
+        });
+        assert!(logic.attack_can_fire_at(aid, vid, 0.0, false));
+        logic
+            .objects
+            .get_mut(&vid)
+            .unwrap()
+            .set_position(Vec3::new(100.0, 0.0, 0.0));
+        assert!(!logic.attack_can_fire_at(aid, vid, 0.0, false));
+    }
+
+    #[test]
+    fn can_pursue_requires_fleeing_speed() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut at = ThingTemplate::new("PrA");
+        at.add_kind_of(KindOf::Vehicle);
+        let mut a = Object::new(at, ObjectId(1341), Team::USA);
+        a.set_position(Vec3::ZERO);
+        a.movement.max_speed = 40.0;
+        a.set_orientation(0.0);
+        let mut vt = ThingTemplate::new("PrV");
+        vt.add_kind_of(KindOf::Vehicle);
+        let mut v = Object::new(vt, ObjectId(1342), Team::GLA);
+        v.set_position(Vec3::new(30.0, 0.0, 0.0));
+        v.set_orientation(0.0); // face +X away
+        v.movement.velocity = Vec3::new(20.0, 0.0, 0.0); // fleeing at half speed
+        assert!(a.can_pursue_target(&v));
+        v.movement.velocity = Vec3::new(1.0, 0.0, 0.0); // too slow
+        assert!(!a.can_pursue_target(&v));
     }
 
     #[test]

@@ -4861,6 +4861,103 @@ impl Object {
         dmg
     }
 
+    /// Distance to another object (3D residual; pathfinding often 2D).
+    pub fn distance_to_object(&self, other: &Object) -> f32 {
+        self.get_position().distance(other.get_position())
+    }
+
+    /// Distance to world position.
+    pub fn distance_to_pos(&self, pos: glam::Vec3) -> f32 {
+        self.get_position().distance(pos)
+    }
+
+    /// C++ Weapon::isWithinAttackRange residual (primary then secondary).
+    pub fn is_within_attack_range(&self, other: &Object) -> bool {
+        let dist = self.distance_to_object(other);
+        if let Some(w) = &self.weapon {
+            let range = w.range * self.battle_plan_range_multiplier();
+            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+                return true;
+            }
+        }
+        if let Some(w) = &self.secondary_weapon {
+            let range = w.range * self.battle_plan_range_multiplier();
+            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// C++ Weapon::isWithinAttackRange for a position.
+    pub fn is_within_attack_range_pos(&self, pos: glam::Vec3) -> bool {
+        let dist = self.distance_to_pos(pos);
+        if let Some(w) = &self.weapon {
+            let range = w.range * self.battle_plan_range_multiplier();
+            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+                return true;
+            }
+        }
+        if let Some(w) = &self.secondary_weapon {
+            let range = w.range * self.battle_plan_range_multiplier();
+            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// C++ canPursue residual (simplified — no turret matrix).
+    pub fn can_pursue_target(&self, victim: &Object) -> bool {
+        // Need victim physics (velocity).
+        let victim_speed = victim.forward_speed_2d().abs();
+        let our_max = self.movement.max_speed;
+        if our_max <= 0.0 {
+            return false;
+        }
+        // Crush residual: vehicles always pursue crushable infantry if AI computer — fail-closed skip player type.
+        if self.can_crush_only(victim, false) {
+            return true;
+        }
+        // Too close residual: min_range
+        if let Some(w) = &self.weapon {
+            let dist = self.distance_to_object(victim);
+            if w.min_range > 0.0 && dist < w.min_range {
+                return false;
+            }
+        }
+        if victim_speed >= our_max {
+            return false;
+        }
+        if victim_speed < our_max / 10.0 {
+            return false;
+        }
+        // Victim moving away residual.
+        let us = self.get_position();
+        let them = victim.get_position();
+        let dx = them.x - us.x;
+        let dz = them.z - us.z;
+        let vdir = victim.unit_direction_vector_2d();
+        if dx * vdir.x + dz * vdir.y < 0.0 {
+            return false; // moving toward us
+        }
+        true
+    }
+
+    /// Face toward a world position (AI_FACE_POSITION residual).
+    pub fn face_position(&mut self, pos: glam::Vec3, dt: f32) -> bool {
+        if !self.can_move() {
+            return false;
+        }
+        let (_t, rel) = self.rotate_towards_position(pos, dt);
+        rel.abs() < 0.05 // facing success residual (~3 deg)
+    }
+
+    /// Face toward another object.
+    pub fn face_object(&mut self, other: &Object, dt: f32) -> bool {
+        self.face_position(other.get_position(), dt)
+    }
+
     pub fn can_fire(&self, current_time: f32) -> bool {
         // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
         // Shock stun residual blocks weapon fire while flailing/stunned.
