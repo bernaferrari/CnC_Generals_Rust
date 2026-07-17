@@ -19969,6 +19969,15 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
+        // C++ MaxSimultaneousOfType=DeterminedBySuperweaponRestriction residual.
+        if !self.can_start_superweapon_building(team, template_name) {
+            log::debug!(
+                "Blocked superweapon construction {} for team {:?} (MaxSimultaneous residual)",
+                template_name,
+                team
+            );
+            return None;
+        }
         if let Some(template) = self.templates.get(template_name).cloned() {
             let id = self.allocate_object_id();
             let mut object = Object::new_under_construction(template, id, team);
@@ -43983,6 +43992,33 @@ impl GameLogic {
         snapshot_beacons().len()
     }
 
+    /// Count living/under-construction Superweapon-link-key objects for a team residual.
+    pub fn count_superweapon_link_key_owned(&self, team: Team) -> u32 {
+        use crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template;
+        self.objects
+            .values()
+            .filter(|o| {
+                o.team == team && o.is_alive() && is_superweapon_link_key_template(&o.template_name)
+            })
+            .count() as u32
+    }
+
+    /// C++ MaxSimultaneousOfType Superweapon residual gate.
+    pub fn can_start_superweapon_building(&self, team: Team, template_name: &str) -> bool {
+        use crate::game_logic::host_superweapon_kindof::{
+            is_superweapon_link_key_template, superweapon_max_simultaneous_allowed,
+        };
+        if !is_superweapon_link_key_template(template_name) {
+            return true;
+        }
+        let Some(max) =
+            superweapon_max_simultaneous_allowed(self.skirmish_rules.limit_superweapons)
+        else {
+            return true;
+        };
+        self.count_superweapon_link_key_owned(team) < max
+    }
+
     /// Enqueue unit production on a building if permitted.
     pub fn enqueue_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
         use crate::game_logic::host_stealth_fighter::{
@@ -44006,6 +44042,10 @@ impl GameLogic {
                     return false;
                 }
             } else {
+                return false;
+            }
+            // MaxSimultaneous Superweapon residual before mut player borrow.
+            if !self.can_start_superweapon_building(team, &template_name) {
                 return false;
             }
             let Some(player) = self.get_player_mut_by_team(team) else {
@@ -82051,6 +82091,82 @@ mod tests {
                 .construction_complete_clear_frame,
             0
         );
+    }
+
+    #[test]
+    fn superweapon_max_simultaneous_blocks_second_when_limited() {
+        use crate::game_logic::host_superweapon_kindof::{
+            honesty_superweapon_max_simultaneous_residual_pack, AMERICA_PARTICLE_CANNON_UPLINK,
+            GLA_SCUD_STORM,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        assert!(honesty_superweapon_max_simultaneous_residual_pack());
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.set_skirmish_rules(true, true, true, true, 1.0); // limit_superweapons=true
+
+        let mut puc = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
+        puc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .set_health(4000.0);
+        logic
+            .templates
+            .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), puc);
+        let mut scud = ThingTemplate::new(GLA_SCUD_STORM);
+        scud.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .set_health(4000.0);
+        logic.templates.insert(GLA_SCUD_STORM.into(), scud);
+
+        let first = logic
+            .create_object_under_construction(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("first SW");
+        assert!(logic.get_object(first).is_some());
+        // Second SW of any Superweapon link key blocked.
+        assert!(
+            logic
+                .create_object_under_construction(
+                    AMERICA_PARTICLE_CANNON_UPLINK,
+                    Team::USA,
+                    glam::Vec3::new(50.0, 0.0, 0.0),
+                )
+                .is_none(),
+            "second PUC blocked"
+        );
+        assert!(
+            logic
+                .create_object_under_construction(
+                    GLA_SCUD_STORM,
+                    Team::USA,
+                    glam::Vec3::new(100.0, 0.0, 0.0),
+                )
+                .is_none(),
+            "Scud also counts as Superweapon link key residual"
+        );
+        // Unlimited when rule off.
+        logic.set_skirmish_rules(true, true, false, true, 1.0);
+        assert!(logic
+            .create_object_under_construction(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::USA,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+            )
+            .is_some());
+        // Other team still free under limit.
+        logic.set_skirmish_rules(true, true, true, true, 1.0);
+        ensure_test_player_for_team(&mut logic, Team::China);
+        assert!(logic
+            .create_object_under_construction(
+                AMERICA_PARTICLE_CANNON_UPLINK,
+                Team::China,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .is_some());
     }
 
     #[test]
