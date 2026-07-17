@@ -903,6 +903,9 @@ pub struct ObjectStatus {
     #[serde(default)]
     pub repulsor: bool,
     pub under_construction: bool,
+    /// C++ OBJECT_STATUS_SOLD residual (BuildAssistant sell process).
+    #[serde(default)]
+    pub sold: bool,
     pub selected: bool,
     pub moving: bool,
     pub attacking: bool,

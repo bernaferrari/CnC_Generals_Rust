@@ -430,6 +430,11 @@ pub fn actively_constructing_model_bit() -> u32 {
     model_condition_bit_name_index("ACTIVELY_CONSTRUCTING").unwrap_or(0) as u32
 }
 
+/// C++ MODELCONDITION_SOLD residual bit.
+pub fn sold_model_bit() -> u32 {
+    model_condition_bit_name_index("SOLD").unwrap_or(0) as u32
+}
+
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
 }

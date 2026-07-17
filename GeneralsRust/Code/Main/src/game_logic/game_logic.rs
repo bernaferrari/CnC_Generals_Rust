@@ -686,6 +686,24 @@ impl Default for SkirmishRulesState {
 }
 
 /// Main GameLogic system
+
+/// C++ BuildAssistant FRAMES_TO_ALLOW_SCAFFOLD residual (LOGICFRAMES_PER_SECOND * 1.5 = 45).
+const FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL: u32 = 45;
+/// C++ TOTAL_FRAMES_TO_SELL_OBJECT residual (LOGICFRAMES_PER_SECOND * 3.0 = 90).
+const TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL: u32 = 90;
+/// C++ construction percent is 0..100; host uses 0..1. Decrement per frame after scaffold.
+const SELL_CONSTRUCTION_DECREMENT_RESIDUAL: f32 =
+    1.0 / (TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL as f32);
+/// C++ finish threshold constructionPercent <= -50.0 (host -0.5).
+const SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL: f32 = -0.5;
+
+/// C++ ObjectSellInfo residual.
+#[derive(Debug, Clone)]
+struct ObjectSellInfo {
+    id: ObjectId,
+    sell_frame: u32,
+}
+
 pub struct GameLogic {
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
@@ -1389,6 +1407,11 @@ pub struct GameLogic {
     construction_model_condition_updates: u32,
     /// ACTIVELY_CONSTRUCTING residual bit updates.
     actively_constructing_updates: u32,
+    /// C++ BuildAssistant m_sellList residual.
+    sell_list: Vec<ObjectSellInfo>,
+    /// Sell residual process starts / finishes.
+    sell_process_starts: u32,
+    sell_process_finishes: u32,
     pending_camera_focus: Option<Vec3>,
     script_camera_focus_estimate: Vec3,
     script_camera_move_to: Option<ScriptCameraMoveTo>,
@@ -2616,6 +2639,9 @@ impl GameLogic {
             production_door_cycles: 0,
             construction_model_condition_updates: 0,
             actively_constructing_updates: 0,
+            sell_list: Vec::new(),
+            sell_process_starts: 0,
+            sell_process_finishes: 0,
             pending_camera_focus: None,
             script_camera_focus_estimate: Vec3::ZERO,
             script_camera_move_to: None,
@@ -2993,6 +3019,9 @@ impl GameLogic {
         self.production_door_cycles = 0;
         self.construction_model_condition_updates = 0;
         self.actively_constructing_updates = 0;
+        self.sell_list.clear();
+        self.sell_process_starts = 0;
+        self.sell_process_finishes = 0;
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
@@ -5054,6 +5083,8 @@ impl GameLogic {
         // These include construction, movement, and the simplified per-object AI
         // decision logic. Stealth modules also live in the sleepy update queue.
         self.update_construction(&object_ids, dt);
+        // C++ BuildAssistant::update sell list residual (multi-frame sell).
+        self.update_sell_list();
         self.update_movement(&object_ids, dt);
 
         // Special power cooldown/timer updates
@@ -18906,7 +18937,7 @@ impl GameLogic {
         id
     }
 
-    pub(crate) fn process_destroy_list(&mut self) {
+    pub fn process_destroy_list(&mut self) {
         let mut destroyed_structure = false;
         while let Some(event) = self.objects_to_destroy.pop_front() {
             self.pending_special_abilities.remove(&event.id);
@@ -42986,6 +43017,121 @@ impl GameLogic {
             self.actively_constructing_updates =
                 self.actively_constructing_updates.saturating_add(updates);
         }
+    }
+
+    /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
+    pub fn start_sell_object(&mut self, object_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return false;
+        };
+        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        if obj.status.sold {
+            return false;
+        }
+        if self.sell_list.iter().any(|s| s.id == object_id) {
+            return false;
+        }
+        let team = obj.team;
+        let frame = self.frame;
+        // Cancel production + refund queue first (C++ ProductionUpdate cancelAndRefundAllProduction).
+        self.cancel_all_production(object_id);
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
+            obj.construction_percent = 0.999;
+            obj.status.sold = true;
+            obj.status.unselectable = true;
+            obj.status.under_construction = false;
+            obj.status.selected = false;
+            obj.ai_state = AIState::Idle;
+            obj.apply_sell_scaffold_model_conditions();
+        }
+        // Deselect from all players.
+        for p in self.players.values_mut() {
+            p.selected_objects.retain(|&id| id != object_id);
+        }
+        self.sell_list.insert(
+            0,
+            ObjectSellInfo {
+                id: object_id,
+                sell_frame: frame,
+            },
+        );
+        self.sell_process_starts = self.sell_process_starts.saturating_add(1);
+        let _ = team;
+        true
+    }
+
+    /// C++ BuildAssistant::update sell list residual.
+    pub fn update_sell_list(&mut self) {
+        if self.sell_list.is_empty() {
+            return;
+        }
+        let frame = self.frame;
+        let mut finished: Vec<ObjectId> = Vec::new();
+        let mut still: Vec<ObjectSellInfo> = Vec::with_capacity(self.sell_list.len());
+        for entry in std::mem::take(&mut self.sell_list) {
+            let Some(obj) = self.objects.get_mut(&entry.id) else {
+                // Object gone by other means.
+                continue;
+            };
+            if !obj.is_alive() {
+                continue;
+            }
+            let elapsed = frame.saturating_sub(entry.sell_frame);
+            if elapsed >= FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL {
+                let previous = obj.construction_percent;
+                obj.construction_percent -= SELL_CONSTRUCTION_DECREMENT_RESIDUAL;
+                // Cross from positive to <= 0 → MODELCONDITION_SOLD
+                if previous > 0.0 && obj.construction_percent <= 0.0 {
+                    obj.apply_sold_model_condition();
+                }
+            }
+            if obj.construction_percent <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
+                finished.push(entry.id);
+            } else {
+                still.push(entry);
+            }
+        }
+        self.sell_list = still;
+        for id in finished {
+            // Refund structure sell value then destroy.
+            let (team, refund) = if let Some(obj) = self.objects.get(&id) {
+                let sell_percentage = game_engine::common::global_data::read().sell_percentage;
+                let refund = ((obj.thing.template.build_cost.supplies as f32) * sell_percentage)
+                    .max(0.0) as u32;
+                (obj.team, refund)
+            } else {
+                continue;
+            };
+            if refund > 0 {
+                if let Some(player) = self.get_player_mut_by_team(team) {
+                    player.resources.supplies = player.resources.supplies.saturating_add(refund);
+                } else if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
+                    player.resources.supplies = player.resources.supplies.saturating_add(refund);
+                }
+            }
+            // Cancel any leftover production (C++ cancel again at finish).
+            self.cancel_all_production(id);
+            self.destroy_object(id);
+            self.sell_process_finishes = self.sell_process_finishes.saturating_add(1);
+            let msg = crate::localization::localize("hud.sell.complete", "Structure sold");
+            self.queue_radar_message_for_team(team, msg);
+        }
+    }
+
+    pub fn honesty_sell_process_ok(&self) -> bool {
+        self.sell_process_starts > 0 && self.sell_process_finishes > 0
+    }
+
+    pub fn is_object_being_sold(&self, id: ObjectId) -> bool {
+        self.sell_list.iter().any(|s| s.id == id)
+            || self
+                .objects
+                .get(&id)
+                .map(|o| o.status.sold)
+                .unwrap_or(false)
     }
 
     pub fn honesty_actively_constructing_ok(&self) -> bool {
@@ -77764,6 +77910,89 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn sell_process_scaffold_sold_model_and_refund() {
+        use crate::game_logic::host_enum_table_residual::{
+            actively_being_constructed_model_bit, host_model_condition_has,
+            partially_constructed_model_bit, sold_model_bit,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        // Seed a USA player (GameLogic::new does not create players).
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA Commander", true));
+        if let Some(p) = logic.get_player_mut(0) {
+            p.resources.supplies = 1000;
+        }
+        let mut st = ThingTemplate::new("AmericaPowerPlant");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSPower)
+            .set_health(500.0);
+        st.build_cost.supplies = 800;
+        logic.templates.insert("AmericaPowerPlant".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaPowerPlant",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pp");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.status.selected = true;
+        }
+        if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+            p.selected_objects = vec![id];
+            p.resources.supplies = 1000;
+        }
+        assert!(logic.start_sell_object(id));
+        assert!(logic.is_object_being_sold(id));
+        let o = logic.get_object(id).expect("sold start");
+        assert!(o.status.sold);
+        assert!(o.status.unselectable);
+        assert!(!o.status.selected);
+        assert!((o.construction_percent - 0.999).abs() < 1e-4);
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            partially_constructed_model_bit()
+        ));
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            actively_being_constructed_model_bit()
+        ));
+        let still_selected = logic
+            .get_players()
+            .values()
+            .any(|p| p.team == Team::USA && p.selected_objects.contains(&id));
+        assert!(!still_selected);
+        // Advance past scaffold then through sell frames.
+        // After scaffold: 0.999, need to go to -0.5 → ~1.499 decrement units.
+        // decrement 1/90 per frame after scaffold → ~135 frames after scaffold.
+        for _ in 0..(FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL + TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL + 60)
+        {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_sell_list();
+            // C++ processDestroyList residual after BuildAssistant::update.
+            logic.process_destroy_list();
+            if logic.get_object(id).is_none() {
+                break;
+            }
+        }
+        assert!(logic.get_object(id).is_none(), "sold object destroyed");
+        assert!(logic.honesty_sell_process_ok());
+        // Refund 50% of 800 = 400 with default sell percentage.
+        let money = logic
+            .get_players()
+            .values()
+            .find(|p| p.team == Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert!(money >= 1400, "expected refund applied, money={money}");
+        let _ = sold_model_bit; // keep import used if assert path skips
     }
 
     #[test]

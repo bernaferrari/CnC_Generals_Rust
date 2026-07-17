@@ -850,21 +850,15 @@ impl<'a> CommandExecutor<'a> {
             if obj.team != player_team || !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
                 return CommandResult::InvalidTarget;
             }
-            let sell_percentage = game_engine::common::global_data::read().sell_percentage;
-            let refund =
-                ((obj.thing.template.build_cost.supplies as f32) * sell_percentage).max(0.0) as u32;
-            if refund > 0 {
-                if let Some(player) = self.game_logic.get_player_mut(player_id) {
-                    player.resources.supplies += refund;
-                }
+            if obj.status.sold || self.game_logic.is_object_being_sold(object_id) {
+                return CommandResult::InvalidCommand;
             }
-            self.game_logic.cancel_all_production(object_id);
-            self.game_logic.destroy_object(object_id);
-            // Radar/EVA feedback for selling a structure.
-            let msg = localization::localize("hud.sell.complete", "Structure sold");
-            self.game_logic
-                .queue_radar_message_for_team(player_team, msg);
-            CommandResult::Success
+            // C++ BuildAssistant::sellObject multi-frame residual (scaffold → SOLD → refund).
+            if self.game_logic.start_sell_object(object_id) {
+                CommandResult::Success
+            } else {
+                CommandResult::InvalidCommand
+            }
         } else {
             CommandResult::InvalidTarget
         }
