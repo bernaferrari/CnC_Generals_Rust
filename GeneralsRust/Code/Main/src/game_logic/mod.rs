@@ -142,6 +142,11 @@ pub mod host_weapon_laser;
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;
 pub mod object;
+pub use object::{
+    DEFAULT_AERO_FRICTION_RESIDUAL, DEFAULT_FORWARD_FRICTION_RESIDUAL,
+    DEFAULT_LATERAL_FRICTION_RESIDUAL, DEFAULT_Z_FRICTION_RESIDUAL, MAX_FRICTION_RESIDUAL,
+    MIN_AERO_FRICTION_RESIDUAL, PATHFIND_CELL_SIZE_F_RESIDUAL,
+};
 pub mod partition_manager;
 pub mod pathfinding;
 pub mod radar_notifications;

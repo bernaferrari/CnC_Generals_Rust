@@ -6174,6 +6174,10 @@ impl GameLogic {
         for o in self.objects.values_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
+            // C++ PhysicsBehavior update residual order: friction → integrate accel.
+            if o.can_move() && !o.status.destroyed {
+                o.apply_frictional_forces();
+            }
             o.integrate_physics_accel();
         }
         // Rebuild partition cells (C++ registerObject residual each update).
@@ -71522,6 +71526,65 @@ mod tests {
                 assert!(!ok, "5th jet must hit parking capacity");
             }
         }
+    }
+
+    #[test]
+    fn friction_slows_lateral_velocity() {
+        use crate::game_logic::{
+            KindOf, Object, ObjectId, Team, ThingTemplate, DEFAULT_LATERAL_FRICTION_RESIDUAL,
+        };
+        use glam::Vec3;
+        assert!((DEFAULT_LATERAL_FRICTION_RESIDUAL - 0.15).abs() < 1e-6);
+        let mut t = ThingTemplate::new("Fric");
+        t.add_kind_of(KindOf::Vehicle);
+        let id = ObjectId(901);
+        let mut o = Object::new(t, id, Team::USA);
+        o.set_orientation(0.0); // +X
+        o.movement.velocity = Vec3::new(0.0, 0.0, 10.0); // pure lateral
+        o.physics_mass = 1.0;
+        o.lateral_friction = 0.15;
+        o.forward_friction = 0.15;
+        o.status.airborne_target = false;
+        o.apply_frictional_forces();
+        o.integrate_physics_accel();
+        // Lateral friction force = -mass*lat_fric*lat_vel → accel reduces z
+        assert!(
+            o.movement.velocity.z.abs() < 10.0,
+            "lateral friction should reduce |vz|, got {}",
+            o.movement.velocity.z
+        );
+    }
+
+    #[test]
+    fn transfer_velocity_adds_and_invalidates() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut ta = ThingTemplate::new("Ta");
+        ta.add_kind_of(KindOf::Vehicle);
+        let mut a = Object::new(ta, ObjectId(911), Team::USA);
+        a.movement.velocity = Vec3::new(1.0, 2.0, 3.0);
+        let mut tb = ThingTemplate::new("Tb");
+        tb.add_kind_of(KindOf::Vehicle);
+        let mut b = Object::new(tb, ObjectId(912), Team::USA);
+        b.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
+        a.transfer_velocity_to(&mut b);
+        assert!((b.movement.velocity - Vec3::new(5.0, 2.0, 3.0)).length() < 1e-5);
+        let mag = b.velocity_magnitude();
+        assert!((mag - (5.0f32 * 5.0 + 2.0 * 2.0 + 3.0 * 3.0).sqrt()).abs() < 1e-4);
+    }
+
+    #[test]
+    fn forward_speed_2d_signed() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("Fs");
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(921), Team::USA);
+        o.set_orientation(0.0); // +X
+        o.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+        assert!((o.forward_speed_2d() - 5.0).abs() < 1e-4);
+        o.movement.velocity = Vec3::new(-3.0, 0.0, 0.0);
+        assert!((o.forward_speed_2d() + 3.0).abs() < 1e-4);
     }
 
     #[test]

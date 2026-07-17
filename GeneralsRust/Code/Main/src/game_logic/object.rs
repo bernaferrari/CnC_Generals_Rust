@@ -177,6 +177,27 @@ pub struct Object {
     /// When set by processCollision, GameLogic should call ai_move_away on this id.
     #[serde(default)]
     pub request_other_move_away: Option<ObjectId>,
+    /// C++ PhysicsBehaviorModuleData m_forwardFriction residual (per frame).
+    #[serde(default = "default_forward_friction")]
+    pub forward_friction: f32,
+    /// C++ m_lateralFriction residual (per frame).
+    #[serde(default = "default_lateral_friction")]
+    pub lateral_friction: f32,
+    /// C++ m_ZFriction residual (per frame).
+    #[serde(default = "default_z_friction")]
+    pub z_friction: f32,
+    /// C++ m_aerodynamicFriction residual (per frame).
+    #[serde(default)]
+    pub aerodynamic_friction: f32,
+    /// C++ m_extraFriction residual.
+    #[serde(default)]
+    pub extra_friction: f32,
+    /// C++ APPLY_FRICTION2D_WHEN_AIRBORNE flag residual.
+    #[serde(default)]
+    pub apply_friction_2d_when_airborne: bool,
+    /// Cached velocity magnitude residual (negative = invalid).
+    #[serde(default = "default_invalid_vel_mag")]
+    pub velocity_magnitude_cache: f32,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -633,6 +654,13 @@ pub const LOCO_SURFACE_WATER: u32 = 1 << 1;
 pub const LOCO_SURFACE_CLIFF: u32 = 1 << 2;
 pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
 pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
+/// C++ PhysicsBehavior default friction residuals (per-frame).
+pub const DEFAULT_FORWARD_FRICTION_RESIDUAL: f32 = 0.15;
+pub const DEFAULT_LATERAL_FRICTION_RESIDUAL: f32 = 0.15;
+pub const DEFAULT_Z_FRICTION_RESIDUAL: f32 = 0.8;
+pub const DEFAULT_AERO_FRICTION_RESIDUAL: f32 = 0.0;
+pub const MIN_AERO_FRICTION_RESIDUAL: f32 = 0.0;
+pub const MAX_FRICTION_RESIDUAL: f32 = 0.99;
 /// C++ PATHFIND_CELL_SIZE_F residual (world units).
 pub const PATHFIND_CELL_SIZE_F_RESIDUAL: f32 = 10.0;
 /// C++ PhysicsBehavior isVerySmall3D residual threshold.
@@ -662,6 +690,19 @@ fn default_max_f32() -> f32 {
 
 fn default_physics_mass() -> f32 {
     1.0
+}
+
+fn default_forward_friction() -> f32 {
+    DEFAULT_FORWARD_FRICTION_RESIDUAL
+}
+fn default_lateral_friction() -> f32 {
+    DEFAULT_LATERAL_FRICTION_RESIDUAL
+}
+fn default_z_friction() -> f32 {
+    DEFAULT_Z_FRICTION_RESIDUAL
+}
+fn default_invalid_vel_mag() -> f32 {
+    -1.0
 }
 
 /// C++ MuLaw residual used by doBounceSound volume adjust.
@@ -801,6 +842,13 @@ impl Object {
             move_away_frames: 0,
             move_away_destination: None,
             request_other_move_away: None,
+            forward_friction: DEFAULT_FORWARD_FRICTION_RESIDUAL,
+            lateral_friction: DEFAULT_LATERAL_FRICTION_RESIDUAL,
+            z_friction: DEFAULT_Z_FRICTION_RESIDUAL,
+            aerodynamic_friction: DEFAULT_AERO_FRICTION_RESIDUAL,
+            extra_friction: 0.0,
+            apply_friction_2d_when_airborne: false,
+            velocity_magnitude_cache: -1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(max_health),
@@ -982,6 +1030,13 @@ impl Object {
             move_away_frames: 0,
             move_away_destination: None,
             request_other_move_away: None,
+            forward_friction: DEFAULT_FORWARD_FRICTION_RESIDUAL,
+            lateral_friction: DEFAULT_LATERAL_FRICTION_RESIDUAL,
+            z_friction: DEFAULT_Z_FRICTION_RESIDUAL,
+            aerodynamic_friction: DEFAULT_AERO_FRICTION_RESIDUAL,
+            extra_friction: 0.0,
+            apply_friction_2d_when_airborne: false,
+            velocity_magnitude_cache: -1.0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             health: Health::new(100.0),
@@ -2378,11 +2433,125 @@ impl Object {
 
     /// Integrate physics_accel into velocity residual (a → v per logic frame).
     pub fn integrate_physics_accel(&mut self) {
-        self.movement.velocity += self.physics_accel;
-        self.physics_accel = glam::Vec3::ZERO;
+        if self.physics_accel != glam::Vec3::ZERO {
+            self.movement.velocity += self.physics_accel;
+            self.physics_accel = glam::Vec3::ZERO;
+            self.invalidate_velocity_magnitude();
+        }
         if self.motive_frames_remaining > 0 {
             self.motive_frames_remaining -= 1;
         }
+    }
+
+    /// Invalidate cached velocity magnitude residual.
+    pub fn invalidate_velocity_magnitude(&mut self) {
+        self.velocity_magnitude_cache = -1.0;
+    }
+
+    /// C++ PhysicsBehavior::getVelocityMagnitude residual.
+    pub fn velocity_magnitude(&mut self) -> f32 {
+        if self.velocity_magnitude_cache < 0.0 {
+            let v = self.movement.velocity;
+            self.velocity_magnitude_cache = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
+        }
+        self.velocity_magnitude_cache
+    }
+
+    /// C++ getForwardSpeed2D residual (signed along facing on XZ).
+    pub fn forward_speed_2d(&self) -> f32 {
+        let dir = self.unit_direction_vector_2d();
+        let v = self.movement.velocity;
+        let vx = v.x * dir.x;
+        let vz = v.z * dir.y;
+        let dot = vx + vz;
+        let speed = (vx * vx + vz * vz).sqrt();
+        if dot >= 0.0 {
+            speed
+        } else {
+            -speed
+        }
+    }
+
+    /// C++ getAerodynamicFriction residual (clamped).
+    pub fn get_aerodynamic_friction(&self) -> f32 {
+        let f = self.aerodynamic_friction + self.extra_friction;
+        f.max(MIN_AERO_FRICTION_RESIDUAL).min(MAX_FRICTION_RESIDUAL)
+    }
+
+    /// C++ getForwardFriction residual.
+    pub fn get_forward_friction(&self) -> f32 {
+        let f = self.forward_friction + self.extra_friction;
+        f.clamp(0.0, MAX_FRICTION_RESIDUAL)
+    }
+
+    /// C++ getLateralFriction residual.
+    pub fn get_lateral_friction(&self) -> f32 {
+        let f = self.lateral_friction + self.extra_friction;
+        f.clamp(0.0, MAX_FRICTION_RESIDUAL)
+    }
+
+    /// C++ PhysicsBehavior::applyFrictionalForces residual (host XZ ground).
+    pub fn apply_frictional_forces(&mut self) {
+        // C++: APPLY_FRICTION2D_WHEN_AIRBORNE || !isSignificantlyAboveTerrain || deckTaxiing
+        // Host residual: non-airborne OR flag → 2D friction; else aero.
+        let use_2d = self.apply_friction_2d_when_airborne || !self.status.airborne_target;
+
+        if use_2d {
+            // YPR damping residual: DEFAULT_LATERAL_FRICTION on shock rates.
+            let d = 1.0 - DEFAULT_LATERAL_FRICTION_RESIDUAL;
+            self.shock_yaw_rate *= d;
+            self.shock_pitch_rate *= d;
+            self.shock_roll_rate *= d;
+
+            let v = self.movement.velocity;
+            if v.x != 0.0 || v.z != 0.0 {
+                let dir = self.unit_direction_vector_2d();
+                let mass = self.physics_get_mass();
+                let lateral_dot = v.x * (-dir.y) + v.z * dir.x;
+                let lat_x = lateral_dot * (-dir.y);
+                let lat_z = lateral_dot * dir.x;
+                let lf = mass * self.get_lateral_friction();
+                let mut accel = glam::Vec3::new(-(lf * lat_x), 0.0, -(lf * lat_z));
+                if !self.is_motive() {
+                    let forward_dot = v.x * dir.x + v.z * dir.y;
+                    let fwd_x = forward_dot * dir.x;
+                    let fwd_z = forward_dot * dir.y;
+                    let ff = mass * self.get_forward_friction();
+                    accel.x += -(ff * fwd_x);
+                    accel.z += -(ff * fwd_z);
+                }
+                self.apply_physics_force(accel);
+            }
+        } else {
+            let aero = -self.get_aerodynamic_friction();
+            let v = self.movement.velocity;
+            self.physics_accel.x += v.x * aero;
+            self.physics_accel.y += v.y * aero;
+            self.physics_accel.z += v.z * aero;
+            let d = 1.0 + aero;
+            self.shock_yaw_rate *= d;
+            self.shock_pitch_rate *= d;
+            self.shock_roll_rate *= d;
+        }
+    }
+
+    /// C++ PhysicsBehavior::transferVelocityTo residual.
+    pub fn transfer_velocity_to(&self, other: &mut Object) {
+        other.movement.velocity += self.movement.velocity;
+        other.invalidate_velocity_magnitude();
+    }
+
+    /// C++ PhysicsBehavior::addVelocityTo residual.
+    pub fn add_velocity(&mut self, vel: glam::Vec3) {
+        self.movement.velocity += vel;
+        self.invalidate_velocity_magnitude();
+    }
+
+    /// C++ applyGravitationalForces residual (host world Y up).
+    pub fn apply_gravitational_forces(&mut self) {
+        // C++ TheGlobalData->m_gravity residual ≈ -1.0 world units / frame²
+        // Host shock gravity is -1.0 on Y.
+        self.physics_accel.y += -1.0;
     }
 
     /// C++ AIUpdateInterface::privateMoveAwayFromUnit residual (fail-closed).
