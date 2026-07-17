@@ -7119,7 +7119,7 @@ impl Object {
         self.remove_occupant(unit_id)
     }
 
-    pub fn tick_timers(&mut self, dt: f32) {
+    pub fn tick_timers(&mut self, dt: f32) -> bool {
         if self.cheer_timer > 0.0 {
             self.cheer_timer -= dt;
             if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
@@ -7128,13 +7128,19 @@ impl Object {
             }
         }
 
+        let mut became_ready = false;
         if self.special_power_cooldown_remaining > 0.0 {
             self.special_power_cooldown_remaining =
                 (self.special_power_cooldown_remaining - dt).max(0.0);
             if self.special_power_cooldown_remaining <= 0.0 {
+                // Transition into ready (was cooling down).
+                if !self.special_power_ready {
+                    became_ready = true;
+                }
                 self.special_power_ready = true;
             }
         }
+        became_ready
     }
 
     pub fn update_construction(&mut self, dt: f32) {
