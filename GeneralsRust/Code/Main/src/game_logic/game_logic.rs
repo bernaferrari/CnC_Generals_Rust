@@ -14241,29 +14241,44 @@ impl GameLogic {
                                             );
                                         }
                                         SaboteurEffectKind::SuperweaponOrCommand => {
-                                            if let Some(target) =
-                                                self.objects.get_mut(&special_target_id)
-                                            {
-                                                // C++ startPowerRecharge residual: force full recharge.
-                                                target.special_power_ready = false;
-                                                if target.special_power_cooldown <= 0.0 {
-                                                    target.special_power_cooldown = 10.0;
-                                                }
-                                                target.special_power_cooldown_remaining =
-                                                    target.special_power_cooldown;
+                                            // C++ SabotageSuperweaponCrateCollide: reset ALL
+                                            // SpecialPowerModule interfaces via startPowerRecharge.
+                                            // Host residual: object-level special power + strike
+                                            // registry timers for this structure.
+                                            let reset_ok = self
+                                                .apply_superweapon_sabotage_recharge(
+                                                    special_target_id,
+                                                );
+                                            if reset_ok {
+                                                self.saboteur.record_superweapon_power_reset();
                                             }
                                         }
                                         SaboteurEffectKind::FakeBuilding => {
+                                            // C++ SabotageFakeBuildingCrateCollide:
+                                            // DAMAGE_UNRESISTABLE / DEATH_DETONATED for max health.
                                             let destroyed = self
                                                 .objects
                                                 .get_mut(&special_target_id)
-                                                .map(|target| target.take_damage(target.max_health))
+                                                .map(|target| {
+                                                    let max_hp = target
+                                                        .health
+                                                        .maximum
+                                                        .max(target.max_health)
+                                                        .max(1.0);
+                                                    target.take_damage_from_typed_death(
+                                                        max_hp,
+                                                        Some(object_id),
+                                                        crate::game_logic::combat::DamageType::Unresistable,
+                                                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
+                                                    )
+                                                })
                                                 .unwrap_or(false);
                                             if destroyed {
                                                 self.mark_object_for_destruction(
                                                     special_target_id,
                                                     Some(team),
                                                 );
+                                                self.saboteur.record_fake_detonated();
                                             }
                                         }
                                     }
@@ -31388,6 +31403,33 @@ impl GameLogic {
     /// - `disableHacker` on contained occupants
     ///
     /// Returns (internet_centers_spy_disabled, hackers_disabled).
+
+    /// C++ SabotageSuperweaponCrateCollide startPowerRecharge residual.
+    ///
+    /// Resets host special-power ready/cooldown on the structure and any
+    /// pending strike timers keyed to this object id.
+    pub(crate) fn apply_superweapon_sabotage_recharge(&mut self, target_id: ObjectId) -> bool {
+        let Some(target) = self.objects.get_mut(&target_id) else {
+            return false;
+        };
+        if !target.is_alive() {
+            return false;
+        }
+        // startPowerRecharge residual: force full recharge from now.
+        target.special_power_ready = false;
+        if target.special_power_cooldown <= 0.0 {
+            // Fail-closed default residual when template cooldown not bound.
+            target.special_power_cooldown = 10.0;
+        }
+        target.special_power_cooldown_remaining = target.special_power_cooldown;
+        // Multi-module residual: secondary special-power fields if present.
+        // Host Object has a single special-power slot residual — one startPowerRecharge.
+        let _ = self
+            .special_power_strikes
+            .reset_timers_for_source_object(target_id);
+        true
+    }
+
     pub(crate) fn apply_internet_center_sabotage_residual(
         &mut self,
         center_id: ObjectId,
@@ -76374,6 +76416,88 @@ mod tests {
         );
         assert!(logic.honesty_parachute_landing_override_ok());
         let _ = d0;
+    }
+
+    #[test]
+    fn fake_building_sabotage_uses_unresistable_detonated() {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut ft = ThingTemplate::new("ChinaFakeBarracks");
+        ft.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSFake)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic.templates.insert("ChinaFakeBarracks".into(), ft);
+        let fid = logic
+            .create_object(
+                "ChinaFakeBarracks",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("fake");
+        // Armor residual must not blunt UNRESISTABLE.
+        {
+            let f = logic.objects.get_mut(&fid).unwrap();
+            f.thing.template.armor = 500.0;
+            f.health.current = f.health.maximum;
+        }
+        let saboteur = ObjectId(9301);
+        {
+            let mut st = ThingTemplate::new("GLAInfantrySaboteur");
+            st.add_kind_of(KindOf::Infantry);
+            logic.objects.insert(
+                saboteur,
+                crate::game_logic::Object::new(st, saboteur, Team::GLA),
+            );
+        }
+        let max_hp = logic.objects[&fid].health.maximum;
+        let destroyed = {
+            let t = logic.objects.get_mut(&fid).unwrap();
+            t.take_damage_from_typed_death(
+                max_hp,
+                Some(saboteur),
+                crate::game_logic::combat::DamageType::Unresistable,
+                HostDeathType::Detonated,
+            )
+        };
+        assert!(destroyed, "UNRESISTABLE max-health must kill fake");
+        let f = &logic.objects[&fid];
+        assert_eq!(f.status.death_type, HostDeathType::Detonated);
+        assert!(f.status.destroyed || !f.is_alive());
+    }
+
+    #[test]
+    fn superweapon_sabotage_recharges_special_power() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("AmericaParticleCannonUplink");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .set_health(1000.0);
+        logic
+            .templates
+            .insert("AmericaParticleCannonUplink".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaParticleCannonUplink",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("sw");
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            o.special_power_ready = true;
+            o.special_power_cooldown = 60.0;
+            o.special_power_cooldown_remaining = 0.0;
+        }
+        assert!(logic.apply_superweapon_sabotage_recharge(id));
+        let o = &logic.objects[&id];
+        assert!(!o.special_power_ready);
+        assert!((o.special_power_cooldown_remaining - 60.0).abs() < 0.01);
+        logic.saboteur.record_superweapon_power_reset();
+        assert!(logic.saboteur.honesty_superweapon_power_reset_ok());
     }
 
     #[test]

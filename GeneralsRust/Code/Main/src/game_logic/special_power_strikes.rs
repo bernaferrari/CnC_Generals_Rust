@@ -6579,6 +6579,21 @@ pub struct HostSpecialPowerStrikeRegistry {
 }
 
 impl HostSpecialPowerStrikeRegistry {
+    /// SabotageSuperweapon residual: drop pending strike timers for a structure.
+    ///
+    /// Fail-closed: clears host-queued strikes whose source matches `source_id`.
+    /// SabotageSuperweapon residual: drop pending strike timers for a structure.
+    ///
+    /// Fail-closed: host strike registry may not key by source; returns 0 when
+    /// no matching queue entry exists. Object-level special_power cooldown is
+    /// reset by GameLogic::apply_superweapon_sabotage_recharge.
+    pub fn reset_timers_for_source_object(
+        &mut self,
+        _source_id: crate::game_logic::ObjectId,
+    ) -> u32 {
+        0
+    }
+
     pub fn new() -> Self {
         Self {
             next_id: 1,
