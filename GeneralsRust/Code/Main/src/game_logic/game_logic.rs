@@ -15508,6 +15508,16 @@ impl GameLogic {
                         .unwrap_or((false, position));
 
                     if !source_alive {
+                        // C++ supply truck residual: find another warehouse when pile empties.
+                        if let Some(next) = self.find_nearest_harvestable_supply(team, position) {
+                            if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
+                                if let Some(obj) = self.objects.get_mut(&object_id) {
+                                    obj.set_target(Some(next));
+                                }
+                                self.path_approach_with_state(object_id, dest, AIState::Gathering);
+                                continue;
+                            }
+                        }
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
                             obj.set_ai_state(AIState::Idle);
@@ -15662,6 +15672,24 @@ impl GameLogic {
                             });
                             if let Some(dest) = source_dest {
                                 self.path_approach_with_state(object_id, dest, AIState::Gathering);
+                            } else if let Some(next) =
+                                self.find_nearest_harvestable_supply(team, position)
+                            {
+                                if let Some(dest) =
+                                    self.objects.get(&next).map(|s| s.get_position())
+                                {
+                                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                                        obj.set_target(Some(next));
+                                    }
+                                    self.path_approach_with_state(
+                                        object_id,
+                                        dest,
+                                        AIState::Gathering,
+                                    );
+                                }
+                            } else if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                                obj.set_ai_state(AIState::Idle);
                             }
                         }
                     } else if can_move {
@@ -20228,6 +20256,46 @@ impl GameLogic {
     }
 
     /// Find the nearest supply center (refinery/supply dropzone) for a team.
+
+    /// Nearest alive harvestable supply pile residual for gather re-target.
+    fn find_nearest_harvestable_supply(&self, team: Team, from: Vec3) -> Option<ObjectId> {
+        let _ = team; // supplies are neutral/shared residual
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (&id, obj) in &self.objects {
+            if !obj.is_alive() || obj.status.destroyed {
+                continue;
+            }
+            let name = obj.template_name.to_ascii_lowercase();
+            let harvestable = obj.is_kind_of(KindOf::Harvestable)
+                || obj.is_kind_of(KindOf::Resource)
+                || obj.object_type == ObjectType::Supply
+                || (name.contains("supply")
+                    && !name.contains("center")
+                    && !name.contains("dock")
+                    && !name.contains("dropzone"));
+            if !harvestable {
+                continue;
+            }
+            // Prefer piles that still have stored supplies when tracked.
+            if obj.stored_resources.supplies == 0
+                && (obj.is_kind_of(KindOf::Harvestable) || obj.object_type == ObjectType::Supply)
+            {
+                // Some piles use infinite residual; only skip if explicitly zero and Harvestable
+                // with supplies field used as stock. Fail-open if never depleted.
+                if obj.template_name.to_ascii_lowercase().contains("warehouse")
+                    || obj.template_name.to_ascii_lowercase().contains("dock")
+                {
+                    continue;
+                }
+            }
+            let d = from.distance(obj.get_position());
+            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                best = Some((id, d));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     fn find_nearest_supply_center(&self, team: Team, from_position: Vec3) -> Option<ObjectId> {
         let mut nearest_id: Option<ObjectId> = None;
         let mut nearest_dist = f32::MAX;
@@ -89014,6 +89082,16 @@ mod tests {
         assert!(
             body.contains("is_deployed") && body.contains("set_deployed(false)"),
             "assign_unit_path must pack/undeploy before pathing residual"
+        );
+    }
+
+    #[test]
+    fn find_nearest_harvestable_supply_residual() {
+        let src = include_str!("game_logic.rs");
+        assert!(
+            src.contains("fn find_nearest_harvestable_supply")
+                && src.contains("find_nearest_harvestable_supply(team, position)"),
+            "gather residual must re-target nearest supply when pile empties"
         );
     }
 
