@@ -10131,10 +10131,29 @@ impl CnCGameEngine {
             Key::Character(c) if c == "m" || c == "M" => {
                 self.toggle_background_music();
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("v") => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("v")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Debug residual only — not retail CommandMap.
                 self.debug_show_victory(Some(self.current_player_id));
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("l") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("v")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Fire ready superweapon / special power residual (map click).
+                self.issue_named_command_from_ui("Command_DoSpecialPower");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("l")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Debug residual only — not retail CommandMap.
                 let winner = self.game_logic.first_opponent_id(self.current_player_id);
                 self.debug_show_victory(winner);
             }
@@ -14755,5 +14774,31 @@ fn shift_ctrl_production_queue_multiplier_residual() {
             && src.contains("saturating_mul(5)")
             && src.contains("qty = 9"),
         "Shift×5 and Ctrl fill-queue residual for production"
+    );
+}
+
+#[test]
+fn special_power_v_key_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    let start = src.find("fn handle_key_press").expect("handle_key_press");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 12000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("Command_DoSpecialPower") && body.contains("eq_ignore_ascii_case(\"v\")"),
+        "V must arm Command_DoSpecialPower residual"
+    );
+    // Bare V must not instantly debug-win.
+    assert!(
+        !body.contains(
+            "eq_ignore_ascii_case(\"v\") => {\n                self.debug_show_victory(Some(self.current_player_id))"
+        ),
+        "debug victory must not steal bare V from special power"
+    );
+    assert!(
+        body.contains("NamedKey::Shift") && body.contains("debug_show_victory"),
+        "debug victory remains behind Ctrl+Shift residual"
     );
 }
