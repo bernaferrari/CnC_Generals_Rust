@@ -5937,6 +5937,7 @@ impl PresentationFrame {
             push(&mut cmds, "Command_AttitudeAggressive", true);
             push(&mut cmds, "Command_AttitudePassive", true);
             push(&mut cmds, "Command_AttitudeSleep", true);
+            push(&mut cmds, "Command_SwitchWeapons", true);
             // Dozer/Worker repair residual (R key / strip).
             {
                 let n = ro.template_name.to_ascii_lowercase();
