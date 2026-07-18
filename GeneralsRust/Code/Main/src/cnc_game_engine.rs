@@ -10388,6 +10388,10 @@ impl CnCGameEngine {
                 // Retail CommandMap DIPLOMACY KEY_TAB residual.
                 self.toggle_diplomacy_panel_hotkey();
             }
+            Key::Named(NamedKey::F1) if ctrl_down => {
+                // Debug overlay residual (Ctrl+F1); bare F1 remains camera bookmark.
+                self.toggle_debug_info_hotkey();
+            }
             Key::Named(NamedKey::F1) => self.handle_camera_view_hotkey(0),
             Key::Named(NamedKey::F2) => self.handle_camera_view_hotkey(1),
             Key::Named(NamedKey::F3) => self.handle_camera_view_hotkey(2),
@@ -10428,7 +10432,19 @@ impl CnCGameEngine {
                 let winner = self.game_logic.first_opponent_id(self.current_player_id);
                 self.debug_show_victory(winner);
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("p") => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("p")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Cycle busy producers residual (Ctrl+Alt+P).
+                self.cycle_busy_producer_selection(1);
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("p")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Toggle pause with 'P' key
                 self.toggle_pause();
             }
@@ -10513,6 +10529,14 @@ impl CnCGameEngine {
             {
                 // Infantry capture-building residual: arm structure click.
                 self.issue_named_command_from_ui("Command_CaptureBuilding");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("g")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all guarding friendlies residual (Ctrl+Alt+G).
+                self.select_all_friendly_guarding();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("g")
@@ -12276,6 +12300,118 @@ impl CnCGameEngine {
     }
 
     /// Toggle health bar overlay residual (Alt+H).
+
+    /// Toggle debug overlay residual (Ctrl+F1).
+    fn toggle_debug_info_hotkey(&mut self) {
+        self.show_debug_info = !self.show_debug_info;
+        let msg = if self.show_debug_info {
+            "Debug overlay: ON"
+        } else {
+            "Debug overlay: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Cycle friendly producers with a non-empty queue residual (Ctrl+Alt+P).
+    fn cycle_busy_producer_selection(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            let busy = obj
+                .building_data
+                .as_ref()
+                .map(|b| !b.production_queue.is_empty())
+                .unwrap_or(false);
+            if busy {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No busy producers";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.selected_objects = vec![next];
+        if let Some(obj) = self.game_logic.find_object(next) {
+            let clamped = self.clamp_to_world_bounds(obj.get_position());
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Busy producer selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all friendly units currently guarding residual (Ctrl+Alt+G).
+    fn select_all_friendly_guarding(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            let guarding = matches!(
+                obj.ai_state,
+                crate::game_logic::AIState::GuardingArea
+                    | crate::game_logic::AIState::GuardingObject
+            ) || obj.guard_position.is_some()
+                || obj.guard_target.is_some();
+            if guarding {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No guarding units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} guarding", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
     fn toggle_health_bars_hotkey(&mut self) {
         self.show_health_bars = !self.show_health_bars;
         let msg = if self.show_health_bars {
@@ -16726,5 +16862,28 @@ fn attacking_select_and_stop_all_residual() {
             && src.contains("stop_all_friendly_units()")
             && src.contains("Stopped"),
         "Ctrl+Shift+. must stop all friendlies residual"
+    );
+}
+
+#[test]
+fn debug_producer_and_guarding_select_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn toggle_debug_info_hotkey")
+            && src.contains("Debug overlay: ON")
+            && src.contains("NamedKey::F1) if ctrl_down"),
+        "Ctrl+F1 must toggle debug overlay residual"
+    );
+    assert!(
+        src.contains("fn cycle_busy_producer_selection")
+            && src.contains("No busy producers")
+            && src.contains("cycle_busy_producer_selection(1)"),
+        "Ctrl+Alt+P must cycle busy producers residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_guarding")
+            && src.contains("select_all_friendly_guarding()")
+            && src.contains("No guarding units"),
+        "Ctrl+Alt+G must select guarding units residual"
     );
 }
