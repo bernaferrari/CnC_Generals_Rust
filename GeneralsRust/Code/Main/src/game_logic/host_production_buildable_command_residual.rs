@@ -404,6 +404,21 @@ pub const LBC_SHROUD: u32 = 5;
 pub const LBC_TOO_CLOSE_TO_SUPPLIES: u32 = 6;
 pub const LBC_GENERIC_FAILURE: u32 = 7;
 
+/// C++ BuildAssistant / Eva placement failure residual help strings.
+/// Fail-closed: simplified messages (not full localized Eva event matrix).
+pub fn lbc_help_message_residual(code: u32) -> &'static str {
+    match code {
+        LBC_OK => "",
+        LBC_RESTRICTED_TERRAIN => "Cannot build there: restricted terrain",
+        LBC_NOT_FLAT_ENOUGH => "Cannot build there: ground is not flat enough",
+        LBC_OBJECTS_IN_THE_WAY => "Cannot build there: objects in the way",
+        LBC_NO_CLEAR_PATH => "Cannot build there: no clear path for dozer",
+        LBC_SHROUD => "Cannot build there: area is shrouded",
+        LBC_TOO_CLOSE_TO_SUPPLIES => "Cannot build there: too close to supplies",
+        _ => "Cannot build there",
+    }
+}
+
 /// C++ BuildAssistant LocalLegalToBuildOptions residual bits.
 pub const LOCAL_LEGAL_TERRAIN_RESTRICTIONS: u32 = 0x0000_0001;
 pub const LOCAL_LEGAL_CLEAR_PATH: u32 = 0x0000_0002;
@@ -1292,6 +1307,24 @@ pub fn honesty_production_buildable_command_residual_pack_wave99() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lbc_help_message_residual_covers_codes() {
+        use super::*;
+        assert!(lbc_help_message_residual(LBC_OK).is_empty());
+        assert!(lbc_help_message_residual(LBC_SHROUD)
+            .to_ascii_lowercase()
+            .contains("shroud"));
+        assert!(lbc_help_message_residual(LBC_OBJECTS_IN_THE_WAY)
+            .to_ascii_lowercase()
+            .contains("objects"));
+        assert!(lbc_help_message_residual(LBC_NOT_FLAT_ENOUGH)
+            .to_ascii_lowercase()
+            .contains("flat"));
+        assert!(lbc_help_message_residual(LBC_NO_CLEAR_PATH)
+            .to_ascii_lowercase()
+            .contains("path"));
+    }
+
     use super::*;
 
     #[test]
