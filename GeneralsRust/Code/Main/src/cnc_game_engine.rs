@@ -7378,7 +7378,6 @@ impl CnCGameEngine {
                         info!("Settings: show_health_bars={v}");
                     }
                 }
-                _ => {}
             }
         }
     }
