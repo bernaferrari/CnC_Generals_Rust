@@ -6003,6 +6003,9 @@ impl PresentationFrame {
                 {
                     push(&mut cmds, "Command_Repair", true);
                 }
+                if n.contains("dozer") || n.contains("worker") {
+                    push(&mut cmds, "Command_ClearMines", true);
+                }
             }
             push(&mut cmds, "Command_Cheer", true);
             // Multi-select formation residual.
