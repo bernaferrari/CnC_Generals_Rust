@@ -10271,6 +10271,10 @@ impl CnCGameEngine {
                 // Retail CommandMap SELECT_HERO Ctrl+H residual.
                 self.select_hero_units_hotkey();
             }
+            Key::Character(c) if c.eq_ignore_ascii_case("i") && ctrl_down => {
+                // Select all idle military residual (Ctrl+I).
+                self.select_all_idle_military();
+            }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("f")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
@@ -11016,6 +11020,68 @@ impl CnCGameEngine {
         let msg = "Damaged structure selected";
         self.game_hud.push_info_message(msg);
         self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all idle friendly combat units residual (Ctrl+I).
+    fn select_all_idle_military(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            if !obj.can_move() {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            // Exclude pure workers/dozers/supply from "military idle" residual.
+            let is_worker =
+                obj.is_dozer || n.contains("dozer") || n.contains("worker") || n.contains("supply");
+            if is_worker {
+                continue;
+            }
+            let military = obj.can_attack()
+                || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
+                || obj.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                || obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                || n.contains("ranger")
+                || n.contains("tank")
+                || n.contains("jet")
+                || n.contains("humvee");
+            if !military {
+                continue;
+            }
+            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                && obj.target.is_none()
+                && !obj.status.moving;
+            if idle {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No idle military units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        let msg = format!("Selected {} idle military", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Cycle construction panel tab residual (`[` / `]`).
@@ -14979,5 +15045,17 @@ fn damaged_structure_cycle_residual() {
             && src.contains("NamedKey::Alt")
             && src.contains("cycle_damaged_structure_selection(1)"),
         "Ctrl+Alt+arrows must cycle damaged structures residual"
+    );
+}
+
+#[test]
+fn idle_military_select_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn select_all_idle_military")
+            && src.contains("eq_ignore_ascii_case(\"i\")")
+            && src.contains("select_all_idle_military()")
+            && src.contains("No idle military units"),
+        "Ctrl+I must select idle military residual"
     );
 }
