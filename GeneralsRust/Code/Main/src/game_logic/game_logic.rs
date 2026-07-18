@@ -7217,21 +7217,27 @@ impl GameLogic {
         transferred
     }
 
-    /// Drive mood auto-acquire for idle AI-controlled units.
+    /// Drive mood auto-acquire for idle units (AI + player AutoAcquireEnemiesWhenIdle).
     pub(crate) fn tick_mood_auto_acquire(&mut self, object_ids: &[ObjectId]) {
         for &id in object_ids {
-            let (is_player, do_check) = {
+            let (is_player_local, do_check) = {
                 let Some(o) = self.objects.get(&id) else {
                     continue;
                 };
-                // Host residual: player-controlled == USA team with Normal attitude default.
-                // Skirmish AI uses other teams / non-zero attitude.
-                let player = matches!(o.team, crate::game_logic::Team::USA) && o.ai_attitude == 0;
+                let is_local = self
+                    .player_id_for_team(o.team)
+                    .and_then(|pid| self.players.get(&pid))
+                    .map(|p| p.is_local)
+                    .unwrap_or(false);
                 let idle = matches!(o.ai_state, AIState::Idle) && o.target.is_none();
-                (player, idle && o.auto_acquire_when_idle && o.is_alive())
+                (
+                    is_local,
+                    idle && o.auto_acquire_when_idle && o.is_alive() && o.can_attack(),
+                )
             };
-            if do_check && !is_player {
-                let _ = self.try_mood_auto_acquire(id, false);
+            if do_check {
+                // C++ AutoAcquireEnemiesWhenIdle applies to player and AI units.
+                let _ = self.try_mood_auto_acquire(id, is_player_local);
             }
         }
     }
@@ -89359,6 +89365,24 @@ mod tests {
             src.contains("fn try_auto_resume_construction_residual")
                 && src.contains("try_auto_resume_construction_residual(object_id)"),
             "AI dozers must auto-resume unfinished construction residual"
+        );
+    }
+
+    #[test]
+    fn player_idle_auto_acquire_residual() {
+        let src = include_str!("game_logic.rs");
+        let start = src
+            .find("fn tick_mood_auto_acquire")
+            .expect("tick_mood_auto_acquire");
+        let body = &src[start..start + 1200];
+        assert!(
+            body.contains("AutoAcquireEnemiesWhenIdle")
+                && body.contains("try_mood_auto_acquire(id, is_player_local)"),
+            "player units with auto_acquire_when_idle must mood-acquire residual"
+        );
+        assert!(
+            !body.contains("do_check && !is_player"),
+            "must not skip player units for idle auto-acquire"
         );
     }
 
