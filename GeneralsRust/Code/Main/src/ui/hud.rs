@@ -608,6 +608,8 @@ pub struct GameHUD {
     pending_ui_events: Vec<crate::ui::UIEvent>,
     /// InGameUI PublicTimer residual freeze from PresentationFrame.
     presentation_superweapon_timers: Vec<PresentationSwTimer>,
+    /// Options residual: show health on selection strip.
+    show_selection_health: bool,
     /// Message log
     messages: Vec<GameMessage>,
     /// Active beacon markers for minimap rendering
@@ -748,6 +750,7 @@ impl GameHUD {
             command_buttons: Vec::new(),
             pending_ui_events: Vec::new(),
             presentation_superweapon_timers: Vec::new(),
+            show_selection_health: true,
             messages: Vec::new(),
             beacon_markers: Vec::new(),
             beacon_events: Vec::new(),
@@ -960,6 +963,15 @@ impl GameHUD {
         self.selected_unit_infos = unit_infos;
         self.selection_panel =
             ControlBarSelectionPanelState::from_unit_infos(&self.selected_unit_infos);
+        if !self.show_selection_health {
+            // Options residual: hide health numbers/bars on selection strip.
+            for info in &mut self.selected_unit_infos {
+                info.health_current = 0.0;
+                info.health_maximum = 0.0;
+            }
+            self.selection_panel =
+                ControlBarSelectionPanelState::from_unit_infos(&self.selected_unit_infos);
+        }
         if selection_changed {
             self.update_command_buttons();
             // Prefer presentation producer residual for construction panel.
@@ -1181,6 +1193,14 @@ impl GameHUD {
         self.visible = !self.visible;
     }
 
+    pub fn set_show_selection_health(&mut self, enabled: bool) {
+        self.show_selection_health = enabled;
+    }
+
+    pub fn show_selection_health(&self) -> bool {
+        self.show_selection_health
+    }
+
     /// Control-bar / HUD strip visibility residual.
     pub fn hud_visible(&self) -> bool {
         self.visible
@@ -1351,14 +1371,9 @@ impl Interactive for GameHUD {
             }
         }
 
-        // Global HUD hotkeys
-        match key {
-            KeyCode::H => {
-                self.toggle_visibility();
-                true
-            }
-            _ => false,
-        }
+        // Global HUD hotkeys: F9 toggles control bar (retail TOGGLE_CONTROL_BAR).
+        // Do **not** bind H here — retail VIEW_COMMAND_CENTER is KEY_H.
+        false
     }
 
     fn handle_text_input(&mut self, _text: &str) -> bool {
