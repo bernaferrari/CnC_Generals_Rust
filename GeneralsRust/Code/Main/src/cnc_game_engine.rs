@@ -10293,6 +10293,18 @@ impl CnCGameEngine {
                 self.issue_named_command_from_ui("Command_Cheer");
             }
             Key::Named(NamedKey::ArrowRight)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Damaged structure cycle residual (Ctrl+Alt+Right).
+                self.cycle_damaged_structure_selection(1);
+            }
+            Key::Named(NamedKey::ArrowLeft)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Damaged structure cycle residual (Ctrl+Alt+Left).
+                self.cycle_damaged_structure_selection(-1);
+            }
+            Key::Named(NamedKey::ArrowRight)
                 if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
             {
                 // SELECT_NEXT_STRUCTURE residual (Ctrl+Shift+Right).
@@ -10937,6 +10949,73 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
+    }
+    /// Cycle damaged friendly structures residual (for repair response).
+    fn cycle_damaged_structure_selection(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            if obj.status.under_construction || obj.status.sold {
+                continue;
+            }
+            let max_h = obj.health.maximum.max(1.0);
+            let ratio = obj.health.current / max_h;
+            if ratio < 0.999 {
+                damaged.push((id, ratio));
+            }
+        }
+        if damaged.is_empty() {
+            let msg = "No damaged structures";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Most damaged first, stable by id.
+        damaged.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0 .0.cmp(&b.0 .0))
+        });
+        let ids: Vec<_> = damaged.into_iter().map(|(id, _)| id).collect();
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.selected_objects = vec![next];
+        if let Some(obj) = self.game_logic.find_object(next) {
+            let clamped = self.clamp_to_world_bounds(obj.get_position());
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Damaged structure selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Cycle construction panel tab residual (`[` / `]`).
@@ -14888,5 +14967,17 @@ fn named_superweapon_button_residual() {
     assert!(
         eng.contains("Pass 1: honor named"),
         "engine must prefer named SW type when arming residual"
+    );
+}
+
+#[test]
+fn damaged_structure_cycle_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn cycle_damaged_structure_selection")
+            && src.contains("No damaged structures")
+            && src.contains("NamedKey::Alt")
+            && src.contains("cycle_damaged_structure_selection(1)"),
+        "Ctrl+Alt+arrows must cycle damaged structures residual"
     );
 }
