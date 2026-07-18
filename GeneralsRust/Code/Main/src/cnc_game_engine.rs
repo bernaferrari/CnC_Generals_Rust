@@ -9790,9 +9790,6 @@ impl CnCGameEngine {
                 let winner = self.game_logic.first_opponent_id(self.current_player_id);
                 self.debug_show_victory(winner);
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("d") => {
-                self.debug_show_victory(None);
-            }
             Key::Character(c) if c.eq_ignore_ascii_case("p") => {
                 // Toggle pause with 'P' key
                 self.toggle_pause();
@@ -13910,5 +13907,28 @@ fn auto_dozer_structure_place_residual() {
             && body.contains("game_hud.construction_panel")
             && body.contains("ui_manager"),
         "legal place must dual-clear both HUD placement ghosts"
+    );
+}
+
+#[test]
+fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    let start = src.find("fn handle_key_press").expect("handle_key_press");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 8000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("Command_Deploy")
+            && body.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down"),
+        "D must issue Command_Deploy residual"
+    );
+    // Bare D must not be bound to debug_show_victory(None) ahead of Deploy.
+    assert!(
+        !body.contains(
+            "eq_ignore_ascii_case(\"d\") => {\n                self.debug_show_victory(None)"
+        ),
+        "debug defeat must not steal D from Deploy"
     );
 }
