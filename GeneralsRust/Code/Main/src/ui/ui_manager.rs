@@ -81,6 +81,13 @@ pub enum UIEvent {
     },
     /// C++ ControlBar named command residual (Upgrade/Cancel/Stop/…).
     IssueCommand { command_name: String },
+    /// C++ dozer structure placement mode residual (cameo selected, awaiting map click).
+    BeginStructurePlacement { template_name: String },
+    /// C++ DozerConstruct residual at world location.
+    PlaceStructureAt {
+        template_name: String,
+        location: glam::Vec3,
+    },
 }
 
 /// Main UI manager that coordinates all UI systems
@@ -516,6 +523,15 @@ impl UIManager {
         }
     }
 
+    /// Mutable access to the in-game HUD (structure placement residual).
+    pub fn game_hud_mut(&mut self) -> &mut GameHUD {
+        &mut self.game_hud
+    }
+
+    pub fn game_hud(&self) -> &GameHUD {
+        &self.game_hud
+    }
+
     /// Get current UI state
     pub fn get_state(&self) -> UIState {
         self.current_state
@@ -792,6 +808,19 @@ impl UIManager {
                 UIEvent::IssueCommand { command_name } => {
                     self.event_queue
                         .push(UIEvent::IssueCommand { command_name });
+                }
+                UIEvent::BeginStructurePlacement { template_name } => {
+                    self.event_queue
+                        .push(UIEvent::BeginStructurePlacement { template_name });
+                }
+                UIEvent::PlaceStructureAt {
+                    template_name,
+                    location,
+                } => {
+                    self.event_queue.push(UIEvent::PlaceStructureAt {
+                        template_name,
+                        location,
+                    });
                 }
             }
         }
