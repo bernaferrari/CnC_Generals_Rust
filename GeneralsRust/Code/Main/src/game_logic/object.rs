@@ -7082,6 +7082,10 @@ impl Object {
 
     pub fn set_destination(&mut self, destination: Vec3) {
         let _ = self.takeoff_from_airfield_parking();
+        // C++ DeployStyle: ordered move packs up (undeploy) residual.
+        if self.status.deployed {
+            self.set_deployed(false);
+        }
         self.move_to(destination);
     }
 
