@@ -7431,7 +7431,8 @@ impl CnCGameEngine {
             glam::Vec3::ZERO
         };
         match &mut command_type {
-            crate::command_system::CommandType::DozerCancelConstruct { object_id } => {
+            crate::command_system::CommandType::DozerCancelConstruct { object_id }
+            | crate::command_system::CommandType::Sell { object_id } => {
                 if let Some(id) = selected.first() {
                     *object_id = *id;
                 }

@@ -5869,6 +5869,9 @@ impl PresentationFrame {
         if ro.is_structure || ro.can_produce {
             if ro.under_construction {
                 push(&mut cmds, "Command_CancelConstruction", true);
+            } else if ro.is_structure {
+                // C++ Command_Sell residual — completed structures only.
+                push(&mut cmds, "Command_Sell", true);
             }
             if ro.can_produce {
                 push(&mut cmds, "Command_SetRallyPoint", true);
@@ -6778,7 +6781,6 @@ mod tests {
         assert_eq!(frame.count_mobile_friendlies(Team::USA), 1);
     }
 
-    #[test]
     #[test]
     fn presentation_freezes_can_make_cameos_residual() {
         use crate::game_logic::host_production_buildable_command_residual::{
@@ -9295,6 +9297,55 @@ mod tests {
     }
 
     #[test]
+    fn structure_exposes_command_sell_residual() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType},
+            KindOf, Team, ThingTemplate,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tb = ThingTemplate::new("SellBarracks");
+        tb.set_health(1000.0);
+        tb.add_kind_of(KindOf::Structure);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("SellBarracks".into(), tb);
+        let id = logic
+            .create_object("SellBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("b");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.building_data = Some(BuildingData::new(BuildingType::Barracks));
+            o.selected = true;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let cmds = frame.unit_command_buttons();
+        assert!(
+            cmds.iter()
+                .any(|c| c.command_name.eq_ignore_ascii_case("Command_Sell") && c.enabled),
+            "completed structure should expose Sell: {:?}",
+            cmds.iter().map(|c| &c.command_name).collect::<Vec<_>>()
+        );
+        // Under construction: CancelConstruction, not Sell.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.under_construction = true;
+        }
+        let frame2 = PresentationFrame::build_from_logic(&logic, 0);
+        let cmds2 = frame2.unit_command_buttons();
+        assert!(
+            cmds2.iter().any(|c| c
+                .command_name
+                .eq_ignore_ascii_case("Command_CancelConstruction")),
+            "under-construction should expose CancelConstruction"
+        );
+        assert!(
+            !cmds2
+                .iter()
+                .any(|c| c.command_name.eq_ignore_ascii_case("Command_Sell") && c.enabled),
+            "under-construction must not enable Sell"
+        );
+    }
+
     fn presentation_feeds_unit_command_panel_buttons() {
         use crate::game_logic::{
             buildings::{BuildingData, BuildingType},
