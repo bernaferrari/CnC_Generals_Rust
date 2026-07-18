@@ -941,13 +941,26 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
 
+        let delta = end - start;
+        let len = (delta.x * delta.x + delta.z * delta.z).sqrt();
+        // Wall segment spacing residual (~structure footprint).
+        let spacing = 20.0_f32;
+        let count = if len < 1.0 {
+            1usize
+        } else {
+            ((len / spacing).floor() as usize).saturating_add(1).min(32)
+        };
+        let builder = units[0];
         let mut placed = false;
-        let last_index = units.len().saturating_sub(1).max(1) as f32;
-
-        for (i, &unit_id) in units.iter().enumerate() {
-            let t = i as f32 / last_index;
-            let pos = start + (end - start) * t;
-            if self.execute_dozer_construct(&[unit_id], template_name, pos, 0.0)
+        let orient = delta.z.atan2(delta.x);
+        for i in 0..count {
+            let t = if count <= 1 {
+                0.0
+            } else {
+                i as f32 / (count - 1) as f32
+            };
+            let pos = start + delta * t;
+            if self.execute_dozer_construct(&[builder], template_name, pos, orient)
                 == CommandResult::Success
             {
                 placed = true;
