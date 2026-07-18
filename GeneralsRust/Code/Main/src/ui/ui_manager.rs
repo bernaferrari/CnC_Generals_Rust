@@ -562,6 +562,17 @@ impl UIManager {
     }
 
     /// Mutable access to the in-game HUD (structure placement residual).
+
+    /// Retail end-of-match Victory/Defeat screen residual.
+    pub fn show_match_result(&mut self, victory: bool, local_player_id: u32) {
+        if victory {
+            self.victory_screen.set_victory(local_player_id);
+        } else {
+            self.victory_screen.set_defeat();
+        }
+        self.transition_to_screen(Screen::Victory);
+    }
+
     pub fn game_hud_mut(&mut self) -> &mut GameHUD {
         &mut self.game_hud
     }

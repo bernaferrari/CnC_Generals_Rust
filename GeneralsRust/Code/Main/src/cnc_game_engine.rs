@@ -6083,13 +6083,17 @@ impl CnCGameEngine {
                 info!("Entering Victory state - match won");
                 self.game_paused = true;
                 self.game_logic.set_paused(true);
-                self.set_runtime_ui_state_projection(UISystemState::InGame);
+                self.ui_manager
+                    .show_match_result(true, self.current_player_id);
+                self.set_runtime_ui_state_projection(UISystemState::Victory);
             }
             GameState::Defeat => {
                 info!("Entering Defeat state - match lost");
                 self.game_paused = true;
                 self.game_logic.set_paused(true);
-                self.set_runtime_ui_state_projection(UISystemState::InGame);
+                self.ui_manager
+                    .show_match_result(false, self.current_player_id);
+                self.set_runtime_ui_state_projection(UISystemState::Victory);
             }
             GameState::Initializing => {
                 info!("Entering Initializing state");
@@ -12931,5 +12935,23 @@ fn remaining_commandmap_hotkeys_residual() {
     assert!(
         src.contains("DEMO_INSTANT_QUIT") && src.contains("GameState::Exiting"),
         "DEMO_INSTANT_QUIT residual required"
+    );
+}
+
+#[test]
+fn victory_defeat_shows_victory_screen_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("show_match_result(true, self.current_player_id)"),
+        "Victory state must open Victory screen"
+    );
+    assert!(
+        src.contains("show_match_result(false, self.current_player_id)"),
+        "Defeat state must open Defeat presentation residual"
+    );
+    assert!(
+        src.contains("fn show_match_result")
+            || include_str!("ui/ui_manager.rs").contains("fn show_match_result"),
+        "UIManager must expose show_match_result residual"
     );
 }
