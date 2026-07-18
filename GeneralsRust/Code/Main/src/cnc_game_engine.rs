@@ -858,6 +858,27 @@ mod tests {
     }
 }
 
+#[test]
+fn stop_and_guard_hotkeys_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"s\") && !ctrl_down")
+            && src.contains("issue_named_command_from_ui(\"Command_Stop\")"),
+        "S must issue Command_Stop residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"g\") && !ctrl_down")
+            && src.contains("issue_named_command_from_ui(\"Command_Guard\")"),
+        "G must issue Command_Guard residual"
+    );
+    // Ctrl+S quick-save must remain distinct from Stop.
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"s\") && ctrl_down")
+            && src.contains("quick_save_from_hotkey"),
+        "Ctrl+S quick-save residual must remain"
+    );
+}
+
 const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
 const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
 const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
@@ -9263,6 +9284,14 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("p") => {
                 // Toggle pause with 'P' key
                 self.toggle_pause();
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("s") && !ctrl_down => {
+                // C++ MSG_META_STOP residual: stop selected units immediately.
+                self.issue_named_command_from_ui("Command_Stop");
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("g") && !ctrl_down => {
+                // C++ Guard residual: arm map-click Guard (location or unit).
+                self.issue_named_command_from_ui("Command_Guard");
             }
             Key::Character(c) if c.eq_ignore_ascii_case("s") && ctrl_down => {
                 self.quick_save_from_hotkey("Ctrl+S");
