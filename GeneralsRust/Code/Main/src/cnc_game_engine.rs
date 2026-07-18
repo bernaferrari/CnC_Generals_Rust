@@ -10070,6 +10070,12 @@ impl CnCGameEngine {
         }
 
         match key {
+            Key::Named(NamedKey::Space)
+                if self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Center camera on selection residual (Alt+Space).
+                self.center_camera_on_selection();
+            }
             Key::Named(NamedKey::Space) => {
                 // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
                 // Pause remains on P.
@@ -10759,6 +10765,14 @@ impl CnCGameEngine {
             {
                 // Retail CommandMap CREATE_FORMATION Ctrl+F residual.
                 self.issue_named_command_from_ui("Command_CreateFormation");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("b")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select constructing workers residual (Ctrl+Alt+B).
+                self.select_all_constructing_workers();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("b")
@@ -12516,6 +12530,91 @@ impl CnCGameEngine {
     }
 
     /// Toggle camera follow on primary selection residual (Alt+F).
+
+    /// Snap camera to centroid of current selection residual (Alt+Space).
+    fn center_camera_on_selection(&mut self) {
+        let selected = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        if selected.is_empty() {
+            let msg = "Nothing selected";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.centroid_of_ids(&selected)
+        } else {
+            let mut sum = glam::Vec3::ZERO;
+            let mut n = 0u32;
+            for id in &selected {
+                if let Some(obj) = self.game_logic.find_object(*id) {
+                    sum += obj.get_position();
+                    n += 1;
+                }
+            }
+            if n == 0 {
+                None
+            } else {
+                Some(sum / n as f32)
+            }
+        };
+        let Some(center) = center else {
+            return;
+        };
+        let clamped = self.clamp_to_world_bounds(center);
+        self.camera_target.x = clamped.x;
+        self.camera_target.z = clamped.z;
+        let msg = "Centered on selection";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select friendly dozers/workers currently constructing residual (Ctrl+Alt+B).
+    fn select_all_constructing_workers(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            let is_worker = obj.is_dozer || n.contains("dozer") || n.contains("worker");
+            if !is_worker {
+                continue;
+            }
+            if matches!(
+                obj.ai_state,
+                crate::game_logic::AIState::Constructing | crate::game_logic::AIState::Repairing
+            ) {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No constructing workers";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} constructing", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
     fn toggle_camera_follow_selection(&mut self) {
         if self.game_logic.camera_follow_object_id().is_some() {
             self.game_logic.set_camera_follow_object(None);
@@ -16885,5 +16984,23 @@ fn debug_producer_and_guarding_select_residual() {
             && src.contains("select_all_friendly_guarding()")
             && src.contains("No guarding units"),
         "Ctrl+Alt+G must select guarding units residual"
+    );
+}
+
+#[test]
+fn center_selection_and_constructing_workers_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn center_camera_on_selection")
+            && src.contains("Centered on selection")
+            && src.contains("NamedKey::Space")
+            && src.contains("NamedKey::Alt"),
+        "Alt+Space must center on selection residual"
+    );
+    assert!(
+        src.contains("fn select_all_constructing_workers")
+            && src.contains("select_all_constructing_workers()")
+            && src.contains("No constructing workers"),
+        "Ctrl+Alt+B must select constructing workers residual"
     );
 }
