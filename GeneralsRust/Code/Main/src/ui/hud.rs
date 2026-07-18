@@ -659,6 +659,38 @@ impl Default for GameHUD {
 
 impl GameHUD {
     /// Apply presentation PublicTimer residual (superweapon countdown strip).
+
+    /// Apply presentation ControlBar unit-command residual (Command_* names).
+    pub fn apply_presentation_unit_commands(&mut self, commands: &[(String, bool)]) {
+        self.command_buttons.clear();
+        if commands.is_empty() {
+            return;
+        }
+        let button_size = 48u32;
+        let spacing = 4u32;
+        let start_x = (self.screen_size.0 / 2) as i32 - 200;
+        let start_y = self.screen_size.1 as i32 - 60;
+        for (i, (name, enabled)) in commands.iter().enumerate() {
+            let hotkey = match name.as_str() {
+                "Command_Stop" => Some(crate::ui::KeyCode::S),
+                "Command_Guard" => Some(crate::ui::KeyCode::G),
+                "Command_AttackMove" | "Command_AttackMoveTo" => Some(crate::ui::KeyCode::A),
+                "Command_Deploy" => Some(crate::ui::KeyCode::D),
+                "Command_Scatter" => Some(crate::ui::KeyCode::X),
+                _ => None,
+            };
+            self.command_buttons.push(CommandButton {
+                command: name.clone(),
+                position: (start_x + i as i32 * (button_size + spacing) as i32, start_y),
+                size: (button_size, button_size),
+                icon: name.clone(),
+                hotkey,
+                enabled: *enabled,
+                hovered: false,
+            });
+        }
+    }
+
     pub fn apply_presentation_superweapon_timers(
         &mut self,
         timers: &[crate::ui::hud_state::UiSuperweaponTimer],

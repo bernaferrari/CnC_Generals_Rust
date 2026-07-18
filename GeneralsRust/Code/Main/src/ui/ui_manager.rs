@@ -595,6 +595,10 @@ impl UIManager {
     }
 
     /// Get the current screen being displayed
+    pub fn options_bool(&self, key: &str) -> Option<bool> {
+        self.options_menu.bool_option(key)
+    }
+
     pub fn current_screen(&self) -> Option<Screen> {
         self.current_screen
     }
