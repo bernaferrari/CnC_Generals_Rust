@@ -2118,6 +2118,9 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "hackinternet" | "internet" | "starthacking" => Some(CommandType::HackInternet),
         "returntobase" | "rtb" | "land" => Some(CommandType::ReturnToBase),
+        "resumeconstruction" | "resume" => Some(CommandType::ResumeConstruction {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
         "returnsupplies" | "returncargo" | "forcesupplyreturn" => Some(CommandType::ReturnSupplies),
         "cleanuparea" | "clearmines" | "detox" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::CleanupArea,
