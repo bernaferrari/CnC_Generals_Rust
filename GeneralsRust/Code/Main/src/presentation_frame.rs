@@ -5943,6 +5943,17 @@ impl PresentationFrame {
                 if n.contains("chinook") {
                     push(&mut cmds, "Command_CombatDrop", true);
                 }
+                if n.contains("jet")
+                    || n.contains("raptor")
+                    || n.contains("mig")
+                    || n.contains("aurora")
+                    || n.contains("stealth")
+                    || n.contains("comanche")
+                    || n.contains("helicopter")
+                    || n.contains("chinook")
+                {
+                    push(&mut cmds, "Command_ReturnToBase", true);
+                }
             }
             // Dozer/Worker repair residual (R key / strip).
             {

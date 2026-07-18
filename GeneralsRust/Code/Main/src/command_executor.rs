@@ -172,6 +172,7 @@ impl<'a> CommandExecutor<'a> {
             CommandType::Exit => self.execute_exit(&command.selected_units),
             CommandType::Evacuate => self.execute_evacuate(&command.selected_units),
             CommandType::HackInternet => self.execute_hack_internet(&command.selected_units),
+            CommandType::ReturnToBase => self.execute_return_to_base(&command.selected_units),
             CommandType::Dock { target_id } => {
                 self.execute_dock(&command.selected_units, *target_id)
             }
@@ -1913,6 +1914,46 @@ impl<'a> CommandExecutor<'a> {
         let mut any = false;
         for &unit_id in units {
             if self.game_logic.start_hacker_internet_hack(unit_id) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+    fn execute_return_to_base(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            let is_aircraft = unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                || unit.object_type == crate::game_logic::ObjectType::Aircraft;
+            if !is_aircraft {
+                continue;
+            }
+            let team = unit.team;
+            let pos = unit.get_position();
+            // Nearest friendly airfield residual.
+            let mut best: Option<(ObjectId, f32)> = None;
+            for (&id, obj) in self.game_logic.get_objects() {
+                if !crate::game_logic::GameLogic::is_friendly_airfield(obj, team) {
+                    continue;
+                }
+                let d = pos.distance(obj.get_position());
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((id, d));
+                }
+            }
+            let Some((airfield_id, _)) = best else {
+                continue;
+            };
+            if self.execute_dock(&[unit_id], airfield_id) == CommandResult::Success {
                 any = true;
             }
         }
