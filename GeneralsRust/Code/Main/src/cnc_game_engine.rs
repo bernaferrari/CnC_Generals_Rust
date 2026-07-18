@@ -1294,6 +1294,10 @@ pub struct CnCGameEngine {
     camera_rotate_right_held: bool,
     camera_zoom_in_held: bool,
     camera_zoom_out_held: bool,
+    /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
+    camera_tracking_selection: bool,
+    /// Retail TOGGLE_FAST_FORWARD_REPLAY residual (TiVO fast mode).
+    replay_fast_forward: bool,
     /// Retail DIPLOMACY KEY_TAB residual panel.
     diplomacy_panel: crate::ui::DiplomacyPanel,
     /// Retail CHAT_EVERYONE / CHAT_ALLIES residual panel.
@@ -4541,6 +4545,8 @@ impl CnCGameEngine {
             camera_rotate_right_held: false,
             camera_zoom_in_held: false,
             camera_zoom_out_held: false,
+            camera_tracking_selection: false,
+            replay_fast_forward: false,
             diplomacy_panel: crate::ui::DiplomacyPanel::new(),
             chat_panel: crate::ui::ChatPanel::new(),
             current_player_id: 0,
@@ -6471,11 +6477,15 @@ impl CnCGameEngine {
         let network_frame_data_ready =
             Self::network_frame_data_ready_gate(self.game_logic.isInMultiplayerGame());
         if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
+            // Retail m_TiVOFastMode residual: extra logic steps while armed.
+            let ff_steps = if self.replay_fast_forward { 4 } else { 1 };
             // Update game logic first
-            if let Some(timing) = self.last_frame_timing {
-                self.game_logic.update_with_timing(&timing);
-            } else {
-                self.game_logic.update_with_dt(dt);
+            for _ in 0..ff_steps {
+                if let Some(timing) = self.last_frame_timing {
+                    self.game_logic.update_with_timing(&timing);
+                } else {
+                    self.game_logic.update_with_dt(dt);
+                }
             }
             // Script FPS applied from presentation residual after snapshot build (below).
             // Live take remains for boot path when no frame is produced this tick.
@@ -9465,12 +9475,36 @@ impl CnCGameEngine {
                 self.open_chat_hotkey(crate::ui::ChatTarget::All);
             }
             Key::Named(NamedKey::Backspace) => {
-                // Retail CommandMap CHAT_ALLIES KEY_BACKSPACE residual.
-                self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) {
+                    // Retail DEMO_INSTANT_QUIT Shift+Ctrl+Backspace residual.
+                    info!("DEMO_INSTANT_QUIT residual — exiting");
+                    self.request_state_change(GameState::Exiting);
+                } else {
+                    // Retail CommandMap CHAT_ALLIES KEY_BACKSPACE residual.
+                    self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+                }
             }
             Key::Named(NamedKey::F12) => {
                 // Retail CommandMap TAKE_SCREENSHOT KEY_F12 residual.
                 self.take_screenshot_hotkey();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("t")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Retail TOGGLE_CAMERA_TRACKING_DRAWABLE Shift+Alt+Ctrl+T residual.
+                self.toggle_camera_tracking_drawable_hotkey();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("f")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Retail TOGGLE_FAST_FORWARD_REPLAY KEY_F residual.
+                self.toggle_replay_fast_forward_hotkey();
             }
             Key::Named(NamedKey::Escape) => {
                 // Outer event-loop Escape handler is unreachable for keyboard
@@ -9608,6 +9642,75 @@ impl CnCGameEngine {
             }
         }
         false
+    }
+
+    /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
+    fn toggle_camera_tracking_drawable_hotkey(&mut self) {
+        self.camera_tracking_selection = !self.camera_tracking_selection;
+        let msg = if self.camera_tracking_selection {
+            "Camera tracking selection: ON"
+        } else {
+            "Camera tracking selection: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+        info!("{msg}");
+    }
+
+    /// Retail TOGGLE_FAST_FORWARD_REPLAY (m_TiVOFastMode) residual.
+    fn toggle_replay_fast_forward_hotkey(&mut self) {
+        // C++ only applies in replay games (or debug). Residual: always toggle flag + HUD.
+        self.replay_fast_forward = !self.replay_fast_forward;
+        let msg = if self.replay_fast_forward {
+            "m_TiVOFastMode: ON"
+        } else {
+            "m_TiVOFastMode: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+        info!("{msg}");
+    }
+
+    /// Follow selection centroid when camera tracking residual is armed.
+    fn update_camera_tracking_drawable(&mut self) {
+        if !self.camera_tracking_selection {
+            return;
+        }
+        let ids = if !self.selected_objects.is_empty() {
+            self.selected_objects.clone()
+        } else {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .map(|p| p.selected_objects.clone())
+                .unwrap_or_default()
+        };
+        if ids.is_empty() {
+            return;
+        }
+        let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.centroid_of_ids(&ids)
+        } else {
+            let mut sum = Vec3::ZERO;
+            let mut n = 0u32;
+            for id in &ids {
+                if let Some(obj) = self.game_logic.find_object(*id) {
+                    if obj.is_alive() {
+                        sum += obj.get_position();
+                        n += 1;
+                    }
+                }
+            }
+            if n == 0 {
+                None
+            } else {
+                Some(sum / n as f32)
+            }
+        };
+        if let Some(center) = center {
+            let clamped = self.clamp_to_world_bounds(center);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
     }
 
     /// Retail TAKE_SCREENSHOT (KEY_F12) residual.
@@ -10249,6 +10352,8 @@ impl CnCGameEngine {
         if self.camera_zoom_out_held {
             self.camera_zoom = (self.camera_zoom + ZOOM_PER_SEC * dt).clamp(0.1, 5.0);
         }
+
+        self.update_camera_tracking_drawable();
 
         let mut movement = Vec3::ZERO;
         if self.camera_slave_mode.is_none() {
@@ -12806,5 +12911,25 @@ fn show_options_event_residual() {
     assert!(
         ui.contains("options_menu") && ui.contains("Screen::Options"),
         "UIManager must own OptionsMenu residual"
+    );
+}
+
+#[test]
+fn remaining_commandmap_hotkeys_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("toggle_camera_tracking_drawable_hotkey")
+            && src.contains("camera_tracking_selection"),
+        "TOGGLE_CAMERA_TRACKING_DRAWABLE residual required"
+    );
+    assert!(
+        src.contains("toggle_replay_fast_forward_hotkey")
+            && src.contains("replay_fast_forward")
+            && src.contains("m_TiVOFastMode"),
+        "TOGGLE_FAST_FORWARD_REPLAY residual required"
+    );
+    assert!(
+        src.contains("DEMO_INSTANT_QUIT") && src.contains("GameState::Exiting"),
+        "DEMO_INSTANT_QUIT residual required"
     );
 }
