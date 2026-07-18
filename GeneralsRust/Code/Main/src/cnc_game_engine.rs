@@ -10378,7 +10378,10 @@ impl CnCGameEngine {
         self.last_click_time = Some(now);
         self.last_click_position = Some(mouse_pos);
 
-        if is_double_click && clicked_object.is_some() {
+        let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+        let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+
+        if is_double_click && clicked_object.is_some() && !ctrl_down {
             // Double-click: select all similar units
             if let Some(object_id) = clicked_object {
                 self.select_similar_units(object_id);
@@ -10388,12 +10391,20 @@ impl CnCGameEngine {
             if self.pending_map_command.is_some() {
                 let loc = self.mouse_world_position;
                 self.commit_pending_map_command(loc, clicked_object);
+            } else if ctrl_down && !self.selected_objects.is_empty() {
+                // C++ ForceAttack residual: Ctrl+LMB with selection issues force-attack.
+                self.issue_force_attack_from_left_click(mouse_pos, clicked_object);
             } else if let Some(object_id) = clicked_object {
-                // Select this object
-                self.game_logic
-                    .select_objects(self.current_player_id, vec![object_id]);
-                self.selected_objects = vec![object_id];
-                self.play_sound_effect(SoundType::Select);
+                if shift_down {
+                    // C++ Shift+select residual: toggle unit in multi-selection.
+                    self.toggle_select_object(object_id);
+                } else {
+                    // Select this object
+                    self.game_logic
+                        .select_objects(self.current_player_id, vec![object_id]);
+                    self.selected_objects = vec![object_id];
+                    self.play_sound_effect(SoundType::Select);
+                }
             } else if let Some(template) = self.pending_structure_placement.clone() {
                 // C++ structure placement residual: empty-ground click commits DozerConstruct.
                 let loc = self.mouse_world_position;
@@ -10403,6 +10414,91 @@ impl CnCGameEngine {
                 // Instant clear on mousedown fights drag-select residual.
             }
         }
+    }
+
+    /// Shift+click residual: add friendly unit or remove if already selected.
+    fn toggle_select_object(&mut self, object_id: ObjectId) {
+        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        // Only toggle friendly selectable units (enemy click under Shift still replaces? retail
+        // keeps multi-select among friendlies; enemy under Shift is ignored for add).
+        let is_friendly_selectable = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame
+                .objects
+                .iter()
+                .find(|o| o.id == object_id)
+                .map(|o| {
+                    o.team == player_team
+                        && !o.destroyed
+                        && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+                })
+                .unwrap_or(false)
+        } else if let Some(obj) = self.game_logic.find_object(object_id) {
+            obj.team == player_team && obj.is_selectable() && obj.is_alive()
+        } else {
+            false
+        };
+        if !is_friendly_selectable {
+            return;
+        }
+
+        let mut selection = self.selected_objects.clone();
+        if let Some(idx) = selection.iter().position(|id| *id == object_id) {
+            selection.remove(idx);
+        } else {
+            selection.push(object_id);
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, selection.clone());
+        self.selected_objects = selection;
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Ctrl+LMB ForceAttack residual (object or ground).
+    fn issue_force_attack_from_left_click(
+        &mut self,
+        location: Vec3,
+        target_object: Option<ObjectId>,
+    ) {
+        let mut selected = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        if selected.is_empty() {
+            return;
+        }
+
+        let command_type = if let Some(tid) = target_object {
+            crate::command_system::CommandType::ForceAttackObject { target_id: tid }
+        } else {
+            crate::command_system::CommandType::ForceAttackGround { location }
+        };
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type,
+                player_id: self.current_player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: selected,
+                modifier_keys: crate::command_system::ModifierKeys {
+                    ctrl: true,
+                    shift: false,
+                    alt: false,
+                },
+            });
+        self.game_logic.process_commands();
+        self.play_sound_effect(SoundType::Command);
     }
 
     fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
@@ -13445,5 +13541,27 @@ fn order_line_overlay_draw_residual() {
             && sel.contains("MoveLineUpload::pack_from_presentation")
             && sel.contains("AttackLineUpload::pack_from_presentation"),
         "selection overlay must GPU-draw move/attack order lines from presentation"
+    );
+}
+
+#[test]
+fn shift_select_and_ctrl_force_attack_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn toggle_select_object")
+            && src.contains("fn issue_force_attack_from_left_click"),
+        "left-click must support Shift multi-select and Ctrl force-attack"
+    );
+    let start = src.find("fn handle_left_click").expect("handle_left_click");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 2500);
+    let body = &src[start..end];
+    assert!(
+        body.contains("shift_down")
+            && body.contains("toggle_select_object")
+            && body.contains("issue_force_attack_from_left_click"),
+        "handle_left_click must branch on Shift/Ctrl residuals"
     );
 }
