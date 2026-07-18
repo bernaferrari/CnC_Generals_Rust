@@ -171,6 +171,7 @@ impl<'a> CommandExecutor<'a> {
             }
             CommandType::Exit => self.execute_exit(&command.selected_units),
             CommandType::Evacuate => self.execute_evacuate(&command.selected_units),
+            CommandType::HackInternet => self.execute_hack_internet(&command.selected_units),
             CommandType::Dock { target_id } => {
                 self.execute_dock(&command.selected_units, *target_id)
             }
@@ -1907,6 +1908,19 @@ impl<'a> CommandExecutor<'a> {
     fn execute_evacuate(&mut self, units: &[ObjectId]) -> CommandResult {
         // Emergency exit all units
         self.execute_exit(units)
+    }
+    fn execute_hack_internet(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if self.game_logic.start_hacker_internet_hack(unit_id) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
 
     fn execute_dock(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
