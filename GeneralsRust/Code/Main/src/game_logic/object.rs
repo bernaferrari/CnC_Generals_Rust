@@ -7071,6 +7071,7 @@ impl Object {
         let flailing = self.shock_stun_frames > 15;
         self.is_mobile()
             && self.is_alive()
+            && !self.status.deployed
             && !self.status.disabled_unmanned
             && !self.status.disabled_hacked
             && !self.status.disabled_emp
