@@ -1412,6 +1412,11 @@ fn run_map_world_skirmish(
     if let Some(d) = logic.get_object_mut(dozer) {
         d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
     }
+    // Host FOW residual: push main-crate vision so build pads near the start
+    // are CELLSHROUD_CLEAR (LBC_SHROUD otherwise blocks DozerConstruct).
+    for _ in 0..3 {
+        logic.update();
+    }
 
     // Move dozer via production Move command.
     let move_dest = clamp_build_site(logic, barracks_pos + Vec3::new(-2.0, 0.0, 0.0));
@@ -1446,6 +1451,8 @@ fn run_map_world_skirmish(
         if let Some(d) = logic.get_object_mut(dozer) {
             d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
         }
+        // Refresh FOW around the dozer after teleport residual.
+        logic.update();
         logic.queue_command(command(
             2 + attempt as u32,
             0,
@@ -2017,6 +2024,31 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn main_crate_vision_xz_plane_residual() {
+        // Regression: update_main_crate_vision must feed shroud (x,z) so build
+        // placement LBC_SHROUD matches unit vision on the gameplay XZ plane.
+        let src = include_str!("game_logic/game_logic.rs");
+        let vision = src
+            .split("fn update_main_crate_vision")
+            .nth(1)
+            .and_then(|s| s.split("fn shroud_visibility_snapshot_for_team").next())
+            .unwrap_or("");
+        assert!(
+            vision.contains("Coord3D::new(pos.x, pos.z, pos.y)"),
+            "main-crate vision must map world XZ → shroud XY residual"
+        );
+        let build = src
+            .split("fn is_build_location_shroud_clear")
+            .nth(1)
+            .and_then(|s| s.split("pub fn is_location_legal_to_build").next())
+            .unwrap_or("");
+        assert!(
+            build.contains("Coord3D::new(position.x, position.z, position.y)"),
+            "build shroud check must sample world XZ residual"
+        );
+    }
 
     #[test]
     fn golden_skirmish_full_vertical_slice() {
