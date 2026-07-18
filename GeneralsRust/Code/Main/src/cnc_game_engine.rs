@@ -1277,6 +1277,9 @@ pub struct CnCGameEngine {
     last_context_cursor: Option<&'static str>,
     /// EVA LOWPOWER residual edge counter.
     last_eva_low_power_count: u32,
+    last_eva_insufficient_funds_count: u32,
+    last_eva_base_under_attack_count: u32,
+    last_eva_ally_under_attack_count: u32,
     is_dragging: bool,
     selection_start: Option<Vec3>,
     /// Screen-space drag origin for selection box overlay residual.
@@ -4536,6 +4539,9 @@ impl CnCGameEngine {
             mouse_world_position: Vec3::ZERO,
             last_context_cursor: None,
             last_eva_low_power_count: 0,
+            last_eva_insufficient_funds_count: 0,
+            last_eva_base_under_attack_count: 0,
+            last_eva_ally_under_attack_count: 0,
             is_dragging: false,
             selection_start: None,
             selection_start_screen: None,
@@ -7394,15 +7400,32 @@ impl CnCGameEngine {
     /// Clicks route through `ui_manager.game_hud`; resources/selection presentation
     /// historically only updated `self.game_hud`. Dual-apply closes that gap.
 
-    /// C++ TheEva LOWPOWER residual → chat EVA line when counter advances.
+    /// C++ TheEva residual → chat EVA lines when honesty counters advance.
     fn sync_eva_messages_from_logic(&mut self) {
-        let count = self.game_logic.eva_low_power_count();
-        if count > self.last_eva_low_power_count {
-            self.last_eva_low_power_count = count;
-            let msg = "Warning: low power";
+        let mut push = |msg: &str| {
             self.chat_panel.add_eva_message(msg);
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
+        };
+        let count = self.game_logic.eva_low_power_count();
+        if count > self.last_eva_low_power_count {
+            self.last_eva_low_power_count = count;
+            push("Warning: low power");
+        }
+        let funds = self.game_logic.eva_insufficient_funds_count();
+        if funds > self.last_eva_insufficient_funds_count {
+            self.last_eva_insufficient_funds_count = funds;
+            push("Insufficient funds");
+        }
+        let base = self.game_logic.eva_base_under_attack_count();
+        if base > self.last_eva_base_under_attack_count {
+            self.last_eva_base_under_attack_count = base;
+            push("Our base is under attack");
+        }
+        let ally = self.game_logic.eva_ally_under_attack_count();
+        if ally > self.last_eva_ally_under_attack_count {
+            self.last_eva_ally_under_attack_count = ally;
+            push("Ally under attack");
         }
     }
 
@@ -13994,7 +14017,9 @@ fn eva_low_power_chat_residual() {
     assert!(
         src.contains("fn sync_eva_messages_from_logic")
             && src.contains("add_eva_message")
-            && src.contains("eva_low_power_count"),
-        "engine must surface EVA LOWPOWER to chat residual"
+            && src.contains("eva_low_power_count")
+            && src.contains("Insufficient funds")
+            && src.contains("Our base is under attack"),
+        "engine must surface EVA LOWPOWER/funds/under-attack to chat residual"
     );
 }
