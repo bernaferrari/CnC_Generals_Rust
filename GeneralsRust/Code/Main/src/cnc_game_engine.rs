@@ -1164,6 +1164,8 @@ enum PendingMapCommand {
     AttackMove,
     Guard,
     SetRallyPoint,
+    /// Chinook combat drop residual awaiting map click.
+    CombatDrop,
     /// Armed superweapon / special power residual awaiting map click.
     SpecialPower(crate::command_system::SpecialPowerType),
     /// Retail PLACE_BEACON residual awaiting map click.
@@ -7540,6 +7542,9 @@ impl CnCGameEngine {
             PendingMapCommand::SetRallyPoint => {
                 crate::command_system::CommandType::SetRallyPoint { location }
             }
+            PendingMapCommand::CombatDrop => crate::command_system::CommandType::CombatDrop {
+                target: crate::command_system::DropTarget::Location(location),
+            },
             PendingMapCommand::SpecialPower(power_type) => {
                 let target = if let Some(tid) = target_object {
                     crate::command_system::PowerTarget::Object(tid)
@@ -7688,6 +7693,7 @@ impl CnCGameEngine {
             PendingMapCommand::AttackMove => "ATTACK_CONTINUE_AREA",
             PendingMapCommand::Guard => "GUARD_AREA",
             PendingMapCommand::SetRallyPoint => "FRIENDLY_SPECIALPOWER",
+            PendingMapCommand::CombatDrop => "COMBATDROP",
             PendingMapCommand::PlaceBeacon => "RADAR",
             PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
             PendingMapCommand::UnitAbility(_) => "OFFENSIVE_SPECIALPOWER",
@@ -7997,6 +8003,51 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
+    /// Cancel production queue head on selected producers residual (Delete key).
+    fn cancel_selected_production_queue_head(&mut self) -> bool {
+        let player_id = self.current_player_id;
+        let selected = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        if selected.is_empty() {
+            return false;
+        }
+        let mut any = false;
+        for id in selected {
+            let head_name = self.game_logic.get_object(id).and_then(|o| {
+                o.building_data.as_ref().and_then(|b| {
+                    b.production_queue
+                        .first()
+                        .map(|item| item.template_name.clone())
+                })
+            });
+            let Some(template_name) = head_name else {
+                continue;
+            };
+            if self.game_logic.cancel_production(id, template_name.clone()) {
+                any = true;
+                // Keep dual HUD presentation queue residual in sync.
+                let panel = &mut self.game_hud.construction_panel;
+                if let Some(idx) = panel
+                    .building_queue
+                    .iter()
+                    .rposition(|q| q.item_name == template_name)
+                {
+                    panel.building_queue.remove(idx);
+                }
+            }
+        }
+        if any {
+            self.play_sound_effect(SoundType::Command);
+            let msg = "Canceled production";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+        }
+        any
+    }
+
     fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
         if template_name.trim().is_empty() {
             return;
@@ -8140,6 +8191,15 @@ impl CnCGameEngine {
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("FRIENDLY_SPECIALPOWER");
                 let msg = "Set rally point: click location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::CombatDrop { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::CombatDrop);
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("COMBATDROP");
+                let msg = "Combat drop: click landing zone";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
@@ -10228,6 +10288,8 @@ impl CnCGameEngine {
                     self.selected_objects.clear();
                     self.game_logic
                         .select_objects(self.current_player_id, Vec::new());
+                } else if self.cancel_selected_production_queue_head() {
+                    // Producer selection: Delete cancels queue head residual.
                 } else {
                     // Retail CommandMap DELETE_BEACON KEY_DEL residual.
                     self.issue_named_command_from_ui("Command_RemoveBeacon");
@@ -10318,6 +10380,14 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("o") && !ctrl_down => {
                 // China nuclear plant overcharge residual.
                 self.issue_named_command_from_ui("Command_ToggleOvercharge");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("c")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Chinook combat drop residual (Alt+C).
+                self.issue_named_command_from_ui("Command_CombatDrop");
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("c")
@@ -12246,6 +12316,7 @@ impl CnCGameEngine {
                 PendingMapCommand::AttackMove => ("AttackMove", CursorIcon::Crosshair),
                 PendingMapCommand::Guard => ("Move", CursorIcon::AllScroll),
                 PendingMapCommand::SetRallyPoint => ("SetRallyPoint", CursorIcon::Cell),
+                PendingMapCommand::CombatDrop => ("CombatDrop", CursorIcon::Move),
                 PendingMapCommand::PlaceBeacon => ("PlaceBeacon", CursorIcon::Cell),
                 PendingMapCommand::SpecialPower(_) => ("Target", CursorIcon::Crosshair),
                 PendingMapCommand::UnitAbility(_) => ("Target", CursorIcon::Crosshair),
@@ -15456,5 +15527,22 @@ fn switch_weapons_and_demo_suicide_residual() {
     assert!(
         cs.contains("\"switchweapons\"") || cs.contains("SwitchWeapons"),
         "switchweapons button map residual"
+    );
+}
+
+#[test]
+fn delete_cancel_production_and_combat_drop_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn cancel_selected_production_queue_head")
+            && src.contains("Canceled production")
+            && src.contains("NamedKey::Delete"),
+        "Delete must cancel production queue head residual"
+    );
+    assert!(
+        src.contains("PendingMapCommand::CombatDrop")
+            && src.contains("Command_CombatDrop")
+            && src.contains("Combat drop: click landing zone"),
+        "Alt+C / CombatDrop must arm map click residual"
     );
 }

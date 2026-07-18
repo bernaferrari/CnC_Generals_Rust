@@ -2105,6 +2105,9 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             science_name: String::new(),
         }),
         "switchweapons" | "switchweapon" | "toggleweapon" => Some(CommandType::SwitchWeapons),
+        "combatdrop" | "rappell" | "rappel" => Some(CommandType::CombatDrop {
+            target: crate::command_system::DropTarget::Location(glam::Vec3::ZERO),
+        }),
         // Generic ControlBar SW button residual — power type resolved at arm time.
         "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::ParticleCannon, // placeholder; engine resolves
