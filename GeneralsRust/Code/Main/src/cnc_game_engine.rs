@@ -10040,7 +10040,32 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("a")
-                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Unit attitude Aggressive residual (Alt+A).
+                self.issue_named_command_from_ui("Command_AttitudeAggressive");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("s")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Unit attitude Sleep / hold-fire residual (Alt+S).
+                self.issue_named_command_from_ui("Command_AttitudeSleep");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("d")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Unit attitude Passive residual (Alt+D).
+                self.issue_named_command_from_ui("Command_AttitudePassive");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("a")
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Control))
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // C++ classic A-key AttackMove residual: arm pending map click.
                 if !self.selected_objects.is_empty()
@@ -10183,11 +10208,19 @@ impl CnCGameEngine {
                 // Toggle pause with 'P' key
                 self.toggle_pause();
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("s") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("s")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // C++ MSG_META_STOP residual: stop selected units immediately.
                 self.issue_named_command_from_ui("Command_Stop");
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("d") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("d")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // C&C Generals standard Deploy residual (CommandMap DEPLOY commented but UI uses D).
                 self.issue_named_command_from_ui("Command_Deploy");
             }
@@ -15057,5 +15090,34 @@ fn idle_military_select_residual() {
             && src.contains("select_all_idle_military()")
             && src.contains("No idle military units"),
         "Ctrl+I must select idle military residual"
+    );
+}
+
+#[test]
+fn unit_attitude_hotkey_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_AttitudeAggressive")
+            && src.contains("Command_AttitudeSleep")
+            && src.contains("Command_AttitudePassive")
+            && src.contains("NamedKey::Alt"),
+        "Alt+A/S/D must set unit attitude residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("AttitudeAggressive")
+            && cs.contains("AttitudeSleep")
+            && cs.contains("\"aggressive\""),
+        "attitude commands must map residual"
+    );
+    let ex = include_str!("command_executor.rs");
+    assert!(
+        ex.contains("fn execute_set_attitude") && ex.contains("set_ai_attitude"),
+        "execute_set_attitude residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_AttitudeAggressive") && pf.contains("Command_AttitudeSleep"),
+        "strip must expose attitude residual"
     );
 }
