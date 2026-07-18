@@ -1275,6 +1275,8 @@ pub struct CnCGameEngine {
     mouse_world_position: Vec3,
     /// Last applied context cursor residual (avoid spam set_cursor).
     last_context_cursor: Option<&'static str>,
+    /// EVA LOWPOWER residual edge counter.
+    last_eva_low_power_count: u32,
     is_dragging: bool,
     selection_start: Option<Vec3>,
     /// Screen-space drag origin for selection box overlay residual.
@@ -4533,6 +4535,7 @@ impl CnCGameEngine {
             mouse_position: (0.0, 0.0),
             mouse_world_position: Vec3::ZERO,
             last_context_cursor: None,
+            last_eva_low_power_count: 0,
             is_dragging: false,
             selection_start: None,
             selection_start_screen: None,
@@ -6658,6 +6661,7 @@ impl CnCGameEngine {
         if self.current_state == GameState::InGame {
             if let Some(pres) = self.last_presentation_frame.clone() {
                 self.apply_presentation_to_huds(&pres);
+                self.sync_eva_messages_from_logic();
                 #[cfg(feature = "game_client")]
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
@@ -6944,6 +6948,7 @@ impl CnCGameEngine {
             return false;
         };
         self.apply_presentation_to_huds(&pres);
+        self.sync_eva_messages_from_logic();
         #[cfg(feature = "game_client")]
         {
             pres.apply_to_control_bar(&mut self.control_bar);
@@ -6999,6 +7004,7 @@ impl CnCGameEngine {
             if let Some(pres) = self.last_presentation_frame.clone() {
                 pres.apply_to_ui_state(&mut ui_state);
                 self.apply_presentation_to_huds(&pres);
+                self.sync_eva_messages_from_logic();
                 #[cfg(feature = "game_client")]
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
@@ -7387,6 +7393,19 @@ impl CnCGameEngine {
     ///
     /// Clicks route through `ui_manager.game_hud`; resources/selection presentation
     /// historically only updated `self.game_hud`. Dual-apply closes that gap.
+
+    /// C++ TheEva LOWPOWER residual → chat EVA line when counter advances.
+    fn sync_eva_messages_from_logic(&mut self) {
+        let count = self.game_logic.eva_low_power_count();
+        if count > self.last_eva_low_power_count {
+            self.last_eva_low_power_count = count;
+            let msg = "Warning: low power";
+            self.chat_panel.add_eva_message(msg);
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+        }
+    }
+
     fn apply_presentation_to_huds(&mut self, pres: &crate::presentation_frame::PresentationFrame) {
         // Dual GameHUD residual: engine HUD + interactive UIManager HUD.
         pres.apply_to_game_hud(&mut self.game_hud);
@@ -13966,5 +13985,16 @@ fn deployed_blocks_can_move_and_guard_ring_residual() {
     assert!(
         src.contains("GUARD_AREA_RADIUS") && src.contains("guard_position"),
         "selected guard units must draw guard-area ring residual"
+    );
+}
+
+#[test]
+fn eva_low_power_chat_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn sync_eva_messages_from_logic")
+            && src.contains("add_eva_message")
+            && src.contains("eva_low_power_count"),
+        "engine must surface EVA LOWPOWER to chat residual"
     );
 }
