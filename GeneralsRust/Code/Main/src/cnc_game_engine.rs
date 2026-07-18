@@ -10359,7 +10359,19 @@ impl CnCGameEngine {
                 // C&C Generals standard Deploy residual (CommandMap DEPLOY commented but UI uses D).
                 self.issue_named_command_from_ui("Command_Deploy");
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("u") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("u")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Harvester return supplies residual (Alt+U).
+                self.issue_named_command_from_ui("Command_ReturnSupplies");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("u")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Evacuate / unload transport or garrison residual.
                 self.issue_named_command_from_ui("Command_Evacuate");
             }
@@ -10633,6 +10645,14 @@ impl CnCGameEngine {
                     "Control bar visibility toggled (engine visible={})",
                     self.game_hud.hud_visible()
                 );
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("s")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all friendly structures residual (Ctrl+Alt+S).
+                self.select_all_friendly_structures();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("s")
@@ -11517,6 +11537,55 @@ impl CnCGameEngine {
     }
 
     /// Select friendly units near camera (on-screen residual, Ctrl+Alt+A).
+
+    /// Select all friendly structures residual (Ctrl+Alt+S).
+    fn select_all_friendly_structures(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            for o in &frame.objects {
+                if o.team == team
+                    && o.is_structure
+                    && !o.destroyed
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+                {
+                    ids.push(o.id);
+                }
+            }
+        } else {
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team == team
+                    && obj.is_alive()
+                    && obj.is_selectable()
+                    && obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                {
+                    ids.push(id);
+                }
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No structures found";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} structures", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
     fn select_all_friendly_on_screen(&mut self) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -15748,5 +15817,32 @@ fn on_screen_select_and_camera_follow_residual() {
     assert!(
         pf.contains("fn alive_selectable_friendly_near"),
         "presentation near-select residual"
+    );
+}
+
+#[test]
+fn return_supplies_and_select_structures_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_ReturnSupplies")
+            && src.contains("eq_ignore_ascii_case(\"u\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+U must ReturnSupplies residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_structures")
+            && src.contains("select_all_friendly_structures()")
+            && src.contains("No structures found"),
+        "Ctrl+Alt+S must select all structures residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("ReturnSupplies") && cs.contains("\"returnsupplies\""),
+        "ReturnSupplies command map residual"
+    );
+    let ex = include_str!("command_executor.rs");
+    assert!(
+        ex.contains("fn execute_return_supplies") && ex.contains("ReturningResources"),
+        "execute_return_supplies residual"
     );
 }

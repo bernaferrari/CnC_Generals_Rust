@@ -142,6 +142,8 @@ pub enum CommandType {
     HackInternet,
     /// Aircraft return-to-base / dock nearest airfield residual.
     ReturnToBase,
+    /// Harvester return cargo to nearest SupplyCenter residual.
+    ReturnSupplies,
     Dock {
         target_id: ObjectId,
     },
@@ -2114,6 +2116,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "hackinternet" | "internet" | "starthacking" => Some(CommandType::HackInternet),
         "returntobase" | "rtb" | "land" => Some(CommandType::ReturnToBase),
+        "returnsupplies" | "returncargo" | "forcesupplyreturn" => Some(CommandType::ReturnSupplies),
         "cleanuparea" | "clearmines" | "detox" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::CleanupArea,
             target: PowerTarget::None,
