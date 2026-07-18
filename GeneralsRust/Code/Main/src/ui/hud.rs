@@ -192,6 +192,33 @@ impl ResourceDisplay {
     }
 }
 
+/// Strip faction/prefix residual for HUD display labels.
+fn friendly_buildable_label(template_name: &str) -> &str {
+    let n = template_name.trim();
+    for prefix in [
+        "AmericaInfantry",
+        "AmericaVehicle",
+        "AmericaTank",
+        "AmericaJet",
+        "America",
+        "ChinaInfantry",
+        "ChinaVehicle",
+        "ChinaTank",
+        "China",
+        "GLAInfantry",
+        "GLAVehicle",
+        "GLATank",
+        "GLA",
+    ] {
+        if let Some(rest) = n.strip_prefix(prefix) {
+            if !rest.is_empty() {
+                return rest;
+            }
+        }
+    }
+    n
+}
+
 /// Construction panel for building units and structures
 pub struct ConstructionPanel {
     position: (i32, i32),
@@ -328,32 +355,33 @@ impl ConstructionPanel {
         self.construction_buttons.clear();
 
         // Setup tabs based on building type
-        match building_name {
-            "Barracks" => {
-                self.current_tab = ConstructionTab::Infantry;
-                self.add_infantry_units();
-            }
-            "War Factory" => {
-                self.current_tab = ConstructionTab::Vehicles;
-                self.add_vehicle_units();
-            }
-            "Airfield" => {
-                self.current_tab = ConstructionTab::Aircraft;
-                self.add_aircraft_units();
-            }
-            _ => {
-                self.current_tab = ConstructionTab::Buildings;
-                self.add_building_structures();
-            }
+        let key = building_name.to_ascii_lowercase();
+        if key.contains("barracks") {
+            self.current_tab = ConstructionTab::Infantry;
+            self.add_infantry_units();
+        } else if key.contains("warfactory")
+            || key.contains("war factory")
+            || key.contains("armsdealer")
+        {
+            self.current_tab = ConstructionTab::Vehicles;
+            self.add_vehicle_units();
+        } else if key.contains("airfield") || key.contains("air field") {
+            self.current_tab = ConstructionTab::Aircraft;
+            self.add_aircraft_units();
+        } else {
+            // Command center / dozer / default: structure placement residual.
+            self.current_tab = ConstructionTab::Buildings;
+            self.add_building_structures();
         }
     }
 
     fn add_infantry_units(&mut self) {
+        // item_name = ThingTemplate residual; display via localized_entry.
         let units = vec![
-            ("Ranger", 225, KeyCode::R),
-            ("Missile Defender", 300, KeyCode::M),
-            ("Pathfinder", 600, KeyCode::P),
-            ("Colonel Burton", 1500, KeyCode::B),
+            ("AmericaInfantryRanger", 225, KeyCode::R),
+            ("AmericaInfantryMissileDefender", 300, KeyCode::M),
+            ("AmericaInfantryPathfinder", 600, KeyCode::P),
+            ("AmericaInfantryColonelBurton", 1500, KeyCode::B),
         ];
 
         self.add_construction_buttons(&units);
@@ -361,10 +389,10 @@ impl ConstructionPanel {
 
     fn add_vehicle_units(&mut self) {
         let units = vec![
-            ("Humvee", 700, KeyCode::H),
-            ("Crusader Tank", 1400, KeyCode::C),
-            ("Paladin Tank", 1800, KeyCode::P),
-            ("Tomahawk Launcher", 1200, KeyCode::T),
+            ("AmericaVehicleHumvee", 700, KeyCode::H),
+            ("AmericaTankCrusader", 1400, KeyCode::C),
+            ("AmericaTankPaladin", 1800, KeyCode::P),
+            ("AmericaVehicleTomahawk", 1200, KeyCode::T),
         ];
 
         self.add_construction_buttons(&units);
@@ -372,9 +400,9 @@ impl ConstructionPanel {
 
     fn add_aircraft_units(&mut self) {
         let units = vec![
-            ("Comanche", 1200, KeyCode::C),
-            ("Raptor", 1600, KeyCode::R),
-            ("Stealth Fighter", 2500, KeyCode::S),
+            ("AmericaJetComanche", 1200, KeyCode::C),
+            ("AmericaJetRaptor", 1600, KeyCode::R),
+            ("AmericaJetStealthFighter", 2500, KeyCode::S),
         ];
 
         self.add_construction_buttons(&units);
@@ -382,10 +410,10 @@ impl ConstructionPanel {
 
     fn add_building_structures(&mut self) {
         let buildings = vec![
-            ("Power Plant", 800, KeyCode::P),
-            ("Barracks", 600, KeyCode::B),
-            ("Supply Center", 2000, KeyCode::S),
-            ("War Factory", 2000, KeyCode::W),
+            ("AmericaPowerPlant", 800, KeyCode::P),
+            ("AmericaBarracks", 600, KeyCode::B),
+            ("AmericaSupplyCenter", 2000, KeyCode::S),
+            ("AmericaWarFactory", 2000, KeyCode::W),
         ];
 
         self.add_construction_buttons(&buildings);
@@ -407,7 +435,7 @@ impl ConstructionPanel {
 
             self.construction_buttons.push(ConstructionButton {
                 item_name: name.to_string(),
-                display_name: localized_entry(name),
+                display_name: localized_entry(friendly_buildable_label(name)),
                 position: (x, y),
                 size: (button_size, button_size),
                 cost,
@@ -619,6 +647,24 @@ impl GameHUD {
     pub fn handle_mouse_click(&mut self, x: i32, y: i32, button: MouseButton) -> Option<UIEvent> {
         if !self.visible {
             return None;
+        }
+
+        // C++ right-click cancels structure placement residual.
+        if button == MouseButton::Right
+            && self
+                .construction_panel
+                .pending_structure_placement
+                .is_some()
+        {
+            self.construction_panel.clear_structure_placement();
+            self.add_message(
+                &localization::localize(
+                    "hud.message.placement_cancelled",
+                    "Structure placement cancelled",
+                ),
+                MessageType::Info,
+            );
+            return Some(UIEvent::CancelStructurePlacement);
         }
 
         // Check minimap clicks
@@ -1074,6 +1120,19 @@ impl Interactive for GameHUD {
     }
 
     fn handle_key_press(&mut self, key: KeyCode) -> bool {
+        // C++ Escape cancels structure placement residual.
+        if key == KeyCode::Escape
+            && self
+                .construction_panel
+                .pending_structure_placement
+                .is_some()
+        {
+            self.construction_panel.clear_structure_placement();
+            self.pending_ui_events
+                .push(crate::ui::UIEvent::CancelStructurePlacement);
+            return true;
+        }
+
         // Check construction hotkeys
         if self.construction_panel.visible {
             let mut build_item = None;
@@ -1429,6 +1488,39 @@ mod tests {
     }
 
     #[test]
+    fn right_click_cancels_structure_placement_residual() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel
+            .arm_structure_placement("AmericaBarracks".into());
+        let ev = hud
+            .handle_mouse_click(100, 100, MouseButton::Right)
+            .expect("cancel event");
+        assert!(matches!(ev, UIEvent::CancelStructurePlacement));
+        assert!(hud
+            .construction_panel
+            .pending_structure_placement()
+            .is_none());
+    }
+
+    #[test]
+    fn escape_cancels_structure_placement_residual() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel
+            .arm_structure_placement("AmericaPowerPlant".into());
+        assert!(hud.handle_key_press(KeyCode::Escape));
+        let pending = hud.drain_pending_ui_events();
+        assert!(matches!(
+            pending.as_slice(),
+            [UIEvent::CancelStructurePlacement]
+        ));
+        assert!(hud
+            .construction_panel
+            .pending_structure_placement()
+            .is_none());
+    }
+
     fn structure_cameo_begins_placement_residual() {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
