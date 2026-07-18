@@ -1299,6 +1299,8 @@ pub struct CnCGameEngine {
     last_eva_insufficient_funds_count: u32,
     last_eva_base_under_attack_count: u32,
     last_eva_ally_under_attack_count: u32,
+    /// C++ sticky waypoint mode residual (Alt hold still works; Z toggles).
+    sticky_waypoint_mode: bool,
     is_dragging: bool,
     selection_start: Option<Vec3>,
     /// Screen-space drag origin for selection box overlay residual.
@@ -4561,6 +4563,7 @@ impl CnCGameEngine {
             last_eva_insufficient_funds_count: 0,
             last_eva_base_under_attack_count: 0,
             last_eva_ally_under_attack_count: 0,
+            sticky_waypoint_mode: false,
             is_dragging: false,
             selection_start: None,
             selection_start_screen: None,
@@ -9581,12 +9584,13 @@ impl CnCGameEngine {
                 winit::keyboard::Key::Named(winit::keyboard::NamedKey::Shift)
             )
         });
-        let alt = self.keys_pressed.iter().any(|k| {
-            matches!(
-                k,
-                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
-            )
-        });
+        let alt = self.sticky_waypoint_mode
+            || self.keys_pressed.iter().any(|k| {
+                matches!(
+                    k,
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
+                )
+            });
 
         let context = crate::command_system::MouseCommandContext {
             world_position: clamped,
@@ -10048,6 +10052,17 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("x") && !ctrl_down => {
                 // Retail CommandMap SCATTER KEY_X residual.
                 self.issue_named_command_from_ui("Command_Scatter");
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("z") && !ctrl_down => {
+                // Sticky waypoint mode residual (Alt still force-on while held).
+                self.sticky_waypoint_mode = !self.sticky_waypoint_mode;
+                let msg = if self.sticky_waypoint_mode {
+                    "Waypoint mode: ON"
+                } else {
+                    "Waypoint mode: OFF"
+                };
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
             }
             Key::Character(c) if c.eq_ignore_ascii_case("q") && !ctrl_down => {
                 // Retail CommandMap SELECT_ALL KEY_Q residual.
@@ -11036,12 +11051,13 @@ impl CnCGameEngine {
                 winit::keyboard::Key::Named(winit::keyboard::NamedKey::Shift)
             )
         });
-        let alt = self.keys_pressed.iter().any(|k| {
-            matches!(
-                k,
-                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
-            )
-        });
+        let alt = self.sticky_waypoint_mode
+            || self.keys_pressed.iter().any(|k| {
+                matches!(
+                    k,
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
+                )
+            });
 
         let context = crate::command_system::MouseCommandContext {
             world_position: mouse_pos,
@@ -11426,7 +11442,7 @@ impl CnCGameEngine {
         let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
         let alt = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
-        if alt && has_selection {
+        if (alt || self.sticky_waypoint_mode) && has_selection {
             return ("Waypoint", CursorIcon::Cell);
         }
 
@@ -14239,5 +14255,16 @@ fn presentation_event_sfx_residual() {
             && src.contains("SoundType::ConstructionComplete")
             && src.contains("SoundType::UnitReady"),
         "presentation complete events must play SFX residual"
+    );
+}
+
+#[test]
+fn sticky_waypoint_mode_toggle_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("sticky_waypoint_mode")
+            && src.contains("eq_ignore_ascii_case(\"z\")")
+            && src.contains("Waypoint mode: ON"),
+        "Z must toggle sticky waypoint mode residual"
     );
 }
