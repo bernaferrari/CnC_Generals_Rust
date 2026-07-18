@@ -988,7 +988,8 @@ impl WgpuUISystem {
 
         // Fill placeholders residual from selection / cursor world.
         match &mut command_type {
-            crate::command_system::CommandType::DozerCancelConstruct { object_id } => {
+            crate::command_system::CommandType::DozerCancelConstruct { object_id }
+            | crate::command_system::CommandType::Sell { object_id } => {
                 *object_id = units[0];
             }
             crate::command_system::CommandType::Guard { target } => {

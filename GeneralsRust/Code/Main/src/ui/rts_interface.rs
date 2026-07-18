@@ -206,12 +206,16 @@ impl UnitCommandPanel {
             return None;
         }
         let mut cmd = crate::command_system::command_type_from_button_name(&btn.command_name)?;
-        if let crate::command_system::CommandType::DozerCancelConstruct { object_id } = &mut cmd {
-            if let Some(id) = self.selected_ids.first().copied() {
-                *object_id = id;
-            } else if let Some(id) = self.selection_panel.primary_object_id {
-                *object_id = id;
+        match &mut cmd {
+            crate::command_system::CommandType::DozerCancelConstruct { object_id }
+            | crate::command_system::CommandType::Sell { object_id } => {
+                if let Some(id) = self.selected_ids.first().copied() {
+                    *object_id = id;
+                } else if let Some(id) = self.selection_panel.primary_object_id {
+                    *object_id = id;
+                }
             }
+            _ => {}
         }
         Some(cmd)
     }
