@@ -6485,6 +6485,7 @@ impl GameLogic {
             self.try_auto_find_healing_residual(object_id);
             // AutoFindRepair residual: AI idle damaged vehicles → RepairPad/WarFactory.
             self.try_auto_find_repair_residual(object_id);
+            self.try_auto_resume_construction_residual(object_id);
             // C++ AIIdleState: CAN_BE_REPULSED idle units flee closest repulsor.
             let _ = self.try_idle_repulse(object_id);
             // C++ AIIdleState: checkForCrateToPickup → aiMoveToObject.
@@ -20872,6 +20873,30 @@ impl GameLogic {
                 if let Some(obj_mut) = self.objects.get_mut(&object_id) {
                     obj_mut.set_force_attack(false);
                     obj_mut.attack_target(target_id);
+                }
+            }
+            // C++ VoiceAttack residual for local player.
+            let local = self
+                .players
+                .get(&player_id)
+                .map(|p| p.is_local)
+                .unwrap_or(false);
+            if local {
+                if let Some(&oid) = selected.first() {
+                    if let Some(obj) = self.objects.get(&oid) {
+                        let event = format!("{}VoiceAttack", obj.template_name);
+                        let pos = obj.get_position();
+                        self.queue_audio_event(
+                            AudioEventRequest::new(&event)
+                                .with_position(pos)
+                                .with_priority(100),
+                        );
+                        self.queue_audio_event(
+                            AudioEventRequest::new("UnitVoiceAttack")
+                                .with_position(pos)
+                                .with_priority(90),
+                        );
+                    }
                 }
             }
             log::trace!(
@@ -37035,6 +37060,70 @@ impl GameLogic {
             obj.target_location = None;
         }
         self.path_approach_with_state(unit_id, pad_pos, AIState::SeekingRepair);
+    }
+
+    /// AI dozer/worker residual: idle builders resume unfinished ally structures.
+    fn try_auto_resume_construction_residual(&mut self, unit_id: ObjectId) {
+        use crate::game_logic::host_usa_pilot::auto_find_healing_scan_frame;
+        if !auto_find_healing_scan_frame(self.frame) {
+            return;
+        }
+        let snapshot = match self.objects.get(&unit_id) {
+            Some(obj) if obj.is_alive() => {
+                let name = obj.template_name.to_ascii_lowercase();
+                let is_builder = obj.is_worker()
+                    || name.contains("dozer")
+                    || name.contains("worker")
+                    || name.contains("crane");
+                if !is_builder || !matches!(obj.ai_state, AIState::Idle) || obj.target.is_some() {
+                    return;
+                }
+                if !obj.can_move() {
+                    return;
+                }
+                let is_ai = self
+                    .player_id_for_team(obj.team)
+                    .and_then(|pid| self.players.get(&pid))
+                    .map(|p| !p.is_local)
+                    .unwrap_or(false);
+                if !is_ai {
+                    return;
+                }
+                (obj.get_position(), obj.team)
+            }
+            _ => return,
+        };
+        let (unit_pos, unit_team) = snapshot;
+        const SCAN: f32 = 350.0;
+        let mut best: Option<(ObjectId, f32, Vec3)> = None;
+        for (&sid, st) in &self.objects {
+            if sid == unit_id || !st.is_alive() {
+                continue;
+            }
+            if st.team != unit_team || !st.status.under_construction {
+                continue;
+            }
+            if !st.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            let p = st.get_position();
+            let d = unit_pos.distance(p);
+            if d > SCAN {
+                continue;
+            }
+            if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
+                best = Some((sid, d, p));
+            }
+        }
+        let Some((tid, _, tpos)) = best else {
+            return;
+        };
+        if let Some(obj) = self.objects.get_mut(&unit_id) {
+            obj.set_target(Some(tid));
+            obj.target_location = None;
+            obj.ai_state = AIState::Constructing;
+        }
+        self.path_approach_with_state(unit_id, tpos, AIState::Constructing);
     }
 
     fn update_bomb_truck_poison_zones(&mut self) {
@@ -89264,6 +89353,16 @@ mod tests {
     }
 
     #[test]
+    fn auto_resume_construction_residual_test() {
+        let src = include_str!("game_logic.rs");
+        assert!(
+            src.contains("fn try_auto_resume_construction_residual")
+                && src.contains("try_auto_resume_construction_residual(object_id)"),
+            "AI dozers must auto-resume unfinished construction residual"
+        );
+    }
+
+    #[test]
     fn voice_select_on_select_objects_residual() {
         let src = include_str!("game_logic.rs");
         let start = src.find("pub fn select_objects").expect("select_objects");
@@ -89291,6 +89390,25 @@ mod tests {
         assert!(
             mbody.contains("VoiceMove"),
             "command_move must queue VoiceMove residual for local player"
+        );
+        let astart = src.find("pub fn command_attack").expect("command_attack");
+        let aend = src[astart + 1..]
+            .find(
+                "
+    /// Bridge a move command",
+            )
+            .or_else(|| {
+                src[astart + 1..].find(
+                    "
+    fn bridge_move_to_engine",
+                )
+            })
+            .map(|i| astart + 1 + i)
+            .unwrap_or(astart + 3500);
+        let abody = &src[astart..aend];
+        assert!(
+            abody.contains("VoiceAttack"),
+            "command_attack must queue VoiceAttack residual for local player"
         );
     }
 
