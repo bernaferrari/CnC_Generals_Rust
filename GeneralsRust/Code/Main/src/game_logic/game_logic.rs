@@ -6483,6 +6483,8 @@ impl GameLogic {
             // Pilot / Ranger / MissileDefender / Pathfinder / ColonelBurton residual.
             // ScanRate 1000ms / ScanRange 300 / NeverHeal 0.85 (AlwaysHeal busy path fail-closed).
             self.try_auto_find_healing_residual(object_id);
+            // AutoFindRepair residual: AI idle damaged vehicles → RepairPad/WarFactory.
+            self.try_auto_find_repair_residual(object_id);
             // C++ AIIdleState: CAN_BE_REPULSED idle units flee closest repulsor.
             let _ = self.try_idle_repulse(object_id);
             // C++ AIIdleState: checkForCrateToPickup → aiMoveToObject.
@@ -36880,6 +36882,103 @@ impl GameLogic {
     }
 
     /// Advance Bomb Truck BioBomb MediumPoisonField residual zones.
+    /// AutoFindRepair residual: AI idle damaged vehicles seek RepairPad / WarFactory.
+    ///
+    /// Fail-closed vs full AutoFindRepairUpdate INI matrix — host residual for AI only,
+    /// idle damaged ground vehicles/aircraft when health < 70%.
+    fn try_auto_find_repair_residual(&mut self, unit_id: ObjectId) {
+        // Throttle with healing scan cadence residual (30 frames).
+        use crate::game_logic::host_usa_pilot::auto_find_healing_scan_frame;
+        if !auto_find_healing_scan_frame(self.frame) {
+            return;
+        }
+
+        let snapshot = match self.objects.get(&unit_id) {
+            Some(obj) if obj.is_alive() => {
+                let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft)
+                    || obj.object_type == ObjectType::Vehicle
+                    || obj.object_type == ObjectType::Aircraft;
+                if !is_vehicle || obj.is_kind_of(KindOf::Structure) {
+                    return;
+                }
+                if !matches!(obj.ai_state, AIState::Idle) || obj.target.is_some() {
+                    return;
+                }
+                // Human player residual: no auto-seek.
+                let is_ai = self
+                    .player_id_for_team(obj.team)
+                    .and_then(|pid| self.players.get(&pid))
+                    .map(|p| !p.is_local)
+                    .unwrap_or(false);
+                if !is_ai {
+                    return;
+                }
+                let max_hp = obj.max_health.max(obj.health.maximum).max(1.0);
+                let ratio = obj.health.current / max_hp;
+                // Never seek above 70% residual (retail-ish NeverRepair).
+                if ratio >= 0.70 {
+                    return;
+                }
+                if !obj.can_move() {
+                    return;
+                }
+                (obj.get_position(), obj.team)
+            }
+            _ => return,
+        };
+        let (unit_pos, unit_team) = snapshot;
+
+        let mut best: Option<(ObjectId, f32, Vec3)> = None;
+        const SCAN_RANGE: f32 = 400.0;
+        for (&pid, pad) in &self.objects {
+            if pid == unit_id || !pad.is_alive() || !pad.is_constructed() {
+                continue;
+            }
+            if pad.team != unit_team {
+                continue;
+            }
+            if pad.status.under_construction || pad.status.sold {
+                continue;
+            }
+            let name = pad.template_name.to_ascii_lowercase();
+            let is_pad = pad
+                .building_data
+                .as_ref()
+                .map(|b| {
+                    matches!(
+                        b.building_type,
+                        BuildingType::RepairPad | BuildingType::WarFactory | BuildingType::Airfield
+                    )
+                })
+                .unwrap_or(false)
+                || name.contains("repair")
+                || name.contains("warfactory")
+                || name.contains("war_factory")
+                || name.contains("airfield")
+                || name.contains("air_field");
+            if !is_pad {
+                continue;
+            }
+            let p = pad.get_position();
+            let d = unit_pos.distance(p);
+            if d > SCAN_RANGE {
+                continue;
+            }
+            if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
+                best = Some((pid, d, p));
+            }
+        }
+        let Some((pad_id, _, pad_pos)) = best else {
+            return;
+        };
+        if let Some(obj) = self.objects.get_mut(&unit_id) {
+            obj.set_target(Some(pad_id));
+            obj.target_location = None;
+        }
+        self.path_approach_with_state(unit_id, pad_pos, AIState::SeekingRepair);
+    }
+
     fn update_bomb_truck_poison_zones(&mut self) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
@@ -89092,6 +89191,17 @@ mod tests {
             src.contains("fn find_nearest_harvestable_supply")
                 && src.contains("find_nearest_harvestable_supply(team, position)"),
             "gather residual must re-target nearest supply when pile empties"
+        );
+    }
+
+    #[test]
+    fn auto_find_repair_residual_test() {
+        let src = include_str!("game_logic.rs");
+        assert!(
+            src.contains("fn try_auto_find_repair_residual")
+                && src.contains("AIState::SeekingRepair")
+                && src.contains("try_auto_find_repair_residual(object_id)"),
+            "AI damaged vehicles must auto-seek repair pads residual"
         );
     }
 

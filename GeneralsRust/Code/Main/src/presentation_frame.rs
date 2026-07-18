@@ -5933,6 +5933,10 @@ impl PresentationFrame {
             push(&mut cmds, "Command_AttackMove", ro.has_weapon);
             push(&mut cmds, "Command_Guard", true);
             push(&mut cmds, "Command_Scatter", true);
+            // Multi-select formation residual.
+            if self.selection_ids_for_consumers().len() >= 2 {
+                push(&mut cmds, "Command_CreateFormation", true);
+            }
             // C++ Deploy residual (DeployStyle / sentry / crawler family).
             let n = ro.template_name.to_ascii_lowercase();
             if n.contains("sentry")
