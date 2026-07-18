@@ -570,6 +570,43 @@ pub fn collect_selected_units(
 /// W3DScene per-drawable tint pipeline.  This Rust implementation merges both
 /// into a single 3D overlay pass that executes after the terrain pass but
 /// before the UI pass.
+
+/// Selected structure → rally_point yellow line residual (C++ InGameUI rally).
+fn pack_rally_point_lines(frame: &crate::presentation_frame::PresentationFrame) -> Vec<f32> {
+    let mut out = Vec::new();
+    // Amber rally residual.
+    let color = [1.0f32, 0.85, 0.15, 0.8];
+    for o in &frame.objects {
+        if o.destroyed || !o.selected {
+            continue;
+        }
+        let Some(rp) = o.rally_point else {
+            continue;
+        };
+        // Only structures / producers.
+        if !o.is_structure {
+            continue;
+        }
+        out.extend_from_slice(&[
+            o.position.x,
+            o.position.y,
+            o.position.z,
+            color[0],
+            color[1],
+            color[2],
+            color[3],
+            rp.x,
+            rp.y,
+            rp.z,
+            color[0],
+            color[1],
+            color[2],
+            color[3],
+        ]);
+    }
+    out
+}
+
 pub fn enqueue_selection_render(
     pipeline: &mut crate::graphics::render_pipeline::RenderPipeline,
     view_matrix: &Mat4,
@@ -601,6 +638,8 @@ pub fn enqueue_selection_render(
         let atk_pack =
             crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(frame);
         order_line_vertices.extend_from_slice(&atk_pack.vertices);
+        // Structure rally-point line residual (selected producers → rally).
+        order_line_vertices.extend(pack_rally_point_lines(frame));
     }
 
     if drag_rect.is_none() && selected_units.is_empty() && order_line_vertices.is_empty() {
@@ -745,6 +784,16 @@ mod presentation_selection_tests {
         assert!(
             src.contains("selection_renderer::enqueue_selection_render"),
             "must use graphics selection_renderer production path"
+        );
+    }
+
+    #[test]
+    fn rally_point_line_overlay_residual() {
+        let src = include_str!("selection_renderer.rs");
+        assert!(
+            src.contains("fn pack_rally_point_lines")
+                && src.contains("pack_rally_point_lines(frame)"),
+            "selection overlay must pack selected structure rally lines"
         );
     }
 }
