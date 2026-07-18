@@ -7158,6 +7158,7 @@ impl CnCGameEngine {
             } else {
                 None
             };
+            let ground_markers = self.collect_ground_marker_circles();
             crate::graphics::selection_renderer::enqueue_selection_render(
                 &mut self.render_pipeline,
                 &self.view_matrix,
@@ -7171,6 +7172,7 @@ impl CnCGameEngine {
                 drag_rect.filter(|r| r.is_valid()),
                 self.current_player_id,
                 self.last_presentation_frame.as_ref(),
+                ground_markers,
             );
         }
         self.render_pipeline.execute(
@@ -9131,6 +9133,49 @@ impl CnCGameEngine {
         self.camera_target.y = ground_height;
         self.camera_target.z = clamped.z;
         self.apply_camera_orbit_transform();
+    }
+
+    /// Placement ghost footprint + pending map radius cursor residual for 3D overlay.
+    fn collect_ground_marker_circles(
+        &self,
+    ) -> Vec<crate::graphics::selection_renderer::SelectedUnit> {
+        use crate::graphics::selection_renderer::SelectedUnit;
+        let mut out = Vec::new();
+
+        // Structure placement ghost residual (green legal / red illegal).
+        let placement = self.game_hud.construction_panel.placement_preview();
+        if placement.is_active() {
+            let half = placement.footprint_half_extents;
+            let radius = half.0.max(half.1).max(8.0);
+            let color = if placement.is_legal {
+                [0.15, 0.95, 0.2, 0.45]
+            } else {
+                [0.95, 0.15, 0.1, 0.5]
+            };
+            out.push(SelectedUnit {
+                position: glam::Vec3::new(placement.world_pos.0, 0.0, placement.world_pos.1),
+                radius,
+                team_color: color,
+            });
+        }
+
+        // Special-power / AttackMove / Guard radius cursor residual.
+        if let Some(ov) = self.game_hud.construction_panel.radius_overlay() {
+            if ov.radius > 0.0 {
+                let color = if ov.is_legal {
+                    [ov.color.0, ov.color.1, ov.color.2, ov.color.3.max(0.35)]
+                } else {
+                    [1.0, 0.1, 0.1, 0.5]
+                };
+                out.push(SelectedUnit {
+                    position: glam::Vec3::new(ov.centre.0, 0.0, ov.centre.1),
+                    radius: ov.radius.max(1.0),
+                    team_color: color,
+                });
+            }
+        }
+
+        out
     }
 
     fn issue_minimap_move(&mut self, world_pos: Vec3) {
@@ -13353,5 +13398,19 @@ fn minimap_right_click_context_command_residual() {
     assert!(
         body.contains("process_mouse_input") && body.contains("find_object_at_position"),
         "minimap RMB must resolve target + command context like world RMB"
+    );
+}
+
+#[test]
+fn ground_marker_circles_overlay_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("collect_ground_marker_circles") && src.contains("ground_markers"),
+        "engine must feed placement/radius ground markers into selection overlay"
+    );
+    let sel = include_str!("graphics/selection_renderer.rs");
+    assert!(
+        sel.contains("ground_markers: Vec<SelectedUnit>"),
+        "selection overlay must accept ground_markers residual"
     );
 }
