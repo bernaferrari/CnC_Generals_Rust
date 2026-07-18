@@ -224,6 +224,8 @@ pub struct RenderableObject {
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
+    /// C++ OBJECT_STATUS_DEPLOYED residual.
+    pub is_deployed: bool,
     /// C++ Drawable selection flash envelope residual frames.
     pub selection_flash_remaining: u32,
     pub destroyed: bool,
@@ -2329,6 +2331,7 @@ impl PresentationFrame {
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
+                is_deployed: obj.status.deployed,
                 selection_flash_remaining: obj.selection_flash_remaining,
                 destroyed: obj.status.destroyed || !obj.is_alive(),
                 model_condition_bits: {
@@ -7843,6 +7846,16 @@ mod tests {
         assert!(
             hud.contains("fn sync_production_queue_from_presentation"),
             "GameHUD must own production queue sync residual"
+        );
+    }
+
+    #[test]
+    fn is_deployed_freezes_from_object_status_residual() {
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("pub is_deployed: bool")
+                && src.contains("is_deployed: obj.status.deployed"),
+            "PresentationFrame must freeze OBJECT_STATUS_DEPLOYED residual"
         );
     }
 
