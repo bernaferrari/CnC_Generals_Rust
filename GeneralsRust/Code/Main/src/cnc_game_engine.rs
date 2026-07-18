@@ -9294,7 +9294,38 @@ impl CnCGameEngine {
                 self.quick_load_from_hotkey("Ctrl+L");
             }
             Key::Named(NamedKey::Escape) => {
-                info!("Escape key pressed - should exit game");
+                // Outer event-loop Escape handler is unreachable for keyboard
+                // because input() consumes the event. Mirror C++ residual here:
+                // cancel placement/map-command first, else pause/resume.
+                match self.current_state {
+                    GameState::InGame => {
+                        if self.pending_structure_placement.is_some() {
+                            self.cancel_structure_placement_from_ui();
+                            info!("Escape cancelled structure placement residual");
+                        } else if self.pending_map_command.take().is_some() {
+                            let msg = "Cancelled pending command";
+                            self.game_hud.push_info_message(msg);
+                            self.ui_manager.game_hud_mut().push_info_message(msg);
+                            info!("Escape cancelled pending map command residual");
+                        } else {
+                            info!("Escape pressed in InGame state - pausing");
+                            self.request_state_change(GameState::Paused);
+                        }
+                    }
+                    GameState::Paused => {
+                        info!("Escape pressed in Paused state - resuming");
+                        self.request_state_change(GameState::InGame);
+                    }
+                    GameState::Menu | GameState::Loading => {
+                        info!("Escape pressed in Menu/Loading - exiting");
+                        self.request_state_change(GameState::Exiting);
+                    }
+                    GameState::Victory | GameState::Defeat => {
+                        info!("Escape pressed in endgame - returning to menu");
+                        self.request_state_change(GameState::Menu);
+                    }
+                    GameState::Exiting | GameState::Initializing => {}
+                }
             }
             Key::Named(NamedKey::F11) => {
                 // Toggle fullscreen mode
@@ -12061,5 +12092,32 @@ fn retail_selection_and_scatter_hotkeys_residual() {
     assert!(
         src.contains("eq_ignore_ascii_case(\"p\")") && src.contains("toggle_pause"),
         "P must remain pause residual"
+    );
+}
+
+#[test]
+fn escape_in_handle_key_press_cancels_then_pauses_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    // handle_key_press must own Escape because input() consumes keyboard events.
+    let marker = "fn handle_key_press(&mut self, key: &Key)";
+    let i = src.find(marker).expect("handle_key_press");
+    let body = &src[i..src.len().min(i + 12000)];
+    assert!(
+        body.contains("pending_structure_placement.is_some()")
+            && body.contains("cancel_structure_placement_from_ui()"),
+        "Escape must cancel structure placement in handle_key_press"
+    );
+    assert!(
+        body.contains("pending_map_command.take()")
+            || body.contains("pending_map_command.is_some()"),
+        "Escape must cancel pending map command in handle_key_press"
+    );
+    assert!(
+        body.contains("request_state_change(GameState::Paused)"),
+        "Escape must pause when no pending command"
+    );
+    assert!(
+        body.contains("request_state_change(GameState::InGame)"),
+        "Escape must resume from Paused"
     );
 }
