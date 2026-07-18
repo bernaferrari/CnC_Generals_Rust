@@ -20716,33 +20716,67 @@ impl GameLogic {
 
     /// Select objects for a player
     pub fn select_objects(&mut self, player_id: u32, object_ids: Vec<ObjectId>) {
-        if let Some(player) = self.players.get_mut(&player_id) {
-            // Deselect previously selected objects
-            for &old_id in &player.selected_objects {
-                if let Some(obj) = self.objects.get_mut(&old_id) {
-                    obj.deselect();
-                }
-            }
+        let Some(player_team) = self.players.get(&player_id).map(|p| p.team) else {
+            return;
+        };
+        let is_local = self
+            .players
+            .get(&player_id)
+            .map(|p| p.is_local)
+            .unwrap_or(false);
 
-            // Select new objects
-            player.selected_objects.clear();
-            for &object_id in &object_ids {
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    if obj.team == player.team && obj.is_selectable() {
-                        obj.select();
-                        // C++ Drawable::flashAsSelected residual on select / create-team.
-                        obj.flash_as_selected();
-                        player.selected_objects.push(object_id);
+        // Snapshot previous selection for deselect residual.
+        let previous: Vec<ObjectId> = self
+            .players
+            .get(&player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        for &old_id in &previous {
+            if let Some(obj) = self.objects.get_mut(&old_id) {
+                obj.deselect();
+            }
+        }
+
+        let mut selected = Vec::new();
+        let mut voice_pos = None;
+        let mut voice_template = None;
+        for &object_id in &object_ids {
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                if obj.team == player_team && obj.is_selectable() {
+                    obj.select();
+                    // C++ Drawable::flashAsSelected residual on select / create-team.
+                    obj.flash_as_selected();
+                    selected.push(object_id);
+                    if voice_pos.is_none() {
+                        voice_pos = Some(obj.get_position());
+                        voice_template = Some(obj.template_name.clone());
                     }
                 }
             }
-
-            log::debug!(
-                "{} selected {} objects",
-                player_id,
-                player.selected_objects.len()
-            );
         }
+
+        if let Some(player) = self.players.get_mut(&player_id) {
+            player.selected_objects = selected.clone();
+        }
+
+        // C++ VoiceSelect residual (primary selection unit).
+        if is_local {
+            if let (Some(pos), Some(template)) = (voice_pos, voice_template) {
+                let event = format!("{template}VoiceSelect");
+                self.queue_audio_event(
+                    AudioEventRequest::new(&event)
+                        .with_position(pos)
+                        .with_priority(100),
+                );
+                self.queue_audio_event(
+                    AudioEventRequest::new("UnitVoiceSelect")
+                        .with_position(pos)
+                        .with_priority(90),
+                );
+            }
+        }
+
+        log::debug!("{} selected {} objects", player_id, selected.len());
     }
 
     /// Issue move command to selected objects (with pathfinding)
@@ -20768,6 +20802,30 @@ impl GameLogic {
                 }
                 // Host pathfinding / move channel (default production path).
                 self.move_object_with_pathfinding(object_id, target_position, None);
+            }
+            // C++ VoiceMove residual for local player.
+            let local = self
+                .players
+                .get(&player_id)
+                .map(|p| p.is_local)
+                .unwrap_or(false);
+            if local {
+                if let Some(&oid) = selected.first() {
+                    if let Some(obj) = self.objects.get(&oid) {
+                        let event = format!("{}VoiceMove", obj.template_name);
+                        let pos = obj.get_position();
+                        self.queue_audio_event(
+                            AudioEventRequest::new(&event)
+                                .with_position(pos)
+                                .with_priority(100),
+                        );
+                        self.queue_audio_event(
+                            AudioEventRequest::new("UnitVoiceMove")
+                                .with_position(pos)
+                                .with_priority(90),
+                        );
+                    }
+                }
             }
             log::trace!(
                 "{} commanded {} units to move to {:?}",
@@ -89202,6 +89260,37 @@ mod tests {
                 && src.contains("AIState::SeekingRepair")
                 && src.contains("try_auto_find_repair_residual(object_id)"),
             "AI damaged vehicles must auto-seek repair pads residual"
+        );
+    }
+
+    #[test]
+    fn voice_select_on_select_objects_residual() {
+        let src = include_str!("game_logic.rs");
+        let start = src.find("pub fn select_objects").expect("select_objects");
+        let end = src[start + 1..]
+            .find(
+                "
+    pub fn ",
+            )
+            .map(|i| start + 1 + i)
+            .unwrap_or(start + 4000);
+        let body = &src[start..end];
+        assert!(
+            body.contains("VoiceSelect") && body.contains("queue_audio_event"),
+            "select_objects must queue VoiceSelect residual for local player"
+        );
+        let mstart = src.find("pub fn command_move").expect("command_move");
+        let mend = src[mstart + 1..]
+            .find(
+                "
+    pub fn ",
+            )
+            .map(|i| mstart + 1 + i)
+            .unwrap_or(mstart + 4000);
+        let mbody = &src[mstart..mend];
+        assert!(
+            mbody.contains("VoiceMove"),
+            "command_move must queue VoiceMove residual for local player"
         );
     }
 
