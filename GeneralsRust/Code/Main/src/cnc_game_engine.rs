@@ -10142,6 +10142,23 @@ impl CnCGameEngine {
                 // Dozer/Worker repair residual: arm structure click.
                 self.issue_named_command_from_ui("Command_Repair");
             }
+            Key::Character(c) if c.eq_ignore_ascii_case("y") && !ctrl_down => {
+                // Set factory rally point residual.
+                self.issue_named_command_from_ui("Command_SetRallyPoint");
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("o") && !ctrl_down => {
+                // China nuclear plant overcharge residual.
+                self.issue_named_command_from_ui("Command_ToggleOvercharge");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("c")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Infantry capture-building residual: arm structure click.
+                self.issue_named_command_from_ui("Command_CaptureBuilding");
+            }
             Key::Character(c) if c.eq_ignore_ascii_case("g") && !ctrl_down => {
                 // C++ Guard residual: arm map-click Guard (location or unit).
                 self.issue_named_command_from_ui("Command_Guard");
@@ -14631,5 +14648,24 @@ fn evacuate_and_repair_hotkey_residual() {
     assert!(
         cs.contains("\"repair\"") && cs.contains("CommandType::Repair"),
         "repair button name must map residual"
+    );
+}
+
+#[test]
+fn rally_overcharge_capture_hotkey_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"y\")") && src.contains("Command_SetRallyPoint"),
+        "Y must arm SetRallyPoint residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"o\")") && src.contains("Command_ToggleOvercharge"),
+        "O must toggle overcharge residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"c\")")
+            && src.contains("Command_CaptureBuilding")
+            && src.contains("!ctrl_down"),
+        "C must arm CaptureBuilding residual"
     );
 }
