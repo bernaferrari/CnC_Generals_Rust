@@ -9129,6 +9129,25 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("a")
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
+            {
+                // C++ classic A-key AttackMove residual: arm pending map click.
+                if !self.selected_objects.is_empty()
+                    || self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| !p.selected_objects.is_empty())
+                        .unwrap_or(false)
+                {
+                    self.pending_map_command = Some(PendingMapCommand::AttackMove);
+                    self.pending_structure_placement = None;
+                    let msg = "Attack-move: click destination";
+                    self.game_hud.push_info_message(msg);
+                    self.ui_manager.game_hud_mut().push_info_message(msg);
+                }
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("a")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Ctrl+A: select all selectable objects for current player team.
