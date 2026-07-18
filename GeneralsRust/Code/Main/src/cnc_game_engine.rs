@@ -6083,16 +6083,20 @@ impl CnCGameEngine {
                 info!("Entering Victory state - match won");
                 self.game_paused = true;
                 self.game_logic.set_paused(true);
-                self.ui_manager
-                    .show_match_result(true, self.current_player_id);
+                if self.ui_manager.current_screen() != Some(crate::ui::Screen::Victory) {
+                    self.ui_manager
+                        .show_match_result(true, self.current_player_id);
+                }
                 self.set_runtime_ui_state_projection(UISystemState::Victory);
             }
             GameState::Defeat => {
                 info!("Entering Defeat state - match lost");
                 self.game_paused = true;
                 self.game_logic.set_paused(true);
-                self.ui_manager
-                    .show_match_result(false, self.current_player_id);
+                if self.ui_manager.current_screen() != Some(crate::ui::Screen::Victory) {
+                    self.ui_manager
+                        .show_match_result(false, self.current_player_id);
+                }
                 self.set_runtime_ui_state_projection(UISystemState::Victory);
             }
             GameState::Initializing => {
@@ -9031,12 +9035,16 @@ impl CnCGameEngine {
         match winner {
             Some(id) if id == self.current_player_id => {
                 self.ui_manager.set_victory_with_summary(id, Some(summary));
+                self.request_state_change(GameState::Victory);
             }
             Some(_) => {
                 self.ui_manager.set_defeat_with_summary(Some(summary));
+                self.request_state_change(GameState::Defeat);
             }
             None => {
                 self.ui_manager.set_draw_with_summary(Some(summary));
+                // Draw freezes with Defeat residual (no separate Draw state).
+                self.request_state_change(GameState::Defeat);
             }
         }
     }
