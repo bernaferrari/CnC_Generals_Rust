@@ -6082,6 +6082,7 @@ impl PresentationFrame {
         if ro.is_structure || ro.can_produce {
             if ro.under_construction {
                 push(&mut cmds, "Command_CancelConstruction", true);
+                push(&mut cmds, "Command_ResumeConstruction", true);
             } else if ro.is_structure {
                 // C++ Command_Sell residual — completed structures only.
                 push(&mut cmds, "Command_Sell", true);
