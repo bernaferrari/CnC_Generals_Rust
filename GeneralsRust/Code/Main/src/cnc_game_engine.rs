@@ -7227,22 +7227,29 @@ impl CnCGameEngine {
     }
 
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            lbc_help_message_residual, LBC_OK,
+        };
+
         let template = resolve_ui_structure_template_name(template_name);
-        self.pending_structure_placement = None;
-        self.ui_manager
-            .game_hud_mut()
-            .construction_panel
-            .clear_structure_placement();
         if template.is_empty() || !location.x.is_finite() || !location.z.is_finite() {
             return;
         }
-        let logic = &mut self.game_logic;
-        let player_id = logic
+
+        let player_id = self
+            .game_logic
             .get_player(0)
             .map(|p| p.id)
-            .or_else(|| logic.get_players().keys().copied().min())
+            .or_else(|| self.game_logic.get_players().keys().copied().min())
             .unwrap_or(0);
-        let mut selected = logic
+        let team = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.team)
+            .unwrap_or(crate::game_logic::Team::USA);
+
+        let mut selected = self
+            .game_logic
             .get_player(player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -7250,7 +7257,7 @@ impl CnCGameEngine {
             .iter()
             .copied()
             .filter(|&id| {
-                logic.get_object(id).is_some_and(|o| {
+                self.game_logic.get_object(id).is_some_and(|o| {
                     if !o.is_alive() {
                         return false;
                     }
@@ -7264,20 +7271,62 @@ impl CnCGameEngine {
         }
         if selected.is_empty() {
             log::debug!("PlaceStructureAt ignored — no dozer/worker selection");
+            // Keep placement armed so player can select a dozer and retry.
+            self.pending_structure_placement = Some(template_name.to_string());
+            self.ui_manager
+                .game_hud_mut()
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
+            self.game_hud
+                .push_info_message("Select a dozer or worker to build");
             return;
         }
-        logic.queue_command(crate::command_system::GameCommand {
-            command_type: crate::command_system::CommandType::DozerConstruct {
-                template_name: template,
-                location,
-            },
-            player_id,
-            command_id: 0,
-            timestamp: std::time::SystemTime::now(),
-            selected_units: selected,
-            modifier_keys: crate::command_system::ModifierKeys::default(),
-        });
-        logic.process_commands();
+
+        let builder_id = selected.first().copied();
+        let lbc = self
+            .game_logic
+            .legal_build_code_at_for_builder(team, location, &template, builder_id);
+        if lbc != LBC_OK {
+            // C++ keeps placement mode active on illegal click residual.
+            self.pending_structure_placement = Some(template_name.to_string());
+            self.ui_manager
+                .game_hud_mut()
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
+            let msg = lbc_help_message_residual(lbc);
+            if !msg.is_empty() {
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+            }
+            log::debug!(
+                "PlaceStructureAt blocked LBC={} for {} at {:?}",
+                lbc,
+                template,
+                location
+            );
+            return;
+        }
+
+        // Legal — clear arm and issue DozerConstruct.
+        self.pending_structure_placement = None;
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .clear_structure_placement();
+
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::DozerConstruct {
+                    template_name: template,
+                    location,
+                },
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: selected,
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        self.game_logic.process_commands();
     }
 
     fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
