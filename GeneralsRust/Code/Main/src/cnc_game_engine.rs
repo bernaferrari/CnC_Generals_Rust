@@ -14859,7 +14859,13 @@ fn named_superweapon_button_residual() {
             && cs.contains("carpetbomb")
             && cs.contains("artillerybarrage")
             && cs.contains("emergencyrepair")
-            && cs.contains("airstrike"),
+            && cs.contains("airstrike")
+            && cs.contains("ambush")
+            && cs.contains("sneakattack")
+            && cs.contains("leafletdrop")
+            && cs.contains("gpsscrambler")
+            && cs.contains("spectregunship")
+            && cs.contains("anthraxbomb"),
         "named SW button names must map residual"
     );
     let pf = include_str!("presentation_frame.rs");
@@ -14871,7 +14877,11 @@ fn named_superweapon_button_residual() {
             && pf.contains("Command_EmergencyRepair")
             && pf.contains("Command_ArtilleryBarrage")
             && pf.contains("Command_SpyDrone")
-            && pf.contains("Command_Airstrike"),
+            && pf.contains("Command_Airstrike")
+            && pf.contains("Command_Ambush")
+            && pf.contains("Command_SneakAttack")
+            && pf.contains("Command_LeafletDrop")
+            && pf.contains("Command_SpectreGunship"),
         "SW structures must expose named buttons residual"
     );
     let eng = include_str!("cnc_game_engine.rs");
