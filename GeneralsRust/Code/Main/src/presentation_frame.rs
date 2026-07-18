@@ -5901,6 +5901,19 @@ impl PresentationFrame {
             push(&mut cmds, "Command_AttackMove", ro.has_weapon);
             push(&mut cmds, "Command_Guard", true);
             push(&mut cmds, "Command_Scatter", true);
+            // C++ Deploy residual (sentry/nuke cannon/scud/dozer unpack family).
+            let n = ro.template_name.to_ascii_lowercase();
+            if n.contains("sentry")
+                || n.contains("nukecannon")
+                || n.contains("scudlauncher")
+                || n.contains("scud_launcher")
+                || n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("stinger")
+                || n.contains("tunnel")
+            {
+                push(&mut cmds, "Command_Deploy", true);
+            }
         }
         if ro.is_structure || ro.can_produce {
             if ro.under_construction {
@@ -9534,6 +9547,37 @@ mod tests {
                 .iter()
                 .any(|n| n.eq_ignore_ascii_case("Command_SetRallyPoint")),
             "producer should expose SetRallyPoint: {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn unit_command_exposes_deploy_for_sentry_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let mut t = ThingTemplate::new("AmericaVehicleSentryDrone");
+        t.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleSentryDrone".into(), t);
+        let id = logic
+            .create_object("AmericaVehicleSentryDrone", Team::USA, glam::Vec3::ZERO)
+            .expect("sentry");
+        logic.select_objects(0, vec![id]);
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let names: Vec<_> = frame
+            .unit_command_buttons()
+            .into_iter()
+            .map(|b| b.command_name)
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("Command_Deploy")),
+            "sentry should expose Deploy: {:?}",
             names
         );
     }
