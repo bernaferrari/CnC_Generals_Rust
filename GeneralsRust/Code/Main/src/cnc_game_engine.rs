@@ -6686,6 +6686,7 @@ impl CnCGameEngine {
         if self.current_state == GameState::InGame {
             if let Some(pres) = self.last_presentation_frame.clone() {
                 self.apply_presentation_to_huds(&pres);
+                self.play_presentation_event_sfx(&pres);
                 self.sync_eva_messages_from_logic();
                 #[cfg(feature = "game_client")]
                 {
@@ -7029,6 +7030,7 @@ impl CnCGameEngine {
             if let Some(pres) = self.last_presentation_frame.clone() {
                 pres.apply_to_ui_state(&mut ui_state);
                 self.apply_presentation_to_huds(&pres);
+                self.play_presentation_event_sfx(&pres);
                 self.sync_eva_messages_from_logic();
                 #[cfg(feature = "game_client")]
                 {
@@ -7445,6 +7447,26 @@ impl CnCGameEngine {
         if ally > self.last_eva_ally_under_attack_count {
             self.last_eva_ally_under_attack_count = ally;
             push("Ally under attack");
+        }
+    }
+
+    fn play_presentation_event_sfx(
+        &mut self,
+        frame: &crate::presentation_frame::PresentationFrame,
+    ) {
+        for ev in &frame.events {
+            match ev {
+                crate::presentation_frame::PresentationEvent::ConstructionComplete { .. } => {
+                    self.play_sound_effect(SoundType::ConstructionComplete);
+                }
+                crate::presentation_frame::PresentationEvent::ProductionComplete { .. } => {
+                    self.play_sound_effect(SoundType::UnitReady);
+                }
+                crate::presentation_frame::PresentationEvent::UpgradeComplete { .. } => {
+                    self.play_sound_effect(SoundType::UpgradeComplete);
+                }
+                _ => {}
+            }
         }
     }
 
@@ -11807,6 +11829,9 @@ impl CnCGameEngine {
             let kind = match sound_type {
                 SoundType::Select => "UnitSelect",
                 SoundType::Command => "UnitCommand",
+                SoundType::ConstructionComplete => "ConstructionComplete",
+                SoundType::UnitReady => "UnitReady",
+                SoundType::UpgradeComplete => "UpgradeComplete",
                 SoundType::Hit => "WeaponHit",
                 SoundType::Explosion => "Explosion",
                 SoundType::Build => "BuildingComplete",
@@ -11838,6 +11863,9 @@ impl CnCGameEngine {
         let (frequency, duration) = match sound_type {
             SoundType::Select => (800.0, 0.1),
             SoundType::Command => (600.0, 0.15),
+            SoundType::ConstructionComplete => (900.0, 0.25),
+            SoundType::UnitReady => (700.0, 0.2),
+            SoundType::UpgradeComplete => (750.0, 0.22),
             SoundType::Hit => (300.0, 0.2),
             SoundType::Explosion => (150.0, 0.5),
             SoundType::Build => (1000.0, 0.3),
@@ -12114,6 +12142,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 enum SoundType {
     Select,
     Command,
+    ConstructionComplete,
+    UnitReady,
+    UpgradeComplete,
     Hit,
     Explosion,
     Build,
@@ -14197,5 +14228,16 @@ fn pending_unit_ability_arm_residual() {
             && src.contains("PendingUnitAbility::SnipeVehicle")
             && src.contains("PendingUnitAbility::PlantTimedDemoCharge"),
         "hero/ability set must include hijack/snipe/charges residual"
+    );
+}
+
+#[test]
+fn presentation_event_sfx_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn play_presentation_event_sfx")
+            && src.contains("SoundType::ConstructionComplete")
+            && src.contains("SoundType::UnitReady"),
+        "presentation complete events must play SFX residual"
     );
 }
