@@ -48429,6 +48429,20 @@ impl GameLogic {
         self.is_script_time_frozen() || self.is_script_camera_time_frozen()
     }
 
+    /// Player residual: lock camera follow to an object (None clears).
+    pub fn set_camera_follow_object(&mut self, id: Option<ObjectId>) {
+        self.camera_follow_target = id;
+        if let Some(oid) = id {
+            if let Some(obj) = self.objects.get(&oid) {
+                self.request_camera_focus(obj.get_position());
+            }
+        }
+    }
+
+    pub fn camera_follow_object_id(&self) -> Option<ObjectId> {
+        self.camera_follow_target
+    }
+
     pub fn camera_follow_target_position(&mut self) -> Option<Vec3> {
         let target = self.camera_follow_target?;
         let Some(obj) = self.objects.get(&target) else {
