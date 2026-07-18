@@ -221,6 +221,15 @@ impl PlacementPreview {
         self.display_name.clear();
         self.cost = 0;
     }
+
+    /// Update ghost cursor world position + legality residual.
+    pub fn update_cursor(&mut self, world_x: f32, world_z: f32, is_legal: bool) {
+        if !self.is_active() {
+            return;
+        }
+        self.world_pos = (world_x, world_z);
+        self.is_legal = is_legal;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -619,6 +628,18 @@ impl ConstructionPanel {
 
     pub fn placement_mut(&mut self) -> &mut PlacementPreview {
         &mut self.placement
+    }
+
+    pub fn sync_placement_cursor(&mut self, world_x: f32, world_z: f32, is_legal: bool) {
+        self.placement.update_cursor(world_x, world_z, is_legal);
+    }
+
+    pub fn clear_structure_placement(&mut self) {
+        self.placement.cancel();
+    }
+
+    pub fn arm_structure_placement(&mut self, template_name: String) {
+        self.placement.start(&template_name, &template_name, 0);
     }
 
     pub fn cancel_placement(&mut self) {

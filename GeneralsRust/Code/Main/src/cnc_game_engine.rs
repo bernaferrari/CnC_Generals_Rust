@@ -6665,6 +6665,7 @@ impl CnCGameEngine {
                 }
                 self.diplomacy_panel.update(dt);
                 self.chat_panel.update(dt);
+                self.sync_pending_structure_placement_cursor();
             } else {
                 warn!(
                     "Skipping Game HUD update due to non-finite delta time: {}",
@@ -7443,10 +7444,44 @@ impl CnCGameEngine {
 
     fn cancel_structure_placement_from_ui(&mut self) {
         self.pending_structure_placement = None;
+        self.game_hud.construction_panel.clear_structure_placement();
         self.ui_manager
             .game_hud_mut()
             .construction_panel
             .clear_structure_placement();
+    }
+
+    /// Update structure placement ghost legality under cursor residual.
+    fn sync_pending_structure_placement_cursor(&mut self) {
+        let Some(template) = self.pending_structure_placement.clone() else {
+            return;
+        };
+        let loc = self.mouse_world_position;
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .map(|p| p.team)
+                .unwrap_or(crate::game_logic::Team::USA)
+        };
+        let builder_id = self.selected_objects.first().copied().or_else(|| {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .and_then(|p| p.selected_objects.first().copied())
+        });
+        let code = self
+            .game_logic
+            .legal_build_code_at_for_builder(team, loc, &template, builder_id);
+        let legal = code == crate::game_logic::host_production_buildable_command_residual::LBC_OK;
+        // Dual HUD residual
+        self.game_hud
+            .construction_panel
+            .sync_structure_placement_cursor(loc.x, loc.z, legal);
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .sync_structure_placement_cursor(loc.x, loc.z, legal);
     }
 
     fn begin_structure_placement_from_ui(&mut self, template_name: &str) {
@@ -7454,7 +7489,10 @@ impl CnCGameEngine {
             return;
         }
         self.pending_structure_placement = Some(template_name.to_string());
-        // Mirror onto UIManager HUD residual (click path state).
+        // Dual HUD residual: engine HUD + interactive UIManager HUD ghosts.
+        self.game_hud
+            .construction_panel
+            .arm_structure_placement(template_name.to_string());
         self.ui_manager
             .game_hud_mut()
             .construction_panel
@@ -13088,5 +13126,22 @@ fn drag_select_rect_overlay_residual() {
         src.contains("Defer empty-ground clear until left-release")
             || src.contains("Instant clear on mousedown fights drag-select"),
         "mousedown must not clear selection before drag completes"
+    );
+}
+
+#[test]
+fn structure_placement_ghost_cursor_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("sync_pending_structure_placement_cursor")
+            && src.contains("sync_structure_placement_cursor")
+            && src.contains("legal_build_code_at_for_builder"),
+        "placement ghost must track cursor legality each frame"
+    );
+    let hud = include_str!("ui/hud.rs");
+    assert!(
+        hud.contains("placement: crate::ui::construction_panel::PlacementPreview")
+            || hud.contains("PlacementPreview"),
+        "HUD ConstructionPanel must own PlacementPreview ghost"
     );
 }
