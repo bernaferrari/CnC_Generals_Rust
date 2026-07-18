@@ -7196,12 +7196,23 @@ impl CnCGameEngine {
                 } => {
                     self.place_structure_from_ui(&template_name, location);
                 }
+                UIEvent::CancelStructurePlacement => {
+                    self.cancel_structure_placement_from_ui();
+                }
                 _ => {}
             }
         }
     }
 
     /// C++ ControlBar production cameo → QueueUnitCreate residual.
+    fn cancel_structure_placement_from_ui(&mut self) {
+        self.pending_structure_placement = None;
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .clear_structure_placement();
+    }
+
     fn begin_structure_placement_from_ui(&mut self, template_name: &str) {
         if template_name.trim().is_empty() {
             return;
@@ -11042,8 +11053,14 @@ pub async fn run_cnc_game(
                             ..
                         } => match engine.get_state() {
                             GameState::InGame => {
-                                info!("Escape pressed in InGame state - pausing");
-                                engine.request_state_change(GameState::Paused);
+                                // C++ Escape cancels structure placement before pause residual.
+                                if engine.pending_structure_placement.is_some() {
+                                    engine.cancel_structure_placement_from_ui();
+                                    info!("Escape cancelled structure placement residual");
+                                } else {
+                                    info!("Escape pressed in InGame state - pausing");
+                                    engine.request_state_change(GameState::Paused);
+                                }
                             }
                             GameState::Paused => {
                                 info!("Escape pressed in Paused state - resuming");
