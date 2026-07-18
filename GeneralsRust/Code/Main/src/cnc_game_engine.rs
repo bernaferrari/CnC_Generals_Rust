@@ -10497,6 +10497,14 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("r")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all repairing units residual (Ctrl+Alt+R).
+                self.select_all_repairing_units();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("r")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
                     && !ctrl_down =>
             {
@@ -10662,6 +10670,22 @@ impl CnCGameEngine {
             {
                 // Stop all friendly mobile units residual (Ctrl+Shift+.).
                 self.stop_all_friendly_units();
+            }
+            Key::Character(c)
+                if (c == "." || c == ">")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Cycle idle military residual (Ctrl+Alt+.).
+                self.cycle_idle_military_selection(1);
+            }
+            Key::Character(c)
+                if (c == "," || c == "<")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Cycle idle military residual (Ctrl+Alt+,).
+                self.cycle_idle_military_selection(-1);
             }
             Key::Character(c) if (c == "." || c == ">") && !ctrl_down => {
                 // Retail-ish next idle worker residual (period key).
@@ -11782,6 +11806,112 @@ impl CnCGameEngine {
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
         self.play_sound_effect(SoundType::Command);
+    }
+
+    /// Cycle idle friendly combat units residual (Ctrl+Alt+, / .).
+    fn cycle_idle_military_selection(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            if obj.is_dozer
+                || n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("supply")
+                || n.contains("harvester")
+            {
+                continue;
+            }
+            if !obj.can_move() && !obj.can_attack() {
+                continue;
+            }
+            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                && obj.target.is_none()
+                && !obj.status.moving;
+            if idle {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No idle military";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.selected_objects = vec![next];
+        if let Some(obj) = self.game_logic.find_object(next) {
+            let clamped = self.clamp_to_world_bounds(obj.get_position());
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Idle military selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all friendly units currently repairing residual (Ctrl+Alt+R).
+    fn select_all_repairing_units(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if matches!(obj.ai_state, crate::game_logic::AIState::Repairing) {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No repairing units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} repairing", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     fn select_all_idle_military(&mut self) {
@@ -17002,5 +17132,22 @@ fn center_selection_and_constructing_workers_residual() {
             && src.contains("select_all_constructing_workers()")
             && src.contains("No constructing workers"),
         "Ctrl+Alt+B must select constructing workers residual"
+    );
+}
+
+#[test]
+fn idle_military_cycle_and_repairing_select_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn cycle_idle_military_selection")
+            && src.contains("cycle_idle_military_selection(1)")
+            && src.contains("No idle military"),
+        "Ctrl+Alt+,/. must cycle idle military residual"
+    );
+    assert!(
+        src.contains("fn select_all_repairing_units")
+            && src.contains("select_all_repairing_units()")
+            && src.contains("No repairing units"),
+        "Ctrl+Alt+R must select repairing units residual"
     );
 }
