@@ -1290,6 +1290,10 @@ pub struct CnCGameEngine {
     last_control_group_select: Option<(u8, Instant)>,
     /// Retail SAVE_VIEW1..8 / VIEW_VIEW1..8 camera bookmark residual (F1-F8).
     camera_view_bookmarks: [Option<Vec3>; 8],
+    camera_rotate_left_held: bool,
+    camera_rotate_right_held: bool,
+    camera_zoom_in_held: bool,
+    camera_zoom_out_held: bool,
     /// Retail DIPLOMACY KEY_TAB residual panel.
     diplomacy_panel: crate::ui::DiplomacyPanel,
     /// Retail CHAT_EVERYONE / CHAT_ALLIES residual panel.
@@ -4533,6 +4537,10 @@ impl CnCGameEngine {
             control_groups: HashMap::new(),
             last_control_group_select: None,
             camera_view_bookmarks: [None; 8],
+            camera_rotate_left_held: false,
+            camera_rotate_right_held: false,
+            camera_zoom_in_held: false,
+            camera_zoom_out_held: false,
             diplomacy_panel: crate::ui::DiplomacyPanel::new(),
             chat_panel: crate::ui::ChatPanel::new(),
             current_player_id: 0,
@@ -5637,18 +5645,59 @@ impl CnCGameEngine {
                                 let _ = self.ui_manager.handle_key_press(ui_key);
                             }
                         }
-                        // Retail CAMERA_RESET KEY_KP5 residual (physical numpad).
-                        if matches!(
-                            physical_key,
-                            winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Numpad5)
-                        ) {
-                            self.reset_camera_view_hotkey();
-                        } else {
-                            self.handle_key_press(key);
+                        // Retail numpad camera residual (physical keys).
+                        match physical_key {
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad5,
+                            ) => self.reset_camera_view_hotkey(),
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad4,
+                            ) => {
+                                self.camera_rotate_left_held = true;
+                            }
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad6,
+                            ) => {
+                                self.camera_rotate_right_held = true;
+                            }
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad8,
+                            ) => {
+                                self.camera_zoom_in_held = true;
+                            }
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad2,
+                            ) => {
+                                self.camera_zoom_out_held = true;
+                            }
+                            _ => self.handle_key_press(key),
                         }
                     }
                     ElementState::Released => {
                         self.keys_pressed.remove(key);
+                        match physical_key {
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad4,
+                            ) => {
+                                self.camera_rotate_left_held = false;
+                            }
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad6,
+                            ) => {
+                                self.camera_rotate_right_held = false;
+                            }
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad8,
+                            ) => {
+                                self.camera_zoom_in_held = false;
+                            }
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Numpad2,
+                            ) => {
+                                self.camera_zoom_out_held = false;
+                            }
+                            _ => {}
+                        }
                     }
                 }
                 true
@@ -9318,6 +9367,10 @@ impl CnCGameEngine {
                 // C++ MSG_META_STOP residual: stop selected units immediately.
                 self.issue_named_command_from_ui("Command_Stop");
             }
+            Key::Character(c) if c.eq_ignore_ascii_case("d") && !ctrl_down => {
+                // C&C Generals standard Deploy residual (CommandMap DEPLOY commented but UI uses D).
+                self.issue_named_command_from_ui("Command_Deploy");
+            }
             Key::Character(c) if c.eq_ignore_ascii_case("g") && !ctrl_down => {
                 // C++ Guard residual: arm map-click Guard (location or unit).
                 self.issue_named_command_from_ui("Command_Guard");
@@ -10172,6 +10225,22 @@ impl CnCGameEngine {
     }
 
     fn update_camera(&mut self, dt: f32) {
+        // Retail KP4/KP6 rotate and KP8/KP2 zoom hold residual.
+        const ROTATE_RAD_PER_SEC: f32 = 1.2;
+        const ZOOM_PER_SEC: f32 = 0.85;
+        if self.camera_rotate_left_held {
+            self.camera_yaw_radians -= ROTATE_RAD_PER_SEC * dt;
+        }
+        if self.camera_rotate_right_held {
+            self.camera_yaw_radians += ROTATE_RAD_PER_SEC * dt;
+        }
+        if self.camera_zoom_in_held {
+            self.camera_zoom = (self.camera_zoom - ZOOM_PER_SEC * dt).clamp(0.1, 5.0);
+        }
+        if self.camera_zoom_out_held {
+            self.camera_zoom = (self.camera_zoom + ZOOM_PER_SEC * dt).clamp(0.1, 5.0);
+        }
+
         let mut movement = Vec3::ZERO;
         if self.camera_slave_mode.is_none() {
             let logic_frames_per_second =
@@ -12689,5 +12758,30 @@ fn chat_and_screenshot_hotkeys_residual() {
     assert!(
         src.contains("Escape closed chat residual"),
         "Escape must close chat first"
+    );
+}
+
+#[test]
+fn deploy_and_numpad_camera_hold_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down") && src.contains("Command_Deploy"),
+        "D must Deploy residual"
+    );
+    assert!(
+        src.contains("Numpad4") && src.contains("camera_rotate_left_held"),
+        "KP4 must rotate-left hold residual"
+    );
+    assert!(
+        src.contains("Numpad6") && src.contains("camera_rotate_right_held"),
+        "KP6 must rotate-right hold residual"
+    );
+    assert!(
+        src.contains("Numpad8") && src.contains("camera_zoom_in_held"),
+        "KP8 must zoom-in hold residual"
+    );
+    assert!(
+        src.contains("Numpad2") && src.contains("camera_zoom_out_held"),
+        "KP2 must zoom-out hold residual"
     );
 }

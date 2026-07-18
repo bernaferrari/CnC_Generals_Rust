@@ -1976,6 +1976,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
     match key {
         "stop" => Some(CommandType::Stop),
         "scatter" => Some(CommandType::Scatter),
+        "deploy" => Some(CommandType::Deploy),
         "cheer" | "allcheer" | "groupcheer" => Some(CommandType::Cheer),
         "createformation" | "formation" => Some(CommandType::CreateFormation),
         "viewcommandcenter" | "centerbase" => Some(CommandType::ViewCommandCenter),
@@ -2965,6 +2966,10 @@ mod tests {
         assert!(matches!(
             command_type_from_button_name("Command_Cheer"),
             Some(CommandType::Cheer)
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_Deploy"),
+            Some(CommandType::Deploy)
         ));
     }
 
