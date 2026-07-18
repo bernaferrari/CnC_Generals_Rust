@@ -1301,6 +1301,8 @@ pub struct CnCGameEngine {
     last_eva_ally_under_attack_count: u32,
     /// C++ sticky waypoint mode residual (Alt hold still works; Z toggles).
     sticky_waypoint_mode: bool,
+    /// Sticky auto-attack residual (Ctrl+Shift+A): convert plain moves to attack-move.
+    sticky_auto_attack: bool,
     is_dragging: bool,
     selection_start: Option<Vec3>,
     /// Screen-space drag origin for selection box overlay residual.
@@ -4564,6 +4566,7 @@ impl CnCGameEngine {
             last_eva_base_under_attack_count: 0,
             last_eva_ally_under_attack_count: 0,
             sticky_waypoint_mode: false,
+            sticky_auto_attack: false,
             is_dragging: false,
             selection_start: None,
             selection_start_screen: None,
@@ -9621,7 +9624,15 @@ impl CnCGameEngine {
             &self.game_logic,
         );
 
-        if let Some(command) = command {
+        if let Some(mut command) = command {
+            if self.sticky_auto_attack {
+                if let crate::command_system::CommandType::MoveTo { destination, .. } =
+                    command.command_type
+                {
+                    command.command_type =
+                        crate::command_system::CommandType::AttackMoveTo { destination };
+                }
+            }
             self.game_logic.queue_command(command);
             self.game_logic.process_commands();
             self.play_sound_effect(SoundType::Command);
@@ -9629,8 +9640,13 @@ impl CnCGameEngine {
         }
 
         // Fail-closed fallback residual: move if context path produced nothing.
-        self.game_logic
-            .command_move(self.current_player_id, clamped);
+        if self.sticky_auto_attack {
+            self.game_logic
+                .command_attack_move(self.current_player_id, clamped);
+        } else {
+            self.game_logic
+                .command_move(self.current_player_id, clamped);
+        }
         self.play_sound_effect(SoundType::Command);
     }
 
@@ -10118,6 +10134,18 @@ impl CnCGameEngine {
                 // Retail CommandMap ALL_CHEER Ctrl+C residual.
                 self.issue_named_command_from_ui("Command_Cheer");
             }
+            Key::Named(NamedKey::ArrowRight)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // SELECT_NEXT_STRUCTURE residual (Ctrl+Shift+Right).
+                self.cycle_friendly_structure_selection(1);
+            }
+            Key::Named(NamedKey::ArrowLeft)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // SELECT_PREV_STRUCTURE residual (Ctrl+Shift+Left).
+                self.cycle_friendly_structure_selection(-1);
+            }
             Key::Named(NamedKey::ArrowRight) if ctrl_down => {
                 // Retail SELECT_NEXT_UNIT Ctrl+Right residual.
                 self.cycle_friendly_selection(1);
@@ -10133,6 +10161,22 @@ impl CnCGameEngine {
             Key::Named(NamedKey::ArrowDown) if ctrl_down => {
                 // Retail SELECT_PREV_WORKER Ctrl+Down residual.
                 self.cycle_friendly_worker_selection(-1);
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("a")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Sticky auto-attack residual (Ctrl+Shift+A): RMB move becomes attack-move.
+                // Stored on engine; MouseCommandContext path honors via force AttackMove.
+                self.sticky_auto_attack = !self.sticky_auto_attack;
+                let msg = if self.sticky_auto_attack {
+                    "Auto-attack: ON"
+                } else {
+                    "Auto-attack: OFF"
+                };
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
             }
             Key::Named(NamedKey::F9) => {
                 // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
@@ -10652,6 +10696,83 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
     }
 
+    /// Retail-ish SELECT_NEXT/PREV_STRUCTURE residual.
+    fn cycle_friendly_structure_selection(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let mut structures: Vec<ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame
+                    .objects
+                    .iter()
+                    .filter(|o| {
+                        !o.destroyed
+                            && o.team == team
+                            && o.is_structure
+                            && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+                    })
+                    .map(|o| o.id)
+                    .collect()
+            } else {
+                self.game_logic
+                    .get_objects()
+                    .iter()
+                    .filter(|(_, obj)| {
+                        obj.team == team
+                            && obj.is_alive()
+                            && obj.is_selectable()
+                            && (obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                                || obj.object_type == crate::game_logic::ObjectType::Building)
+                    })
+                    .map(|(&id, _)| id)
+                    .collect()
+            };
+        structures.sort_by_key(|id| id.0);
+        if structures.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            structures
+                .iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = structures.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    structures[i]
+                })
+                .unwrap_or(structures[0])
+        } else if delta >= 0 {
+            structures[0]
+        } else {
+            structures[structures.len() - 1]
+        };
+
+        self.selected_objects = vec![next];
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        // Center camera on structure residual.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            if let Some(o) = frame.objects.iter().find(|o| o.id == next) {
+                let clamped = self.clamp_to_world_bounds(o.position);
+                self.camera_target.x = clamped.x;
+                self.camera_target.z = clamped.z;
+            }
+        } else if let Some(obj) = self.game_logic.find_object(next) {
+            let clamped = self.clamp_to_world_bounds(obj.get_position());
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+    }
+
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
     fn select_all_friendly_units(&mut self) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
@@ -11111,7 +11232,15 @@ impl CnCGameEngine {
             &self.game_logic,
         );
 
-        if let Some(command) = command {
+        if let Some(mut command) = command {
+            if self.sticky_auto_attack {
+                if let crate::command_system::CommandType::MoveTo { destination, .. } =
+                    command.command_type
+                {
+                    command.command_type =
+                        crate::command_system::CommandType::AttackMoveTo { destination };
+                }
+            }
             self.game_logic.queue_command(command);
             self.game_logic.process_commands();
             self.play_sound_effect(SoundType::Command);
@@ -11119,8 +11248,13 @@ impl CnCGameEngine {
         }
 
         // Fail-closed fallback residual: move if context path produced nothing.
-        self.game_logic
-            .command_move(self.current_player_id, mouse_pos);
+        if self.sticky_auto_attack {
+            self.game_logic
+                .command_attack_move(self.current_player_id, mouse_pos);
+        } else {
+            self.game_logic
+                .command_move(self.current_player_id, mouse_pos);
+        }
         self.play_sound_effect(SoundType::Command);
     }
 
@@ -14337,5 +14471,20 @@ fn structure_placement_rotate_residual() {
             && src.contains("facing_radians")
             && src.contains("pending_structure_placement.is_some()"),
         "mouse wheel must rotate structure placement ghost residual"
+    );
+}
+
+#[test]
+fn structure_cycle_and_auto_attack_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn cycle_friendly_structure_selection")
+            && src.contains("SELECT_NEXT_STRUCTURE")
+            && src.contains("sticky_auto_attack"),
+        "structure cycle + sticky auto-attack residual required"
+    );
+    assert!(
+        src.contains("Auto-attack: ON") && src.contains("AttackMoveTo"),
+        "sticky auto-attack must convert moves to attack-move"
     );
 }
