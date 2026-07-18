@@ -10397,7 +10397,18 @@ impl CnCGameEngine {
                     self.issue_named_command_from_ui("Command_RemoveBeacon");
                 }
             }
-            Key::Named(NamedKey::Tab) => {
+            Key::Named(NamedKey::Tab)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Cycle control groups residual (Ctrl+Shift+Tab).
+                let delta = if self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) {
+                    -1
+                } else {
+                    1
+                };
+                self.cycle_control_group_selection(delta);
+            }
+            Key::Named(NamedKey::Tab) if !ctrl_down => {
                 // Retail CommandMap DIPLOMACY KEY_TAB residual.
                 self.toggle_diplomacy_panel_hotkey();
             }
@@ -10809,6 +10820,14 @@ impl CnCGameEngine {
             {
                 // Select idle harvesters residual (Ctrl+Alt+I).
                 self.select_idle_harvesters();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("k")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select stealthed friendlies residual (Ctrl+Alt+K).
+                self.select_all_friendly_stealthed();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("i")
@@ -12511,6 +12530,118 @@ impl CnCGameEngine {
     }
 
     /// Select all friendly veteran+ units residual (Ctrl+Alt+E).
+
+    /// Cycle non-empty control groups residual (Ctrl+Alt+Left/Right already damaged structures).
+    /// Use Ctrl+Shift+Tab residual: next/prev control group.
+    fn cycle_control_group_selection(&mut self, delta: i32) {
+        let mut groups: Vec<u8> = self
+            .control_groups
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, _)| *k)
+            .collect();
+        groups.sort();
+        if groups.is_empty() {
+            let msg = "No control groups";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let current = self
+            .last_control_group_select
+            .map(|(g, _)| g)
+            .and_then(|g| groups.iter().position(|x| *x == g));
+        let idx = match current {
+            Some(i) => {
+                let n = groups.len() as i32;
+                ((i as i32 + delta).rem_euclid(n)) as usize
+            }
+            None => {
+                if delta >= 0 {
+                    0
+                } else {
+                    groups.len() - 1
+                }
+            }
+        };
+        let group_num = groups[idx];
+        let stored = self
+            .control_groups
+            .get(&group_num)
+            .cloned()
+            .unwrap_or_default();
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.filter_alive_selectable_ids(&stored, team)
+        } else {
+            let mut live = Vec::new();
+            for id in stored {
+                if let Some(obj) = self.game_logic.find_object(id) {
+                    if obj.team == team && obj.is_selectable() && obj.is_alive() {
+                        live.push(id);
+                    }
+                }
+            }
+            live
+        };
+        if selection.is_empty() {
+            let msg = format!("Control group {group_num} empty");
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, selection.clone());
+        self.selected_objects = selection;
+        self.last_control_group_select = Some((group_num, Instant::now()));
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Control group {group_num}");
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select all friendly effectively stealthed units residual (Ctrl+Alt+K).
+    fn select_all_friendly_stealthed(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_effectively_stealthed() {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No stealthed units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} stealthed", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
     fn select_all_friendly_veterans(&mut self) {
         use crate::game_logic::VeterancyLevel;
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
@@ -17485,5 +17616,22 @@ fn fps_veterans_and_docked_aircraft_residual() {
             && src.contains("No docked aircraft")
             && src.contains("select_all_docked_aircraft()"),
         "Ctrl+Alt+W must select docked aircraft residual"
+    );
+}
+
+#[test]
+fn control_group_cycle_and_stealth_select_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn cycle_control_group_selection")
+            && src.contains("cycle_control_group_selection")
+            && src.contains("No control groups"),
+        "Ctrl+Shift+Tab must cycle control groups residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_stealthed")
+            && src.contains("select_all_friendly_stealthed()")
+            && src.contains("No stealthed units"),
+        "Ctrl+Alt+K must select stealthed residual"
     );
 }
