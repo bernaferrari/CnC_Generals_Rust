@@ -6517,7 +6517,7 @@ impl CnCGameEngine {
         // (resources + minimap + selection health). ControlBar health is snapshot-owned.
         if self.current_state == GameState::InGame {
             if let Some(pres) = self.last_presentation_frame.clone() {
-                pres.apply_to_game_hud(&mut self.game_hud);
+                self.apply_presentation_to_huds(&pres);
                 #[cfg(feature = "game_client")]
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
@@ -6799,7 +6799,7 @@ impl CnCGameEngine {
         let Some(pres) = self.last_presentation_frame.clone() else {
             return false;
         };
-        pres.apply_to_game_hud(&mut self.game_hud);
+        self.apply_presentation_to_huds(&pres);
         #[cfg(feature = "game_client")]
         {
             pres.apply_to_control_bar(&mut self.control_bar);
@@ -6854,7 +6854,7 @@ impl CnCGameEngine {
             let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
             if let Some(pres) = self.last_presentation_frame.clone() {
                 pres.apply_to_ui_state(&mut ui_state);
-                pres.apply_to_game_hud(&mut self.game_hud);
+                self.apply_presentation_to_huds(&pres);
                 #[cfg(feature = "game_client")]
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
@@ -7205,6 +7205,15 @@ impl CnCGameEngine {
     }
 
     /// C++ ControlBar production cameo → QueueUnitCreate residual.
+    /// Keep interactive UIManager HUD and engine GameHUD presentation-synced residual.
+    ///
+    /// Clicks route through `ui_manager.game_hud`; resources/selection presentation
+    /// historically only updated `self.game_hud`. Dual-apply closes that gap.
+    fn apply_presentation_to_huds(&mut self, pres: &crate::presentation_frame::PresentationFrame) {
+        self.apply_presentation_to_huds(&pres);
+        pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
+    }
+
     fn cancel_structure_placement_from_ui(&mut self) {
         self.pending_structure_placement = None;
         self.ui_manager
