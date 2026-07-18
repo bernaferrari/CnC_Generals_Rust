@@ -10643,6 +10643,14 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("m")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all moving friendlies residual (Ctrl+Alt+M).
+                self.select_all_friendly_moving();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("m")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
                     && !ctrl_down =>
             {
@@ -10660,6 +10668,14 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("h") && !ctrl_down => {
                 // Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual.
                 self.issue_named_command_from_ui("Command_ViewCommandCenter");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("h")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Toggle health bars residual (Alt+H).
+                self.toggle_health_bars_hotkey();
             }
             Key::Character(c) if c.eq_ignore_ascii_case("h") && ctrl_down => {
                 // Retail CommandMap SELECT_HERO Ctrl+H residual.
@@ -12097,6 +12113,70 @@ impl CnCGameEngine {
     }
 
     /// Select all friendly combat units (exclude workers/dozers/supply) residual.
+
+    /// Select all friendly units currently moving residual (Ctrl+Alt+M).
+    fn select_all_friendly_moving(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            let moving = obj.status.moving
+                || obj.movement.target_position.is_some()
+                || !obj.movement.path.is_empty()
+                || matches!(
+                    obj.ai_state,
+                    crate::game_logic::AIState::Moving
+                        | crate::game_logic::AIState::Gathering
+                        | crate::game_logic::AIState::ReturningResources
+                        | crate::game_logic::AIState::Entering
+                        | crate::game_logic::AIState::Docking
+                        | crate::game_logic::AIState::Attacking
+                        | crate::game_logic::AIState::Patrolling
+                );
+            if moving {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No moving units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} moving", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Toggle health bar overlay residual (Alt+H).
+    fn toggle_health_bars_hotkey(&mut self) {
+        self.show_health_bars = !self.show_health_bars;
+        let msg = if self.show_health_bars {
+            "Health bars: ON"
+        } else {
+            "Health bars: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
     fn select_all_friendly_combat(&mut self) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -16502,5 +16582,22 @@ fn clear_path_and_damaged_unit_cycle_residual() {
             && src.contains("No damaged units")
             && src.contains("cycle_damaged_unit_selection(1)"),
         "Ctrl+Alt+Up/Down must cycle damaged units residual"
+    );
+}
+
+#[test]
+fn moving_select_and_health_bars_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn select_all_friendly_moving")
+            && src.contains("select_all_friendly_moving()")
+            && src.contains("No moving units"),
+        "Ctrl+Alt+M must select moving units residual"
+    );
+    assert!(
+        src.contains("fn toggle_health_bars_hotkey")
+            && src.contains("Health bars: ON")
+            && src.contains("show_health_bars"),
+        "Alt+H must toggle health bars residual"
     );
 }
