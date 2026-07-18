@@ -5488,6 +5488,28 @@ impl PresentationFrame {
                 })
                 .collect::<Vec<_>>(),
         );
+        // Production queue residual for primary selected producer.
+        {
+            let mut queue_items: Vec<(String, f32, i32, f32)> = Vec::new();
+            if let Some(id) = self.selected.first().copied().or_else(|| {
+                self.objects
+                    .iter()
+                    .find(|o| o.selected && !o.destroyed)
+                    .map(|o| o.id)
+            }) {
+                if let Some(ro) = self.objects.iter().find(|o| o.id == id) {
+                    for p in &ro.production_queue {
+                        queue_items.push((
+                            p.template_name.clone(),
+                            p.progress_ratio,
+                            p.cost_supplies as i32,
+                            p.total_time.max(0.01),
+                        ));
+                    }
+                }
+            }
+            hud.sync_production_queue_from_presentation(&queue_items);
+        }
         let (credits, power, max_power) = self.hud_resource_triple();
         hud.update_resources(credits, power, max_power);
         let units = self.hud_minimap_units();
@@ -7807,6 +7829,21 @@ mod tests {
         assert_eq!(ro.rally_point, Some(glam::Vec3::new(12.0, 0.0, 3.0)));
         assert_eq!(ro.guard_position, Some(glam::Vec3::new(1.0, 0.0, 1.0)));
         assert_eq!(frame.structures_with_production().len(), 1);
+    }
+
+    #[test]
+    fn production_queue_syncs_to_game_hud_residual() {
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("sync_production_queue_from_presentation")
+                && src.contains("apply_to_game_hud"),
+            "apply_to_game_hud must sync producer queue onto GameHUD"
+        );
+        let hud = include_str!("ui/hud.rs");
+        assert!(
+            hud.contains("fn sync_production_queue_from_presentation"),
+            "GameHUD must own production queue sync residual"
+        );
     }
 
     #[test]
