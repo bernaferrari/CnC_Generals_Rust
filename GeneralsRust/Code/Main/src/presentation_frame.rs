@@ -5934,6 +5934,19 @@ impl PresentationFrame {
             push(&mut cmds, "Command_Guard", true);
             push(&mut cmds, "Command_Patrol", true);
             push(&mut cmds, "Command_Scatter", true);
+            // Dozer/Worker repair residual (R key / strip).
+            {
+                let n = ro.template_name.to_ascii_lowercase();
+                if n.contains("dozer")
+                    || n.contains("worker")
+                    || n.contains("chinook")
+                    || n.contains("construction")
+                    || n.contains("supplytruck")
+                    || n.contains("supply_truck")
+                {
+                    push(&mut cmds, "Command_Repair", true);
+                }
+            }
             push(&mut cmds, "Command_Cheer", true);
             // Multi-select formation residual.
             if self.selection_ids_for_consumers().len() >= 2 {

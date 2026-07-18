@@ -1187,6 +1187,8 @@ enum PendingUnitAbility {
     DisguiseAsVehicle,
     PlantBoobyTrap,
     ConvertToCarbomb,
+    /// Dozer/Worker repair residual awaiting damaged structure click.
+    Repair,
 }
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
@@ -7580,6 +7582,9 @@ impl CnCGameEngine {
                     PendingUnitAbility::ConvertToCarbomb => {
                         crate::command_system::CommandType::ConvertToCarbomb { target_id: tid }
                     }
+                    PendingUnitAbility::Repair => {
+                        crate::command_system::CommandType::Repair { target_id: tid }
+                    }
                 }
             }
         };
@@ -8200,6 +8205,13 @@ impl CnCGameEngine {
                 self.arm_pending_unit_ability(
                     PendingUnitAbility::ConvertToCarbomb,
                     "Car bomb: click vehicle",
+                );
+                return;
+            }
+            crate::command_system::CommandType::Repair { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::Repair,
+                    "Repair: click damaged structure",
                 );
                 return;
             }
@@ -10121,6 +10133,14 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("d") && !ctrl_down => {
                 // C&C Generals standard Deploy residual (CommandMap DEPLOY commented but UI uses D).
                 self.issue_named_command_from_ui("Command_Deploy");
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("u") && !ctrl_down => {
+                // Evacuate / unload transport or garrison residual.
+                self.issue_named_command_from_ui("Command_Evacuate");
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("r") && !ctrl_down => {
+                // Dozer/Worker repair residual: arm structure click.
+                self.issue_named_command_from_ui("Command_Repair");
             }
             Key::Character(c) if c.eq_ignore_ascii_case("g") && !ctrl_down => {
                 // C++ Guard residual: arm map-click Guard (location or unit).
@@ -14591,5 +14611,25 @@ fn patrol_and_sell_hotkey_residual() {
     assert!(
         pf.contains("Command_Patrol"),
         "command strip must expose Patrol residual"
+    );
+}
+
+#[test]
+fn evacuate_and_repair_hotkey_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"u\")") && src.contains("Command_Evacuate"),
+        "U must issue Evacuate residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"r\")")
+            && src.contains("Command_Repair")
+            && src.contains("PendingUnitAbility::Repair"),
+        "R must arm Repair residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("\"repair\"") && cs.contains("CommandType::Repair"),
+        "repair button name must map residual"
     );
 }
