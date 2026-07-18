@@ -88,6 +88,8 @@ pub enum CommandType {
     DozerConstruct {
         template_name: String,
         location: Vec3,
+        /// Build facing residual (radians about Y).
+        orientation: f32,
     },
     DozerConstructLine {
         template_name: String,
@@ -864,6 +866,7 @@ impl CommandSystem {
                     CommandType::DozerConstruct {
                         template_name: template_name.clone(),
                         location: context.world_position,
+                        orientation: 0.0,
                     },
                     selected_units,
                     player_id,

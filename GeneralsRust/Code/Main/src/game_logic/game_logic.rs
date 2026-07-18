@@ -51657,6 +51657,7 @@ mod tests {
             command_type: crate::command_system::CommandType::DozerConstruct {
                 template_name: "TestBuilding".to_string(),
                 location: Vec3::new(20.0, 0.0, 20.0),
+                orientation: 0.0,
             },
             player_id: 0,
             command_id: 1,

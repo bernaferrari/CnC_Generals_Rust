@@ -382,6 +382,10 @@ impl ConstructionPanel {
         &self.placement
     }
 
+    pub fn rotate_structure_placement(&mut self, delta_radians: f32) {
+        self.placement.rotate_facing(delta_radians);
+    }
+
     pub fn set_radius_overlay(
         &mut self,
         overlay: Option<crate::ui::construction_panel::RadiusCursorOverlay>,

@@ -106,11 +106,17 @@ impl<'a> CommandExecutor<'a> {
             CommandType::Build {
                 template_name,
                 location,
-            } => self.execute_build(&command.selected_units, template_name, *location),
+            } => self.execute_build(&command.selected_units, template_name, *location, 0.0),
             CommandType::DozerConstruct {
                 template_name,
                 location,
-            } => self.execute_dozer_construct(&command.selected_units, template_name, *location),
+                orientation,
+            } => self.execute_dozer_construct(
+                &command.selected_units,
+                template_name,
+                *location,
+                *orientation,
+            ),
             CommandType::DozerConstructLine {
                 template_name,
                 start,
@@ -779,6 +785,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         template_name: &str,
         location: Vec3,
+        orientation: f32,
     ) -> CommandResult {
         if !self.validate_build_location(location) {
             return CommandResult::InvalidLocation;
@@ -823,7 +830,7 @@ impl<'a> CommandExecutor<'a> {
             let building_id =
                 self.game_logic
                     .create_object_under_construction(template_name, team, location);
-            if building_id.is_none() {
+            let Some(building_id) = building_id else {
                 // Refund on failed placement.
                 if let Some(player) = self.game_logic.get_player_mut_by_team(team) {
                     player.resources.supplies = player
@@ -832,6 +839,11 @@ impl<'a> CommandExecutor<'a> {
                         .saturating_add(build_cost.supplies);
                 }
                 return CommandResult::InvalidCommand;
+            };
+            if orientation.abs() > f32::EPSILON {
+                if let Some(b) = self.game_logic.get_object_mut(building_id) {
+                    b.set_orientation(orientation);
+                }
             }
 
             let _ = self.path_to_goal_with_state(unit_id, location, AIState::Constructing);
@@ -850,8 +862,9 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         template_name: &str,
         location: Vec3,
+        orientation: f32,
     ) -> CommandResult {
-        self.execute_build(units, template_name, location)
+        self.execute_build(units, template_name, location, orientation)
     }
 
     fn execute_dozer_line(
@@ -871,7 +884,7 @@ impl<'a> CommandExecutor<'a> {
         for (i, &unit_id) in units.iter().enumerate() {
             let t = i as f32 / last_index;
             let pos = start + (end - start) * t;
-            if self.execute_dozer_construct(&[unit_id], template_name, pos)
+            if self.execute_dozer_construct(&[unit_id], template_name, pos, 0.0)
                 == CommandResult::Success
             {
                 placed = true;
