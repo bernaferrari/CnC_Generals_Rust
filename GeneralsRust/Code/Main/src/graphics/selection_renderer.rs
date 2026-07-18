@@ -216,6 +216,7 @@ impl SelectionRenderer {
         inv_view_proj: &Mat4,
         drag_rect: Option<&DragSelectRect>,
         selected_units: &[SelectedUnit],
+        order_line_vertices: &[f32],
     ) {
         self.queue.write_buffer(
             &self.uniform_buffer,
@@ -234,6 +235,10 @@ impl SelectionRenderer {
 
         for unit in selected_units {
             self.draw_selection_circle(render_pass, unit);
+        }
+
+        if !order_line_vertices.is_empty() {
+            self.draw_order_line_segments(render_pass, order_line_vertices);
         }
     }
 
@@ -384,6 +389,72 @@ impl SelectionRenderer {
         render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         render_pass.draw_indexed(0..(triangle_count as u32 * 3), 0, 0..1);
     }
+
+    /// Thin ground-plane quads for move/attack order line residual.
+    fn draw_order_line_segments(&self, render_pass: &mut wgpu::RenderPass<'_>, packed: &[f32]) {
+        const FPV: usize = 7; // x y z r g b a
+        if packed.len() < FPV * 2 {
+            return;
+        }
+        let half_width = 0.55f32;
+        let y_lift = TERRAIN_Y_OFFSET + 0.2;
+        let mut vertices: Vec<f32> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        let segments = packed.len() / (FPV * 2);
+        for s in 0..segments {
+            let base = s * FPV * 2;
+            let ax = packed[base];
+            let az = packed[base + 2];
+            let ar = packed[base + 3];
+            let ag = packed[base + 4];
+            let ab = packed[base + 5];
+            let aa = packed[base + 6];
+            let bx = packed[base + FPV];
+            let bz = packed[base + FPV + 2];
+            let br = packed[base + FPV + 3];
+            let bg = packed[base + FPV + 4];
+            let bb = packed[base + FPV + 5];
+            let ba = packed[base + FPV + 6];
+            let dx = bx - ax;
+            let dz = bz - az;
+            let len = (dx * dx + dz * dz).sqrt();
+            if len < 0.05 {
+                continue;
+            }
+            let px = -dz / len * half_width;
+            let pz = dx / len * half_width;
+            let i0 = (vertices.len() / 7) as u32;
+            for (x, z, r, g, b, a) in [
+                (ax + px, az + pz, ar, ag, ab, aa),
+                (ax - px, az - pz, ar, ag, ab, aa),
+                (bx - px, bz - pz, br, bg, bb, ba),
+                (bx + px, bz + pz, br, bg, bb, ba),
+            ] {
+                vertices.extend_from_slice(&[x, y_lift, z, r, g, b, a]);
+            }
+            indices.extend_from_slice(&[i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
+        }
+        if indices.is_empty() {
+            return;
+        }
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("order_line_verts"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("order_line_indices"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +592,18 @@ pub fn enqueue_selection_render(
     let mut selected_units = collect_selected_units(game_logic, local_player_id, presentation);
     selected_units.extend(ground_markers);
 
-    if drag_rect.is_none() && selected_units.is_empty() {
+    // Move/attack order line residual from presentation snapshot.
+    let mut order_line_vertices: Vec<f32> = Vec::new();
+    if let Some(frame) = presentation {
+        let move_pack =
+            crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(frame);
+        order_line_vertices.extend_from_slice(&move_pack.vertices);
+        let atk_pack =
+            crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(frame);
+        order_line_vertices.extend_from_slice(&atk_pack.vertices);
+    }
+
+    if drag_rect.is_none() && selected_units.is_empty() && order_line_vertices.is_empty() {
         return;
     }
 
@@ -565,6 +647,7 @@ pub fn enqueue_selection_render(
             &inv_view_proj,
             drag_rect_owned.as_ref(),
             &selected_units,
+            &order_line_vertices,
         );
 
         drop(render_pass);

@@ -13436,3 +13436,14 @@ fn dual_hud_construction_hotkey_route_residual() {
         "UIManager Escape must not open pause over active structure placement"
     );
 }
+
+#[test]
+fn order_line_overlay_draw_residual() {
+    let sel = include_str!("graphics/selection_renderer.rs");
+    assert!(
+        sel.contains("draw_order_line_segments")
+            && sel.contains("MoveLineUpload::pack_from_presentation")
+            && sel.contains("AttackLineUpload::pack_from_presentation"),
+        "selection overlay must GPU-draw move/attack order lines from presentation"
+    );
+}
