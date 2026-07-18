@@ -8383,6 +8383,10 @@ impl CnCGameEngine {
                 self.try_purchase_next_generals_science();
                 return;
             }
+            crate::command_system::CommandType::ResumeConstruction { .. } => {
+                self.resume_selected_construction();
+                return;
+            }
             _ => {}
         }
 
@@ -8424,6 +8428,17 @@ impl CnCGameEngine {
             | crate::command_system::CommandType::Sell { object_id } => {
                 if let Some(id) = selected.first() {
                     *object_id = *id;
+                }
+            }
+            crate::command_system::CommandType::ResumeConstruction { target_id } => {
+                // Prefer unfinished structure in selection residual.
+                let unfinished = selected.iter().copied().find(|&id| {
+                    self.game_logic.get_object(id).is_some_and(|o| {
+                        o.is_alive() && o.status.under_construction && !o.status.sold
+                    })
+                });
+                if let Some(id) = unfinished.or_else(|| selected.first().copied()) {
+                    *target_id = id;
                 }
             }
             _ => {}
@@ -10484,7 +10499,19 @@ impl CnCGameEngine {
                 // Retail CommandMap SELECT_ALL KEY_Q residual.
                 self.select_all_friendly_units();
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("e") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("e")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Resume unfinished construction residual (Alt+E).
+                self.resume_selected_construction();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("e")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual.
                 self.select_matching_units_hotkey();
             }
@@ -11274,6 +11301,101 @@ impl CnCGameEngine {
     /// Cycle damaged friendly structures residual (for repair response).
 
     /// Cycle unfinished friendly construction residual (Ctrl+Alt+Home/End).
+
+    /// Resume unfinished construction with selected dozers residual (Alt+E).
+    fn resume_selected_construction(&mut self) {
+        let player_id = self.current_player_id;
+        let selected = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        let unfinished: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.game_logic
+                    .get_object(id)
+                    .is_some_and(|o| o.is_alive() && o.status.under_construction && !o.status.sold)
+            })
+            .collect();
+        let dozers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.game_logic.get_object(id).is_some_and(|o| {
+                    o.is_alive()
+                        && (o.is_dozer
+                            || o.template_name.to_ascii_lowercase().contains("dozer")
+                            || o.template_name.to_ascii_lowercase().contains("worker"))
+                })
+            })
+            .collect();
+        // If only unfinished selected, pick all team dozers idle residual.
+        let mut builders = dozers;
+        if builders.is_empty() {
+            let team = self
+                .game_logic
+                .get_player(player_id)
+                .map(|p| p.team)
+                .unwrap_or(crate::game_logic::Team::USA);
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team != team || !obj.is_alive() {
+                    continue;
+                }
+                let n = obj.template_name.to_ascii_lowercase();
+                if obj.is_dozer || n.contains("dozer") || n.contains("worker") {
+                    if matches!(obj.ai_state, crate::game_logic::AIState::Idle) {
+                        builders.push(id);
+                    }
+                }
+            }
+        }
+        let target = unfinished.first().copied().or_else(|| {
+            // Fall back to cycled unfinished if selection is dozers only.
+            self.game_logic
+                .get_objects()
+                .iter()
+                .find(|(_, o)| {
+                    o.is_alive()
+                        && o.status.under_construction
+                        && !o.status.sold
+                        && self
+                            .game_logic
+                            .get_player(player_id)
+                            .map(|p| o.team == p.team)
+                            .unwrap_or(false)
+                })
+                .map(|(&id, _)| id)
+        });
+        let Some(target_id) = target else {
+            let msg = "No unfinished construction to resume";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        };
+        if builders.is_empty() {
+            let msg = "No dozer/worker available to resume";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::ResumeConstruction { target_id },
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: builders,
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        self.game_logic.process_commands();
+        self.play_sound_effect(SoundType::Command);
+        let msg = "Resuming construction";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
     fn cycle_unfinished_construction(&mut self, delta: i32) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -15949,5 +16071,27 @@ fn clear_mines_and_unfinished_construction_residual() {
     assert!(
         ex.contains("fn execute_clear_mines") && ex.contains("is_mine_clearer"),
         "execute_clear_mines residual"
+    );
+}
+
+#[test]
+fn resume_construction_hotkey_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn resume_selected_construction")
+            && src.contains("Resuming construction")
+            && src.contains("eq_ignore_ascii_case(\"e\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+E must resume construction residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_ResumeConstruction"),
+        "unfinished structure strip must expose ResumeConstruction residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("\"resumeconstruction\"") || cs.contains("ResumeConstruction"),
+        "resumeconstruction button map residual"
     );
 }
