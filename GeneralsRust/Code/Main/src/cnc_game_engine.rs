@@ -1134,6 +1134,14 @@ enum StartupLoadState {
     Complete,
 }
 
+/// Map-click command residual armed by ControlBar buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingMapCommand {
+    AttackMove,
+    Guard,
+    SetRallyPoint,
+}
+
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
     window: Arc<Window>,
@@ -1271,6 +1279,8 @@ pub struct CnCGameEngine {
     game_hud: GameHUD,
     /// C++ structure placement template residual (awaiting map click).
     pending_structure_placement: Option<String>,
+    /// C++ context command awaiting map click (AttackMove/Guard/SetRally residual).
+    pending_map_command: Option<PendingMapCommand>,
     active_menu_shell_hook: Option<&'static str>,
     runtime_host_headless: bool,
     runtime_host_base_ui_screen: Option<String>,
@@ -4502,6 +4512,7 @@ impl CnCGameEngine {
             ui_manager,
             game_hud: GameHUD::new(),
             pending_structure_placement: None,
+            pending_map_command: None,
             active_menu_shell_hook: None,
             runtime_host_headless,
             runtime_host_base_ui_screen: None,
@@ -7214,6 +7225,58 @@ impl CnCGameEngine {
         pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
     }
 
+    fn commit_pending_map_command(
+        &mut self,
+        location: glam::Vec3,
+        target_object: Option<crate::game_logic::ObjectId>,
+    ) {
+        let Some(kind) = self.pending_map_command.take() else {
+            return;
+        };
+        let player_id = self.current_player_id;
+        let mut selected = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        if selected.is_empty() {
+            return;
+        }
+        let command_type = match kind {
+            PendingMapCommand::AttackMove => crate::command_system::CommandType::AttackMoveTo {
+                destination: location,
+            },
+            PendingMapCommand::Guard => {
+                if let Some(tid) = target_object {
+                    crate::command_system::CommandType::Guard {
+                        target: crate::command_system::GuardTarget::Object(tid),
+                    }
+                } else {
+                    crate::command_system::CommandType::Guard {
+                        target: crate::command_system::GuardTarget::Position(location),
+                    }
+                }
+            }
+            PendingMapCommand::SetRallyPoint => {
+                crate::command_system::CommandType::SetRallyPoint { location }
+            }
+        };
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type,
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: selected,
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        self.game_logic.process_commands();
+        self.play_sound_effect(SoundType::Command);
+    }
+
     fn cancel_structure_placement_from_ui(&mut self) {
         self.pending_structure_placement = None;
         self.ui_manager
@@ -7390,20 +7453,52 @@ impl CnCGameEngine {
     }
 
     /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
+
     fn issue_named_command_from_ui(&mut self, command_name: &str) {
-        let Some(mut command_type) =
-            crate::command_system::command_type_from_button_name(command_name)
+        let Some(command_type) = crate::command_system::command_type_from_button_name(command_name)
         else {
             log::debug!("IssueCommand unmapped: {command_name}");
             return;
         };
-        let logic = &mut self.game_logic;
-        let player_id = logic
+
+        // C++ ControlBar: AttackMove/Guard/SetRally wait for map click residual.
+        match command_type {
+            crate::command_system::CommandType::AttackMoveTo { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::AttackMove);
+                self.pending_structure_placement = None;
+                let msg = "Attack-move: click target location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::Guard { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::Guard);
+                self.pending_structure_placement = None;
+                let msg = "Guard: click location or unit";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::SetRallyPoint { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
+                self.pending_structure_placement = None;
+                let msg = "Set rally point: click location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            _ => {}
+        }
+
+        let mut command_type = command_type;
+        let player_id = self
+            .game_logic
             .get_player(0)
             .map(|p| p.id)
-            .or_else(|| logic.get_players().keys().copied().min())
+            .or_else(|| self.game_logic.get_players().keys().copied().min())
             .unwrap_or(0);
-        let selected = logic
+        let selected = self
+            .game_logic
             .get_player(player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -7416,20 +7511,6 @@ impl CnCGameEngine {
         {
             return;
         }
-        // Fill selection-dependent placeholders residual.
-        let mut center = glam::Vec3::ZERO;
-        let mut count = 0.0f32;
-        for id in &selected {
-            if let Some(obj) = logic.get_object(*id) {
-                center += obj.get_position();
-                count += 1.0;
-            }
-        }
-        let center = if count > 0.0 {
-            center / count
-        } else {
-            glam::Vec3::ZERO
-        };
         match &mut command_type {
             crate::command_system::CommandType::DozerCancelConstruct { object_id }
             | crate::command_system::CommandType::Sell { object_id } => {
@@ -7437,36 +7518,18 @@ impl CnCGameEngine {
                     *object_id = *id;
                 }
             }
-            crate::command_system::CommandType::Guard { target } => {
-                *target = crate::command_system::GuardTarget::Position(center);
-            }
-            crate::command_system::CommandType::SetRallyPoint { location } => {
-                if let Some(id) = selected.first() {
-                    if let Some(obj) = logic.get_object(*id) {
-                        let f = obj.thing.get_direction_vector();
-                        *location = obj.get_position() + f * obj.selection_radius.max(10.0);
-                    }
-                }
-            }
-            crate::command_system::CommandType::AttackMoveTo { destination } => {
-                if let Some(id) = selected.first() {
-                    if let Some(obj) = logic.get_object(*id) {
-                        let f = obj.thing.get_direction_vector();
-                        *destination = obj.get_position() + f * 50.0;
-                    }
-                }
-            }
             _ => {}
         }
-        logic.queue_command(crate::command_system::GameCommand {
-            command_type,
-            player_id,
-            command_id: 0,
-            timestamp: std::time::SystemTime::now(),
-            selected_units: selected,
-            modifier_keys: crate::command_system::ModifierKeys::default(),
-        });
-        logic.process_commands();
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type,
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: selected,
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        self.game_logic.process_commands();
     }
 
     fn route_shell_owned_screen_change(&mut self, screen: Screen) {
@@ -9157,7 +9220,10 @@ impl CnCGameEngine {
             }
         } else {
             // Single-click behavior
-            if let Some(object_id) = clicked_object {
+            if self.pending_map_command.is_some() {
+                let loc = self.mouse_world_position;
+                self.commit_pending_map_command(loc, clicked_object);
+            } else if let Some(object_id) = clicked_object {
                 // Select this object
                 self.game_logic
                     .select_objects(self.current_player_id, vec![object_id]);
@@ -11137,6 +11203,8 @@ pub async fn run_cnc_game(
                                 if engine.pending_structure_placement.is_some() {
                                     engine.cancel_structure_placement_from_ui();
                                     info!("Escape cancelled structure placement residual");
+                                } else if engine.pending_map_command.take().is_some() {
+                                    info!("Escape cancelled pending map command residual");
                                 } else {
                                     info!("Escape pressed in InGame state - pausing");
                                     engine.request_state_change(GameState::Paused);
