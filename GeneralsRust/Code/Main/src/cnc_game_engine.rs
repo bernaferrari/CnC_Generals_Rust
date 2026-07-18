@@ -10298,6 +10298,15 @@ impl CnCGameEngine {
                 // Evacuate / unload transport or garrison residual.
                 self.issue_named_command_from_ui("Command_Evacuate");
             }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("n")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Colonel Burton remote charge detonate residual.
+                self.issue_named_command_from_ui("Command_DetonateRemoteDemoCharges");
+            }
             Key::Character(c) if c.eq_ignore_ascii_case("r") && !ctrl_down => {
                 // Dozer/Worker repair residual: arm structure click.
                 self.issue_named_command_from_ui("Command_Repair");
@@ -10386,7 +10395,19 @@ impl CnCGameEngine {
                 // Retail CommandMap SELECT_HERO Ctrl+H residual.
                 self.select_hero_units_hotkey();
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("i") && ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("i")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Select all harvesters / supply collectors residual.
+                self.select_all_harvesters();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("i")
+                    && ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
                 // Select all idle military residual (Ctrl+I).
                 self.select_all_idle_military();
             }
@@ -11281,6 +11302,50 @@ impl CnCGameEngine {
         let msg = format!("Selected {} idle military", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select all friendly harvesters / supply collectors residual (Ctrl+Shift+I).
+    fn select_all_harvesters(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            // Prefer true collectors; include GLA workers as harvesters residual.
+            let is_collector = n.contains("supply")
+                || n.contains("harvester")
+                || n.contains("chinook")
+                || (n.contains("worker") && !n.contains("dozer"))
+                || matches!(obj.ai_state, crate::game_logic::AIState::Gathering);
+            if !is_collector {
+                continue;
+            }
+            ids.push(id);
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No harvesters found";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        let msg = format!("Selected {} harvesters", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+        self.play_sound_effect(SoundType::Select);
     }
 
     /// Cycle construction panel tab residual (`[` / `]`).
@@ -15335,5 +15400,21 @@ fn wall_line_drag_placement_residual() {
             && src.contains("DozerConstructLine")
             && src.contains("Wall line ordered"),
         "wall/fence drag must issue DozerConstructLine residual"
+    );
+}
+
+#[test]
+fn detonate_and_harvester_select_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"n\")")
+            && src.contains("Command_DetonateRemoteDemoCharges"),
+        "N must detonate remote charges residual"
+    );
+    assert!(
+        src.contains("fn select_all_harvesters")
+            && src.contains("select_all_harvesters()")
+            && src.contains("No harvesters found"),
+        "Ctrl+Shift+I must select harvesters residual"
     );
 }
