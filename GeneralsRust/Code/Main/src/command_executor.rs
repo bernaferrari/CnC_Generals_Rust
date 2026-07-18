@@ -96,6 +96,7 @@ impl<'a> CommandExecutor<'a> {
             }
             CommandType::Stop => self.execute_stop(&command.selected_units),
             CommandType::Guard { target } => self.execute_guard(&command.selected_units, target),
+            CommandType::Patrol => self.execute_patrol(&command.selected_units),
             CommandType::Scatter => self.execute_scatter(&command.selected_units),
             CommandType::Deploy => self.execute_deploy(&command.selected_units),
             CommandType::Gather { target_id } => {
@@ -578,6 +579,31 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         CommandResult::Success
+    }
+
+    fn execute_patrol(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                if !unit.is_alive() || !unit.can_move() {
+                    continue;
+                }
+                unit.set_target(None);
+                unit.set_force_attack(false);
+                unit.set_guard_position(None);
+                unit.set_guard_target(None);
+                unit.end_guard_retaliate();
+                // C++ AI_HUNT / patrol residual: wander + auto-engage.
+                unit.set_ai_state(AIState::Patrolling);
+                unit.status.moving = false;
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
 
     fn execute_scatter(&mut self, units: &[ObjectId]) -> CommandResult {
