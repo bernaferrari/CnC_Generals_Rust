@@ -1346,6 +1346,8 @@ pub struct CnCGameEngine {
     show_health_bars: bool,
     /// FPS counter residual (options game.show_fps).
     show_fps: bool,
+    /// Draw movement path lines residual.
+    show_move_lines: bool,
     frame_counter: u32,
     fps: f32,
     last_frame_timing: Option<FrameTiming>,
@@ -4600,6 +4602,7 @@ impl CnCGameEngine {
             show_debug_info: debug_overlay,
             show_health_bars: true,
             show_fps: false,
+            show_move_lines: true,
             frame_counter: 0,
             fps: 0.0,
             last_frame_timing: None,
@@ -7237,6 +7240,7 @@ impl CnCGameEngine {
                 self.current_player_id,
                 self.last_presentation_frame.as_ref(),
                 ground_markers,
+                self.show_move_lines,
             );
         }
         self.render_pipeline.execute(
@@ -10422,6 +10426,10 @@ impl CnCGameEngine {
                 self.toggle_fps_counter_hotkey();
             }
             Key::Named(NamedKey::F2) => self.handle_camera_view_hotkey(1),
+            Key::Named(NamedKey::F3) if ctrl_down => {
+                // Move path lines residual (Ctrl+F3); bare F3 remains camera bookmark.
+                self.toggle_move_lines_hotkey();
+            }
             Key::Named(NamedKey::F3) => self.handle_camera_view_hotkey(2),
             Key::Named(NamedKey::F4) => self.handle_camera_view_hotkey(3),
             Key::Named(NamedKey::F5) => self.handle_camera_view_hotkey(4),
@@ -10499,6 +10507,14 @@ impl CnCGameEngine {
             {
                 // C&C Generals standard Deploy residual (CommandMap DEPLOY commented but UI uses D).
                 self.issue_named_command_from_ui("Command_Deploy");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("u")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select garrisoned structures residual (Ctrl+Alt+U).
+                self.select_all_garrisoned_structures();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("u")
@@ -12518,6 +12534,71 @@ impl CnCGameEngine {
     /// Toggle debug overlay residual (Ctrl+F1).
 
     /// Toggle FPS counter residual (Ctrl+F2).
+
+    /// Toggle movement path line drawing residual (Ctrl+F3).
+    fn toggle_move_lines_hotkey(&mut self) {
+        self.show_move_lines = !self.show_move_lines;
+        let msg = if self.show_move_lines {
+            "Move lines: ON"
+        } else {
+            "Move lines: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select structures that currently hold garrisoned units residual (Ctrl+Alt+U).
+    fn select_all_garrisoned_structures(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            for o in frame.garrisoned_structures() {
+                if o.team == team && !o.destroyed {
+                    ids.push(o.id);
+                }
+            }
+        } else {
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                    continue;
+                }
+                if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                    continue;
+                }
+                let occupied = obj
+                    .building_data
+                    .as_ref()
+                    .map(|b| !b.garrisoned_units.is_empty())
+                    .unwrap_or(false)
+                    || !obj.contained_units().is_empty();
+                if occupied {
+                    ids.push(id);
+                }
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No garrisoned structures";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} garrisoned", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
     fn toggle_fps_counter_hotkey(&mut self) {
         self.show_fps = !self.show_fps;
         let msg = if self.show_fps {
@@ -17633,5 +17714,24 @@ fn control_group_cycle_and_stealth_select_residual() {
             && src.contains("select_all_friendly_stealthed()")
             && src.contains("No stealthed units"),
         "Ctrl+Alt+K must select stealthed residual"
+    );
+}
+
+#[test]
+fn move_lines_and_garrisoned_select_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn toggle_move_lines_hotkey")
+            && src.contains("Move lines: ON")
+            && src.contains("show_move_lines")
+            && src.contains("NamedKey::F3) if ctrl_down")
+            && src.contains("self.show_move_lines,"),
+        "Ctrl+F3 must toggle move lines residual"
+    );
+    assert!(
+        src.contains("fn select_all_garrisoned_structures")
+            && src.contains("No garrisoned structures")
+            && src.contains("select_all_garrisoned_structures()"),
+        "Ctrl+Alt+U must select garrisoned structures residual"
     );
 }
