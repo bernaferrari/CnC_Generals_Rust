@@ -2147,6 +2147,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "demotertiarysuicide" | "suicidebomb" | "tertiarysuicide" => {
             Some(CommandType::DemoTertiarySuicide)
         }
+        "toggleovercharge" | "overcharge" => Some(CommandType::ToggleOvercharge),
         _ => {
             // Command_UpgradeAmericaX / Command_Upgrade_GLA… → Upgrade_AmericaX
             if let Some(rest) = key.strip_prefix("upgrade") {

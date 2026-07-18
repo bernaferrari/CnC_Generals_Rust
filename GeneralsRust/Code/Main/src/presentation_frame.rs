@@ -5933,18 +5933,67 @@ impl PresentationFrame {
             push(&mut cmds, "Command_AttackMove", ro.has_weapon);
             push(&mut cmds, "Command_Guard", true);
             push(&mut cmds, "Command_Scatter", true);
-            // C++ Deploy residual (sentry/nuke cannon/scud/dozer unpack family).
+            // C++ Deploy residual (DeployStyle / sentry / crawler family).
             let n = ro.template_name.to_ascii_lowercase();
             if n.contains("sentry")
                 || n.contains("nukecannon")
-                || n.contains("scudlauncher")
-                || n.contains("scud_launcher")
+                || n.contains("scud")
                 || n.contains("dozer")
                 || n.contains("worker")
                 || n.contains("stinger")
                 || n.contains("tunnel")
+                || n.contains("tomahawk")
+                || n.contains("humvee")
+                || n.contains("buggy")
+                || n.contains("crawler")
+                || n.contains("quadcannon")
+                || n.contains("inferno")
+                || n.contains("artillery")
+                || n.contains("spectrum")
             {
                 push(&mut cmds, "Command_Deploy", true);
+            }
+            // Hero / special-ability residual (target-click armed by engine).
+            if n.contains("jarmenkell") || n.contains("jarmen_kell") {
+                push(&mut cmds, "Command_SnipeVehicle", true);
+            }
+            if n.contains("colonelburton") || n.contains("colonel_burton") || n.contains("burton") {
+                push(&mut cmds, "Command_PlantTimedDemoCharge", true);
+                push(&mut cmds, "Command_PlantRemoteDemoCharge", true);
+                push(&mut cmds, "Command_DetonateRemoteDemoCharges", true);
+            }
+            if n.contains("blacklotus") || n.contains("black_lotus") {
+                push(&mut cmds, "Command_CaptureBuilding", true);
+                push(&mut cmds, "Command_StealCashHack", true);
+                push(&mut cmds, "Command_DisableVehicleHack", true);
+            }
+            if n.contains("chinainfantryhacker")
+                || (n.contains("hacker") && n.contains("china"))
+                || n.contains("china_hacker")
+            {
+                push(&mut cmds, "Command_HackerDisableBuilding", true);
+            }
+            if n.contains("hijacker") {
+                push(&mut cmds, "Command_Hijack", true);
+            }
+            if n.contains("saboteur") {
+                push(&mut cmds, "Command_Sabotage", true);
+            }
+            if n.contains("bombtruck") || n.contains("bomb_truck") {
+                push(&mut cmds, "Command_DisguiseAsVehicle", true);
+                push(&mut cmds, "Command_ConvertToCarbomb", true);
+            }
+            if n.contains("rebel") && !n.contains("scud") {
+                push(&mut cmds, "Command_CaptureBuilding", true);
+                push(&mut cmds, "Command_PlantBoobyTrap", true);
+            }
+            if n.contains("ranger") || n.contains("redguard") {
+                push(&mut cmds, "Command_CaptureBuilding", true);
+            }
+            if n.contains("demo")
+                && (n.contains("terrorist") || n.contains("bike") || n.contains("trap"))
+            {
+                push(&mut cmds, "Command_DemoTertiarySuicide", true);
             }
         }
         if ro.is_structure || ro.can_produce {
@@ -5953,6 +6002,11 @@ impl PresentationFrame {
             } else if ro.is_structure {
                 // C++ Command_Sell residual — completed structures only.
                 push(&mut cmds, "Command_Sell", true);
+                let n = ro.template_name.to_ascii_lowercase();
+                // C++ OverchargeBehavior residual (China nuclear plants).
+                if n.contains("china") && (n.contains("power") || n.contains("nuclear")) {
+                    push(&mut cmds, "Command_ToggleOvercharge", true);
+                }
             }
             if ro.can_produce {
                 push(&mut cmds, "Command_SetRallyPoint", true);
@@ -9662,6 +9716,30 @@ mod tests {
                 .iter()
                 .any(|c| c.command_name.eq_ignore_ascii_case("Command_Stop")),
             "ranger selection must expose Stop for HUD apply residual"
+        );
+    }
+
+    #[test]
+    fn hero_ability_commands_on_selection_residual() {
+        let src = include_str!("presentation_frame.rs");
+        let start = src
+            .find("fn unit_command_buttons")
+            .expect("unit_command_buttons");
+        let end = src[start + 1..]
+            .find(
+                "
+    pub fn ",
+            )
+            .map(|i| start + 1 + i)
+            .unwrap_or(start + 8000);
+        let body = &src[start..end];
+        assert!(
+            body.contains("Command_SnipeVehicle")
+                && body.contains("Command_PlantTimedDemoCharge")
+                && body.contains("Command_Hijack")
+                && body.contains("Command_StealCashHack")
+                && body.contains("Command_ToggleOvercharge"),
+            "unit command strip must expose hero/ability/overcharge residual"
         );
     }
 
