@@ -5933,6 +5933,7 @@ impl PresentationFrame {
             push(&mut cmds, "Command_AttackMove", ro.has_weapon);
             push(&mut cmds, "Command_Guard", true);
             push(&mut cmds, "Command_Scatter", true);
+            push(&mut cmds, "Command_Cheer", true);
             // Multi-select formation residual.
             if self.selection_ids_for_consumers().len() >= 2 {
                 push(&mut cmds, "Command_CreateFormation", true);
