@@ -1273,6 +1273,8 @@ pub struct CnCGameEngine {
     keys_pressed: HashSet<Key>,
     mouse_position: (f32, f32),
     mouse_world_position: Vec3,
+    /// Last applied context cursor residual (avoid spam set_cursor).
+    last_context_cursor: Option<&'static str>,
     is_dragging: bool,
     selection_start: Option<Vec3>,
     /// Screen-space drag origin for selection box overlay residual.
@@ -4530,6 +4532,7 @@ impl CnCGameEngine {
             keys_pressed: HashSet::new(),
             mouse_position: (0.0, 0.0),
             mouse_world_position: Vec3::ZERO,
+            last_context_cursor: None,
             is_dragging: false,
             selection_start: None,
             selection_start_screen: None,
@@ -5780,6 +5783,7 @@ impl CnCGameEngine {
                     self.update_mouse_world_position();
                     self.ui_manager
                         .handle_mouse_move(position.x as i32, position.y as i32);
+                    self.sync_context_mouse_cursor();
                 }
                 true
             }
@@ -11063,6 +11067,170 @@ impl CnCGameEngine {
         (right * screen_scroll.x) + (forward * -screen_scroll.y)
     }
 
+    /// C++ InGameUI context cursor residual mapped onto winit CursorIcon.
+    ///
+    /// Fail-closed vs full Mouse.cpp ANI/CUR assets — uses platform icons with
+    /// residual names from `MOUSE_CURSOR_INI_NAME_LIST`.
+    fn sync_context_mouse_cursor(&mut self) {
+        use winit::window::CursorIcon;
+        let (name, icon) = self.resolve_context_cursor_icon();
+        if self.last_context_cursor == Some(name) {
+            return;
+        }
+        self.last_context_cursor = Some(name);
+        self.window.set_cursor(icon);
+    }
+
+    fn resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
+        use winit::window::CursorIcon;
+
+        // Placement mode residual.
+        if self.pending_structure_placement.is_some() {
+            let legal = self
+                .game_hud
+                .construction_panel
+                .placement_preview()
+                .is_legal;
+            return if legal {
+                ("Build", CursorIcon::Cell)
+            } else {
+                ("InvalidBuild", CursorIcon::NotAllowed)
+            };
+        }
+
+        // Pending map command residual.
+        if let Some(kind) = self.pending_map_command.as_ref() {
+            return match kind {
+                PendingMapCommand::AttackMove => ("AttackMove", CursorIcon::Crosshair),
+                PendingMapCommand::Guard => ("Move", CursorIcon::AllScroll),
+                PendingMapCommand::SetRallyPoint => ("SetRallyPoint", CursorIcon::Cell),
+                PendingMapCommand::PlaceBeacon => ("PlaceBeacon", CursorIcon::Cell),
+                PendingMapCommand::SpecialPower(_) => ("Target", CursorIcon::Crosshair),
+            };
+        }
+
+        let has_selection = !self.selected_objects.is_empty()
+            || self
+                .game_logic
+                .get_player(self.current_player_id)
+                .map(|p| !p.selected_objects.is_empty())
+                .unwrap_or(false);
+
+        let hover = self.find_object_at_position(self.mouse_world_position, &self.game_logic, true);
+        let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+        let alt = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+
+        if alt && has_selection {
+            return ("Waypoint", CursorIcon::Cell);
+        }
+
+        if ctrl && has_selection {
+            return if hover.is_some() {
+                ("ForceAttackObj", CursorIcon::Crosshair)
+            } else {
+                ("ForceAttackGround", CursorIcon::Crosshair)
+            };
+        }
+
+        if !has_selection {
+            // Hover friendly selectable → Select residual.
+            if let Some(id) = hover {
+                let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.local_team()
+                } else {
+                    self.game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team)
+                        .unwrap_or(crate::game_logic::Team::USA)
+                };
+                let friendly = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame
+                        .objects
+                        .iter()
+                        .find(|o| o.id == id)
+                        .map(|o| o.team == player_team && !o.destroyed)
+                        .unwrap_or(false)
+                } else {
+                    self.game_logic
+                        .find_object(id)
+                        .map(|o| o.team == player_team && o.is_alive())
+                        .unwrap_or(false)
+                };
+                if friendly {
+                    return ("Select", CursorIcon::Pointer);
+                }
+            }
+            return ("Normal", CursorIcon::Default);
+        }
+
+        // Has selection: context from CommandSystem residual.
+        let mut selected = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        let context = crate::command_system::MouseCommandContext {
+            world_position: self.mouse_world_position,
+            target_object: hover,
+            screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: crate::command_system::MouseButton::Right,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut cmd_sys = crate::command_system::CommandSystem::new();
+        let cmd = cmd_sys.process_mouse_input(
+            &context,
+            &selected,
+            self.current_player_id,
+            &self.game_logic,
+        );
+        match cmd.map(|c| c.command_type) {
+            Some(crate::command_system::CommandType::AttackObject { .. }) => {
+                ("AttackObj", CursorIcon::Crosshair)
+            }
+            Some(crate::command_system::CommandType::ForceAttackObject { .. }) => {
+                ("ForceAttackObj", CursorIcon::Crosshair)
+            }
+            Some(crate::command_system::CommandType::ForceAttackGround { .. }) => {
+                ("ForceAttackGround", CursorIcon::Crosshair)
+            }
+            Some(crate::command_system::CommandType::Enter { .. }) => {
+                ("EnterFriendly", CursorIcon::Copy)
+            }
+            Some(crate::command_system::CommandType::GetRepaired { .. })
+            | Some(crate::command_system::CommandType::Repair { .. }) => {
+                ("GetRepaired", CursorIcon::Progress)
+            }
+            Some(crate::command_system::CommandType::MoveTo { .. })
+            | Some(crate::command_system::CommandType::AttackMoveTo { .. }) => {
+                ("Move", CursorIcon::AllScroll)
+            }
+            Some(crate::command_system::CommandType::AddWaypoint { .. }) => {
+                ("Waypoint", CursorIcon::Cell)
+            }
+            Some(crate::command_system::CommandType::Guard { .. }) => {
+                ("Move", CursorIcon::AllScroll)
+            }
+            _ => {
+                if hover.is_some() {
+                    ("Select", CursorIcon::Pointer)
+                } else {
+                    ("Move", CursorIcon::AllScroll)
+                }
+            }
+        }
+    }
+
     fn update_mouse_world_position(&mut self) {
         // Convert screen coordinates to world coordinates using current world bounds.
         // Prefer presentation world_env when installed (no live dual-read for click map).
@@ -13630,5 +13798,23 @@ fn cancel_unit_production_rmb_residual() {
     assert!(
         hud.contains("CancelUnitProduction") && hud.contains("build_queue_cancel"),
         "HUD RMB must raise CancelUnitProduction"
+    );
+}
+
+#[test]
+fn context_mouse_cursor_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn sync_context_mouse_cursor")
+            && src.contains("fn resolve_context_cursor_icon")
+            && src.contains("set_cursor"),
+        "InGame mouse move must apply context cursor residual"
+    );
+    assert!(
+        src.contains("\"AttackObj\"")
+            && src.contains("\"Build\"")
+            && src.contains("\"InvalidBuild\"")
+            && src.contains("\"Waypoint\""),
+        "cursor residual must cover attack/build/waypoint names"
     );
 }
