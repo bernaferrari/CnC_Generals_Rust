@@ -5688,13 +5688,17 @@ impl CnCGameEngine {
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
+                        let mut construction_consumed = false;
                         if route_keyboard_to_legacy_ui {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
                                 let _ = self.ui_manager.handle_key_press(ui_key);
                                 // Dual HUD residual: engine GameHUD owns construction
                                 // cameo hotkeys + placement cancel from presentation path.
+                                // When construction panel consumes a build/cancel key, skip
+                                // global command hotkeys (R repair vs R ranger, etc.).
                                 use crate::ui::Interactive;
-                                let _ = Interactive::handle_key_press(&mut self.game_hud, ui_key);
+                                construction_consumed =
+                                    Interactive::handle_key_press(&mut self.game_hud, ui_key);
                                 for ev in self.game_hud.drain_pending_ui_events() {
                                     self.ui_manager.queue_event(ev);
                                 }
@@ -5724,6 +5728,9 @@ impl CnCGameEngine {
                                 winit::keyboard::KeyCode::Numpad2,
                             ) => {
                                 self.camera_zoom_out_held = true;
+                            }
+                            _ if construction_consumed => {
+                                // Construction cameo / Escape placement cancel residual.
                             }
                             _ => self.handle_key_press(key),
                         }
@@ -10186,6 +10193,14 @@ impl CnCGameEngine {
                 // Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual.
                 self.select_matching_units_hotkey();
             }
+            Key::Character(c) if c == "[" || c == "{" => {
+                // Construction tab previous residual.
+                self.cycle_construction_tab(-1);
+            }
+            Key::Character(c) if c == "]" || c == "}" => {
+                // Construction tab next residual.
+                self.cycle_construction_tab(1);
+            }
             Key::Character(c) if c == "." || c == ">" => {
                 // Retail-ish next idle worker residual (period key).
                 self.cycle_friendly_worker_selection(1);
@@ -10872,6 +10887,37 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
+    }
+
+    /// Cycle construction panel tab residual (`[` / `]`).
+    fn cycle_construction_tab(&mut self, delta: i32) {
+        use crate::ui::ConstructionTab;
+        if !self.game_hud.construction_panel.is_visible() {
+            return;
+        }
+        let tabs = [
+            ConstructionTab::Buildings,
+            ConstructionTab::Infantry,
+            ConstructionTab::Vehicles,
+            ConstructionTab::Aircraft,
+        ];
+        let cur = self.game_hud.construction_panel.current_tab();
+        let idx = tabs.iter().position(|t| *t == cur).unwrap_or(0) as i32;
+        let n = tabs.len() as i32;
+        let next = (((idx + delta) % n) + n) % n;
+        let tab = tabs[next as usize];
+        self.game_hud.construction_panel.force_tab(tab);
+        let label = match tab {
+            ConstructionTab::Buildings => "Buildings",
+            ConstructionTab::Infantry => "Infantry",
+            ConstructionTab::Vehicles => "Vehicles",
+            ConstructionTab::Aircraft => "Aircraft",
+            ConstructionTab::NavalUnits => "Naval",
+            ConstructionTab::SuperWeapons => "Superweapons",
+        };
+        let msg = format!("Construction tab: {label}");
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
@@ -14667,5 +14713,27 @@ fn rally_overcharge_capture_hotkey_residual() {
             && src.contains("Command_CaptureBuilding")
             && src.contains("!ctrl_down"),
         "C must arm CaptureBuilding residual"
+    );
+}
+
+#[test]
+fn construction_cameo_hotkey_priority_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("construction_consumed")
+            && src.contains("_ if construction_consumed")
+            && src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)"),
+        "construction panel must consume build keys before global hotkeys residual"
+    );
+    assert!(
+        src.contains("cycle_construction_tab")
+            && src.contains("cycle_construction_tab(1)")
+            && src.contains("force_tab"),
+        "[ ] must cycle construction tabs residual"
+    );
+    let hud = include_str!("ui/hud.rs");
+    assert!(
+        hud.contains("fn force_tab") && hud.contains("ConstructionTab::Aircraft"),
+        "construction panel force_tab residual"
     );
 }
