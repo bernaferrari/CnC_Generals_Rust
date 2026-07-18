@@ -7596,6 +7596,54 @@ impl CnCGameEngine {
         log::debug!("BeginStructurePlacement residual: {template_name}");
     }
 
+    /// Pick nearest alive friendly dozer/worker for structure placement residual.
+    fn find_nearest_friendly_dozer(
+        &self,
+        player_id: u32,
+        location: glam::Vec3,
+    ) -> Option<crate::game_logic::ObjectId> {
+        let team = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.team)
+            .unwrap_or(crate::game_logic::Team::USA);
+        let mut best: Option<(crate::game_logic::ObjectId, f32)> = None;
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            for o in &frame.objects {
+                if o.destroyed || o.team != team {
+                    continue;
+                }
+                let n = o.template_name.to_ascii_lowercase();
+                if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
+                    continue;
+                }
+                if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
+                    continue;
+                }
+                let d = (o.position.x - location.x).hypot(o.position.z - location.z);
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((o.id, d));
+                }
+            }
+        } else {
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                    continue;
+                }
+                let n = obj.template_name.to_ascii_lowercase();
+                if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
+                    continue;
+                }
+                let pos = obj.get_position();
+                let d = (pos.x - location.x).hypot(pos.z - location.z);
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((id, d));
+                }
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
         use crate::game_logic::host_production_buildable_command_residual::{
             lbc_help_message_residual, LBC_OK,
@@ -7623,32 +7671,48 @@ impl CnCGameEngine {
             .get_player(player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        let is_dozer = |id: crate::game_logic::ObjectId| {
+            self.game_logic.get_object(id).is_some_and(|o| {
+                if !o.is_alive() {
+                    return false;
+                }
+                let n = o.template_name.to_ascii_lowercase();
+                n.contains("dozer") || n.contains("worker") || n.contains("crane")
+            })
+        };
         let dozers: Vec<_> = selected
             .iter()
             .copied()
-            .filter(|&id| {
-                self.game_logic.get_object(id).is_some_and(|o| {
-                    if !o.is_alive() {
-                        return false;
-                    }
-                    let n = o.template_name.to_ascii_lowercase();
-                    n.contains("dozer") || n.contains("worker")
-                })
-            })
+            .filter(|&id| is_dozer(id))
             .collect();
         if !dozers.is_empty() {
             selected = dozers;
+        }
+        // C++ residual: if no builder in selection, auto-pick nearest friendly dozer/worker.
+        if selected.is_empty() || !selected.iter().any(|&id| is_dozer(id)) {
+            if let Some(auto) = self.find_nearest_friendly_dozer(player_id, location) {
+                selected = vec![auto];
+                self.game_logic.select_objects(player_id, selected.clone());
+                self.selected_objects = selected.clone();
+            }
         }
         if selected.is_empty() {
             log::debug!("PlaceStructureAt ignored — no dozer/worker selection");
             // Keep placement armed so player can select a dozer and retry.
             self.pending_structure_placement = Some(template_name.to_string());
+            self.game_hud
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
             self.ui_manager
                 .game_hud_mut()
                 .construction_panel
                 .arm_structure_placement(template_name.to_string());
-            self.game_hud
-                .push_info_message("Select a dozer or worker to build");
+            let msg = "Select a dozer or worker to build";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
 
@@ -7659,6 +7723,9 @@ impl CnCGameEngine {
         if lbc != LBC_OK {
             // C++ keeps placement mode active on illegal click residual.
             self.pending_structure_placement = Some(template_name.to_string());
+            self.game_hud
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
             self.ui_manager
                 .game_hud_mut()
                 .construction_panel
@@ -7679,10 +7746,12 @@ impl CnCGameEngine {
 
         // Legal — clear arm and issue DozerConstruct.
         self.pending_structure_placement = None;
+        self.game_hud.construction_panel.clear_structure_placement();
         self.ui_manager
             .game_hud_mut()
             .construction_panel
             .clear_structure_placement();
+        self.play_sound_effect(SoundType::Command);
 
         self.game_logic
             .queue_command(crate::command_system::GameCommand {
@@ -13816,5 +13885,27 @@ fn context_mouse_cursor_residual() {
             && src.contains("\"InvalidBuild\"")
             && src.contains("\"Waypoint\""),
         "cursor residual must cover attack/build/waypoint names"
+    );
+}
+
+#[test]
+fn auto_dozer_structure_place_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn find_nearest_friendly_dozer")
+            && src.contains("Select a dozer or worker to build"),
+        "structure place must auto-pick nearest dozer residual"
+    );
+    let start = src.find("fn place_structure_from_ui").expect("place");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 4000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("clear_structure_placement")
+            && body.contains("game_hud.construction_panel")
+            && body.contains("ui_manager"),
+        "legal place must dual-clear both HUD placement ghosts"
     );
 }
