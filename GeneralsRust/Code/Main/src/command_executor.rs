@@ -522,6 +522,12 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop();
+                unit.set_target(None);
+                unit.set_force_attack(false);
+                // C++ stop clears guard/waypoint residual anchors.
+                unit.set_guard_position(None);
+                unit.set_guard_target(None);
+                unit.end_guard_retaliate();
                 unit.set_ai_state(AIState::Idle);
             }
         }
@@ -3912,6 +3918,19 @@ mod group_move_tests {
         assert!(
             body.contains("tomahawk") || body.contains("humvee"),
             "Deploy residual must recognize retail deploy-style unit names"
+        );
+    }
+
+    #[test]
+    fn execute_stop_clears_guard_residual() {
+        let src = include_str!("command_executor.rs");
+        let start = src.find("fn execute_stop").expect("execute_stop");
+        let body = &src[start..start + 700];
+        assert!(
+            body.contains("set_guard_position(None)")
+                && body.contains("end_guard_retaliate")
+                && body.contains("set_target(None)"),
+            "Stop must clear guard anchors and targets residual"
         );
     }
 }
