@@ -357,6 +357,35 @@ impl ConstructionPanel {
         matches!(self.current_tab, ConstructionTab::Buildings)
     }
 
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    pub fn current_tab(&self) -> ConstructionTab {
+        self.current_tab
+    }
+
+    /// Cycle/force construction tab residual without changing selected producer.
+    pub fn force_tab(&mut self, tab: ConstructionTab) {
+        let Some(building) = self.selected_building.clone() else {
+            self.current_tab = tab;
+            return;
+        };
+        let faction = construction_faction_from_building(&building);
+        self.construction_buttons.clear();
+        self.current_tab = tab;
+        match tab {
+            ConstructionTab::Buildings => self.add_building_structures(faction),
+            ConstructionTab::Infantry => self.add_infantry_units(faction),
+            ConstructionTab::Vehicles => self.add_vehicle_units(faction),
+            ConstructionTab::Aircraft => self.add_aircraft_units(faction),
+            // Host residual tabs without dedicated cameo lists yet.
+            ConstructionTab::NavalUnits | ConstructionTab::SuperWeapons => {
+                self.add_building_structures(faction);
+            }
+        }
+    }
+
     pub fn pending_structure_placement(&self) -> Option<&str> {
         self.pending_structure_placement.as_deref()
     }
