@@ -5615,6 +5615,7 @@ impl CnCGameEngine {
                 event:
                     KeyEvent {
                         logical_key: key,
+                        physical_key,
                         state,
                         ..
                     },
@@ -5630,7 +5631,15 @@ impl CnCGameEngine {
                                 let _ = self.ui_manager.handle_key_press(ui_key);
                             }
                         }
-                        self.handle_key_press(key);
+                        // Retail CAMERA_RESET KEY_KP5 residual (physical numpad).
+                        if matches!(
+                            physical_key,
+                            winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Numpad5)
+                        ) {
+                            self.reset_camera_view_hotkey();
+                        } else {
+                            self.handle_key_press(key);
+                        }
                     }
                     ElementState::Released => {
                         self.keys_pressed.remove(key);
@@ -9203,52 +9212,9 @@ impl CnCGameEngine {
                 }
             }
             Key::Named(NamedKey::Tab) => {
-                // Cycle selection through own selectable objects.
-                // Prefer presentation-frozen local_team when a frame is installed.
-                let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.local_team()
-                } else {
-                    // Boot residual only — presentation local_team owns InGame Tab cycle.
-                    let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                        return;
-                    };
-                    player.team
-                };
-
-                let all: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref()
-                {
-                    frame.alive_selectable_friendly_ids(team)
-                } else {
-                    // Boot residual only — presentation owns InGame Tab cycle list when frame set.
-                    let mut live: Vec<ObjectId> = self
-                        .game_logic
-                        .get_objects()
-                        .iter()
-                        .filter(|(_, obj)| {
-                            obj.team == team && obj.is_selectable() && obj.is_alive()
-                        })
-                        .map(|(&id, _)| id)
-                        .collect();
-                    live.sort_by_key(|id| id.0);
-                    live
-                };
-                if all.is_empty() {
-                    return;
-                }
-
-                let next = if let Some(current) = self.selected_objects.first().copied() {
-                    all.iter()
-                        .position(|id| *id == current)
-                        .map(|idx| all[(idx + 1) % all.len()])
-                        .unwrap_or(all[0])
-                } else {
-                    all[0]
-                };
-
-                self.selected_objects = vec![next];
-                self.game_logic
-                    .select_objects(self.current_player_id, vec![next]);
-                self.play_sound_effect(SoundType::Select);
+                // Selection cycle residual (retail DIPLOMACY is Tab; cycle kept for playability).
+                // Ctrl+Left/Right are the retail SELECT_PREV/NEXT_UNIT bindings.
+                self.cycle_friendly_selection(1);
             }
             Key::Named(NamedKey::F1) => self.handle_camera_view_hotkey(0),
             Key::Named(NamedKey::F2) => self.handle_camera_view_hotkey(1),
@@ -9320,6 +9286,29 @@ impl CnCGameEngine {
             {
                 // Retail CommandMap PLACE_BEACON Ctrl+B residual.
                 self.issue_named_command_from_ui("Command_PlaceBeacon");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("c")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
+            {
+                // Retail CommandMap ALL_CHEER Ctrl+C residual.
+                self.issue_named_command_from_ui("Command_Cheer");
+            }
+            Key::Named(NamedKey::ArrowRight) if ctrl_down => {
+                // Retail SELECT_NEXT_UNIT Ctrl+Right residual.
+                self.cycle_friendly_selection(1);
+            }
+            Key::Named(NamedKey::ArrowLeft) if ctrl_down => {
+                // Retail SELECT_PREV_UNIT Ctrl+Left residual.
+                self.cycle_friendly_selection(-1);
+            }
+            Key::Named(NamedKey::ArrowUp) if ctrl_down => {
+                // Retail SELECT_NEXT_WORKER Ctrl+Up residual.
+                self.cycle_friendly_worker_selection(1);
+            }
+            Key::Named(NamedKey::ArrowDown) if ctrl_down => {
+                // Retail SELECT_PREV_WORKER Ctrl+Down residual.
+                self.cycle_friendly_worker_selection(-1);
             }
             Key::Named(NamedKey::F9) => {
                 // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
@@ -9408,6 +9397,139 @@ impl CnCGameEngine {
             self.game_hud.push_info_message(&msg);
             self.ui_manager.game_hud_mut().push_info_message(&msg);
         }
+    }
+
+    /// Retail CAMERA_RESET (KEY_KP5) residual.
+    fn reset_camera_view_hotkey(&mut self) {
+        let focus = if let Some(pos) = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .and_then(|p| self.game_logic.command_center_position(p.team))
+        {
+            pos
+        } else if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame
+                .centroid_of_ids(&frame.alive_selectable_friendly_ids(frame.local_team()))
+                .unwrap_or(self.camera_target)
+        } else {
+            self.camera_target
+        };
+        let clamped = self.clamp_to_world_bounds(focus);
+        self.camera_target.x = clamped.x;
+        self.camera_target.z = clamped.z;
+        self.camera_zoom = self.compute_default_camera_zoom_for_target(
+            clamped,
+            self.game_logic.script_default_camera_max_height(),
+        );
+        self.game_logic.request_camera_focus(clamped);
+        info!("CAMERA_RESET residual -> {:?}", clamped);
+    }
+
+    /// Retail SELECT_NEXT/PREV_UNIT residual.
+    fn cycle_friendly_selection(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let all: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.alive_selectable_friendly_ids(team)
+        } else {
+            let mut live: Vec<ObjectId> = self
+                .game_logic
+                .get_objects()
+                .iter()
+                .filter(|(_, obj)| obj.team == team && obj.is_selectable() && obj.is_alive())
+                .map(|(&id, _)| id)
+                .collect();
+            live.sort_by_key(|id| id.0);
+            live
+        };
+        if all.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            all.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = all.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    all[i]
+                })
+                .unwrap_or(all[0])
+        } else if delta >= 0 {
+            all[0]
+        } else {
+            all[all.len() - 1]
+        };
+
+        self.selected_objects = vec![next];
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Retail SELECT_NEXT/PREV_WORKER residual — prefer dozers/workers/harvesters.
+    fn cycle_friendly_worker_selection(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let mut workers: Vec<ObjectId> = self
+            .game_logic
+            .get_objects()
+            .iter()
+            .filter(|(_, obj)| {
+                if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
+                    return false;
+                }
+                let n = obj.template_name.to_ascii_lowercase();
+                obj.is_dozer
+                    || n.contains("dozer")
+                    || n.contains("worker")
+                    || n.contains("chinook")
+                    || n.contains("supply")
+                    || n.contains("hack")
+            })
+            .map(|(&id, _)| id)
+            .collect();
+        workers.sort_by_key(|id| id.0);
+        if workers.is_empty() {
+            // Fail-open: fall back to general unit cycle.
+            self.cycle_friendly_selection(delta);
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            workers
+                .iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = workers.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    workers[i]
+                })
+                .unwrap_or(workers[0])
+        } else if delta >= 0 {
+            workers[0]
+        } else {
+            workers[workers.len() - 1]
+        };
+
+        self.selected_objects = vec![next];
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
     }
 
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
@@ -12240,5 +12362,30 @@ fn camera_bookmarks_and_delete_beacon_residual() {
     assert!(
         src.contains("destroy_object") && src.contains("Shift+Delete"),
         "Shift+Delete debug destroy residual must remain"
+    );
+}
+
+#[test]
+fn cheer_camera_reset_unit_cycle_hotkeys_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_Cheer") && src.contains("eq_ignore_ascii_case(\"c\")"),
+        "Ctrl+C must ALL_CHEER residual"
+    );
+    assert!(
+        src.contains("Numpad5") && src.contains("reset_camera_view_hotkey"),
+        "KP5 must CAMERA_RESET residual"
+    );
+    assert!(
+        src.contains("ArrowRight") && src.contains("cycle_friendly_selection(1)"),
+        "Ctrl+Right must SELECT_NEXT_UNIT residual"
+    );
+    assert!(
+        src.contains("ArrowLeft") && src.contains("cycle_friendly_selection(-1)"),
+        "Ctrl+Left must SELECT_PREV_UNIT residual"
+    );
+    assert!(
+        src.contains("cycle_friendly_worker_selection"),
+        "Ctrl+Up/Down must worker cycle residual"
     );
 }
