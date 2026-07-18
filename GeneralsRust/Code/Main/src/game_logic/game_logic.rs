@@ -20654,6 +20654,8 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     if obj.team == player.team && obj.is_selectable() {
                         obj.select();
+                        // C++ Drawable::flashAsSelected residual on select / create-team.
+                        obj.flash_as_selected();
                         player.selected_objects.push(object_id);
                     }
                 }
@@ -88967,6 +88969,17 @@ mod tests {
         let before_flash = logic.saboteur.flash_as_selected;
         logic.do_sabotage_feedback_fx(id, SaboteurEffectKind::FakeBuilding);
         assert_eq!(logic.saboteur.flash_as_selected, before_flash);
+    }
+
+    #[test]
+    fn select_objects_flashes_selection_residual() {
+        let src = include_str!("game_logic.rs");
+        let start = src.find("pub fn select_objects").expect("select_objects");
+        let body = &src[start..start + 900];
+        assert!(
+            body.contains("flash_as_selected"),
+            "select_objects must flashAsSelected residual on newly selected units"
+        );
     }
 
     #[test]
