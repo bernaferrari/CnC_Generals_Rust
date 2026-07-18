@@ -74,6 +74,13 @@ pub enum UIEvent {
     PlaySoundEffectPath(String),
     /// Focus the tactical camera to a world position
     FocusCamera(glam::Vec3),
+    /// C++ ControlBar unit production residual: queue unit at selected factory.
+    QueueUnitProduction {
+        template_name: String,
+        quantity: u32,
+    },
+    /// C++ ControlBar named command residual (Upgrade/Cancel/Stop/…).
+    IssueCommand { command_name: String },
 }
 
 /// Main UI manager that coordinates all UI systems
@@ -461,7 +468,13 @@ impl UIManager {
         let handled = match self.current_screen {
             Some(Screen::MainMenu) => self.main_menu.handle_key_press(key),
             Some(Screen::FactionSelection) => self.faction_selection.handle_key_press(key),
-            Some(Screen::GameHUD) => self.game_hud.handle_key_press(key),
+            Some(Screen::GameHUD) => {
+                let handled = self.game_hud.handle_key_press(key);
+                for ev in self.game_hud.drain_pending_ui_events() {
+                    self.queue_event(ev);
+                }
+                handled
+            }
             Some(Screen::PauseMenu) => self.pause_menu.handle_key_press(key),
             Some(Screen::Skirmish) => self.skirmish_menu.handle_key_press(key),
             Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
@@ -765,6 +778,20 @@ impl UIManager {
                 UIEvent::FocusCamera(position) => {
                     // Camera movement is handled by the main game engine loop.
                     self.event_queue.push(UIEvent::FocusCamera(position));
+                }
+                UIEvent::QueueUnitProduction {
+                    template_name,
+                    quantity,
+                } => {
+                    // Authoritative production enqueue is handled by the engine loop.
+                    self.event_queue.push(UIEvent::QueueUnitProduction {
+                        template_name,
+                        quantity,
+                    });
+                }
+                UIEvent::IssueCommand { command_name } => {
+                    self.event_queue
+                        .push(UIEvent::IssueCommand { command_name });
                 }
             }
         }

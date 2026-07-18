@@ -7175,9 +7175,149 @@ impl CnCGameEngine {
                 UIEvent::FocusCamera(world_pos) => {
                     self.center_camera_on(world_pos);
                 }
+                UIEvent::QueueUnitProduction {
+                    template_name,
+                    quantity,
+                } => {
+                    self.queue_unit_production_from_ui(&template_name, quantity);
+                }
+                UIEvent::IssueCommand { command_name } => {
+                    self.issue_named_command_from_ui(&command_name);
+                }
                 _ => {}
             }
         }
+    }
+
+    /// C++ ControlBar production cameo → QueueUnitCreate residual.
+    fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
+        if template_name.trim().is_empty() || quantity == 0 {
+            return;
+        }
+        let logic = &mut self.game_logic;
+        let player_id = logic
+            .get_player(0)
+            .map(|p| p.id)
+            .or_else(|| logic.get_players().keys().copied().min())
+            .unwrap_or(0);
+        let selected = logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        if selected.is_empty() {
+            log::debug!(
+                "QueueUnitProduction ignored — no selection for '{}'",
+                template_name
+            );
+            return;
+        }
+        // Prefer constructed producers in selection residual.
+        let producers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                logic.get_object(id).is_some_and(|o| {
+                    o.is_alive() && o.is_constructed() && o.building_data.is_some()
+                })
+            })
+            .collect();
+        let units = if producers.is_empty() {
+            selected
+        } else {
+            producers
+        };
+        logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::QueueUnitCreate {
+                template_name: template_name.to_string(),
+                quantity,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: units,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        // Same-frame residual so production advances without waiting for AI drain.
+        logic.process_commands();
+    }
+
+    /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
+    fn issue_named_command_from_ui(&mut self, command_name: &str) {
+        let Some(mut command_type) =
+            crate::command_system::command_type_from_button_name(command_name)
+        else {
+            log::debug!("IssueCommand unmapped: {command_name}");
+            return;
+        };
+        let logic = &mut self.game_logic;
+        let player_id = logic
+            .get_player(0)
+            .map(|p| p.id)
+            .or_else(|| logic.get_players().keys().copied().min())
+            .unwrap_or(0);
+        let selected = logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        if selected.is_empty()
+            && !matches!(
+                command_type,
+                crate::command_system::CommandType::Stop
+                    | crate::command_system::CommandType::Scatter
+            )
+        {
+            return;
+        }
+        // Fill selection-dependent placeholders residual.
+        let mut center = glam::Vec3::ZERO;
+        let mut count = 0.0f32;
+        for id in &selected {
+            if let Some(obj) = logic.get_object(*id) {
+                center += obj.get_position();
+                count += 1.0;
+            }
+        }
+        let center = if count > 0.0 {
+            center / count
+        } else {
+            glam::Vec3::ZERO
+        };
+        match &mut command_type {
+            crate::command_system::CommandType::DozerCancelConstruct { object_id } => {
+                if let Some(id) = selected.first() {
+                    *object_id = *id;
+                }
+            }
+            crate::command_system::CommandType::Guard { target } => {
+                *target = crate::command_system::GuardTarget::Position(center);
+            }
+            crate::command_system::CommandType::SetRallyPoint { location } => {
+                if let Some(id) = selected.first() {
+                    if let Some(obj) = logic.get_object(*id) {
+                        let f = obj.thing.get_direction_vector();
+                        *location = obj.get_position() + f * obj.selection_radius.max(10.0);
+                    }
+                }
+            }
+            crate::command_system::CommandType::AttackMoveTo { destination } => {
+                if let Some(id) = selected.first() {
+                    if let Some(obj) = logic.get_object(*id) {
+                        let f = obj.thing.get_direction_vector();
+                        *destination = obj.get_position() + f * 50.0;
+                    }
+                }
+            }
+            _ => {}
+        }
+        logic.queue_command(crate::command_system::GameCommand {
+            command_type,
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        logic.process_commands();
     }
 
     fn route_shell_owned_screen_change(&mut self, screen: Screen) {
