@@ -47379,6 +47379,14 @@ impl GameLogic {
         self.eva_insufficient_funds
     }
 
+    pub fn eva_base_under_attack_count(&self) -> u32 {
+        self.eva_base_under_attack
+    }
+
+    pub fn eva_ally_under_attack_count(&self) -> u32 {
+        self.eva_ally_under_attack
+    }
+
     pub fn honesty_eva_insufficient_funds_ok(&self) -> bool {
         self.eva_insufficient_funds > 0
     }
