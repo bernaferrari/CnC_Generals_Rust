@@ -990,6 +990,11 @@ impl CommandSystem {
                     return CommandType::AttackObject { target_id };
                 }
 
+                // C++ MSG_RESUME_CONSTRUCTION residual: dozer → unfinished ally structure.
+                if self.can_resume_construction(selected_units, target_obj, game_logic) {
+                    return CommandType::ResumeConstruction { target_id };
+                }
+
                 // Check if target is repairable
                 if self.can_repair_target(selected_units, target_obj, game_logic) {
                     return CommandType::Repair { target_id };
@@ -1649,6 +1654,34 @@ impl CommandSystem {
                     && unit.team == target.team
                     && unit.is_alive()
                     && unit.can_move()
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Validate if selected dozers can resume construction on unfinished structure.
+    fn can_resume_construction(
+        &self,
+        units: &[ObjectId],
+        target: &Object,
+        game_logic: &GameLogic,
+    ) -> bool {
+        if !target.is_kind_of(crate::game_logic::KindOf::Structure)
+            || !target.is_alive()
+            || !target.status.under_construction
+        {
+            return false;
+        }
+        for &unit_id in units {
+            if let Some(unit) = game_logic.get_object(unit_id) {
+                // Dozer / worker residual (can_repair covers builders).
+                if unit.can_repair()
+                    && unit.is_alive()
+                    && unit.can_move()
+                    && (unit.team == target.team || target.team == Team::Neutral)
                 {
                     return true;
                 }
@@ -3370,6 +3403,24 @@ mod tests {
         assert!(
             w.contains("assign_unit_path"),
             "residual scatter must assign_unit_path"
+        );
+    }
+
+    #[test]
+    fn resume_construction_context_residual() {
+        let src = include_str!("command_system.rs");
+        assert!(
+            src.contains("fn can_resume_construction")
+                && src.contains("CommandType::ResumeConstruction"),
+            "context path must offer ResumeConstruction for unfinished structures"
+        );
+        let start = src
+            .find("fn determine_context_command")
+            .expect("determine_context_command");
+        let body = &src[start..start + 2200];
+        assert!(
+            body.contains("can_resume_construction"),
+            "determine_context_command must call can_resume_construction"
         );
     }
 }
