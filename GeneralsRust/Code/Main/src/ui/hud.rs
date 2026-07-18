@@ -571,6 +571,17 @@ impl ConstructionPanel {
     }
 }
 
+/// Snapshot-owned PublicTimer residual for HUD superweapon strip.
+#[derive(Debug, Clone)]
+pub struct PresentationSwTimer {
+    pub name: String,
+    pub template_name: String,
+    pub remaining: f32,
+    pub recharge_time: f32,
+    pub ready: bool,
+    pub unlocked: bool,
+}
+
 /// Main HUD implementation
 pub struct GameHUD {
     /// Resource display
@@ -595,6 +606,8 @@ pub struct GameHUD {
     command_buttons: Vec<CommandButton>,
     /// UI events raised from hotkeys (drained by UIManager).
     pending_ui_events: Vec<crate::ui::UIEvent>,
+    /// InGameUI PublicTimer residual freeze from PresentationFrame.
+    presentation_superweapon_timers: Vec<PresentationSwTimer>,
     /// Message log
     messages: Vec<GameMessage>,
     /// Active beacon markers for minimap rendering
@@ -645,6 +658,29 @@ impl Default for GameHUD {
 }
 
 impl GameHUD {
+    /// Apply presentation PublicTimer residual (superweapon countdown strip).
+    pub fn apply_presentation_superweapon_timers(
+        &mut self,
+        timers: &[crate::ui::hud_state::UiSuperweaponTimer],
+    ) {
+        self.presentation_superweapon_timers = timers
+            .iter()
+            .filter(|t| t.unlocked)
+            .map(|t| PresentationSwTimer {
+                name: t.name.clone(),
+                template_name: t.template_name.clone(),
+                remaining: t.remaining,
+                recharge_time: t.recharge_time,
+                ready: t.ready,
+                unlocked: t.unlocked,
+            })
+            .collect();
+    }
+
+    pub fn presentation_superweapon_timers(&self) -> &[PresentationSwTimer] {
+        &self.presentation_superweapon_timers
+    }
+
     /// Apply presentation CanMake residual onto construction buttons (enable/gray).
     pub fn apply_can_make_cameos(&mut self, cameos: &[(&str, bool, u32, Option<&str>)]) {
         if cameos.is_empty() {
@@ -679,6 +715,7 @@ impl GameHUD {
             visible: true,
             command_buttons: Vec::new(),
             pending_ui_events: Vec::new(),
+            presentation_superweapon_timers: Vec::new(),
             messages: Vec::new(),
             beacon_markers: Vec::new(),
             beacon_events: Vec::new(),
