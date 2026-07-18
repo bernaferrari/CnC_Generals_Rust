@@ -204,6 +204,8 @@ pub struct ConstructionPanel {
     command_set_override: String,
     tab_buttons: Vec<TabButton>,
     construction_buttons: Vec<ConstructionButton>,
+    /// C++ structure placement cursor residual (template awaiting map click).
+    pub(crate) pending_structure_placement: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,7 +274,24 @@ impl ConstructionPanel {
             command_set_override: String::new(),
             tab_buttons: Vec::new(),
             construction_buttons: Vec::new(),
+            pending_structure_placement: None,
         }
+    }
+
+    pub fn is_structure_tab(&self) -> bool {
+        matches!(self.current_tab, ConstructionTab::Buildings)
+    }
+
+    pub fn pending_structure_placement(&self) -> Option<&str> {
+        self.pending_structure_placement.as_deref()
+    }
+
+    pub fn clear_structure_placement(&mut self) {
+        self.pending_structure_placement = None;
+    }
+
+    pub fn arm_structure_placement(&mut self, template_name: String) {
+        self.pending_structure_placement = Some(template_name);
     }
 
     pub fn show_for_building(&mut self, building_name: &str) {
@@ -302,6 +321,7 @@ impl ConstructionPanel {
         self.visible = false;
         self.selected_building = None;
         self.construction_buttons.clear();
+        self.pending_structure_placement = None;
     }
 
     fn setup_construction_options(&mut self, building_name: &str) {
@@ -604,6 +624,13 @@ impl GameHUD {
         // Check minimap clicks
         if let Some((world_x, world_y)) = self.minimap.world_coords_from_click(x, y) {
             if button == MouseButton::Left {
+                // C++ place building via radar/minimap residual when placement armed.
+                if let Some(template) = self.construction_panel.pending_structure_placement.take() {
+                    return Some(UIEvent::PlaceStructureAt {
+                        template_name: template,
+                        location: Vec3::new(world_x, 0.0, world_y),
+                    });
+                }
                 return Some(UIEvent::FocusCamera(Vec3::new(world_x, 0.0, world_y)));
             }
         }
@@ -632,17 +659,29 @@ impl GameHUD {
             }
 
             if let Some((item_name, display_name, cost)) = clicked_construction {
-                // Local UI queue residual (progress strip) + authoritative QueueUnitCreate.
+                let cost_str = cost.to_string();
+                // C++ structure cameo: enter placement mode (DozerConstruct on map click).
+                if self.construction_panel.is_structure_tab() {
+                    self.construction_panel.pending_structure_placement = Some(item_name.clone());
+                    let message = localization::localize_with_args(
+                        "hud.message.place_structure",
+                        "Select location for {name} (${cost} Credits)",
+                        &[("name", display_name.as_str()), ("cost", cost_str.as_str())],
+                    );
+                    self.add_message(&message, MessageType::Construction);
+                    return Some(crate::ui::UIEvent::BeginStructurePlacement {
+                        template_name: item_name,
+                    });
+                }
+                // Unit/aircraft/vehicle cameo: authoritative factory queue.
                 self.construction_panel
                     .add_to_queue(&item_name, &display_name, cost, 5.0);
-                let cost_str = cost.to_string();
                 let message = localization::localize_with_args(
                     "hud.message.build_queue_start",
                     "Building {name} (${cost} Credits)",
                     &[("name", display_name.as_str()), ("cost", cost_str.as_str())],
                 );
                 self.add_message(&message, MessageType::Construction);
-                // C++ ProductionUpdate::queueCreateUnit residual via engine command path.
                 return Some(crate::ui::UIEvent::QueueUnitProduction {
                     template_name: item_name,
                     quantity: 1,
@@ -1050,6 +1089,15 @@ impl Interactive for GameHUD {
             }
 
             if let Some((item_name, display_name, cost)) = build_item {
+                if self.construction_panel.is_structure_tab() {
+                    self.construction_panel.pending_structure_placement = Some(item_name.clone());
+                    self.pending_ui_events
+                        .push(crate::ui::UIEvent::BeginStructurePlacement {
+                            template_name: item_name,
+                        });
+                    let _ = (display_name, cost);
+                    return true;
+                }
                 self.construction_panel
                     .add_to_queue(&item_name, &display_name, cost, 5.0);
                 self.pending_ui_events
@@ -1351,6 +1399,7 @@ mod tests {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
         hud.construction_panel.visible = true;
+        hud.construction_panel.current_tab = ConstructionTab::Infantry;
         hud.construction_panel.construction_buttons.clear();
         hud.construction_panel
             .construction_buttons
@@ -1380,10 +1429,71 @@ mod tests {
     }
 
     #[test]
+    fn structure_cameo_begins_placement_residual() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel.visible = true;
+        hud.construction_panel.current_tab = ConstructionTab::Buildings;
+        hud.construction_panel.construction_buttons.clear();
+        hud.construction_panel
+            .construction_buttons
+            .push(ConstructionButton {
+                item_name: "AmericaBarracks".into(),
+                display_name: "Barracks".into(),
+                position: (10, 10),
+                size: (64, 64),
+                cost: 600,
+                enabled: true,
+                hovered: false,
+                build_key: Some(KeyCode::B),
+            });
+        let ev = hud
+            .handle_mouse_click(20, 20, MouseButton::Left)
+            .expect("placement event");
+        match ev {
+            UIEvent::BeginStructurePlacement { template_name } => {
+                assert_eq!(template_name, "AmericaBarracks");
+            }
+            other => panic!("expected BeginStructurePlacement, got {other:?}"),
+        }
+        assert_eq!(
+            hud.construction_panel.pending_structure_placement(),
+            Some("AmericaBarracks")
+        );
+    }
+
+    #[test]
+    fn minimap_click_places_pending_structure_residual() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel.pending_structure_placement = Some("AmericaPowerPlant".into());
+        // Click center of default minimap (bottom-right of 1024x768).
+        let mx = 1024 - 10 - 64;
+        let my = 768 - 10 - 64;
+        let ev = hud
+            .handle_mouse_click(mx, my, MouseButton::Left)
+            .expect("place event");
+        match ev {
+            UIEvent::PlaceStructureAt {
+                template_name,
+                location,
+            } => {
+                assert_eq!(template_name, "AmericaPowerPlant");
+                assert!(location.x.is_finite() && location.z.is_finite());
+            }
+            other => panic!("expected PlaceStructureAt, got {other:?}"),
+        }
+        assert!(hud
+            .construction_panel
+            .pending_structure_placement()
+            .is_none());
+    }
+
     fn construction_hotkey_queues_pending_ui_event_residual() {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
         hud.construction_panel.visible = true;
+        hud.construction_panel.current_tab = ConstructionTab::Vehicles;
         hud.construction_panel.construction_buttons.clear();
         hud.construction_panel
             .construction_buttons
