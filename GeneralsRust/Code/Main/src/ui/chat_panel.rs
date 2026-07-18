@@ -629,6 +629,7 @@ impl Renderable for ChatPanel {
 
 #[cfg(test)]
 mod tests {
+    use super::Interactive;
     use super::*;
 
     #[test]
@@ -728,17 +729,18 @@ mod tests {
     fn test_send_message() {
         let mut panel = ChatPanel::new();
         panel.open();
-        panel.handle_text_input("Hello world");
+        let opened = panel.drain_events();
+        assert!(matches!(opened.as_slice(), [ChatEvent::ChatOpened]));
 
-        let events = panel.drain_events();
-        assert!(events.is_empty()); // No events yet
+        panel.handle_text_input("Hello world");
+        assert!(panel.drain_events().is_empty()); // typing does not emit events
 
         panel.send_message();
 
         let events = panel.drain_events();
-        assert_eq!(events.len(), 2); // ChatOpened + MessageSent
-        assert!(matches!(events[0], ChatEvent::ChatOpened));
-        assert!(matches!(&events[1], ChatEvent::MessageSent { text, .. } if text == "Hello world"));
+        assert_eq!(events.len(), 2); // MessageSent + ChatClosed
+        assert!(matches!(&events[0], ChatEvent::MessageSent { text, .. } if text == "Hello world"));
+        assert!(matches!(events[1], ChatEvent::ChatClosed));
 
         // Verify message appears in log
         assert_eq!(panel.messages().len(), 1);
@@ -846,16 +848,23 @@ mod tests {
     fn test_key_press_consumed_when_open() {
         let mut panel = ChatPanel::new();
         panel.open();
+        panel.handle_text_input("ab");
 
-        // These keys should be consumed when chat is open
-        assert!(panel.handle_key_press(KeyCode::Enter));
-        assert!(panel.handle_key_press(KeyCode::Escape));
+        // Navigation / edit keys should be consumed while chat is open.
         assert!(panel.handle_key_press(KeyCode::Backspace));
         assert!(panel.handle_key_press(KeyCode::Left));
         assert!(panel.handle_key_press(KeyCode::Right));
         assert!(panel.handle_key_press(KeyCode::Tab));
         assert!(panel.handle_key_press(KeyCode::Home));
         assert!(panel.handle_key_press(KeyCode::End));
+        assert!(panel.handle_key_press(KeyCode::Escape));
+        assert!(!panel.is_open());
+
+        // Enter sends (or closes) while open.
+        panel.open();
+        panel.handle_text_input("hi");
+        assert!(panel.handle_key_press(KeyCode::Enter));
+        assert!(!panel.is_open());
     }
 
     #[test]
