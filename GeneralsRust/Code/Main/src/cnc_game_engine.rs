@@ -1166,6 +1166,8 @@ enum PendingMapCommand {
     SetRallyPoint,
     /// Armed superweapon / special power residual awaiting map click.
     SpecialPower(crate::command_system::SpecialPowerType),
+    /// Retail PLACE_BEACON residual awaiting map click.
+    PlaceBeacon,
 }
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
@@ -7269,7 +7271,8 @@ impl CnCGameEngine {
         if selected.is_empty() {
             selected = self.selected_objects.clone();
         }
-        if selected.is_empty() {
+        let allows_empty = matches!(kind, PendingMapCommand::PlaceBeacon);
+        if selected.is_empty() && !allows_empty {
             return;
         }
         let command_type = match kind {
@@ -7298,6 +7301,10 @@ impl CnCGameEngine {
                 };
                 crate::command_system::CommandType::DoSpecialPower { power_type, target }
             }
+            PendingMapCommand::PlaceBeacon => crate::command_system::CommandType::PlaceBeacon {
+                location,
+                text: String::new(),
+            },
         };
         self.game_logic
             .queue_command(crate::command_system::GameCommand {
@@ -7562,6 +7569,14 @@ impl CnCGameEngine {
                 self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
+            crate::command_system::CommandType::PlaceBeacon { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
+                self.pending_structure_placement = None;
+                let msg = "Place beacon: click location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
             _ => {}
         }
 
@@ -7592,6 +7607,8 @@ impl CnCGameEngine {
                     | crate::command_system::CommandType::Scatter
                     | crate::command_system::CommandType::ViewCommandCenter
                     | crate::command_system::CommandType::ViewLastRadarEvent
+                    | crate::command_system::CommandType::PlaceBeacon { .. }
+                    | crate::command_system::CommandType::RemoveBeacon
             )
         {
             return;
@@ -9286,6 +9303,22 @@ impl CnCGameEngine {
             {
                 // Retail CommandMap CREATE_FORMATION Ctrl+F residual.
                 self.issue_named_command_from_ui("Command_CreateFormation");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("b")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
+            {
+                // Retail CommandMap PLACE_BEACON Ctrl+B residual.
+                self.issue_named_command_from_ui("Command_PlaceBeacon");
+            }
+            Key::Named(NamedKey::F9) => {
+                // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
+                self.game_hud.toggle_visibility();
+                self.ui_manager.game_hud_mut().toggle_visibility();
+                info!(
+                    "Control bar visibility toggled (engine visible={})",
+                    self.game_hud.hud_visible()
+                );
             }
             Key::Character(c) if c.eq_ignore_ascii_case("s") && ctrl_down => {
                 self.quick_save_from_hotkey("Ctrl+S");
@@ -12126,5 +12159,23 @@ fn escape_in_handle_key_press_cancels_then_pauses_residual() {
     assert!(
         i > hk,
         "live Escape residual must sit under handle_key_press"
+    );
+}
+
+#[test]
+fn beacon_and_control_bar_hotkeys_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"b\")") && src.contains("Command_PlaceBeacon"),
+        "Ctrl+B must PLACE_BEACON residual"
+    );
+    assert!(
+        src.contains("PendingMapCommand::PlaceBeacon")
+            && src.contains("Place beacon: click location"),
+        "PlaceBeacon must arm pending map click"
+    );
+    assert!(
+        src.contains("NamedKey::F9") && src.contains("toggle_visibility()"),
+        "F9 must TOGGLE_CONTROL_BAR residual"
     );
 }
