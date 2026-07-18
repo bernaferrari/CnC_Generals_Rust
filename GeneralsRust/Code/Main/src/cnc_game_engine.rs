@@ -7802,6 +7802,15 @@ impl CnCGameEngine {
         best.map(|(id, _)| id)
     }
 
+    fn is_wall_structure_template(template_name: &str) -> bool {
+        let n = template_name.to_ascii_lowercase();
+        n.contains("wall")
+            || n.contains("fence")
+            || n.contains("bunker") && n.contains("wall")
+            || n.contains("fortresswall")
+            || n.contains("chainlink")
+    }
+
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
         use crate::game_logic::host_production_buildable_command_residual::{
             lbc_help_message_residual, LBC_OK,
@@ -7929,6 +7938,63 @@ impl CnCGameEngine {
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
         self.game_logic.process_commands();
+    }
+
+    fn place_wall_line_from_ui(&mut self, template_name: &str, start: glam::Vec3, end: glam::Vec3) {
+        let template = template_name.to_string();
+        let player_id = self.current_player_id;
+        let mut selected = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        // Prefer dozers/workers in selection residual.
+        let builders: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.game_logic.get_object(id).is_some_and(|o| {
+                    o.is_alive()
+                        && (o.is_dozer
+                            || o.template_name.to_ascii_lowercase().contains("dozer")
+                            || o.template_name.to_ascii_lowercase().contains("worker"))
+                })
+            })
+            .collect();
+        let units = if builders.is_empty() {
+            selected
+        } else {
+            builders
+        };
+        if units.is_empty() {
+            let msg = "Select a dozer or worker to build wall";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+
+        // Keep placement armed for chained wall segments residual.
+        self.play_sound_effect(SoundType::Command);
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::DozerConstructLine {
+                    template_name: template,
+                    start,
+                    end,
+                },
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: units,
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        self.game_logic.process_commands();
+        let msg = "Wall line ordered";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
@@ -11407,9 +11473,14 @@ impl CnCGameEngine {
                     self.play_sound_effect(SoundType::Select);
                 }
             } else if let Some(template) = self.pending_structure_placement.clone() {
-                // C++ structure placement residual: empty-ground click commits DozerConstruct.
-                let loc = self.mouse_world_position;
-                self.place_structure_from_ui(&template, loc);
+                // Wall/fence residual: defer commit to left-release so drag can form a line.
+                if Self::is_wall_structure_template(&template) {
+                    // selection_start already set at top of handle_left_click.
+                } else {
+                    // C++ structure placement residual: empty-ground click commits DozerConstruct.
+                    let loc = self.mouse_world_position;
+                    self.place_structure_from_ui(&template, loc);
+                }
             } else {
                 // Defer empty-ground clear until left-release if this becomes a box drag.
                 // Instant clear on mousedown fights drag-select residual.
@@ -11573,6 +11644,13 @@ impl CnCGameEngine {
         // If the mouse didn't move enough, the click selection was already handled on mouse-down.
         let drag_distance = Vec2::new(end.x - start.x, end.z - start.z).length();
         if drag_distance < 5.0 {
+            // Wall residual: short click places a single segment.
+            if let Some(template) = self.pending_structure_placement.clone() {
+                if Self::is_wall_structure_template(&template) {
+                    self.place_structure_from_ui(&template, end);
+                    return;
+                }
+            }
             // Click on empty ground (no pending command/placement handled on press): clear selection.
             if self.pending_map_command.is_none()
                 && self.pending_structure_placement.is_none()
@@ -11588,6 +11666,14 @@ impl CnCGameEngine {
                 }
             }
             return;
+        }
+
+        // Wall/fence drag residual: DozerConstructLine along the drag segment.
+        if let Some(template) = self.pending_structure_placement.clone() {
+            if Self::is_wall_structure_template(&template) {
+                self.place_wall_line_from_ui(&template, start, end);
+                return;
+            }
         }
 
         let min_x = start.x.min(end.x);
@@ -15237,5 +15323,17 @@ fn generals_science_purchase_residual() {
     assert!(
         pf.contains("Command_PurchaseScience") && pf.contains("local_science_purchase_points"),
         "strip must expose PurchaseScience when SPP residual"
+    );
+}
+
+#[test]
+fn wall_line_drag_placement_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn is_wall_structure_template")
+            && src.contains("fn place_wall_line_from_ui")
+            && src.contains("DozerConstructLine")
+            && src.contains("Wall line ordered"),
+        "wall/fence drag must issue DozerConstructLine residual"
     );
 }
