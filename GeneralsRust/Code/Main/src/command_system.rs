@@ -2094,6 +2094,59 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "cancelconstruction" => Some(CommandType::DozerCancelConstruct {
             object_id: crate::game_logic::ObjectId(0),
         }),
+        // Unit special-ability residual (target filled by map click).
+        "hijack" | "hijackvehicle" => Some(CommandType::Hijack {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "sabotage" | "sabotagebuilding" => Some(CommandType::Sabotage {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "capturebuilding"
+        | "rangercapturebuilding"
+        | "redguardcapturebuilding"
+        | "rebelcapturebuilding"
+        | "blacklotuscapturebuilding" => Some(CommandType::CaptureBuilding {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "snipevehicle" | "jarmenkellsnipe" | "snipe" => Some(CommandType::SnipeVehicle {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "planttimeddemocharge" | "timeddemocharge" | "planttimedcharge" => {
+            Some(CommandType::PlantTimedDemoCharge {
+                target_id: crate::game_logic::ObjectId(0),
+            })
+        }
+        "plantremotedemocharge" | "remotedemocharge" | "plantremotecharge" => {
+            Some(CommandType::PlantRemoteDemoCharge {
+                target_id: crate::game_logic::ObjectId(0),
+            })
+        }
+        "detonateremotedemocharges" | "detonateremotecharges" => {
+            Some(CommandType::DetonateRemoteDemoCharges)
+        }
+        "stealcashhack" | "blacklotusstealcash" => Some(CommandType::StealCashHack {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "disablevehiclehack" | "blacklotusdisablevehicle" => {
+            Some(CommandType::DisableVehicleHack {
+                target_id: crate::game_logic::ObjectId(0),
+            })
+        }
+        "hackerdisablebuilding" | "disablebuilding" => Some(CommandType::HackerDisableBuilding {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "disguiseasvehicle" | "disguise" => Some(CommandType::DisguiseAsVehicle {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "plantboobytrap" | "boobytrap" => Some(CommandType::PlantBoobyTrap {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "converttocarbomb" | "carbomb" => Some(CommandType::ConvertToCarbomb {
+            target_id: crate::game_logic::ObjectId(0),
+        }),
+        "demotertiarysuicide" | "suicidebomb" | "tertiarysuicide" => {
+            Some(CommandType::DemoTertiarySuicide)
+        }
         _ => {
             // Command_UpgradeAmericaX / Command_Upgrade_GLA… → Upgrade_AmericaX
             if let Some(rest) = key.strip_prefix("upgrade") {
@@ -3486,5 +3539,31 @@ mod tests {
             body.contains("can_capture_building"),
             "determine_context_command must call can_capture_building"
         );
+    }
+
+    #[test]
+    fn unit_ability_button_name_map_residual() {
+        use crate::command_system::{command_type_from_button_name, CommandType};
+        assert!(matches!(
+            command_type_from_button_name("Command_Hijack"),
+            Some(CommandType::Hijack { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_SnipeVehicle"),
+            Some(CommandType::SnipeVehicle { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_CaptureBuilding"),
+            Some(CommandType::CaptureBuilding { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_PlantTimedDemoCharge"),
+            Some(CommandType::PlantTimedDemoCharge { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_BlackLotusStealCash")
+                .or_else(|| command_type_from_button_name("Command_StealCashHack")),
+            Some(CommandType::StealCashHack { .. })
+        ));
     }
 }
