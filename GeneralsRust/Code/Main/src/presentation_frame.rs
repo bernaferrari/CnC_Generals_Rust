@@ -5500,6 +5500,13 @@ impl PresentationFrame {
             ids = infos.iter().map(|i| i.object_id).collect();
         }
         hud.sync_selection_from_presentation(ids, infos);
+        // ControlBar unit command residual from primary selection freeze.
+        let cmds: Vec<(String, bool)> = self
+            .unit_command_buttons()
+            .into_iter()
+            .map(|b| (b.command_name, b.enabled))
+            .collect();
+        hud.apply_presentation_unit_commands(&cmds);
         self.apply_events_to_game_hud(hud);
     }
 
@@ -9579,6 +9586,32 @@ mod tests {
                 .any(|n| n.eq_ignore_ascii_case("Command_Deploy")),
             "sentry should expose Deploy: {:?}",
             names
+        );
+    }
+
+    #[test]
+    fn presentation_applies_unit_commands_to_game_hud_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+            .expect("ranger");
+        logic.select_objects(0, vec![id]);
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut hud = crate::ui::GameHUD::new();
+        frame.apply_to_game_hud(&mut hud);
+        assert!(
+            frame
+                .unit_command_buttons()
+                .iter()
+                .any(|c| c.command_name.eq_ignore_ascii_case("Command_Stop")),
+            "ranger selection must expose Stop for HUD apply residual"
         );
     }
 
