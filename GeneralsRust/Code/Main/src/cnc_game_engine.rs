@@ -1288,6 +1288,8 @@ pub struct CnCGameEngine {
     control_groups: HashMap<u8, Vec<ObjectId>>,
     /// Last control-group digit select (group, Instant) for double-tap camera jump residual.
     last_control_group_select: Option<(u8, Instant)>,
+    /// Retail SAVE_VIEW1..8 / VIEW_VIEW1..8 camera bookmark residual (F1-F8).
+    camera_view_bookmarks: [Option<Vec3>; 8],
     current_player_id: u32,
     game_paused: bool,
 
@@ -4526,6 +4528,7 @@ impl CnCGameEngine {
             selected_objects: Vec::new(),
             control_groups: HashMap::new(),
             last_control_group_select: None,
+            camera_view_bookmarks: [None; 8],
             current_player_id: 0,
             game_paused: false,
             show_debug_info: debug_overlay,
@@ -9182,16 +9185,22 @@ impl CnCGameEngine {
                 self.select_all_friendly_units();
             }
             Key::Named(NamedKey::Delete) => {
-                // Debug: delete selected units.
-                if self.selected_objects.is_empty() {
-                    return;
+                let shift = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+                if shift {
+                    // Debug residual: Shift+Delete destroys selection.
+                    if self.selected_objects.is_empty() {
+                        return;
+                    }
+                    for id in self.selected_objects.clone() {
+                        self.game_logic.destroy_object(id);
+                    }
+                    self.selected_objects.clear();
+                    self.game_logic
+                        .select_objects(self.current_player_id, Vec::new());
+                } else {
+                    // Retail CommandMap DELETE_BEACON KEY_DEL residual.
+                    self.issue_named_command_from_ui("Command_RemoveBeacon");
                 }
-                for id in self.selected_objects.clone() {
-                    self.game_logic.destroy_object(id);
-                }
-                self.selected_objects.clear();
-                self.game_logic
-                    .select_objects(self.current_player_id, Vec::new());
             }
             Key::Named(NamedKey::Tab) => {
                 // Cycle selection through own selectable objects.
@@ -9241,13 +9250,14 @@ impl CnCGameEngine {
                     .select_objects(self.current_player_id, vec![next]);
                 self.play_sound_effect(SoundType::Select);
             }
-            Key::Named(NamedKey::F1) => {
-                self.show_debug_info = !self.show_debug_info;
-                info!(
-                    "Debug info: {}",
-                    if self.show_debug_info { "ON" } else { "OFF" }
-                );
-            }
+            Key::Named(NamedKey::F1) => self.handle_camera_view_hotkey(0),
+            Key::Named(NamedKey::F2) => self.handle_camera_view_hotkey(1),
+            Key::Named(NamedKey::F3) => self.handle_camera_view_hotkey(2),
+            Key::Named(NamedKey::F4) => self.handle_camera_view_hotkey(3),
+            Key::Named(NamedKey::F5) => self.handle_camera_view_hotkey(4),
+            Key::Named(NamedKey::F6) => self.handle_camera_view_hotkey(5),
+            Key::Named(NamedKey::F7) => self.handle_camera_view_hotkey(6),
+            Key::Named(NamedKey::F8) => self.handle_camera_view_hotkey(7),
             Key::Character(c) if c == "m" || c == "M" => {
                 self.toggle_background_music();
             }
@@ -9370,6 +9380,33 @@ impl CnCGameEngine {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Retail SAVE_VIEW / VIEW_VIEW (Ctrl+Fn save, Fn recall) residual.
+    fn handle_camera_view_hotkey(&mut self, slot: usize) {
+        if slot >= self.camera_view_bookmarks.len() {
+            return;
+        }
+        let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+        if ctrl {
+            let pos = self.camera_target;
+            self.camera_view_bookmarks[slot] = Some(pos);
+            let msg = format!("Saved camera view {}", slot + 1);
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            info!("SAVE_VIEW{} -> {:?}", slot + 1, pos);
+        } else if let Some(pos) = self.camera_view_bookmarks[slot] {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+            // Also request presentation camera focus residual for dual path.
+            self.game_logic.request_camera_focus(clamped);
+            info!("VIEW_VIEW{} -> {:?}", slot + 1, clamped);
+        } else {
+            let msg = format!("Camera view {} is empty", slot + 1);
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
         }
     }
 
@@ -12177,5 +12214,31 @@ fn beacon_and_control_bar_hotkeys_residual() {
     assert!(
         src.contains("NamedKey::F9") && src.contains("toggle_visibility()"),
         "F9 must TOGGLE_CONTROL_BAR residual"
+    );
+}
+
+#[test]
+fn camera_bookmarks_and_delete_beacon_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("camera_view_bookmarks") && src.contains("fn handle_camera_view_hotkey"),
+        "F1-F8 camera bookmark residual required"
+    );
+    assert!(
+        src.contains("NamedKey::F1") && src.contains("handle_camera_view_hotkey(0)"),
+        "F1 must recall/save view slot 0"
+    );
+    assert!(
+        src.contains("NamedKey::F8") && src.contains("handle_camera_view_hotkey(7)"),
+        "F8 must recall/save view slot 7"
+    );
+    assert!(
+        src.contains("NamedKey::Delete") && src.contains("Command_RemoveBeacon"),
+        "Delete must DELETE_BEACON residual"
+    );
+    // Debug destroy kept behind Shift+Delete.
+    assert!(
+        src.contains("destroy_object") && src.contains("Shift+Delete"),
+        "Shift+Delete debug destroy residual must remain"
     );
 }
