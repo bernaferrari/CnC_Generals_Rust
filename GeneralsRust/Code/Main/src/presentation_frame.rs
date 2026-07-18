@@ -3869,6 +3869,32 @@ impl PresentationFrame {
         self.player_info(id).map(|p| p.team)
     }
 
+    /// Select friendlies inside a world-XZ radius of a center (on-screen residual).
+    pub fn alive_selectable_friendly_near(
+        &self,
+        player_team: crate::game_logic::Team,
+        center: glam::Vec3,
+        radius: f32,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let r2 = radius * radius;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                if o.team != player_team || !UnitControlSystem::presentation_is_selectable(o) {
+                    return false;
+                }
+                let dx = o.position.x - center.x;
+                let dz = o.position.z - center.z;
+                dx * dx + dz * dz <= r2
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
     pub fn alive_selectable_friendly_ids(
         &self,
         player_team: crate::game_logic::Team,
