@@ -2156,6 +2156,30 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             power_type: SpecialPowerType::Airstrike,
             target: PowerTarget::None,
         }),
+        "ambush" | "rebelambush" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::Ambush,
+            target: PowerTarget::None,
+        }),
+        "sneakattack" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::SneakAttack,
+            target: PowerTarget::None,
+        }),
+        "leafletdrop" | "leaflet" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::LeafletDrop,
+            target: PowerTarget::None,
+        }),
+        "gpsscrambler" | "gps" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::GpsScrambler,
+            target: PowerTarget::None,
+        }),
+        "spectregunship" | "spectre" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::SpectreGunship,
+            target: PowerTarget::None,
+        }),
+        "anthraxbomb" | "anthrax" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::AnthraxBomb,
+            target: PowerTarget::None,
+        }),
         "cancelupgrade" => Some(CommandType::CancelUpgrade {
             upgrade_name: String::new(),
         }),

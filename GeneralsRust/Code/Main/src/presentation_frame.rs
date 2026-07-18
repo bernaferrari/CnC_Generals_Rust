@@ -6059,6 +6059,21 @@ impl PresentationFrame {
                 if n.contains("commandcenter") || n.contains("command_center") {
                     push(&mut cmds, "Command_ArtilleryBarrage", true);
                     push(&mut cmds, "Command_EmergencyRepair", true);
+                    // Faction generals-power residual buttons on CC.
+                    if n.contains("gla") {
+                        push(&mut cmds, "Command_Ambush", true);
+                        push(&mut cmds, "Command_SneakAttack", true);
+                        push(&mut cmds, "Command_AnthraxBomb", true);
+                    }
+                    if n.contains("america") || n.contains("usa") {
+                        push(&mut cmds, "Command_LeafletDrop", true);
+                        push(&mut cmds, "Command_GpsScrambler", true);
+                        push(&mut cmds, "Command_SpectreGunship", true);
+                    }
+                    if n.contains("china") {
+                        push(&mut cmds, "Command_ArtilleryBarrage", true);
+                        push(&mut cmds, "Command_CarpetBomb", true);
+                    }
                 }
             }
             if ro.can_produce {
