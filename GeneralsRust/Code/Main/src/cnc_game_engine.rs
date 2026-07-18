@@ -10538,7 +10538,19 @@ impl CnCGameEngine {
                 // Retail CommandMap SCATTER KEY_X residual.
                 self.issue_named_command_from_ui("Command_Scatter");
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("z") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("z")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Clear path waypoints residual (Alt+Z).
+                self.clear_selected_path_waypoints();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("z")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Sticky waypoint mode residual (Alt still force-on while held).
                 self.sticky_waypoint_mode = !self.sticky_waypoint_mode;
                 let msg = if self.sticky_waypoint_mode {
@@ -10745,6 +10757,18 @@ impl CnCGameEngine {
             Key::Named(NamedKey::ArrowLeft) if ctrl_down => {
                 // Retail SELECT_PREV_UNIT Ctrl+Left residual.
                 self.cycle_friendly_selection(-1);
+            }
+            Key::Named(NamedKey::ArrowUp)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Damaged unit cycle residual (Ctrl+Alt+Up).
+                self.cycle_damaged_unit_selection(1);
+            }
+            Key::Named(NamedKey::ArrowDown)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Damaged unit cycle residual (Ctrl+Alt+Down).
+                self.cycle_damaged_unit_selection(-1);
             }
             Key::Named(NamedKey::ArrowUp) if ctrl_down => {
                 // Retail SELECT_NEXT_WORKER Ctrl+Up residual.
@@ -11923,6 +11947,113 @@ impl CnCGameEngine {
     }
 
     /// Adjust guard radius on selected guarding units residual (Alt+[ / ]).
+
+    /// Clear movement path / waypoints on selection residual (Alt+Z).
+    fn clear_selected_path_waypoints(&mut self) {
+        let selected = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        if selected.is_empty() {
+            if self.sticky_waypoint_mode {
+                self.sticky_waypoint_mode = false;
+                let msg = "Waypoint mode: OFF";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+            }
+            return;
+        }
+        let mut any = false;
+        for id in selected {
+            if let Some(obj) = self.game_logic.get_object_mut(id) {
+                if !obj.movement.path.is_empty() || obj.movement.target_position.is_some() {
+                    obj.movement.path.clear();
+                    obj.movement.current_path_index = 0;
+                    obj.movement.target_position = None;
+                    obj.status.moving = false;
+                    any = true;
+                }
+            }
+        }
+        if self.sticky_waypoint_mode {
+            self.sticky_waypoint_mode = false;
+            any = true;
+        }
+        if any {
+            let msg = "Path cleared";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            self.play_sound_effect(SoundType::Command);
+        }
+    }
+
+    /// Cycle damaged friendly mobile units residual (Ctrl+Alt+Up/Down).
+    fn cycle_damaged_unit_selection(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            if !obj.can_move() {
+                continue;
+            }
+            let max_h = obj.health.maximum.max(1.0);
+            let ratio = obj.health.current / max_h;
+            if ratio < 0.999 {
+                damaged.push((id, ratio));
+            }
+        }
+        if damaged.is_empty() {
+            let msg = "No damaged units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        damaged.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0 .0.cmp(&b.0 .0))
+        });
+        let ids: Vec<_> = damaged.into_iter().map(|(id, _)| id).collect();
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.selected_objects = vec![next];
+        if let Some(obj) = self.game_logic.find_object(next) {
+            let clamped = self.clamp_to_world_bounds(obj.get_position());
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Damaged unit selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
     fn adjust_selected_guard_radius(&mut self, delta: f32) {
         let selected = self
             .game_logic
@@ -16354,5 +16485,22 @@ fn guard_radius_and_combat_select_residual() {
             && src.contains("select_all_friendly_combat()")
             && src.contains("No combat units"),
         "Ctrl+Alt+Q must select combat units residual"
+    );
+}
+
+#[test]
+fn clear_path_and_damaged_unit_cycle_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn clear_selected_path_waypoints")
+            && src.contains("Path cleared")
+            && src.contains("clear_selected_path_waypoints()"),
+        "Alt+Z must clear path waypoints residual"
+    );
+    assert!(
+        src.contains("fn cycle_damaged_unit_selection")
+            && src.contains("No damaged units")
+            && src.contains("cycle_damaged_unit_selection(1)"),
+        "Ctrl+Alt+Up/Down must cycle damaged units residual"
     );
 }
