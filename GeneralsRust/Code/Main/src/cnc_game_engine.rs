@@ -6666,6 +6666,7 @@ impl CnCGameEngine {
                 self.diplomacy_panel.update(dt);
                 self.chat_panel.update(dt);
                 self.sync_pending_structure_placement_cursor();
+                self.sync_pending_map_command_radius_cursor();
             } else {
                 warn!(
                     "Skipping Game HUD update due to non-finite delta time: {}",
@@ -7385,6 +7386,7 @@ impl CnCGameEngine {
         let Some(kind) = self.pending_map_command.take() else {
             return;
         };
+        self.clear_radius_cursor_overlays();
         let player_id = self.current_player_id;
         let mut selected = self
             .game_logic
@@ -7452,6 +7454,84 @@ impl CnCGameEngine {
     }
 
     /// Update structure placement ghost legality under cursor residual.
+
+    fn radius_cursor_type_for_special_power(
+        power: &crate::command_system::SpecialPowerType,
+    ) -> &'static str {
+        use crate::command_system::SpecialPowerType as P;
+        match power {
+            P::ParticleCannon => "PARTICLECANNON",
+            P::NuclearMissile | P::BlackMarketNuke | P::DetonateDirtyNuke => "NUCLEARMISSILE",
+            P::ScudStorm => "SCUDSTORM",
+            P::Airstrike => "A10STRIKE",
+            P::CarpetBomb | P::EarlyChinaCarpetBomb | P::AirForceCarpetBomb => "CARPETBOMB",
+            P::DaisyCutter | P::FuelAirBomb => "DAISYCUTTER",
+            P::Paradrop | P::InfantryParadrop | P::TankParadrop => "PARADROP",
+            P::NapalmStrike => "NAPALMSTRIKE",
+            P::Artillery => "ARTILLERYBARRAGE",
+            P::EmpPulse => "EMPPULSE",
+            P::SpectreGunship => "SPECTREGUNSHIP",
+            P::SpySatellite | P::CiaIntelligence => "SPYSATELLITE",
+            P::ClusterMines => "CLUSTERMINES",
+            P::Ambush | P::TerrorCell => "AMBUSH",
+            P::Frenzy | P::EarlyFrenzy => "FRENZY",
+            P::AnthraxBomb => "ANTHRAXBOMB",
+            P::EmergencyRepair | P::EarlyEmergencyRepair => "EMERGENCY_REPAIR",
+            P::SpyDrone => "SPYDRONE",
+            P::RadarScan => "RADAR",
+            _ => "OFFENSIVE_SPECIALPOWER",
+        }
+    }
+
+    fn arm_radius_cursor_for_pending(&mut self, cursor_type: &str) {
+        use crate::ui::construction_panel::RadiusCursorOverlay;
+        let r = RadiusCursorOverlay::radius_for_type(cursor_type);
+        let mut ov = RadiusCursorOverlay::new(cursor_type, r);
+        let loc = self.mouse_world_position;
+        ov.centre = (loc.x, loc.z);
+        self.game_hud
+            .construction_panel
+            .set_radius_overlay(Some(ov.clone()));
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .set_radius_overlay(Some(ov));
+    }
+
+    fn clear_radius_cursor_overlays(&mut self) {
+        self.game_hud.construction_panel.clear_radius_overlay();
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .clear_radius_overlay();
+    }
+
+    fn sync_pending_map_command_radius_cursor(&mut self) {
+        let Some(kind) = self.pending_map_command.clone() else {
+            // Keep structure placement path separate; clear only if no pending map cmd.
+            return;
+        };
+        let cursor = match kind {
+            PendingMapCommand::AttackMove => "ATTACK_CONTINUE_AREA",
+            PendingMapCommand::Guard => "GUARD_AREA",
+            PendingMapCommand::SetRallyPoint => "FRIENDLY_SPECIALPOWER",
+            PendingMapCommand::PlaceBeacon => "RADAR",
+            PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
+        };
+        // Ensure overlay exists (re-arm if missing).
+        if self.game_hud.construction_panel.radius_overlay().is_none() {
+            self.arm_radius_cursor_for_pending(cursor);
+        }
+        let loc = self.mouse_world_position;
+        self.game_hud
+            .construction_panel
+            .sync_radius_overlay_cursor(loc.x, loc.z);
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .sync_radius_overlay_cursor(loc.x, loc.z);
+    }
+
     fn sync_pending_structure_placement_cursor(&mut self) {
         let Some(template) = self.pending_structure_placement.clone() else {
             return;
@@ -7668,6 +7748,7 @@ impl CnCGameEngine {
             crate::command_system::CommandType::AttackMoveTo { .. } => {
                 self.pending_map_command = Some(PendingMapCommand::AttackMove);
                 self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
                 let msg = "Attack-move: click target location";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -7676,6 +7757,7 @@ impl CnCGameEngine {
             crate::command_system::CommandType::Guard { .. } => {
                 self.pending_map_command = Some(PendingMapCommand::Guard);
                 self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("GUARD_AREA");
                 let msg = "Guard: click location or unit";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -7722,8 +7804,23 @@ impl CnCGameEngine {
                     self.ui_manager.game_hud_mut().push_info_message(msg);
                     return;
                 };
+                let cursor = {
+                    // Map before move into pending.
+                    let c = match &power {
+                        crate::command_system::SpecialPowerType::ParticleCannon => "PARTICLECANNON",
+                        crate::command_system::SpecialPowerType::NuclearMissile
+                        | crate::command_system::SpecialPowerType::BlackMarketNuke
+                        | crate::command_system::SpecialPowerType::DetonateDirtyNuke => {
+                            "NUCLEARMISSILE"
+                        }
+                        crate::command_system::SpecialPowerType::ScudStorm => "SCUDSTORM",
+                        _ => "OFFENSIVE_SPECIALPOWER",
+                    };
+                    c
+                };
                 self.pending_map_command = Some(PendingMapCommand::SpecialPower(power));
                 self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending(cursor);
                 let msg = "Special power: click target location";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -9596,6 +9693,7 @@ impl CnCGameEngine {
                             self.cancel_structure_placement_from_ui();
                             info!("Escape cancelled structure placement residual");
                         } else if self.pending_map_command.take().is_some() {
+                            self.clear_radius_cursor_overlays();
                             let msg = "Cancelled pending command";
                             self.game_hud.push_info_message(msg);
                             self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -13143,5 +13241,24 @@ fn structure_placement_ghost_cursor_residual() {
         hud.contains("placement: crate::ui::construction_panel::PlacementPreview")
             || hud.contains("PlacementPreview"),
         "HUD ConstructionPanel must own PlacementPreview ghost"
+    );
+}
+
+#[test]
+fn pending_map_radius_cursor_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("arm_radius_cursor_for_pending")
+            && src.contains("sync_pending_map_command_radius_cursor")
+            && src.contains("clear_radius_cursor_overlays"),
+        "pending map commands must drive radius cursor residual"
+    );
+    assert!(
+        src.contains("ATTACK_CONTINUE_AREA") && src.contains("GUARD_AREA"),
+        "AttackMove/Guard must arm retail radius cursor names"
+    );
+    assert!(
+        src.contains("PARTICLECANNON") || src.contains("OFFENSIVE_SPECIALPOWER"),
+        "special power must map to radius cursor type"
     );
 }

@@ -277,6 +277,8 @@ pub struct ConstructionPanel {
     pub(crate) pending_structure_placement: Option<String>,
     /// Ghost overlay residual while arming DozerConstruct.
     placement: crate::ui::construction_panel::PlacementPreview,
+    /// Special-power / order radius cursor residual.
+    radius_overlay: Option<crate::ui::construction_panel::RadiusCursorOverlay>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,6 +349,7 @@ impl ConstructionPanel {
             construction_buttons: Vec::new(),
             pending_structure_placement: None,
             placement: crate::ui::construction_panel::PlacementPreview::default(),
+            radius_overlay: None,
         }
     }
 
@@ -377,6 +380,27 @@ impl ConstructionPanel {
 
     pub fn placement_preview(&self) -> &crate::ui::construction_panel::PlacementPreview {
         &self.placement
+    }
+
+    pub fn set_radius_overlay(
+        &mut self,
+        overlay: Option<crate::ui::construction_panel::RadiusCursorOverlay>,
+    ) {
+        self.radius_overlay = overlay;
+    }
+
+    pub fn radius_overlay(&self) -> Option<&crate::ui::construction_panel::RadiusCursorOverlay> {
+        self.radius_overlay.as_ref()
+    }
+
+    pub fn clear_radius_overlay(&mut self) {
+        self.radius_overlay = None;
+    }
+
+    pub fn sync_radius_overlay_cursor(&mut self, world_x: f32, world_z: f32) {
+        if let Some(ov) = self.radius_overlay.as_mut() {
+            ov.centre = (world_x, world_z);
+        }
     }
 
     pub fn show_for_building(&mut self, building_name: &str) {
