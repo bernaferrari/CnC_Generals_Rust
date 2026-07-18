@@ -1168,6 +1168,25 @@ enum PendingMapCommand {
     SpecialPower(crate::command_system::SpecialPowerType),
     /// Retail PLACE_BEACON residual awaiting map click.
     PlaceBeacon,
+    /// Unit special-ability residual awaiting object/map click.
+    UnitAbility(PendingUnitAbility),
+}
+
+/// ControlBar unit ability that needs a target click residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingUnitAbility {
+    Hijack,
+    Sabotage,
+    CaptureBuilding,
+    SnipeVehicle,
+    PlantTimedDemoCharge,
+    PlantRemoteDemoCharge,
+    StealCashHack,
+    DisableVehicleHack,
+    HackerDisableBuilding,
+    DisguiseAsVehicle,
+    PlantBoobyTrap,
+    ConvertToCarbomb,
 }
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
@@ -7487,6 +7506,54 @@ impl CnCGameEngine {
                 location,
                 text: String::new(),
             },
+            PendingMapCommand::UnitAbility(ability) => {
+                let Some(tid) = target_object else {
+                    // Keep armed if click missed an object (except abilities that allow ground).
+                    self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
+                    let msg = "Select a valid target";
+                    self.game_hud.push_info_message(msg);
+                    self.ui_manager.game_hud_mut().push_info_message(msg);
+                    return;
+                };
+                match ability {
+                    PendingUnitAbility::Hijack => {
+                        crate::command_system::CommandType::Hijack { target_id: tid }
+                    }
+                    PendingUnitAbility::Sabotage => {
+                        crate::command_system::CommandType::Sabotage { target_id: tid }
+                    }
+                    PendingUnitAbility::CaptureBuilding => {
+                        crate::command_system::CommandType::CaptureBuilding { target_id: tid }
+                    }
+                    PendingUnitAbility::SnipeVehicle => {
+                        crate::command_system::CommandType::SnipeVehicle { target_id: tid }
+                    }
+                    PendingUnitAbility::PlantTimedDemoCharge => {
+                        crate::command_system::CommandType::PlantTimedDemoCharge { target_id: tid }
+                    }
+                    PendingUnitAbility::PlantRemoteDemoCharge => {
+                        crate::command_system::CommandType::PlantRemoteDemoCharge { target_id: tid }
+                    }
+                    PendingUnitAbility::StealCashHack => {
+                        crate::command_system::CommandType::StealCashHack { target_id: tid }
+                    }
+                    PendingUnitAbility::DisableVehicleHack => {
+                        crate::command_system::CommandType::DisableVehicleHack { target_id: tid }
+                    }
+                    PendingUnitAbility::HackerDisableBuilding => {
+                        crate::command_system::CommandType::HackerDisableBuilding { target_id: tid }
+                    }
+                    PendingUnitAbility::DisguiseAsVehicle => {
+                        crate::command_system::CommandType::DisguiseAsVehicle { target_id: tid }
+                    }
+                    PendingUnitAbility::PlantBoobyTrap => {
+                        crate::command_system::CommandType::PlantBoobyTrap { target_id: tid }
+                    }
+                    PendingUnitAbility::ConvertToCarbomb => {
+                        crate::command_system::CommandType::ConvertToCarbomb { target_id: tid }
+                    }
+                }
+            }
         };
         self.game_logic
             .queue_command(crate::command_system::GameCommand {
@@ -7574,6 +7641,7 @@ impl CnCGameEngine {
             PendingMapCommand::SetRallyPoint => "FRIENDLY_SPECIALPOWER",
             PendingMapCommand::PlaceBeacon => "RADAR",
             PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
+            PendingMapCommand::UnitAbility(_) => "OFFENSIVE_SPECIALPOWER",
         };
         // Ensure overlay exists (re-arm if missing).
         if self.game_hud.construction_panel.radius_overlay().is_none() {
@@ -7912,6 +7980,14 @@ impl CnCGameEngine {
 
     /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
 
+    fn arm_pending_unit_ability(&mut self, ability: PendingUnitAbility, msg: &str) {
+        self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
+        self.pending_structure_placement = None;
+        self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
     fn issue_named_command_from_ui(&mut self, command_name: &str) {
         let Some(command_type) = crate::command_system::command_type_from_button_name(command_name)
         else {
@@ -8010,6 +8086,88 @@ impl CnCGameEngine {
                 let msg = "Place beacon: click location";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            // Unit special-ability buttons: arm target click residual.
+            crate::command_system::CommandType::Hijack { .. } => {
+                self.arm_pending_unit_ability(PendingUnitAbility::Hijack, "Hijack: click vehicle");
+                return;
+            }
+            crate::command_system::CommandType::Sabotage { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::Sabotage,
+                    "Sabotage: click building",
+                );
+                return;
+            }
+            crate::command_system::CommandType::CaptureBuilding { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::CaptureBuilding,
+                    "Capture: click structure",
+                );
+                return;
+            }
+            crate::command_system::CommandType::SnipeVehicle { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::SnipeVehicle,
+                    "Snipe: click vehicle",
+                );
+                return;
+            }
+            crate::command_system::CommandType::PlantTimedDemoCharge { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::PlantTimedDemoCharge,
+                    "Plant timed charge: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::PlantRemoteDemoCharge { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::PlantRemoteDemoCharge,
+                    "Plant remote charge: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::StealCashHack { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::StealCashHack,
+                    "Steal cash: click supply",
+                );
+                return;
+            }
+            crate::command_system::CommandType::DisableVehicleHack { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::DisableVehicleHack,
+                    "Hack vehicle: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::HackerDisableBuilding { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::HackerDisableBuilding,
+                    "Hack building: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::DisguiseAsVehicle { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::DisguiseAsVehicle,
+                    "Disguise: click vehicle",
+                );
+                return;
+            }
+            crate::command_system::CommandType::PlantBoobyTrap { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::PlantBoobyTrap,
+                    "Booby trap: click structure",
+                );
+                return;
+            }
+            crate::command_system::CommandType::ConvertToCarbomb { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::ConvertToCarbomb,
+                    "Car bomb: click vehicle",
+                );
                 return;
             }
             _ => {}
@@ -11231,6 +11389,7 @@ impl CnCGameEngine {
                 PendingMapCommand::SetRallyPoint => ("SetRallyPoint", CursorIcon::Cell),
                 PendingMapCommand::PlaceBeacon => ("PlaceBeacon", CursorIcon::Cell),
                 PendingMapCommand::SpecialPower(_) => ("Target", CursorIcon::Crosshair),
+                PendingMapCommand::UnitAbility(_) => ("Target", CursorIcon::Crosshair),
             };
         }
 
@@ -14021,5 +14180,22 @@ fn eva_low_power_chat_residual() {
             && src.contains("Insufficient funds")
             && src.contains("Our base is under attack"),
         "engine must surface EVA LOWPOWER/funds/under-attack to chat residual"
+    );
+}
+
+#[test]
+fn pending_unit_ability_arm_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("PendingUnitAbility")
+            && src.contains("fn arm_pending_unit_ability")
+            && src.contains("UnitAbility(ability)"),
+        "ControlBar unit abilities must arm pending target click residual"
+    );
+    assert!(
+        src.contains("PendingUnitAbility::Hijack")
+            && src.contains("PendingUnitAbility::SnipeVehicle")
+            && src.contains("PendingUnitAbility::PlantTimedDemoCharge"),
+        "hero/ability set must include hijack/snipe/charges residual"
     );
 }
