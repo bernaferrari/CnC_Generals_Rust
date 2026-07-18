@@ -2104,6 +2104,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "purchasescience" | "buyscience" => Some(CommandType::PurchaseScience {
             science_name: String::new(),
         }),
+        "switchweapons" | "switchweapon" | "toggleweapon" => Some(CommandType::SwitchWeapons),
         // Generic ControlBar SW button residual — power type resolved at arm time.
         "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::ParticleCannon, // placeholder; engine resolves
