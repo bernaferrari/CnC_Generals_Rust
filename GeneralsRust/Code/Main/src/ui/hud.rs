@@ -1149,6 +1149,11 @@ impl GameHUD {
         self.visible = !self.visible;
     }
 
+    /// Control-bar / HUD strip visibility residual.
+    pub fn hud_visible(&self) -> bool {
+        self.visible
+    }
+
     // Private methods
 
     fn update_command_buttons(&mut self) {

@@ -1979,6 +1979,11 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "createformation" | "formation" => Some(CommandType::CreateFormation),
         "viewcommandcenter" | "centerbase" => Some(CommandType::ViewCommandCenter),
         "viewlastradarevent" | "gotoradarevent" => Some(CommandType::ViewLastRadarEvent),
+        "placebeacon" | "beacon" => Some(CommandType::PlaceBeacon {
+            location: glam::Vec3::ZERO, // filled by map click
+            text: String::new(),
+        }),
+        "removebeacon" | "deletebeacon" => Some(CommandType::RemoveBeacon),
         "attackmove" | "attackmoveto" => Some(CommandType::AttackMoveTo {
             destination: glam::Vec3::ZERO, // filled by dispatch from cursor/world
         }),
@@ -2947,6 +2952,14 @@ mod tests {
         assert!(matches!(
             command_type_from_button_name("Command_ViewLastRadarEvent"),
             Some(CommandType::ViewLastRadarEvent)
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_PlaceBeacon"),
+            Some(CommandType::PlaceBeacon { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_RemoveBeacon"),
+            Some(CommandType::RemoveBeacon)
         ));
     }
 
