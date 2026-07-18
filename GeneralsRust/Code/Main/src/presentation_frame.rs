@@ -3881,6 +3881,26 @@ impl PresentationFrame {
         ids
     }
 
+    /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
+    pub fn alive_selectable_friendly_aircraft_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && (o.object_type == PresentationObjectType::Aircraft || o.airborne_target)
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
     pub fn box_select_unit_ids(
         &self,
         player_team: crate::game_logic::Team,
@@ -7252,6 +7272,39 @@ mod tests {
         // Structure-only box around factory.
         let only_s = frame.box_select_unit_ids(Team::USA, 1.5, 2.5, 1.5, 2.5);
         assert_eq!(only_s, vec![s]);
+    }
+
+    #[test]
+    fn alive_selectable_friendly_aircraft_ids_residual() {
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let mut air = ThingTemplate::new("AmericaJetRaptor");
+        air.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        logic.templates.insert("AmericaJetRaptor".into(), air);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let _r = logic
+            .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+            .expect("ranger");
+        let a = logic
+            .create_object(
+                "AmericaJetRaptor",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("raptor");
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ids = frame.alive_selectable_friendly_aircraft_ids(Team::USA);
+        assert_eq!(ids, vec![a], "only aircraft selectable: {:?}", ids);
     }
 
     #[test]
