@@ -10307,7 +10307,10 @@ impl CnCGameEngine {
             Key::Named(NamedKey::F6) => self.handle_camera_view_hotkey(5),
             Key::Named(NamedKey::F7) => self.handle_camera_view_hotkey(6),
             Key::Named(NamedKey::F8) => self.handle_camera_view_hotkey(7),
-            Key::Character(c) if c == "m" || c == "M" => {
+            Key::Character(c)
+                if (c == "m" || c == "M")
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 self.toggle_background_music();
             }
             Key::Character(c)
@@ -10460,6 +10463,22 @@ impl CnCGameEngine {
             {
                 // Cycle primary/secondary weapon residual (Alt+W).
                 self.issue_named_command_from_ui("Command_SwitchWeapons");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("i")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // China Hacker HackInternet residual (Alt+I).
+                self.issue_named_command_from_ui("Command_HackInternet");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("m")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Ambulance CleanupArea residual (Alt+M).
+                self.issue_named_command_from_ui("Command_CleanupArea");
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("w")
@@ -15544,5 +15563,35 @@ fn delete_cancel_production_and_combat_drop_residual() {
             && src.contains("Command_CombatDrop")
             && src.contains("Combat drop: click landing zone"),
         "Alt+C / CombatDrop must arm map click residual"
+    );
+}
+
+#[test]
+fn hack_internet_and_cleanup_area_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_HackInternet")
+            && src.contains("eq_ignore_ascii_case(\"i\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+I must HackInternet residual"
+    );
+    assert!(
+        src.contains("Command_CleanupArea") && src.contains("eq_ignore_ascii_case(\"m\")"),
+        "Alt+M must CleanupArea residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("HackInternet") && cs.contains("\"hackinternet\""),
+        "HackInternet command map residual"
+    );
+    let ex = include_str!("command_executor.rs");
+    assert!(
+        ex.contains("fn execute_hack_internet") && ex.contains("start_hacker_internet_hack"),
+        "execute_hack_internet residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_HackInternet") && pf.contains("Command_CleanupArea"),
+        "strip must expose hack/cleanup residual"
     );
 }

@@ -6001,6 +6001,10 @@ impl PresentationFrame {
                 || n.contains("china_hacker")
             {
                 push(&mut cmds, "Command_HackerDisableBuilding", true);
+                push(&mut cmds, "Command_HackInternet", true);
+            }
+            if n.contains("ambulance") {
+                push(&mut cmds, "Command_CleanupArea", true);
             }
             if n.contains("hijacker") {
                 push(&mut cmds, "Command_Hijack", true);

@@ -138,6 +138,8 @@ pub enum CommandType {
     },
     Exit,
     Evacuate,
+    /// China Hacker field HackInternet residual (start cash interval).
+    HackInternet,
     Dock {
         target_id: ObjectId,
     },
@@ -2107,6 +2109,11 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "switchweapons" | "switchweapon" | "toggleweapon" => Some(CommandType::SwitchWeapons),
         "combatdrop" | "rappell" | "rappel" => Some(CommandType::CombatDrop {
             target: crate::command_system::DropTarget::Location(glam::Vec3::ZERO),
+        }),
+        "hackinternet" | "internet" | "starthacking" => Some(CommandType::HackInternet),
+        "cleanuparea" | "clearmines" | "detox" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::CleanupArea,
+            target: PowerTarget::None,
         }),
         // Generic ControlBar SW button residual — power type resolved at arm time.
         "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {
