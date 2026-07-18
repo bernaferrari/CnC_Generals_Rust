@@ -6094,6 +6094,10 @@ impl PresentationFrame {
         } else if ro.special_power_cooldown > 0.0 {
             push(&mut cmds, "Command_SpecialPower", false);
         }
+        // GeneralsExperience residual: offer purchase when SPP available.
+        if self.local_science_purchase_points > 0 {
+            push(&mut cmds, "Command_PurchaseScience", true);
+        }
         if panel.production_progress.is_some() {
             // C++ cancel queue head: unit vs upgrade residual.
             if panel.production_is_upgrade {

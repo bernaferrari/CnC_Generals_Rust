@@ -8253,6 +8253,10 @@ impl CnCGameEngine {
                 );
                 return;
             }
+            crate::command_system::CommandType::PurchaseScience { .. } => {
+                self.try_purchase_next_generals_science();
+                return;
+            }
             _ => {}
         }
 
@@ -10249,7 +10253,19 @@ impl CnCGameEngine {
                 // Infantry capture-building residual: arm structure click.
                 self.issue_named_command_from_ui("Command_CaptureBuilding");
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("g") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("g")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // GeneralsExperience purchase next science residual (Alt+G).
+                self.try_purchase_next_generals_science();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("g")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // C++ Guard residual: arm map-click Guard (location or unit).
                 self.issue_named_command_from_ui("Command_Guard");
             }
@@ -11056,6 +11072,90 @@ impl CnCGameEngine {
     }
 
     /// Select all idle friendly combat units residual (Ctrl+I).
+
+    /// Purchase next available GeneralsExperience science residual (Alt+G).
+    fn try_purchase_next_generals_science(&mut self) {
+        let player_id = self.current_player_id;
+        let Some(player) = self.game_logic.get_player(player_id) else {
+            return;
+        };
+        if player.science_purchase_points <= 0 {
+            let msg = "No science purchase points";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let team = player.team;
+        // Retail-ish purchasable science order residual (fail-closed vs full Science.ini tree).
+        let candidates: &[&str] = match team {
+            crate::game_logic::Team::China => &[
+                "SCIENCE_RedGuardTraining",
+                "SCIENCE_BattlemasterTraining",
+                "SCIENCE_ArtilleryTraining",
+                "SCIENCE_NukeCannon",
+                "SCIENCE_CashBounty1",
+            ],
+            crate::game_logic::Team::GLA => &[
+                "SCIENCE_RebelAmbush1",
+                "SCIENCE_CashBounty1",
+                "SCIENCE_SneakAttack",
+                "SCIENCE_AnthraxBomb",
+                "SCIENCE_ScudLauncher",
+            ],
+            _ => &[
+                // America / default
+                "SCIENCE_PaladinTank",
+                "SCIENCE_StealthFighter",
+                "SCIENCE_Pathfinder",
+                "SCIENCE_CashBounty1",
+                "SCIENCE_A10ThunderboltMissileStrike1",
+                "SCIENCE_EmergencyRepair1",
+                "SCIENCE_SpyDrone",
+            ],
+        };
+        let unlocked = player.unlocked_sciences.clone();
+        let spp = player.science_purchase_points;
+        drop(player);
+
+        let mut chosen = None;
+        for &name in candidates {
+            if unlocked.iter().any(|s| s.eq_ignore_ascii_case(name)) {
+                continue;
+            }
+            // Probe without spending via can-capable if available.
+            if let Some(p) = self.game_logic.get_player(player_id) {
+                if !p.is_capable_of_purchasing_science(name) {
+                    continue;
+                }
+            }
+            chosen = Some(name.to_string());
+            break;
+        }
+        let Some(science_name) = chosen else {
+            let msg = format!("No purchasable science (spp={spp})");
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            return;
+        };
+
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::PurchaseScience {
+                    science_name: science_name.clone(),
+                },
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: Vec::new(),
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        self.game_logic.process_commands();
+        let msg = format!("Purchased {science_name}");
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+        self.play_sound_effect(SoundType::Command);
+    }
+
     fn select_all_idle_military(&mut self) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -15119,5 +15219,23 @@ fn unit_attitude_hotkey_residual() {
     assert!(
         pf.contains("Command_AttitudeAggressive") && pf.contains("Command_AttitudeSleep"),
         "strip must expose attitude residual"
+    );
+}
+
+#[test]
+fn generals_science_purchase_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn try_purchase_next_generals_science")
+            && src.contains("PurchaseScience")
+            && src.contains("eq_ignore_ascii_case(\"g\")")
+            && src.contains("NamedKey::Alt")
+            && src.contains("No science purchase points"),
+        "Alt+G must purchase next generals science residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_PurchaseScience") && pf.contains("local_science_purchase_points"),
+        "strip must expose PurchaseScience when SPP residual"
     );
 }
