@@ -2082,6 +2082,9 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "patrol" | "hunt" => Some(CommandType::Patrol),
         "evacuate" | "structureexit" => Some(CommandType::Evacuate),
+        "repair" => Some(CommandType::Repair {
+            target_id: ObjectId(0),
+        }),
         "exit" => Some(CommandType::Exit),
         "sell" => Some(CommandType::Sell {
             object_id: crate::game_logic::ObjectId(0), // filled by dispatch
