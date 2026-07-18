@@ -1994,6 +1994,11 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "sell" => Some(CommandType::Sell {
             object_id: crate::game_logic::ObjectId(0), // filled by dispatch
         }),
+        // Generic ControlBar SW button residual — power type resolved at arm time.
+        "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::ParticleCannon, // placeholder; engine resolves
+            target: PowerTarget::None,
+        }),
         "cancelupgrade" => Some(CommandType::CancelUpgrade {
             upgrade_name: String::new(),
         }),
@@ -2806,6 +2811,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn special_power_button_maps_and_structure_resolves_puc_residual() {
+        use crate::command_system::{command_type_from_button_name, CommandType, SpecialPowerType};
+        use crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure;
+        assert!(matches!(
+            command_type_from_button_name("Command_SpecialPower"),
+            Some(CommandType::DoSpecialPower { .. })
+        ));
+        assert_eq!(
+            special_power_for_superweapon_structure("AmericaParticleCannonUplink"),
+            Some(SpecialPowerType::ParticleCannon)
+        );
+        assert_eq!(
+            special_power_for_superweapon_structure("GLAScudStorm"),
+            Some(SpecialPowerType::ScudStorm)
+        );
+        assert_eq!(
+            special_power_for_superweapon_structure("ChinaNuclearMissile"),
+            Some(SpecialPowerType::NuclearMissile)
+        );
+    }
+
     fn command_type_from_button_name_upgrade_and_cancel_residual() {
         let q = command_type_from_button_name("Command_UpgradeAmericaRangerFlashBangGrenade")
             .expect("upgrade");
@@ -2839,6 +2866,10 @@ mod tests {
         assert!(matches!(
             command_type_from_button_name("Command_Sell"),
             Some(CommandType::Sell { .. })
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_SpecialPower"),
+            Some(CommandType::DoSpecialPower { .. })
         ));
     }
 
