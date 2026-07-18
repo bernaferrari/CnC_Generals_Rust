@@ -11298,6 +11298,9 @@ impl CnCGameEngine {
             Some(crate::command_system::CommandType::ResumeConstruction { .. }) => {
                 ("ResumeConstruction", CursorIcon::Progress)
             }
+            Some(crate::command_system::CommandType::CaptureBuilding { .. }) => {
+                ("CaptureBuilding", CursorIcon::Cell)
+            }
             Some(crate::command_system::CommandType::MoveTo { .. })
             | Some(crate::command_system::CommandType::AttackMoveTo { .. }) => {
                 ("Move", CursorIcon::AllScroll)
