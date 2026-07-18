@@ -1976,6 +1976,8 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
     match key {
         "stop" => Some(CommandType::Stop),
         "scatter" => Some(CommandType::Scatter),
+        "createformation" | "formation" => Some(CommandType::CreateFormation),
+        "viewcommandcenter" | "centerbase" => Some(CommandType::ViewCommandCenter),
         "attackmove" | "attackmoveto" => Some(CommandType::AttackMoveTo {
             destination: glam::Vec3::ZERO, // filled by dispatch from cursor/world
         }),
@@ -2930,6 +2932,19 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn command_type_from_button_name_view_and_formation_residual() {
+        use crate::command_system::{command_type_from_button_name, CommandType};
+        assert!(matches!(
+            command_type_from_button_name("Command_CreateFormation"),
+            Some(CommandType::CreateFormation)
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_ViewCommandCenter"),
+            Some(CommandType::ViewCommandCenter)
+        ));
+    }
+
     fn special_power_button_maps_and_structure_resolves_puc_residual() {
         use crate::command_system::{command_type_from_button_name, CommandType, SpecialPowerType};
         use crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure;

@@ -7566,22 +7566,31 @@ impl CnCGameEngine {
         }
 
         let mut command_type = command_type;
-        let player_id = self
-            .game_logic
-            .get_player(0)
-            .map(|p| p.id)
-            .or_else(|| self.game_logic.get_players().keys().copied().min())
-            .unwrap_or(0);
-        let selected = self
+        // Prefer engine current player; fall back to lowest id residual.
+        let player_id = if self.game_logic.get_player(self.current_player_id).is_some() {
+            self.current_player_id
+        } else {
+            self.game_logic
+                .get_players()
+                .keys()
+                .copied()
+                .min()
+                .unwrap_or(0)
+        };
+        let mut selected = self
             .game_logic
             .get_player(player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
         if selected.is_empty()
             && !matches!(
                 command_type,
                 crate::command_system::CommandType::Stop
                     | crate::command_system::CommandType::Scatter
+                    | crate::command_system::CommandType::ViewCommandCenter
             )
         {
             return;
@@ -9259,6 +9268,17 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("w") && !ctrl_down => {
                 // Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual.
                 self.select_all_friendly_aircraft();
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("h") && !ctrl_down => {
+                // Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual.
+                self.issue_named_command_from_ui("Command_ViewCommandCenter");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("f")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
+            {
+                // Retail CommandMap CREATE_FORMATION Ctrl+F residual.
+                self.issue_named_command_from_ui("Command_CreateFormation");
             }
             Key::Character(c) if c.eq_ignore_ascii_case("s") && ctrl_down => {
                 self.quick_save_from_hotkey("Ctrl+S");
@@ -11979,5 +11999,16 @@ fn retail_selection_and_scatter_hotkeys_residual() {
         src.contains("eq_ignore_ascii_case(\"w\") && !ctrl_down")
             && src.contains("select_all_friendly_aircraft"),
         "W must SELECT_ALL_AIRCRAFT residual"
+    );
+
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"h\") && !ctrl_down")
+            && src.contains("issue_named_command_from_ui(\"Command_ViewCommandCenter\")"),
+        "H must VIEW_COMMAND_CENTER residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"f\")")
+            && src.contains("issue_named_command_from_ui(\"Command_CreateFormation\")"),
+        "Ctrl+F must CREATE_FORMATION residual"
     );
 }
