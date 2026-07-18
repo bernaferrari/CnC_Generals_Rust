@@ -22420,11 +22420,11 @@ impl GameLogic {
                 None => continue,
             };
 
-            let center = Coord3D::new(
-                obj.get_position().x,
-                obj.get_position().y,
-                obj.get_position().z,
-            );
+            // Host gameplay plane is XZ (Y up). Shroud grid samples Coord3D.x/y,
+            // so pass (world.x, world.z) as the horizontal pair — same convention as
+            // is_build_location_shroud_clear / presentation FOW residual.
+            let pos = obj.get_position();
+            let center = Coord3D::new(pos.x, pos.z, pos.y);
 
             // C++ parity: reveal shroud for all players on the same team
             // (allies share vision).
