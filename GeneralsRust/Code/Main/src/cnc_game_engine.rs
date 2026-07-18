@@ -7767,7 +7767,6 @@ impl CnCGameEngine {
                 self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("FRIENDLY_SPECIALPOWER");
-                self.pending_structure_placement = None;
                 let msg = "Set rally point: click location";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -7832,7 +7831,6 @@ impl CnCGameEngine {
                 self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("RADAR");
-                self.pending_structure_placement = None;
                 let msg = "Place beacon: click location";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
