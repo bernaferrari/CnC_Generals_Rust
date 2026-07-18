@@ -1348,6 +1348,8 @@ pub struct CnCGameEngine {
     show_fps: bool,
     /// Draw movement path lines residual.
     show_move_lines: bool,
+    /// Draw attack-order lines residual.
+    show_attack_lines: bool,
     frame_counter: u32,
     fps: f32,
     last_frame_timing: Option<FrameTiming>,
@@ -4603,6 +4605,7 @@ impl CnCGameEngine {
             show_health_bars: true,
             show_fps: false,
             show_move_lines: true,
+            show_attack_lines: true,
             frame_counter: 0,
             fps: 0.0,
             last_frame_timing: None,
@@ -7241,6 +7244,7 @@ impl CnCGameEngine {
                 self.last_presentation_frame.as_ref(),
                 ground_markers,
                 self.show_move_lines,
+                self.show_attack_lines,
             );
         }
         self.render_pipeline.execute(
@@ -10431,6 +10435,10 @@ impl CnCGameEngine {
                 self.toggle_move_lines_hotkey();
             }
             Key::Named(NamedKey::F3) => self.handle_camera_view_hotkey(2),
+            Key::Named(NamedKey::F4) if ctrl_down => {
+                // Attack path lines residual (Ctrl+F4); bare F4 remains camera bookmark.
+                self.toggle_attack_lines_hotkey();
+            }
             Key::Named(NamedKey::F4) => self.handle_camera_view_hotkey(3),
             Key::Named(NamedKey::F5) => self.handle_camera_view_hotkey(4),
             Key::Named(NamedKey::F6) => self.handle_camera_view_hotkey(5),
@@ -10844,6 +10852,14 @@ impl CnCGameEngine {
             {
                 // Select stealthed friendlies residual (Ctrl+Alt+K).
                 self.select_all_friendly_stealthed();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("j")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select occupied transports residual (Ctrl+Alt+J).
+                self.select_all_occupied_transports();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("i")
@@ -12528,12 +12544,74 @@ impl CnCGameEngine {
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
+    /// Select friendly transports currently carrying units residual (Ctrl+Alt+J).
+    fn select_all_occupied_transports(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            if obj.contained_units().is_empty() {
+                continue;
+            }
+            // Occupied non-structure container = transport residual.
+            ids.push(id);
+        }
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            for o in &frame.objects {
+                if o.team != team || o.destroyed || o.is_structure {
+                    continue;
+                }
+                if o.garrisoned_units.is_empty() {
+                    continue;
+                }
+                if !ids.iter().any(|id| id.0 == o.id.0) {
+                    ids.push(o.id);
+                }
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        ids.dedup();
+        if ids.is_empty() {
+            let msg = "No occupied transports";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!(
+            "Selected {} occupied transports",
+            self.selected_objects.len()
+        );
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
 
-    /// Toggle health bar overlay residual (Alt+H).
-
-    /// Toggle debug overlay residual (Ctrl+F1).
-
-    /// Toggle FPS counter residual (Ctrl+F2).
+    /// Toggle attack-order line drawing residual (Ctrl+F4).
+    fn toggle_attack_lines_hotkey(&mut self) {
+        self.show_attack_lines = !self.show_attack_lines;
+        let msg = if self.show_attack_lines {
+            "Attack lines: ON"
+        } else {
+            "Attack lines: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
 
     /// Toggle movement path line drawing residual (Ctrl+F3).
     fn toggle_move_lines_hotkey(&mut self) {
@@ -17733,5 +17811,24 @@ fn move_lines_and_garrisoned_select_residual() {
             && src.contains("No garrisoned structures")
             && src.contains("select_all_garrisoned_structures()"),
         "Ctrl+Alt+U must select garrisoned structures residual"
+    );
+}
+
+#[test]
+fn attack_lines_and_occupied_transports_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn toggle_attack_lines_hotkey")
+            && src.contains("Attack lines: ON")
+            && src.contains("show_attack_lines")
+            && src.contains("NamedKey::F4) if ctrl_down")
+            && src.contains("self.show_attack_lines,"),
+        "Ctrl+F4 must toggle attack lines residual"
+    );
+    assert!(
+        src.contains("fn select_all_occupied_transports")
+            && src.contains("No occupied transports")
+            && src.contains("select_all_occupied_transports()"),
+        "Ctrl+Alt+J must select occupied transports residual"
     );
 }
