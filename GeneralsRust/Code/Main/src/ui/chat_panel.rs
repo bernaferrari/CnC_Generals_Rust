@@ -10,9 +10,7 @@
 //! - System notifications (player disconnected, low power, etc.)
 //! - EVA notifications (voice-line text equivalents)
 
-use super::{
-    layout, utils, Interactive, KeyCode, MouseButton, Renderable, UIRenderContext,
-};
+use super::{layout, utils, Interactive, KeyCode, MouseButton, Renderable, UIRenderContext};
 use crate::localization;
 use std::time::Duration;
 
@@ -71,10 +69,7 @@ pub enum ChatState {
 #[derive(Debug, Clone)]
 pub enum ChatEvent {
     /// The player sent a chat message.
-    MessageSent {
-        text: String,
-        target: ChatTarget,
-    },
+    MessageSent { text: String, target: ChatTarget },
     /// The player pressed Enter to open chat (consumed, no game command).
     ChatOpened,
     /// The player pressed Escape or Enter-with-empty-text to close.
@@ -160,6 +155,16 @@ impl ChatPanel {
         self.target
     }
 
+    /// Engine hotkey residual: forward a key while chat is open.
+    pub fn press_key(&mut self, key: crate::ui::KeyCode) -> bool {
+        Interactive::handle_key_press(self, key)
+    }
+
+    /// Engine hotkey residual: insert typed text while chat is open.
+    pub fn type_text(&mut self, text: &str) -> bool {
+        Interactive::handle_text_input(self, text)
+    }
+
     pub fn messages(&self) -> &[ChatMessage] {
         &self.messages
     }
@@ -176,6 +181,10 @@ impl ChatPanel {
     /// Set the local player display name.
     pub fn set_local_player_name(&mut self, name: &str) {
         self.local_player_name = name.to_string();
+    }
+
+    pub fn set_target(&mut self, target: ChatTarget) {
+        self.target = target;
     }
 
     /// Resize the panel (call on window resize).
@@ -426,7 +435,8 @@ impl ChatPanel {
         let log_height: u32 = 200;
         let log_width: u32 = 500;
         let x = 10i32;
-        let y = self.screen_size.1 as i32 - layout::HUD_PANEL_HEIGHT as i32 - log_height as i32 - 40;
+        let y =
+            self.screen_size.1 as i32 - layout::HUD_PANEL_HEIGHT as i32 - log_height as i32 - 40;
         (x, y, log_width, log_height)
     }
 
