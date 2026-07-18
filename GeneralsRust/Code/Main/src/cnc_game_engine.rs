@@ -10526,6 +10526,14 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("f")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Camera follow primary selection residual (Alt+F).
+                self.toggle_camera_follow_selection();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("f")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Retail CommandMap CREATE_FORMATION Ctrl+F residual.
@@ -10592,6 +10600,14 @@ impl CnCGameEngine {
             Key::Named(NamedKey::ArrowDown) if ctrl_down => {
                 // Retail SELECT_PREV_WORKER Ctrl+Down residual.
                 self.cycle_friendly_worker_selection(-1);
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("a")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all friendlies near camera residual (Ctrl+Alt+A).
+                self.select_all_friendly_on_screen();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("a")
@@ -11498,6 +11514,78 @@ impl CnCGameEngine {
         let msg = format!("Construction tab: {label}");
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select friendly units near camera (on-screen residual, Ctrl+Alt+A).
+    fn select_all_friendly_on_screen(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let center = self.camera_target;
+        // Fail-closed frustum residual: radius scales with zoom.
+        let radius = (180.0 * self.camera_zoom.max(0.5)).clamp(120.0, 600.0);
+        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.alive_selectable_friendly_near(team, center, radius)
+        } else {
+            let mut live = Vec::new();
+            let r2 = radius * radius;
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
+                    continue;
+                }
+                let p = obj.get_position();
+                let dx = p.x - center.x;
+                let dz = p.z - center.z;
+                if dx * dx + dz * dz <= r2 {
+                    live.push(id);
+                }
+            }
+            live
+        };
+        if selection.is_empty() {
+            let msg = "No units on screen";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, selection.clone());
+        self.selected_objects = selection;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} on screen", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Toggle camera follow on primary selection residual (Alt+F).
+    fn toggle_camera_follow_selection(&mut self) {
+        if self.game_logic.camera_follow_object_id().is_some() {
+            self.game_logic.set_camera_follow_object(None);
+            let msg = "Camera follow off";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let id = self.selected_objects.first().copied().or_else(|| {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .and_then(|p| p.selected_objects.first().copied())
+        });
+        let Some(id) = id else {
+            let msg = "Select a unit to follow";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        };
+        self.game_logic.set_camera_follow_object(Some(id));
+        let msg = "Camera follow on";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
@@ -15633,5 +15721,32 @@ fn return_to_base_aircraft_residual() {
     assert!(
         pf.contains("Command_ReturnToBase"),
         "aircraft strip must expose RTB residual"
+    );
+}
+
+#[test]
+fn on_screen_select_and_camera_follow_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn select_all_friendly_on_screen")
+            && src.contains("select_all_friendly_on_screen()")
+            && src.contains("No units on screen"),
+        "Ctrl+Alt+A must select on-screen friendlies residual"
+    );
+    assert!(
+        src.contains("fn toggle_camera_follow_selection")
+            && src.contains("Camera follow on")
+            && src.contains("eq_ignore_ascii_case(\"f\")"),
+        "Alt+F must toggle camera follow residual"
+    );
+    let gl = include_str!("game_logic/game_logic.rs");
+    assert!(
+        gl.contains("fn set_camera_follow_object") && gl.contains("fn camera_follow_object_id"),
+        "GameLogic camera follow API residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("fn alive_selectable_friendly_near"),
+        "presentation near-select residual"
     );
 }
