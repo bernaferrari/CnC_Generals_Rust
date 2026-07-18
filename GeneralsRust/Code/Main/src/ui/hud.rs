@@ -275,6 +275,8 @@ pub struct ConstructionPanel {
     construction_buttons: Vec<ConstructionButton>,
     /// C++ structure placement cursor residual (template awaiting map click).
     pub(crate) pending_structure_placement: Option<String>,
+    /// Ghost overlay residual while arming DozerConstruct.
+    placement: crate::ui::construction_panel::PlacementPreview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,6 +346,7 @@ impl ConstructionPanel {
             tab_buttons: Vec::new(),
             construction_buttons: Vec::new(),
             pending_structure_placement: None,
+            placement: crate::ui::construction_panel::PlacementPreview::default(),
         }
     }
 
@@ -357,10 +360,23 @@ impl ConstructionPanel {
 
     pub fn clear_structure_placement(&mut self) {
         self.pending_structure_placement = None;
+        self.placement.cancel();
     }
 
     pub fn arm_structure_placement(&mut self, template_name: String) {
-        self.pending_structure_placement = Some(template_name);
+        self.pending_structure_placement = Some(template_name.clone());
+        self.placement.start(&template_name, &template_name, 0);
+    }
+
+    /// Update placement ghost world cursor + legality residual.
+    pub fn sync_structure_placement_cursor(&mut self, world_x: f32, world_z: f32, is_legal: bool) {
+        if self.pending_structure_placement.is_some() {
+            self.placement.update_cursor(world_x, world_z, is_legal);
+        }
+    }
+
+    pub fn placement_preview(&self) -> &crate::ui::construction_panel::PlacementPreview {
+        &self.placement
     }
 
     pub fn show_for_building(&mut self, building_name: &str) {
