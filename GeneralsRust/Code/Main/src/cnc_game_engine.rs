@@ -1344,6 +1344,8 @@ pub struct CnCGameEngine {
     // UI state
     show_debug_info: bool,
     show_health_bars: bool,
+    /// FPS counter residual (options game.show_fps).
+    show_fps: bool,
     frame_counter: u32,
     fps: f32,
     last_frame_timing: Option<FrameTiming>,
@@ -4597,6 +4599,7 @@ impl CnCGameEngine {
             game_paused: false,
             show_debug_info: debug_overlay,
             show_health_bars: true,
+            show_fps: false,
             frame_counter: 0,
             fps: 0.0,
             last_frame_timing: None,
@@ -7435,6 +7438,10 @@ impl CnCGameEngine {
                         self.game_hud.set_show_selection_health(v);
                         self.ui_manager.game_hud_mut().set_show_selection_health(v);
                         info!("Settings: show_health_bars={v}");
+                    }
+                    if let Some(v) = self.ui_manager.options_bool("game.show_fps") {
+                        self.show_fps = v;
+                        info!("Settings: show_fps={v}");
                     }
                 }
             }
@@ -10399,6 +10406,10 @@ impl CnCGameEngine {
                 self.toggle_debug_info_hotkey();
             }
             Key::Named(NamedKey::F1) => self.handle_camera_view_hotkey(0),
+            Key::Named(NamedKey::F2) if ctrl_down => {
+                // FPS counter residual (Ctrl+F2); bare F2 remains camera bookmark.
+                self.toggle_fps_counter_hotkey();
+            }
             Key::Named(NamedKey::F2) => self.handle_camera_view_hotkey(1),
             Key::Named(NamedKey::F3) => self.handle_camera_view_hotkey(2),
             Key::Named(NamedKey::F4) => self.handle_camera_view_hotkey(3),
@@ -10637,6 +10648,14 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("e")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select veteran+ units residual (Ctrl+Alt+E).
+                self.select_all_friendly_veterans();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("e")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
                     && !ctrl_down =>
             {
@@ -10710,6 +10729,14 @@ impl CnCGameEngine {
             Key::Character(c) if c == "," || c == "<" => {
                 // Previous idle worker residual (comma key).
                 self.cycle_friendly_worker_selection(-1);
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("w")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select docked aircraft residual (Ctrl+Alt+W).
+                self.select_all_docked_aircraft();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("w")
@@ -12470,6 +12497,103 @@ impl CnCGameEngine {
     /// Toggle health bar overlay residual (Alt+H).
 
     /// Toggle debug overlay residual (Ctrl+F1).
+
+    /// Toggle FPS counter residual (Ctrl+F2).
+    fn toggle_fps_counter_hotkey(&mut self) {
+        self.show_fps = !self.show_fps;
+        let msg = if self.show_fps {
+            "FPS counter: ON"
+        } else {
+            "FPS counter: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all friendly veteran+ units residual (Ctrl+Alt+E).
+    fn select_all_friendly_veterans(&mut self) {
+        use crate::game_logic::VeterancyLevel;
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            if matches!(
+                obj.experience.level,
+                VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic
+            ) {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No veteran units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} veterans", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select aircraft currently docked/parked residual (Ctrl+Alt+W).
+    fn select_all_docked_aircraft(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            let is_ac = obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                || obj.object_type == crate::game_logic::ObjectType::Aircraft;
+            if !is_ac {
+                continue;
+            }
+            let docked = matches!(obj.ai_state, crate::game_logic::AIState::Docked)
+                || obj.contained_by.is_some();
+            if docked {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No docked aircraft";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} docked aircraft", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
     fn toggle_debug_info_hotkey(&mut self) {
         self.show_debug_info = !self.show_debug_info;
         let msg = if self.show_debug_info {
@@ -17338,5 +17462,28 @@ fn patrol_gather_and_ready_sw_residual() {
             && src.contains("No ready special powers")
             && src.contains("cycle_ready_special_power_structure(1)"),
         "Ctrl+Alt+V must cycle ready SW residual"
+    );
+}
+
+#[test]
+fn fps_veterans_and_docked_aircraft_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn toggle_fps_counter_hotkey")
+            && src.contains("FPS counter: ON")
+            && src.contains("NamedKey::F2) if ctrl_down"),
+        "Ctrl+F2 must toggle FPS residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_veterans")
+            && src.contains("No veteran units")
+            && src.contains("select_all_friendly_veterans()"),
+        "Ctrl+Alt+E must select veterans residual"
+    );
+    assert!(
+        src.contains("fn select_all_docked_aircraft")
+            && src.contains("No docked aircraft")
+            && src.contains("select_all_docked_aircraft()"),
+        "Ctrl+Alt+W must select docked aircraft residual"
     );
 }
