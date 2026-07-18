@@ -1521,6 +1521,7 @@ mod tests {
             .is_none());
     }
 
+    #[test]
     fn structure_cameo_begins_placement_residual() {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
