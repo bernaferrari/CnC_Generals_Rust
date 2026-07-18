@@ -7339,6 +7339,9 @@ impl CnCGameEngine {
                 } => {
                     self.queue_unit_production_from_ui(&template_name, quantity);
                 }
+                UIEvent::CancelUnitProduction { template_name } => {
+                    self.cancel_unit_production_from_ui(&template_name);
+                }
                 UIEvent::IssueCommand { command_name } => {
                     self.issue_named_command_from_ui(&command_name);
                 }
@@ -7690,6 +7693,56 @@ impl CnCGameEngine {
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
         self.game_logic.process_commands();
+    }
+
+    fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
+        if template_name.trim().is_empty() {
+            return;
+        }
+        let player_id = self.current_player_id;
+        let selected = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        if selected.is_empty() {
+            return;
+        }
+        let producers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.game_logic.get_object(id).is_some_and(|o| {
+                    o.is_alive() && o.is_constructed() && o.building_data.is_some()
+                })
+            })
+            .collect();
+        let targets = if producers.is_empty() {
+            selected
+        } else {
+            producers
+        };
+        let mut any = false;
+        for id in targets {
+            if self
+                .game_logic
+                .cancel_production(id, template_name.to_string())
+            {
+                any = true;
+            }
+        }
+        if any {
+            self.play_sound_effect(SoundType::Command);
+            // Keep dual HUD presentation queue residual in sync.
+            let panel = &mut self.game_hud.construction_panel;
+            if let Some(idx) = panel
+                .building_queue
+                .iter()
+                .rposition(|q| q.item_name == template_name)
+            {
+                panel.building_queue.remove(idx);
+            }
+        }
     }
 
     fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
@@ -13563,5 +13616,19 @@ fn shift_select_and_ctrl_force_attack_residual() {
             && body.contains("toggle_select_object")
             && body.contains("issue_force_attack_from_left_click"),
         "handle_left_click must branch on Shift/Ctrl residuals"
+    );
+}
+
+#[test]
+fn cancel_unit_production_rmb_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn cancel_unit_production_from_ui") && src.contains("CancelUnitProduction"),
+        "engine must handle CancelUnitProduction residual"
+    );
+    let hud = include_str!("ui/hud.rs");
+    assert!(
+        hud.contains("CancelUnitProduction") && hud.contains("build_queue_cancel"),
+        "HUD RMB must raise CancelUnitProduction"
     );
 }

@@ -267,7 +267,7 @@ pub struct ConstructionPanel {
     size: (u32, u32),
     visible: bool,
     current_tab: ConstructionTab,
-    building_queue: Vec<BuildQueueItem>,
+    pub(crate) building_queue: Vec<BuildQueueItem>,
     selected_building: Option<String>,
     /// Presentation command_set_override residual (empty = template default).
     command_set_override: String,
@@ -886,7 +886,7 @@ impl GameHUD {
 
         // Check construction panel clicks
         if self.construction_panel.visible {
-            let mut clicked_construction = None;
+            let mut clicked_construction: Option<(String, String, i32, bool)> = None;
             for construction_button in &mut self.construction_panel.construction_buttons {
                 if utils::point_in_rect(
                     (x, y),
@@ -896,46 +896,101 @@ impl GameHUD {
                         construction_button.size.0,
                         construction_button.size.1,
                     ),
-                ) && construction_button.enabled
-                {
+                ) {
                     clicked_construction = Some((
                         construction_button.item_name.clone(),
                         construction_button.display_name.clone(),
                         construction_button.cost,
+                        construction_button.enabled,
                     ));
                     break;
                 }
             }
 
-            if let Some((item_name, display_name, cost)) = clicked_construction {
-                let cost_str = cost.to_string();
-                // C++ structure cameo: enter placement mode (DozerConstruct on map click).
-                if self.construction_panel.is_structure_tab() {
-                    self.construction_panel.pending_structure_placement = Some(item_name.clone());
+            // C++ RMB on build cameo / queue residual: cancel matching production.
+            if button == MouseButton::Right {
+                if let Some((item_name, display_name, _cost, _enabled)) =
+                    clicked_construction.clone()
+                {
+                    if let Some(idx) = self
+                        .construction_panel
+                        .building_queue
+                        .iter()
+                        .rposition(|q| q.item_name == item_name)
+                    {
+                        self.construction_panel.building_queue.remove(idx);
+                        let message = localization::localize_with_args(
+                            "hud.message.build_queue_cancel",
+                            "Cancelled {name}",
+                            &[("name", display_name.as_str())],
+                        );
+                        self.add_message(&message, MessageType::Construction);
+                        return Some(crate::ui::UIEvent::CancelUnitProduction {
+                            template_name: item_name,
+                        });
+                    }
+                }
+                // RMB on construction panel with a queue: cancel last queued item residual.
+                if !self.construction_panel.building_queue.is_empty()
+                    && utils::point_in_rect(
+                        (x, y),
+                        (
+                            self.construction_panel.position.0,
+                            self.construction_panel.position.1,
+                            self.construction_panel.size.0,
+                            self.construction_panel.size.1,
+                        ),
+                    )
+                {
+                    if let Some(item) = self.construction_panel.building_queue.pop() {
+                        let message = localization::localize_with_args(
+                            "hud.message.build_queue_cancel",
+                            "Cancelled {name}",
+                            &[("name", item.display_name.as_str())],
+                        );
+                        self.add_message(&message, MessageType::Construction);
+                        return Some(crate::ui::UIEvent::CancelUnitProduction {
+                            template_name: item.item_name,
+                        });
+                    }
+                }
+            }
+
+            if button == MouseButton::Left {
+                if let Some((item_name, display_name, cost, enabled)) = clicked_construction {
+                    if !enabled {
+                        return None;
+                    }
+                    let cost_str = cost.to_string();
+                    // C++ structure cameo: enter placement mode (DozerConstruct on map click).
+                    if self.construction_panel.is_structure_tab() {
+                        self.construction_panel.pending_structure_placement =
+                            Some(item_name.clone());
+                        let message = localization::localize_with_args(
+                            "hud.message.place_structure",
+                            "Select location for {name} (${cost} Credits)",
+                            &[("name", display_name.as_str()), ("cost", cost_str.as_str())],
+                        );
+                        self.add_message(&message, MessageType::Construction);
+                        return Some(crate::ui::UIEvent::BeginStructurePlacement {
+                            template_name: item_name,
+                        });
+                    }
+                    // Unit/aircraft/vehicle cameo: authoritative factory queue.
+                    self.construction_panel
+                        .add_to_queue(&item_name, &display_name, cost, 5.0);
                     let message = localization::localize_with_args(
-                        "hud.message.place_structure",
-                        "Select location for {name} (${cost} Credits)",
+                        "hud.message.build_queue_start",
+                        "Building {name} (${cost} Credits)",
                         &[("name", display_name.as_str()), ("cost", cost_str.as_str())],
                     );
                     self.add_message(&message, MessageType::Construction);
-                    return Some(crate::ui::UIEvent::BeginStructurePlacement {
+                    return Some(crate::ui::UIEvent::QueueUnitProduction {
                         template_name: item_name,
+                        quantity: 1,
                     });
                 }
-                // Unit/aircraft/vehicle cameo: authoritative factory queue.
-                self.construction_panel
-                    .add_to_queue(&item_name, &display_name, cost, 5.0);
-                let message = localization::localize_with_args(
-                    "hud.message.build_queue_start",
-                    "Building {name} (${cost} Credits)",
-                    &[("name", display_name.as_str()), ("cost", cost_str.as_str())],
-                );
-                self.add_message(&message, MessageType::Construction);
-                return Some(crate::ui::UIEvent::QueueUnitProduction {
-                    template_name: item_name,
-                    quantity: 1,
-                });
-            }
+            } // Left button construction cameo
         }
 
         // Check command button clicks
