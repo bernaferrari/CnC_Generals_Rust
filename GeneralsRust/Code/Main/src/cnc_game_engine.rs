@@ -1290,6 +1290,8 @@ pub struct CnCGameEngine {
     last_control_group_select: Option<(u8, Instant)>,
     /// Retail SAVE_VIEW1..8 / VIEW_VIEW1..8 camera bookmark residual (F1-F8).
     camera_view_bookmarks: [Option<Vec3>; 8],
+    /// Retail DIPLOMACY KEY_TAB residual panel.
+    diplomacy_panel: crate::ui::DiplomacyPanel,
     current_player_id: u32,
     game_paused: bool,
 
@@ -4529,6 +4531,7 @@ impl CnCGameEngine {
             control_groups: HashMap::new(),
             last_control_group_select: None,
             camera_view_bookmarks: [None; 8],
+            diplomacy_panel: crate::ui::DiplomacyPanel::new(),
             current_player_id: 0,
             game_paused: false,
             show_debug_info: debug_overlay,
@@ -6585,6 +6588,7 @@ impl CnCGameEngine {
                 if let Err(err) = self.game_hud.update(dt) {
                     warn!("Game HUD update failed: {}", err);
                 }
+                self.diplomacy_panel.update(dt);
             } else {
                 warn!(
                     "Skipping Game HUD update due to non-finite delta time: {}",
@@ -9071,9 +9075,11 @@ impl CnCGameEngine {
             {
                 let group_num = digit.chars().next().unwrap().to_digit(10).unwrap() as u8;
                 let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+                let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+                let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
                 if ctrl_down {
-                    // Assign control group.
+                    // CREATE_TEAM residual: assign control group.
                     if self.selected_objects.is_empty() {
                         self.control_groups.remove(&group_num);
                         info!("Cleared control group {}", group_num);
@@ -9086,8 +9092,61 @@ impl CnCGameEngine {
                             group_num
                         );
                     }
+                } else if shift_down {
+                    // ADD_TEAM residual: merge current selection into group.
+                    if self.selected_objects.is_empty() {
+                        return;
+                    }
+                    let entry = self.control_groups.entry(group_num).or_default();
+                    for id in &self.selected_objects {
+                        if !entry.contains(id) {
+                            entry.push(*id);
+                        }
+                    }
+                    info!(
+                        "Added selection to control group {} (now {} units)",
+                        group_num,
+                        entry.len()
+                    );
+                } else if alt_down {
+                    // VIEW_TEAM residual: center camera on group without changing selection.
+                    let stored = self
+                        .control_groups
+                        .get(&group_num)
+                        .cloned()
+                        .unwrap_or_default();
+                    if stored.is_empty() {
+                        info!("Control group {} is empty (view)", group_num);
+                        return;
+                    }
+                    let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        frame.centroid_of_ids(&stored)
+                    } else {
+                        let mut sum = Vec3::ZERO;
+                        let mut n = 0u32;
+                        for id in &stored {
+                            if let Some(obj) = self.game_logic.find_object(*id) {
+                                if obj.is_alive() {
+                                    sum += obj.get_position();
+                                    n += 1;
+                                }
+                            }
+                        }
+                        if n == 0 {
+                            None
+                        } else {
+                            Some(sum / n as f32)
+                        }
+                    };
+                    if let Some(center) = center {
+                        let clamped = self.clamp_to_world_bounds(center);
+                        self.camera_target.x = clamped.x;
+                        self.camera_target.z = clamped.z;
+                        self.game_logic.request_camera_focus(clamped);
+                        info!("VIEW_TEAM{} camera jump to {:?}", group_num, clamped);
+                    }
                 } else {
-                    // Select control group.
+                    // SELECT_TEAM residual: select control group.
                     let stored = self
                         .control_groups
                         .get(&group_num)
@@ -9212,9 +9271,8 @@ impl CnCGameEngine {
                 }
             }
             Key::Named(NamedKey::Tab) => {
-                // Selection cycle residual (retail DIPLOMACY is Tab; cycle kept for playability).
-                // Ctrl+Left/Right are the retail SELECT_PREV/NEXT_UNIT bindings.
-                self.cycle_friendly_selection(1);
+                // Retail CommandMap DIPLOMACY KEY_TAB residual.
+                self.toggle_diplomacy_panel_hotkey();
             }
             Key::Named(NamedKey::F1) => self.handle_camera_view_hotkey(0),
             Key::Named(NamedKey::F2) => self.handle_camera_view_hotkey(1),
@@ -9331,7 +9389,10 @@ impl CnCGameEngine {
                 // cancel placement/map-command first, else pause/resume.
                 match self.current_state {
                     GameState::InGame => {
-                        if self.pending_structure_placement.is_some() {
+                        if self.diplomacy_panel.is_active() {
+                            self.diplomacy_panel.close();
+                            info!("Escape closed diplomacy panel residual");
+                        } else if self.pending_structure_placement.is_some() {
                             self.cancel_structure_placement_from_ui();
                             info!("Escape cancelled structure placement residual");
                         } else if self.pending_map_command.take().is_some() {
@@ -9397,6 +9458,92 @@ impl CnCGameEngine {
             self.game_hud.push_info_message(&msg);
             self.ui_manager.game_hud_mut().push_info_message(&msg);
         }
+    }
+
+    /// Retail DIPLOMACY (KEY_TAB) residual.
+    fn toggle_diplomacy_panel_hotkey(&mut self) {
+        self.sync_diplomacy_panel_from_world();
+        self.diplomacy_panel.toggle();
+        let msg = if self.diplomacy_panel.is_active() {
+            "Diplomacy panel opened"
+        } else {
+            "Diplomacy panel closed"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+        info!("{msg}");
+    }
+
+    fn sync_diplomacy_panel_from_world(&mut self) {
+        use crate::ui::{DiplomacyPlayerEntry, DiplomacyPlayerStatus, DiplomacyRelation};
+        let local_id = self.current_player_id as i32;
+        self.diplomacy_panel.set_local_player_id(local_id);
+        let mut rows = Vec::new();
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            for p in &frame.players {
+                let status = if p.is_alive {
+                    DiplomacyPlayerStatus::Active
+                } else {
+                    DiplomacyPlayerStatus::Defeated
+                };
+                let relationship = if p.id == self.current_player_id {
+                    DiplomacyRelation::Allied
+                } else if p.team
+                    == frame
+                        .players
+                        .iter()
+                        .find(|x| x.id == self.current_player_id)
+                        .map(|x| x.team)
+                        .unwrap_or(p.team)
+                {
+                    DiplomacyRelation::Allied
+                } else {
+                    DiplomacyRelation::Enemy
+                };
+                rows.push(DiplomacyPlayerEntry {
+                    player_id: p.id as i32,
+                    name: p.name.clone(),
+                    side: format!("{:?}", p.team),
+                    team: match p.team {
+                        crate::game_logic::Team::USA => 0,
+                        crate::game_logic::Team::China => 1,
+                        crate::game_logic::Team::GLA => 2,
+                        _ => -1,
+                    },
+                    status,
+                    relationship,
+                    is_muted: false,
+                });
+            }
+        } else {
+            for (&id, p) in self.game_logic.get_players() {
+                rows.push(DiplomacyPlayerEntry {
+                    player_id: id as i32,
+                    name: p.name.clone(),
+                    side: format!("{:?}", p.team),
+                    team: match p.team {
+                        crate::game_logic::Team::USA => 0,
+                        crate::game_logic::Team::China => 1,
+                        crate::game_logic::Team::GLA => 2,
+                        _ => -1,
+                    },
+                    status: DiplomacyPlayerStatus::Active,
+                    relationship: if id == self.current_player_id {
+                        DiplomacyRelation::Allied
+                    } else {
+                        DiplomacyRelation::Enemy
+                    },
+                    is_muted: false,
+                });
+            }
+        }
+        self.diplomacy_panel.set_players(rows);
+        // Keep panel layout in sync with window.
+        let (w, h) = (
+            self.window.inner_size().width,
+            self.window.inner_size().height,
+        );
+        self.diplomacy_panel.resize(w, h);
     }
 
     /// Retail CAMERA_RESET (KEY_KP5) residual.
@@ -12387,5 +12534,26 @@ fn cheer_camera_reset_unit_cycle_hotkeys_residual() {
     assert!(
         src.contains("cycle_friendly_worker_selection"),
         "Ctrl+Up/Down must worker cycle residual"
+    );
+}
+
+#[test]
+fn diplomacy_and_control_group_modifiers_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("toggle_diplomacy_panel_hotkey") && src.contains("NamedKey::Tab"),
+        "Tab must DIPLOMACY residual"
+    );
+    assert!(
+        src.contains("ADD_TEAM residual") || src.contains("shift_down"),
+        "Shift+digit must ADD_TEAM residual"
+    );
+    assert!(
+        src.contains("VIEW_TEAM residual") || src.contains("alt_down"),
+        "Alt+digit must VIEW_TEAM residual"
+    );
+    assert!(
+        src.contains("Escape closed diplomacy panel residual"),
+        "Escape must close diplomacy before pause"
     );
 }

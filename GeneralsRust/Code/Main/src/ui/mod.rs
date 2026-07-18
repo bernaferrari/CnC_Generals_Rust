@@ -14,6 +14,7 @@ pub mod audio;
 pub mod campaign_menu;
 pub mod construction_panel;
 pub mod credits_screen;
+pub mod diplomacy_panel;
 pub mod events;
 pub mod faction_selection;
 pub mod hud;
@@ -39,6 +40,9 @@ pub mod widgets;
 // Re-exports for convenience
 pub use campaign_menu::{CampaignFaction, CampaignMenu, MedalType, Mission};
 pub use credits_screen::CreditsScreen;
+pub use diplomacy_panel::{
+    DiplomacyPanel, DiplomacyPlayerEntry, DiplomacyPlayerStatus, DiplomacyRelation,
+};
 pub use events::{InputEvent, KeyEvent, MouseEvent, UIEventHandler};
 pub use faction_selection::{Faction, FactionSelectionScreen};
 pub use hud::{GameHUD, MiniMap, ResourceDisplay};
