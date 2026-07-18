@@ -1135,11 +1135,13 @@ enum StartupLoadState {
 }
 
 /// Map-click command residual armed by ControlBar buttons.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum PendingMapCommand {
     AttackMove,
     Guard,
     SetRallyPoint,
+    /// Armed superweapon / special power residual awaiting map click.
+    SpecialPower(crate::command_system::SpecialPowerType),
 }
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
@@ -7263,6 +7265,14 @@ impl CnCGameEngine {
             PendingMapCommand::SetRallyPoint => {
                 crate::command_system::CommandType::SetRallyPoint { location }
             }
+            PendingMapCommand::SpecialPower(power_type) => {
+                let target = if let Some(tid) = target_object {
+                    crate::command_system::PowerTarget::Object(tid)
+                } else {
+                    crate::command_system::PowerTarget::Location(location)
+                };
+                crate::command_system::CommandType::DoSpecialPower { power_type, target }
+            }
         };
         self.game_logic
             .queue_command(crate::command_system::GameCommand {
@@ -7483,6 +7493,46 @@ impl CnCGameEngine {
                 self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
                 self.pending_structure_placement = None;
                 let msg = "Set rally point: click location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::DoSpecialPower { .. } => {
+                // Resolve SW type from selected ready structure residual.
+                let player_id = self.current_player_id;
+                let selected = self
+                    .game_logic
+                    .get_player(player_id)
+                    .map(|p| p.selected_objects.clone())
+                    .unwrap_or_else(|| self.selected_objects.clone());
+                let mut resolved = None;
+                for id in &selected {
+                    let Some(obj) = self.game_logic.get_object(*id) else {
+                        continue;
+                    };
+                    if !obj.special_power_ready {
+                        continue;
+                    }
+                    if let Some(p) =
+                        crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
+                            &obj.template_name,
+                        )
+                    {
+                        if self.game_logic.is_special_power_ready_for(*id, &p) {
+                            resolved = Some(p);
+                            break;
+                        }
+                    }
+                }
+                let Some(power) = resolved else {
+                    let msg = "No ready special power on selection";
+                    self.game_hud.push_info_message(msg);
+                    self.ui_manager.game_hud_mut().push_info_message(msg);
+                    return;
+                };
+                self.pending_map_command = Some(PendingMapCommand::SpecialPower(power));
+                self.pending_structure_placement = None;
+                let msg = "Special power: click target location";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
