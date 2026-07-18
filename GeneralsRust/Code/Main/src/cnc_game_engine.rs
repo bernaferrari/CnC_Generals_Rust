@@ -1269,6 +1269,8 @@ pub struct CnCGameEngine {
     // UI system
     ui_manager: UIManager,
     game_hud: GameHUD,
+    /// C++ structure placement template residual (awaiting map click).
+    pending_structure_placement: Option<String>,
     active_menu_shell_hook: Option<&'static str>,
     runtime_host_headless: bool,
     runtime_host_base_ui_screen: Option<String>,
@@ -4499,6 +4501,7 @@ impl CnCGameEngine {
             diagnostics_overlay: None,
             ui_manager,
             game_hud: GameHUD::new(),
+            pending_structure_placement: None,
             active_menu_shell_hook: None,
             runtime_host_headless,
             runtime_host_base_ui_screen: None,
@@ -7184,12 +7187,88 @@ impl CnCGameEngine {
                 UIEvent::IssueCommand { command_name } => {
                     self.issue_named_command_from_ui(&command_name);
                 }
+                UIEvent::BeginStructurePlacement { template_name } => {
+                    self.begin_structure_placement_from_ui(&template_name);
+                }
+                UIEvent::PlaceStructureAt {
+                    template_name,
+                    location,
+                } => {
+                    self.place_structure_from_ui(&template_name, location);
+                }
                 _ => {}
             }
         }
     }
 
     /// C++ ControlBar production cameo → QueueUnitCreate residual.
+    fn begin_structure_placement_from_ui(&mut self, template_name: &str) {
+        if template_name.trim().is_empty() {
+            return;
+        }
+        self.pending_structure_placement = Some(template_name.to_string());
+        // Mirror onto UIManager HUD residual (click path state).
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .arm_structure_placement(template_name.to_string());
+        log::debug!("BeginStructurePlacement residual: {template_name}");
+    }
+
+    fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
+        let template = resolve_ui_structure_template_name(template_name);
+        self.pending_structure_placement = None;
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .clear_structure_placement();
+        if template.is_empty() || !location.x.is_finite() || !location.z.is_finite() {
+            return;
+        }
+        let logic = &mut self.game_logic;
+        let player_id = logic
+            .get_player(0)
+            .map(|p| p.id)
+            .or_else(|| logic.get_players().keys().copied().min())
+            .unwrap_or(0);
+        let mut selected = logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        let dozers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                logic.get_object(id).is_some_and(|o| {
+                    if !o.is_alive() {
+                        return false;
+                    }
+                    let n = o.template_name.to_ascii_lowercase();
+                    n.contains("dozer") || n.contains("worker")
+                })
+            })
+            .collect();
+        if !dozers.is_empty() {
+            selected = dozers;
+        }
+        if selected.is_empty() {
+            log::debug!("PlaceStructureAt ignored — no dozer/worker selection");
+            return;
+        }
+        logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DozerConstruct {
+                template_name: template,
+                location,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        logic.process_commands();
+    }
+
     fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
         if template_name.trim().is_empty() || quantity == 0 {
             return;
@@ -9014,6 +9093,10 @@ impl CnCGameEngine {
                     .select_objects(self.current_player_id, vec![object_id]);
                 self.selected_objects = vec![object_id];
                 self.play_sound_effect(SoundType::Select);
+            } else if let Some(template) = self.pending_structure_placement.clone() {
+                // C++ structure placement residual: empty-ground click commits DozerConstruct.
+                let loc = self.mouse_world_position;
+                self.place_structure_from_ui(&template, loc);
             } else {
                 // Clear selection
                 self.selected_objects.clear();
@@ -11485,6 +11568,36 @@ impl CnCGameEngine {
             Ok(true)
         } else {
             anyhow::bail!("Asset manager not available");
+        }
+    }
+}
+
+/// Map HUD structure cameo labels to ThingTemplate residual names.
+fn resolve_ui_structure_template_name(name: &str) -> String {
+    let n = name.trim();
+    if n.is_empty() {
+        return String::new();
+    }
+    // Already a template-style name.
+    if n.contains("America") || n.contains("China") || n.contains("GLA") || n.contains('_') {
+        return n.to_string();
+    }
+    let key = n.to_ascii_lowercase();
+    match key.as_str() {
+        "power plant" | "powerplant" => "AmericaPowerPlant".into(),
+        "barracks" => "AmericaBarracks".into(),
+        "supply center" | "supplycenter" => "AmericaSupplyCenter".into(),
+        "war factory" | "warfactory" => "AmericaWarFactory".into(),
+        "airfield" => "AmericaAirfield".into(),
+        "command center" | "commandcenter" => "AmericaCommandCenter".into(),
+        "patriot battery" | "patriot" => "AmericaPatriotBattery".into(),
+        "strategy center" => "AmericaStrategyCenter".into(),
+        "detention camp" => "AmericaDetentionCamp".into(),
+        "particle cannon" => "AmericaParticleCannonUplink".into(),
+        _ => {
+            // Fallback: strip spaces residual.
+            let compact: String = n.chars().filter(|c| !c.is_whitespace()).collect();
+            format!("America{compact}")
         }
     }
 }
