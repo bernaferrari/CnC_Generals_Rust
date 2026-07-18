@@ -10549,6 +10549,14 @@ impl CnCGameEngine {
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
             }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("q")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all combat units residual (Ctrl+Alt+Q).
+                self.select_all_friendly_combat();
+            }
             Key::Character(c) if c.eq_ignore_ascii_case("q") && !ctrl_down => {
                 // Retail CommandMap SELECT_ALL KEY_Q residual.
                 self.select_all_friendly_units();
@@ -10569,11 +10577,31 @@ impl CnCGameEngine {
                 // Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual.
                 self.select_matching_units_hotkey();
             }
-            Key::Character(c) if c == "[" || c == "{" => {
+            Key::Character(c)
+                if (c == "[" || c == "{")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Shrink guard radius residual (Alt+[).
+                self.adjust_selected_guard_radius(-15.0);
+            }
+            Key::Character(c)
+                if (c == "]" || c == "}")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Grow guard radius residual (Alt+]).
+                self.adjust_selected_guard_radius(15.0);
+            }
+            Key::Character(c)
+                if (c == "[" || c == "{")
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Construction tab previous residual.
                 self.cycle_construction_tab(-1);
             }
-            Key::Character(c) if c == "]" || c == "}" => {
+            Key::Character(c)
+                if (c == "]" || c == "}")
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Construction tab next residual.
                 self.cycle_construction_tab(1);
             }
@@ -11890,6 +11918,97 @@ impl CnCGameEngine {
         self.selected_objects = ids;
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} structures", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Adjust guard radius on selected guarding units residual (Alt+[ / ]).
+    fn adjust_selected_guard_radius(&mut self, delta: f32) {
+        let selected = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        if selected.is_empty() {
+            return;
+        }
+        let mut any = false;
+        let mut last_r = 0.0_f32;
+        for id in selected {
+            if let Some(obj) = self.game_logic.get_object_mut(id) {
+                let guarding = matches!(
+                    obj.ai_state,
+                    crate::game_logic::AIState::GuardingArea
+                        | crate::game_logic::AIState::GuardingObject
+                ) || obj.guard_position.is_some()
+                    || obj.guard_target.is_some();
+                if !guarding && obj.guard_radius <= 0.0 {
+                    // Allow setting radius even if not yet guarding so next Guard uses it.
+                    let base = obj.selection_radius.max(20.0) * 2.0;
+                    obj.guard_radius = (base + delta).clamp(30.0, 400.0);
+                } else {
+                    let cur = if obj.guard_radius > 1.0 {
+                        obj.guard_radius
+                    } else {
+                        obj.selection_radius.max(20.0) * 2.0
+                    };
+                    obj.guard_radius = (cur + delta).clamp(30.0, 400.0);
+                }
+                last_r = obj.guard_radius;
+                any = true;
+            }
+        }
+        if any {
+            let msg = format!("Guard radius: {last_r:.0}");
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+        }
+    }
+
+    /// Select all friendly combat units (exclude workers/dozers/supply) residual.
+    fn select_all_friendly_combat(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            if obj.is_dozer
+                || n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("supply")
+                || n.contains("harvester")
+            {
+                continue;
+            }
+            if !obj.can_move() && !obj.can_attack() {
+                continue;
+            }
+            ids.push(id);
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No combat units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} combat units", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
@@ -16218,5 +16337,22 @@ fn idle_harvesters_and_cancel_all_production_residual() {
             && src.contains("Canceled all production")
             && src.contains("ctrl_down && !shift"),
         "Ctrl+Delete must cancel all production residual"
+    );
+}
+
+#[test]
+fn guard_radius_and_combat_select_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn adjust_selected_guard_radius")
+            && src.contains("Guard radius:")
+            && src.contains("adjust_selected_guard_radius(15.0)"),
+        "Alt+[ ] must adjust guard radius residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_combat")
+            && src.contains("select_all_friendly_combat()")
+            && src.contains("No combat units"),
+        "Ctrl+Alt+Q must select combat units residual"
     );
 }
