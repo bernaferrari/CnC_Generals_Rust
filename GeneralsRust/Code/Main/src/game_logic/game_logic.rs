@@ -47371,6 +47371,14 @@ impl GameLogic {
         self.eva_low_power > 0
     }
 
+    pub fn eva_low_power_count(&self) -> u32 {
+        self.eva_low_power
+    }
+
+    pub fn eva_insufficient_funds_count(&self) -> u32 {
+        self.eva_insufficient_funds
+    }
+
     pub fn honesty_eva_insufficient_funds_ok(&self) -> bool {
         self.eva_insufficient_funds > 0
     }
