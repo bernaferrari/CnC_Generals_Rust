@@ -2094,6 +2094,25 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             power_type: SpecialPowerType::ParticleCannon, // placeholder; engine resolves
             target: PowerTarget::None,
         }),
+        // USA Strategy Center battle plans residual (immediate, no map click).
+        "initiatebattleplanbombardment" | "battleplanbombardment" => {
+            Some(CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::BattlePlanBombardment,
+                target: PowerTarget::None,
+            })
+        }
+        "initiatebattleplanholdtheline" | "battleplanholdtheline" => {
+            Some(CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::BattlePlanHoldTheLine,
+                target: PowerTarget::None,
+            })
+        }
+        "initiatebattleplansearchanddestroy" | "battleplansearchanddestroy" => {
+            Some(CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::BattlePlanSearchAndDestroy,
+                target: PowerTarget::None,
+            })
+        }
         "cancelupgrade" => Some(CommandType::CancelUpgrade {
             upgrade_name: String::new(),
         }),

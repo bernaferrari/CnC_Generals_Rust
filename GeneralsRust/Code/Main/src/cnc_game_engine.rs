@@ -8078,6 +8078,16 @@ impl CnCGameEngine {
                 self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
+            crate::command_system::CommandType::DoSpecialPower {
+                power_type:
+                    crate::command_system::SpecialPowerType::BattlePlanBombardment
+                    | crate::command_system::SpecialPowerType::BattlePlanHoldTheLine
+                    | crate::command_system::SpecialPowerType::BattlePlanSearchAndDestroy,
+                ..
+            } => {
+                // Strategy Center battle plans are immediate (no map click).
+                // Fall through to queue with resolved selection below.
+            }
             crate::command_system::CommandType::DoSpecialPower { .. } => {
                 // Resolve SW type from selected ready structure residual.
                 let player_id = self.current_player_id;
@@ -14800,5 +14810,27 @@ fn special_power_v_key_residual() {
     assert!(
         body.contains("NamedKey::Shift") && body.contains("debug_show_victory"),
         "debug victory remains behind Ctrl+Shift residual"
+    );
+}
+
+#[test]
+fn strategy_center_battle_plan_residual() {
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("BattlePlanBombardment")
+            && cs.contains("initiatebattleplanbombardment")
+            && cs.contains("BattlePlanHoldTheLine")
+            && cs.contains("BattlePlanSearchAndDestroy"),
+        "battle plan button names must map residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_InitiateBattlePlanBombardment") && pf.contains("strategycenter"),
+        "Strategy Center strip must expose battle plans residual"
+    );
+    let eng = include_str!("cnc_game_engine.rs");
+    assert!(
+        eng.contains("BattlePlanBombardment") && eng.contains("BattlePlanHoldTheLine"),
+        "engine must execute battle plans without map-click residual"
     );
 }

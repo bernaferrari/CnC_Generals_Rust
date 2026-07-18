@@ -6026,6 +6026,16 @@ impl PresentationFrame {
                 if n.contains("china") && (n.contains("power") || n.contains("nuclear")) {
                     push(&mut cmds, "Command_ToggleOvercharge", true);
                 }
+                // USA Strategy Center battle plans residual.
+                if n.contains("strategycenter") || n.contains("strategy_center") {
+                    push(&mut cmds, "Command_InitiateBattlePlanBombardment", true);
+                    push(&mut cmds, "Command_InitiateBattlePlanHoldTheLine", true);
+                    push(
+                        &mut cmds,
+                        "Command_InitiateBattlePlanSearchAndDestroy",
+                        true,
+                    );
+                }
             }
             if ro.can_produce {
                 push(&mut cmds, "Command_SetRallyPoint", true);
