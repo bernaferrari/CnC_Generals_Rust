@@ -6035,6 +6035,20 @@ impl PresentationFrame {
                         "Command_InitiateBattlePlanSearchAndDestroy",
                         true,
                     );
+                    push(&mut cmds, "Command_CIAIntelligence", true);
+                }
+                // Named superweapon / intel residual buttons.
+                if n.contains("particlecannon") {
+                    push(&mut cmds, "Command_ParticleCannon", true);
+                }
+                if n.contains("nuclear") && n.contains("missile") {
+                    push(&mut cmds, "Command_NuclearMissile", true);
+                }
+                if n.contains("scudstorm") || n.contains("scud_storm") {
+                    push(&mut cmds, "Command_ScudStorm", true);
+                }
+                if n.contains("spysat") || (n.contains("satellite") && n.contains("uplink")) {
+                    push(&mut cmds, "Command_SpySatelliteScan", true);
                 }
             }
             if ro.can_produce {
