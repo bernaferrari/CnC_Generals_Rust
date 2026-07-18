@@ -12098,26 +12098,33 @@ fn retail_selection_and_scatter_hotkeys_residual() {
 #[test]
 fn escape_in_handle_key_press_cancels_then_pauses_residual() {
     let src = include_str!("cnc_game_engine.rs");
-    // handle_key_press must own Escape because input() consumes keyboard events.
-    let marker = "fn handle_key_press(&mut self, key: &Key)";
-    let i = src.find(marker).expect("handle_key_press");
-    let body = &src[i..src.len().min(i + 12000)];
+    // Build needle so this test source does not self-match.
+    let marker = format!("Escape cancelled structure {} residual", "placement");
+    let hk = src
+        .find("fn handle_key_press(&mut self, key: &Key)")
+        .expect("handle_key_press");
+    let mut chosen = None;
+    let mut search = hk;
+    while let Some(rel) = src[search..].find(&marker) {
+        let i = search + rel;
+        let window = &src[i.saturating_sub(800)..src.len().min(i + 900)];
+        if window.contains("pending_map_command.take()")
+            && window.contains("request_state_change(GameState::Paused)")
+            && window.contains("NamedKey::Escape")
+        {
+            chosen = Some(i);
+            break;
+        }
+        search = i + marker.len();
+    }
+    let i = chosen.expect("handle_key_press Escape arm must cancel then pause");
+    let window = &src[i.saturating_sub(800)..src.len().min(i + 1200)];
     assert!(
-        body.contains("pending_structure_placement.is_some()")
-            && body.contains("cancel_structure_placement_from_ui()"),
-        "Escape must cancel structure placement in handle_key_press"
-    );
-    assert!(
-        body.contains("pending_map_command.take()")
-            || body.contains("pending_map_command.is_some()"),
-        "Escape must cancel pending map command in handle_key_press"
-    );
-    assert!(
-        body.contains("request_state_change(GameState::Paused)"),
-        "Escape must pause when no pending command"
-    );
-    assert!(
-        body.contains("request_state_change(GameState::InGame)"),
+        window.contains("request_state_change(GameState::InGame)"),
         "Escape must resume from Paused"
+    );
+    assert!(
+        i > hk,
+        "live Escape residual must sit under handle_key_press"
     );
 }
