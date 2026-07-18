@@ -1976,6 +1976,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
     match key {
         "stop" => Some(CommandType::Stop),
         "scatter" => Some(CommandType::Scatter),
+        "cheer" | "allcheer" | "groupcheer" => Some(CommandType::Cheer),
         "createformation" | "formation" => Some(CommandType::CreateFormation),
         "viewcommandcenter" | "centerbase" => Some(CommandType::ViewCommandCenter),
         "viewlastradarevent" | "gotoradarevent" => Some(CommandType::ViewLastRadarEvent),
@@ -2960,6 +2961,10 @@ mod tests {
         assert!(matches!(
             command_type_from_button_name("Command_RemoveBeacon"),
             Some(CommandType::RemoveBeacon)
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_Cheer"),
+            Some(CommandType::Cheer)
         ));
     }
 
