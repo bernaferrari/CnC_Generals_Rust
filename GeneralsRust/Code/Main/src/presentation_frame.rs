@@ -6050,6 +6050,16 @@ impl PresentationFrame {
                 if n.contains("spysat") || (n.contains("satellite") && n.contains("uplink")) {
                     push(&mut cmds, "Command_SpySatelliteScan", true);
                 }
+                if n.contains("airfield") {
+                    push(&mut cmds, "Command_SpyDrone", true);
+                    push(&mut cmds, "Command_EmergencyRepair", true);
+                    push(&mut cmds, "Command_Airstrike", true);
+                    push(&mut cmds, "Command_CarpetBomb", true);
+                }
+                if n.contains("commandcenter") || n.contains("command_center") {
+                    push(&mut cmds, "Command_ArtilleryBarrage", true);
+                    push(&mut cmds, "Command_EmergencyRepair", true);
+                }
             }
             if ro.can_produce {
                 push(&mut cmds, "Command_SetRallyPoint", true);
