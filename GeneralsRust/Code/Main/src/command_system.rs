@@ -985,6 +985,18 @@ impl CommandSystem {
                     return CommandType::Gather { target_id };
                 }
 
+                // C++ capture residual: capture-capable infantry/heroes → neutral
+                // (or unowned tech) structure preferred over attack when applicable.
+                if self.can_capture_building(selected_units, target_obj, game_logic) {
+                    // Prefer capture on Neutral structures; enemy still defaults to attack
+                    // unless no attacker can fire (unarmed infantry with capture upgrade).
+                    let prefer_capture = target_obj.team == Team::Neutral
+                        || !self.can_attack_target(selected_units, target_obj, game_logic);
+                    if prefer_capture {
+                        return CommandType::CaptureBuilding { target_id };
+                    }
+                }
+
                 // Check if target is enemy - attack
                 if self.can_attack_target(selected_units, target_obj, game_logic) {
                     return CommandType::AttackObject { target_id };
@@ -1612,6 +1624,41 @@ impl CommandSystem {
         } else {
             CommandResult::InvalidCommand
         }
+    }
+
+    /// Validate if selected units can capture target structure residual.
+    fn can_capture_building(
+        &self,
+        units: &[ObjectId],
+        target: &Object,
+        game_logic: &GameLogic,
+    ) -> bool {
+        use crate::game_logic::host_hero_abilities::{
+            can_capture_without_upgrade, is_black_lotus_template,
+        };
+        if !target.is_kind_of(crate::game_logic::KindOf::Structure)
+            || !target.is_alive()
+            || target.status.under_construction
+            || target.status.sold
+        {
+            return false;
+        }
+        for &unit_id in units {
+            let Some(unit) = game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() || unit.team == target.team {
+                continue;
+            }
+            let is_lotus = is_black_lotus_template(&unit.template_name);
+            let capture_ability = can_capture_without_upgrade(unit.is_hero(), is_lotus)
+                || (unit.is_kind_of(crate::game_logic::KindOf::Infantry)
+                    && game_logic.team_has_completed_capture_upgrade(unit.team));
+            if capture_ability {
+                return true;
+            }
+        }
+        false
     }
 
     /// Validate if selected units can attack target
@@ -3421,6 +3468,23 @@ mod tests {
         assert!(
             body.contains("can_resume_construction"),
             "determine_context_command must call can_resume_construction"
+        );
+    }
+
+    #[test]
+    fn capture_building_context_residual() {
+        let src = include_str!("command_system.rs");
+        assert!(
+            src.contains("fn can_capture_building") && src.contains("CommandType::CaptureBuilding"),
+            "context path must offer CaptureBuilding residual"
+        );
+        let start = src
+            .find("fn determine_context_command")
+            .expect("determine_context_command");
+        let body = &src[start..start + 2800];
+        assert!(
+            body.contains("can_capture_building"),
+            "determine_context_command must call can_capture_building"
         );
     }
 }
