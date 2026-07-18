@@ -8048,6 +8048,54 @@ impl CnCGameEngine {
         any
     }
 
+    /// Cancel entire production queue on selected producers residual (Ctrl+Delete).
+    fn cancel_all_selected_production(&mut self) -> bool {
+        let player_id = self.current_player_id;
+        let selected = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_else(|| self.selected_objects.clone());
+        if selected.is_empty() {
+            return false;
+        }
+        let mut any = false;
+        for id in selected {
+            // Drain queue head repeatedly residual.
+            loop {
+                let head_name = self.game_logic.get_object(id).and_then(|o| {
+                    o.building_data.as_ref().and_then(|b| {
+                        b.production_queue
+                            .first()
+                            .map(|item| item.template_name.clone())
+                    })
+                });
+                let Some(template_name) = head_name else {
+                    break;
+                };
+                if !self.game_logic.cancel_production(id, template_name.clone()) {
+                    break;
+                }
+                any = true;
+                let panel = &mut self.game_hud.construction_panel;
+                if let Some(idx) = panel
+                    .building_queue
+                    .iter()
+                    .rposition(|q| q.item_name == template_name)
+                {
+                    panel.building_queue.remove(idx);
+                }
+            }
+        }
+        if any {
+            self.play_sound_effect(SoundType::Command);
+            let msg = "Canceled all production";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+        }
+        any
+    }
+
     fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
         if template_name.trim().is_empty() {
             return;
@@ -10304,6 +10352,12 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::Delete) => {
                 let shift = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+                if ctrl_down && !shift {
+                    // Cancel entire production queue residual (Ctrl+Delete).
+                    if self.cancel_all_selected_production() {
+                        return;
+                    }
+                }
                 if shift {
                     // Debug residual: Shift+Delete destroys selection.
                     if self.selected_objects.is_empty() {
@@ -10570,6 +10624,14 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("h") && ctrl_down => {
                 // Retail CommandMap SELECT_HERO Ctrl+H residual.
                 self.select_hero_units_hotkey();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("i")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select idle harvesters residual (Ctrl+Alt+I).
+                self.select_idle_harvesters();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("i")
@@ -11703,6 +11765,52 @@ impl CnCGameEngine {
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
         self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Select idle friendly harvesters residual (Ctrl+Alt+I).
+    fn select_idle_harvesters(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            let is_collector = n.contains("supply")
+                || n.contains("harvester")
+                || n.contains("chinook")
+                || (n.contains("worker") && !n.contains("dozer"));
+            if !is_collector {
+                continue;
+            }
+            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                && obj.target.is_none()
+                && !obj.status.moving;
+            if idle {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No idle harvesters";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} idle harvesters", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Cycle construction panel tab residual (`[` / `]`).
@@ -16093,5 +16201,22 @@ fn resume_construction_hotkey_residual() {
     assert!(
         cs.contains("\"resumeconstruction\"") || cs.contains("ResumeConstruction"),
         "resumeconstruction button map residual"
+    );
+}
+
+#[test]
+fn idle_harvesters_and_cancel_all_production_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn select_idle_harvesters")
+            && src.contains("select_idle_harvesters()")
+            && src.contains("No idle harvesters"),
+        "Ctrl+Alt+I must select idle harvesters residual"
+    );
+    assert!(
+        src.contains("fn cancel_all_selected_production")
+            && src.contains("Canceled all production")
+            && src.contains("ctrl_down && !shift"),
+        "Ctrl+Delete must cancel all production residual"
     );
 }
