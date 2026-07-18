@@ -912,6 +912,9 @@ pub struct ObjectStatus {
     #[serde(default)]
     pub reconstructing: bool,
     pub selected: bool,
+    /// C++ OBJECT_STATUS_DEPLOYED residual (DeployStyle AI / artillery unpack).
+    #[serde(default)]
+    pub deployed: bool,
     pub moving: bool,
     pub attacking: bool,
     /// C++ OBJECT_STATUS_IS_FIRING_WEAPON residual (AttackFireWeaponState).

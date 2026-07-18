@@ -602,15 +602,82 @@ impl<'a> CommandExecutor<'a> {
     fn execute_deploy(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object(unit_id) {
-                // Garrisonable units deploy into the nearest compatible structure.
-                if unit.is_kind_of(KindOf::Infantry) {
-                    if let Some(_building_id) = self.find_nearest_garrison_target(unit_id) {
-                        if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
-                            unit_mut.set_ai_state(AIState::Entering);
-                            // The enter/garrison logic is handled by the AI state machine.
-                            any = true;
-                        }
+            let Some((alive, name, is_infantry, is_deployed)) =
+                self.game_logic.get_object(unit_id).map(|unit| {
+                    (
+                        unit.is_alive(),
+                        unit.template_name.to_ascii_lowercase(),
+                        unit.is_kind_of(KindOf::Infantry),
+                        unit.is_deployed(),
+                    )
+                })
+            else {
+                continue;
+            };
+            if !alive {
+                continue;
+            }
+
+            // C++ DeployStyleAIUpdate residual: toggle OBJECT_STATUS_DEPLOYED.
+            let looks_deployable = [
+                "tomahawk",
+                "scud",
+                "buggy",
+                "humvee",
+                "stinger",
+                "crawler",
+                "artillery",
+                "nukecannon",
+                "nuke cannon",
+                "spectrum",
+                "quadcannon",
+                "infernocannon",
+                "inferno cannon",
+                "missile humvee",
+                "tow",
+            ]
+            .iter()
+            .any(|k| name.contains(k));
+
+            if looks_deployable && !is_infantry {
+                if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
+                    let next = !is_deployed;
+                    unit_mut.set_deployed(next);
+                    if next {
+                        unit_mut.set_ai_state(AIState::Idle);
+                    }
+                    any = true;
+                }
+                continue;
+            }
+
+            // Troop crawler / transport assault deploy residual: unload occupants.
+            if name.contains("transport")
+                || name.contains("crawler")
+                || name.contains("chinook")
+                || name.contains("combatdrop")
+            {
+                let exit = self.execute_exit(&[unit_id]);
+                if matches!(exit, CommandResult::Success) {
+                    any = true;
+                    continue;
+                }
+            }
+
+            // Infantry residual: enter nearest garrison structure.
+            if is_infantry {
+                if let Some(building_id) = self.find_nearest_garrison_target(unit_id) {
+                    let bpos = self
+                        .game_logic
+                        .get_object(building_id)
+                        .map(|b| b.get_position());
+                    if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
+                        unit_mut.set_target(Some(building_id));
+                        unit_mut.set_ai_state(AIState::Entering);
+                        any = true;
+                    }
+                    if let Some(bpos) = bpos {
+                        let _ = self.path_to_goal_with_state(unit_id, bpos, AIState::Entering);
                     }
                 }
             }
@@ -3830,6 +3897,21 @@ mod group_move_tests {
         assert_eq!(
             bare, 0,
             "production execute paths still call unit.set_destination ({bare})"
+        );
+    }
+
+    #[test]
+    fn deploy_style_toggle_residual() {
+        let src = include_str!("command_executor.rs");
+        let start = src.find("fn execute_deploy").expect("execute_deploy");
+        let body = &src[start..start + 2500];
+        assert!(
+            body.contains("set_deployed") && body.contains("is_deployed"),
+            "Deploy must toggle OBJECT_STATUS_DEPLOYED residual for deploy-style units"
+        );
+        assert!(
+            body.contains("tomahawk") || body.contains("humvee"),
+            "Deploy residual must recognize retail deploy-style unit names"
         );
     }
 }
