@@ -913,8 +913,11 @@ impl CommandSystem {
             waypoint_mode = true;
         }
 
-        // Determine command type based on mode and target
-        let mode = if waypoint_mode {
+        // C++ TheInGameUI force modes residual:
+        // Ctrl = ForceAttack, Alt = Waypoints (prefer over sticky current_mode).
+        let mode = if context.modifier_keys.ctrl {
+            CommandMode::ForceAttack
+        } else if waypoint_mode {
             CommandMode::Waypoint
         } else {
             self.current_mode.clone()
@@ -1015,17 +1018,10 @@ impl CommandSystem {
             }
         }
 
-        // Default to move command
-        if context.modifier_keys.ctrl {
-            // Attack-move if ctrl is held
-            CommandType::AttackMoveTo {
-                destination: context.world_position,
-            }
-        } else {
-            CommandType::MoveTo {
-                destination: context.world_position,
-                waypoints: Vec::new(),
-            }
+        // Default to move command (Ctrl ForceAttack handled before context path).
+        CommandType::MoveTo {
+            destination: context.world_position,
+            waypoints: Vec::new(),
         }
     }
 
@@ -2743,6 +2739,128 @@ mod tests {
 
     #[test]
     #[test]
+    #[test]
+    fn right_click_ctrl_force_attacks_object_residual() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+        let mut ranger_t = ThingTemplate::new("AmericaInfantryRanger");
+        ranger_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger_t);
+        let mut rebel_t = ThingTemplate::new("GLAInfantryRebel");
+        rebel_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel_t);
+
+        let attacker = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("attacker");
+        let target = logic
+            .create_object(
+                "GLAInfantryRebel",
+                Team::GLA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("target");
+
+        let ctx = MouseCommandContext {
+            world_position: glam::Vec3::new(50.0, 0.0, 0.0),
+            target_object: Some(target),
+            screen_position: glam::Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys {
+                ctrl: true,
+                shift: false,
+                alt: false,
+            },
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut sys = CommandSystem::new();
+        let cmd = sys
+            .process_mouse_input(&ctx, &[attacker], 0, &logic)
+            .expect("ctrl RMB should produce command");
+        match cmd.command_type {
+            CommandType::ForceAttackObject { target_id } => assert_eq!(target_id, target),
+            other => panic!("expected ForceAttackObject, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn right_click_ctrl_force_attacks_ground_residual() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+        let mut ranger_t = ThingTemplate::new("AmericaInfantryRanger");
+        ranger_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger_t);
+
+        let attacker = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("attacker");
+
+        let loc = glam::Vec3::new(80.0, 0.0, 40.0);
+        let ctx = MouseCommandContext {
+            world_position: loc,
+            target_object: None,
+            screen_position: glam::Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys {
+                ctrl: true,
+                shift: false,
+                alt: false,
+            },
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut sys = CommandSystem::new();
+        let cmd = sys
+            .process_mouse_input(&ctx, &[attacker], 0, &logic)
+            .expect("ctrl RMB ground should produce command");
+        match cmd.command_type {
+            CommandType::ForceAttackGround { location } => {
+                assert!((location - loc).length() < 0.1);
+            }
+            other => panic!("expected ForceAttackGround, got {other:?}"),
+        }
+    }
+
     fn right_click_damaged_vehicle_get_repaired_context_residual() {
         use crate::game_logic::{
             buildings::{BuildingData, BuildingType},
