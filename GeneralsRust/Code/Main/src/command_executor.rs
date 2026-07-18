@@ -174,6 +174,7 @@ impl<'a> CommandExecutor<'a> {
             CommandType::HackInternet => self.execute_hack_internet(&command.selected_units),
             CommandType::ReturnToBase => self.execute_return_to_base(&command.selected_units),
             CommandType::ReturnSupplies => self.execute_return_supplies(&command.selected_units),
+            CommandType::ClearMines => self.execute_clear_mines(&command.selected_units),
             CommandType::Dock { target_id } => {
                 self.execute_dock(&command.selected_units, *target_id)
             }
@@ -2020,6 +2021,64 @@ impl<'a> CommandExecutor<'a> {
                 u.set_ai_state(AIState::ReturningResources);
             }
             if self.path_to_goal_with_state(unit_id, sc_pos, AIState::ReturningResources) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+    fn execute_clear_mines(&mut self, units: &[ObjectId]) -> CommandResult {
+        use crate::game_logic::host_mines::{is_mine_clearer, DOZER_MINE_CLEAR_SCAN_RANGE};
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
+            }
+            if !is_mine_clearer(
+                unit.is_kind_of(crate::game_logic::KindOf::Worker),
+                &unit.template_name,
+            ) && !unit.is_dozer
+                && !unit.template_name.to_ascii_lowercase().contains("dozer")
+                && !unit.template_name.to_ascii_lowercase().contains("worker")
+            {
+                continue;
+            }
+            let team = unit.team;
+            let pos = unit.get_position();
+            let scan = DOZER_MINE_CLEAR_SCAN_RANGE.max(80.0);
+            let scan2 = scan * scan;
+            let mut best: Option<(ObjectId, f32, Vec3)> = None;
+            for (&id, obj) in self.game_logic.get_objects() {
+                if !obj.is_alive() || obj.mine_data.is_none() {
+                    continue;
+                }
+                if obj.team == team {
+                    continue;
+                }
+                let mpos = obj.get_position();
+                let dx = pos.x - mpos.x;
+                let dz = pos.z - mpos.z;
+                let d2 = dx * dx + dz * dz;
+                if d2 > scan2 {
+                    continue;
+                }
+                if best.map(|(_, bd, _)| d2 < bd).unwrap_or(true) {
+                    best = Some((id, d2, mpos));
+                }
+            }
+            let Some((mine_id, _, mine_pos)) = best else {
+                continue;
+            };
+            if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+                u.set_target(Some(mine_id));
+            }
+            if self.path_to_goal_with_state(unit_id, mine_pos, AIState::Moving) {
                 any = true;
             }
         }

@@ -10260,6 +10260,18 @@ impl CnCGameEngine {
                     self.ui_manager.game_hud_mut().push_info_message(msg);
                 }
             }
+            Key::Named(NamedKey::Home)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Unfinished construction cycle residual (Ctrl+Alt+Home).
+                self.cycle_unfinished_construction(1);
+            }
+            Key::Named(NamedKey::End)
+                if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Unfinished construction cycle residual (Ctrl+Alt+End).
+                self.cycle_unfinished_construction(-1);
+            }
             Key::Named(NamedKey::Home) if !ctrl_down => {
                 // SELECT_NEXT_STRUCTURE residual (Home).
                 self.cycle_friendly_structure_selection(1);
@@ -10441,7 +10453,19 @@ impl CnCGameEngine {
                 // C++ Guard residual: arm map-click Guard (location or unit).
                 self.issue_named_command_from_ui("Command_Guard");
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("x") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("x")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Dozer/Worker clear nearest mine residual (Alt+X).
+                self.issue_named_command_from_ui("Command_ClearMines");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("x")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Retail CommandMap SCATTER KEY_X residual.
                 self.issue_named_command_from_ui("Command_Scatter");
             }
@@ -11248,6 +11272,60 @@ impl CnCGameEngine {
         }
     }
     /// Cycle damaged friendly structures residual (for repair response).
+
+    /// Cycle unfinished friendly construction residual (Ctrl+Alt+Home/End).
+    fn cycle_unfinished_construction(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.status.under_construction && !obj.status.sold {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No unfinished construction";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.selected_objects = vec![next];
+        if let Some(obj) = self.game_logic.find_object(next) {
+            let clamped = self.clamp_to_world_bounds(obj.get_position());
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Unfinished construction selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
     fn cycle_damaged_structure_selection(&mut self, delta: i32) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -15844,5 +15922,32 @@ fn return_supplies_and_select_structures_residual() {
     assert!(
         ex.contains("fn execute_return_supplies") && ex.contains("ReturningResources"),
         "execute_return_supplies residual"
+    );
+}
+
+#[test]
+fn clear_mines_and_unfinished_construction_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_ClearMines")
+            && src.contains("eq_ignore_ascii_case(\"x\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+X must ClearMines residual"
+    );
+    assert!(
+        src.contains("fn cycle_unfinished_construction")
+            && src.contains("No unfinished construction")
+            && src.contains("cycle_unfinished_construction(1)"),
+        "Ctrl+Alt+Home/End must cycle unfinished construction residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("ClearMines") && cs.contains("\"clearmines\""),
+        "ClearMines command map residual"
+    );
+    let ex = include_str!("command_executor.rs");
+    assert!(
+        ex.contains("fn execute_clear_mines") && ex.contains("is_mine_clearer"),
+        "execute_clear_mines residual"
     );
 }

@@ -144,6 +144,8 @@ pub enum CommandType {
     ReturnToBase,
     /// Harvester return cargo to nearest SupplyCenter residual.
     ReturnSupplies,
+    /// Dozer/Worker path to nearest enemy mine and clear residual.
+    ClearMines,
     Dock {
         target_id: ObjectId,
     },
