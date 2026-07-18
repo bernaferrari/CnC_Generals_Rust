@@ -7309,6 +7309,15 @@ impl CnCGameEngine {
                 UIEvent::CancelStructurePlacement => {
                     self.cancel_structure_placement_from_ui();
                 }
+                UIEvent::ShowOptions => {
+                    // Retail OPTIONS residual from pause menu / shell.
+                    if matches!(self.current_state, GameState::InGame) {
+                        self.request_state_change(GameState::Paused);
+                    }
+                    self.ui_manager
+                        .transition_to_screen(crate::ui::Screen::Options);
+                    info!("UI requested options menu residual");
+                }
                 _ => {}
             }
         }
@@ -12783,5 +12792,19 @@ fn deploy_and_numpad_camera_hold_residual() {
     assert!(
         src.contains("Numpad2") && src.contains("camera_zoom_out_held"),
         "KP2 must zoom-out hold residual"
+    );
+}
+
+#[test]
+fn show_options_event_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("UIEvent::ShowOptions") && src.contains("Screen::Options"),
+        "engine must handle ShowOptions residual"
+    );
+    let ui = include_str!("ui/ui_manager.rs");
+    assert!(
+        ui.contains("options_menu") && ui.contains("Screen::Options"),
+        "UIManager must own OptionsMenu residual"
     );
 }

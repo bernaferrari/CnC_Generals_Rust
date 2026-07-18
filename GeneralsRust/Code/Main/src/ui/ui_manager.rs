@@ -119,6 +119,8 @@ pub struct UIManager {
     skirmish_menu: SkirmishMenu,
     /// Save/load menu
     save_load_menu: SaveLoadMenu,
+    /// In-game / shell options residual.
+    options_menu: crate::ui::OptionsMenu,
 
     /// Font manager
     font_manager: Arc<Mutex<FontManager>>,
@@ -165,6 +167,7 @@ impl UIManager {
             victory_screen: VictoryScreen::new(),
             skirmish_menu: SkirmishMenu::new(),
             save_load_menu: SaveLoadMenu::new(SaveLoadMode::Load),
+            options_menu: crate::ui::OptionsMenu::new(),
 
             font_manager: font_manager.clone(),
             texture_manager: texture_manager.clone(),
@@ -222,6 +225,7 @@ impl UIManager {
         self.faction_selection.initialize()?;
         self.game_hud.initialize()?;
         self.pause_menu.initialize()?;
+        self.options_menu.initialize()?;
         self.victory_screen.initialize()?;
         self.skirmish_menu.initialize()?;
         self.save_load_menu.initialize()?;
@@ -284,6 +288,9 @@ impl UIManager {
             Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
                 self.save_load_menu.update(delta_time)?;
             }
+            Some(Screen::Options) => {
+                self.options_menu.update(delta_time)?;
+            }
             _ => {}
         }
 
@@ -329,6 +336,13 @@ impl UIManager {
             }
             Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
                 self.save_load_menu.render(&mut context);
+            }
+            Some(Screen::Options) => {
+                // Dim game/pause background when opened mid-match.
+                if matches!(self.current_state, UIState::Paused | UIState::InGame) {
+                    self.render_dimmed_background(&mut context)?;
+                }
+                self.options_menu.render(&mut context);
             }
             _ => {}
         }
@@ -442,6 +456,14 @@ impl UIManager {
                     false
                 }
             }
+            Some(Screen::Options) => {
+                if let Some(event) = self.options_menu.handle_mouse_click(x, y, button) {
+                    self.queue_event(event);
+                    true
+                } else {
+                    false
+                }
+            }
             _ => false,
         };
 
@@ -455,17 +477,30 @@ impl UIManager {
 
         // Global key handlers
         match key {
-            KeyCode::Escape => match self.current_state {
-                UIState::InGame => {
-                    self.transition_to_screen(Screen::PauseMenu);
+            KeyCode::Escape => {
+                // Options overlay residual: Esc returns to pause/game.
+                if self.current_screen == Some(Screen::Options) {
+                    if self.current_state == UIState::Paused {
+                        self.transition_to_screen(Screen::PauseMenu);
+                    } else if self.current_state == UIState::InGame {
+                        self.transition_to_screen(Screen::GameHUD);
+                    } else {
+                        self.transition_to_screen(Screen::MainMenu);
+                    }
                     return true;
                 }
-                UIState::Paused => {
-                    self.transition_to_screen(Screen::GameHUD);
-                    return true;
+                match self.current_state {
+                    UIState::InGame => {
+                        self.transition_to_screen(Screen::PauseMenu);
+                        return true;
+                    }
+                    UIState::Paused => {
+                        self.transition_to_screen(Screen::GameHUD);
+                        return true;
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             KeyCode::F1 => {
                 self.debug_mode = !self.debug_mode;
                 return true;
@@ -489,6 +524,7 @@ impl UIManager {
             Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
                 self.save_load_menu.handle_key_press(key)
             }
+            Some(Screen::Options) => self.options_menu.handle_key_press(key),
             _ => false,
         };
 
