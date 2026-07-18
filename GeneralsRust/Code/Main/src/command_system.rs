@@ -76,6 +76,11 @@ pub enum CommandType {
     },
     /// Patrol residual: units wander and auto-engage nearby enemies.
     Patrol,
+    /// C++ AttitudeType residual hotkeys / strip.
+    AttitudeSleep,
+    AttitudePassive,
+    AttitudeNormal,
+    AttitudeAggressive,
     Scatter,
     Deploy,
     Gather {
@@ -2081,6 +2086,12 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             target: GuardTarget::Position(glam::Vec3::ZERO),
         }),
         "patrol" | "hunt" => Some(CommandType::Patrol),
+        "attitudesleep" | "sleep" | "holdfire" => Some(CommandType::AttitudeSleep),
+        "attitudepassive" | "passive" | "defend" => Some(CommandType::AttitudePassive),
+        "attitudenormal" | "normal" | "normalstance" => Some(CommandType::AttitudeNormal),
+        "attitudeaggressive" | "aggressive" | "attackmoveaggression" => {
+            Some(CommandType::AttitudeAggressive)
+        }
         "evacuate" | "structureexit" => Some(CommandType::Evacuate),
         "repair" => Some(CommandType::Repair {
             target_id: ObjectId(0),
