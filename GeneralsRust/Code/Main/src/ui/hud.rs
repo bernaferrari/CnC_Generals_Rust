@@ -454,6 +454,8 @@ pub struct GameHUD {
     visible: bool,
     /// Command panel for selected units
     command_buttons: Vec<CommandButton>,
+    /// UI events raised from hotkeys (drained by UIManager).
+    pending_ui_events: Vec<crate::ui::UIEvent>,
     /// Message log
     messages: Vec<GameMessage>,
     /// Active beacon markers for minimap rendering
@@ -537,12 +539,18 @@ impl GameHUD {
             screen_size,
             visible: true,
             command_buttons: Vec::new(),
+            pending_ui_events: Vec::new(),
             messages: Vec::new(),
             beacon_markers: Vec::new(),
             beacon_events: Vec::new(),
             game_time: Duration::from_secs(0),
             power_low_active: false,
         }
+    }
+
+    /// Drain hotkey-raised UI events for the engine command path.
+    pub fn drain_pending_ui_events(&mut self) -> Vec<crate::ui::UIEvent> {
+        std::mem::take(&mut self.pending_ui_events)
     }
 
     /// Initialize HUD
@@ -624,7 +632,7 @@ impl GameHUD {
             }
 
             if let Some((item_name, display_name, cost)) = clicked_construction {
-                // Start construction
+                // Local UI queue residual (progress strip) + authoritative QueueUnitCreate.
                 self.construction_panel
                     .add_to_queue(&item_name, &display_name, cost, 5.0);
                 let cost_str = cost.to_string();
@@ -634,7 +642,11 @@ impl GameHUD {
                     &[("name", display_name.as_str()), ("cost", cost_str.as_str())],
                 );
                 self.add_message(&message, MessageType::Construction);
-                return None;
+                // C++ ProductionUpdate::queueCreateUnit residual via engine command path.
+                return Some(crate::ui::UIEvent::QueueUnitProduction {
+                    template_name: item_name,
+                    quantity: 1,
+                });
             }
         }
 
@@ -650,7 +662,7 @@ impl GameHUD {
                 ),
             ) && cmd_button.enabled
             {
-                // Execute command
+                // Execute command — map to engine CommandType via shared residual mapper.
                 let command_name = localized_command(&cmd_button.command);
                 let log_msg = localization::localize_with_args(
                     "hud.log.command_executed",
@@ -658,7 +670,8 @@ impl GameHUD {
                     &[("command", command_name.as_str())],
                 );
                 println!("{log_msg}");
-                return None;
+                let raw = cmd_button.command.clone();
+                return Some(crate::ui::UIEvent::IssueCommand { command_name: raw });
             }
         }
 
@@ -1039,6 +1052,11 @@ impl Interactive for GameHUD {
             if let Some((item_name, display_name, cost)) = build_item {
                 self.construction_panel
                     .add_to_queue(&item_name, &display_name, cost, 5.0);
+                self.pending_ui_events
+                    .push(crate::ui::UIEvent::QueueUnitProduction {
+                        template_name: item_name,
+                        quantity: 1,
+                    });
                 return true;
             }
         }
@@ -1053,6 +1071,10 @@ impl Interactive for GameHUD {
                     &[("command", command_name.as_str())],
                 );
                 println!("{log_msg}");
+                self.pending_ui_events
+                    .push(crate::ui::UIEvent::IssueCommand {
+                        command_name: button.command.clone(),
+                    });
                 return true;
             }
         }
@@ -1279,6 +1301,7 @@ impl Renderable for GameHUD {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::UIEvent;
 
     #[test]
     fn test_resource_state() {
@@ -1321,5 +1344,68 @@ mod tests {
 
         display.update_resources(5000, 15, 60);
         assert!(display.is_power_low());
+    }
+
+    #[test]
+    fn construction_click_emits_queue_unit_production_event_residual() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel.visible = true;
+        hud.construction_panel.construction_buttons.clear();
+        hud.construction_panel
+            .construction_buttons
+            .push(ConstructionButton {
+                item_name: "AmericaInfantryRanger".into(),
+                display_name: "Ranger".into(),
+                position: (10, 10),
+                size: (64, 64),
+                cost: 150,
+                enabled: true,
+                hovered: false,
+                build_key: Some(KeyCode::R),
+            });
+        let ev = hud
+            .handle_mouse_click(20, 20, MouseButton::Left)
+            .expect("click event");
+        match ev {
+            UIEvent::QueueUnitProduction {
+                template_name,
+                quantity,
+            } => {
+                assert_eq!(template_name, "AmericaInfantryRanger");
+                assert_eq!(quantity, 1);
+            }
+            other => panic!("expected QueueUnitProduction, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn construction_hotkey_queues_pending_ui_event_residual() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.construction_panel.visible = true;
+        hud.construction_panel.construction_buttons.clear();
+        hud.construction_panel
+            .construction_buttons
+            .push(ConstructionButton {
+                item_name: "AmericaTankCrusader".into(),
+                display_name: "Crusader".into(),
+                position: (0, 0),
+                size: (32, 32),
+                cost: 900,
+                enabled: true,
+                hovered: false,
+                build_key: Some(KeyCode::C),
+            });
+        assert!(hud.handle_key_press(KeyCode::C));
+        let pending = hud.drain_pending_ui_events();
+        assert_eq!(pending.len(), 1);
+        assert!(matches!(
+            &pending[0],
+            UIEvent::QueueUnitProduction {
+                template_name,
+                quantity
+            } if template_name == "AmericaTankCrusader" && *quantity == 1
+        ));
     }
 }
