@@ -10395,7 +10395,8 @@ impl CnCGameEngine {
             let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
                 || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
                 || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
-            if !mods_down {
+            let ui_modal = self.chat_panel.is_open() || self.diplomacy_panel.is_active();
+            if !mods_down && !ui_modal {
                 if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp)) {
                     screen_scroll.y -= vertical_scroll_speed_factor * scroll_step;
                 }
@@ -10413,11 +10414,13 @@ impl CnCGameEngine {
                 }
             }
 
-            // Edge scrolling (C++ LookAt.cpp: 3px from screen edge in fullscreen)
-            if !self.is_windowed
-                && matches!(self.current_state, GameState::InGame | GameState::Paused)
+            // Edge scrolling (C++ LookAt.cpp: near screen edge).
+            // Enable for windowed + fullscreen so map-panning works without arrows.
+            if matches!(self.current_state, GameState::InGame | GameState::Paused)
+                && !self.chat_panel.is_open()
+                && !self.diplomacy_panel.is_active()
             {
-                const EDGE_SCROLL_SIZE: f32 = 3.0;
+                const EDGE_SCROLL_SIZE: f32 = 5.0;
                 let (mx, my) = self.mouse_position;
                 let size = self.window.inner_size();
                 let win_w = size.width as f32;
@@ -12981,5 +12984,27 @@ fn wasd_not_camera_scroll_residual() {
     assert!(
         body.contains("NamedKey::ArrowUp") && body.contains("NamedKey::ArrowDown"),
         "arrow keys remain camera scroll residual"
+    );
+}
+
+#[test]
+fn windowed_edge_scroll_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    let i = src
+        .find("fn update_camera(&mut self, dt: f32)")
+        .expect("update_camera");
+    let body = &src[i..src.len().min(i + 4500)];
+    assert!(
+        body.contains("EDGE_SCROLL_SIZE"),
+        "edge scroll residual must remain"
+    );
+    assert!(
+        !body.contains("if !self.is_windowed\n                && matches!(self.current_state, GameState::InGame | GameState::Paused)"),
+        "edge scroll must not be fullscreen-only"
+    );
+    assert!(
+        body.contains("!self.chat_panel.is_open()")
+            && body.contains("!self.diplomacy_panel.is_active()"),
+        "edge/arrow scroll suppressed during chat/diplomacy modal"
     );
 }
