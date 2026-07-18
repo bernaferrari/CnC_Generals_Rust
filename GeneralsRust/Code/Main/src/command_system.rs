@@ -2138,6 +2138,24 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             power_type: SpecialPowerType::ScudStorm,
             target: PowerTarget::None,
         }),
+        "carpetbomb" | "chinacarpetbomb" | "americacarpetbomb" => {
+            Some(CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::CarpetBomb,
+                target: PowerTarget::None,
+            })
+        }
+        "artillerybarrage" | "artillery" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::Artillery,
+            target: PowerTarget::None,
+        }),
+        "emergencyrepair" | "repairvehicles" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::EmergencyRepair,
+            target: PowerTarget::None,
+        }),
+        "airstrike" | "spectreairstrike" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::Airstrike,
+            target: PowerTarget::None,
+        }),
         "cancelupgrade" => Some(CommandType::CancelUpgrade {
             upgrade_name: String::new(),
         }),
