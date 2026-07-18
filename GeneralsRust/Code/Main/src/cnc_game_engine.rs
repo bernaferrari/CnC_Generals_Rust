@@ -8088,30 +8088,42 @@ impl CnCGameEngine {
                 // Strategy Center battle plans are immediate (no map click).
                 // Fall through to queue with resolved selection below.
             }
-            crate::command_system::CommandType::DoSpecialPower { .. } => {
+            crate::command_system::CommandType::DoSpecialPower { power_type, .. } => {
                 // Resolve SW type from selected ready structure residual.
+                // Named buttons (SpySatellite, ParticleCannon, …) prefer their type.
                 let player_id = self.current_player_id;
                 let selected = self
                     .game_logic
                     .get_player(player_id)
                     .map(|p| p.selected_objects.clone())
                     .unwrap_or_else(|| self.selected_objects.clone());
+                let requested = power_type.clone();
                 let mut resolved = None;
+                // Pass 1: honor named button power when ready on selection.
                 for id in &selected {
-                    let Some(obj) = self.game_logic.get_object(*id) else {
-                        continue;
-                    };
-                    if !obj.special_power_ready {
-                        continue;
+                    if self.game_logic.is_special_power_ready_for(*id, &requested) {
+                        resolved = Some(requested.clone());
+                        break;
                     }
-                    if let Some(p) =
-                        crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
-                            &obj.template_name,
-                        )
-                    {
-                        if self.game_logic.is_special_power_ready_for(*id, &p) {
-                            resolved = Some(p);
-                            break;
+                }
+                // Pass 2: any ready superweapon structure (generic Command_SpecialPower / V).
+                if resolved.is_none() {
+                    for id in &selected {
+                        let Some(obj) = self.game_logic.get_object(*id) else {
+                            continue;
+                        };
+                        if !obj.special_power_ready {
+                            continue;
+                        }
+                        if let Some(p) =
+                            crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
+                                &obj.template_name,
+                            )
+                        {
+                            if self.game_logic.is_special_power_ready_for(*id, &p) {
+                                resolved = Some(p);
+                                break;
+                            }
                         }
                     }
                 }
@@ -14832,5 +14844,30 @@ fn strategy_center_battle_plan_residual() {
     assert!(
         eng.contains("BattlePlanBombardment") && eng.contains("BattlePlanHoldTheLine"),
         "engine must execute battle plans without map-click residual"
+    );
+}
+
+#[test]
+fn named_superweapon_button_residual() {
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("spysatellitescan")
+            && cs.contains("ciaintelligence")
+            && cs.contains("particlecannon")
+            && cs.contains("nuclearmissile")
+            && cs.contains("scudstorm"),
+        "named SW button names must map residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_ParticleCannon")
+            && pf.contains("Command_SpySatelliteScan")
+            && pf.contains("Command_CIAIntelligence"),
+        "SW structures must expose named buttons residual"
+    );
+    let eng = include_str!("cnc_game_engine.rs");
+    assert!(
+        eng.contains("Pass 1: honor named"),
+        "engine must prefer named SW type when arming residual"
     );
 }
