@@ -7766,6 +7766,8 @@ impl CnCGameEngine {
             crate::command_system::CommandType::SetRallyPoint { .. } => {
                 self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
                 self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("FRIENDLY_SPECIALPOWER");
+                self.pending_structure_placement = None;
                 let msg = "Set rally point: click location";
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -7828,6 +7830,8 @@ impl CnCGameEngine {
             }
             crate::command_system::CommandType::PlaceBeacon { .. } => {
                 self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("RADAR");
                 self.pending_structure_placement = None;
                 let msg = "Place beacon: click location";
                 self.game_hud.push_info_message(msg);
@@ -9132,11 +9136,75 @@ impl CnCGameEngine {
     }
 
     fn issue_minimap_move(&mut self, world_pos: Vec3) {
-        if self.selected_objects.is_empty() {
+        // Prefer live player selection; fall back to engine selection residual.
+        let mut selected = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        if selected.is_empty() {
             return;
         }
 
         let clamped = self.clamp_to_world_bounds(world_pos);
+
+        // C++ InGameUI minimap RMB residual: same context-sensitive path as world
+        // right-click (attack enemy / gather / enter / move).
+        let target_object = self.find_object_at_position(clamped, &self.game_logic, true);
+        let ctrl = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Control)
+            )
+        });
+        let shift = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Shift)
+            )
+        });
+        let alt = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
+            )
+        });
+
+        let context = crate::command_system::MouseCommandContext {
+            world_position: clamped,
+            target_object,
+            screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: crate::command_system::MouseButton::Right,
+            modifier_keys: crate::command_system::ModifierKeys { ctrl, shift, alt },
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+
+        let mut cmd_sys = crate::command_system::CommandSystem::new();
+        let command = cmd_sys.process_mouse_input(
+            &context,
+            &selected,
+            self.current_player_id,
+            &self.game_logic,
+        );
+
+        if let Some(command) = command {
+            self.game_logic.queue_command(command);
+            self.game_logic.process_commands();
+            self.play_sound_effect(SoundType::Command);
+            return;
+        }
+
+        // Fail-closed fallback residual: move if context path produced nothing.
         self.game_logic
             .command_move(self.current_player_id, clamped);
         self.play_sound_effect(SoundType::Command);
@@ -13260,5 +13328,32 @@ fn pending_map_radius_cursor_residual() {
     assert!(
         src.contains("PARTICLECANNON") || src.contains("OFFENSIVE_SPECIALPOWER"),
         "special power must map to radius cursor type"
+    );
+}
+
+#[test]
+fn minimap_right_click_context_command_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn issue_minimap_move")
+            && src.contains("process_mouse_input")
+            && src.contains("MouseButton::Right"),
+        "minimap RMB must use context-sensitive CommandSystem path"
+    );
+    // Ensure issue_minimap_move body is not pure command_move-only.
+    let start = src
+        .find("fn issue_minimap_move")
+        .expect("issue_minimap_move");
+    let end = src[start + 1..]
+        .find(
+            "
+    fn ",
+        )
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 4000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("process_mouse_input") && body.contains("find_object_at_position"),
+        "minimap RMB must resolve target + command context like world RMB"
     );
 }
