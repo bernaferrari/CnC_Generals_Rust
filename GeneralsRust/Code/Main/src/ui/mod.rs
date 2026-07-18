@@ -47,7 +47,7 @@ pub use diplomacy_panel::{
 };
 pub use events::{InputEvent, KeyEvent, MouseEvent, UIEventHandler};
 pub use faction_selection::{Faction, FactionSelectionScreen};
-pub use hud::{GameHUD, MiniMap, ResourceDisplay};
+pub use hud::{ConstructionTab, GameHUD, MiniMap, ResourceDisplay};
 pub use hud_state::{
     color_for_player, default_minimap_viewport, normalized_minimap_rect, BuildQueueEntry,
     CanMakeCameoUi, ControlBarSelectionPanelState, DiagnosticsOverlayStats, GameUIState,
