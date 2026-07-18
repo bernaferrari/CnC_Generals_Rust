@@ -59740,6 +59740,46 @@ mod tests {
     }
 
     #[test]
+    fn attack_move_to_command_sets_moving_residual() {
+        use crate::command_system::{CommandType, GameCommand, ModifierKeys};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+            .expect("ranger");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        logic.queue_command(GameCommand {
+            command_type: CommandType::AttackMoveTo {
+                destination: glam::Vec3::new(50.0, 0.0, 50.0),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![id],
+            modifier_keys: ModifierKeys::default(),
+        });
+        logic.process_commands();
+        let o = logic.get_object(id).expect("alive");
+        assert!(
+            matches!(
+                o.ai_state,
+                AIState::Moving | AIState::AttackMoving | AIState::Attacking
+            ) || o.movement.target_position.is_some()
+                || !o.movement.path.is_empty(),
+            "attack-move should order unit motion residual: state={:?}",
+            o.ai_state
+        );
+    }
+
+    #[test]
     fn china_barracks_exit_delay_holds_second_unit_residual() {
         use crate::game_logic::buildings::BuildingType;
         use crate::game_logic::host_dock_contain_exit_heal_residual::{
