@@ -10072,6 +10072,14 @@ impl CnCGameEngine {
                 // Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual.
                 self.select_matching_units_hotkey();
             }
+            Key::Character(c) if c == "." || c == ">" => {
+                // Retail-ish next idle worker residual (period key).
+                self.cycle_friendly_worker_selection(1);
+            }
+            Key::Character(c) if c == "," || c == "<" => {
+                // Previous idle worker residual (comma key).
+                self.cycle_friendly_worker_selection(-1);
+            }
             Key::Character(c) if c.eq_ignore_ascii_case("w") && !ctrl_down => {
                 // Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual.
                 self.select_all_friendly_aircraft();
@@ -10577,25 +10585,40 @@ impl CnCGameEngine {
             player.team
         };
 
-        let mut workers: Vec<ObjectId> = self
-            .game_logic
-            .get_objects()
-            .iter()
-            .filter(|(_, obj)| {
-                if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
-                    return false;
-                }
-                let n = obj.template_name.to_ascii_lowercase();
-                obj.is_dozer
-                    || n.contains("dozer")
-                    || n.contains("worker")
-                    || n.contains("chinook")
-                    || n.contains("supply")
-                    || n.contains("hack")
-            })
-            .map(|(&id, _)| id)
-            .collect();
-        workers.sort_by_key(|id| id.0);
+        let mut idle_workers: Vec<ObjectId> = Vec::new();
+        let mut busy_workers: Vec<ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            let is_worker = obj.is_dozer
+                || n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("chinook")
+                || n.contains("supply")
+                || n.contains("hack");
+            if !is_worker {
+                continue;
+            }
+            // Prefer idle / non-tasked workers residual (retail SELECT_IDLE_WORKER).
+            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                && obj.target.is_none()
+                && !obj.status.moving;
+            if idle {
+                idle_workers.push(id);
+            } else {
+                busy_workers.push(id);
+            }
+        }
+        idle_workers.sort_by_key(|id| id.0);
+        busy_workers.sort_by_key(|id| id.0);
+        // Cycle idle first; fall back to all workers if none idle.
+        let mut workers = if !idle_workers.is_empty() {
+            idle_workers
+        } else {
+            busy_workers
+        };
         if workers.is_empty() {
             // Fail-open: fall back to general unit cycle.
             self.cycle_friendly_selection(delta);
@@ -14266,5 +14289,24 @@ fn sticky_waypoint_mode_toggle_residual() {
             && src.contains("eq_ignore_ascii_case(\"z\")")
             && src.contains("Waypoint mode: ON"),
         "Z must toggle sticky waypoint mode residual"
+    );
+}
+
+#[test]
+fn idle_worker_period_key_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("c == \".\"")
+            && src.contains("cycle_friendly_worker_selection(1)")
+            && src.contains("SELECT_IDLE_WORKER"),
+        "period key must cycle idle workers residual"
+    );
+    let start = src
+        .find("fn cycle_friendly_worker_selection")
+        .expect("cycle_friendly_worker_selection");
+    let body = &src[start..start + 2200];
+    assert!(
+        body.contains("idle_workers") && body.contains("AIState::Idle"),
+        "worker cycle must prefer idle workers residual"
     );
 }
