@@ -507,6 +507,8 @@ pub fn enqueue_selection_render(
     drag_rect: Option<DragSelectRect>,
     local_player_id: u32,
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
+    // Placement ghost / special-power radius / guard area residual circles.
+    ground_markers: Vec<SelectedUnit>,
 ) {
     let renderer = match SelectionRenderer::new() {
         Some(r) => Arc::new(r),
@@ -516,7 +518,8 @@ pub fn enqueue_selection_render(
     let view_proj = *projection_matrix * *view_matrix;
     let inv_view_proj = view_proj.inverse();
 
-    let selected_units = collect_selected_units(game_logic, local_player_id, presentation);
+    let mut selected_units = collect_selected_units(game_logic, local_player_id, presentation);
+    selected_units.extend(ground_markers);
 
     if drag_rect.is_none() && selected_units.is_empty() {
         return;
