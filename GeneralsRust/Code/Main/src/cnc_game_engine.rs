@@ -10278,6 +10278,14 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("t")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all attacking friendlies residual (Ctrl+Alt+T).
+                self.select_all_friendly_attacking();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("t")
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Control))
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
@@ -10617,7 +10625,15 @@ impl CnCGameEngine {
                 // Construction tab next residual.
                 self.cycle_construction_tab(1);
             }
-            Key::Character(c) if c == "." || c == ">" => {
+            Key::Character(c)
+                if (c == "." || c == ">")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Stop all friendly mobile units residual (Ctrl+Shift+.).
+                self.stop_all_friendly_units();
+            }
+            Key::Character(c) if (c == "." || c == ">") && !ctrl_down => {
                 // Retail-ish next idle worker residual (period key).
                 self.cycle_friendly_worker_selection(1);
             }
@@ -12115,6 +12131,100 @@ impl CnCGameEngine {
     /// Select all friendly combat units (exclude workers/dozers/supply) residual.
 
     /// Select all friendly units currently moving residual (Ctrl+Alt+M).
+
+    /// Select all friendly units currently attacking residual (Ctrl+Alt+T).
+    fn select_all_friendly_attacking(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            let attacking = obj.status.attacking
+                || obj.target.is_some()
+                || matches!(
+                    obj.ai_state,
+                    crate::game_logic::AIState::Attacking
+                        | crate::game_logic::AIState::AttackingGround
+                        | crate::game_logic::AIState::Patrolling
+                );
+            if attacking {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No attacking units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} attacking", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Issue Stop to all friendly mobile units residual (Ctrl+Alt+S is structures).
+    /// Ctrl+Shift+Period residual: stop everything friendly.
+    fn stop_all_friendly_units(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.can_move() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            ids.push(id);
+        }
+        if ids.is_empty() {
+            let msg = "No units to stop";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::Stop,
+                player_id: self.current_player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: ids.clone(),
+                modifier_keys: crate::command_system::ModifierKeys {
+                    ctrl: true,
+                    shift: true,
+                    alt: false,
+                },
+            });
+        self.game_logic.process_commands();
+        self.play_sound_effect(SoundType::Command);
+        let msg = format!("Stopped {} units", ids.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
     fn select_all_friendly_moving(&mut self) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -16599,5 +16709,22 @@ fn moving_select_and_health_bars_residual() {
             && src.contains("Health bars: ON")
             && src.contains("show_health_bars"),
         "Alt+H must toggle health bars residual"
+    );
+}
+
+#[test]
+fn attacking_select_and_stop_all_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn select_all_friendly_attacking")
+            && src.contains("select_all_friendly_attacking()")
+            && src.contains("No attacking units"),
+        "Ctrl+Alt+T must select attacking units residual"
+    );
+    assert!(
+        src.contains("fn stop_all_friendly_units")
+            && src.contains("stop_all_friendly_units()")
+            && src.contains("Stopped"),
+        "Ctrl+Shift+. must stop all friendlies residual"
     );
 }
