@@ -2122,10 +2122,11 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             target_id: crate::game_logic::ObjectId(0),
         }),
         "returnsupplies" | "returncargo" | "forcesupplyreturn" => Some(CommandType::ReturnSupplies),
-        "cleanuparea" | "clearmines" | "detox" => Some(CommandType::DoSpecialPower {
+        "cleanuparea" | "detox" | "clearhazards" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::CleanupArea,
             target: PowerTarget::None,
         }),
+        "clearmines" | "disarmmines" => Some(CommandType::ClearMines),
         // Generic ControlBar SW button residual — power type resolved at arm time.
         "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::ParticleCannon, // placeholder; engine resolves
