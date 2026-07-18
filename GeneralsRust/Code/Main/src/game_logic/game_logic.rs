@@ -3716,6 +3716,12 @@ impl GameLogic {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> bool {
+        // C++ DeployStyle: move order packs unit before pathing residual.
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            if unit.is_deployed() {
+                unit.set_deployed(false);
+            }
+        }
         let (start, can_move, is_aircraft) = match self.objects.get(&unit_id) {
             Some(unit) => (
                 unit.get_position(),
@@ -88979,6 +88985,19 @@ mod tests {
         assert!(
             body.contains("flash_as_selected"),
             "select_objects must flashAsSelected residual on newly selected units"
+        );
+    }
+
+    #[test]
+    fn assign_unit_path_undeploys_residual() {
+        let src = include_str!("game_logic.rs");
+        let start = src
+            .find("pub fn assign_unit_path")
+            .expect("assign_unit_path");
+        let body = &src[start..start + 900];
+        assert!(
+            body.contains("is_deployed") && body.contains("set_deployed(false)"),
+            "assign_unit_path must pack/undeploy before pathing residual"
         );
     }
 
