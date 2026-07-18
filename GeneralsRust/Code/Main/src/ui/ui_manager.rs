@@ -520,6 +520,14 @@ impl UIManager {
                 handled
             }
             Some(Screen::PauseMenu) => self.pause_menu.handle_key_press(key),
+            Some(Screen::Victory) => {
+                if let Some(ev) = self.victory_screen.handle_continue_key(key) {
+                    self.queue_event(ev);
+                    true
+                } else {
+                    false
+                }
+            }
             Some(Screen::Skirmish) => self.skirmish_menu.handle_key_press(key),
             Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
                 self.save_load_menu.handle_key_press(key)
