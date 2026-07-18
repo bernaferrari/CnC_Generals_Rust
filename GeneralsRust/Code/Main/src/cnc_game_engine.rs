@@ -10390,27 +10390,27 @@ impl CnCGameEngine {
             let scroll_step =
                 SCROLL_AMT * keyboard_scroll_factor * dt.max(0.0) * logic_frames_per_second;
             let mut screen_scroll = Vec2::ZERO;
-            if self.is_character_key_pressed("w")
-                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp))
-            {
-                screen_scroll.y -= vertical_scroll_speed_factor * scroll_step;
-            }
-            if self.is_character_key_pressed("s")
-                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowDown))
-            {
-                screen_scroll.y += vertical_scroll_speed_factor * scroll_step;
-            }
-            if self.is_character_key_pressed("a")
-                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowLeft))
-            {
-                screen_scroll.x -= horizontal_scroll_speed_factor * scroll_step;
-            }
-            if self.is_character_key_pressed("d")
-                || self
+            // C++ LookAt keyboard scroll uses arrows (not WASD).
+            // WASD are unit hotkeys: A attack-move, S stop, D deploy, etc.
+            let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
+                || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+                || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+            if !mods_down {
+                if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp)) {
+                    screen_scroll.y -= vertical_scroll_speed_factor * scroll_step;
+                }
+                if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowDown)) {
+                    screen_scroll.y += vertical_scroll_speed_factor * scroll_step;
+                }
+                if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowLeft)) {
+                    screen_scroll.x -= horizontal_scroll_speed_factor * scroll_step;
+                }
+                if self
                     .keys_pressed
                     .contains(&Key::Named(NamedKey::ArrowRight))
-            {
-                screen_scroll.x += horizontal_scroll_speed_factor * scroll_step;
+                {
+                    screen_scroll.x += horizontal_scroll_speed_factor * scroll_step;
+                }
             }
 
             // Edge scrolling (C++ LookAt.cpp: 3px from screen edge in fullscreen)
@@ -12961,5 +12961,25 @@ fn victory_defeat_shows_victory_screen_residual() {
         src.contains("fn show_match_result")
             || include_str!("ui/ui_manager.rs").contains("fn show_match_result"),
         "UIManager must expose show_match_result residual"
+    );
+}
+
+#[test]
+fn wasd_not_camera_scroll_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    let i = src
+        .find("fn update_camera(&mut self, dt: f32)")
+        .expect("update_camera");
+    let body = &src[i..src.len().min(i + 3500)];
+    assert!(
+        !body.contains("is_character_key_pressed(\"w\")")
+            && !body.contains("is_character_key_pressed(\"s\")")
+            && !body.contains("is_character_key_pressed(\"a\")")
+            && !body.contains("is_character_key_pressed(\"d\")"),
+        "WASD must not drive camera scroll (unit hotkey conflict)"
+    );
+    assert!(
+        body.contains("NamedKey::ArrowUp") && body.contains("NamedKey::ArrowDown"),
+        "arrow keys remain camera scroll residual"
     );
 }
