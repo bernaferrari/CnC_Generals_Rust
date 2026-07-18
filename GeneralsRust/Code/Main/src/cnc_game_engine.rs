@@ -10422,6 +10422,14 @@ impl CnCGameEngine {
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("v")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Cycle ready special-power structures residual (Ctrl+Alt+V).
+                self.cycle_ready_special_power_structure(1);
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("v")
                     && !ctrl_down
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
@@ -10518,6 +10526,14 @@ impl CnCGameEngine {
             {
                 // Dozer/Worker repair residual: arm structure click.
                 self.issue_named_command_from_ui("Command_Repair");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("y")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select all patrolling residual (Ctrl+Alt+Y).
+                self.select_all_friendly_patrolling();
             }
             Key::Character(c) if c.eq_ignore_ascii_case("y") && !ctrl_down => {
                 // Set factory rally point residual.
@@ -10738,6 +10754,14 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("h") && !ctrl_down => {
                 // Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual.
                 self.issue_named_command_from_ui("Command_ViewCommandCenter");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("h")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // Select gathering units residual (Ctrl+Alt+H).
+                self.select_all_friendly_gathering();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("h")
@@ -12516,6 +12540,148 @@ impl CnCGameEngine {
     }
 
     /// Select all friendly units currently guarding residual (Ctrl+Alt+G).
+
+    /// Select all friendly units currently patrolling residual (Ctrl+Alt+Y).
+    fn select_all_friendly_patrolling(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if matches!(obj.ai_state, crate::game_logic::AIState::Patrolling) {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No patrolling units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} patrolling", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select all friendly units currently gathering residual (Ctrl+Alt+H).
+    fn select_all_friendly_gathering(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if matches!(
+                obj.ai_state,
+                crate::game_logic::AIState::Gathering
+                    | crate::game_logic::AIState::ReturningResources
+            ) {
+                ids.push(id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No gathering units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, ids.clone());
+        self.selected_objects = ids;
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} gathering", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Cycle structures with ready special power residual (Ctrl+Alt+V).
+    fn cycle_ready_special_power_structure(&mut self, delta: i32) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.get_objects() {
+            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                continue;
+            }
+            if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                continue;
+            }
+            if obj.special_power_ready {
+                ids.push(id);
+                continue;
+            }
+            // Also check per-power ready residual.
+            if let Some(p) =
+                crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
+                    &obj.template_name,
+                )
+            {
+                if self.game_logic.is_special_power_ready_for(id, &p) {
+                    ids.push(id);
+                }
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No ready special powers";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+        self.game_logic
+            .select_objects(self.current_player_id, vec![next]);
+        self.selected_objects = vec![next];
+        if let Some(obj) = self.game_logic.find_object(next) {
+            let clamped = self.clamp_to_world_bounds(obj.get_position());
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Ready special power selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
     fn select_all_friendly_guarding(&mut self) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -17149,5 +17315,28 @@ fn idle_military_cycle_and_repairing_select_residual() {
             && src.contains("select_all_repairing_units()")
             && src.contains("No repairing units"),
         "Ctrl+Alt+R must select repairing units residual"
+    );
+}
+
+#[test]
+fn patrol_gather_and_ready_sw_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("fn select_all_friendly_patrolling")
+            && src.contains("select_all_friendly_patrolling()")
+            && src.contains("No patrolling units"),
+        "Ctrl+Alt+Y must select patrolling residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_gathering")
+            && src.contains("select_all_friendly_gathering()")
+            && src.contains("No gathering units"),
+        "Ctrl+Alt+H must select gathering residual"
+    );
+    assert!(
+        src.contains("fn cycle_ready_special_power_structure")
+            && src.contains("No ready special powers")
+            && src.contains("cycle_ready_special_power_structure(1)"),
+        "Ctrl+Alt+V must cycle ready SW residual"
     );
 }
