@@ -7892,6 +7892,11 @@ impl CnCGameEngine {
                 command_type: crate::command_system::CommandType::DozerConstruct {
                     template_name: template,
                     location,
+                    orientation: self
+                        .game_hud
+                        .construction_panel
+                        .placement_preview()
+                        .facing_radians,
                 },
                 player_id,
                 command_id: 0,
@@ -11127,6 +11132,19 @@ impl CnCGameEngine {
             MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 100.0,
         };
 
+        // C++ place-building rotate residual: wheel turns ghost while placement armed.
+        if self.pending_structure_placement.is_some() {
+            let step = delta_y * std::f32::consts::FRAC_PI_4; // 45 deg per notch
+            self.game_hud
+                .construction_panel
+                .rotate_structure_placement(-step);
+            self.ui_manager
+                .game_hud_mut()
+                .construction_panel
+                .rotate_structure_placement(-step);
+            return;
+        }
+
         // Zoom camera with mouse wheel
         let zoom_speed = 0.1;
         let new_zoom = (self.camera_zoom - delta_y * zoom_speed).clamp(0.1, 5.0);
@@ -14308,5 +14326,16 @@ fn idle_worker_period_key_residual() {
     assert!(
         body.contains("idle_workers") && body.contains("AIState::Idle"),
         "worker cycle must prefer idle workers residual"
+    );
+}
+
+#[test]
+fn structure_placement_rotate_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("rotate_structure_placement")
+            && src.contains("facing_radians")
+            && src.contains("pending_structure_placement.is_some()"),
+        "mouse wheel must rotate structure placement ghost residual"
     );
 }

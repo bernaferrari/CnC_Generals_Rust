@@ -969,6 +969,7 @@ mod tests {
         let event_type = replay_event_type_for_command(&CommandType::DozerConstruct {
             template_name: "USA_Barracks".to_string(),
             location: glam::Vec3::new(0.0, 0.0, 0.0),
+            orientation: 0.0,
         });
         assert_eq!(event_type, ReplayEventType::BuildCommand);
     }
