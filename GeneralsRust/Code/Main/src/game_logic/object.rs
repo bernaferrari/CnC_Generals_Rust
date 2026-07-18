@@ -2064,6 +2064,21 @@ impl Object {
     /// C++ SpecialAbilityUpdate: setDisabledUntil(DISABLED_HACKED, now + EffectDuration).
 
     /// C++ Drawable::flashAsSelected residual (default white/house flash, decay 4).
+    /// C++ OBJECT_STATUS_DEPLOYED residual.
+    pub fn is_deployed(&self) -> bool {
+        self.status.deployed
+    }
+
+    /// Toggle DeployStyle residual (artillery / missile humvee / etc.).
+    pub fn set_deployed(&mut self, deployed: bool) {
+        self.status.deployed = deployed;
+        if deployed {
+            // Deployed units typically stop locomoting residual.
+            self.stop_moving();
+            self.status.moving = false;
+        }
+    }
+
     pub fn flash_as_selected(&mut self) {
         self.selection_flash_remaining =
             crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
