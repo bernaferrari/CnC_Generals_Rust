@@ -10243,6 +10243,14 @@ impl CnCGameEngine {
                     self.game_hud.hud_visible()
                 );
             }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("s")
+                    && ctrl_down
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
+            {
+                // Sell selected structures residual (Ctrl+Shift+S).
+                self.issue_named_command_from_ui("Command_Sell");
+            }
             Key::Character(c) if c.eq_ignore_ascii_case("s") && ctrl_down => {
                 self.quick_save_from_hotkey("Ctrl+S");
             }
@@ -14557,5 +14565,31 @@ fn force_attack_ground_t_key_and_home_structure_residual() {
     assert!(
         src.contains("NamedKey::Home") && src.contains("cycle_friendly_structure_selection(1)"),
         "Home/End must cycle structures residual"
+    );
+}
+
+#[test]
+fn patrol_and_sell_hotkey_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_Sell")
+            && src.contains("eq_ignore_ascii_case(\"s\")")
+            && src.contains("NamedKey::Shift"),
+        "Ctrl+Shift+S must sell selection residual"
+    );
+    let cmd = include_str!("command_system.rs");
+    assert!(
+        cmd.contains("Patrol") && cmd.contains("\"patrol\""),
+        "Patrol command residual must exist"
+    );
+    let ex = include_str!("command_executor.rs");
+    assert!(
+        ex.contains("fn execute_patrol") && ex.contains("AIState::Patrolling"),
+        "execute_patrol must set Patrolling residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_Patrol"),
+        "command strip must expose Patrol residual"
     );
 }

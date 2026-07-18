@@ -74,6 +74,8 @@ pub enum CommandType {
     Guard {
         target: GuardTarget,
     },
+    /// Patrol residual: units wander and auto-engage nearby enemies.
+    Patrol,
     Scatter,
     Deploy,
     Gather {
@@ -2078,6 +2080,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "guard" => Some(CommandType::Guard {
             target: GuardTarget::Position(glam::Vec3::ZERO),
         }),
+        "patrol" | "hunt" => Some(CommandType::Patrol),
         "evacuate" | "structureexit" => Some(CommandType::Evacuate),
         "exit" => Some(CommandType::Exit),
         "sell" => Some(CommandType::Sell {
