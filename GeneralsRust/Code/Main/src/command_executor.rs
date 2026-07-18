@@ -173,6 +173,7 @@ impl<'a> CommandExecutor<'a> {
             CommandType::Evacuate => self.execute_evacuate(&command.selected_units),
             CommandType::HackInternet => self.execute_hack_internet(&command.selected_units),
             CommandType::ReturnToBase => self.execute_return_to_base(&command.selected_units),
+            CommandType::ReturnSupplies => self.execute_return_supplies(&command.selected_units),
             CommandType::Dock { target_id } => {
                 self.execute_dock(&command.selected_units, *target_id)
             }
@@ -1954,6 +1955,71 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             };
             if self.execute_dock(&[unit_id], airfield_id) == CommandResult::Success {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+    fn execute_return_supplies(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
+            }
+            let team = unit.team;
+            let pos = unit.get_position();
+            let n = unit.template_name.to_ascii_lowercase();
+            let is_collector = n.contains("supply")
+                || n.contains("harvester")
+                || n.contains("chinook")
+                || (n.contains("worker") && !n.contains("dozer"))
+                || matches!(
+                    unit.ai_state,
+                    AIState::Gathering | AIState::ReturningResources
+                );
+            if !is_collector {
+                continue;
+            }
+            // Nearest friendly supply center residual.
+            let mut best: Option<(ObjectId, f32)> = None;
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team != team || !obj.is_alive() || obj.status.under_construction {
+                    continue;
+                }
+                let on = obj.template_name.to_ascii_lowercase();
+                let is_sc = obj.is_kind_of(crate::game_logic::KindOf::SupplyCenter)
+                    || obj.is_kind_of(crate::game_logic::KindOf::FSSupplyCenter)
+                    || on.contains("supplycenter")
+                    || on.contains("supply_center")
+                    || on.contains("dropzone");
+                if !is_sc {
+                    continue;
+                }
+                let d = pos.distance(obj.get_position());
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((id, d));
+                }
+            }
+            let Some((sc_id, _)) = best else {
+                continue;
+            };
+            let sc_pos = self
+                .game_logic
+                .get_object(sc_id)
+                .map(|o| o.get_position())
+                .unwrap_or(pos);
+            if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+                u.set_target(Some(sc_id));
+                u.set_ai_state(AIState::ReturningResources);
+            }
+            if self.path_to_goal_with_state(unit_id, sc_pos, AIState::ReturningResources) {
                 any = true;
             }
         }
