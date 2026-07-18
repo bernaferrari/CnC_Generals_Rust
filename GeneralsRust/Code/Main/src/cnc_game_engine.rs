@@ -11280,6 +11280,9 @@ impl CnCGameEngine {
             | Some(crate::command_system::CommandType::Repair { .. }) => {
                 ("GetRepaired", CursorIcon::Progress)
             }
+            Some(crate::command_system::CommandType::ResumeConstruction { .. }) => {
+                ("ResumeConstruction", CursorIcon::Progress)
+            }
             Some(crate::command_system::CommandType::MoveTo { .. })
             | Some(crate::command_system::CommandType::AttackMoveTo { .. }) => {
                 ("Move", CursorIcon::AllScroll)
