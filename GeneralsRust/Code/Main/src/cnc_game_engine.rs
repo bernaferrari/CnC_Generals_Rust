@@ -10383,7 +10383,19 @@ impl CnCGameEngine {
                 // Previous idle worker residual (comma key).
                 self.cycle_friendly_worker_selection(-1);
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("w") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("w")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Cycle primary/secondary weapon residual (Alt+W).
+                self.issue_named_command_from_ui("Command_SwitchWeapons");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("w")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual.
                 self.select_all_friendly_aircraft();
             }
@@ -10417,6 +10429,14 @@ impl CnCGameEngine {
             {
                 // Retail CommandMap CREATE_FORMATION Ctrl+F residual.
                 self.issue_named_command_from_ui("Command_CreateFormation");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("b")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Demo tertiary suicide residual (Alt+B).
+                self.issue_named_command_from_ui("Command_DemoTertiarySuicide");
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("b")
@@ -15416,5 +15436,25 @@ fn detonate_and_harvester_select_residual() {
             && src.contains("select_all_harvesters()")
             && src.contains("No harvesters found"),
         "Ctrl+Shift+I must select harvesters residual"
+    );
+}
+
+#[test]
+fn switch_weapons_and_demo_suicide_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_SwitchWeapons")
+            && src.contains("eq_ignore_ascii_case(\"w\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+W must SwitchWeapons residual"
+    );
+    assert!(
+        src.contains("Command_DemoTertiarySuicide") && src.contains("eq_ignore_ascii_case(\"b\")"),
+        "Alt+B must DemoTertiarySuicide residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("\"switchweapons\"") || cs.contains("SwitchWeapons"),
+        "switchweapons button map residual"
     );
 }
