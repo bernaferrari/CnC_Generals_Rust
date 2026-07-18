@@ -9149,35 +9149,8 @@ impl CnCGameEngine {
                 if c.eq_ignore_ascii_case("a")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
-                // Ctrl+A: select all selectable objects for current player team.
-                // Prefer presentation-frozen local_team when a frame is installed.
-                let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.local_team()
-                } else {
-                    // Boot residual only — presentation local_team owns InGame Ctrl+A.
-                    let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                        return;
-                    };
-                    player.team
-                };
-
-                let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.alive_selectable_friendly_ids(team)
-                } else {
-                    // Boot residual only — presentation owns InGame select-all when frame set.
-                    let mut live = Vec::new();
-                    for (&id, obj) in self.game_logic.get_objects() {
-                        if obj.team == team && obj.is_selectable() && obj.is_alive() {
-                            live.push(id);
-                        }
-                    }
-                    live
-                };
-
-                self.game_logic
-                    .select_objects(self.current_player_id, selection.clone());
-                self.selected_objects = selection;
-                self.play_sound_effect(SoundType::Select);
+                // Convenience alias; retail SELECT_ALL is KEY_Q.
+                self.select_all_friendly_units();
             }
             Key::Named(NamedKey::Delete) => {
                 // Debug: delete selected units.
@@ -9271,6 +9244,22 @@ impl CnCGameEngine {
                 // C++ Guard residual: arm map-click Guard (location or unit).
                 self.issue_named_command_from_ui("Command_Guard");
             }
+            Key::Character(c) if c.eq_ignore_ascii_case("x") && !ctrl_down => {
+                // Retail CommandMap SCATTER KEY_X residual.
+                self.issue_named_command_from_ui("Command_Scatter");
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("q") && !ctrl_down => {
+                // Retail CommandMap SELECT_ALL KEY_Q residual.
+                self.select_all_friendly_units();
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("e") && !ctrl_down => {
+                // Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual.
+                self.select_matching_units_hotkey();
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("w") && !ctrl_down => {
+                // Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual.
+                self.select_all_friendly_aircraft();
+            }
             Key::Character(c) if c.eq_ignore_ascii_case("s") && ctrl_down => {
                 self.quick_save_from_hotkey("Ctrl+S");
             }
@@ -9291,6 +9280,84 @@ impl CnCGameEngine {
             }
             _ => {}
         }
+    }
+
+    /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
+    fn select_all_friendly_units(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.alive_selectable_friendly_ids(team)
+        } else {
+            let mut live = Vec::new();
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team == team && obj.is_selectable() && obj.is_alive() {
+                    live.push(id);
+                }
+            }
+            live
+        };
+
+        self.game_logic
+            .select_objects(self.current_player_id, selection.clone());
+        self.selected_objects = selection;
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
+    fn select_all_friendly_aircraft(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.alive_selectable_friendly_aircraft_ids(team)
+        } else {
+            let mut live = Vec::new();
+            for (&id, obj) in self.game_logic.get_objects() {
+                if obj.team == team
+                    && obj.is_selectable()
+                    && obj.is_alive()
+                    && (obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || obj.object_type == crate::game_logic::ObjectType::Aircraft)
+                {
+                    live.push(id);
+                }
+            }
+            live
+        };
+
+        self.game_logic
+            .select_objects(self.current_player_id, selection.clone());
+        self.selected_objects = selection;
+        if !self.selected_objects.is_empty() {
+            self.play_sound_effect(SoundType::Select);
+        }
+    }
+
+    /// Retail SELECT_MATCHING_UNITS (KEY_E) residual — type-select from current selection.
+    fn select_matching_units_hotkey(&mut self) {
+        let seed = self.selected_objects.first().copied().or_else(|| {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .and_then(|p| p.selected_objects.first().copied())
+        });
+        let Some(seed) = seed else {
+            return;
+        };
+        self.select_similar_units(seed);
     }
 
     fn handle_left_click(&mut self) {
@@ -11887,5 +11954,30 @@ fn stop_and_guard_hotkeys_residual() {
         src.contains("eq_ignore_ascii_case(\"s\") && ctrl_down")
             && src.contains("quick_save_from_hotkey"),
         "Ctrl+S quick-save residual must remain"
+    );
+}
+
+#[test]
+fn retail_selection_and_scatter_hotkeys_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"x\") && !ctrl_down")
+            && src.contains("issue_named_command_from_ui(\"Command_Scatter\")"),
+        "X must issue Command_Scatter residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"q\") && !ctrl_down")
+            && src.contains("select_all_friendly_units"),
+        "Q must SELECT_ALL residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"e\") && !ctrl_down")
+            && src.contains("select_matching_units_hotkey"),
+        "E must SELECT_MATCHING_UNITS residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"w\") && !ctrl_down")
+            && src.contains("select_all_friendly_aircraft"),
+        "W must SELECT_ALL_AIRCRAFT residual"
     );
 }
