@@ -5966,6 +5966,16 @@ impl PresentationFrame {
             push(&mut cmds, "Command_SwitchWeapons", true);
             {
                 let n = ro.template_name.to_ascii_lowercase();
+                if n.contains("supply")
+                    || n.contains("harvester")
+                    || n.contains("chinook")
+                    || (n.contains("worker") && !n.contains("dozer"))
+                {
+                    push(&mut cmds, "Command_ReturnSupplies", true);
+                }
+            }
+            {
+                let n = ro.template_name.to_ascii_lowercase();
                 if n.contains("chinook") {
                     push(&mut cmds, "Command_CombatDrop", true);
                 }
