@@ -1292,6 +1292,8 @@ pub struct CnCGameEngine {
     camera_view_bookmarks: [Option<Vec3>; 8],
     /// Retail DIPLOMACY KEY_TAB residual panel.
     diplomacy_panel: crate::ui::DiplomacyPanel,
+    /// Retail CHAT_EVERYONE / CHAT_ALLIES residual panel.
+    chat_panel: crate::ui::ChatPanel,
     current_player_id: u32,
     game_paused: bool,
 
@@ -4532,6 +4534,7 @@ impl CnCGameEngine {
             last_control_group_select: None,
             camera_view_bookmarks: [None; 8],
             diplomacy_panel: crate::ui::DiplomacyPanel::new(),
+            chat_panel: crate::ui::ChatPanel::new(),
             current_player_id: 0,
             game_paused: false,
             show_debug_info: debug_overlay,
@@ -5744,6 +5747,8 @@ impl CnCGameEngine {
             Key::Named(NamedKey::Tab) => Some(crate::ui::KeyCode::Tab),
             Key::Named(NamedKey::Backspace) => Some(crate::ui::KeyCode::Backspace),
             Key::Named(NamedKey::Delete) => Some(crate::ui::KeyCode::Delete),
+            Key::Named(NamedKey::Home) => Some(crate::ui::KeyCode::Home),
+            Key::Named(NamedKey::End) => Some(crate::ui::KeyCode::End),
             Key::Named(NamedKey::ArrowLeft) => Some(crate::ui::KeyCode::Left),
             Key::Named(NamedKey::ArrowRight) => Some(crate::ui::KeyCode::Right),
             Key::Named(NamedKey::ArrowUp) => Some(crate::ui::KeyCode::Up),
@@ -6589,6 +6594,7 @@ impl CnCGameEngine {
                     warn!("Game HUD update failed: {}", err);
                 }
                 self.diplomacy_panel.update(dt);
+                self.chat_panel.update(dt);
             } else {
                 warn!(
                     "Skipping Game HUD update due to non-finite delta time: {}",
@@ -9064,6 +9070,15 @@ impl CnCGameEngine {
 
         let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
 
+        // Retail chat residual: when open, keyboard goes to ChatPanel first.
+        if matches!(self.current_state, GameState::InGame | GameState::Paused)
+            && self.chat_panel.is_open()
+        {
+            if self.route_key_to_chat_panel(key) {
+                return;
+            }
+        }
+
         match key {
             Key::Named(NamedKey::Space) => {
                 // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
@@ -9383,13 +9398,28 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("l") && ctrl_down => {
                 self.quick_load_from_hotkey("Ctrl+L");
             }
+            Key::Named(NamedKey::Enter) => {
+                // Retail CommandMap CHAT_EVERYONE KEY_ENTER residual.
+                self.open_chat_hotkey(crate::ui::ChatTarget::All);
+            }
+            Key::Named(NamedKey::Backspace) => {
+                // Retail CommandMap CHAT_ALLIES KEY_BACKSPACE residual.
+                self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+            }
+            Key::Named(NamedKey::F12) => {
+                // Retail CommandMap TAKE_SCREENSHOT KEY_F12 residual.
+                self.take_screenshot_hotkey();
+            }
             Key::Named(NamedKey::Escape) => {
                 // Outer event-loop Escape handler is unreachable for keyboard
                 // because input() consumes the event. Mirror C++ residual here:
                 // cancel placement/map-command first, else pause/resume.
                 match self.current_state {
                     GameState::InGame => {
-                        if self.diplomacy_panel.is_active() {
+                        if self.chat_panel.is_open() {
+                            self.chat_panel.close();
+                            info!("Escape closed chat residual");
+                        } else if self.diplomacy_panel.is_active() {
                             self.diplomacy_panel.close();
                             info!("Escape closed diplomacy panel residual");
                         } else if self.pending_structure_placement.is_some() {
@@ -9457,6 +9487,89 @@ impl CnCGameEngine {
             let msg = format!("Camera view {} is empty", slot + 1);
             self.game_hud.push_info_message(&msg);
             self.ui_manager.game_hud_mut().push_info_message(&msg);
+        }
+    }
+
+    /// Retail CHAT_EVERYONE / CHAT_ALLIES residual.
+    fn open_chat_hotkey(&mut self, target: crate::ui::ChatTarget) {
+        let name = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame
+                .players
+                .iter()
+                .find(|p| p.id == self.current_player_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| format!("Player{}", self.current_player_id))
+        } else {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| format!("Player{}", self.current_player_id))
+        };
+        self.chat_panel.set_local_player_name(&name);
+        self.chat_panel.set_target(target);
+        if self.chat_panel.open() {
+            let label = match target {
+                crate::ui::ChatTarget::All => "Chat (All)",
+                crate::ui::ChatTarget::Allies => "Chat (Allies)",
+                crate::ui::ChatTarget::Player(_) => "Chat (Whisper)",
+            };
+            self.game_hud.push_info_message(label);
+            self.ui_manager.game_hud_mut().push_info_message(label);
+            info!("Opened {label}");
+        }
+    }
+
+    fn route_key_to_chat_panel(&mut self, key: &Key) -> bool {
+        use crate::ui::KeyCode;
+        // Prefer UI key mapping then character text insert.
+        if let Some(ui_key) = Self::to_ui_key_code(key) {
+            if self.chat_panel.press_key(ui_key) {
+                // Drain sent messages into HUD log residual.
+                for ev in self.chat_panel.drain_events() {
+                    if let crate::ui::ChatEvent::MessageSent { text, target } = ev {
+                        let prefix = match target {
+                            crate::ui::ChatTarget::All => "[All]",
+                            crate::ui::ChatTarget::Allies => "[Allies]",
+                            crate::ui::ChatTarget::Player(_) => "[Whisper]",
+                        };
+                        let msg = format!("{prefix} {text}");
+                        self.game_hud.push_info_message(&msg);
+                        self.ui_manager.game_hud_mut().push_info_message(&msg);
+                    }
+                }
+                return true;
+            }
+        }
+        if let Key::Character(s) = key {
+            if self.chat_panel.type_text(s) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Retail TAKE_SCREENSHOT (KEY_F12) residual.
+    fn take_screenshot_hotkey(&mut self) {
+        let dir = std::env::temp_dir().join("generals_screenshots");
+        let _ = std::fs::create_dir_all(&dir);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let path = dir.join(format!("screenshot_{stamp}.png"));
+        match ww3d_engine::make_screenshot(&path) {
+            Ok(()) => {
+                let msg = format!("Screenshot: {}", path.display());
+                self.game_hud.push_info_message(&msg);
+                self.ui_manager.game_hud_mut().push_info_message(&msg);
+                info!("{msg}");
+            }
+            Err(err) => {
+                let msg = format!("Screenshot failed: {err:?}");
+                self.game_hud.push_info_message(&msg);
+                self.ui_manager.game_hud_mut().push_info_message(&msg);
+                warn!("{msg}");
+            }
         }
     }
 
@@ -12555,5 +12668,26 @@ fn diplomacy_and_control_group_modifiers_residual() {
     assert!(
         src.contains("Escape closed diplomacy panel residual"),
         "Escape must close diplomacy before pause"
+    );
+}
+
+#[test]
+fn chat_and_screenshot_hotkeys_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("NamedKey::Enter") && src.contains("ChatTarget::All"),
+        "Enter must CHAT_EVERYONE residual"
+    );
+    assert!(
+        src.contains("NamedKey::Backspace") && src.contains("ChatTarget::Allies"),
+        "Backspace must CHAT_ALLIES residual"
+    );
+    assert!(
+        src.contains("NamedKey::F12") && src.contains("take_screenshot_hotkey"),
+        "F12 must TAKE_SCREENSHOT residual"
+    );
+    assert!(
+        src.contains("Escape closed chat residual"),
+        "Escape must close chat first"
     );
 }
