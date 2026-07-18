@@ -618,6 +618,7 @@ pub fn enqueue_selection_render(
     // Placement ghost / special-power radius / guard area residual circles.
     ground_markers: Vec<SelectedUnit>,
     show_move_lines: bool,
+    show_attack_lines: bool,
 ) {
     let renderer = match SelectionRenderer::new() {
         Some(r) => Arc::new(r),
@@ -638,9 +639,13 @@ pub fn enqueue_selection_render(
                 crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(frame);
             order_line_vertices.extend_from_slice(&move_pack.vertices);
         }
-        let atk_pack =
-            crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(frame);
-        order_line_vertices.extend_from_slice(&atk_pack.vertices);
+        if show_attack_lines {
+            let atk_pack =
+                crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(
+                    frame,
+                );
+            order_line_vertices.extend_from_slice(&atk_pack.vertices);
+        }
         // Structure rally-point line residual (selected producers → rally).
         order_line_vertices.extend(pack_rally_point_lines(frame));
     }
