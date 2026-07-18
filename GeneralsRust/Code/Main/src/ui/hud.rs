@@ -1070,16 +1070,26 @@ impl GameHUD {
         if selection_changed {
             self.update_command_buttons();
             // Prefer presentation producer residual for construction panel.
-            if let Some(info) = self.selected_unit_infos.first() {
-                if info.can_produce {
-                    let override_cs = if info.command_set_override.is_empty() {
-                        None
-                    } else {
-                        Some(info.command_set_override.as_str())
-                    };
-                    self.construction_panel
-                        .show_for_building_with_command_set(&info.name, override_cs);
-                }
+            // Hide when selection is empty or primary is not a producer (C++ ControlBar).
+            let producer = self
+                .selected_unit_infos
+                .iter()
+                .find(|info| info.can_produce);
+            if let Some(info) = producer {
+                let override_cs = if info.command_set_override.is_empty() {
+                    None
+                } else {
+                    Some(info.command_set_override.as_str())
+                };
+                self.construction_panel
+                    .show_for_building_with_command_set(&info.name, override_cs);
+            } else if self
+                .construction_panel
+                .pending_structure_placement
+                .is_none()
+            {
+                // Keep panel if structure placement is armed (cameo → map click).
+                self.construction_panel.hide();
             }
         }
     }
@@ -1827,6 +1837,19 @@ mod tests {
             .construction_panel
             .pending_structure_placement()
             .is_none());
+    }
+
+    #[test]
+    fn construction_panel_hides_without_producer_residual() {
+        let src = include_str!("hud.rs");
+        assert!(
+            src.contains("construction_panel.hide()") && src.contains("info.can_produce"),
+            "selection sync must hide construction panel when no producer selected"
+        );
+        assert!(
+            src.contains("pending_structure_placement.is_none()"),
+            "armed structure placement must keep panel visible residual"
+        );
     }
 
     #[test]
