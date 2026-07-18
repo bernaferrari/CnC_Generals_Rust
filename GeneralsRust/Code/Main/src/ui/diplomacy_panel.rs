@@ -96,10 +96,7 @@ pub enum DiplomacyEvent {
         new_relationship: DiplomacyRelation,
     },
     /// The local player muted/unmuted a player.
-    MuteToggled {
-        target_player_id: i32,
-        muted: bool,
-    },
+    MuteToggled { target_player_id: i32, muted: bool },
     /// Panel was opened.
     Opened,
     /// Panel was closed.
@@ -376,22 +373,25 @@ impl DiplomacyPanel {
     fn handle_button_click(&mut self, player_id: i32, kind: DiplomacyButtonKind) {
         match kind {
             DiplomacyButtonKind::Allied => {
-                self.pending_events.push(DiplomacyEvent::RelationshipChanged {
-                    target_player_id: player_id,
-                    new_relationship: DiplomacyRelation::Allied,
-                });
+                self.pending_events
+                    .push(DiplomacyEvent::RelationshipChanged {
+                        target_player_id: player_id,
+                        new_relationship: DiplomacyRelation::Allied,
+                    });
             }
             DiplomacyButtonKind::Neutral => {
-                self.pending_events.push(DiplomacyEvent::RelationshipChanged {
-                    target_player_id: player_id,
-                    new_relationship: DiplomacyRelation::Neutral,
-                });
+                self.pending_events
+                    .push(DiplomacyEvent::RelationshipChanged {
+                        target_player_id: player_id,
+                        new_relationship: DiplomacyRelation::Neutral,
+                    });
             }
             DiplomacyButtonKind::Enemy => {
-                self.pending_events.push(DiplomacyEvent::RelationshipChanged {
-                    target_player_id: player_id,
-                    new_relationship: DiplomacyRelation::Enemy,
-                });
+                self.pending_events
+                    .push(DiplomacyEvent::RelationshipChanged {
+                        target_player_id: player_id,
+                        new_relationship: DiplomacyRelation::Enemy,
+                    });
             }
             DiplomacyButtonKind::Mute => {
                 self.pending_events.push(DiplomacyEvent::MuteToggled {
@@ -436,7 +436,10 @@ impl Interactive for DiplomacyPanel {
             return false;
         }
         // Find the index of the clicked button to avoid borrow issues
-        let clicked_idx = self.buttons.iter().position(|btn| utils::point_in_rect((x, y), btn.rect));
+        let clicked_idx = self
+            .buttons
+            .iter()
+            .position(|btn| utils::point_in_rect((x, y), btn.rect));
         if let Some(idx) = clicked_idx {
             let (player_id, kind) = {
                 let btn = &self.buttons[idx];
@@ -517,7 +520,11 @@ impl Renderable for DiplomacyPanel {
 
         for player in &self.players {
             let is_self = player.player_id == self.local_player_id;
-            let self_marker = if is_self { format!(" {you_label}") } else { String::new() };
+            let self_marker = if is_self {
+                format!(" {you_label}")
+            } else {
+                String::new()
+            };
 
             let rel_display = match player.relationship {
                 DiplomacyRelation::Allied => "ALLIED ",
@@ -555,10 +562,8 @@ impl Renderable for DiplomacyPanel {
         }
 
         if self.players.is_empty() {
-            let no_players = localization::localize(
-                "diplomacy.no_players",
-                "  (No players in game)",
-            );
+            let no_players =
+                localization::localize("diplomacy.no_players", "  (No players in game)");
             println!("{no_players}");
         }
 
@@ -574,7 +579,10 @@ impl Renderable for DiplomacyPanel {
         );
         println!(
             "{}",
-            localization::localize("diplomacy.controls_hint", "Click a relation button to change diplomacy")
+            localization::localize(
+                "diplomacy.controls_hint",
+                "Click a relation button to change diplomacy"
+            )
         );
     }
 
@@ -814,7 +822,10 @@ mod tests {
     fn test_player_status_display() {
         assert_eq!(format!("{}", DiplomacyPlayerStatus::Active), "Active");
         assert_eq!(format!("{}", DiplomacyPlayerStatus::Defeated), "Defeated");
-        assert_eq!(format!("{}", DiplomacyPlayerStatus::Disconnected), "Disconnected");
+        assert_eq!(
+            format!("{}", DiplomacyPlayerStatus::Disconnected),
+            "Disconnected"
+        );
         assert_eq!(format!("{}", DiplomacyPlayerStatus::Observer), "Observer");
     }
 }
