@@ -438,10 +438,12 @@ pub fn summarize_command(command: &CommandType) -> String {
         CommandType::DozerConstruct {
             template_name,
             location,
+            orientation,
         } => format!(
-            "DozerConstruct:{}:{}",
+            "DozerConstruct:{}:{}:{:.3}",
             template_name,
-            format_vec3(*location)
+            format_vec3(*location),
+            orientation
         ),
         CommandType::Build {
             template_name,

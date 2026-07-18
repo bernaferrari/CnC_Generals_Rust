@@ -189,6 +189,8 @@ pub struct PlacementPreview {
     pub is_legal: bool,
     /// Footprint half-extents in world units (derived from geometry).
     pub footprint_half_extents: (f32, f32),
+    /// C++ place-building facing residual (radians about Y).
+    pub facing_radians: f32,
 }
 
 impl Default for PlacementPreview {
@@ -200,6 +202,7 @@ impl Default for PlacementPreview {
             world_pos: (0.0, 0.0),
             is_legal: false,
             footprint_half_extents: (30.0, 30.0),
+            facing_radians: 0.0,
         }
     }
 }
@@ -214,12 +217,23 @@ impl PlacementPreview {
         self.display_name = display_name.to_string();
         self.cost = cost;
         self.is_legal = false;
+        self.facing_radians = 0.0;
     }
 
     pub fn cancel(&mut self) {
         self.template_name.clear();
         self.display_name.clear();
         self.cost = 0;
+        self.facing_radians = 0.0;
+    }
+
+    /// Rotate placement ghost residual (mouse wheel while placing).
+    pub fn rotate_facing(&mut self, delta_radians: f32) {
+        if !self.is_active() {
+            return;
+        }
+        const TAU: f32 = std::f32::consts::TAU;
+        self.facing_radians = (self.facing_radians + delta_radians).rem_euclid(TAU);
     }
 
     /// Update ghost cursor world position + legality residual.

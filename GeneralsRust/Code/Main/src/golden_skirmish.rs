@@ -1147,6 +1147,7 @@ fn run_synthetic_host_skirmish(
         CommandType::DozerConstruct {
             template_name: "Barracks".into(),
             location: Vec3::new(20.0, 0.0, 0.0),
+            orientation: 0.0,
         },
         vec![dozer],
     ));
@@ -1451,6 +1452,7 @@ fn run_map_world_skirmish(
             CommandType::DozerConstruct {
                 template_name: bname.clone(),
                 location: barracks_pos + Vec3::new(attempt as f32 * 2.0, 0.0, 0.0),
+                orientation: 0.0,
             },
             vec![dozer],
         ));
