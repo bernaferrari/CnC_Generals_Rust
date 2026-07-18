@@ -489,16 +489,28 @@ impl UIManager {
                     }
                     return true;
                 }
-                match self.current_state {
-                    UIState::InGame => {
-                        self.transition_to_screen(Screen::PauseMenu);
-                        return true;
+                // Pending structure placement / map command cancel is owned by GameHUD
+                // and CncGameEngine::handle_key_press. Do not open pause over them.
+                if self.current_state == UIState::InGame
+                    && self
+                        .game_hud
+                        .construction_panel
+                        .pending_structure_placement
+                        .is_some()
+                {
+                    // Fall through to GameHUD handler below.
+                } else {
+                    match self.current_state {
+                        UIState::InGame => {
+                            self.transition_to_screen(Screen::PauseMenu);
+                            return true;
+                        }
+                        UIState::Paused => {
+                            self.transition_to_screen(Screen::GameHUD);
+                            return true;
+                        }
+                        _ => {}
                     }
-                    UIState::Paused => {
-                        self.transition_to_screen(Screen::GameHUD);
-                        return true;
-                    }
-                    _ => {}
                 }
             }
             KeyCode::F1 => {
