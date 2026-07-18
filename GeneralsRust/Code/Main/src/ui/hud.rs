@@ -756,6 +756,26 @@ impl GameHUD {
     }
 
     /// Apply presentation CanMake residual onto construction buttons (enable/gray).
+    /// Replace local build-queue residual with presentation production items
+    /// for the primary selected producer (C++ ControlBar queue strip).
+    pub fn sync_production_queue_from_presentation(&mut self, items: &[(String, f32, i32, f32)]) {
+        // items: (template_name, progress 0..1, cost, build_time)
+        self.construction_panel.building_queue.clear();
+        for (name, progress, cost, build_time) in items {
+            let progress = progress.clamp(0.0, 1.0);
+            let build_time = build_time.max(0.01);
+            let remaining = build_time * (1.0 - progress);
+            self.construction_panel.building_queue.push(BuildQueueItem {
+                item_name: name.clone(),
+                display_name: localized_entry(name),
+                progress,
+                cost: *cost,
+                build_time,
+                remaining_time: remaining,
+            });
+        }
+    }
+
     pub fn apply_can_make_cameos(&mut self, cameos: &[(&str, bool, u32, Option<&str>)]) {
         if cameos.is_empty() {
             return;
