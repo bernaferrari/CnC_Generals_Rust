@@ -1978,6 +1978,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "scatter" => Some(CommandType::Scatter),
         "createformation" | "formation" => Some(CommandType::CreateFormation),
         "viewcommandcenter" | "centerbase" => Some(CommandType::ViewCommandCenter),
+        "viewlastradarevent" | "gotoradarevent" => Some(CommandType::ViewLastRadarEvent),
         "attackmove" | "attackmoveto" => Some(CommandType::AttackMoveTo {
             destination: glam::Vec3::ZERO, // filled by dispatch from cursor/world
         }),
@@ -2942,6 +2943,10 @@ mod tests {
         assert!(matches!(
             command_type_from_button_name("Command_ViewCommandCenter"),
             Some(CommandType::ViewCommandCenter)
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_ViewLastRadarEvent"),
+            Some(CommandType::ViewLastRadarEvent)
         ));
     }
 

@@ -7591,6 +7591,7 @@ impl CnCGameEngine {
                 crate::command_system::CommandType::Stop
                     | crate::command_system::CommandType::Scatter
                     | crate::command_system::CommandType::ViewCommandCenter
+                    | crate::command_system::CommandType::ViewLastRadarEvent
             )
         {
             return;
@@ -9032,7 +9033,9 @@ impl CnCGameEngine {
 
         match key {
             Key::Named(NamedKey::Space) => {
-                self.toggle_pause();
+                // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
+                // Pause remains on P.
+                self.issue_named_command_from_ui("Command_ViewLastRadarEvent");
             }
             Key::Character(digit)
                 if digit.len() == 1 && digit.chars().all(|c| c.is_ascii_digit()) =>
@@ -9273,6 +9276,10 @@ impl CnCGameEngine {
                 // Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual.
                 self.issue_named_command_from_ui("Command_ViewCommandCenter");
             }
+            Key::Character(c) if c.eq_ignore_ascii_case("h") && ctrl_down => {
+                // Retail CommandMap SELECT_HERO Ctrl+H residual.
+                self.select_hero_units_hotkey();
+            }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("f")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
@@ -9365,6 +9372,36 @@ impl CnCGameEngine {
         if !self.selected_objects.is_empty() {
             self.play_sound_effect(SoundType::Select);
         }
+    }
+
+    /// Retail SELECT_HERO (Ctrl+H) residual.
+    fn select_hero_units_hotkey(&mut self) {
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
+        };
+
+        let selection: Vec<ObjectId> = self
+            .game_logic
+            .get_objects()
+            .iter()
+            .filter(|(_, obj)| {
+                obj.team == team && obj.is_selectable() && obj.is_alive() && obj.is_hero()
+            })
+            .map(|(&id, _)| id)
+            .collect();
+
+        if selection.is_empty() {
+            return;
+        }
+        self.game_logic
+            .select_objects(self.current_player_id, selection.clone());
+        self.selected_objects = selection;
+        self.play_sound_effect(SoundType::Select);
     }
 
     /// Retail SELECT_MATCHING_UNITS (KEY_E) residual — type-select from current selection.
@@ -12010,5 +12047,19 @@ fn retail_selection_and_scatter_hotkeys_residual() {
         src.contains("eq_ignore_ascii_case(\"f\")")
             && src.contains("issue_named_command_from_ui(\"Command_CreateFormation\")"),
         "Ctrl+F must CREATE_FORMATION residual"
+    );
+
+    assert!(
+        src.contains("NamedKey::Space") && src.contains("Command_ViewLastRadarEvent"),
+        "Space must VIEW_LAST_RADAR_EVENT residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"h\") && ctrl_down")
+            && src.contains("select_hero_units_hotkey"),
+        "Ctrl+H must SELECT_HERO residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"p\")") && src.contains("toggle_pause"),
+        "P must remain pause residual"
     );
 }
