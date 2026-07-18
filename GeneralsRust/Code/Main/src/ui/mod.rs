@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 pub mod audio;
 pub mod campaign_menu;
+pub mod chat_panel;
 pub mod construction_panel;
 pub mod credits_screen;
 pub mod diplomacy_panel;
@@ -39,6 +40,7 @@ pub mod widgets;
 
 // Re-exports for convenience
 pub use campaign_menu::{CampaignFaction, CampaignMenu, MedalType, Mission};
+pub use chat_panel::{ChatEvent, ChatPanel, ChatTarget};
 pub use credits_screen::CreditsScreen;
 pub use diplomacy_panel::{
     DiplomacyPanel, DiplomacyPlayerEntry, DiplomacyPlayerStatus, DiplomacyRelation,
@@ -349,6 +351,8 @@ pub enum KeyCode {
     Tab,
     Backspace,
     Delete,
+    Home,
+    End,
     Left,
     Right,
     Up,
