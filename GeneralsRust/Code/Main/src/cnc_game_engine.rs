@@ -1275,6 +1275,8 @@ pub struct CnCGameEngine {
     mouse_world_position: Vec3,
     is_dragging: bool,
     selection_start: Option<Vec3>,
+    /// Screen-space drag origin for selection box overlay residual.
+    selection_start_screen: Option<(f32, f32)>,
     last_click_time: Option<Instant>,
     last_click_position: Option<Vec3>,
     is_windowed: bool,
@@ -4530,6 +4532,7 @@ impl CnCGameEngine {
             mouse_world_position: Vec3::ZERO,
             is_dragging: false,
             selection_start: None,
+            selection_start_screen: None,
             last_click_time: None,
             last_click_position: None,
             is_windowed: window.fullscreen().is_none(),
@@ -7140,6 +7143,19 @@ impl CnCGameEngine {
         // (C++ W3DInGameUI selection circles / drag region after 3D scene setup).
         if !skip_world_scene && matches!(self.current_state, GameState::InGame | GameState::Paused)
         {
+            let drag_rect = if self.is_dragging {
+                self.selection_start_screen.map(|start| {
+                    let size = self.window.inner_size();
+                    crate::graphics::selection_renderer::DragSelectRect {
+                        start: glam::Vec2::new(start.0, start.1),
+                        end: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
+                        window_width: size.width as f32,
+                        window_height: size.height as f32,
+                    }
+                })
+            } else {
+                None
+            };
             crate::graphics::selection_renderer::enqueue_selection_render(
                 &mut self.render_pipeline,
                 &self.view_matrix,
@@ -7150,7 +7166,7 @@ impl CnCGameEngine {
                 } else {
                     Some(&self.game_logic)
                 },
-                None, // drag rect is optional; unit circles use presentation identity
+                drag_rect.filter(|r| r.is_valid()),
                 self.current_player_id,
                 self.last_presentation_frame.as_ref(),
             );
@@ -10088,6 +10104,7 @@ impl CnCGameEngine {
     fn handle_left_click(&mut self) {
         self.is_dragging = true;
         self.selection_start = Some(self.mouse_world_position);
+        self.selection_start_screen = Some(self.mouse_position);
 
         let mouse_pos = self.mouse_world_position;
         let clicked_object = self.find_object_at_position(mouse_pos, &self.game_logic, false);
@@ -10128,10 +10145,8 @@ impl CnCGameEngine {
                 let loc = self.mouse_world_position;
                 self.place_structure_from_ui(&template, loc);
             } else {
-                // Clear selection
-                self.selected_objects.clear();
-                self.game_logic
-                    .select_objects(self.current_player_id, Vec::new());
+                // Defer empty-ground clear until left-release if this becomes a box drag.
+                // Instant clear on mousedown fights drag-select residual.
             }
         }
     }
@@ -10196,6 +10211,7 @@ impl CnCGameEngine {
 
     fn handle_left_release(&mut self) {
         self.is_dragging = false;
+        self.selection_start_screen = None;
 
         let Some(start) = self.selection_start.take() else {
             return;
@@ -10206,6 +10222,20 @@ impl CnCGameEngine {
         // If the mouse didn't move enough, the click selection was already handled on mouse-down.
         let drag_distance = Vec2::new(end.x - start.x, end.z - start.z).length();
         if drag_distance < 5.0 {
+            // Click on empty ground (no pending command/placement handled on press): clear selection.
+            if self.pending_map_command.is_none()
+                && self.pending_structure_placement.is_none()
+                && self
+                    .find_object_at_position(end, &self.game_logic, false)
+                    .is_none()
+            {
+                let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+                if !shift_down {
+                    self.selected_objects.clear();
+                    self.game_logic
+                        .select_objects(self.current_player_id, Vec::new());
+                }
+            }
             return;
         }
 
@@ -13042,5 +13072,21 @@ fn hud_h_does_not_steal_view_command_center_residual() {
         eng.contains("Command_ViewCommandCenter")
             && eng.contains("eq_ignore_ascii_case(\"h\") && !ctrl_down"),
         "engine H must still VIEW_COMMAND_CENTER"
+    );
+}
+
+#[test]
+fn drag_select_rect_overlay_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("selection_start_screen")
+            && src.contains("DragSelectRect")
+            && src.contains("drag_rect.filter(|r| r.is_valid())"),
+        "InGame render must feed DragSelectRect while dragging"
+    );
+    assert!(
+        src.contains("Defer empty-ground clear until left-release")
+            || src.contains("Instant clear on mousedown fights drag-select"),
+        "mousedown must not clear selection before drag completes"
     );
 }
