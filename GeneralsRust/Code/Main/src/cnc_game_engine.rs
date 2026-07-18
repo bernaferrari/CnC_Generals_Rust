@@ -101,6 +101,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn apply_presentation_to_huds_dual_no_recurse_residual() {
+        let src = include_str!("cnc_game_engine.rs");
+        let marker = "fn apply_presentation_to_huds(";
+        let i = src.find(marker).expect("dual HUD apply helper");
+        let body = &src[i..src.len().min(i + 450)];
+        assert!(
+            body.contains("pres.apply_to_game_hud(&mut self.game_hud)"),
+            "must apply presentation freeze to engine GameHUD"
+        );
+        assert!(
+            body.contains("pres.apply_to_game_hud(self.ui_manager.game_hud_mut())"),
+            "must apply presentation freeze to UIManager GameHUD"
+        );
+        // Body must not recurse into itself (stack overflow residual).
+        let after_sig = match body.split_once('{') {
+            Some((_, rest)) => rest,
+            None => "",
+        };
+        assert!(
+            !after_sig.contains("self.apply_presentation_to_huds("),
+            "apply_presentation_to_huds must not call itself"
+        );
+    }
+
     use super::{
         should_exit_for_smoke_test, should_keep_logic_running_while_iconic, CnCGameEngine,
         GameMode, GameState, StartupNewGameDispatch,
@@ -7223,7 +7248,8 @@ impl CnCGameEngine {
     /// Clicks route through `ui_manager.game_hud`; resources/selection presentation
     /// historically only updated `self.game_hud`. Dual-apply closes that gap.
     fn apply_presentation_to_huds(&mut self, pres: &crate::presentation_frame::PresentationFrame) {
-        self.apply_presentation_to_huds(&pres);
+        // Dual GameHUD residual: engine HUD + interactive UIManager HUD.
+        pres.apply_to_game_hud(&mut self.game_hud);
         pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
     }
 
