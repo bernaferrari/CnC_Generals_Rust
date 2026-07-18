@@ -2100,6 +2100,10 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "sell" => Some(CommandType::Sell {
             object_id: crate::game_logic::ObjectId(0), // filled by dispatch
         }),
+        // GeneralsExperience science purchase residual (name filled by UI/hotkey).
+        "purchasescience" | "buyscience" => Some(CommandType::PurchaseScience {
+            science_name: String::new(),
+        }),
         // Generic ControlBar SW button residual — power type resolved at arm time.
         "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::ParticleCannon, // placeholder; engine resolves
