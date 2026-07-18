@@ -7336,6 +7336,12 @@ impl CnCGameEngine {
                         .transition_to_screen(crate::ui::Screen::Options);
                     info!("UI requested options menu residual");
                 }
+                UIEvent::SettingsChanged => {
+                    if let Some(v) = self.ui_manager.options_bool("game.show_health_bars") {
+                        self.show_health_bars = v;
+                        info!("Settings: show_health_bars={v}");
+                    }
+                }
                 _ => {}
             }
         }
@@ -13006,5 +13012,14 @@ fn windowed_edge_scroll_residual() {
         body.contains("!self.chat_panel.is_open()")
             && body.contains("!self.diplomacy_panel.is_active()"),
         "edge/arrow scroll suppressed during chat/diplomacy modal"
+    );
+}
+
+#[test]
+fn settings_changed_health_bars_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("UIEvent::SettingsChanged") && src.contains("game.show_health_bars"),
+        "SettingsChanged must apply show_health_bars residual"
     );
 }

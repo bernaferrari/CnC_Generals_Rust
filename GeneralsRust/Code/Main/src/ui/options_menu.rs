@@ -250,6 +250,22 @@ impl OptionsMenu {
     }
 
     /// Initialize options menu
+
+    /// Read a bool option residual (gameplay toggles).
+    pub fn bool_option(&self, key: &str) -> Option<bool> {
+        for controls in self.options.values() {
+            for c in controls {
+                if c.key == key {
+                    return match &c.value {
+                        OptionValue::Boolean(v) => Some(*v),
+                        _ => None,
+                    };
+                }
+            }
+        }
+        None
+    }
+
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.setup_tabs();
         self.setup_action_buttons();
