@@ -5652,6 +5652,13 @@ impl CnCGameEngine {
                         if route_keyboard_to_legacy_ui {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
                                 let _ = self.ui_manager.handle_key_press(ui_key);
+                                // Dual HUD residual: engine GameHUD owns construction
+                                // cameo hotkeys + placement cancel from presentation path.
+                                use crate::ui::Interactive;
+                                let _ = Interactive::handle_key_press(&mut self.game_hud, ui_key);
+                                for ev in self.game_hud.drain_pending_ui_events() {
+                                    self.ui_manager.queue_event(ev);
+                                }
                             }
                         }
                         // Retail numpad camera residual (physical keys).
@@ -13412,5 +13419,20 @@ fn ground_marker_circles_overlay_residual() {
     assert!(
         sel.contains("ground_markers: Vec<SelectedUnit>"),
         "selection overlay must accept ground_markers residual"
+    );
+}
+
+#[test]
+fn dual_hud_construction_hotkey_route_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)")
+            && src.contains("drain_pending_ui_events"),
+        "engine GameHUD must receive construction/command hotkeys in InGame"
+    );
+    let um = include_str!("ui/ui_manager.rs");
+    assert!(
+        um.contains("pending_structure_placement") && um.contains("Fall through to GameHUD"),
+        "UIManager Escape must not open pause over active structure placement"
     );
 }
