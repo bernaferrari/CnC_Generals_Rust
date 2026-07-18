@@ -617,6 +617,7 @@ pub fn enqueue_selection_render(
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
     // Placement ghost / special-power radius / guard area residual circles.
     ground_markers: Vec<SelectedUnit>,
+    show_move_lines: bool,
 ) {
     let renderer = match SelectionRenderer::new() {
         Some(r) => Arc::new(r),
@@ -632,9 +633,11 @@ pub fn enqueue_selection_render(
     // Move/attack order line residual from presentation snapshot.
     let mut order_line_vertices: Vec<f32> = Vec::new();
     if let Some(frame) = presentation {
-        let move_pack =
-            crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(frame);
-        order_line_vertices.extend_from_slice(&move_pack.vertices);
+        if show_move_lines {
+            let move_pack =
+                crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(frame);
+            order_line_vertices.extend_from_slice(&move_pack.vertices);
+        }
         let atk_pack =
             crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(frame);
         order_line_vertices.extend_from_slice(&atk_pack.vertices);
