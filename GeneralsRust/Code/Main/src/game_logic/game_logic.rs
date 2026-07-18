@@ -83310,6 +83310,35 @@ mod tests {
     }
 
     #[test]
+    fn illegal_placement_lbc_message_residual_nonempty() {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            lbc_help_message_residual, LBC_OBJECTS_IN_THE_WAY, LBC_OK,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut t = ThingTemplate::new("AmericaBarracks");
+        t.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), t);
+        // Place blocking structure at origin.
+        let blocker = logic
+            .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
+            .expect("blocker");
+        let _ = blocker;
+        let code = logic.legal_build_code_at(Team::USA, glam::Vec3::ZERO, "AmericaBarracks");
+        assert_ne!(code, LBC_OK, "stacking should fail residual");
+        let msg = lbc_help_message_residual(code);
+        assert!(
+            !msg.is_empty(),
+            "illegal LBC needs help residual, code={code}"
+        );
+        // objects-in-way is the expected residual class when stacking.
+        if code == LBC_OBJECTS_IN_THE_WAY {
+            assert!(msg.to_ascii_lowercase().contains("objects"));
+        }
+    }
+
+    #[test]
     fn structure_placement_rejects_no_clear_path_residual() {
         use crate::game_logic::host_production_buildable_command_residual::{
             LBC_NO_CLEAR_PATH, LBC_OK,
