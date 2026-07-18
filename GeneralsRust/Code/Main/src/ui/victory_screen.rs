@@ -82,7 +82,23 @@ impl VictoryScreen {
         _y: i32,
         _button: MouseButton,
     ) -> Option<UIEvent> {
-        None
+        // Any click dismisses score screen residual (C++ continue).
+        if self.screen_type.is_some() {
+            Some(UIEvent::ExitToMenu)
+        } else {
+            None
+        }
+    }
+
+    /// Key continue residual (Enter/Esc/Space).
+    pub fn handle_continue_key(&mut self, key: KeyCode) -> Option<UIEvent> {
+        if self.screen_type.is_some()
+            && matches!(key, KeyCode::Enter | KeyCode::Escape | KeyCode::Space)
+        {
+            Some(UIEvent::ExitToMenu)
+        } else {
+            None
+        }
     }
 }
 
@@ -90,11 +106,11 @@ impl Interactive for VictoryScreen {
     fn handle_mouse_move(&mut self, _x: i32, _y: i32) -> bool {
         false
     }
-    fn handle_mouse_click(&mut self, _x: i32, _y: i32, _button: MouseButton) -> bool {
-        false
+    fn handle_mouse_click(&mut self, x: i32, y: i32, button: MouseButton) -> bool {
+        VictoryScreen::handle_mouse_click(self, x, y, button).is_some()
     }
-    fn handle_key_press(&mut self, _key: KeyCode) -> bool {
-        false
+    fn handle_key_press(&mut self, key: KeyCode) -> bool {
+        self.handle_continue_key(key).is_some()
     }
     fn handle_text_input(&mut self, _text: &str) -> bool {
         false
@@ -314,4 +330,26 @@ fn localized_team_name(team: Team) -> String {
         Team::Neutral => "faction.neutral.name",
     };
     localization::localize(key, team.get_name())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::{KeyCode, MouseButton, UIEvent};
+
+    #[test]
+    fn continue_emits_exit_to_menu_residual() {
+        let mut vs = VictoryScreen::new();
+        assert!(vs.handle_mouse_click(0, 0, MouseButton::Left).is_none());
+        vs.set_defeat();
+        assert!(matches!(
+            vs.handle_mouse_click(0, 0, MouseButton::Left),
+            Some(UIEvent::ExitToMenu)
+        ));
+        vs.set_victory(0);
+        assert!(matches!(
+            vs.handle_continue_key(KeyCode::Enter),
+            Some(UIEvent::ExitToMenu)
+        ));
+    }
 }
