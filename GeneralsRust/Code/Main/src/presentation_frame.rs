@@ -5437,6 +5437,22 @@ impl PresentationFrame {
     }
 
     pub fn apply_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
+        // InGameUI PublicTimer residual freeze onto HUD strip.
+        let sw: Vec<crate::ui::hud_state::UiSuperweaponTimer> = self
+            .superweapon_timers
+            .iter()
+            .map(|t| crate::ui::hud_state::UiSuperweaponTimer {
+                name: t.name.clone(),
+                template_name: t.template_name.clone(),
+                icon: t.icon.clone(),
+                recharge_time: t.recharge_time,
+                remaining: t.remaining,
+                ready: t.ready,
+                unlocked: t.unlocked,
+            })
+            .collect();
+        hud.apply_presentation_superweapon_timers(&sw);
+
         // ControlBar construction button enable residual from CanMake freeze.
         hud.apply_can_make_cameos(
             &self
@@ -6971,6 +6987,7 @@ mod tests {
         assert!(!panel.superweapon_timers().is_empty());
     }
 
+    #[test]
     fn presentation_freezes_local_rank_skill_residual() {
         use crate::game_logic::{GameLogic, Player, Team};
         let mut logic = GameLogic::new();
@@ -6997,6 +7014,44 @@ mod tests {
                     .iter()
                     .any(|s| s.contains("AMERICA"))
         );
+    }
+
+    #[test]
+    fn presentation_applies_superweapon_timers_to_game_hud_residual() {
+        use crate::game_logic::GameLogic;
+        let logic = GameLogic::new();
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        frame.superweapon_timers.clear();
+        frame.superweapon_timers.push(PresentationSuperweaponTimer {
+            name: "Particle Uplink Cannon".into(),
+            template_name: "SPECIAL_PARTICLE_UPLINK_CANNON".into(),
+            icon: "PUC".into(),
+            recharge_time: 300.0,
+            remaining: 12.5,
+            unlocked: true,
+            ready: false,
+        });
+        frame.superweapon_timers.push(PresentationSuperweaponTimer {
+            name: "Locked".into(),
+            template_name: "SPECIAL_SCUD_STORM".into(),
+            icon: "SCUD".into(),
+            recharge_time: 360.0,
+            remaining: 360.0,
+            unlocked: false,
+            ready: false,
+        });
+        let mut hud = crate::ui::GameHUD::new();
+        frame.apply_to_game_hud(&mut hud);
+        let timers = hud.presentation_superweapon_timers();
+        assert_eq!(
+            timers.len(),
+            1,
+            "locked PublicTimer must not freeze onto HUD"
+        );
+        assert_eq!(timers[0].name, "Particle Uplink Cannon");
+        assert!((timers[0].remaining - 12.5).abs() < 0.01);
+        assert!(!timers[0].ready);
+        assert!(timers[0].unlocked);
     }
 
     fn runtime_host_presentation_query_helpers() {
