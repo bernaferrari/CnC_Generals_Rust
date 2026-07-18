@@ -88,6 +88,8 @@ pub enum UIEvent {
         template_name: String,
         location: glam::Vec3,
     },
+    /// C++ cancel dozer placement residual (RMB / Escape).
+    CancelStructurePlacement,
 }
 
 /// Main UI manager that coordinates all UI systems
@@ -821,6 +823,9 @@ impl UIManager {
                         template_name,
                         location,
                     });
+                }
+                UIEvent::CancelStructurePlacement => {
+                    self.event_queue.push(UIEvent::CancelStructurePlacement);
                 }
             }
         }
