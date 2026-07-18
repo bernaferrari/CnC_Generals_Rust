@@ -9308,6 +9308,24 @@ impl CnCGameEngine {
             }
         }
 
+        // Active guard-area residual for selected units (C++ Guard area ring).
+        const GUARD_AREA_RADIUS: f32 = 100.0; // matches RadiusCursor GUARD_AREA
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            for o in &frame.objects {
+                if o.destroyed || !o.selected {
+                    continue;
+                }
+                let Some(gp) = o.guard_position else {
+                    continue;
+                };
+                out.push(SelectedUnit {
+                    position: glam::Vec3::new(gp.x, 0.0, gp.z),
+                    radius: GUARD_AREA_RADIUS,
+                    team_color: [0.35, 0.75, 1.0, 0.35],
+                });
+            }
+        }
+
         out
     }
 
@@ -13930,5 +13948,21 @@ fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
             "eq_ignore_ascii_case(\"d\") => {\n                self.debug_show_victory(None)"
         ),
         "debug defeat must not steal D from Deploy"
+    );
+}
+
+#[test]
+fn deployed_blocks_can_move_and_guard_ring_residual() {
+    let obj = include_str!("game_logic/object.rs");
+    let start = obj.find("pub fn can_move").expect("can_move");
+    let body = &obj[start..start + 700];
+    assert!(
+        body.contains("!self.status.deployed"),
+        "deployed units must not can_move residual"
+    );
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("GUARD_AREA_RADIUS") && src.contains("guard_position"),
+        "selected guard units must draw guard-area ring residual"
     );
 }
