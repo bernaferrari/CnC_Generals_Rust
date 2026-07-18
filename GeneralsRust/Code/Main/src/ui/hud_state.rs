@@ -161,6 +161,8 @@ pub struct GameUIState {
     pub asset_cache_usage: f32,
     pub assets_loaded: u64,
     pub show_debug_overlay: bool,
+    /// FPS counter residual.
+    pub show_fps: bool,
     pub diagnostics: Option<DiagnosticsOverlayStats>,
     pub match_over: bool,
     pub player_outcome: Option<PlayerOutcome>,
@@ -266,6 +268,7 @@ impl Default for GameUIState {
             asset_cache_usage: 0.0,
             assets_loaded: 0,
             show_debug_overlay: false,
+            show_fps: false,
             diagnostics: None,
             match_over: false,
             player_outcome: None,
