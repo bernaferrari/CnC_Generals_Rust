@@ -96,6 +96,8 @@ pub struct SelectionRenderer {
     pub health_bar_width: f32,
     pub health_bar_height: f32,
     pub health_bar_offset: f32,
+    /// Options residual: master toggle for selection health bars.
+    pub show_health_bars: bool,
 
     /// Animation settings
     pub selection_pulse_speed: f32,
@@ -113,6 +115,10 @@ impl Default for SelectionRenderer {
 }
 
 impl SelectionRenderer {
+    pub fn set_show_health_bars(&mut self, enabled: bool) {
+        self.show_health_bars = enabled;
+    }
+
     pub fn new() -> Self {
         Self {
             selection_color: SELECTION_COLOR_RGBA,
@@ -128,6 +134,7 @@ impl SelectionRenderer {
             health_bar_width: SELECTION_HEALTH_BAR_WIDTH,
             health_bar_height: SELECTION_HEALTH_BAR_HEIGHT,
             health_bar_offset: SELECTION_HEALTH_BAR_OFFSET,
+            show_health_bars: true,
 
             selection_pulse_speed: SELECTION_PULSE_SPEED,
             hover_fade_speed: SELECTION_HOVER_FADE_SPEED,
@@ -193,7 +200,7 @@ impl SelectionRenderer {
                     let color = self.get_selection_color_animated();
                     commands.push(self.create_selection_circle(screen_pos, color));
 
-                    if object.is_alive() {
+                    if self.show_health_bars && object.show_health_bar && object.is_alive() {
                         commands.push(self.create_health_bar(
                             screen_pos,
                             object.health.current,
@@ -285,7 +292,7 @@ impl SelectionRenderer {
             ) {
                 let color = self.get_selection_color_animated();
                 commands.push(self.create_selection_circle(screen_pos, color));
-                if ro.health_current > 0.0 {
+                if self.show_health_bars && ro.show_health_bar && ro.health_current > 0.0 {
                     commands.push(self.create_health_bar(
                         screen_pos,
                         ro.health_current,

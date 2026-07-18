@@ -7339,6 +7339,8 @@ impl CnCGameEngine {
                 UIEvent::SettingsChanged => {
                     if let Some(v) = self.ui_manager.options_bool("game.show_health_bars") {
                         self.show_health_bars = v;
+                        self.game_hud.set_show_selection_health(v);
+                        self.ui_manager.game_hud_mut().set_show_selection_health(v);
                         info!("Settings: show_health_bars={v}");
                     }
                 }
@@ -13021,5 +13023,24 @@ fn settings_changed_health_bars_residual() {
     assert!(
         src.contains("UIEvent::SettingsChanged") && src.contains("game.show_health_bars"),
         "SettingsChanged must apply show_health_bars residual"
+    );
+}
+
+#[test]
+fn hud_h_does_not_steal_view_command_center_residual() {
+    let hud = include_str!("ui/hud.rs");
+    // After residual fix, bare KeyCode::H toggle must not remain in GameHUD key handler.
+    let marker = "Global HUD hotkeys";
+    let i = hud.find(marker).expect("global HUD hotkeys section");
+    let section = &hud[i..hud.len().min(i + 400)];
+    assert!(
+        !section.contains("KeyCode::H =>"),
+        "GameHUD must not bind bare H (VIEW_COMMAND_CENTER conflict)"
+    );
+    let eng = include_str!("cnc_game_engine.rs");
+    assert!(
+        eng.contains("Command_ViewCommandCenter")
+            && eng.contains("eq_ignore_ascii_case(\"h\") && !ctrl_down"),
+        "engine H must still VIEW_COMMAND_CENTER"
     );
 }
