@@ -10372,7 +10372,19 @@ impl CnCGameEngine {
                 // Colonel Burton remote charge detonate residual.
                 self.issue_named_command_from_ui("Command_DetonateRemoteDemoCharges");
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("r") && !ctrl_down => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("r")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+                    && !ctrl_down =>
+            {
+                // Aircraft return-to-base residual (Alt+R).
+                self.issue_named_command_from_ui("Command_ReturnToBase");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("r")
+                    && !ctrl_down
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
                 // Dozer/Worker repair residual: arm structure click.
                 self.issue_named_command_from_ui("Command_Repair");
             }
@@ -15593,5 +15605,33 @@ fn hack_internet_and_cleanup_area_residual() {
     assert!(
         pf.contains("Command_HackInternet") && pf.contains("Command_CleanupArea"),
         "strip must expose hack/cleanup residual"
+    );
+}
+
+#[test]
+fn return_to_base_aircraft_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("Command_ReturnToBase")
+            && src.contains("eq_ignore_ascii_case(\"r\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+R must ReturnToBase residual"
+    );
+    let cs = include_str!("command_system.rs");
+    assert!(
+        cs.contains("ReturnToBase") && cs.contains("\"returntobase\""),
+        "ReturnToBase command map residual"
+    );
+    let ex = include_str!("command_executor.rs");
+    assert!(
+        ex.contains("fn execute_return_to_base")
+            && ex.contains("is_friendly_airfield")
+            && ex.contains("execute_dock"),
+        "execute_return_to_base docks nearest airfield residual"
+    );
+    let pf = include_str!("presentation_frame.rs");
+    assert!(
+        pf.contains("Command_ReturnToBase"),
+        "aircraft strip must expose RTB residual"
     );
 }

@@ -140,6 +140,8 @@ pub enum CommandType {
     Evacuate,
     /// China Hacker field HackInternet residual (start cash interval).
     HackInternet,
+    /// Aircraft return-to-base / dock nearest airfield residual.
+    ReturnToBase,
     Dock {
         target_id: ObjectId,
     },
@@ -2111,6 +2113,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             target: crate::command_system::DropTarget::Location(glam::Vec3::ZERO),
         }),
         "hackinternet" | "internet" | "starthacking" => Some(CommandType::HackInternet),
+        "returntobase" | "rtb" | "land" => Some(CommandType::ReturnToBase),
         "cleanuparea" | "clearmines" | "detox" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::CleanupArea,
             target: PowerTarget::None,
