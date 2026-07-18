@@ -2113,6 +2113,31 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
                 target: PowerTarget::None,
             })
         }
+        // Named superweapon / intel residual button names (map-click arm).
+        "spysatellitescan" | "spysatellite" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::SpySatellite,
+            target: PowerTarget::None,
+        }),
+        "ciaintelligence" | "ciaintel" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::CiaIntelligence,
+            target: PowerTarget::None,
+        }),
+        "spydrone" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::SpyDrone,
+            target: PowerTarget::None,
+        }),
+        "particlecannon" | "fireparticlecannon" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::ParticleCannon,
+            target: PowerTarget::None,
+        }),
+        "nuclearmissile" | "launchnuclearmissile" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::NuclearMissile,
+            target: PowerTarget::None,
+        }),
+        "scudstorm" | "launchesudstorm" | "launchscudstorm" => Some(CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::ScudStorm,
+            target: PowerTarget::None,
+        }),
         "cancelupgrade" => Some(CommandType::CancelUpgrade {
             upgrade_name: String::new(),
         }),
