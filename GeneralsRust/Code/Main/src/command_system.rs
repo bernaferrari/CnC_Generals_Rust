@@ -1991,6 +1991,9 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "evacuate" | "structureexit" => Some(CommandType::Evacuate),
         "exit" => Some(CommandType::Exit),
+        "sell" => Some(CommandType::Sell {
+            object_id: crate::game_logic::ObjectId(0), // filled by dispatch
+        }),
         "cancelupgrade" => Some(CommandType::CancelUpgrade {
             upgrade_name: String::new(),
         }),
@@ -2763,6 +2766,10 @@ mod tests {
         assert!(matches!(
             command_type_from_button_name("Command_Evacuate"),
             Some(CommandType::Evacuate)
+        ));
+        assert!(matches!(
+            command_type_from_button_name("Command_Sell"),
+            Some(CommandType::Sell { .. })
         ));
     }
 
