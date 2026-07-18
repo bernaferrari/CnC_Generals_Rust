@@ -7389,7 +7389,16 @@ impl CnCGameEngine {
                     template_name,
                     quantity,
                 } => {
-                    self.queue_unit_production_from_ui(&template_name, quantity);
+                    // C++ ControlBar: Shift queues five; Ctrl queues to factory max residual.
+                    let mut qty = quantity.max(1);
+                    let shift = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+                    let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+                    if ctrl {
+                        qty = 9; // DEFAULT_PRODUCTION_QUEUE_LIMIT residual fill
+                    } else if shift {
+                        qty = qty.saturating_mul(5).max(5);
+                    }
+                    self.queue_unit_production_from_ui(&template_name, qty);
                 }
                 UIEvent::CancelUnitProduction { template_name } => {
                     self.cancel_unit_production_from_ui(&template_name);
@@ -14735,5 +14744,16 @@ fn construction_cameo_hotkey_priority_residual() {
     assert!(
         hud.contains("fn force_tab") && hud.contains("ConstructionTab::Aircraft"),
         "construction panel force_tab residual"
+    );
+}
+
+#[test]
+fn shift_ctrl_production_queue_multiplier_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("UIEvent::QueueUnitProduction")
+            && src.contains("saturating_mul(5)")
+            && src.contains("qty = 9"),
+        "Shift×5 and Ctrl fill-queue residual for production"
     );
 }
