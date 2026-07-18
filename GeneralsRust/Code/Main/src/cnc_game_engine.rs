@@ -10002,10 +10002,66 @@ impl CnCGameEngine {
                 {
                     self.pending_map_command = Some(PendingMapCommand::AttackMove);
                     self.pending_structure_placement = None;
+                    self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
                     let msg = "Attack-move: click destination";
                     self.game_hud.push_info_message(msg);
                     self.ui_manager.game_hud_mut().push_info_message(msg);
                 }
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("t")
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Control))
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+                    && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
+            {
+                // C++ classic T-key ForceAttackGround residual at cursor.
+                if self.selected_objects.is_empty()
+                    && self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.selected_objects.is_empty())
+                        .unwrap_or(true)
+                {
+                    // no-op
+                } else {
+                    let loc = self.mouse_world_position;
+                    let mut selected = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.selected_objects.clone())
+                        .unwrap_or_default();
+                    if selected.is_empty() {
+                        selected = self.selected_objects.clone();
+                    }
+                    self.game_logic
+                        .queue_command(crate::command_system::GameCommand {
+                            command_type: crate::command_system::CommandType::ForceAttackGround {
+                                location: loc,
+                            },
+                            player_id: self.current_player_id,
+                            command_id: 0,
+                            timestamp: std::time::SystemTime::now(),
+                            selected_units: selected,
+                            modifier_keys: crate::command_system::ModifierKeys {
+                                ctrl: true,
+                                shift: false,
+                                alt: false,
+                            },
+                        });
+                    self.game_logic.process_commands();
+                    self.play_sound_effect(SoundType::Command);
+                    let msg = "Force-attack ground";
+                    self.game_hud.push_info_message(msg);
+                    self.ui_manager.game_hud_mut().push_info_message(msg);
+                }
+            }
+            Key::Named(NamedKey::Home) if !ctrl_down => {
+                // SELECT_NEXT_STRUCTURE residual (Home).
+                self.cycle_friendly_structure_selection(1);
+            }
+            Key::Named(NamedKey::End) if !ctrl_down => {
+                // SELECT_PREV_STRUCTURE residual (End).
+                self.cycle_friendly_structure_selection(-1);
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("a")
@@ -14486,5 +14542,20 @@ fn structure_cycle_and_auto_attack_residual() {
     assert!(
         src.contains("Auto-attack: ON") && src.contains("AttackMoveTo"),
         "sticky auto-attack must convert moves to attack-move"
+    );
+}
+
+#[test]
+fn force_attack_ground_t_key_and_home_structure_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("ForceAttackGround")
+            && src.contains("eq_ignore_ascii_case(\"t\")")
+            && src.contains("Force-attack ground"),
+        "T must issue ForceAttackGround at cursor residual"
+    );
+    assert!(
+        src.contains("NamedKey::Home") && src.contains("cycle_friendly_structure_selection(1)"),
+        "Home/End must cycle structures residual"
     );
 }
