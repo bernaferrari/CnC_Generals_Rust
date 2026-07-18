@@ -9306,55 +9306,76 @@ impl CnCGameEngine {
     fn handle_right_click(&mut self) {
         let mouse_pos = self.mouse_world_position;
 
-        // Normal right-click behavior when no pending command
-        if self.selected_objects.is_empty() {
+        // Prefer live player selection; fall back to engine selection residual.
+        let mut selected = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default();
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        if selected.is_empty() {
             return;
         }
 
-        let mut should_attack = false;
-        let mut attack_target_id = None;
-
-        // Check if clicking on an enemy unit (attack command)
+        // C++ context-sensitive right-click residual via CommandSystem:
+        // attack / gather / repair / enter / get-repaired / get-healed / move / attack-move.
         let target_object = self.find_object_at_position(mouse_pos, &self.game_logic, true);
+        let ctrl = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Control)
+            )
+        });
+        let shift = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Shift)
+            )
+        });
+        let alt = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
+            )
+        });
 
-        if let Some(target_id) = target_object {
-            let team_opt = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                Some(frame.local_team())
-            } else {
-                // Boot residual only — presentation local_team owns InGame attack-click.
-                self.game_logic
-                    .get_player(self.current_player_id)
-                    .map(|p| p.team)
-            };
-            if let Some(team) = team_opt {
-                let enemy_attackable = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.is_enemy_attackable(target_id, team)
-                } else if let Some(target) = self.game_logic.find_object(target_id) {
-                    // Boot residual only — presentation is_enemy_attackable owns InGame path.
-                    target.team != team && target.is_kind_of(KindOf::Attackable)
-                } else {
-                    false
-                };
-                if enemy_attackable {
-                    should_attack = true;
-                    attack_target_id = Some(target_id);
-                }
-            }
-        }
+        let context = crate::command_system::MouseCommandContext {
+            world_position: mouse_pos,
+            target_object,
+            screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: crate::command_system::MouseButton::Right,
+            modifier_keys: crate::command_system::ModifierKeys { ctrl, shift, alt },
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
 
-        // Now handle the command
-        if should_attack {
-            if let Some(target_id) = attack_target_id {
-                self.game_logic
-                    .command_attack(self.current_player_id, target_id);
-                self.play_sound_effect(SoundType::Command);
-            }
-        } else {
-            // Issue move command to clicked position
-            self.game_logic
-                .command_move(self.current_player_id, mouse_pos);
+        let mut cmd_sys = crate::command_system::CommandSystem::new();
+        let command = cmd_sys.process_mouse_input(
+            &context,
+            &selected,
+            self.current_player_id,
+            &self.game_logic,
+        );
+
+        if let Some(command) = command {
+            self.game_logic.queue_command(command);
+            self.game_logic.process_commands();
             self.play_sound_effect(SoundType::Command);
+            return;
         }
+
+        // Fail-closed fallback residual: move if context path produced nothing.
+        self.game_logic
+            .command_move(self.current_player_id, mouse_pos);
+        self.play_sound_effect(SoundType::Command);
     }
 
     fn handle_mouse_wheel(&mut self, delta: &winit::event::MouseScrollDelta) {

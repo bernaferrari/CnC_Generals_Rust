@@ -2737,6 +2737,75 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn right_click_damaged_vehicle_get_repaired_context_residual() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType},
+            KindOf, Player, Team, ThingTemplate,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        logic.add_player(player);
+
+        let mut tank_t = ThingTemplate::new("AmericaTankCrusader");
+        tank_t
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(500.0);
+        logic.templates.insert("AmericaTankCrusader".into(), tank_t);
+        let mut wf_t = ThingTemplate::new("AmericaWarFactory");
+        wf_t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(2000.0);
+        logic.templates.insert("AmericaWarFactory".into(), wf_t);
+
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let wf = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("wf");
+        if let Some(o) = logic.get_object_mut(tank) {
+            o.health.current = 100.0; // damaged residual
+        }
+        if let Some(o) = logic.get_object_mut(wf) {
+            o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+        }
+
+        let ctx = MouseCommandContext {
+            world_position: glam::Vec3::new(40.0, 0.0, 0.0),
+            target_object: Some(wf),
+            screen_position: glam::Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut sys = CommandSystem::new();
+        let cmd = sys
+            .process_mouse_input(&ctx, &[tank], 0, &logic)
+            .expect("context command");
+        match cmd.command_type {
+            CommandType::GetRepaired { target_id } => assert_eq!(target_id, wf),
+            other => panic!("expected GetRepaired, got {other:?}"),
+        }
+    }
+
     fn command_type_from_button_name_upgrade_and_cancel_residual() {
         let q = command_type_from_button_name("Command_UpgradeAmericaRangerFlashBangGrenade")
             .expect("upgrade");
