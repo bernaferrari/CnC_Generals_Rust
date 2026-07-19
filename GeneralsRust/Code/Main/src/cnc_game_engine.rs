@@ -2875,6 +2875,77 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "attack_move" | "attackmove" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "attack_move_fail_not_ingame".into();
+                } else {
+                    let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                    let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                    if self.selected_objects.is_empty() {
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            if let Some((id, _)) = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                            {
+                                self.selected_objects = vec![*id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![*id]);
+                            }
+                        }
+                    }
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "attack_move_fail_no_selection".into();
+                    } else {
+                        let dest = glam::Vec3::new(x, y, z);
+                        self.pending_map_command = Some(PendingMapCommand::AttackMove);
+                        self.commit_pending_map_command(dest, None);
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("attack_move_ok:{},{},{}", x, y, z);
+                    }
+                }
+            }
+            "scatter" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "scatter_fail_not_ingame".into();
+                } else {
+                    if self.selected_objects.is_empty() {
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            let mut ids: Vec<_> = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                                .map(|(id, _)| *id)
+                                .collect();
+                            ids.sort_by_key(|id| id.0);
+                            ids.truncate(8);
+                            if !ids.is_empty() {
+                                self.selected_objects = ids.clone();
+                                self.game_logic.select_objects(self.current_player_id, ids);
+                            }
+                        }
+                    }
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "scatter_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_Scatter");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("scatter_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -18410,6 +18481,21 @@ fn runtime_host_upgrade_guard_residual() {
     assert!(
         src.contains("guard_position") && src.contains("guard_ok:"),
         "runtime host must expose guard residual"
+    );
+}
+
+#[test]
+fn runtime_host_attack_move_scatter_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("attack_move") && src.contains("attack_move_ok:"),
+        "runtime host must expose attack_move residual"
+    );
+    assert!(
+        src.contains("\"scatter\"")
+            && src.contains("scatter_ok:")
+            && src.contains("Command_Scatter"),
+        "runtime host must expose scatter residual"
     );
 }
 
