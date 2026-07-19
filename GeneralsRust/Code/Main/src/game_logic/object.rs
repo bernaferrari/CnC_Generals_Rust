@@ -5479,8 +5479,8 @@ impl Object {
         self.disguise_pending_team = Some(as_team);
         // Not fully disguised until halfpoint residual.
         self.status.disguised = false;
-        self.status.stealthed = true;
-        self.status.detected = false;
+        self.set_status_stealthed(true);
+        self.set_status_detected(false);
         self.detection_expires_frame = 0;
         self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
         self.status.disguise_transitioning_to = true;
@@ -5517,8 +5517,8 @@ impl Object {
         self.disguise_as_team = None;
         self.disguise_pending_template = None;
         self.disguise_pending_team = None;
-        self.status.stealthed = false;
-        self.status.detected = false;
+        self.set_status_stealthed(false);
+        self.set_status_detected(false);
         self.detection_expires_frame = 0;
         self.status.disguise_transition_frames = 0;
         self.status.disguise_transitioning_to = false;
@@ -5563,8 +5563,8 @@ impl Object {
                     self.disguise_as_team = Some(team);
                 }
                 self.status.disguised = true;
-                self.status.stealthed = true;
-                self.status.detected = false;
+                self.set_status_stealthed(true);
+                self.set_status_detected(false);
             } else {
                 // Reveal halfpoint: restore true look residual.
                 self.status.disguised = false;
@@ -5577,8 +5577,8 @@ impl Object {
 
         if remaining == 0 && !self.status.disguise_transitioning_to {
             // Finished removing disguise — clear stealth residual.
-            self.status.stealthed = false;
-            self.status.detected = false;
+            self.set_status_stealthed(false);
+            self.set_status_detected(false);
             self.detection_expires_frame = 0;
             self.status.disguise_transition_opacity = 1.0;
         }
@@ -5634,7 +5634,7 @@ impl Object {
     /// Mark this object as detected until `expires_frame` (logic frame exclusive).
     /// C++ StealthUpdate::markAsDetected residual.
     pub fn mark_detected(&mut self, expires_frame: u32) {
-        self.status.detected = true;
+        self.set_status_detected(true);
         // Keep the later expiry if already detected by another scanner.
         if expires_frame > self.detection_expires_frame {
             self.detection_expires_frame = expires_frame;
@@ -5643,7 +5643,7 @@ impl Object {
 
     /// Clear DETECTED status (stealth may remain active).
     pub fn clear_detected(&mut self) {
-        self.status.detected = false;
+        self.set_status_detected(false);
         self.detection_expires_frame = 0;
     }
 
@@ -5655,8 +5655,8 @@ impl Object {
             return;
         }
         let was_stealthed = self.status.stealthed;
-        self.status.stealthed = false;
-        self.status.detected = false;
+        self.set_status_stealthed(false);
+        self.set_status_detected(false);
         self.detection_expires_frame = 0;
         // CamoNetting / StealthDelay residual: schedule re-cloak gate on reveal.
         if was_stealthed && self.stealth_delay_frames > 0 {
@@ -5681,8 +5681,8 @@ impl Object {
         if self.status.destroyed {
             return;
         }
-        self.status.stealthed = true;
-        self.status.detected = false;
+        self.set_status_stealthed(true);
+        self.set_status_detected(false);
         self.detection_expires_frame = 0;
     }
 
@@ -7636,7 +7636,7 @@ impl Object {
         self.detection_range =
             crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
         // Innate stealth residual; uncloaks while MOVING.
-        self.status.stealthed = true;
+        self.set_status_stealthed(true);
         self.innate_stealth = true;
         self.stealth_breaks_on_move = true;
         // Fire does not break stealth on the vehicle itself (passengers fire residual).
@@ -8224,6 +8224,18 @@ impl Object {
     pub fn set_status_aiming_weapon(&mut self, aiming: bool) {
         self.status.is_aiming_weapon = aiming;
         crate::game_logic::host_status_log::record_aiming(self.id, aiming);
+    }
+
+    /// Host stealth residual + status channel log.
+    pub fn set_status_stealthed(&mut self, stealthed: bool) {
+        self.status.stealthed = stealthed;
+        crate::game_logic::host_status_log::record_stealthed(self.id, stealthed);
+    }
+
+    /// Host detection residual + status channel log.
+    pub fn set_status_detected(&mut self, detected: bool) {
+        self.status.detected = detected;
+        crate::game_logic::host_status_log::record_detected(self.id, detected);
     }
 
     /// Set the AI state for autonomous behavior

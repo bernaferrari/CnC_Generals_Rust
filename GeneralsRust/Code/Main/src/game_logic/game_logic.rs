@@ -17771,8 +17771,8 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE);
-            obj.status.stealthed = true;
-            obj.status.detected = false;
+            obj.set_status_stealthed(true);
+            obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
             // Rebel residual: uncloak while attacking; stay cloaked while moving.
@@ -17806,8 +17806,8 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_GLA_CAMO_NETTING);
-            obj.status.stealthed = true;
-            obj.status.detected = false;
+            obj.set_status_stealthed(true);
+            obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
             // Structure residual: ATTACKING + TAKING_DAMAGE uncloak; StealthDelay re-cloak.
@@ -19784,7 +19784,7 @@ impl GameLogic {
                     object.detection_range = range;
                 }
                 // Innate stealth residual (StealthUpdate InnateStealth = Yes).
-                object.status.stealthed = true;
+                object.set_status_stealthed(true);
                 object.stealth_breaks_on_attack = true;
                 // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
                 // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
@@ -19804,7 +19804,7 @@ impl GameLogic {
                 {
                     object.detection_range = range;
                 }
-                object.status.stealthed = true;
+                object.set_status_stealthed(true);
                 object.innate_stealth = true;
                 object.stealth_breaks_on_attack = false;
                 object.stealth_breaks_on_move = true;
@@ -38534,7 +38534,7 @@ impl GameLogic {
                 obj.health.current = SPY_DRONE_MAX_HEALTH;
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
                 // Innate stealth residual (StealthUpdate InnateStealth=Yes).
-                obj.status.stealthed = true;
+                obj.set_status_stealthed(true);
                 obj.innate_stealth = true;
                 obj.is_detector = true;
                 obj.detection_range = SPY_DRONE_VISION_RANGE;
@@ -39587,7 +39587,7 @@ impl GameLogic {
                     moving,
                 ) {
                     if desired && !obj.status.stealthed {
-                        obj.status.stealthed = true;
+                        obj.set_status_stealthed(true);
                     } else if !desired && obj.status.stealthed {
                         obj.break_stealth();
                     }
@@ -39624,7 +39624,7 @@ impl GameLogic {
                     moving,
                 ) {
                     if desired && !obj.status.stealthed {
-                        obj.status.stealthed = true;
+                        obj.set_status_stealthed(true);
                     } else if !desired && obj.status.stealthed {
                         obj.break_stealth();
                     }
@@ -39665,8 +39665,8 @@ impl GameLogic {
                     continue;
                 }
                 if !obj.status.stealthed {
-                    obj.status.stealthed = true;
-                    obj.status.detected = false;
+                    obj.set_status_stealthed(true);
+                    obj.set_status_detected(false);
                     obj.detection_expires_frame = 0;
                 }
             }
@@ -39732,8 +39732,8 @@ impl GameLogic {
                     continue;
                 };
                 if desired && !obj.status.stealthed {
-                    obj.status.stealthed = true;
-                    obj.status.detected = false;
+                    obj.set_status_stealthed(true);
+                    obj.set_status_detected(false);
                     obj.detection_expires_frame = 0;
                     obj.stealth_allowed_frame = 0;
                     // FriendlyOpacity residual: cloaked → min (then pulse).
@@ -65021,8 +65021,8 @@ mod tests {
         // Stealthed residual: CIA must make unit detectable.
         {
             let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
-            enemy.status.stealthed = true;
-            enemy.status.detected = false;
+            enemy.set_status_stealthed(true);
+            enemy.set_status_detected(false);
         }
         let center = Coord3D::new(enemy_pos.x, enemy_pos.z, enemy_pos.y);
 
@@ -69145,8 +69145,8 @@ mod tests {
             .expect("stealthed enemy");
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = true;
-            e.status.detected = false;
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
         }
 
         game_logic.frame = 1;
@@ -69177,8 +69177,8 @@ mod tests {
             .expect("far stealthed");
         {
             let e = game_logic.find_object_mut(far_id).unwrap();
-            e.status.stealthed = true;
-            e.status.detected = false;
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
         }
         // Clear prior detect so only far is checked for new mark (already-detected enemy
         // stays marked; far must remain undetected).
@@ -69197,7 +69197,7 @@ mod tests {
             let o = game_logic.find_object_mut(outpost_id).unwrap();
             o.ai_state = AIState::Moving;
             o.status.moving = true;
-            o.status.stealthed = true;
+            o.set_status_stealthed(true);
         }
         game_logic.update_stealth_and_detection();
         {
@@ -69879,8 +69879,8 @@ mod tests {
             .expect("stealthed");
         {
             let s = game_logic.find_object_mut(stealth_id).unwrap();
-            s.status.stealthed = true;
-            s.status.detected = false;
+            s.set_status_stealthed(true);
+            s.set_status_detected(false);
         }
 
         // No detector: auto-target search must skip stealthed unit.
@@ -69962,7 +69962,7 @@ mod tests {
 
         {
             let s = game_logic.find_object_mut(shooter_id).unwrap();
-            s.status.stealthed = true;
+            s.set_status_stealthed(true);
             s.stealth_breaks_on_attack = true;
             s.weapon = Some(Weapon {
                 damage: 5.0,
@@ -69987,7 +69987,7 @@ mod tests {
             .expect("stealth");
         {
             let s = game_logic.find_object_mut(stealth_id).unwrap();
-            s.status.stealthed = true;
+            s.set_status_stealthed(true);
             s.mark_detected(5); // expires at frame 5
         }
 
@@ -70736,7 +70736,7 @@ mod tests {
         // ATTACKING residual: mark attacking while stealthed → uncloak.
         {
             let s = game_logic.find_object_mut(stinger_id).unwrap();
-            s.status.stealthed = true;
+            s.set_status_stealthed(true);
             s.stealth_allowed_frame = 0;
             s.stealth_delay_pending = false;
             s.set_status_attacking(true);
@@ -70755,7 +70755,7 @@ mod tests {
         // USING_ABILITY residual: forbids stealth while OBJECT_STATUS_IS_USING_ABILITY.
         {
             let s = game_logic.find_object_mut(stinger_id).unwrap();
-            s.status.stealthed = true;
+            s.set_status_stealthed(true);
             s.stealth_allowed_frame = 0;
             s.stealth_delay_pending = false;
             s.set_status_attacking(false);
@@ -70799,7 +70799,7 @@ mod tests {
         // Force tunnel stealthed then damage-reveal so OrderIdle residual fires.
         {
             let t = game_logic.find_object_mut(tunnel_id).unwrap();
-            t.status.stealthed = true;
+            t.set_status_stealthed(true);
             t.set_status_attacking(false);
             t.status.using_ability = false;
             t.ai_state = AIState::Idle;
@@ -70843,7 +70843,7 @@ mod tests {
             t.status.using_ability = false;
             t.ai_state = AIState::Idle;
             t.target = None;
-            t.status.stealthed = false;
+            t.set_status_stealthed(false);
             // frame < allowed forbids; equal allows re-cloak residual.
             t.stealth_allowed_frame = recloak_frame;
             t.stealth_delay_pending = false;
@@ -70900,8 +70900,8 @@ mod tests {
         use crate::game_logic::host_upgrades::{camo_netting_stealth_look, HostCamoStealthLook};
         {
             let t = game_logic.find_object_mut(tunnel_id).unwrap();
-            t.status.stealthed = true;
-            t.status.detected = true;
+            t.set_status_stealthed(true);
+            t.set_status_detected(true);
             t.camo_heat_vision_opacity = 0.0;
             t.camo_stealth_look = 0;
         }
@@ -74093,8 +74093,8 @@ mod tests {
             .expect("stealthed enemy");
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = true;
-            e.status.detected = false;
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
         }
 
         game_logic.frame = 1;
@@ -74171,7 +74171,7 @@ mod tests {
         // Detected enemy becomes targetable; place in gun range and idle for auto-fire.
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = false; // or keep detected; either way targetable
+            e.set_status_stealthed(false); // or keep detected; either way targetable
             e.set_position(Vec3::new(40.0, 0.0, 0.0));
         }
         {
@@ -74316,8 +74316,8 @@ mod tests {
             .expect("stealthed enemy");
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = true;
-            e.status.detected = false;
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
         }
         game_logic.frame = 1;
         game_logic.update_stealth_and_detection();
@@ -74338,7 +74338,7 @@ mod tests {
             let p = game_logic.find_object_mut(pf_id).unwrap();
             p.ai_state = AIState::Attacking;
             p.target = Some(stealth_id);
-            p.status.stealthed = true;
+            p.set_status_stealthed(true);
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -100.0;
                 w.reload_time = 0.1;
@@ -74346,7 +74346,7 @@ mod tests {
         }
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = false; // targetable
+            e.set_status_stealthed(false); // targetable
             e.set_position(Vec3::new(40.0, 0.0, 0.0));
         }
         let enemy_hp_before = game_logic
@@ -74380,7 +74380,7 @@ mod tests {
             let p = game_logic.find_object_mut(pf_id).unwrap();
             p.ai_state = AIState::Moving;
             p.status.moving = true;
-            p.status.stealthed = true;
+            p.set_status_stealthed(true);
         }
         game_logic.update_stealth_and_detection();
         {
@@ -74466,8 +74466,8 @@ mod tests {
             .expect("stealthed");
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = true;
-            e.status.detected = false;
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
         }
         // Place scout at origin (already); enemy at 30 within 150.
         game_logic.frame = 2;
@@ -74511,7 +74511,7 @@ mod tests {
         // Hellfire auto-fire residual damages nearby enemy.
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = false;
+            e.set_status_stealthed(false);
             e.set_position(Vec3::new(40.0, 0.0, 0.0));
         }
         {
@@ -75353,7 +75353,7 @@ mod tests {
         // Fire residual breaks stealth.
         {
             let rebel = game_logic.find_object_mut(rebel_id).expect("rebel");
-            rebel.status.stealthed = true;
+            rebel.set_status_stealthed(true);
             rebel.stealth_breaks_on_attack = true;
             assert!(rebel.fire_at(enemy_id, 0.0) || true);
             // fire_at may fail without weapon; force residual break path.
@@ -78430,8 +78430,8 @@ mod tests {
             .expect("stealthed enemy");
         {
             let e = game_logic.find_object_mut(stealth_id).unwrap();
-            e.status.stealthed = true;
-            e.status.detected = false;
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
         }
 
         game_logic.frame = 1;
@@ -78462,8 +78462,8 @@ mod tests {
             .expect("far stealthed");
         {
             let e = game_logic.find_object_mut(far_id).unwrap();
-            e.status.stealthed = true;
-            e.status.detected = false;
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
         }
         game_logic.frame = 2;
         game_logic.update_stealth_and_detection();
@@ -80966,7 +80966,7 @@ mod tests {
 
         for id in [cc_id, tunnel_id] {
             let o = game_logic.find_object_mut(id).unwrap();
-            o.status.stealthed = false;
+            o.set_status_stealthed(false);
             o.innate_stealth = false;
         }
 
@@ -92218,8 +92218,8 @@ mod tests {
         logic.objects.insert(vid, {
             let mut o = Object::new(vt, vid, Team::GLA);
             o.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
-            o.status.stealthed = true;
-            o.status.detected = false;
+            o.set_status_stealthed(true);
+            o.set_status_detected(false);
             o
         });
         assert_eq!(
@@ -92291,12 +92291,16 @@ mod tests {
         let vid = ObjectId(2206);
         logic.objects.insert(vid, {
             let mut o = Object::new(vt, vid, Team::GLA);
-            o.status.stealthed = true;
-            o.status.detected = false;
+            o.set_status_stealthed(true);
+            o.set_status_detected(false);
             o
         });
         assert!(logic.cannot_possibly_attack_object(aid, vid, false));
-        logic.objects.get_mut(&vid).unwrap().status.detected = true;
+        logic
+            .objects
+            .get_mut(&vid)
+            .unwrap()
+            .set_status_detected(true);
         assert!(!logic.cannot_possibly_attack_object(aid, vid, false));
     }
 
