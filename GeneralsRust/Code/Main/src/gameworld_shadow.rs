@@ -406,6 +406,7 @@ impl GameWorldShadow {
                     e.hijacked = obj.status.hijacked;
                     e.ignoring_stealth = obj.status.ignoring_stealth;
                     e.repulsor = obj.status.repulsor;
+                    e.disabled_freefall = obj.status.disabled_freefall;
                     e.is_building = obj.building_data.is_some();
                     if let Some(bd) = obj.building_data.as_ref() {
                         e.building_type_ordinal =
@@ -704,6 +705,7 @@ impl GameWorldShadow {
                 e.hijacked = obj.status.hijacked;
                 e.ignoring_stealth = obj.status.ignoring_stealth;
                 e.repulsor = obj.status.repulsor;
+                e.disabled_freefall = obj.status.disabled_freefall;
                 e.is_building = obj.building_data.is_some();
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
@@ -1663,6 +1665,10 @@ impl GameWorldShadow {
             }
             if obj.status.repulsor != ent.repulsor {
                 obj.status.repulsor = ent.repulsor;
+                dirty = true;
+            }
+            if obj.status.disabled_freefall != ent.disabled_freefall {
+                obj.status.disabled_freefall = ent.disabled_freefall;
                 dirty = true;
             }
             if obj.status.selected != ent.selected {
@@ -3844,6 +3850,68 @@ mod tests {
         assert!(n >= 1);
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.selected, "mutation channel must set selected");
+    }
+
+    #[test]
+    fn host_attacking_status_log_drives_set_combat_status_channel() {
+        use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AtkStatusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("AtkU") {
+            let mut t = ThingTemplate::new("AtkU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("AtkU".into(), t);
+        }
+        let id = logic
+            .create_object("AtkU", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("id");
+        host_status_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_status_attacking(true);
+            o.set_status_firing_weapon(true);
+        }
+        let events = host_status_log::drain();
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.attacking == Some(true)));
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.is_firing_weapon == Some(true)));
+        // Re-record for mutation apply.
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_status_attacking(true);
+            o.set_status_firing_weapon(true);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.attacking = false;
+            e.is_firing_weapon = false;
+        }
+        for ev in host_status_log::drain() {
+            let _ = shadow.queue_set_combat_status_for_host(
+                ev.object,
+                ev.stealthed,
+                ev.detected,
+                ev.attacking,
+                ev.is_firing_weapon,
+                ev.is_aiming_weapon,
+                ev.selected,
+                None,
+                None,
+                None,
+                None,
+            );
+        }
+        assert!(shadow.apply_pending() >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.attacking);
+        assert!(e.is_firing_weapon);
     }
 
     #[test]
