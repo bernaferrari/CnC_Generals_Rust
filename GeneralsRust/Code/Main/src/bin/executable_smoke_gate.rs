@@ -42,6 +42,12 @@ fn main() {
             );
             std::process::exit(5);
         }
+        if !r.presentation_live_fallback_ok {
+            eprintln!(
+                "executable_smoke_gate: FAIL presentation_live_fallback_ok=false (InGame collect dual-read GameLogic)"
+            );
+            std::process::exit(7);
+        }
         if !r.render_items_stable_ok || r.max_render_item_count == 0 {
             eprintln!(
                 "executable_smoke_gate: FAIL render_items_stable={} max_render_items={} (InGame world mesh pass empty/unstable)",
@@ -55,9 +61,9 @@ fn main() {
     match r.status.as_str() {
         "success" | "success_partial_exit" | "success_forced_exit" if r.executable_host_ok => {
             println!(
-                "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} gameplay_cmd={} skirmish_menu={} frames={} new_game={} presentation_ok={} render_items={} render_stable={})",
+                "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} gameplay_cmd={} skirmish_menu={} frames={} new_game={} presentation_ok={} live_fallback_ok={} render_items={} render_stable={})",
                 r.reached_ingame, r.reached_menu, r.gameplay_cmd_ok, r.skirmish_menu_ok, r.frames_observed, r.new_game_path,
-                r.presentation_frame_ok, r.max_render_item_count, r.render_items_stable_ok
+                r.presentation_frame_ok, r.presentation_live_fallback_ok, r.max_render_item_count, r.render_items_stable_ok
             );
             std::process::exit(0);
         }
