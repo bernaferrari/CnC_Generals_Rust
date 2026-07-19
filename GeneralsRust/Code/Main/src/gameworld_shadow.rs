@@ -3420,6 +3420,114 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_command_set_events(
+        &mut self,
+        events: &[crate::game_logic::host_command_set_log::HostCommandSetEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetCommandSet {
+                    target: eid,
+                    command_set: ev.command_set.clone(),
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_command_set_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host = obj.command_set_override.clone().unwrap_or_default();
+            if host == ent.command_set_override {
+                continue;
+            }
+            obj.command_set_override = if ent.command_set_override.is_empty() {
+                None
+            } else {
+                Some(ent.command_set_override.clone())
+            };
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn apply_host_disguise_events(
+        &mut self,
+        events: &[crate::game_logic::host_disguise_log::HostDisguiseEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetDisguise {
+                    target: eid,
+                    template: ev.template.clone(),
+                    team_ordinal: ev.team_ordinal,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_disguise_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_tpl = obj.disguise_as_template.clone().unwrap_or_default();
+            let host_team = obj
+                .disguise_as_team
+                .map(|t| match t {
+                    Team::USA => 0u8,
+                    Team::China => 1,
+                    Team::GLA => 2,
+                    Team::Neutral => 3,
+                })
+                .unwrap_or(255);
+            if host_tpl == ent.disguise_as_template && host_team == ent.disguise_as_team_ordinal {
+                continue;
+            }
+            obj.disguise_as_template = if ent.disguise_as_template.is_empty() {
+                None
+            } else {
+                Some(ent.disguise_as_template.clone())
+            };
+            obj.disguise_as_team = match ent.disguise_as_team_ordinal {
+                0 => Some(Team::USA),
+                1 => Some(Team::China),
+                2 => Some(Team::GLA),
+                3 => Some(Team::Neutral),
+                _ => None,
+            };
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_overlord_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4104,6 +4212,8 @@ pub fn shadow_session_after_host_tick(
     let hive_events = crate::game_logic::host_hive_log::drain();
     let stealth_flags_events = crate::game_logic::host_stealth_flags_log::drain();
     let overlord_events = crate::game_logic::host_overlord_log::drain();
+    let command_set_events = crate::game_logic::host_command_set_log::drain();
+    let disguise_events = crate::game_logic::host_disguise_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4161,6 +4271,8 @@ pub fn shadow_session_after_host_tick(
     let _hive_applied = shadow.apply_host_hive_events(&hive_events);
     let _stf_applied = shadow.apply_host_stealth_flags_events(&stealth_flags_events);
     let _ol_applied = shadow.apply_host_overlord_events(&overlord_events);
+    let _cs_applied = shadow.apply_host_command_set_events(&command_set_events);
+    let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4213,6 +4325,8 @@ pub fn shadow_session_after_host_tick(
     let _hive_wb = shadow.writeback_hive_to_host(logic);
     let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
     let _ol_wb = shadow.writeback_overlord_to_host(logic);
+    let _cs_wb = shadow.writeback_command_set_to_host(logic);
+    let _dg_wb = shadow.writeback_disguise_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -7042,7 +7156,125 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_command_set_log_drives_set_command_set_channel() {
+        use crate::game_logic::{host_command_set_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CsCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CsU") {
+            let mut t = ThingTemplate::new("CsU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("CsU".into(), t);
+        }
+        let oid = logic
+            .create_object("CsU", Team::GLA, glam::Vec3::new(22.0, 0.0, 22.0))
+            .expect("id");
+        host_command_set_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_command_set_override(Some("Command_DemoSuicide".into()));
+        }
+        let events = host_command_set_log::drain();
+        assert!(
+            events.iter().any(|e| e.object == oid && e.command_set == "Command_DemoSuicide"),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_command_set();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.command_set_override.clear();
+        }
+        let n = shadow.apply_host_command_set_events(&host_command_set_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.command_set_override, "Command_DemoSuicide");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.command_set_override = None;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.command_set_override = "Command_DemoSuicide".into();
+        }
+        assert!(shadow.writeback_command_set_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.command_set_override.as_deref(), Some("Command_DemoSuicide"));
+    }
+
+    #[test]
+    fn host_disguise_log_drives_set_disguise_channel() {
+        use crate::game_logic::{host_disguise_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DgCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("DgU") {
+            let mut t = ThingTemplate::new("DgU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("DgU".into(), t);
+        }
+        let oid = logic
+            .create_object("DgU", Team::GLA, glam::Vec3::new(23.0, 0.0, 23.0))
+            .expect("id");
+        host_disguise_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.disguise_as_template = Some("AmericaVehicleHumvee".into());
+            o.disguise_as_team = Some(Team::USA);
+            o.record_host_disguise();
+        }
+        let events = host_disguise_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.template == "AmericaVehicleHumvee"
+                    && e.team_ordinal == 0
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_disguise();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.disguise_as_template.clear();
+            e.disguise_as_team_ordinal = 255;
+        }
+        let n = shadow.apply_host_disguise_events(&host_disguise_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.disguise_as_template, "AmericaVehicleHumvee");
+        assert_eq!(e.disguise_as_team_ordinal, 0);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.disguise_as_template = None;
+            o.disguise_as_team = None;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.disguise_as_template = "AmericaVehicleHumvee".into();
+            e.disguise_as_team_ordinal = 0;
+        }
+        assert!(shadow.writeback_disguise_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.disguise_as_template.as_deref(), Some("AmericaVehicleHumvee"));
+        assert_eq!(o.disguise_as_team, Some(Team::USA));
+    }
+
+#[test]
     fn host_overlord_log_drives_set_overlord_addon_channel() {
         use crate::game_logic::{host_overlord_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
