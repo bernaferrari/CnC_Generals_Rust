@@ -200,6 +200,8 @@ pub struct Entity {
     pub ignoring_stealth: bool,
     /// Host Object::status.repulsor residual.
     pub repulsor: bool,
+    /// Host Object::status.disabled_freefall residual.
+    pub disabled_freefall: bool,
     /// Host Object::building_data present residual.
     pub is_building: bool,
     /// Host BuildingType residual ordinal (0..12; 255 = not a building).
@@ -500,6 +502,7 @@ impl EntityStore {
             hijacked: false,
             ignoring_stealth: false,
             repulsor: false,
+            disabled_freefall: false,
             is_building: false,
             building_type_ordinal: 255,
             production_queue_len: 0,
