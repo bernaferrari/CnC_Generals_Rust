@@ -8463,6 +8463,24 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
+    pub fn record_host_entity_power(&self) {
+        crate::game_logic::host_entity_power_log::record(
+            self.id,
+            self.power_provided,
+            self.power_consumed,
+        );
+    }
+
+    pub fn set_entity_power(&mut self, provided: i32, consumed: i32) {
+        let provided = provided.max(0);
+        let consumed = consumed.max(0);
+        if self.power_provided != provided || self.power_consumed != consumed {
+            self.power_provided = provided;
+            self.power_consumed = consumed;
+            self.record_host_entity_power();
+        }
+    }
+
     pub fn record_host_weapon_slot(&self) {
         crate::game_logic::host_weapon_slot_log::record(self.id, self.active_weapon_slot);
     }
