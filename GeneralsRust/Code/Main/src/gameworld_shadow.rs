@@ -2536,6 +2536,7 @@ pub fn shadow_session_after_host_tick(
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
+    let status_events = crate::game_logic::host_status_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
     let construction_events = crate::game_logic::host_construction_log::drain();
@@ -2559,7 +2560,22 @@ pub fn shadow_session_after_host_tick(
     for ev in &move_events {
         let _ = shadow.queue_set_move_target_for_host(ev.unit, ev.destination);
     }
-    if !attack_events.is_empty() || !move_events.is_empty() {
+    for ev in &status_events {
+        let _ = shadow.queue_set_combat_status_for_host(
+            ev.object,
+            ev.stealthed,
+            ev.detected,
+            ev.attacking,
+            ev.is_firing_weapon,
+            ev.is_aiming_weapon,
+            ev.selected,
+            None,
+            None,
+            None,
+            None,
+        );
+    }
+    if !attack_events.is_empty() || !move_events.is_empty() || !status_events.is_empty() {
         let _ = shadow.apply_pending();
     }
     let _atks = shadow.apply_host_attack_targets(logic);
@@ -3756,6 +3772,66 @@ mod tests {
         assert!(o.status.disabled_emp);
         assert!(o.status.masked);
         assert!(o.status.disguised);
+    }
+
+    #[test]
+    fn host_selection_status_log_drives_set_combat_status_channel() {
+        use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SelStatusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SelU") {
+            let mut t = ThingTemplate::new("SelU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("SelU".into(), t);
+        }
+        let id = logic
+            .create_object("SelU", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        host_status_log::clear();
+        // Select via host API (records status log).
+        let pid = logic.get_players().keys().copied().min().unwrap_or(0);
+        logic.select_objects(pid, vec![id]);
+        let events = host_status_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == id && e.selected == Some(true)),
+            "select must log selected=true"
+        );
+        // Re-record for session path (drain consumed).
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.select();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Poison shadow selected off, then apply host status events as mutations.
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.selected = false;
+        }
+        let status_events = host_status_log::drain();
+        for ev in &status_events {
+            let _ = shadow.queue_set_combat_status_for_host(
+                ev.object,
+                ev.stealthed,
+                ev.detected,
+                ev.attacking,
+                ev.is_firing_weapon,
+                ev.is_aiming_weapon,
+                ev.selected,
+                None,
+                None,
+                None,
+                None,
+            );
+        }
+        let n = shadow.apply_pending();
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.selected, "mutation channel must set selected");
     }
 
     #[test]
