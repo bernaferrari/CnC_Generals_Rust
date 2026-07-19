@@ -2464,6 +2464,7 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "attack_fail_not_ingame".into();
                 } else {
+                    self.runtime_host_last_gameplay_cmd = "attack_begin".into();
                     let team = self
                         .game_logic
                         .get_player(self.current_player_id)
@@ -2507,6 +2508,168 @@ impl CnCGameEngine {
                         }
                     } else {
                         self.runtime_host_last_gameplay_cmd = "attack_fail_no_player".into();
+                    }
+                }
+            }
+            "construct" | "dozer_construct" | "place_structure" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
+                } else {
+                    self.runtime_host_last_gameplay_cmd = "construct_begin".into();
+                    let requested = args
+                        .get("template")
+                        .cloned()
+                        .or_else(|| args.get("name").cloned())
+                        .unwrap_or_else(|| "USA_Barracks".to_string());
+                    // Prefer requested, then common USA/host barracks residual names.
+                    let candidates = [
+                        requested.as_str(),
+                        "USA_Barracks",
+                        "AmericaBarracks",
+                        "Barracks",
+                    ];
+                    let template = candidates
+                        .iter()
+                        .find(|n| self.game_logic.templates.contains_key(**n))
+                        .map(|s| (*s).to_string())
+                        .unwrap_or(requested);
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let Some(team) = team else {
+                        self.runtime_host_last_gameplay_cmd = "construct_fail_no_player".into();
+                        return;
+                    };
+                    // Prefer selected worker; else first friendly dozer/worker.
+                    let mut builders: Vec<crate::game_logic::ObjectId> = self
+                        .selected_objects
+                        .iter()
+                        .copied()
+                        .filter(|id| {
+                            self.game_logic
+                                .get_object(*id)
+                                .map(|o| o.team == team && o.is_alive() && o.can_construct())
+                                .unwrap_or(false)
+                        })
+                        .collect();
+                    if builders.is_empty() {
+                        builders = self
+                            .game_logic
+                            .get_objects()
+                            .iter()
+                            .filter(|(_, o)| {
+                                o.team == team
+                                    && o.is_alive()
+                                    && (o.can_construct()
+                                        || o.is_kind_of(crate::game_logic::KindOf::Worker)
+                                        || o.template_name.to_ascii_lowercase().contains("dozer")
+                                        || o.template_name.to_ascii_lowercase().contains("worker")
+                                        || o.template_name.to_ascii_lowercase().contains("crane"))
+                            })
+                            .map(|(id, _)| *id)
+                            .collect();
+                        builders.sort_by_key(|id| id.0);
+                    }
+                    // Host residual: if map has no dozer yet, spawn USA_Dozer/GoldenDozer at CC.
+                    if builders.is_empty() {
+                        let spawn_at = self
+                            .game_logic
+                            .get_objects()
+                            .values()
+                            .find(|o| {
+                                o.team == team
+                                    && o.is_alive()
+                                    && o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
+                            })
+                            .map(|o| o.get_position())
+                            .unwrap_or(glam::Vec3::new(100.0, 0.0, 100.0))
+                            + glam::Vec3::new(25.0, 0.0, 0.0);
+                        for name in ["USA_Dozer", "AmericaVehicleDozer", "GoldenDozer"] {
+                            if !self.game_logic.templates.contains_key(name) {
+                                continue;
+                            }
+                            if let Some(id) = self.game_logic.create_object(name, team, spawn_at) {
+                                builders.push(id);
+                                break;
+                            }
+                        }
+                    }
+                    let Some(builder) = builders.first().copied() else {
+                        self.runtime_host_last_gameplay_cmd = "construct_fail_no_dozer".into();
+                        return;
+                    };
+                    self.selected_objects = vec![builder];
+                    self.game_logic
+                        .select_objects(self.current_player_id, vec![builder]);
+
+                    // Location: explicit xyz, else near builder / local CC.
+                    let loc = if let (Some(x), Some(z)) = (
+                        args.get("x").and_then(|s| s.parse::<f32>().ok()),
+                        args.get("z").and_then(|s| s.parse::<f32>().ok()),
+                    ) {
+                        let y = args
+                            .get("y")
+                            .and_then(|s| s.parse::<f32>().ok())
+                            .unwrap_or(0.0);
+                        glam::Vec3::new(x, y, z)
+                    } else {
+                        let base = self
+                            .game_logic
+                            .get_objects()
+                            .values()
+                            .find(|o| {
+                                o.team == team
+                                    && o.is_alive()
+                                    && o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
+                            })
+                            .map(|o| o.get_position())
+                            .or_else(|| {
+                                self.game_logic
+                                    .get_object(builder)
+                                    .map(|o| o.get_position())
+                            })
+                            .unwrap_or(glam::Vec3::ZERO);
+                        base + glam::Vec3::new(40.0, 0.0, 0.0)
+                    };
+
+                    // FOW residual: load_map + per-frame update_main_crate_vision already ran.
+                    let lbc = self.game_logic.legal_build_code_at_for_builder(
+                        team,
+                        loc,
+                        &template,
+                        Some(builder),
+                    );
+                    if lbc != 0 {
+                        // Scan nearby pads (same residual as golden FOW recovery).
+                        let mut found = None;
+                        'scan: for dx in -6..=6 {
+                            for dz in -6..=6 {
+                                let p =
+                                    loc + glam::Vec3::new(dx as f32 * 15.0, 0.0, dz as f32 * 15.0);
+                                if self.game_logic.is_location_legal_to_build_for_builder(
+                                    team,
+                                    p,
+                                    &template,
+                                    Some(builder),
+                                ) {
+                                    found = Some(p);
+                                    break 'scan;
+                                }
+                            }
+                        }
+                        if let Some(p) = found {
+                            self.place_structure_from_ui(&template, p);
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("construct_ok:{}@{},{}", template, p.x, p.z);
+                        } else {
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("construct_fail_lbc:{lbc}");
+                        }
+                    } else {
+                        self.place_structure_from_ui(&template, loc);
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("construct_ok:{}@{},{}", template, loc.x, loc.z);
                     }
                 }
             }
@@ -17811,6 +17974,21 @@ fn move_lines_and_garrisoned_select_residual() {
             && src.contains("No garrisoned structures")
             && src.contains("select_all_garrisoned_structures()"),
         "Ctrl+Alt+U must select garrisoned structures residual"
+    );
+}
+
+#[test]
+fn runtime_host_construct_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("dozer_construct") && src.contains("construct_ok:"),
+        "runtime host must expose construct/dozer_construct residual"
+    );
+    assert!(
+        src.contains("construct_fail_no_dozer")
+            && src.contains("construct_fail_lbc:")
+            && src.contains("place_structure_from_ui"),
+        "construct residual must legal-build scan + place_structure_from_ui"
     );
 }
 
