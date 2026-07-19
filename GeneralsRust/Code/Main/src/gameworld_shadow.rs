@@ -2587,8 +2587,8 @@ pub fn shadow_session_after_host_tick(
             ev.is_firing_weapon,
             ev.is_aiming_weapon,
             ev.selected,
-            None,
-            None,
+            ev.disabled_emp,
+            ev.weapons_jammed,
             None,
             None,
         );
@@ -3973,6 +3973,70 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.stealthed);
         assert!(!e.detected);
+    }
+
+    #[test]
+    fn host_emp_status_log_drives_set_combat_status_channel() {
+        use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EmpStatusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("EmpU") {
+            let mut t = ThingTemplate::new("EmpU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("EmpU".into(), t);
+        }
+        let id = logic
+            .create_object("EmpU", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
+            .expect("id");
+        host_status_log::clear();
+        let until = logic.get_frame().saturating_add(300);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.apply_disabled_emp(until);
+        }
+        let events = host_status_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == id && e.disabled_emp == Some(true)),
+            "EMP apply must log disabled_emp"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == id && e.attacking == Some(false)),
+            "EMP apply clears attacking via status channel"
+        );
+        let until2 = logic.get_frame().saturating_add(300);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.apply_disabled_emp(until2);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.disabled_emp = false;
+        }
+        for ev in host_status_log::drain() {
+            let _ = shadow.queue_set_combat_status_for_host(
+                ev.object,
+                ev.stealthed,
+                ev.detected,
+                ev.attacking,
+                ev.is_firing_weapon,
+                ev.is_aiming_weapon,
+                ev.selected,
+                ev.disabled_emp,
+                ev.weapons_jammed,
+                None,
+                None,
+            );
+        }
+        assert!(shadow.apply_pending() >= 1);
+        assert!(shadow.world().entity(eid).expect("e").disabled_emp);
     }
 
     #[test]
