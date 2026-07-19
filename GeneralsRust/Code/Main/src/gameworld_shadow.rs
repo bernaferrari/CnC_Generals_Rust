@@ -1702,6 +1702,32 @@ impl GameWorldShadow {
                 dirty = true;
             }
             {
+                let want = if ent.contained_by_host == 0 {
+                    None
+                } else {
+                    Some(ObjectId(ent.contained_by_host))
+                };
+                if obj.contained_by != want {
+                    obj.contained_by = want;
+                    dirty = true;
+                }
+            }
+            if let Some(bd) = obj.building_data.as_mut() {
+                if !ent.garrisoned_host_ids.is_empty() || ent.garrison_count > 0 {
+                    let ids: Vec<ObjectId> = ent
+                        .garrisoned_host_ids
+                        .iter()
+                        .copied()
+                        .map(ObjectId)
+                        .collect();
+                    if bd.garrisoned_units != ids {
+                        bd.garrisoned_units = ids;
+                        dirty = true;
+                    }
+                }
+            }
+
+            {
                 use crate::game_logic::VeterancyLevel as V;
                 let want = match ent.veterancy_ordinal.min(3) {
                     0 => V::Rookie,
@@ -2484,6 +2510,47 @@ impl GameWorldShadow {
         true
     }
 
+    pub fn queue_set_contain_for_host(
+        &mut self,
+        host: ObjectId,
+        contained_by_host: u32,
+        garrison_count: Option<u16>,
+        garrisoned_host_ids: Option<Vec<u32>>,
+    ) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetContain {
+                target,
+                contained_by_host,
+                garrison_count,
+                garrisoned_host_ids,
+            });
+        true
+    }
+
+    pub fn apply_host_contain_events(
+        &mut self,
+        events: &[crate::game_logic::host_contain_log::HostContainEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_contain_for_host(
+                ev.object,
+                ev.contained_by_host,
+                ev.garrison_count,
+                ev.garrisoned_host_ids.clone(),
+            ) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_ai_state_events(
         &mut self,
         events: &[crate::game_logic::host_ai_state_log::HostAiStateEvent],
@@ -2945,6 +3012,7 @@ pub fn shadow_session_after_host_tick(
     let special_power_events = crate::game_logic::host_special_power_log::drain();
     let stored_supplies_events = crate::game_logic::host_stored_supplies_log::drain();
     let ai_state_events = crate::game_logic::host_ai_state_log::drain();
+    let contain_events = crate::game_logic::host_contain_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -2959,6 +3027,7 @@ pub fn shadow_session_after_host_tick(
     let _sp_applied = shadow.apply_host_special_power_events(&special_power_events);
     let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
     let _ai_applied = shadow.apply_host_ai_state_events(&ai_state_events);
+    let _contain_applied = shadow.apply_host_contain_events(&contain_events);
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -4410,6 +4479,107 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_contain_log_drives_set_contain_channel() {
+        use crate::game_logic::{
+            host_contain_log, BuildingData, BuildingType, KindOf, Team, ThingTemplate,
+        };
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ContainCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["BunkC", "InfC"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.set_health(200.0);
+                t.add_kind_of(KindOf::Selectable);
+                if name == "BunkC" {
+                    t.add_kind_of(KindOf::Structure);
+                }
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let bunker = logic
+            .create_object("BunkC", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("b");
+        let inf = logic
+            .create_object("InfC", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("i");
+        {
+            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            o.building_data = Some(BuildingData::new(BuildingType::Bunker));
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.max_garrison = 5;
+            }
+        }
+        host_contain_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            assert!(o.add_occupant(inf));
+        }
+        {
+            let o = logic.get_objects_mut().get_mut(&inf).expect("i");
+            o.set_contained_by(Some(bunker));
+        }
+        let events = host_contain_log::drain();
+        assert!(events.len() >= 2, "events {:?}", events);
+
+        // Re-apply path
+        host_contain_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.garrisoned_units.clear();
+            }
+            assert!(o.add_occupant(inf));
+        }
+        {
+            let o = logic.get_objects_mut().get_mut(&inf).expect("i");
+            o.set_contained_by(Some(bunker));
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid_i = shadow.entity_for_host(inf).expect("map i");
+        let eid_b = shadow.entity_for_host(bunker).expect("map b");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid_i) {
+            e.contained_by_host = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid_b) {
+            e.garrison_count = 0;
+            e.garrisoned_host_ids.clear();
+        }
+        let n = shadow.apply_host_contain_events(&host_contain_log::drain());
+        assert!(n >= 1);
+        assert_eq!(
+            shadow.world().entity(eid_i).expect("e").contained_by_host,
+            bunker.0
+        );
+        assert!(shadow.world().entity(eid_b).expect("e").garrison_count >= 1);
+        // Poison host then writeback
+        {
+            let o = logic.get_objects_mut().get_mut(&inf).expect("i");
+            o.contained_by = None;
+        }
+        {
+            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.garrisoned_units.clear();
+            }
+        }
+        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&inf).expect("i").contained_by,
+            Some(bunker)
+        );
+        let bd = logic
+            .get_objects()
+            .get(&bunker)
+            .expect("b")
+            .building_data
+            .as_ref()
+            .expect("bd");
+        assert!(bd.garrisoned_units.contains(&inf));
     }
 
     #[test]

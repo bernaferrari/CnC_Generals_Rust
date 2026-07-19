@@ -518,6 +518,13 @@ pub enum WorldMutation {
     SetStoredSupplies { target: EntityId, supplies: u32 },
     /// Set AI state ordinal residual (Idle=0 .. Capturing=19, GuardRetaliating=20).
     SetAiState { target: EntityId, ordinal: u8 },
+    /// Set contain/garrison residual (passenger container + building roster).
+    SetContain {
+        target: EntityId,
+        contained_by_host: u32,
+        garrison_count: Option<u16>,
+        garrisoned_host_ids: Option<Vec<u32>>,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -901,6 +908,23 @@ impl GameWorld {
                 WorldMutation::SetAiState { target, ordinal } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.ai_state_ordinal = ordinal;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetContain {
+                    target,
+                    contained_by_host,
+                    garrison_count,
+                    garrisoned_host_ids,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.contained_by_host = contained_by_host;
+                        if let Some(c) = garrison_count {
+                            e.garrison_count = c;
+                        }
+                        if let Some(ids) = garrisoned_host_ids {
+                            e.garrisoned_host_ids = ids;
+                        }
                         applied += 1;
                     }
                 }
