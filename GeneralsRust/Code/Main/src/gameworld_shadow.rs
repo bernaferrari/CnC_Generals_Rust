@@ -1059,6 +1059,9 @@ impl GameWorldShadow {
         pd.is_alive = p.is_alive;
         pd.cash_bounty_percent = p.cash_bounty_percent.clamp(0.0, 1.0);
         pd.color_rgb = p.color_rgb;
+        pd.rank_level = p.rank_level.max(1);
+        pd.skill_points = p.skill_points;
+        pd.science_purchase_points = p.science_purchase_points;
         pd.is_human = p.is_local;
         pd.name = p.name.clone();
     }
@@ -1288,6 +1291,18 @@ impl GameWorldShadow {
             }
             if player.color_rgb != pd.color_rgb {
                 player.color_rgb = pd.color_rgb;
+                dirty = true;
+            }
+            if player.rank_level != pd.rank_level {
+                player.rank_level = pd.rank_level;
+                dirty = true;
+            }
+            if player.skill_points != pd.skill_points {
+                player.skill_points = pd.skill_points;
+                dirty = true;
+            }
+            if player.science_purchase_points != pd.science_purchase_points {
+                player.science_purchase_points = pd.science_purchase_points;
                 dirty = true;
             }
             if dirty {
@@ -3548,6 +3563,40 @@ mod tests {
             src.contains("radar_count") && src.contains("radar_disabled"),
             "sync_players must refresh radar residual"
         );
+    }
+
+    #[test]
+    fn sync_players_copies_rank_residual() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("RankShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.rank_level = 4;
+            p.skill_points = 512;
+            p.science_purchase_points = 3;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let gw = shadow.host_player_to_gw.get(&pid).copied().expect("mapped");
+        let pd = shadow.world().player(gw).expect("pd");
+        assert_eq!(pd.rank_level, 4);
+        assert_eq!(pd.skill_points, 512);
+        assert_eq!(pd.science_purchase_points, 3);
+        // Last-writer writeback
+        {
+            let p = shadow.world_mut().player_mut(gw).expect("pdmut");
+            p.rank_level = 5;
+            p.skill_points = 600;
+            p.science_purchase_points = 4;
+        }
+        let wb = shadow.writeback_economy_to_host(&mut logic);
+        assert!(wb >= 1);
+        let host = logic.get_player(pid).expect("host");
+        assert_eq!(host.rank_level, 5);
+        assert_eq!(host.skill_points, 600);
+        assert_eq!(host.science_purchase_points, 4);
     }
 
     #[test]

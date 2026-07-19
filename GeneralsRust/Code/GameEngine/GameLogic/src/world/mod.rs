@@ -112,6 +112,12 @@ pub struct PlayerData {
     pub cash_bounty_percent: f32,
     /// Host Player::color_rgb residual (team tint / UI).
     pub color_rgb: (u8, u8, u8),
+    /// Host Player::rank_level residual (1-based GeneralsExperience).
+    pub rank_level: u32,
+    /// Host Player::skill_points residual.
+    pub skill_points: i32,
+    /// Host Player::science_purchase_points residual.
+    pub science_purchase_points: i32,
 }
 
 impl PlayerData {
@@ -278,6 +284,9 @@ impl World {
                 is_alive: true,
                 cash_bounty_percent: 0.0,
                 color_rgb: (200, 200, 200),
+                rank_level: 1,
+                skill_points: 0,
+                science_purchase_points: 0,
             });
         }
         Some(id)
