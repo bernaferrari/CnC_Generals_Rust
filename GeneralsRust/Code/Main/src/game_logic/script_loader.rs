@@ -2713,11 +2713,62 @@ fn locate_map_file(map_name: &str) -> Option<PathBuf> {
         }
     }
 
+    // Workspace-relative residual: binaries often run with cwd=GeneralsRust/ while
+    // retail extracts live at repo_root/windows_game/... Accept ../windows_game and
+    // walk parents so absolute-looking relative paths still resolve.
+    let mut search_roots: Vec<PathBuf> = vec![PathBuf::from(".")];
+    if let Ok(cwd) = std::env::current_dir() {
+        search_roots.push(cwd.clone());
+        let mut parent = cwd.parent().map(|p| p.to_path_buf());
+        for _ in 0..5 {
+            if let Some(p) = parent {
+                search_roots.push(p.clone());
+                parent = p.parent().map(|x| x.to_path_buf());
+            } else {
+                break;
+            }
+        }
+    }
+    // Code/Main manifest → repo root.
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    search_roots.push(manifest.clone());
+    search_roots.push(manifest.join(".."));
+    search_roots.push(manifest.join("../.."));
+    search_roots.push(manifest.join("../../.."));
+
+    let normalized = trimmed.replace('\\', "/");
+    for root in &search_roots {
+        let candidate = root.join(&normalized);
+        if candidate.is_file() {
+            trace!(
+                "Resolved map '{}' via root '{}' -> '{}'",
+                map_name,
+                root.display(),
+                candidate.display()
+            );
+            return Some(candidate);
+        }
+        if direct.extension().is_none() {
+            let mut with_ext = candidate.clone();
+            with_ext.set_extension("map");
+            if with_ext.is_file() {
+                return Some(with_ext);
+            }
+        }
+    }
+
     let candidates = build_relative_candidates(trimmed);
     for candidate in candidates {
         if let Some(path) = resolve_path_candidate(&candidate) {
             trace!("Resolved map '{}' to '{}'", map_name, path.display());
             return Some(path);
+        }
+        // Also try each candidate under workspace roots.
+        for root in &search_roots {
+            let rooted = root.join(&candidate);
+            if let Some(path) = resolve_path_candidate(&rooted) {
+                return Some(path);
+            }
         }
     }
 
@@ -2870,5 +2921,19 @@ mod tests {
         assert_eq!(blend.texture_classes[0].num_tiles, 4);
         assert_eq!(blend.texture_classes[0].width, 2);
         assert_eq!(blend.texture_classes[0].name, "Grass");
+    }
+}
+
+#[cfg(test)]
+mod locate_map_file_workspace_residual_tests {
+    #[test]
+    fn locate_map_file_searches_parent_workspace_roots() {
+        let src = include_str!("script_loader.rs");
+        assert!(
+            src.contains("Workspace-relative residual")
+                && src.contains("search_roots")
+                && src.contains("CARGO_MANIFEST_DIR"),
+            "locate_map_file must search parent workspace roots for windows_game extracts"
+        );
     }
 }
