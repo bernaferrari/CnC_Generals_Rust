@@ -104,10 +104,13 @@ pub struct ExecutableSmokeResult {
     pub live_frame_ok: bool,
     pub auto_attack_cmd_ok: bool,
     pub options_cmd_ok: bool,
+    pub request_capture_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
     pub skirmish_start_click_ok: bool,
+    /// click_skirmish_start used retail WND ButtonStart path (ok_wnd / wnd_pending).
+    pub skirmish_start_wnd_ok: bool,
     pub frames_observed: u32,
     pub map_seen: String,
     pub exit_code: Option<i32>,
@@ -179,8 +182,10 @@ impl Default for ExecutableSmokeResult {
             live_frame_ok: false,
             auto_attack_cmd_ok: false,
             options_cmd_ok: false,
+            request_capture_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
+            skirmish_start_wnd_ok: false,
             frames_observed: 0,
             map_seen: "-".into(),
             exit_code: None,
@@ -599,6 +604,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut auto_attack_detail = String::new();
     let mut saw_options_ok = false;
     let mut options_detail = String::new();
+    let mut saw_request_capture_ok = false;
+    let mut request_capture_detail = String::new();
+    let mut saw_skirmish_start_wnd_ok = false;
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -740,9 +748,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                     // WND gadget path residual (may still be pending NewGame drain).
                     if snap
                         .last_gameplay_cmd
-                        .starts_with("click_skirmish_start_wnd")
+                        .starts_with("click_skirmish_start_ok_wnd")
+                        || snap
+                            .last_gameplay_cmd
+                            .starts_with("click_skirmish_start_wnd")
                     {
                         result.skirmish_start_click_ok = true;
+                        saw_skirmish_start_wnd_ok = true;
+                        result.skirmish_start_wnd_ok = true;
                     }
                     if result.reached_ingame {
                         phase = 2;
@@ -1659,10 +1672,26 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("cancel_production_") {
                             cancel_production_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["auto_attack|on=1"]);
+                        let _ = write_control(&control_path, &["request_capture"]);
                         gameplay_step = 54;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 54
+                        && (snap.last_gameplay_cmd.starts_with("request_capture_ok")
+                            || snap.last_gameplay_cmd.starts_with("request_capture_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("request_capture_ok") {
+                            saw_request_capture_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("request_capture_") {
+                            request_capture_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["auto_attack|on=1"]);
+                        gameplay_step = 55;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 55
                         && (snap.last_gameplay_cmd.starts_with("auto_attack_ok")
                             || snap.last_gameplay_cmd.starts_with("auto_attack_fail")
                             || commanded_at
@@ -1677,9 +1706,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         }
                         // Attack while still InGame (options/diplomacy leave match).
                         let _ = write_control(&control_path, &["attack_nearest_enemy"]);
-                        gameplay_step = 55;
+                        gameplay_step = 56;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step == 55
+                    } else if gameplay_step == 56
                         && (snap.last_gameplay_cmd.starts_with("attack_ok")
                             || snap.last_gameplay_cmd.starts_with("attack_fail")
                             || commanded_at
@@ -1693,9 +1722,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             // keep prior attack detail path in final branch too
                         }
                         let _ = write_control(&control_path, &["open_options"]);
-                        gameplay_step = 56;
+                        gameplay_step = 57;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step == 56
+                    } else if gameplay_step == 57
                         && (snap.last_gameplay_cmd.starts_with("options_ok")
                             || snap.last_gameplay_cmd.starts_with("options_fail")
                             || commanded_at
@@ -1709,9 +1738,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             options_detail = snap.last_gameplay_cmd.clone();
                         }
                         let _ = write_control(&control_path, &["open_diplomacy"]);
-                        gameplay_step = 57;
+                        gameplay_step = 58;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step == 57
+                    } else if gameplay_step == 58
                         && (snap.last_gameplay_cmd.starts_with("diplomacy_ok")
                             || snap.last_gameplay_cmd.starts_with("diplomacy_fail")
                             || commanded_at
@@ -1724,9 +1753,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("diplomacy_") {
                             diplomacy_detail = snap.last_gameplay_cmd.clone();
                         }
-                        gameplay_step = 58;
+                        gameplay_step = 59;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 58 {
+                    } else if gameplay_step >= 59 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -2044,6 +2073,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.live_frame_ok = saw_live_frame_ok;
                         result.auto_attack_cmd_ok = saw_auto_attack_ok;
                         result.options_cmd_ok = saw_options_ok;
+                        result.request_capture_cmd_ok = saw_request_capture_ok;
+                        result.skirmish_start_wnd_ok =
+                            saw_skirmish_start_wnd_ok || result.skirmish_start_wnd_ok;
                         if !presentation_detail.is_empty() {
                             result.detail =
                                 format!("{}; presentation={}", result.detail, presentation_detail);
@@ -2152,7 +2184,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2214,6 +2246,8 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.live_frame_ok,
         r.auto_attack_cmd_ok,
         r.options_cmd_ok,
+        r.request_capture_cmd_ok,
+        r.skirmish_start_wnd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
