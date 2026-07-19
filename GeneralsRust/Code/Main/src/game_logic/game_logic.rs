@@ -27132,7 +27132,9 @@ impl GameLogic {
         air.can_target_ground = false;
 
         obj.weapon = Some(ground);
+        obj.record_host_weapon_stats();
         obj.secondary_weapon = Some(air);
+        obj.record_host_weapon_stats();
         self.quad_cannon_residual_barrel_upgrades =
             self.quad_cannon_residual_barrel_upgrades.saturating_add(1);
         true
@@ -27597,6 +27599,7 @@ impl GameLogic {
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
         obj.weapon = Some(weapon);
+        obj.record_host_weapon_stats();
 
         // Tag residual crate upgrade for tier inference.
         obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
@@ -27901,6 +27904,7 @@ impl GameLogic {
             w.can_target_air = false;
             w.can_target_ground = true;
         }
+        obj.record_host_weapon_stats();
         if let Some(w) = obj.secondary_weapon.as_mut() {
             let refreshed = gattling_building_air_weapon(new_level, chain);
             w.damage = refreshed.damage;
@@ -27909,6 +27913,7 @@ impl GameLogic {
             w.can_target_air = true;
             w.can_target_ground = false;
         }
+        obj.record_host_weapon_stats();
 
         let pos = obj.get_position();
 
@@ -27990,6 +27995,7 @@ impl GameLogic {
             w.can_target_air = false;
             w.can_target_ground = true;
         }
+        obj.record_host_weapon_stats();
         if let Some(w) = obj.secondary_weapon.as_mut() {
             let refreshed = gattling_air_weapon(new_level, chain);
             w.damage = refreshed.damage;
@@ -27998,6 +28004,7 @@ impl GameLogic {
             w.can_target_air = true;
             w.can_target_ground = false;
         }
+        obj.record_host_weapon_stats();
 
         let pos = obj.get_position();
 
@@ -28284,6 +28291,7 @@ impl GameLogic {
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
         obj.weapon = Some(weapon);
+        obj.record_host_weapon_stats();
 
         obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
         obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
@@ -31124,6 +31132,7 @@ impl GameLogic {
             w.can_target_air = false;
             w.can_target_ground = true;
         }
+        obj.record_host_weapon_stats();
         if let Some(w) = obj.secondary_weapon.as_mut() {
             let refreshed = minigunner_air_weapon(new_level, chain, in_horde, nationalism);
             w.damage = refreshed.damage;
@@ -31132,6 +31141,7 @@ impl GameLogic {
             w.can_target_air = true;
             w.can_target_ground = false;
         }
+        obj.record_host_weapon_stats();
 
         let pos = obj.get_position();
 
@@ -31762,9 +31772,12 @@ impl GameLogic {
                 }
             }
             obj.weapon = weapon;
+            obj.record_host_weapon_stats();
         } else {
             obj.weapon = None;
+            obj.record_host_weapon_stats();
             obj.secondary_weapon = None;
+            obj.record_host_weapon_stats();
         }
 
         self.combat_cycle_residual_rider_switches =
@@ -49901,6 +49914,7 @@ mod tests {
             weapon.reload_time = 0.25;
             weapon.last_fire_time = 0.0;
         }
+        attacker.record_host_weapon_stats();
 
         attacker_id
     }
@@ -72545,6 +72559,7 @@ mod tests {
                 w.min_range = 0.0;
                 w.damage = 100.0; // StealthJetMissile residual
             }
+            f.record_host_weapon_stats();
             f.set_position(Vec3::new(50.0, 0.0, 0.0));
         }
 
@@ -72732,6 +72747,7 @@ mod tests {
                 w.min_range = 0.0;
                 w.damage = 1.0; // KILL_GARRISONED amount = 1 occupant
             }
+            m.record_host_weapon_stats();
         }
 
         game_logic.set_current_frame(20);
@@ -74057,6 +74073,7 @@ mod tests {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.05;
             }
+            t.record_host_weapon_stats();
         }
         let hp_before = game_logic
             .find_object(enemy)
@@ -74093,10 +74110,12 @@ mod tests {
                 w.damage = 0.0; // retail PrimaryDamage 0; spray uses host secondary path
                 w.range = 15.0;
             }
+            t.record_host_weapon_stats();
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = 0.0;
                 w.reload_time = 1000.0;
             }
+            t.record_host_weapon_stats();
         }
         let spray_hp_before = game_logic
             .find_object(spray_victim)
@@ -79408,6 +79427,7 @@ mod tests {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.1;
             }
+            a.record_host_weapon_stats();
         }
         game_logic.frame = 1;
         game_logic.update_combat(&[avenger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
@@ -79449,6 +79469,7 @@ mod tests {
                 // Not ready under normal ROF (0.5s < 1.0s), ready under 150% ROF (~0.667).
                 w.last_fire_time = 0.0;
             }
+            ally.record_host_weapon_stats();
         }
         // t=0.7s with last_fire=0 reload=1.0 → only ready with FAERIE 150% ROF.
         game_logic.frame = 21;
@@ -80945,6 +80966,7 @@ mod tests {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.05;
             }
+            t.record_host_weapon_stats();
         }
         let hp_before = game_logic
             .find_object(enemy)
@@ -81011,6 +81033,7 @@ mod tests {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.05;
             }
+            t.record_host_weapon_stats();
         }
         let hp_mid = game_logic
             .find_object(enemy)
@@ -81046,10 +81069,12 @@ mod tests {
                 w.damage = 0.0;
                 w.range = 15.0;
             }
+            t.record_host_weapon_stats();
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = 0.0;
                 w.reload_time = 1000.0;
             }
+            t.record_host_weapon_stats();
         }
         game_logic.set_current_frame(60);
         game_logic.update_combat(&[truck_id, spray_victim], LOGIC_FRAME_TIMESTEP);
@@ -81327,6 +81352,7 @@ mod tests {
                 w.reload_time = 0.1;
                 w.range = 20.0;
             }
+            t.record_host_weapon_stats();
         }
         let near = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(8.0, 0.0, 0.0))
@@ -81384,6 +81410,7 @@ mod tests {
                 w.reload_time = 0.1;
                 w.range = 20.0;
             }
+            t.record_host_weapon_stats();
         }
         let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
         let hp2_before = game_logic
