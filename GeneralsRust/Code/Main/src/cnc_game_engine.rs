@@ -8263,9 +8263,22 @@ impl CnCGameEngine {
         if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
             // Retail m_TiVOFastMode residual: extra logic steps while armed.
             let ff_steps = if self.replay_fast_forward { 4 } else { 1 };
+            // Headless residual: cap catch-up (4 logic frames ≈ 133ms) so a slow
+            // present/update path cannot freeze the host control loop for seconds.
+            let headless_step_budget = if self.runtime_host_headless {
+                Some(4usize)
+            } else {
+                None
+            };
             // Update game logic first
             for _ in 0..ff_steps {
-                if let Some(timing) = self.last_frame_timing {
+                if let Some(budget) = headless_step_budget {
+                    if let Some(timing) = self.last_frame_timing {
+                        self.game_logic.update_with_timing_budget(&timing, budget);
+                    } else {
+                        self.game_logic.update_with_dt_budget(dt, budget);
+                    }
+                } else if let Some(timing) = self.last_frame_timing {
                     self.game_logic.update_with_timing(&timing);
                 } else {
                     self.game_logic.update_with_dt(dt);
@@ -17370,6 +17383,10 @@ pub async fn run_cnc_game(
     let mut slow_render_peak = Duration::ZERO;
     let mut last_render_health_log = Instant::now();
     const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+    /// Headless logic residual: ~30 Hz fixed step without waiting on GPU present.
+    const HEADLESS_LOGIC_INTERVAL: Duration = Duration::from_nanos(33_333_333);
+    /// Headless present residual: keep live_frame/screenshot alive, but far below logic rate.
+    const HEADLESS_PRESENT_INTERVAL: Duration = Duration::from_millis(250);
     const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
     const MINIMIZED_POLL_INTERVAL: Duration = Duration::from_millis(5);
     let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
@@ -17378,6 +17395,7 @@ pub async fn run_cnc_game(
         bridge.publish_booting();
     }
     let mut runtime_window_minimized = false;
+    let mut next_headless_present_at = Instant::now();
 
     #[cfg(feature = "integration-diagnostics")]
     let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
@@ -17846,7 +17864,24 @@ pub async fn run_cnc_game(
                             );
                             let runtime_window_suspended = runtime_window_minimized;
                             if runtime_headless_mode {
-                                drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                                // Keep the headless loop alive: hidden windows may stop
+                                // delivering AboutToWait unless redraw is requested.
+                                let now = Instant::now();
+                                if now >= next_redraw_at {
+                                    let present_due = now >= next_headless_present_at;
+                                    drive_frame(
+                                        engine,
+                                        current_window,
+                                        &mut runtime_host_bridge,
+                                        present_due,
+                                    );
+                                    if present_due {
+                                        next_headless_present_at =
+                                            Instant::now() + HEADLESS_PRESENT_INTERVAL;
+                                    }
+                                    next_redraw_at = Instant::now() + HEADLESS_LOGIC_INTERVAL;
+                                }
+                                current_window.request_redraw();
                             } else if runtime_window_suspended {
                                 if should_keep_logic_running_while_iconic(
                                     // Prefer presentation game_mode residual when installed.
@@ -17876,11 +17911,21 @@ pub async fn run_cnc_game(
                     );
                     let runtime_window_suspended = runtime_window_minimized;
                     if runtime_headless_mode {
-                        drive_frame(engine, current_window, &mut runtime_host_bridge, true);
-                        // Headless residual: pace like a real present loop. Without this,
-                        // next_redraw_at stays in the past and AboutToWait busy-spins full
-                        // GPU frames while logic still only saw 1/60 dt (pre WW3D fix).
-                        next_redraw_at = Instant::now() + FRAME_INTERVAL;
+                        // Split logic vs present: always advance sim at ~30 Hz; only pay for
+                        // GPU/screenshot on HEADLESS_PRESENT_INTERVAL so construction/combat
+                        // are not gated by mesh draw cost.
+                        let present_due = now >= next_headless_present_at;
+                        drive_frame(
+                            engine,
+                            current_window,
+                            &mut runtime_host_bridge,
+                            present_due,
+                        );
+                        if present_due {
+                            next_headless_present_at = Instant::now() + HEADLESS_PRESENT_INTERVAL;
+                        }
+                        next_redraw_at = Instant::now() + HEADLESS_LOGIC_INTERVAL;
+                        current_window.request_redraw();
                     } else if cmd_args.wants_smoke_test() {
                         drive_frame(engine, current_window, &mut runtime_host_bridge, false);
                         if engine.is_quitting() {

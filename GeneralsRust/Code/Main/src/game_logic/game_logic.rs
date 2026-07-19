@@ -5274,6 +5274,20 @@ impl GameLogic {
         self.step_simulation(timing.delta_seconds(), Some(timing.total_seconds()));
     }
 
+    /// Headless/host residual: bound fixed-step catch-up so a stalled GPU present
+    /// cannot dump dozens of logic frames into one drive_frame (UI freeze residual).
+    pub fn update_with_dt_budget(&mut self, dt: f32, max_fixed_steps: usize) {
+        self.step_simulation_with_budget(dt, None, Some(max_fixed_steps.max(1)));
+    }
+
+    pub fn update_with_timing_budget(&mut self, timing: &FrameTiming, max_fixed_steps: usize) {
+        self.step_simulation_with_budget(
+            timing.delta_seconds(),
+            Some(timing.total_seconds()),
+            Some(max_fixed_steps.max(1)),
+        );
+    }
+
     /// Menu/shell update path that bounds fixed-step catch-up work per frame.
     /// This prevents multi-second UI stalls after startup while still advancing shell scripts.
     pub fn update_shell_with_budget(&mut self, dt: f32, max_fixed_steps: usize) {
