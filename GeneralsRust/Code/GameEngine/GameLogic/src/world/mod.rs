@@ -648,6 +648,15 @@ pub enum WorldMutation {
         secondary_weapon_damage: f32,
         secondary_weapon_range: f32,
     },
+    /// Host Movement velocity/path residual.
+    SetMovement {
+        target: EntityId,
+        velocity: [f32; 3],
+        max_speed: f32,
+        path_index: u16,
+        path_len: u16,
+        path_waypoints: Vec<[f32; 3]>,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1303,6 +1312,23 @@ impl GameWorld {
                         e.has_secondary_weapon = has_secondary_weapon;
                         e.secondary_weapon_damage = secondary_weapon_damage;
                         e.secondary_weapon_range = secondary_weapon_range;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetMovement {
+                    target,
+                    velocity,
+                    max_speed,
+                    path_index,
+                    path_len,
+                    path_waypoints,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.velocity = velocity;
+                        e.move_max_speed = max_speed;
+                        e.path_index = path_index;
+                        e.path_len = path_len;
+                        e.path_waypoints = path_waypoints;
                         applied += 1;
                     }
                 }

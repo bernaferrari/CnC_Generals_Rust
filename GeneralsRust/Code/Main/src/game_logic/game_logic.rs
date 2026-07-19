@@ -3873,7 +3873,9 @@ impl GameLogic {
             return false;
         };
         unit.movement.path = full_path;
+        unit.record_host_movement();
         unit.movement.current_path_index = 0;
+        unit.record_host_movement();
         unit.movement.target_position = Some(destination);
         crate::game_logic::host_move_log::record(
             unit_id,
@@ -3886,6 +3888,7 @@ impl GameLogic {
             dir.y = 0.0;
             let dir = dir.normalize_or_zero();
             unit.movement.velocity = dir * unit.movement.max_speed;
+            unit.record_host_movement();
         }
         unit.set_ai_state(AIState::Moving);
         unit.set_status_moving(true);
@@ -3969,7 +3972,9 @@ impl GameLogic {
             if full_path.len() >= 2 {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
                     unit.movement.path = full_path;
+                    unit.record_host_movement();
                     unit.movement.current_path_index = 1;
+                    unit.record_host_movement();
                     unit.movement.target_position = Some(unit.movement.path[1]);
                     unit.set_status_moving(true);
                     unit.set_ai_state(AIState::Attacking);
@@ -6542,6 +6547,7 @@ impl GameLogic {
             if let Some(waypoints) = path {
                 if waypoints.len() >= 2 {
                     obj.movement.path = waypoints;
+                    obj.record_host_movement();
                     obj.movement.current_path_index = 1; // skip start node
                                                          // target_position will be set to path[1] by update_movement
                     obj.movement.target_position = Some(obj.movement.path[1]);
@@ -6629,6 +6635,7 @@ impl GameLogic {
                         // Persist velocity — without this, every frame restarts from 0 and
                         // units crawl at ~accel*dt per frame (pure-march combat stalls OOR).
                         obj.movement.velocity = new_velocity;
+                        obj.record_host_movement();
 
                         let new_position = current_pos + new_velocity * dt;
                         let desired_angle = (-new_velocity.z).atan2(new_velocity.x);
@@ -6653,6 +6660,7 @@ impl GameLogic {
                     } else {
                         // Already on target (zero horizontal delta).
                         obj.movement.velocity = Vec3::ZERO;
+                        obj.record_host_movement();
                         if obj.movement.path.is_empty()
                             || obj.movement.current_path_index + 1 >= obj.movement.path.len()
                         {
@@ -10770,6 +10778,7 @@ impl GameLogic {
         if let Some(a) = self.objects.get_mut(&attacker_id) {
             a.movement.path.clear();
             a.movement.current_path_index = 0;
+            a.record_host_movement();
             a.movement.target_position = Some(dest);
             a.set_ai_state(AIState::Attacking);
             a.set_status_attacking(true);
@@ -11175,6 +11184,7 @@ impl GameLogic {
                 jet.status.airborne_target = false;
                 jet.movement.path.clear();
                 jet.movement.current_path_index = 0;
+                jet.record_host_movement();
                 jet.movement.target_position = None;
                 // Snap to airfield pad residual (hangar park).
                 // Landing taxi: approach along reserved runway offset then settle.
@@ -21179,6 +21189,7 @@ impl GameLogic {
                                     a.set_status_attacking(true);
                                     a.set_status_moving(false);
                                     a.movement.velocity = glam::Vec3::ZERO;
+                                    a.record_host_movement();
                                     a.movement.target_position = None;
                                     a.movement.path.clear();
                                 }
