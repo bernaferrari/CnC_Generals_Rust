@@ -2,7 +2,7 @@
 
 pub mod entities;
 
-use self::entities::{EntityId, EntityStore, TemplateRef, Transform};
+use self::entities::{EntityId, EntityProductionItem, EntityStore, TemplateRef, Transform};
 use std::collections::VecDeque;
 use std::fmt;
 use std::mem;
@@ -501,6 +501,11 @@ pub enum WorldMutation {
     },
     /// Set veterancy ordinal residual (0 Rookie .. 3 Heroic).
     SetVeterancy { target: EntityId, ordinal: u8 },
+    /// Replace entity production queue residual (borrow-first production channel).
+    SetProductionQueue {
+        target: EntityId,
+        items: Vec<EntityProductionItem>,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -845,6 +850,19 @@ impl GameWorld {
                         applied += 1;
                     }
                 }
+                WorldMutation::SetProductionQueue { target, items } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.production_queue_items = items;
+                        if let Some(head) = e.production_queue_items.first() {
+                            e.production_template = head.template_name.clone();
+                            e.production_progress = head.progress;
+                        } else {
+                            e.production_template.clear();
+                            e.production_progress = 0.0;
+                        }
+                        applied += 1;
+                    }
+                }
             }
         }
         applied
@@ -909,7 +927,6 @@ impl GameWorld {
 
 #[cfg(test)]
 mod tests {
-    use super::entities::{TemplateRef, Transform};
     use super::*;
 
     #[test]

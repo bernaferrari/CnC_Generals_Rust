@@ -2102,35 +2102,78 @@ impl GameWorldShadow {
         logic: &GameLogic,
     ) -> usize {
         use crate::game_logic::host_production_log::HostProductionEvent;
+        use gamelogic::world::entities::EntityProductionItem;
         let mut n = 0usize;
         let mut spawn_like = Vec::new();
+        // Producers that need queue last-write from host snapshot.
+        let mut enqueue_producers = std::collections::BTreeSet::new();
         for ev in events {
-            if let HostProductionEvent::Complete {
-                spawned,
-                template_name,
-                ..
-            } = ev
-            {
-                if self.host_to_entity.contains_key(&spawned.0) {
-                    n += 1;
-                    continue;
+            match ev {
+                HostProductionEvent::Enqueue { producer, .. } => {
+                    enqueue_producers.insert(producer.0);
                 }
-                if let Some(obj) = logic.get_objects().get(spawned) {
-                    let team_ord = match obj.team {
-                        Team::USA => 0u8,
-                        Team::China => 1,
-                        Team::GLA => 2,
-                        Team::Neutral => 255,
-                    };
-                    let pos = obj.get_position();
-                    spawn_like.push(crate::game_logic::host_spawn_log::HostSpawnEvent {
-                        id: *spawned,
-                        template: template_name.clone(),
-                        team_ordinal: team_ord,
-                        position: [pos.x, pos.y, pos.z],
-                    });
+                HostProductionEvent::Complete {
+                    spawned,
+                    template_name,
+                    producer,
+                } => {
+                    enqueue_producers.insert(producer.0);
+                    if self.host_to_entity.contains_key(&spawned.0) {
+                        n += 1;
+                        continue;
+                    }
+                    if let Some(obj) = logic.get_objects().get(spawned) {
+                        let team_ord = match obj.team {
+                            Team::USA => 0u8,
+                            Team::China => 1,
+                            Team::GLA => 2,
+                            Team::Neutral => 255,
+                        };
+                        let pos = obj.get_position();
+                        spawn_like.push(crate::game_logic::host_spawn_log::HostSpawnEvent {
+                            id: *spawned,
+                            template: template_name.clone(),
+                            team_ordinal: team_ord,
+                            position: [pos.x, pos.y, pos.z],
+                        });
+                    }
                 }
             }
+        }
+        // Mutation-channel production queue last-writer from host building queues.
+        for hid in enqueue_producers {
+            let Some(eid) = self.host_to_entity.get(&hid).copied() else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
+            let items: Vec<EntityProductionItem> = obj
+                .building_data
+                .as_ref()
+                .map(|bd| {
+                    bd.production_queue
+                        .iter()
+                        .take(16)
+                        .map(|it| EntityProductionItem {
+                            template_name: it.template_name.clone(),
+                            progress: it.progress,
+                            total_time: it.total_time,
+                            cost_supplies: it.cost.supplies,
+                            is_upgrade: it.is_upgrade(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetProductionQueue {
+                    target: eid,
+                    items,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.world.apply_pending_mutations();
         }
         n + self.apply_host_spawn_events(&spawn_like, logic)
     }
@@ -2307,6 +2350,20 @@ impl GameWorldShadow {
                 target,
                 ordinal: ordinal.min(3),
             });
+        true
+    }
+
+    /// Queue SetProductionQueue residual onto a mapped host producer.
+    pub fn queue_set_production_queue_for_host(
+        &mut self,
+        host: ObjectId,
+        items: Vec<gamelogic::world::entities::EntityProductionItem>,
+    ) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetProductionQueue { target, items });
         true
     }
 
@@ -4149,6 +4206,80 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_production_log_drives_set_production_queue_channel() {
+        use crate::game_logic::host_production_log;
+        use crate::game_logic::{
+            BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
+            ThingTemplate,
+        };
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdQueueCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("ProdBarracks") {
+            let mut t = ThingTemplate::new("ProdBarracks");
+            t.set_health(500.0);
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("ProdBarracks".into(), t);
+        }
+        let barracks = logic
+            .create_object("ProdBarracks", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
+            .expect("barracks");
+        {
+            let o = logic.get_objects_mut().get_mut(&barracks).expect("b");
+            let mut bd = BuildingData::new(BuildingType::Barracks);
+            bd.production_queue.push(ProductionItem {
+                template_name: "ProdRanger".into(),
+                progress: 0.0,
+                total_time: 10.0,
+                cost: Resources {
+                    supplies: 150,
+                    power: 0,
+                },
+                quantity_total: 1,
+                quantity_produced: 0,
+                kind: ProductionKind::Unit,
+            });
+            o.building_data = Some(bd);
+        }
+        host_production_log::clear();
+        host_production_log::record_enqueue(barracks, "ProdRanger");
+        let events = host_production_log::drain();
+        assert_eq!(events.len(), 1);
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(barracks).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.production_queue_items.clear();
+            e.production_template.clear();
+        }
+        // Re-record for apply (drain consumed).
+        host_production_log::record_enqueue(barracks, "ProdRanger");
+        let events = host_production_log::drain();
+        let n = shadow.apply_host_production_events(&events, &logic);
+        assert!(n >= 1, "production events applied {n}");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(
+            !e.production_queue_items.is_empty(),
+            "queue should be last-written from host"
+        );
+        assert_eq!(e.production_queue_items[0].template_name, "ProdRanger");
+        {
+            let o = logic.get_objects_mut().get_mut(&barracks).expect("b");
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.production_queue.clear();
+            }
+        }
+        let wb = shadow.writeback_production_to_host(&mut logic);
+        assert!(wb >= 1);
+        let o = logic.get_objects().get(&barracks).expect("b");
+        let q = &o.building_data.as_ref().expect("bd").production_queue;
+        assert!(!q.is_empty());
+        assert_eq!(q[0].template_name, "ProdRanger");
     }
 
     #[test]
