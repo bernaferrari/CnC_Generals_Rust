@@ -1893,6 +1893,29 @@ impl ShroudManager {
     /// # Arguments
     ///
     /// * `interval` - Frames between vision recalculations (minimum 1)
+    /// Host residual: Main GameLogic objects are not in ObjectManager on the default
+    /// authority path. Register object membership so FOW object filters and
+    /// presentation snapshots see host units without Arc registry dual-world.
+    pub fn mark_host_object_seen(&mut self, player_id: u32, object_id: ObjectID) {
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return;
+        }
+        let idx = player_id as usize;
+        self.player_visible_objects[idx].insert(object_id);
+        self.player_explored_objects[idx].insert(object_id);
+    }
+
+    /// Host residual: clear per-player object membership before a full host vision pass.
+    /// Does not touch terrain looker counters / shroud grid cells.
+    pub fn clear_host_object_visibility(&mut self, player_id: u32) {
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return;
+        }
+        let idx = player_id as usize;
+        self.player_visible_objects[idx].clear();
+        // Explored persists across frames (C++ explored territory).
+    }
+
     pub fn set_vision_recalc_interval(&mut self, interval: u32) {
         self.vision_recalc_interval = interval.max(1);
     }

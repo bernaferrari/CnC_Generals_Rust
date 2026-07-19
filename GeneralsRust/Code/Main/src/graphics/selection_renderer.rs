@@ -57,7 +57,9 @@ pub struct SelectedUnit {
 // WGSL shaders
 // ---------------------------------------------------------------------------
 
-const SELECTION_VERTEX_SHADER: &str = r"
+// Single WGSL module: both entry points must live in the same ShaderModule
+// (create_render_pipeline references vs_main + fs_main on `module`).
+const SELECTION_SHADER: &str = r"
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) color: vec4<f32>,
@@ -77,9 +79,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.vertex_color = input.color;
     return output;
 }
-";
 
-const SELECTION_FRAGMENT_SHADER: &str = r"
 @fragment
 fn fs_main(@location(0) vertex_color: vec4<f32>) -> @location(0) vec4<f32> {
     return vertex_color;
@@ -105,7 +105,7 @@ impl SelectionRenderer {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("selection_overlay_shader"),
-            source: wgpu::ShaderSource::Wgsl(SELECTION_VERTEX_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(SELECTION_SHADER.into()),
         });
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -802,6 +802,21 @@ mod presentation_selection_tests {
             src.contains("fn pack_rally_point_lines")
                 && src.contains("pack_rally_point_lines(frame)"),
             "selection overlay must pack selected structure rally lines"
+        );
+    }
+}
+
+#[cfg(test)]
+mod selection_shader_residual_tests {
+    #[test]
+    fn selection_shader_module_contains_both_entry_points() {
+        let src = include_str!("selection_renderer.rs");
+        assert!(src.contains("const SELECTION_SHADER"));
+        assert!(src.contains("fn vs_main"));
+        assert!(src.contains("fn fs_main"));
+        assert!(
+            !src.contains("SELECTION_VERTEX_SHADER"),
+            "fragment must not live in a separate unused module string"
         );
     }
 }
