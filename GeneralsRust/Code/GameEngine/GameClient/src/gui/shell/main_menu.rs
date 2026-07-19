@@ -40,7 +40,7 @@ use crate::gui::challenge_generals::{
 };
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
-use crate::gui::shell::get_shell;
+use crate::gui::shell::{get_shell, try_with_shell_mut};
 use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
@@ -672,8 +672,14 @@ impl MainMenu {
 
         if !state.start_game {
             // TheShell->reverseAnimatewindow() - matches C++ line 686
+            // Nested during Shell::push (layout shutdown while shell RefCell is held):
+            // use try_with_shell_mut so we never panic on RefCell re-borrow.
             log::debug!("Reversing window animation");
-            get_shell().reverse_animate_window();
+            if try_with_shell_mut(|shell| shell.reverse_animate_window()).is_none() {
+                log::debug!(
+                    "MainMenuShutdown: reverse_animate_window skipped (shell already borrowed)"
+                );
+            }
         }
 
         log::info!("MainMenuShutdown: Shutdown complete");
@@ -2684,5 +2690,17 @@ mod tests {
             assert_eq!(state.drop_down, DropdownType::Difficulty);
             assert!(state.pending_actions.is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod main_menu_shell_borrow_residual_tests {
+    #[test]
+    fn main_menu_shutdown_nested_shell_borrow_residual() {
+        let src = include_str!("main_menu.rs");
+        assert!(
+            src.contains("try_with_shell_mut(|shell| shell.reverse_animate_window())"),
+            "MainMenuShutdown must not call get_shell() while Shell::push holds RefCell"
+        );
     }
 }
