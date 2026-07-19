@@ -7155,10 +7155,10 @@ impl Object {
             // Legacy aggregate timer residual for single-slot HUD paths.
             self.special_power_cooldown = cd;
             self.special_power_cooldown_remaining = cd;
-            self.special_power_ready = false;
+            self.set_special_power_ready(false);
         } else {
             self.special_power_cooldowns.remove(power);
-            self.special_power_ready = true;
+            self.set_special_power_ready(true);
             self.special_power_cooldown_remaining = 0.0;
         }
         self.refresh_special_power_aggregate_cooldown();
@@ -8404,6 +8404,15 @@ impl Object {
     pub fn set_status_force_attack(&mut self, v: bool) {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
+    }
+    pub fn set_special_power_ready(&mut self, ready: bool) {
+        self.special_power_ready = ready;
+        crate::game_logic::host_special_power_log::record(self.id, ready);
+    }
+
+    pub fn set_stored_supplies(&mut self, supplies: u32) {
+        self.stored_resources.supplies = supplies;
+        crate::game_logic::host_stored_supplies_log::record(self.id, supplies);
     }
 
     /// Set the AI state for autonomous behavior
