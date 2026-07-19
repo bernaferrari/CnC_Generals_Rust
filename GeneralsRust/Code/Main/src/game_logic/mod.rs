@@ -17,6 +17,7 @@ pub mod host_move_log;
 pub mod host_owner_log;
 pub mod host_production_log;
 pub mod host_spawn_log;
+pub mod host_status_log;
 pub use host_economy_log::{drain as drain_host_economy_events, HostEconomyEvent};
 pub mod host_ai_path_combat_residual_wave105;
 pub mod host_ambush;

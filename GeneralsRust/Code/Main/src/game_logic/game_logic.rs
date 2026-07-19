@@ -9824,7 +9824,7 @@ impl GameLogic {
             return false;
         }
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.status.is_aiming_weapon = true;
+            u.set_status_aiming_weapon(true);
             u.status.attacking = true;
             u.ai_state = AIState::Attacking;
         }
@@ -9876,7 +9876,7 @@ impl GameLogic {
             if u.weapon.is_none() && u.secondary_weapon.is_none() {
                 return AttackAimResult::Failure;
             }
-            u.status.is_aiming_weapon = true;
+            u.set_status_aiming_weapon(true);
             u.target = Some(victim_id);
             let slot = u.active_weapon_slot;
             let body_aimed = u.turn_toward_position(victim_pos, slot, max_turn_rad.max(0.05));
@@ -9924,7 +9924,7 @@ impl GameLogic {
         if !u.is_alive() {
             return false;
         }
-        u.status.is_firing_weapon = true;
+        u.set_status_firing_weapon(true);
         u.status.attacking = true;
         u.ai_state = AIState::Attacking;
         true
@@ -9988,7 +9988,7 @@ impl GameLogic {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackFireResult::Failure;
             };
-            u.status.is_firing_weapon = true;
+            u.set_status_firing_weapon(true);
             u.target = Some(victim_id);
             u.ai_state = AIState::Attacking;
             u.status.attacking = true;
@@ -92469,7 +92469,7 @@ mod tests {
                 ..Default::default()
             });
             o.attack_substate = AttackSubState::FireWeapon;
-            o.status.is_firing_weapon = true;
+            o.set_status_firing_weapon(true);
             o
         });
         let mut vt = ThingTemplate::new("AsmV4");
