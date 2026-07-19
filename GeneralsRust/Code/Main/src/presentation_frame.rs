@@ -313,6 +313,12 @@ pub struct RenderableObject {
     pub disguise_as_team: Option<Team>,
     /// C++ OBJECT_STATUS_DISGUISED residual.
     pub disguised: bool,
+    /// Host ObjectStatus::disabled_subdued residual.
+    pub disabled_subdued: bool,
+    /// Host ObjectStatus::is_carbomb residual.
+    pub is_carbomb: bool,
+    /// Host ObjectStatus::hijacked residual.
+    pub hijacked: bool,
     /// C++ StealthUpdate disguise transition opacity residual (0..1).
     pub disguise_transition_opacity: f32,
     /// Stealth detector range residual (0 = none).
@@ -2468,6 +2474,9 @@ impl PresentationFrame {
                 disguise_as_template: obj.disguise_as_template.clone(),
                 disguise_as_team: obj.disguise_as_team,
                 disguised: obj.status.disguised,
+                disabled_subdued: obj.status.disabled_subdued,
+                is_carbomb: obj.status.is_carbomb,
+                hijacked: obj.status.hijacked,
                 disguise_transition_opacity: if obj.status.disguise_transition_frames > 0 {
                     obj.status.disguise_transition_opacity
                 } else {
@@ -4296,6 +4305,18 @@ impl PresentationFrame {
             }
             if obj.disguised != ent.disguised {
                 obj.disguised = ent.disguised;
+                dirty = true;
+            }
+            if obj.disabled_subdued != ent.disabled_subdued {
+                obj.disabled_subdued = ent.disabled_subdued;
+                dirty = true;
+            }
+            if obj.is_carbomb != ent.is_carbomb {
+                obj.is_carbomb = ent.is_carbomb;
+                dirty = true;
+            }
+            if obj.hijacked != ent.hijacked {
+                obj.hijacked = ent.hijacked;
                 dirty = true;
             }
             if obj.team_color != ent.team_color {

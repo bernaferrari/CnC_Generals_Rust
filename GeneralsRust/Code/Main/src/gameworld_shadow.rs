@@ -401,6 +401,9 @@ impl GameWorldShadow {
                     e.weapons_jammed = obj.status.weapons_jammed;
                     e.masked = obj.status.masked;
                     e.disguised = obj.status.disguised;
+                    e.disabled_subdued = obj.status.disabled_subdued;
+                    e.is_carbomb = obj.status.is_carbomb;
+                    e.hijacked = obj.status.hijacked;
                     e.is_building = obj.building_data.is_some();
                     if let Some(bd) = obj.building_data.as_ref() {
                         e.building_type_ordinal =
@@ -694,6 +697,9 @@ impl GameWorldShadow {
                 e.weapons_jammed = obj.status.weapons_jammed;
                 e.masked = obj.status.masked;
                 e.disguised = obj.status.disguised;
+                e.disabled_subdued = obj.status.disabled_subdued;
+                e.is_carbomb = obj.status.is_carbomb;
+                e.hijacked = obj.status.hijacked;
                 e.is_building = obj.building_data.is_some();
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
@@ -1633,6 +1639,18 @@ impl GameWorldShadow {
             }
             if obj.status.disguised != ent.disguised {
                 obj.status.disguised = ent.disguised;
+                dirty = true;
+            }
+            if obj.status.disabled_subdued != ent.disabled_subdued {
+                obj.status.disabled_subdued = ent.disabled_subdued;
+                dirty = true;
+            }
+            if obj.status.is_carbomb != ent.is_carbomb {
+                obj.status.is_carbomb = ent.is_carbomb;
+                dirty = true;
+            }
+            if obj.status.hijacked != ent.hijacked {
+                obj.status.hijacked = ent.hijacked;
                 dirty = true;
             }
             if obj.status.selected != ent.selected {
@@ -3608,6 +3626,9 @@ mod tests {
             e.weapons_jammed = true;
             e.masked = true;
             e.disguised = true;
+            e.disabled_subdued = true;
+            e.is_carbomb = true;
+            e.hijacked = true;
             e.selected = true;
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
@@ -3631,6 +3652,9 @@ mod tests {
         assert!(obj.status.weapons_jammed);
         assert!(obj.status.masked);
         assert!(obj.status.disguised);
+        assert!(obj.status.disabled_subdued);
+        assert!(obj.status.is_carbomb);
+        assert!(obj.status.hijacked);
         assert!(obj.status.selected);
         // Complete residual
         {
