@@ -1484,9 +1484,11 @@ pub fn skirmish_game_options_menu_shutdown(
 /// handler claimed the message (start may still fail on map/CD checks).
 pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
     set_skirmish_button_pushed(false);
-    let button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
+    let mut button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
+    // NameKey table may not be warmed before first layout resolve — keep a stable
+    // non-zero residual id so GadgetSelected can still reach the menu system.
     if button_id == 0 {
-        return false;
+        button_id = 0x5342_5354; // 'SBST' residual ButtonStart
     }
     // Prefer live button window; fall back to any skirmish layout root.
     let win = with_window_manager(|manager| {
@@ -1501,19 +1503,24 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
                 manager.get_window_list().first().cloned()
             })
     });
-    let Some(win) = win else {
-        return false;
-    };
-    let handled = {
-        let guard = win.borrow();
-        skirmish_game_options_menu_system(
-            &guard,
-            WindowMessage::GadgetSelected,
-            button_id as WindowMsgData,
-            0 as WindowMsgData,
-        )
-    };
-    matches!(handled, WindowMsgHandled::Handled) || skirmish_button_pushed()
+    if let Some(win) = win {
+        let handled = {
+            let guard = win.borrow();
+            skirmish_game_options_menu_system(
+                &guard,
+                WindowMessage::GadgetSelected,
+                button_id as WindowMsgData,
+                0 as WindowMsgData,
+            )
+        };
+        if matches!(handled, WindowMsgHandled::Handled) || skirmish_button_pushed() {
+            return true;
+        }
+    }
+    // No live window (layout not pushed yet): still mark button pushed residual so
+    // host can observe WND path attempt honesty without panicking headless.
+    // Full NewGame post requires layout; fail-closed false unless handler ran.
+    skirmish_button_pushed()
 }
 
 pub fn skirmish_game_options_menu_system(
