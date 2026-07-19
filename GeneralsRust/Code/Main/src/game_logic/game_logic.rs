@@ -409,6 +409,7 @@ impl Player {
             self.shared_special_power_cooldowns
                 .insert(power.clone(), cd);
         }
+        self.record_host_cooldowns();
     }
 
     /// C++ Player::expressSpecialPowerReadyFrame(now) residual — ready immediately.
@@ -447,6 +448,7 @@ impl Player {
         }
         self.shared_special_power_cooldowns
             .retain(|_, rem| *rem > 0.0);
+        self.record_host_cooldowns();
         became_ready
     }
 
@@ -511,6 +513,16 @@ impl Player {
 
     pub fn record_host_alive(&self) {
         crate::game_logic::host_player_meta_log::record_alive(self.id, self.is_alive);
+    }
+
+    pub fn record_host_cooldowns(&self) {
+        let mut cds: Vec<(String, f32)> = self
+            .shared_special_power_cooldowns
+            .iter()
+            .map(|(k, v)| (format!("{k:?}"), *v))
+            .collect();
+        cds.sort_by(|a, b| a.0.cmp(&b.0));
+        crate::game_logic::host_player_cooldown_log::record(self.id, cds);
     }
 
     /// Award cash for a kill: `ceil(victim_build_cost * cash_bounty_percent)`.

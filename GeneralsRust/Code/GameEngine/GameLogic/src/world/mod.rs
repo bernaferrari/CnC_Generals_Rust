@@ -546,6 +546,11 @@ pub enum WorldMutation {
     },
     /// Set player alive residual (defeat / victory).
     SetPlayerAlive { player: PlayerId, is_alive: bool },
+    /// Replace shared special-power cooldown residual for a player.
+    SetPlayerCooldowns {
+        player: PlayerId,
+        cooldowns: Vec<(String, f32)>,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -987,6 +992,12 @@ impl GameWorld {
                 WorldMutation::SetPlayerAlive { player, is_alive } => {
                     if let Some(p) = self.inner.player_mut(player) {
                         p.is_alive = is_alive;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetPlayerCooldowns { player, cooldowns } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        p.shared_special_power_cooldowns = cooldowns;
                         applied += 1;
                     }
                 }
