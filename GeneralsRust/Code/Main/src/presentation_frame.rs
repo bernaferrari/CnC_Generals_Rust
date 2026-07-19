@@ -2565,10 +2565,9 @@ impl PresentationFrame {
                 },
                 is_structure,
                 is_unit,
-                is_mobile: is_unit
-                    || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
-                    || obj.is_kind_of(crate::game_logic::KindOf::Vehicle)
-                    || obj.is_kind_of(crate::game_logic::KindOf::Aircraft),
+                // Prefer host Object::is_mobile so dozers/workers without an explicit
+                // Vehicle KindOf still count as local_mobile_units / selectables.
+                is_mobile: obj.is_mobile(),
                 can_produce: obj.building_data.is_some()
                     && !obj.status.under_construction
                     && obj.construction_percent >= 1.0

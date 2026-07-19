@@ -5242,6 +5242,9 @@ impl GameLogic {
         // without wiping players, cash, difficulty, or is_active.
         if matches!(self.game_mode, GameMode::Skirmish | GameMode::SinglePlayer) {
             self.rebind_host_ai_after_map_load();
+            // C++ GameLogic.cpp placeObjectAtPosition loop for PlayerTemplate StartingUnitN.
+            // Without this, Lone Eagle-style maps keep buildings but no dozers/workers.
+            self.spawn_skirmish_starting_units();
         }
 
         self.map_loaded = true;
@@ -6095,6 +6098,157 @@ impl GameLogic {
                     // Double natural residual (C++ exitPath.push_back(tmp) twice).
                     let doubled = natural + forward.normalize_or_zero() * 5.0;
                     let _ = self.append_unit_waypoint(new_id, doubled);
+                }
+            }
+        }
+    }
+
+    /// C++ GameLogic starting-unit residual (PlayerTemplate StartingUnit0..N).
+    /// Spawns each active skirmish/SP player's starting construction unit near their
+    /// base if they do not already own a matching mobile builder.
+    pub(crate) fn spawn_skirmish_starting_units(&mut self) {
+        use crate::game_logic::host_faction_skirmish_residual::{
+            find_player_template_by_side, find_player_template_residual,
+        };
+
+        let mut player_ids: Vec<u32> = self.players.keys().copied().collect();
+        player_ids.sort_unstable();
+
+        for pid in player_ids {
+            let Some(player) = self.players.get(&pid).cloned() else {
+                continue;
+            };
+            if !player.is_alive || player.team == Team::Neutral {
+                continue;
+            }
+
+            let side = match player.team {
+                Team::USA => "America",
+                Team::China => "China",
+                Team::GLA => "GLA",
+                Team::Neutral => continue,
+            };
+            let residual = find_player_template_by_side(side)
+                .or_else(|| find_player_template_residual("FactionAmerica"));
+            let Some(residual) = residual else {
+                log::warn!(
+                    "Skirmish starting unit residual: no player template for side={} player={}",
+                    side,
+                    pid
+                );
+                continue;
+            };
+            let unit_name = residual.starting_unit0;
+            if unit_name.is_empty() {
+                continue;
+            }
+
+            // Skip only when a *mobile* builder/worker already exists for the team.
+            // Structures must not suppress StartingUnit0 (C++ always places the dozer).
+            let has_builder = self.objects.values().any(|o| {
+                o.team == player.team
+                    && o.is_alive()
+                    && o.is_mobile()
+                    && (o.can_construct()
+                        || o.template_name.eq_ignore_ascii_case(unit_name)
+                        || o.template_name.to_ascii_lowercase().contains("dozer")
+                        || o.template_name.to_ascii_lowercase().contains("worker"))
+            });
+            if has_builder {
+                let builders: Vec<String> = self
+                    .objects
+                    .values()
+                    .filter(|o| {
+                        o.team == player.team
+                            && o.is_alive()
+                            && o.is_mobile()
+                            && (o.can_construct()
+                                || o.template_name.to_ascii_lowercase().contains("dozer")
+                                || o.template_name.to_ascii_lowercase().contains("worker"))
+                    })
+                    .map(|o| o.template_name.clone())
+                    .collect();
+                log::info!(
+                    "Skirmish starting unit residual: player={} team={:?} already has mobile builder {:?}",
+                    pid,
+                    player.team,
+                    builders
+                );
+                continue;
+            }
+
+            // Anchor near command center / any structure / team base residual.
+            let mut base = self.team_base_position(player.team);
+            if base.is_none() {
+                // Ensure a starting building exists (C++ construction yard path).
+                let building = residual.starting_building;
+                if !building.is_empty() {
+                    let mut pos = Vec3::new(
+                        200.0 + (pid as f32) * 400.0,
+                        0.0,
+                        200.0 + (pid as f32) * 400.0,
+                    );
+                    {
+                        let (bmin, bmax) = self.world_bounds();
+                        let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
+                        pos = Vec3::new(
+                            bmin.x + (bmax.x - bmin.x) * t,
+                            0.0,
+                            bmin.z + (bmax.z - bmin.z) * 0.2,
+                        );
+                    }
+                    if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
+                        pos.y = h;
+                    }
+                    self.ensure_ai_faction_templates(player.team);
+                    let _ = self.create_object(building, player.team, pos);
+                    base = Some(pos);
+                }
+            }
+            let Some(mut base_pos) = base else {
+                continue;
+            };
+            if let Some(h) = self.terrain_height_at(Vec3::new(base_pos.x, 0.0, base_pos.z)) {
+                base_pos.y = h;
+            }
+            // Offset like C++ minRadius/maxRadius around construction yard.
+            let mut unit_pos = base_pos + Vec3::new(40.0, 0.0, -40.0);
+            if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
+                unit_pos.y = h;
+            }
+            self.ensure_ai_faction_templates(player.team);
+            if let Some(id) = self.create_object(unit_name, player.team, unit_pos) {
+                log::info!(
+                    "Skirmish starting unit residual: player={} team={:?} spawned {} id={:?}",
+                    pid,
+                    player.team,
+                    unit_name,
+                    id
+                );
+            } else {
+                // Fallback retail short names used by host residual tables.
+                let fallback = match player.team {
+                    Team::USA => "AmericaVehicleDozer",
+                    Team::China => "ChinaVehicleDozer",
+                    Team::GLA => "GLAInfantryWorker",
+                    Team::Neutral => "",
+                };
+                if !fallback.is_empty() && fallback != unit_name {
+                    if let Some(id) = self.create_object(fallback, player.team, unit_pos) {
+                        log::info!(
+                            "Skirmish starting unit residual fallback: player={} {} id={:?}",
+                            pid,
+                            fallback,
+                            id
+                        );
+                    } else {
+                        log::warn!(
+                            "Skirmish starting unit residual failed for player={} tried {} / {}",
+                            pid,
+                            unit_name,
+                            fallback
+                        );
+                    }
                 }
             }
         }
@@ -94732,5 +94886,68 @@ mod tests {
         );
         let a = logic.objects.get(&atk).unwrap();
         assert!(matches!(a.ai_state, AIState::Idle) || a.target.is_none());
+    }
+}
+
+#[cfg(test)]
+mod skirmish_starting_unit_residual_tests {
+    use super::*;
+
+    #[test]
+    fn spawn_skirmish_starting_units_spawns_missing_builder() {
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::Skirmish);
+        logic.clear_all_players();
+        // Human USA with a structure but no dozer.
+        let mut p0 = Player::new(0, Team::USA, "Human", true);
+        p0.is_alive = true;
+        logic.add_player(p0);
+        let mut p1 = Player::new(1, Team::China, "AI", false);
+        p1.is_alive = true;
+        logic.add_player(p1);
+        // Structure only for USA.
+        let _ = logic.create_object(
+            "USA_CommandCenter",
+            Team::USA,
+            glam::Vec3::new(100.0, 0.0, 100.0),
+        );
+        let before = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.team == Team::USA && o.is_mobile())
+            .count();
+        logic.spawn_skirmish_starting_units();
+        let after = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.team == Team::USA && o.is_mobile())
+            .count();
+        assert!(
+            after > before,
+            "USA should gain a starting dozer/worker residual (before={before} after={after})"
+        );
+        let china_mobile = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.team == Team::China && o.is_mobile())
+            .count();
+        assert!(
+            china_mobile >= 1,
+            "China AI should gain starting builder residual"
+        );
+    }
+
+    #[test]
+    fn dozer_template_name_counts_as_mobile() {
+        let mut logic = GameLogic::new();
+        let id = logic
+            .create_object("USA_Dozer", Team::USA, glam::Vec3::ZERO)
+            .expect("dozer");
+        let o = logic.get_object(id).expect("obj");
+        assert!(
+            o.is_mobile(),
+            "USA_Dozer must be mobile for host select/count"
+        );
+        assert!(o.is_worker() || o.can_construct(), "dozer should construct");
     }
 }
