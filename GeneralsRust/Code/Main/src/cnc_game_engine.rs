@@ -2061,6 +2061,40 @@ impl CnCGameEngine {
             match_over,
             victory_label,
             presentation_frame_ok: self.last_presentation_frame.is_some(),
+            shell_screen_count: {
+                #[cfg(feature = "game_client")]
+                {
+                    game_client::gui::get_shell().get_screen_count() as u32
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    0u32
+                }
+            },
+            shell_top_wnd: {
+                #[cfg(feature = "game_client")]
+                {
+                    let mut shell = game_client::gui::get_shell();
+                    shell
+                        .top()
+                        .map(|layout| layout.get_filename().to_string())
+                        .unwrap_or_default()
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    String::new()
+                }
+            },
+            shell_active: {
+                #[cfg(feature = "game_client")]
+                {
+                    game_client::gui::get_shell().is_shell_active()
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    false
+                }
+            },
             presentation_live_fallback_reads: self
                 .render_pipeline
                 .last_presentation_live_fallback_reads()
@@ -16967,6 +17001,12 @@ struct RuntimeHostSnapshot {
     victory_label: String,
     /// PresentationFrame installed for client/render residual.
     presentation_frame_ok: bool,
+    /// Shell screen stack depth residual (retail WND push honesty).
+    shell_screen_count: u32,
+    /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
+    shell_top_wnd: String,
+    /// Shell::is_shell_active residual.
+    shell_active: bool,
     /// Live GameLogic dual-reads during last presentation-owned collect (must be 0 in-game).
     presentation_live_fallback_reads: u32,
     /// Sticky waypoint mode residual.
@@ -17132,6 +17172,9 @@ impl RuntimeHostBridge {
             match_over: false,
             victory_label: String::new(),
             presentation_frame_ok: false,
+            shell_screen_count: 0,
+            shell_top_wnd: String::new(),
+            shell_active: false,
             presentation_live_fallback_reads: 0,
             waypoint_mode: false,
             live_frame_ok: false,
@@ -17194,6 +17237,12 @@ impl RuntimeHostBridge {
             "presentation_frame_ok={}\n",
             snapshot.presentation_frame_ok
         ));
+        payload.push_str(&format!(
+            "shell_screen_count={}\n",
+            snapshot.shell_screen_count
+        ));
+        payload.push_str(&format!("shell_top_wnd={}\n", snapshot.shell_top_wnd));
+        payload.push_str(&format!("shell_active={}\n", snapshot.shell_active));
         payload.push_str(&format!(
             "presentation_live_fallback_reads={}\n",
             snapshot.presentation_live_fallback_reads
