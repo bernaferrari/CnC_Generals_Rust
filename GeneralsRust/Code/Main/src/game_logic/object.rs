@@ -2623,6 +2623,7 @@ impl Object {
                 }
             }
         }
+        self.record_host_crush_vision();
     }
 
     /// Apply Hijack residual ownership mark (caller sets team).
@@ -4691,6 +4692,7 @@ impl Object {
         if self.crushable_level == 255 && self.is_kind_of(KindOf::Infantry) {
             self.crushable_level = 0;
         }
+        self.record_host_crush_vision();
     }
 
     /// C++ Object::canCrushOrSquish TEST_CRUSH_ONLY residual.
@@ -5485,7 +5487,17 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_demo_mine_cheer(&self) {
+        pub fn record_host_crush_vision(&self) {
+        crate::game_logic::host_crush_vision_log::record(
+            self.id,
+            self.crusher_level,
+            self.crushable_level,
+            self.vision_range,
+            self.shroud_clearing_range,
+        );
+    }
+
+    pub fn record_host_demo_mine_cheer(&self) {
         crate::game_logic::host_demo_mine_cheer_log::record(
             self.id,
             self.demo_suicided_detonating,
