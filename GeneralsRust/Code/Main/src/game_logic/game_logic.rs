@@ -5245,6 +5245,10 @@ impl GameLogic {
         }
 
         self.map_loaded = true;
+        // C++ start-of-match residual: reveal FOW around loaded units/structures
+        // immediately so build placement / presentation FOW are not stuck LBC_SHROUD
+        // until the first logic tick. Same XZ→shroud mapping as update path.
+        self.update_main_crate_vision();
         report_progress(0.96, "Map load complete");
         log::info!(
             "Map loaded successfully in {:.2}s",

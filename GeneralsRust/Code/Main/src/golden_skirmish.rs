@@ -2026,6 +2026,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn load_map_start_vision_allows_build_residual() {
+        crate::gameworld_shadow::ensure_gate_damage_authority();
+        set_verification_single_authority(true);
+        let (map_identity, map_exists) = resolve_map(None);
+        if !map_exists {
+            eprintln!("retail map absent — skip start vision residual");
+            return;
+        }
+        let config = golden_skirmish_config(&map_identity);
+        let mut logic = GameLogic::new();
+        install_templates(&mut logic);
+        apply_skirmish_config(&mut logic, &config);
+        assert!(logic.load_map(&map_identity), "map load");
+        install_templates(&mut logic);
+        ensure_human_economy(&mut logic, 25_000, 500);
+        let base = logic
+            .get_objects()
+            .values()
+            .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
+            .map(|o| o.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let dozer = ensure_dozer(&mut logic, base).expect("dozer");
+        // Dozer spawn after load needs one vision push for its new position.
+        if let Some(d) = logic.get_object_mut(dozer) {
+            let p = d.get_position();
+            d.set_position(p); // keep
+        }
+        logic.update(); // apply vision for post-load spawned dozer
+        let bname =
+            first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
+                .unwrap_or_else(|| "Barracks".into());
+        let site = clamp_build_site(&logic, base + Vec3::new(40.0, 0.0, 0.0));
+        if let Some(d) = logic.get_object_mut(dozer) {
+            d.set_position(site + Vec3::new(-5.0, 0.0, 0.0));
+        }
+        logic.update();
+        let legal =
+            logic.is_location_legal_to_build_for_builder(Team::USA, site, &bname, Some(dozer));
+        assert!(
+            legal,
+            "start FOW after load_map must allow build near base (got illegal at {:?})",
+            site
+        );
+    }
+
+    #[test]
     fn main_crate_vision_xz_plane_residual() {
         // Regression: update_main_crate_vision must feed shroud (x,z) so build
         // placement LBC_SHROUD matches unit vision on the gameplay XZ plane.
@@ -2038,6 +2084,19 @@ mod tests {
         assert!(
             vision.contains("Coord3D::new(pos.x, pos.z, pos.y)"),
             "main-crate vision must map world XZ → shroud XY residual"
+        );
+        // load_map must apply starting vision before first InGame tick.
+        let load = src
+            .split("pub fn load_map_with_progress")
+            .nth(1)
+            .and_then(|s| {
+                s.split("/// Load a map without external progress reporting")
+                    .next()
+            })
+            .unwrap_or("");
+        assert!(
+            load.contains("self.update_main_crate_vision()"),
+            "load_map must reveal FOW around start units residual"
         );
         let build = src
             .split("fn is_build_location_shroud_clear")
