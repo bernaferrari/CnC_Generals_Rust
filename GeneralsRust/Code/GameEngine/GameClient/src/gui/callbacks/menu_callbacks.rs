@@ -12,8 +12,9 @@ use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, AnimationType, GameWindow,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget, GLM_DOUBLE_CLICKED,
+    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    write_input_focus_response, AnimationType, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, WindowWidget, GLM_DOUBLE_CLICKED,
 };
 use crate::helpers::TheInGameUI;
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
@@ -204,7 +205,7 @@ impl SinglePlayerMenu {
         layout.hide(true);
         self.initialized = false;
         self.parent = None;
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
     }
 }
 
@@ -234,7 +235,7 @@ impl MenuCallbacks for SinglePlayerMenu {
         self.button_pushed = false;
         self.is_shutting_down = false;
 
-        get_shell().show_shell_map(true);
+        show_shell_map_if_available(true);
         layout.hide(false);
 
         with_window_manager(|manager| {
@@ -1473,7 +1474,7 @@ impl MapSelectMenu {
         self.initialized = false;
         self.parent = None;
         self.listbox_map = None;
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
     }
 
     fn write_use_system_maps_preference(&self) {
@@ -1524,7 +1525,7 @@ impl MenuCallbacks for MapSelectMenu {
         self.show_solo_maps = true;
         self.is_shutting_down = false;
         self.start_game = false;
-        get_shell().show_shell_map(true);
+        show_shell_map_if_available(true);
         layout.hide(false);
 
         self.parent_id = Self::name_to_id("MapSelectMenu.wnd:MapSelectMenuParent");
@@ -1808,7 +1809,7 @@ impl MenuCallbacks for CreditsMenu {
             layout.get_filename()
         );
 
-        get_shell().show_shell_map(false);
+        show_shell_map_if_available(false);
 
         let mut credits = crate::credits::CreditsManager::new();
         if let Err(err) = credits.load_from_path("Data/INI/Credits.ini") {
@@ -1874,9 +1875,9 @@ impl MenuCallbacks for CreditsMenu {
             credits.reset();
         }
 
-        get_shell().show_shell_map(true);
+        show_shell_map_if_available(true);
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
 
         if let Some(audio) = TheAudio::get() {
             audio.remove_audio_event(0xFFFF_FFF1);
@@ -2229,5 +2230,21 @@ mod tests {
                 _ => None,
             });
         assert_eq!(selected, Some(0));
+    }
+}
+
+#[cfg(test)]
+mod menu_callbacks_shell_borrow_residual_tests {
+    #[test]
+    fn single_player_menu_avoids_nested_get_shell_on_shutdown() {
+        let src = include_str!("menu_callbacks.rs");
+        assert!(
+            src.contains("try_with_shell_mut(|shell| shell.shutdown_complete(None, false))"),
+            "SinglePlayerMenu::shutdown_complete must use try_with_shell_mut"
+        );
+        assert!(
+            src.contains("show_shell_map_if_available(true)"),
+            "SinglePlayerMenu init must use show_shell_map_if_available"
+        );
     }
 }
