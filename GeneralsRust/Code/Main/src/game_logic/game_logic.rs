@@ -3840,7 +3840,7 @@ impl GameLogic {
             unit.movement.velocity = dir * unit.movement.max_speed;
         }
         unit.ai_state = AIState::Moving;
-        unit.status.moving = true;
+        unit.set_status_moving(true);
         true
     }
 
@@ -3923,7 +3923,7 @@ impl GameLogic {
                     unit.movement.path = full_path;
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(unit.movement.path[1]);
-                    unit.status.moving = true;
+                    unit.set_status_moving(true);
                     unit.ai_state = AIState::Attacking;
                     unit.set_status_attacking(true);
                     if let Some(tid) = target_id {
@@ -4117,7 +4117,7 @@ impl GameLogic {
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
         unit.ai_state = AIState::Moving;
-        unit.status.moving = true;
+        unit.set_status_moving(true);
         true
     }
 
@@ -6492,7 +6492,7 @@ impl GameLogic {
                                                          // target_position will be set to path[1] by update_movement
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.ai_state = ai_state_override.unwrap_or(AIState::Moving);
-                    obj.status.moving = true;
+                    obj.set_status_moving(true);
                     // Final destination for shadow move channel (not intermediate waypoint).
                     crate::game_logic::host_move_log::record(
                         object_id,
@@ -8110,7 +8110,7 @@ impl GameLogic {
             // MASKED from vehicle ride; chute contain keeps soft-hide).
             r.status.unselectable = true;
             r.status.no_collisions = true;
-            r.status.masked = true;
+            r.set_status_masked(true);
         }
 
         self.car_bomb.record_airborne_parachute_put();
@@ -9491,7 +9491,7 @@ impl GameLogic {
                 if in_range {
                     if let Some(u) = self.objects.get_mut(&unit_id) {
                         u.attack_substate = AttackSubState::AimAtTarget;
-                        u.status.moving = false;
+                        u.set_status_moving(false);
                     }
                     let _ = self.attack_aim_at_target_enter(unit_id);
                     return AttackMachineResult::Continue;
@@ -9505,7 +9505,7 @@ impl GameLogic {
                 let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
                 if let Some(u) = self.objects.get_mut(&unit_id) {
                     u.approach_timestamp = logic_frame;
-                    u.status.moving = true;
+                    u.set_status_moving(true);
                 }
                 AttackMachineResult::Continue
             }
@@ -9542,7 +9542,7 @@ impl GameLogic {
                             attacker.movement.velocity.z *= scale;
                         }
                         attacker.attack_substate = AttackSubState::AimAtTarget;
-                        attacker.status.moving = false;
+                        attacker.set_status_moving(false);
                     }
                     let _ = self.attack_aim_at_target_enter(unit_id);
                     return AttackMachineResult::Continue;
@@ -9556,7 +9556,7 @@ impl GameLogic {
                 let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
                 if let Some(u) = self.objects.get_mut(&unit_id) {
                     u.approach_timestamp = logic_frame;
-                    u.status.moving = true;
+                    u.set_status_moving(true);
                 }
                 AttackMachineResult::Continue
             }
@@ -10716,7 +10716,7 @@ impl GameLogic {
             a.movement.target_position = Some(dest);
             a.ai_state = AIState::Attacking;
             a.set_status_attacking(true);
-            a.status.moving = true;
+            a.set_status_moving(true);
             crate::game_logic::host_move_log::record(attacker_id, Some([dest.x, dest.y, dest.z]));
             return true;
         }
@@ -11114,7 +11114,7 @@ impl GameLogic {
                 // C++ setProducer + park residual: dock at airfield hangar.
                 jet.contained_by = Some(af_id);
                 jet.ai_state = AIState::Docked;
-                jet.status.moving = false;
+                jet.set_status_moving(false);
                 jet.status.airborne_target = false;
                 jet.movement.path.clear();
                 jet.movement.current_path_index = 0;
@@ -13034,7 +13034,7 @@ impl GameLogic {
                                     attacker_id,
                                     Some([approach.x, approach.y, approach.z]),
                                 );
-                                attacker.status.moving = true;
+                                attacker.set_status_moving(true);
                                 attacker.ai_state = AIState::Attacking;
                                 attacker.set_status_attacking(true);
                             }
@@ -14596,7 +14596,7 @@ impl GameLogic {
                         } else {
                             AIState::Docked
                         };
-                        obj.status.moving = false;
+                        obj.set_status_moving(false);
                     }
                     if container_is_tunnel_network {
                         // Enter counter already incremented in record_enter.
@@ -15941,7 +15941,7 @@ impl GameLogic {
                         obj.contained_by = Some(container_id);
                         obj.set_position(container_pos);
                         obj.stop_moving();
-                        obj.status.moving = false;
+                        obj.set_status_moving(false);
                     }
                 }
                 _ => {}
@@ -19400,7 +19400,7 @@ impl GameLogic {
                 unit.set_target(None);
                 unit.contained_by = None;
                 unit.ai_state = AIState::Idle;
-                unit.status.moving = false;
+                unit.set_status_moving(false);
                 unit.set_status_attacking(false);
             }
             self.record_garrison_residual_exit();
@@ -21085,7 +21085,7 @@ impl GameLogic {
                                     a.attack_target(target_id);
                                     a.ai_state = AIState::Attacking;
                                     a.set_status_attacking(true);
-                                    a.status.moving = false;
+                                    a.set_status_moving(false);
                                     a.movement.velocity = glam::Vec3::ZERO;
                                     a.movement.target_position = None;
                                     a.movement.path.clear();
@@ -21347,7 +21347,7 @@ impl GameLogic {
                             unit.set_target(None);
                             unit.contained_by = None;
                             unit.ai_state = AIState::Idle;
-                            unit.status.moving = false;
+                            unit.set_status_moving(false);
                             unit.set_status_attacking(false);
                         }
                     }
@@ -24232,7 +24232,7 @@ impl GameLogic {
                 hunter.contained_by = Some(outpost_id);
                 hunter.ai_state = AIState::Docked;
                 hunter.stop_moving();
-                hunter.status.moving = false;
+                hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
                 hunter.set_target(None);
                 hunter.set_position(position);
@@ -24313,7 +24313,7 @@ impl GameLogic {
                 guard.contained_by = Some(crawler_id);
                 guard.ai_state = AIState::Docked;
                 guard.stop_moving();
-                guard.status.moving = false;
+                guard.set_status_moving(false);
                 guard.set_status_attacking(false);
                 guard.set_target(None);
                 guard.set_position(position);
@@ -24366,7 +24366,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_position(crawler_pos + offset);
                 unit.contained_by = None;
-                unit.status.moving = false;
+                unit.set_status_moving(false);
                 // GoAggressiveOnExit residual: attack designated target.
                 unit.attack_target(target_id);
                 ordered = ordered.saturating_add(1);
@@ -34269,7 +34269,7 @@ impl GameLogic {
             r.status.parachute_open = false;
             r.status.parachuting = true;
             r.status.airborne_target = true;
-            r.status.masked = false;
+            r.set_status_masked(false);
             r.status.unselectable = false;
             r.status.no_collisions = false;
             // DAMAGE_FALLING / DEATH_SPLATTED residual if this kill finishes them.
@@ -35604,7 +35604,7 @@ impl GameLogic {
                 new_grants = new_grants.saturating_add(1);
             } else {
                 // Already cooked — keep flag set (coverage refresh).
-                target.status.disabled_subdued = true;
+                target.set_status_disabled_subdued(true);
                 refresh_ticks = refresh_ticks.saturating_add(1);
             }
         }
@@ -36626,7 +36626,7 @@ impl GameLogic {
                     r.set_position(land_pos);
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
-                    r.status.masked = false;
+                    r.set_status_masked(false);
                     r.status.unselectable = false;
                     r.status.no_collisions = false;
                     r.stop_moving();
@@ -40523,7 +40523,7 @@ impl GameLogic {
                         clearer_id,
                         Some([mine_pos.x, mine_pos.y, mine_pos.z]),
                     );
-                    obj.status.moving = true;
+                    obj.set_status_moving(true);
                 }
             }
         }
@@ -40586,7 +40586,7 @@ impl GameLogic {
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
                 clearer.ai_state = AIState::Idle;
                 clearer.movement.target_position = None;
-                clearer.status.moving = false;
+                clearer.set_status_moving(false);
                 clearer.set_status_attacking(false);
             }
         }
@@ -46546,7 +46546,7 @@ impl GameLogic {
         }
         // Clear unmanned so detonation path owns the object (not recrewable).
         if let Some(o) = self.objects.get_mut(&vehicle_id) {
-            o.status.disabled_unmanned = false;
+            o.set_status_disabled_unmanned(false);
             o.status.unmanned_owner_team = None;
         }
         let ok = self.detonate_car_bomb(vehicle_id);
@@ -46763,7 +46763,7 @@ impl GameLogic {
                         unit.set_target(None);
                         unit.contained_by = None;
                         unit.ai_state = AIState::Idle;
-                        unit.status.moving = false;
+                        unit.set_status_moving(false);
                         unit.set_status_attacking(false);
                     }
                     self.capture_tunnel_last_ejects =
@@ -46811,7 +46811,7 @@ impl GameLogic {
             obj.stop_moving();
             obj.set_target(None);
             obj.ai_state = AIState::Idle;
-            obj.status.moving = false;
+            obj.set_status_moving(false);
             obj.set_status_attacking(false);
             // C++ Object::setCaptured(true) residual (sticky private status).
             obj.set_private_captured(true);
@@ -46909,7 +46909,7 @@ impl GameLogic {
                 unit.set_target(None);
                 unit.contained_by = None;
                 unit.ai_state = AIState::Idle;
-                unit.status.moving = false;
+                unit.set_status_moving(false);
                 unit.set_status_attacking(false);
                 // Occupants keep their own team residual (don't flip with container).
             }
@@ -46974,7 +46974,7 @@ impl GameLogic {
                 unit.set_target(None);
                 unit.contained_by = None;
                 unit.ai_state = AIState::Idle;
-                unit.status.moving = false;
+                unit.set_status_moving(false);
                 unit.set_status_attacking(false);
             }
             if let Some(st) = self.objects.get_mut(&structure_id) {
@@ -47025,7 +47025,7 @@ impl GameLogic {
                             unit.set_target(None);
                             unit.contained_by = None;
                             unit.ai_state = AIState::Idle;
-                            unit.status.moving = false;
+                            unit.set_status_moving(false);
                             unit.set_status_attacking(false);
                         }
                         self.sell_passengers_ejected =
@@ -47483,7 +47483,7 @@ impl GameLogic {
         hole.rebuild_template_name = Some(template_name);
         hole.rebuild_reconstructing_id = None;
         hole.rebuild_worker_id = None;
-        hole.status.masked = false;
+        hole.set_status_masked(false);
         hole.status.unselectable = false;
         hole.rebuild_ready_frame = self
             .frame
@@ -47669,7 +47669,7 @@ impl GameLogic {
                         h.rebuild_worker_id = None;
                         if !recon_alive {
                             h.rebuild_reconstructing_id = None;
-                            h.status.masked = false;
+                            h.set_status_masked(false);
                         }
                         h.rebuild_ready_frame = now
                             .max(1)
@@ -47715,7 +47715,7 @@ impl GameLogic {
                     {
                         if let Some(b) = self.objects.get_mut(&rid) {
                             b.status.reconstructing = false;
-                            b.status.masked = false;
+                            b.set_status_masked(false);
                         }
                     }
                     // Destroy residual unselectable worker if still around.
@@ -47731,7 +47731,7 @@ impl GameLogic {
                     if let Some(h) = self.objects.get_mut(&hole_id) {
                         h.rebuild_reconstructing_id = None;
                         h.rebuild_worker_id = None;
-                        h.status.masked = false;
+                        h.set_status_masked(false);
                         h.rebuild_ready_frame = now
                             .max(1)
                             .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
@@ -47773,7 +47773,7 @@ impl GameLogic {
             };
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 w.status.unselectable = true;
-                w.status.masked = false;
+                w.set_status_masked(false);
                 w.ai_state = AIState::Constructing;
             }
             self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
@@ -47802,7 +47802,7 @@ impl GameLogic {
                 h.rebuild_worker_id = Some(worker_id);
                 h.rebuild_reconstructing_id = Some(new_id);
                 // C++ maskObject(TRUE) while reconstructing.
-                h.status.masked = true;
+                h.set_status_masked(true);
                 h.status.unselectable = true;
             }
             // C++ transferAttack(hole, reconstructing) residual.
@@ -49765,7 +49765,7 @@ mod tests {
                 .expect("unit should exist");
             unit.target = Some(transport_id);
             unit.ai_state = AIState::Entering;
-            unit.status.moving = true;
+            unit.set_status_moving(true);
         }
 
         game_logic.update_ai(&[transport_id, unit_id], 1.0 / 60.0);
@@ -49930,7 +49930,7 @@ mod tests {
                 .expect("unit should exist");
             unit.target = Some(enemy_barracks_id);
             unit.ai_state = AIState::Entering;
-            unit.status.moving = true;
+            unit.set_status_moving(true);
         }
 
         game_logic.update_ai(&[unit_id, enemy_barracks_id], 1.0 / 60.0);
@@ -49966,7 +49966,7 @@ mod tests {
                 .expect("unit should exist");
             unit.target = Some(enemy_garrison_id);
             unit.ai_state = AIState::Entering;
-            unit.status.moving = true;
+            unit.set_status_moving(true);
         }
 
         game_logic.update_ai(&[unit_id, enemy_garrison_id], 1.0 / 60.0);
@@ -50238,7 +50238,7 @@ mod tests {
             let _ = unit.take_damage(90.0);
             unit.target = Some(repair_bay_id);
             unit.ai_state = AIState::SeekingRepair;
-            unit.status.moving = true;
+            unit.set_status_moving(true);
         }
 
         game_logic.update_ai(&[repair_bay_id, unit_id], 1.0 / 60.0);
@@ -55711,7 +55711,7 @@ mod tests {
         // clear for combat observation of RANGE residual (paralyze tested separately).
         {
             let ally = game_logic.find_object_mut(ally_id).expect("ally");
-            ally.status.disabled_paralyzed = false;
+            ally.set_status_disabled_paralyzed(false);
             ally.status.disabled_paralyzed_until_frame = 0;
             ally.weapon = Some(Weapon {
                 damage: 20.0,
@@ -69196,7 +69196,7 @@ mod tests {
         {
             let o = game_logic.find_object_mut(outpost_id).unwrap();
             o.ai_state = AIState::Moving;
-            o.status.moving = true;
+            o.set_status_moving(true);
             o.set_status_stealthed(true);
         }
         game_logic.update_stealth_and_detection();
@@ -69210,7 +69210,7 @@ mod tests {
         {
             let o = game_logic.find_object_mut(outpost_id).unwrap();
             o.ai_state = AIState::Idle;
-            o.status.moving = false;
+            o.set_status_moving(false);
         }
         game_logic.update_stealth_and_detection();
         {
@@ -74379,7 +74379,7 @@ mod tests {
         {
             let p = game_logic.find_object_mut(pf_id).unwrap();
             p.ai_state = AIState::Moving;
-            p.status.moving = true;
+            p.set_status_moving(true);
             p.set_status_stealthed(true);
         }
         game_logic.update_stealth_and_detection();
@@ -74393,7 +74393,7 @@ mod tests {
         {
             let p = game_logic.find_object_mut(pf_id).unwrap();
             p.ai_state = AIState::Idle;
-            p.status.moving = false;
+            p.set_status_moving(false);
         }
         game_logic.update_stealth_and_detection();
         {
@@ -83231,7 +83231,7 @@ mod tests {
         }
         if let Some(h) = logic.get_object_mut(hole) {
             h.rebuild_reconstructing_id = Some(rid);
-            h.status.masked = true;
+            h.set_status_masked(true);
         }
         let aid = logic
             .create_object(
@@ -93770,7 +93770,7 @@ mod tests {
         tv.add_kind_of(KindOf::Vehicle);
         let vid = ObjectId(403);
         let mut v = Object::new(tv, vid, Team::Neutral);
-        v.status.disabled_unmanned = true;
+        v.set_status_disabled_unmanned(true);
         logic.objects.insert(vid, v);
         let mut ti = ThingTemplate::new("PilotInf");
         ti.add_kind_of(KindOf::Infantry);
@@ -94433,7 +94433,7 @@ mod tests {
             o.set_position(glam::Vec3::new(80.0, 0.0, 0.0));
             o.movement.target_position = None;
             o.movement.path.clear();
-            o.status.moving = false;
+            o.set_status_moving(false);
             o.target = Some(tgt);
             o.ai_state = AIState::Attacking;
             if let Some(w) = o.weapon.as_mut() {
