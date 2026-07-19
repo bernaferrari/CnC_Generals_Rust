@@ -131,6 +131,10 @@ pub struct Entity {
     pub moving: bool,
     /// Host Object::status.attacking residual.
     pub attacking: bool,
+    /// Host Object::status.is_firing_weapon residual.
+    pub is_firing_weapon: bool,
+    /// Host Object::status.is_aiming_weapon residual.
+    pub is_aiming_weapon: bool,
     /// Host Object::team_color residual (RGBA 0..1).
     pub team_color: [f32; 4],
     /// Host Object::power_provided residual.
@@ -442,6 +446,8 @@ impl EntityStore {
             deployed: false,
             moving: false,
             attacking: false,
+            is_firing_weapon: false,
+            is_aiming_weapon: false,
             team_color: [1.0, 1.0, 1.0, 1.0],
             power_provided: 0,
             power_consumed: 0,
