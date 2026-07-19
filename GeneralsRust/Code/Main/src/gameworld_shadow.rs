@@ -2404,6 +2404,42 @@ impl GameWorldShadow {
         true
     }
 
+    /// Queue SetConstruction residual onto a mapped host structure.
+    pub fn queue_set_construction_for_host(
+        &mut self,
+        host: ObjectId,
+        percent: f32,
+        under_construction: bool,
+    ) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetConstruction {
+                target,
+                percent: percent.clamp(0.0, 1.0),
+                under_construction,
+            });
+        true
+    }
+
+    /// Apply construction progress log as SetConstruction mutations.
+    pub fn apply_host_construction_progress_events(
+        &mut self,
+        events: &[crate::game_logic::host_construction_progress_log::HostConstructionProgressEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_construction_for_host(ev.object, ev.percent, ev.under_construction) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     /// Queue SetTransform for a mapped host object (move-command channel).
     pub fn queue_set_transform_for_host(
         &mut self,
@@ -2784,6 +2820,7 @@ pub fn shadow_session_after_host_tick(
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
     let construction_events = crate::game_logic::host_construction_log::drain();
+    let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -2793,6 +2830,8 @@ pub fn shadow_session_after_host_tick(
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
+    let _construction_progress_applied =
+        shadow.apply_host_construction_progress_events(&construction_progress_events);
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -4244,6 +4283,58 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_construction_progress_log_drives_set_construction_channel() {
+        use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ConstrProgCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CProg") {
+            let mut t = ThingTemplate::new("CProg");
+            t.set_health(500.0);
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("CProg".into(), t);
+        }
+        let id = logic
+            .create_object("CProg", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.construction_percent = 0.25;
+            o.set_status_under_construction(true);
+        }
+        host_construction_progress_log::clear();
+        host_construction_progress_log::record(id, 0.25, true);
+        let events = host_construction_progress_log::drain();
+        assert_eq!(events.len(), 1);
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.construction_percent = 0.0;
+            e.under_construction = false;
+        }
+        host_construction_progress_log::record(id, 0.25, true);
+        let events = host_construction_progress_log::drain();
+        let n = shadow.apply_host_construction_progress_events(&events);
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.construction_percent - 0.25).abs() < 1e-5);
+        assert!(e.under_construction);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.construction_percent = 0.0;
+            o.status.under_construction = false;
+        }
+        let wb = shadow.writeback_construction_to_host(&mut logic);
+        assert!(wb >= 1);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!((o.construction_percent - 0.25).abs() < 1e-5);
+        assert!(o.status.under_construction);
     }
 
     #[test]

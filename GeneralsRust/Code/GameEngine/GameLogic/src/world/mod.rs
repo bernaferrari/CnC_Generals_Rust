@@ -506,6 +506,12 @@ pub enum WorldMutation {
         target: EntityId,
         items: Vec<EntityProductionItem>,
     },
+    /// Set structure construction progress residual (0..1).
+    SetConstruction {
+        target: EntityId,
+        percent: f32,
+        under_construction: bool,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -860,6 +866,17 @@ impl GameWorld {
                             e.production_template.clear();
                             e.production_progress = 0.0;
                         }
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetConstruction {
+                    target,
+                    percent,
+                    under_construction,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.construction_percent = percent.clamp(0.0, 1.0);
+                        e.under_construction = under_construction;
                         applied += 1;
                     }
                 }
