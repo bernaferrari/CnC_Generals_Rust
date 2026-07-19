@@ -6,6 +6,7 @@ use crate::gui::callbacks::message_box::{
 };
 use crate::gui::{
     get_disconnect_menu, get_lan_setup, get_shell, hide_diplomacy, hide_in_game_chat,
+    show_shell_map_if_available, try_with_shell_mut,
 };
 use crate::gui::{
     with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
@@ -345,19 +346,23 @@ pub fn toggle_quit_menu() {
         }
     }
 
-    {
-        let mut shell = get_shell();
+    let handled_options = try_with_shell_mut(|shell| {
         if let Some(layout) = shell.get_options_layout(false) {
             if !layout.is_hidden() {
                 if send_back_button_selection("OptionsMenu.wnd:ButtonBack") {
-                    return;
+                    return true;
                 }
                 let mut immediate = false;
                 let _ = layout.run_shutdown(&mut immediate);
                 layout.hide(true);
-                return;
+                return true;
             }
         }
+        false
+    })
+    .unwrap_or(false);
+    if handled_options {
+        return;
     }
 
     {
@@ -574,12 +579,13 @@ pub fn quit_menu_system(
             } else if control_id == state.button_return {
                 toggle_quit_menu();
             } else if control_id == state.button_options {
-                let mut shell = get_shell();
-                if let Some(layout) = shell.get_options_layout(true) {
-                    let _ = layout.run_init(None);
-                    layout.hide(false);
-                    layout.bring_forward();
-                }
+                let _ = try_with_shell_mut(|shell| {
+                    if let Some(layout) = shell.get_options_layout(true) {
+                        let _ = layout.run_init(None);
+                        layout.hide(false);
+                        layout.bring_forward();
+                    }
+                });
             } else if control_id == state.button_restart {
                 if TheGameLogic::is_in_multiplayer_game() {
                     let yes: MessageBoxFunc = Box::new(surrender_quit_menu);

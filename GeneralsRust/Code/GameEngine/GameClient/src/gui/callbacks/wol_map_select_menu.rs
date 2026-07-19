@@ -11,8 +11,9 @@ use crate::gamespy_overlay::{close_overlay, raise_gs_message_box, GameSpyOverlay
 use crate::gui::callbacks::wol_game_setup_menu::refresh_map_selection_ui;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowStatus,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image, populate_map_listbox,
@@ -319,7 +320,7 @@ pub fn wol_map_select_menu_shutdown(
         state.selected_map = None;
     }
     layout.hide(true);
-    get_shell().shutdown_complete(layout);
+    let _ = try_with_shell_mut(|shell| shell.shutdown_complete(layout));
 }
 
 pub fn wol_map_select_menu_update(
