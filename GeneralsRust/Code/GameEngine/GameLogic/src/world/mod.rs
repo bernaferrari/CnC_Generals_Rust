@@ -548,6 +548,13 @@ pub enum WorldMutation {
         unit: EntityId,
         location: Option<[f32; 3]>,
     },
+    /// Host Object detector residual (is_detector / range / rate).
+    SetDetector {
+        target: EntityId,
+        is_detector: bool,
+        detection_range: f32,
+        detection_rate_frames: u32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1027,6 +1034,19 @@ impl GameWorld {
                 WorldMutation::SetTargetLocation { unit, location } => {
                     if let Some(e) = self.inner.entity_mut(unit) {
                         e.target_location = location;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetDetector {
+                    target,
+                    is_detector,
+                    detection_range,
+                    detection_rate_frames,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.is_detector = is_detector;
+                        e.detection_range = detection_range.max(0.0);
+                        e.detection_rate_frames = detection_rate_frames;
                         applied += 1;
                     }
                 }

@@ -19786,12 +19786,14 @@ impl GameLogic {
                     template_name,
                 ) {
                     object.is_detector = true;
+                    object.record_host_detector();
                     if let Some(range) =
                         crate::game_logic::host_troop_crawler::troop_crawler_detection_range(
                             template_name,
                         )
                     {
                         object.detection_range = range;
+                        object.record_host_detector();
                     }
                 }
                 // VisionRange residual (175) for effective_detection_range fallback.
@@ -19842,10 +19844,12 @@ impl GameLogic {
             // Always detector from spawn; gun is PLAYER_UPGRADE residual.
             if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
                 object.is_detector = true;
+                object.record_host_detector();
                 if let Some(range) =
                     crate::game_logic::host_sentry_drone::sentry_detection_range(template_name)
                 {
                     object.detection_range = range;
+                    object.record_host_detector();
                 }
                 // Innate stealth residual (StealthUpdate InnateStealth = Yes).
                 object.set_status_stealthed(true);
@@ -19863,10 +19867,12 @@ impl GameLogic {
             // uncloaks only while MOVING (StealthForbiddenConditions = MOVING).
             if crate::game_logic::host_pathfinder::pathfinder_spawn_is_detector(template_name) {
                 object.is_detector = true;
+                object.record_host_detector();
                 if let Some(range) =
                     crate::game_logic::host_pathfinder::pathfinder_detection_range(template_name)
                 {
                     object.detection_range = range;
+                    object.record_host_detector();
                 }
                 object.set_status_stealthed(true);
                 object.innate_stealth = true;
@@ -20257,10 +20263,12 @@ impl GameLogic {
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
             if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
                 object.is_detector = true;
+                object.record_host_detector();
                 if let Some(range) =
                     crate::game_logic::host_slave_drones::scout_detection_range(template_name)
                 {
                     object.detection_range = range;
+                    object.record_host_detector();
                 }
                 // Sensor drone: strip kind-based default gun if no explicit primary.
                 // Reuse sentry_had_explicit_primary (same template fields, captured pre-move).
@@ -34544,8 +34552,11 @@ impl GameLogic {
                     }
                     HostBattlePlan::SearchAndDestroy => {
                         center.detection_range = 0.0;
+                        center.record_host_detector();
                         center.is_detector = false;
+                        center.record_host_detector();
                         center.detection_rate_frames = 0;
+                        center.record_host_detector();
                         center.next_detection_scan_frame = 0;
                         disabled_stealth_detector = true;
                         let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
@@ -34714,6 +34725,7 @@ impl GameLogic {
                                 center.detection_range =
                                     strategy_center_stealth_detection_range_when_enabled();
                                 center.is_detector = true;
+                                center.record_host_detector();
                                 // DetectionRate residual: 500ms → 15 frames.
                                 // setSDEnabled(true) → first scan immediate (next=0).
                                 center.detection_rate_frames =
@@ -38632,7 +38644,9 @@ impl GameLogic {
                 obj.set_status_stealthed(true);
                 obj.innate_stealth = true;
                 obj.is_detector = true;
+                obj.record_host_detector();
                 obj.detection_range = SPY_DRONE_VISION_RANGE;
+                obj.record_host_detector();
             }
         }
 
