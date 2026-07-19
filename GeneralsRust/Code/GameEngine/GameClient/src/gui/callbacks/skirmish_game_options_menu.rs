@@ -7,8 +7,9 @@ use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel, with_window_manager,
-    GameWindow, SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel,
+    show_shell_map_if_available, try_with_shell_mut, with_window_manager, GameWindow,
+    SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     WindowStatus, GLM_RIGHT_CLICKED,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
@@ -1397,7 +1398,7 @@ pub fn skirmish_game_options_menu_init(
     set_skirmish_slot_updates_enabled(true);
     set_skirmish_is_initing(false);
 
-    get_shell().show_shell_map(true);
+    show_shell_map_if_available(true);
     layout.hide(false);
 }
 
@@ -1440,7 +1441,7 @@ pub fn skirmish_game_options_menu_update(
         // C++ parity: check animation/transitions unconditionally (no is_shutting_down gate).
         // C++ SkirmishGameOptionsMenuUpdate calls TheShell->shutdownComplete(layout) whenever
         // both the shell animation and transition handler report finished.
-        if get_shell().is_anim_finished()
+        if try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
             && with_window_manager(|manager| manager.transitions_finished())
         {
             if state.is_shutting_down {
@@ -1448,7 +1449,7 @@ pub fn skirmish_game_options_menu_update(
                 set_skirmish_is_shutting_down(false);
             }
             layout.hide(true);
-            let _ = get_shell().shutdown_complete(None, false);
+            let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         }
     });
 }
@@ -1468,11 +1469,11 @@ pub fn skirmish_game_options_menu_shutdown(
         destroy_skirmish_map_select_overlay();
         layout.hide(true);
         set_skirmish_is_shutting_down(false);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         return;
     }
 
-    get_shell().reverse_animate_window();
+    let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
     with_window_manager(|manager| manager.transition_reverse("SkirmishGameOptionsMenuFade"));
 
     with_state(|state| state.is_shutting_down = true);
@@ -1550,7 +1551,7 @@ pub fn skirmish_game_options_menu_system(
                 set_skirmish_button_pushed(true);
                 write_skirmish_preferences(state);
                 destroy_skirmish_map_select_overlay();
-                let _ = get_shell().pop();
+                let _ = try_with_shell_mut(|shell| shell.pop());
                 {
                     let mut setup = get_skirmish_setup();
                     *setup = Default::default();
