@@ -3302,6 +3302,47 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_overcharge_events(
+        &mut self,
+        events: &[crate::game_logic::host_overcharge_log::HostOverchargeEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetOvercharge {
+                    target: eid,
+                    enabled: ev.enabled,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_overcharge_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.overcharge_enabled == ent.overcharge_enabled {
+                continue;
+            }
+            obj.overcharge_enabled = ent.overcharge_enabled;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_weapon_set_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3841,6 +3882,7 @@ pub fn shadow_session_after_host_tick(
     let guard_events = crate::game_logic::host_guard_log::drain();
     let ai_attitude_events = crate::game_logic::host_ai_attitude_log::drain();
     let weapon_set_events = crate::game_logic::host_weapon_set_log::drain();
+    let overcharge_events = crate::game_logic::host_overcharge_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3893,6 +3935,7 @@ pub fn shadow_session_after_host_tick(
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
+    let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3940,6 +3983,7 @@ pub fn shadow_session_after_host_tick(
     let _guard_wb = shadow.writeback_guard_to_host(logic);
     let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
     let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
+    let _oc_wb = shadow.writeback_overcharge_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6764,7 +6808,61 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_overcharge_log_drives_set_overcharge_channel() {
+        use crate::game_logic::{host_overcharge_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("OcCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("OCU") {
+            let mut t = ThingTemplate::new("OCU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("OCU".into(), t);
+        }
+        let oid = logic
+            .create_object("OCU", Team::China, glam::Vec3::new(17.0, 0.0, 17.0))
+            .expect("id");
+        host_overcharge_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_overcharge_enabled(true);
+        }
+        let events = host_overcharge_log::drain();
+        assert!(
+            events.iter().any(|e| e.object == oid && e.enabled),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_overcharge();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.overcharge_enabled = false;
+        }
+        let n = shadow.apply_host_overcharge_events(&host_overcharge_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.overcharge_enabled);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.overcharge_enabled = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.overcharge_enabled = true;
+        }
+        assert!(shadow.writeback_overcharge_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.overcharge_enabled);
+    }
+
+#[test]
     fn host_weapon_set_log_drives_set_weapon_set_flags_channel() {
         use crate::game_logic::{host_weapon_set_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();

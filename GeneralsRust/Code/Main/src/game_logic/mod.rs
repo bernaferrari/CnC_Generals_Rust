@@ -25,6 +25,7 @@ pub mod host_entity_power_log;
 pub mod host_experience_log;
 pub mod host_move_log;
 pub mod host_owner_log;
+pub mod host_overcharge_log;
 pub mod host_player_meta_log;
 pub mod host_player_cooldown_log;
 pub mod host_player_progress_log;
