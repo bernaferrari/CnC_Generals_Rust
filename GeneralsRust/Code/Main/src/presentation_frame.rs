@@ -2224,6 +2224,13 @@ impl PresentationFrame {
     pub fn build_from_logic(logic: &GameLogic, local_player_id: u32) -> Self {
         // Shell maps render fully visible background scenes (C++ parity).
         let fow_shell_bypass = logic.isInShellGame();
+        // Local force residual: always present own-team objects fully visible.
+        // C++ always draws the controlling player's units; host FOW membership can
+        // miss builders when sight_range / ObjectManager dual-world is incomplete.
+        let local_team = logic
+            .get_player(local_player_id)
+            .map(|p| p.team)
+            .unwrap_or(Team::Neutral);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
         let fow_grid = FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
         let mut objects = Vec::with_capacity(logic.get_objects().len());
@@ -2260,6 +2267,9 @@ impl PresentationFrame {
             let mesh_scale =
                 crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
             let fow_visibility = if fow_shell_bypass {
+                ObjectVisibility::FULLY_VISIBLE
+            } else if local_team != Team::Neutral && obj.team == local_team {
+                // Always see own force (structures + builders + army).
                 ObjectVisibility::FULLY_VISIBLE
             } else {
                 FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
@@ -2590,7 +2600,9 @@ impl PresentationFrame {
         objects.sort_by_key(|o| o.id.0);
 
         let local = logic.get_player(local_player_id);
-        let local_team = local.map(|p| p.team).unwrap_or(Team::Neutral);
+        // local_team already resolved above for FOW residual.
+        let _local_team_check = local.map(|p| p.team).unwrap_or(Team::Neutral);
+        debug_assert_eq!(_local_team_check, local_team);
         let mut players: Vec<PresentationPlayerInfo> = logic
             .get_players()
             .iter()
@@ -10843,5 +10855,35 @@ mod runtime_heightmap_residual_tests {
             window.contains("} else {") && window.contains("terrain_texture_classes_snapshot"),
             "boot residual may keep live snapshot only in else branch: {window}"
         );
+    }
+}
+
+#[cfg(test)]
+mod presentation_fow_own_team_residual_tests {
+    use super::*;
+    use crate::game_logic::game_logic::GameLogic;
+    use crate::game_logic::{GameMode, Player, Team};
+    use glam::Vec3;
+
+    #[test]
+    fn own_team_objects_are_fully_visible_in_presentation_fow() {
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::Skirmish);
+        logic.clear_all_players();
+        let mut p0 = Player::new(0, Team::USA, "Human", true);
+        p0.is_alive = true;
+        logic.add_player(p0);
+        let id = logic
+            .create_object("USA_Dozer", Team::USA, Vec3::new(50.0, 0.0, 50.0))
+            .expect("dozer");
+        // Poison FOW: without residual, unexplored would hide.
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
+        assert!(
+            ro.fow_visibility.should_render(),
+            "own-team dozer must be presentation-visible"
+        );
+        assert!(ro.is_mobile, "USA_Dozer must be presentation-mobile");
+        assert_eq!(frame.count_mobile_friendlies(Team::USA), 1);
     }
 }
