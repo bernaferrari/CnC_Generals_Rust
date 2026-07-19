@@ -605,6 +605,15 @@ pub enum WorldMutation {
         is_tunnel_network: bool,
         passengers_allowed_to_fire: bool,
     },
+    /// Host Object Overlord/Helix addon residual.
+    SetOverlordAddon {
+        target: EntityId,
+        has_gattling: bool,
+        has_propaganda: bool,
+        /// `u16::MAX` = host Option::None bunker residual.
+        bunker_capacity: u16,
+        is_helix_transport: bool,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1184,6 +1193,21 @@ impl GameWorld {
                         e.stealth_breaks_on_move = stealth_breaks_on_move;
                         e.is_tunnel_network = is_tunnel_network;
                         e.passengers_allowed_to_fire = passengers_allowed_to_fire;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetOverlordAddon {
+                    target,
+                    has_gattling,
+                    has_propaganda,
+                    bunker_capacity,
+                    is_helix_transport,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.has_overlord_gattling_addon = has_gattling;
+                        e.has_overlord_propaganda_addon = has_propaganda;
+                        e.overlord_bunker_capacity = bunker_capacity;
+                        e.is_helix_transport = is_helix_transport;
                         applied += 1;
                     }
                 }

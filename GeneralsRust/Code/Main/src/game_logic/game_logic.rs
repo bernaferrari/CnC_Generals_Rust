@@ -19818,6 +19818,7 @@ impl GameLogic {
             if crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name) {
                 // OverlordContain style: portable slot reserved; bunker residual separate.
                 object.overlord_bunker_capacity = Some(0);
+                object.record_host_overlord();
             }
             if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
                 object.install_helix_transport();
@@ -19828,7 +19829,9 @@ impl GameLogic {
             if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
                 object.has_overlord_propaganda_addon = true;
+                object.record_host_overlord();
                 object.overlord_bunker_capacity = Some(0);
+                object.record_host_overlord();
             }
             let emperor_spawn =
                 crate::game_logic::host_overlord_addons::is_emperor_template(template_name);
