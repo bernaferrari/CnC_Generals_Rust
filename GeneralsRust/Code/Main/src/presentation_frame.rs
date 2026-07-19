@@ -4232,6 +4232,14 @@ impl PresentationFrame {
                 obj.reconstructing = ent.reconstructing;
                 dirty = true;
             }
+            if obj.unselectable != ent.unselectable {
+                obj.unselectable = ent.unselectable;
+                dirty = true;
+            }
+            if obj.is_deployed != ent.deployed {
+                obj.is_deployed = ent.deployed;
+                dirty = true;
+            }
             if (obj.construction_percent - ent.construction_percent).abs() > 1e-4 {
                 obj.construction_percent = ent.construction_percent;
                 dirty = true;
