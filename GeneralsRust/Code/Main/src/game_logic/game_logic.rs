@@ -22405,33 +22405,34 @@ impl GameLogic {
             Err(_) => return,
         };
 
-        // Build a player_id → bit-mask mapping for do_shroud_reveal.
-        let _player_ids: Vec<u32> = self.players.keys().copied().collect();
+        // Host residual: clear current object visibility membership for known players
+        // before rebuilding from Main objects (explored territory persists).
+        let mut player_ids: Vec<u32> = self.players.keys().copied().collect();
+        player_ids.sort_unstable();
+        for &pid in &player_ids {
+            shroud_mgr.clear_host_object_visibility(pid);
+        }
 
+        // Snapshot alive viewers with vision + all alive targets once.
+        let mut viewers: Vec<(crate::game_logic::ObjectId, u32, glam::Vec3, f32)> = Vec::new();
+        let mut targets: Vec<(crate::game_logic::ObjectId, glam::Vec3)> = Vec::new();
         for obj in self.objects.values() {
             if !obj.is_alive() {
                 continue;
             }
-
+            let pos = obj.get_position();
+            targets.push((obj.id, pos));
             let vision_range = obj.get_template().sight_range;
             if vision_range <= 0.0 {
                 continue;
             }
-
-            // Find the player_id for this object's team.
-            let _player_id = match self.player_id_for_team(obj.team) {
-                Some(id) => id,
-                None => continue,
+            let Some(owner_pid) = self.player_id_for_team(obj.team) else {
+                continue;
             };
+            viewers.push((obj.id, owner_pid, pos, vision_range));
 
-            // Host gameplay plane is XZ (Y up). Shroud grid samples Coord3D.x/y,
-            // so pass (world.x, world.z) as the horizontal pair — same convention as
-            // is_build_location_shroud_clear / presentation FOW residual.
-            let pos = obj.get_position();
+            // Terrain looker residual (grid FOW) for allies sharing vision.
             let center = Coord3D::new(pos.x, pos.z, pos.y);
-
-            // C++ parity: reveal shroud for all players on the same team
-            // (allies share vision).
             let mut player_mask = 0u32;
             for (&pid, player) in &self.players {
                 if player.team == obj.team {
@@ -22440,6 +22441,43 @@ impl GameLogic {
             }
             if player_mask != 0 {
                 shroud_mgr.do_shroud_reveal(&center, vision_range, player_mask);
+            }
+        }
+
+        // Object membership residual: mark host objects seen by each viewer's allies.
+        // Required because ShroudManager::update() only consults ObjectManager, which
+        // does not hold Main host objects on the default authority path.
+        for &(viewer_id, owner_pid, viewer_pos, vision_range) in &viewers {
+            let mut ally_pids: Vec<u32> = self
+                .players
+                .iter()
+                .filter_map(|(&pid, p)| {
+                    self.players
+                        .get(&owner_pid)
+                        .map(|owner| p.team == owner.team)
+                        .unwrap_or(false)
+                        .then_some(pid)
+                })
+                .collect();
+            if ally_pids.is_empty() {
+                ally_pids.push(owner_pid);
+            }
+            let range_sq = vision_range * vision_range;
+            for &pid in &ally_pids {
+                // Always see the viewer itself.
+                shroud_mgr.mark_host_object_seen(pid, viewer_id.0);
+            }
+            for &(target_id, target_pos) in &targets {
+                if target_id == viewer_id {
+                    continue;
+                }
+                let dx = target_pos.x - viewer_pos.x;
+                let dz = target_pos.z - viewer_pos.z;
+                if dx * dx + dz * dz <= range_sq {
+                    for &pid in &ally_pids {
+                        shroud_mgr.mark_host_object_seen(pid, target_id.0);
+                    }
+                }
             }
         }
     }

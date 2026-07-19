@@ -2001,6 +2001,10 @@ impl CnCGameEngine {
             waypoint_mode: self.sticky_waypoint_mode,
             live_frame_ok: false,
             pending_capture: self.runtime_host_pending_capture,
+            render_alive_objects: self.render_pipeline.debug_last_alive_objects() as u32,
+            render_fow_filtered: self.render_pipeline.debug_last_fow_filtered() as u32,
+            render_item_count: self.render_pipeline.debug_render_item_count() as u32,
+            render_model_missing: self.render_pipeline.debug_last_model_missing() as u32,
         }
     }
 
@@ -4714,14 +4718,18 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     fn should_skip_world_scene_for_shell_menu(&self) -> bool {
-        if self.current_state == GameState::Loading {
-            return true;
-        }
+        // Loading: no 3D world.
+        // Menu: draw shell-map world for a short warmup, then UI-only.
+        // InGame/Paused/Victory/Defeat: always draw the match world.
+        //
+        // Prior bug: `menu_world_frames_rendered < 3` skipped InGame forever when
+        // the counter stayed 0 (counter only increments on non-skipped Menu frames).
         const MENU_WORLD_WARMUP_FRAMES: u32 = 3;
-        if self.menu_world_frames_rendered < MENU_WORLD_WARMUP_FRAMES {
-            return true;
+        match self.current_state {
+            GameState::Loading => true,
+            GameState::Menu => self.menu_world_frames_rendered >= MENU_WORLD_WARMUP_FRAMES,
+            _ => false,
         }
-        false
     }
 
     #[cfg(not(feature = "game_client"))]
@@ -16616,6 +16624,11 @@ struct RuntimeHostSnapshot {
     live_frame_ok: bool,
     /// Host requested capture this frame (bridge should force screenshot).
     pending_capture: bool,
+    /// Last unit-pass collect honesty (presentation residual).
+    render_alive_objects: u32,
+    render_fow_filtered: u32,
+    render_item_count: u32,
+    render_model_missing: u32,
 }
 
 #[derive(Debug)]
@@ -16762,6 +16775,10 @@ impl RuntimeHostBridge {
             waypoint_mode: false,
             live_frame_ok: false,
             pending_capture: false,
+            render_alive_objects: 0,
+            render_fow_filtered: 0,
+            render_item_count: 0,
+            render_model_missing: 0,
         };
         self.publish_status(&snapshot);
     }
@@ -16810,6 +16827,22 @@ impl RuntimeHostBridge {
             snapshot.live_frame_ok
                 || self.has_published_live_frame
                 || Self::png_file_looks_usable(&self.frame_path)
+        ));
+        payload.push_str(&format!(
+            "render_alive_objects={}\n",
+            snapshot.render_alive_objects
+        ));
+        payload.push_str(&format!(
+            "render_fow_filtered={}\n",
+            snapshot.render_fow_filtered
+        ));
+        payload.push_str(&format!(
+            "render_item_count={}\n",
+            snapshot.render_item_count
+        ));
+        payload.push_str(&format!(
+            "render_model_missing={}\n",
+            snapshot.render_model_missing
         ));
         payload.push_str(&format!("pending_capture={}\n", snapshot.pending_capture));
         payload.push_str(&format!(
