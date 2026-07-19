@@ -1520,7 +1520,7 @@ impl GameWorldShadow {
         updated
     }
 
-    /// Write shadow construction residual last-writer onto host objects.
+    /// Write shadow construction/status residual last-writer onto host objects.
     pub fn writeback_construction_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -1554,6 +1554,47 @@ impl GameWorldShadow {
             }
             if obj.status.deployed != ent.deployed {
                 obj.status.deployed = ent.deployed;
+                dirty = true;
+            }
+            // Combat / stealth / disable residual last-writer.
+            if obj.status.stealthed != ent.stealthed {
+                obj.status.stealthed = ent.stealthed;
+                dirty = true;
+            }
+            if obj.status.detected != ent.detected {
+                obj.status.detected = ent.detected;
+                dirty = true;
+            }
+            if obj.status.using_ability != ent.using_ability {
+                obj.status.using_ability = ent.using_ability;
+                dirty = true;
+            }
+            if obj.status.airborne_target != ent.airborne_target {
+                obj.status.airborne_target = ent.airborne_target;
+                dirty = true;
+            }
+            if obj.status.disabled_underpowered != ent.disabled_underpowered {
+                obj.status.disabled_underpowered = ent.disabled_underpowered;
+                dirty = true;
+            }
+            if obj.status.disabled_unmanned != ent.disabled_unmanned {
+                obj.status.disabled_unmanned = ent.disabled_unmanned;
+                dirty = true;
+            }
+            if obj.status.disabled_hacked != ent.disabled_hacked {
+                obj.status.disabled_hacked = ent.disabled_hacked;
+                dirty = true;
+            }
+            if obj.status.moving != ent.moving {
+                obj.status.moving = ent.moving;
+                dirty = true;
+            }
+            if obj.status.attacking != ent.attacking {
+                obj.status.attacking = ent.attacking;
+                dirty = true;
+            }
+            if obj.status.selected != ent.selected {
+                obj.status.selected = ent.selected;
                 dirty = true;
             }
             if dirty {
@@ -3513,6 +3554,13 @@ mod tests {
             e.reconstructing = true;
             e.unselectable = true;
             e.deployed = true;
+            e.stealthed = true;
+            e.detected = false;
+            e.using_ability = true;
+            e.disabled_underpowered = true;
+            e.moving = true;
+            e.attacking = true;
+            e.selected = true;
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
         assert!(n >= 1);
@@ -3523,6 +3571,13 @@ mod tests {
         assert!(obj.status.reconstructing);
         assert!(obj.status.unselectable);
         assert!(obj.status.deployed);
+        assert!(obj.status.stealthed);
+        assert!(!obj.status.detected);
+        assert!(obj.status.using_ability);
+        assert!(obj.status.disabled_underpowered);
+        assert!(obj.status.moving);
+        assert!(obj.status.attacking);
+        assert!(obj.status.selected);
         // Complete residual
         {
             let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
