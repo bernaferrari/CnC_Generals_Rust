@@ -1451,6 +1451,67 @@ impl GameWorldShadow {
         n
     }
 
+    /// Write shadow production queue + rally_point last-writer residual onto host buildings.
+    pub fn writeback_production_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::{ProductionItem, ProductionKind, Resources};
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let Some(bd) = obj.building_data.as_mut() else {
+                continue;
+            };
+            let mut dirty = false;
+            // Rally last-writer.
+            let rally = ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            if bd.rally_point != rally {
+                bd.rally_point = rally;
+                dirty = true;
+            }
+            // Production queue residual (template/progress/cost/upgrade).
+            let new_q: Vec<ProductionItem> = ent
+                .production_queue_items
+                .iter()
+                .map(|it| ProductionItem {
+                    template_name: it.template_name.clone(),
+                    progress: it.progress,
+                    total_time: it.total_time,
+                    cost: Resources {
+                        supplies: it.cost_supplies,
+                        power: 0,
+                    },
+                    quantity_total: 1,
+                    quantity_produced: 0,
+                    kind: if it.is_upgrade {
+                        ProductionKind::Upgrade
+                    } else {
+                        ProductionKind::Unit
+                    },
+                })
+                .collect();
+            let queue_differs = bd.production_queue.len() != new_q.len()
+                || bd.production_queue.iter().zip(new_q.iter()).any(|(a, b)| {
+                    a.template_name != b.template_name
+                        || (a.progress - b.progress).abs() > 1e-5
+                        || (a.total_time - b.total_time).abs() > 1e-5
+                        || a.cost.supplies != b.cost.supplies
+                        || a.kind != b.kind
+                });
+            if queue_differs {
+                bd.production_queue = new_q;
+                dirty = true;
+            }
+            if dirty {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
     /// Count completed upgrade names across mapped shadow players (probe residual).
     /// True when any shadow player has non-zero produced or consumed power residual.
     /// True when any shadow player has radar providers or a disabled flag residual.
@@ -2322,6 +2383,7 @@ pub fn shadow_session_after_host_tick(
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
     // Pose last-writer after all SetTransform mutations this session.
     let _pose_wb = shadow.writeback_transforms_to_host(logic);
+    let _prod_wb = shadow.writeback_production_to_host(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -3312,6 +3374,60 @@ mod tests {
                 && src.contains("rally_point"),
             "sync must copy building residual"
         );
+    }
+
+    #[test]
+    fn writeback_production_and_rally_to_host() {
+        use crate::game_logic::{
+            BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
+            ThingTemplate,
+        };
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdRallyWb");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WarFact") {
+            let mut t = ThingTemplate::new("WarFact");
+            t.set_health(1000.0);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("WarFact".into(), t);
+        }
+        let id = logic
+            .create_object("WarFact", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            let mut bd = BuildingData::new(BuildingType::WarFactory);
+            bd.production_queue.push(ProductionItem {
+                template_name: "USACrusaderTank".into(),
+                progress: 0.1,
+                total_time: 10.0,
+                cost: Resources {
+                    supplies: 900,
+                    power: 0,
+                },
+                quantity_total: 1,
+                quantity_produced: 0,
+                kind: ProductionKind::Unit,
+            });
+            bd.rally_point = Some(glam::Vec3::new(1.0, 0.0, 2.0));
+            obj.building_data = Some(bd);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        {
+            let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
+            e.rally_point = Some([9.0, 0.0, 8.0]);
+            if let Some(item) = e.production_queue_items.get_mut(0) {
+                item.progress = 0.75;
+            }
+        }
+        let n = shadow.writeback_production_to_host(&mut logic);
+        assert!(n >= 1, "writeback must touch building");
+        let obj = logic.get_objects().get(&id).expect("o");
+        let bd = obj.building_data.as_ref().expect("bd");
+        assert_eq!(bd.rally_point, Some(glam::Vec3::new(9.0, 0.0, 8.0)));
+        assert!((bd.production_queue[0].progress - 0.75).abs() < 1e-5);
     }
 
     #[test]
