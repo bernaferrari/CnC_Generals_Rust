@@ -7076,6 +7076,7 @@ impl Object {
     pub fn stop_attack(&mut self) {
         self.target = None;
         self.target_location = None;
+        self.record_host_target_location();
         self.set_status_force_attack(false);
         self.pre_attack_target = None;
         self.pre_attack_ready_at = 0.0;
@@ -7139,6 +7140,7 @@ impl Object {
         self.target = target;
         if target.is_some() {
             self.target_location = None;
+            self.record_host_target_location();
             self.set_ai_state(AIState::Attacking);
             self.status.attacking = true;
         } else {
@@ -7247,6 +7249,7 @@ impl Object {
         } else {
             self.set_status_force_attack(false);
         }
+        self.record_host_target_location();
     }
 
     pub fn set_force_attack(&mut self, force: bool) {
@@ -8468,6 +8471,11 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
+    pub fn record_host_target_location(&self) {
+        let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
+        crate::game_logic::host_target_location_log::record(self.id, loc);
+    }
+
     pub fn record_host_turret(&self) {
         crate::game_logic::host_turret_log::record(
             self.id,
@@ -8551,7 +8559,7 @@ impl Object {
             AIState::Capturing => 19,
             AIState::GuardRetaliating => 20,
         };
-        self.set_ai_state(state);
+        self.ai_state = state;
         crate::game_logic::host_ai_state_log::record(self.id, ordinal);
     }
 
