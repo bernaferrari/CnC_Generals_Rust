@@ -210,6 +210,8 @@ impl Default for ExecutableSmokeResult {
 struct StatusSnap {
     state: String,
     ui_screen: String,
+    /// Sticky host residual: skirmish menu was opened (survives InGame clear).
+    skirmish_menu_ok: bool,
     map: String,
     frame: u32,
     startup_progress: f32,
@@ -244,6 +246,10 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
         match k.trim() {
             "state" => snap.state = v.trim().to_string(),
             "ui_screen" => snap.ui_screen = v.trim().to_string(),
+            "skirmish_menu_ok" => {
+                snap.skirmish_menu_ok =
+                    matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes");
+            }
             "map" => snap.map = v.trim().to_string(),
             "frame" => snap.frame = v.trim().parse().unwrap_or(0),
             "startup_progress" => snap.startup_progress = v.trim().parse().unwrap_or(0.0),
@@ -756,6 +762,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             {
                 formation_detail = snap.last_gameplay_cmd.clone();
             }
+            if snap.skirmish_menu_ok
+                || snap.ui_screen.to_ascii_lowercase().contains("skirmish")
+                || snap.last_gameplay_cmd.starts_with("open_skirmish_menu_ok")
+            {
+                result.skirmish_menu_ok = true;
+            }
             last_snap = snap.clone();
             result.frames_observed = result.frames_observed.max(snap.frame);
             if snap.map != "-" && !snap.map.is_empty() {
@@ -764,13 +776,19 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             match snap.state.as_str() {
                 "Menu" => {
                     result.reached_menu = true;
-                    if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
+                    if snap.skirmish_menu_ok
+                        || snap.ui_screen.to_ascii_lowercase().contains("skirmish")
+                        || snap.last_gameplay_cmd.starts_with("open_skirmish_menu_ok")
+                    {
                         result.skirmish_menu_ok = true;
                     }
                 }
                 "InGame" | "Paused" => {
                     result.reached_menu = true;
-                    if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
+                    if snap.skirmish_menu_ok
+                        || snap.ui_screen.to_ascii_lowercase().contains("skirmish")
+                        || snap.last_gameplay_cmd.starts_with("open_skirmish_menu_ok")
+                    {
                         result.skirmish_menu_ok = true;
                     }
                     result.reached_ingame = true;
@@ -795,7 +813,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                 }
 
                 10 => {
-                    if snap.ui_screen.to_ascii_lowercase().contains("skirmish") {
+                    if snap.skirmish_menu_ok
+                        || snap.ui_screen.to_ascii_lowercase().contains("skirmish")
+                        || snap.last_gameplay_cmd.starts_with("open_skirmish_menu_ok")
+                    {
                         result.skirmish_menu_ok = true;
                     }
                     // Proceed once Skirmish is visible, or after a short grace poll.
