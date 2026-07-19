@@ -536,7 +536,14 @@ pub enum WorldMutation {
         under_construction: bool,
     },
     /// Set special-power ready residual on an entity.
-    SetSpecialPower { target: EntityId, ready: bool },
+    SetSpecialPower {
+        target: EntityId,
+        ready: bool,
+        /// Aggregate remaining cooldown seconds (host special_power_cooldown_remaining).
+        cooldown_remaining: f32,
+        /// Full cooldown duration seconds (host special_power_cooldown).
+        cooldown: f32,
+    },
     /// Set unit/structure stored supplies residual (supply truck / dock cargo).
     SetStoredSupplies { target: EntityId, supplies: u32 },
     /// Set AI state ordinal residual (Idle=0 .. Capturing=19, GuardRetaliating=20).
@@ -985,9 +992,16 @@ impl GameWorld {
                         applied += 1;
                     }
                 }
-                WorldMutation::SetSpecialPower { target, ready } => {
+                WorldMutation::SetSpecialPower {
+                    target,
+                    ready,
+                    cooldown_remaining,
+                    cooldown,
+                } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.special_power_ready = ready;
+                        e.special_power_cooldown_remaining = cooldown_remaining.max(0.0);
+                        e.special_power_cooldown = cooldown.max(0.0);
                         applied += 1;
                     }
                 }
