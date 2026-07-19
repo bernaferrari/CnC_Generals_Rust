@@ -8,12 +8,19 @@ pub struct HostStatusEvent {
     pub object: ObjectId,
     pub selected: Option<bool>,
     pub attacking: Option<bool>,
+    pub moving: Option<bool>,
     pub is_firing_weapon: Option<bool>,
     pub is_aiming_weapon: Option<bool>,
     pub stealthed: Option<bool>,
     pub detected: Option<bool>,
     pub disabled_emp: Option<bool>,
     pub weapons_jammed: Option<bool>,
+    pub disabled_hacked: Option<bool>,
+    pub disabled_unmanned: Option<bool>,
+    pub disabled_paralyzed: Option<bool>,
+    pub disabled_subdued: Option<bool>,
+    pub masked: Option<bool>,
+    pub disguised: Option<bool>,
 }
 
 thread_local! {
@@ -29,62 +36,47 @@ fn empty(object: ObjectId) -> HostStatusEvent {
         object,
         selected: None,
         attacking: None,
+        moving: None,
         is_firing_weapon: None,
         is_aiming_weapon: None,
         stealthed: None,
         detected: None,
         disabled_emp: None,
         weapons_jammed: None,
+        disabled_hacked: None,
+        disabled_unmanned: None,
+        disabled_paralyzed: None,
+        disabled_subdued: None,
+        masked: None,
+        disguised: None,
     }
 }
 
-pub fn record_selected(object: ObjectId, selected: bool) {
-    let mut ev = empty(object);
-    ev.selected = Some(selected);
-    push(ev);
+macro_rules! record_flag {
+    ($name:ident, $field:ident) => {
+        pub fn $name(object: ObjectId, value: bool) {
+            let mut ev = empty(object);
+            ev.$field = Some(value);
+            push(ev);
+        }
+    };
 }
 
-pub fn record_attacking(object: ObjectId, attacking: bool) {
-    let mut ev = empty(object);
-    ev.attacking = Some(attacking);
-    push(ev);
-}
-
-pub fn record_firing(object: ObjectId, is_firing_weapon: bool) {
-    let mut ev = empty(object);
-    ev.is_firing_weapon = Some(is_firing_weapon);
-    push(ev);
-}
-
-pub fn record_aiming(object: ObjectId, is_aiming_weapon: bool) {
-    let mut ev = empty(object);
-    ev.is_aiming_weapon = Some(is_aiming_weapon);
-    push(ev);
-}
-
-pub fn record_stealthed(object: ObjectId, stealthed: bool) {
-    let mut ev = empty(object);
-    ev.stealthed = Some(stealthed);
-    push(ev);
-}
-
-pub fn record_detected(object: ObjectId, detected: bool) {
-    let mut ev = empty(object);
-    ev.detected = Some(detected);
-    push(ev);
-}
-
-pub fn record_disabled_emp(object: ObjectId, disabled_emp: bool) {
-    let mut ev = empty(object);
-    ev.disabled_emp = Some(disabled_emp);
-    push(ev);
-}
-
-pub fn record_weapons_jammed(object: ObjectId, weapons_jammed: bool) {
-    let mut ev = empty(object);
-    ev.weapons_jammed = Some(weapons_jammed);
-    push(ev);
-}
+record_flag!(record_selected, selected);
+record_flag!(record_attacking, attacking);
+record_flag!(record_moving, moving);
+record_flag!(record_firing, is_firing_weapon);
+record_flag!(record_aiming, is_aiming_weapon);
+record_flag!(record_stealthed, stealthed);
+record_flag!(record_detected, detected);
+record_flag!(record_disabled_emp, disabled_emp);
+record_flag!(record_weapons_jammed, weapons_jammed);
+record_flag!(record_disabled_hacked, disabled_hacked);
+record_flag!(record_disabled_unmanned, disabled_unmanned);
+record_flag!(record_disabled_paralyzed, disabled_paralyzed);
+record_flag!(record_disabled_subdued, disabled_subdued);
+record_flag!(record_masked, masked);
+record_flag!(record_disguised, disguised);
 
 pub fn drain() -> Vec<HostStatusEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))

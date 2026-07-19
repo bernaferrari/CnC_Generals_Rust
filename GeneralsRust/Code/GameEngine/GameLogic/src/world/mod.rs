@@ -462,11 +462,16 @@ pub enum WorldMutation {
         stealthed: Option<bool>,
         detected: Option<bool>,
         attacking: Option<bool>,
+        moving: Option<bool>,
         is_firing_weapon: Option<bool>,
         is_aiming_weapon: Option<bool>,
         selected: Option<bool>,
         disabled_emp: Option<bool>,
         weapons_jammed: Option<bool>,
+        disabled_hacked: Option<bool>,
+        disabled_unmanned: Option<bool>,
+        disabled_paralyzed: Option<bool>,
+        disabled_subdued: Option<bool>,
         masked: Option<bool>,
         disguised: Option<bool>,
     },
@@ -650,11 +655,16 @@ impl GameWorld {
                     stealthed,
                     detected,
                     attacking,
+                    moving,
                     is_firing_weapon,
                     is_aiming_weapon,
                     selected,
                     disabled_emp,
                     weapons_jammed,
+                    disabled_hacked,
+                    disabled_unmanned,
+                    disabled_paralyzed,
+                    disabled_subdued,
                     masked,
                     disguised,
                 } => {
@@ -667,6 +677,9 @@ impl GameWorld {
                         }
                         if let Some(v) = attacking {
                             e.attacking = v;
+                        }
+                        if let Some(v) = moving {
+                            e.moving = v;
                         }
                         if let Some(v) = is_firing_weapon {
                             e.is_firing_weapon = v;
@@ -682,6 +695,18 @@ impl GameWorld {
                         }
                         if let Some(v) = weapons_jammed {
                             e.weapons_jammed = v;
+                        }
+                        if let Some(v) = disabled_hacked {
+                            e.disabled_hacked = v;
+                        }
+                        if let Some(v) = disabled_unmanned {
+                            e.disabled_unmanned = v;
+                        }
+                        if let Some(v) = disabled_paralyzed {
+                            e.disabled_paralyzed = v;
+                        }
+                        if let Some(v) = disabled_subdued {
+                            e.disabled_subdued = v;
                         }
                         if let Some(v) = masked {
                             e.masked = v;

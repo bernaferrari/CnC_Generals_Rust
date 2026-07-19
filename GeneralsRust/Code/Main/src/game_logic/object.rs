@@ -1990,7 +1990,7 @@ impl Object {
     /// while microwave keeps attacking (not full subdual accumulate/heal).
     pub fn set_disabled_subdued(&mut self, subdued: bool) {
         if subdued {
-            self.status.disabled_subdued = true;
+            self.set_status_disabled_subdued(true);
             // C++ orderAllPassengersToIdle residual: drop attack / move orders.
             self.status.attacking = false;
             self.force_attack = false;
@@ -1998,12 +1998,12 @@ impl Object {
             self.target_location = None;
             // Structures do not move; stop any residual production-related AI.
             if !self.is_kind_of(KindOf::Structure) {
-                self.status.moving = false;
+                self.set_status_moving(false);
                 self.stop_moving();
                 self.ai_state = AIState::Idle;
             }
         } else {
-            self.status.disabled_subdued = false;
+            self.set_status_disabled_subdued(false);
         }
     }
 
@@ -2016,15 +2016,15 @@ impl Object {
         if !self.status.disabled_unmanned {
             self.status.unmanned_owner_team = Some(self.team);
         }
-        self.status.disabled_unmanned = true;
-        self.status.disabled_hacked = false;
+        self.set_status_disabled_unmanned(true);
+        self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
-        self.status.disabled_paralyzed = false;
+        self.set_status_disabled_paralyzed(false);
         self.status.disabled_paralyzed_until_frame = 0;
         self.status.attacking = false;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
@@ -2047,16 +2047,16 @@ impl Object {
         if !self.status.disabled_unmanned {
             return false;
         }
-        self.status.disabled_unmanned = false;
+        self.set_status_disabled_unmanned(false);
         self.status.unmanned_owner_team = None;
-        self.status.disabled_hacked = false;
+        self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
-        self.status.disabled_paralyzed = false;
+        self.set_status_disabled_paralyzed(false);
         self.status.disabled_paralyzed_until_frame = 0;
         self.status.attacking = false;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
@@ -2089,7 +2089,7 @@ impl Object {
         if deployed {
             // Deployed units typically stop locomoting residual.
             self.stop_moving();
-            self.status.moving = false;
+            self.set_status_moving(false);
         }
     }
 
@@ -2109,10 +2109,10 @@ impl Object {
     }
 
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
-        self.status.disabled_hacked = true;
+        self.set_status_disabled_hacked(true);
         self.status.disabled_hacked_until_frame = until_frame;
         self.status.attacking = false;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
@@ -2126,7 +2126,7 @@ impl Object {
             && self.status.disabled_hacked_until_frame > 0
             && current_frame >= self.status.disabled_hacked_until_frame
         {
-            self.status.disabled_hacked = false;
+            self.set_status_disabled_hacked(false);
             self.status.disabled_hacked_until_frame = 0;
         }
     }
@@ -2140,7 +2140,7 @@ impl Object {
             self.status.disabled_emp_until_frame = until_frame;
         }
         self.set_status_attacking(false);
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
@@ -2163,12 +2163,12 @@ impl Object {
     /// C++ BattlePlanUpdate::paralyzeTroop: setDisabledUntil(DISABLED_PARALYZED, now + frames).
     /// Refresh extends the timer if a later expiry is provided.
     pub fn apply_disabled_paralyzed(&mut self, until_frame: u32) {
-        self.status.disabled_paralyzed = true;
+        self.set_status_disabled_paralyzed(true);
         if until_frame > self.status.disabled_paralyzed_until_frame {
             self.status.disabled_paralyzed_until_frame = until_frame;
         }
         self.status.attacking = false;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
@@ -2182,7 +2182,7 @@ impl Object {
             && self.status.disabled_paralyzed_until_frame > 0
             && current_frame >= self.status.disabled_paralyzed_until_frame
         {
-            self.status.disabled_paralyzed = false;
+            self.set_status_disabled_paralyzed(false);
             self.status.disabled_paralyzed_until_frame = 0;
         }
     }
@@ -2558,8 +2558,8 @@ impl Object {
     /// Convert with optional donor (terrorist) residual endowments.
     pub fn apply_convert_to_car_bomb_from(&mut self, donor: Option<&Object>) {
         self.status.is_carbomb = true;
-        self.status.disabled_unmanned = false;
-        self.status.disabled_hacked = false;
+        self.set_status_disabled_unmanned(false);
+        self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
@@ -2568,7 +2568,7 @@ impl Object {
         self.secondary_weapon = None;
         self.active_weapon_slot = 0;
         self.status.attacking = false;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
@@ -2610,10 +2610,10 @@ impl Object {
         self.hijacker_in_vehicle = true;
         self.hijacker_update_active = true;
         self.status.no_collisions = true;
-        self.status.masked = true;
+        self.set_status_masked(true);
         self.status.unselectable = true;
         self.status.attacking = false;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.ai_state = AIState::Idle;
@@ -2626,7 +2626,7 @@ impl Object {
         self.hijacker_in_vehicle = false;
         self.hijacker_update_active = false;
         self.status.no_collisions = false;
-        self.status.masked = false;
+        self.set_status_masked(false);
         self.status.unselectable = false;
         self.hijacker_was_airborne = was_airborne;
         self.hijacker_eject_pos = Some(eject_pos);
@@ -2695,14 +2695,14 @@ impl Object {
     /// - MAX(target, jacker) veterancy on both (jacker may be destroyed after)
     pub fn apply_hijacked_from(&mut self, donor: Option<&Object>) {
         self.status.hijacked = true;
-        self.status.disabled_unmanned = false;
-        self.status.disabled_hacked = false;
+        self.set_status_disabled_unmanned(false);
+        self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
         self.status.is_carbomb = false;
         self.status.attacking = false;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
@@ -3497,7 +3497,7 @@ impl Object {
             self.ai_state,
             AIState::Attacking | AIState::AttackMoving | AIState::Moving
         ) {
-            self.status.moving = true;
+            self.set_status_moving(true);
         }
         true
     }
@@ -5478,7 +5478,7 @@ impl Object {
         self.disguise_pending_template = Some(template_name.to_string());
         self.disguise_pending_team = Some(as_team);
         // Not fully disguised until halfpoint residual.
-        self.status.disguised = false;
+        self.set_status_disguised(false);
         self.set_status_stealthed(true);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
@@ -5512,7 +5512,7 @@ impl Object {
 
     /// Force-clear disguise residual immediately (no transition).
     pub fn clear_disguise_instant(&mut self) {
-        self.status.disguised = false;
+        self.set_status_disguised(false);
         self.disguise_as_template = None;
         self.disguise_as_team = None;
         self.disguise_pending_template = None;
@@ -5562,12 +5562,12 @@ impl Object {
                 if let Some(team) = self.disguise_pending_team.take() {
                     self.disguise_as_team = Some(team);
                 }
-                self.status.disguised = true;
+                self.set_status_disguised(true);
                 self.set_status_stealthed(true);
                 self.set_status_detected(false);
             } else {
                 // Reveal halfpoint: restore true look residual.
-                self.status.disguised = false;
+                self.set_status_disguised(false);
                 self.disguise_as_template = None;
                 self.disguise_as_team = None;
                 self.disguise_pending_template = None;
@@ -6958,7 +6958,7 @@ impl Object {
         if self.is_mobile() && self.is_alive() {
             self.movement.target_position = Some(position);
             self.ai_state = AIState::Moving;
-            self.status.moving = true;
+            self.set_status_moving(true);
             crate::game_logic::host_move_log::record(
                 self.id,
                 Some([position.x, position.y, position.z]),
@@ -6972,7 +6972,7 @@ impl Object {
         crate::game_logic::host_move_log::record(self.id, None);
         self.movement.path.clear();
         self.movement.current_path_index = 0;
-        self.status.moving = false;
+        self.set_status_moving(false);
         self.waiting_for_path = false;
         self.is_attack_path = false;
         self.is_approach_path = false;
@@ -8248,6 +8248,41 @@ impl Object {
     pub fn set_status_weapons_jammed(&mut self, jammed: bool) {
         self.status.weapons_jammed = jammed;
         crate::game_logic::host_status_log::record_weapons_jammed(self.id, jammed);
+    }
+
+    pub fn set_status_moving(&mut self, moving: bool) {
+        self.status.moving = moving;
+        crate::game_logic::host_status_log::record_moving(self.id, moving);
+    }
+
+    pub fn set_status_disabled_hacked(&mut self, v: bool) {
+        self.status.disabled_hacked = v;
+        crate::game_logic::host_status_log::record_disabled_hacked(self.id, v);
+    }
+
+    pub fn set_status_disabled_unmanned(&mut self, v: bool) {
+        self.status.disabled_unmanned = v;
+        crate::game_logic::host_status_log::record_disabled_unmanned(self.id, v);
+    }
+
+    pub fn set_status_disabled_paralyzed(&mut self, v: bool) {
+        self.status.disabled_paralyzed = v;
+        crate::game_logic::host_status_log::record_disabled_paralyzed(self.id, v);
+    }
+
+    pub fn set_status_disabled_subdued(&mut self, v: bool) {
+        self.status.disabled_subdued = v;
+        crate::game_logic::host_status_log::record_disabled_subdued(self.id, v);
+    }
+
+    pub fn set_status_masked(&mut self, v: bool) {
+        self.status.masked = v;
+        crate::game_logic::host_status_log::record_masked(self.id, v);
+    }
+
+    pub fn set_status_disguised(&mut self, v: bool) {
+        self.status.disguised = v;
+        crate::game_logic::host_status_log::record_disguised(self.id, v);
     }
 
     /// Set the AI state for autonomous behavior
