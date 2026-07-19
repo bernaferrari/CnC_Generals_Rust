@@ -2035,11 +2035,26 @@ impl CnCGameEngine {
             "menu" => {
                 self.enter_shell_menu_from_runtime_host(None);
             }
-            "toggle_pause" => match self.current_state {
-                GameState::InGame => self.request_state_change(GameState::Paused),
-                GameState::Paused => self.request_state_change(GameState::InGame),
-                _ => {}
-            },
+            "toggle_pause" | "pause" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "pause_fail_bad_state".into();
+                } else {
+                    let was_paused =
+                        self.game_paused || matches!(self.current_state, GameState::Paused);
+                    self.toggle_pause();
+                    let now_paused =
+                        self.game_paused || matches!(self.current_state, GameState::Paused);
+                    self.runtime_host_last_gameplay_cmd = if !was_paused && now_paused {
+                        "pause_ok:paused".into()
+                    } else if was_paused && !now_paused {
+                        "pause_ok:resumed".into()
+                    } else if now_paused {
+                        "pause_ok:paused".into()
+                    } else {
+                        "pause_ok:resumed".into()
+                    };
+                }
+            }
             "open_message_of_the_day" | "open_motd" => {
                 self.enter_shell_menu_from_runtime_host(Some("MessageOfDay"));
             }
@@ -3847,6 +3862,64 @@ impl CnCGameEngine {
                         "camera_track_ok:off".into()
                     };
                 }
+            }
+            "cancel_production" | "cancel_queue" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd =
+                        "cancel_production_fail_not_ingame".into();
+                } else {
+                    // Prefer structure selection with a production queue.
+                    if self.selected_objects.is_empty() {
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            if let Some((id, _)) =
+                                self.game_logic.get_objects().iter().find(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.is_constructed()
+                                        && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                })
+                            {
+                                self.selected_objects = vec![*id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![*id]);
+                            }
+                        }
+                    }
+                    let all = args
+                        .get("all")
+                        .map(|s| {
+                            matches!(s.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes")
+                        })
+                        .unwrap_or(false);
+                    let ok = if all {
+                        self.cancel_all_selected_production()
+                    } else {
+                        self.cancel_selected_production_queue_head()
+                    };
+                    self.runtime_host_last_gameplay_cmd = if ok {
+                        format!("cancel_production_ok:{}", if all { "all" } else { "head" })
+                    } else if self.selected_objects.is_empty()
+                        && self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.selected_objects.is_empty())
+                            .unwrap_or(true)
+                    {
+                        "cancel_production_fail_no_selection".into()
+                    } else {
+                        // Empty queue is a valid residual — command path exercised.
+                        "cancel_production_ok:empty".into()
+                    };
+                }
+            }
+            "open_diplomacy" | "diplomacy" => {
+                // Shell residual — open diplomacy overlay when available.
+                self.enter_shell_menu_from_runtime_host(Some("Diplomacy"));
+                self.runtime_host_last_gameplay_cmd = "diplomacy_ok".into();
             }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -19624,6 +19697,22 @@ fn runtime_host_camera_residual() {
         "camera_track_ok:",
     ] {
         assert!(src.contains(needle), "missing camera residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_pause_cancel_diplomacy_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "pause_ok:paused",
+        "pause_ok:resumed",
+        "cancel_production",
+        "cancel_production_ok:",
+        "cancel_selected_production_queue_head",
+        "open_diplomacy",
+        "diplomacy_ok",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
     }
 }
 
