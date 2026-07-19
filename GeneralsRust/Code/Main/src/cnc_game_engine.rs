@@ -11191,7 +11191,6 @@ impl CnCGameEngine {
             match render_pipeline.load_heightmap_from_runtime_terrain(
                 &graphics_system.device_arc(),
                 &graphics_system.queue_arc(),
-                None,
             ) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -11210,7 +11209,7 @@ impl CnCGameEngine {
         }
 
         // Presentation already seeded above; pass None so road bake cannot dual-read.
-        if let Err(err) = render_pipeline.sync_runtime_map_roads(None) {
+        if let Err(err) = render_pipeline.sync_runtime_map_roads() {
             warn!(
                 "Failed to sync runtime map roads for '{}': {}",
                 map_name, err

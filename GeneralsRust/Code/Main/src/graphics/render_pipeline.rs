@@ -1,6 +1,6 @@
 use crate::assets::get_asset_manager;
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
-use crate::game_logic::{GameLogic, ObjectId as ObjectID};
+use crate::game_logic::ObjectId as ObjectID;
 use crate::ui::UiTextureId;
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
@@ -712,7 +712,7 @@ impl RenderPipeline {
         let mut sort_elapsed = std::time::Duration::ZERO;
         let mut terrain_elapsed = std::time::Duration::ZERO;
         if render_world_scene {
-            self.sync_lighting_from_map_metadata(None);
+            self.sync_lighting_from_map_metadata();
             if allow_sync_model_loads {
                 if self.frame_number <= 5 {
                     info!(
@@ -720,7 +720,7 @@ impl RenderPipeline {
                         self.frame_number
                     );
                 }
-                self.prewarm_startup_models(graphics_system, None, allow_sync_model_loads);
+                self.prewarm_startup_models(graphics_system, allow_sync_model_loads);
                 if self.frame_number <= 5 {
                     info!(
                         "RenderPipeline::execute frame {} prewarm_done",
@@ -756,7 +756,6 @@ impl RenderPipeline {
             }
             self.collect_render_items(
                 graphics_system,
-                None,
                 view_matrix,
                 projection_matrix,
                 camera_position,
@@ -830,7 +829,7 @@ impl RenderPipeline {
         if render_world_scene && !shell_scene {
             // Presentation-owned bounds/heights when frame is set; live GameLogic
             // is only a boot fallback (execute already passes None with snapshot).
-            if let Err(e) = self.refresh_minimap_terrain_base(None) {
+            if let Err(e) = self.refresh_minimap_terrain_base() {
                 error!("Failed to refresh minimap terrain base: {}", e);
             }
 
@@ -873,7 +872,7 @@ impl RenderPipeline {
 
         graphics_system.end_frame();
         if render_world_scene && !shell_scene {
-            self.maybe_load_heightmap_hint_after_first_present(graphics_system, None);
+            self.maybe_load_heightmap_hint_after_first_present(graphics_system);
         }
 
         // Removed excessive logging
@@ -896,38 +895,25 @@ impl RenderPipeline {
         Ok(())
     }
 
-    fn sync_lighting_from_map_metadata(&mut self, game_logic: Option<&GameLogic>) {
-        // Prefer frozen presentation env when available (no live map-settings re-read).
-        let derived = if let Some(pres) = self.presentation_frame.as_ref() {
-            let env = &pres.world_env;
-            if !env.has_map_metadata
-                && env.sun_direction.is_none()
-                && env.sun_color.is_none()
-                && env.ambient_color.is_none()
-            {
-                return;
-            }
-            CachedLighting {
-                sun_direction: env.sun_direction,
-                sun_color: env.sun_color,
-                ambient_color: env.ambient_color,
-                fog_color: env.fog_color,
-                fog_range: env.fog_range(),
-            }
-        } else {
-            let Some(gl) = game_logic else {
-                return;
-            };
-            let Some(meta) = gl.last_parsed_map_settings() else {
-                return;
-            };
-            CachedLighting {
-                sun_direction: meta.sun_direction,
-                sun_color: meta.sun_color.or(meta.sky_color),
-                ambient_color: meta.ambient_color.or(meta.fog_color).or(meta.sky_color),
-                fog_color: meta.fog_color.or(meta.sky_color).or(meta.sun_color),
-                fog_range: meta.fog_start.zip(meta.fog_end),
-            }
+    fn sync_lighting_from_map_metadata(&mut self) {
+        // Presentation-only: frozen world_env (no live map-settings re-read).
+        let Some(pres) = self.presentation_frame.as_ref() else {
+            return;
+        };
+        let env = &pres.world_env;
+        if !env.has_map_metadata
+            && env.sun_direction.is_none()
+            && env.sun_color.is_none()
+            && env.ambient_color.is_none()
+        {
+            return;
+        }
+        let derived = CachedLighting {
+            sun_direction: env.sun_direction,
+            sun_color: env.sun_color,
+            ambient_color: env.ambient_color,
+            fog_color: env.fog_color,
+            fog_range: env.fog_range(),
         };
 
         match &mut self.cached_lighting {
@@ -957,33 +943,14 @@ impl RenderPipeline {
     fn prewarm_startup_models(
         &mut self,
         graphics_system: &mut GraphicsSystem,
-        game_logic: Option<&GameLogic>,
         allow_sync_model_loads: bool,
     ) {
-        let (map_name, signature) = if let Some(pres) = self.presentation_frame.as_ref() {
-            (
-                pres.world_env.map_name.clone(),
-                pres.world_env.prewarm_signature(pres.fow_shell_bypass),
-            )
-        } else if let Some(gl) = game_logic {
-            let map_name = gl.get_current_map_name().trim().to_string();
-            let metadata = gl.last_parsed_map_settings();
-            let signature = format!(
-                "{}|meta:{}|objects:{}|heightmap:{}|shell:{}",
-                map_name,
-                metadata.is_some(),
-                metadata.as_ref().map(|m| m.objects.len()).unwrap_or(0),
-                metadata
-                    .as_ref()
-                    .and_then(|m| m.heightmap_path.as_ref())
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                gl.isInShellGame()
-            );
-            (map_name, signature)
-        } else {
+        // Presentation-only: map signature comes from frozen world_env.
+        let Some(pres) = self.presentation_frame.as_ref() else {
             return;
         };
+        let map_name = pres.world_env.map_name.clone();
+        let signature = pres.world_env.prewarm_signature(pres.fow_shell_bypass);
 
         if self
             .last_startup_model_prewarm_signature
@@ -996,24 +963,11 @@ impl RenderPipeline {
         // Prefer frozen prewarm names from PresentationWorldEnv (capped list).
         // When a presentation frame is installed, never re-query live map metadata
         // (empty prewarm list is fail-closed: skip names rather than dual-read logic).
-        let template_names: Vec<String> = if self.presentation_frame.is_some() {
-            self.presentation_frame
-                .as_ref()
-                .map(|p| p.world_env.prewarm_template_names.clone())
-                .unwrap_or_default()
-        } else {
-            game_logic
-                .and_then(|g| g.last_parsed_map_settings())
-                .map(|m| {
-                    m.objects
-                        .iter()
-                        .map(|o| o.template.clone())
-                        .filter(|s| !s.trim().is_empty())
-                        .take(256)
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
+        let template_names: Vec<String> = self
+            .presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.prewarm_template_names.clone())
+            .unwrap_or_default();
 
         let mut candidates: Vec<String> = Vec::new();
         let mut seen = HashSet::new();
@@ -1112,21 +1066,16 @@ impl RenderPipeline {
         self.last_startup_model_prewarm_signature = Some(signature);
     }
 
-    fn maybe_load_heightmap_hint_after_first_present(
-        &mut self,
-        graphics_system: &GraphicsSystem,
-        game_logic: Option<&GameLogic>,
-    ) {
+    fn maybe_load_heightmap_hint_after_first_present(&mut self, graphics_system: &GraphicsSystem) {
         if !self.pending_heightmap_hint_load || self.frame_number <= 1 {
             return;
         }
 
-        let world_bounds = if let Some(p) = self.presentation_frame.as_ref() {
-            Some(p.world_env.world_bounds_vec3())
-        } else {
-            game_logic.map(|g| g.world_bounds())
-        };
-        let Some(world_bounds) = world_bounds else {
+        let Some(world_bounds) = self
+            .presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.world_bounds_vec3())
+        else {
             return;
         };
         match self.load_heightmap_from_hint(
@@ -1282,7 +1231,6 @@ impl RenderPipeline {
     fn collect_render_items(
         &mut self,
         graphics_system: &mut GraphicsSystem,
-        game_logic: Option<&GameLogic>,
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         camera_position: Vec3,
@@ -1301,13 +1249,10 @@ impl RenderPipeline {
         self.debug_last_live_unit_identity_reads = 0;
         self.debug_last_presentation_live_fallback_reads = 0;
         // Shell FOW bypass from snapshot when available (no live GameLogic re-read).
-        let bypass_fow = if let Some(p) = presentation.as_ref() {
-            p.fow_shell_bypass
-        } else if let Some(g) = game_logic {
-            g.isInShellGame()
-        } else {
-            false
-        };
+        let bypass_fow = presentation
+            .as_ref()
+            .map(|p| p.fow_shell_bypass)
+            .unwrap_or(false);
 
         // Snapshot-owned unit inputs for the main mesh pass (empty when no frame).
         let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput> =
@@ -1317,41 +1262,15 @@ impl RenderPipeline {
                 Vec::new()
             };
 
-        // Live fallback identity list when presentation is absent (boot/loading).
-        let mut live_object_ids: Vec<ObjectID> = if presentation_unit_pass {
-            Vec::new()
-        } else if let Some(gl) = game_logic {
-            // Boot/loading residual only — presentation_unit_pass false.
-            gl.get_objects().keys().copied().collect()
-        } else {
-            Vec::new()
-        };
-
-        // Live FOW batch needs IDs only when presentation is absent.
-        let mut fow_ids: Vec<ObjectID> = if presentation_unit_pass {
-            Vec::new()
-        } else {
-            live_object_ids.clone()
-        };
-
         trace!(
             "collect_render_items processing {} units (presentation_unit_pass={})",
-            if presentation_unit_pass {
-                unit_inputs.len()
-            } else {
-                live_object_ids.len()
-            },
+            unit_inputs.len(),
             presentation_unit_pass
         );
 
         if allow_sync_model_loads {
-            if presentation_unit_pass {
-                unit_inputs.sort_by_key(|u| u.id.0);
-            } else {
-                live_object_ids.sort_unstable();
-                fow_ids.sort_unstable();
-            }
-        } else if presentation_unit_pass {
+            unit_inputs.sort_by_key(|u| u.id.0);
+        } else {
             // Distance sort from snapshot positions only — no live transform re-read.
             unit_inputs.sort_by(|a, b| {
                 let da = a.position.distance_squared(camera_position);
@@ -1360,34 +1279,6 @@ impl RenderPipeline {
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.id.cmp(&b.id))
             });
-        } else {
-            let mut object_ids_with_distance: Vec<(ObjectID, f32)> = live_object_ids
-                .iter()
-                .copied()
-                .map(|object_id| {
-                    let distance_squared = game_logic
-                        .and_then(|g| g.get_objects().get(&object_id))
-                        .map(|obj| {
-                            gameplay_to_render_transform(obj.get_transform_matrix())
-                                .w_axis
-                                .truncate()
-                                .distance_squared(camera_position)
-                        })
-                        .unwrap_or(f32::INFINITY);
-                    (object_id, distance_squared)
-                })
-                .collect();
-            object_ids_with_distance.sort_by(|(a_id, a_distance), (b_id, b_distance)| {
-                a_distance
-                    .partial_cmp(b_distance)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a_id.cmp(b_id))
-            });
-            live_object_ids = object_ids_with_distance
-                .into_iter()
-                .map(|(object_id, _)| object_id)
-                .collect();
-            fow_ids = live_object_ids.clone();
         }
         let object_ids_elapsed = object_ids_started.elapsed();
 
@@ -1395,14 +1286,9 @@ impl RenderPipeline {
         let mut fow_filtered = 0usize;
         let mut frustum_culled = 0usize;
         let mut model_missing = 0usize;
-        // Shell maps / presentation path: no live shroud batch.
-        // Live fallback still queries FOW bridge once per collect.
+        // Presentation path: no live shroud batch.
         let visibility_started = Instant::now();
-        let visibilities = if bypass_fow || presentation_unit_pass {
-            std::collections::HashMap::new()
-        } else {
-            self.get_batch_fow_visibility(&fow_ids)
-        };
+        let visibilities: std::collections::HashMap<ObjectID, _> = std::collections::HashMap::new();
         let visibility_elapsed = visibility_started.elapsed();
 
         let view_proj = *projection_matrix * *view_matrix;
@@ -1411,88 +1297,21 @@ impl RenderPipeline {
         let mut render_model_load_elapsed = Duration::ZERO;
         let mut render_item_build_elapsed = Duration::ZERO;
 
-        // --- Main unit mesh pass: presentation-owned inputs when available ---
-        // Live object identity is only resolved when presentation_unit_pass is false.
-        enum UnitPassSource {
-            Presentation(crate::presentation_frame::UnitRenderInput),
-            Live(ObjectID),
-        }
-        let pass_sources: Vec<UnitPassSource> = if presentation_unit_pass {
-            unit_inputs
-                .into_iter()
-                .map(UnitPassSource::Presentation)
-                .collect()
-        } else {
-            live_object_ids
-                .into_iter()
-                .map(UnitPassSource::Live)
-                .collect()
-        };
-
-        for source in pass_sources {
-            // Resolve unit-identity + FOW without live re-read when presentation owns them.
-            let (
-                object_id,
-                world_matrix,
-                model_name_owned,
-                template_name_owned,
-                selection_radius,
-                model_hint_owned,
-                snapshot_fow,
-                selection_flash_intensity,
-                team_color,
-            ) = match &source {
-                UnitPassSource::Presentation(u) => {
-                    // engine_bridged already filtered in unit_render_inputs; keep guard.
-                    if u.engine_bridged {
-                        continue;
-                    }
-                    let m = u.world_matrix();
-                    (
-                        u.id,
-                        gameplay_to_render_transform(m),
-                        u.model_key.clone(),
-                        u.template_name.clone(),
-                        u.selection_radius,
-                        Some(u.model_key.clone()),
-                        Some(u.fow_visibility),
-                        u.selection_flash_intensity(),
-                        u.team_color,
-                    )
-                }
-                UnitPassSource::Live(id) => {
-                    self.debug_last_live_unit_identity_reads =
-                        self.debug_last_live_unit_identity_reads.saturating_add(1);
-                    let Some(gl) = game_logic else {
-                        continue;
-                    };
-                    let Some(object) = gl.get_objects().get(id) else {
-                        continue;
-                    };
-                    if !object.is_alive() {
-                        continue;
-                    }
-                    // Live residual: engine_object_id skip when no presentation frame.
-                    #[cfg(feature = "game_client")]
-                    if object.engine_object_id.is_some() {
-                        continue;
-                    }
-                    // Boot residual only — presentation unit_render_inputs owns model/transform.
-                    (
-                        *id,
-                        gameplay_to_render_transform(object.get_transform_matrix()),
-                        object.get_template().get_model_name().to_string(),
-                        object.template_name.clone(),
-                        object.selection_radius.max(5.0),
-                        object.get_template().model_name.clone(),
-                        None,
-                        crate::game_logic::host_saboteur::selection_flash_intensity(
-                            object.selection_flash_remaining,
-                        ),
-                        object.team_color,
-                    )
-                }
-            };
+        // --- Main unit mesh pass: presentation-owned inputs only ---
+        for u in unit_inputs {
+            // engine_bridged already filtered in unit_render_inputs; keep guard.
+            if u.engine_bridged {
+                continue;
+            }
+            let object_id = u.id;
+            let world_matrix = gameplay_to_render_transform(u.world_matrix());
+            let model_name_owned = u.model_key.clone();
+            let template_name_owned = u.template_name.clone();
+            let selection_radius = u.selection_radius;
+            let model_hint_owned = Some(u.model_key.clone());
+            let snapshot_fow = Some(u.fow_visibility);
+            let selection_flash_intensity = u.selection_flash_intensity();
+            let team_color = u.team_color;
 
             alive_objects += 1;
 
@@ -2649,58 +2468,34 @@ impl RenderPipeline {
         &mut self,
         device: &Arc<wgpu::Device>,
         queue: &Arc<wgpu::Queue>,
-        game_logic: Option<&GameLogic>,
     ) -> Result<bool> {
         #[cfg(feature = "game_client")]
         {
-            // Prefer presentation-frozen heightmap (no live GameLogic dual-read).
-            // When a presentation frame is installed, never re-query live terrain
-            // (empty freeze is fail-closed). Boot residual may pass Some(game_logic)
-            // only when no frame is set.
-            let heightmap = if let Some(pres) = self.presentation_frame.as_ref() {
-                let Some(frozen) = pres
-                    .world_env
-                    .runtime_heightmap
-                    .as_ref()
-                    .filter(|h| h.is_usable())
-                else {
-                    return Ok(false);
-                };
-                frozen.to_height_map()
-            } else {
-                let Some(gl) = game_logic else {
-                    return Ok(false);
-                };
-                let Some(hm) = gl.terrain_heightmap_snapshot() else {
-                    return Ok(false);
-                };
-                hm
+            // Presentation-frozen heightmap only (no live GameLogic dual-read).
+            let Some(pres) = self.presentation_frame.as_ref() else {
+                return Ok(false);
             };
+            let Some(frozen) = pres
+                .world_env
+                .runtime_heightmap
+                .as_ref()
+                .filter(|h| h.is_usable())
+            else {
+                return Ok(false);
+            };
+            let heightmap = frozen.to_height_map();
             let heightmap_resolution = (heightmap.width, heightmap.height);
 
             game_client::terrain::terrain_visual::init_terrain_visual()
                 .map_err(|e| anyhow::anyhow!("Terrain visual init failed: {}", e))?;
 
-            let source_hint_owned: Option<std::path::PathBuf> =
-                if let Some(p) = self.presentation_frame.as_ref() {
-                    p.world_env
-                        .heightmap_hint
-                        .as_ref()
-                        .map(std::path::PathBuf::from)
-                } else {
-                    game_logic.and_then(|gl| gl.heightmap_hint().map(|p| p.to_path_buf()))
-                };
+            let source_hint_owned: Option<std::path::PathBuf> = pres
+                .world_env
+                .heightmap_hint
+                .as_ref()
+                .map(std::path::PathBuf::from);
             let source_hint_ref = source_hint_owned.as_deref();
-            let world_bounds = if let Some(p) = self.presentation_frame.as_ref() {
-                p.world_env.world_bounds_vec3()
-            } else if let Some(gl) = game_logic {
-                gl.world_bounds()
-            } else {
-                (
-                    glam::Vec3::new(-500.0, 0.0, -500.0),
-                    glam::Vec3::new(500.0, 0.0, 500.0),
-                )
-            };
+            let world_bounds = pres.world_env.world_bounds_vec3();
             let world_size = (
                 (world_bounds.1.x - world_bounds.0.x).abs().max(1.0),
                 (world_bounds.1.z - world_bounds.0.z).abs().max(1.0),
@@ -2716,38 +2511,21 @@ impl RenderPipeline {
                         .map_err(|e| {
                             anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e)
                         })?;
-                    // Prefer presentation-frozen texture classes; boot residual may
-                    // still read live logic only when no presentation frame is set.
                     let source_tile_classes: Vec<
                         game_client::terrain::terrain_visual::TerrainSourceTileClass,
-                    > = if let Some(pres) = self.presentation_frame.as_ref() {
-                        pres.world_env
-                            .terrain_texture_classes
-                            .iter()
-                            .map(|class| {
-                                game_client::terrain::terrain_visual::TerrainSourceTileClass {
-                                    first_tile: class.first_tile,
-                                    num_tiles: class.num_tiles,
-                                    width: class.width,
-                                    name: class.name.clone(),
-                                }
-                            })
-                            .collect()
-                    } else {
-                        game_logic
-                            .map(|gl| gl.terrain_texture_classes_snapshot())
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|class| {
-                                game_client::terrain::terrain_visual::TerrainSourceTileClass {
-                                    first_tile: class.first_tile,
-                                    num_tiles: class.num_tiles,
-                                    width: class.width,
-                                    name: class.name,
-                                }
-                            })
-                            .collect()
-                    };
+                    > = pres
+                        .world_env
+                        .terrain_texture_classes
+                        .iter()
+                        .map(
+                            |class| game_client::terrain::terrain_visual::TerrainSourceTileClass {
+                                first_tile: class.first_tile,
+                                num_tiles: class.num_tiles,
+                                width: class.width,
+                                name: class.name.clone(),
+                            },
+                        )
+                        .collect();
                     if !source_tile_classes.is_empty() {
                         match visual.load_source_tiles_from_texture_classes(&source_tile_classes) {
                             Ok(loaded) => debug!(
@@ -2772,7 +2550,7 @@ impl RenderPipeline {
                     }
 
                     info!(
-                        "Loaded terrain visual from runtime terrain data ({}x{}, world_size=({:.1}, {:.1}))",
+                        "Loaded terrain visual from presentation heightmap ({}x{}, world_size=({:.1}, {:.1}))",
                         heightmap_resolution.0,
                         heightmap_resolution.1,
                         world_size.0,
@@ -2787,14 +2565,14 @@ impl RenderPipeline {
 
         #[cfg(not(feature = "game_client"))]
         {
-            let _ = (device, queue, game_logic);
+            let _ = (device, queue);
             Ok(false)
         }
     }
 
     /// Sync map roads/bridges into the terrain-road render path.
     /// Prefers frozen `PresentationWorldEnv` road/bridge segments when present.
-    pub fn sync_runtime_map_roads(&mut self, game_logic: Option<&GameLogic>) -> Result<()> {
+    pub fn sync_runtime_map_roads(&mut self) -> Result<()> {
         #[cfg(feature = "game_client")]
         {
             // When presentation is installed, roads/bridges are snapshot-owned even if
@@ -2828,34 +2606,6 @@ impl RenderPipeline {
                         .map(|b| (b.start, b.end, b.width, b.template_name.clone()))
                         .collect();
                     (roads, bridges)
-                } else if let Some(gl) = game_logic {
-                    let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
-                        gl.terrain_road_segments_snapshot()
-                            .into_iter()
-                            .map(|segment| {
-                                game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
-                                    start: [segment.from.x, segment.from.z, segment.from.y],
-                                    end: [segment.to.x, segment.to.z, segment.to.y],
-                                    width: segment.width,
-                                    template_name: segment.template_name,
-                                    width_in_texture: segment.width_in_texture,
-                                    road_type_id: segment.road_type_id,
-                                    start_is_angled: segment.start_is_angled,
-                                    start_is_join: segment.start_is_join,
-                                    end_is_angled: segment.end_is_angled,
-                                    end_is_join: segment.end_is_join,
-                                    curve_radius: segment.curve_radius,
-                                }
-                            })
-                            .collect();
-                    let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = gl
-                        .terrain_bridge_segments_snapshot()
-                        .into_iter()
-                        .map(|(start, end, width, template_name)| {
-                            (start.to_array(), end.to_array(), width, template_name)
-                        })
-                        .collect();
-                    (roads, bridges)
                 } else {
                     return Ok(());
                 };
@@ -2873,9 +2623,7 @@ impl RenderPipeline {
         }
 
         #[cfg(not(feature = "game_client"))]
-        {
-            let _ = game_logic;
-        }
+        {}
 
         Ok(())
     }
@@ -3015,7 +2763,7 @@ impl RenderPipeline {
         }
     }
 
-    fn refresh_minimap_terrain_base(&mut self, game_logic: Option<&GameLogic>) -> Result<()> {
+    fn refresh_minimap_terrain_base(&mut self) -> Result<()> {
         let Some(renderer) = self.minimap_renderer.as_mut() else {
             return Ok(());
         };
@@ -3033,15 +2781,13 @@ impl RenderPipeline {
         } else {
             (None, None)
         };
-        let base_texture =
-            Self::build_minimap_terrain_base_texture(game_logic, dimensions, bounds, height_env);
+        let base_texture = Self::build_minimap_terrain_base_texture(dimensions, bounds, height_env);
         renderer.set_base_terrain_texture(base_texture)?;
         self.minimap_base_needs_refresh = false;
         Ok(())
     }
 
     fn build_minimap_terrain_base_texture(
-        game_logic: Option<&GameLogic>,
         dimensions: MinimapDimensions,
         bounds_override: Option<(Vec3, Vec3)>,
         height_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
@@ -3052,11 +2798,8 @@ impl RenderPipeline {
         let mut heights = vec![0.0f32; pixel_count];
         let mut has_sample = false;
 
-        let (world_min, world_max) = bounds_override.unwrap_or_else(|| {
-            game_logic
-                .map(|g| g.world_bounds())
-                .unwrap_or((Vec3::new(-500.0, 0.0, -500.0), Vec3::new(500.0, 0.0, 500.0)))
-        });
+        let (world_min, world_max) = bounds_override
+            .unwrap_or((Vec3::new(-500.0, 0.0, -500.0), Vec3::new(500.0, 0.0, 500.0)));
         let world_span_x = (world_max.x - world_min.x).max(1.0);
         let world_span_z = (world_max.z - world_min.z).max(1.0);
 
@@ -3085,7 +2828,7 @@ impl RenderPipeline {
                     }
                 } else {
                     // Boot/loading without presentation: live residual.
-                    game_logic.and_then(|g| g.terrain_height_at(world))
+                    None
                 };
                 if let Some(h) = sample {
                     heights[idx(x, y)] = h;
@@ -4581,18 +4324,30 @@ mod tests {
     }
 
     #[test]
-    fn unit_mesh_live_get_template_boot_residual_only() {
+    fn unit_mesh_collect_is_presentation_only() {
         let src = include_str!("render_pipeline.rs");
+        let body = src
+            .split("fn collect_render_items")
+            .nth(1)
+            .and_then(|s| {
+                s.split(
+                    "
+    fn ",
+                )
+                .next()
+            })
+            .expect("collect body");
         assert!(
-            src.contains(
-                "Boot residual only — presentation unit_render_inputs owns model/transform"
-            ),
-            "live get_template path must be marked boot residual"
+            body.contains("unit_render_inputs()")
+                && body.contains("presentation-owned inputs only")
+                && !body.contains("UnitPassSource::Live")
+                && !body.contains("get_objects().get"),
+            "unit mesh collect must be presentation-only (no live object dual-read)"
         );
+        // Counter remains for honesty gates even if always zero on presentation path.
         assert!(
-            src.contains("unit_render_inputs()")
-                && src.contains("debug_last_live_unit_identity_reads"),
-            "presentation path must own unit mesh identity when frame set"
+            src.contains("debug_last_live_unit_identity_reads"),
+            "live-identity honesty counter must remain"
         );
     }
 
@@ -4803,63 +4558,47 @@ mod tests {
         );
     }
     #[test]
-    fn collect_prefers_presentation_shell_fow_before_live_is_in_shell_game() {
+    fn collect_shell_fow_is_presentation_only() {
         let src = include_str!("render_pipeline.rs");
         let idx = src
             .find("let bypass_fow = presentation")
             .expect("bypass_fow presentation");
         let window = &src[idx..idx + 280];
         assert!(
-            window.contains("fow_shell_bypass") && window.contains("isInShellGame"),
-            "shell FOW must prefer presentation then live: {window}"
+            window.contains("fow_shell_bypass") && !window.contains("isInShellGame"),
+            "shell FOW must come only from presentation: {window}"
         );
     }
 
     #[test]
-    fn roads_and_minimap_fail_closed_with_presentation() {
+    fn roads_and_minimap_are_presentation_only() {
         let src = include_str!("render_pipeline.rs");
-        let roads = src
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let roads = prod
             .split("fn sync_runtime_map_roads")
             .nth(1)
-            .and_then(|s| {
-                s.split(
-                    "
-    pub fn ",
-                )
-                .next()
-            })
+            .and_then(|s| s.split("\n    fn ").next())
             .expect("roads body");
         assert!(
-            roads.contains("presentation_frame.as_ref().map(|p| &p.world_env)"),
-            "roads must key off presentation frame presence"
+            roads.contains("presentation_frame")
+                && roads.contains("world_env")
+                && !roads.contains("terrain_road_segments_snapshot"),
+            "roads must be presentation-only"
         );
-        assert!(
-            !roads.contains(".filter(|e| !e.road_segments.is_empty()"),
-            "empty presentation roads must not fall through to live dual-read filter"
-        );
-        let mm = src
+        let mm = prod
             .split("fn build_minimap_terrain_base_texture")
             .nth(1)
-            .and_then(|s| {
-                s.split(
-                    "
-    fn ",
-                )
-                .next()
-            })
+            .and_then(|s| s.split("\n    fn ").next())
             .expect("minimap body");
+        // Comment may mention terrain_height_at; require no live sample call.
         assert!(
-            mm.contains("if height_env.is_some()"),
-            "minimap must fail-closed on presentation height env without live sample"
-        );
-        assert!(
-            mm.contains("game_logic.and_then(|g| g.terrain_height_at(world))"),
-            "live height residual remains for boot path without presentation"
+            mm.contains("height_env") && !mm.contains("g.terrain_height_at"),
+            "minimap heights must not dual-read live GameLogic"
         );
     }
 
     #[test]
-    fn prewarm_skips_live_logic_when_presentation_present() {
+    fn prewarm_is_presentation_only() {
         let src = include_str!("render_pipeline.rs");
         let body = src
             .split("fn prewarm_startup_models")
@@ -4872,24 +4611,12 @@ mod tests {
                 .next()
             })
             .expect("prewarm body");
-        let names = body
-            .split("let template_names")
-            .nth(1)
-            .expect("template_names block");
         assert!(
-            names.contains("if self.presentation_frame.is_some()"),
-            "template prewarm must branch on presentation presence"
-        );
-        // Live last_parsed_map_settings only in the else branch of presentation check.
-        let branch = names
-            .find("if self.presentation_frame.is_some()")
-            .expect("branch");
-        let live = names
-            .find("last_parsed_map_settings")
-            .expect("live fallback exists for boot path");
-        assert!(
-            live > branch,
-            "live map metadata for names must only appear after presentation branch"
+            body.contains("presentation_frame.as_ref()")
+                && body.contains("prewarm_template_names")
+                && !body.contains("last_parsed_map_settings")
+                && !body.contains("game_logic"),
+            "prewarm must use presentation world_env only"
         );
     }
 
@@ -4914,21 +4641,21 @@ mod tests {
         );
     }
     #[test]
-    fn minimap_roads_heightmap_take_optional_game_logic() {
+    fn minimap_roads_heightmap_are_presentation_only() {
         let src = include_str!("render_pipeline.rs");
-        assert!(src.contains(
-            "fn refresh_minimap_terrain_base(&mut self, game_logic: Option<&GameLogic>)"
-        ));
-        assert!(src
-            .contains("pub fn sync_runtime_map_roads(&mut self, game_logic: Option<&GameLogic>)"));
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert!(prod.contains("fn refresh_minimap_terrain_base(&mut self)"));
+        assert!(!prod.contains("refresh_minimap_terrain_base(&mut self, game_logic"));
         assert!(
-            src.contains("game_logic: Option<&GameLogic>,")
-                && src.contains("load_heightmap_from_runtime_terrain")
+            prod.contains("fn sync_runtime_map_roads(&mut self)")
+                || prod.contains("pub fn sync_runtime_map_roads(&mut self)")
         );
-        // Presentation path must refresh minimap without requiring live GameLogic.
+        assert!(!prod.contains("sync_runtime_map_roads(&mut self, game_logic"));
+        assert!(prod.contains("fn load_heightmap_from_runtime_terrain("));
         assert!(
-            src.contains("self.refresh_minimap_terrain_base(game_logic)"),
-            "minimap base refresh must accept Option GameLogic (None with snapshot)"
+            prod.contains("self.refresh_minimap_terrain_base()")
+                && !prod.contains("self.refresh_minimap_terrain_base(game_logic)"),
+            "minimap base refresh must be presentation-only"
         );
     }
 
