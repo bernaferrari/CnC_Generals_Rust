@@ -87,6 +87,23 @@ impl NetworkClock {
 mod tests {
 
     #[test]
+    #[test]
+    fn presentation_path_applies_pose_without_object_registry() {
+        let src = include_str!("cnc_game_engine.rs");
+        assert!(
+            src.contains("apply_presentation_pose_to_drawables"),
+            "InGame presentation path must push pose to drawables without OBJECT_REGISTRY"
+        );
+        let i = src
+            .find("apply_presentation_shroud_to_drawables(shroud_entries)")
+            .expect("shroud apply");
+        let window = &src[i..src.len().min(i + 900)];
+        assert!(
+            window.contains("apply_presentation_pose_to_drawables"),
+            "pose apply must sit next to presentation shroud residual"
+        );
+    }
+
     fn presentation_path_ticks_drawables_like_cpp() {
         let src = include_str!("cnc_game_engine.rs");
         // Build token from pieces so this test source does not self-match.
@@ -8564,6 +8581,25 @@ impl CnCGameEngine {
                         .unwrap_or_default();
                     self.game_client
                         .apply_presentation_shroud_to_drawables(shroud_entries);
+                    // Presentation pose residual → bound drawables (no OBJECT_REGISTRY).
+                    if let Some(pres) = self.last_presentation_frame.as_ref() {
+                        let pose_entries = pres.objects.iter().filter_map(|o| {
+                            if o.destroyed {
+                                return None;
+                            }
+                            Some((
+                                o.id.0,
+                                [o.position.x, o.position.y, o.position.z],
+                                o.orientation,
+                            ))
+                        });
+                        let n = self
+                            .game_client
+                            .apply_presentation_pose_to_drawables(pose_entries);
+                        if n > 0 {
+                            log::trace!("presentation pose applied to {n} drawables");
+                        }
+                    }
                     // Presentation cinematic letterbox residual → client display.
                     if let Some(pres) = self.last_presentation_frame.as_ref() {
                         self.game_client
