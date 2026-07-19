@@ -90606,7 +90606,9 @@ mod tests {
         logic.objects.insert(tid, {
             let mut o = Object::new(tt, tid, Team::GLA);
             o.vision_range = 220.0;
+            o.record_host_crush_vision();
             o.shroud_clearing_range = 250.0;
+            o.record_host_crush_vision();
             o.experience.level = VeterancyLevel::Elite;
             o.experience.current = 200.0;
             o
@@ -90618,7 +90620,9 @@ mod tests {
         logic.objects.insert(vid, {
             let mut o = Object::new(vt, vid, Team::USA);
             o.vision_range = 100.0;
+            o.record_host_crush_vision();
             o.shroud_clearing_range = 100.0;
+            o.record_host_crush_vision();
             o.weapon = Some(Weapon {
                 damage: 5.0,
                 range: 20.0,

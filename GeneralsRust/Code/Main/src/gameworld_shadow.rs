@@ -392,6 +392,10 @@ impl GameWorldShadow {
                     e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
                     e.team_ordinal = Self::host_team_ordinal(obj.team);
                     e.selection_radius = obj.selection_radius.max(5.0);
+                    e.crusher_level = obj.crusher_level;
+                    e.crushable_level = obj.crushable_level;
+                    e.vision_range = obj.vision_range;
+                    e.shroud_clearing_range = obj.shroud_clearing_range;
                     e.under_construction = obj.status.under_construction;
                     e.sold = obj.status.sold;
                     e.reconstructing = obj.status.reconstructing;
@@ -703,6 +707,10 @@ impl GameWorldShadow {
                 e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
                 e.team_ordinal = Self::host_team_ordinal(obj.team);
                 e.selection_radius = obj.selection_radius.max(5.0);
+                    e.crusher_level = obj.crusher_level;
+                    e.crushable_level = obj.crushable_level;
+                    e.vision_range = obj.vision_range;
+                    e.shroud_clearing_range = obj.shroud_clearing_range;
                 e.under_construction = obj.status.under_construction;
                 e.sold = obj.status.sold;
                 e.reconstructing = obj.status.reconstructing;
@@ -3659,6 +3667,57 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_crush_vision_events(
+        &mut self,
+        events: &[crate::game_logic::host_crush_vision_log::HostCrushVisionEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetCrushVision {
+                    target: eid,
+                    crusher_level: ev.crusher_level,
+                    crushable_level: ev.crushable_level,
+                    vision_range: ev.vision_range,
+                    shroud_clearing_range: ev.shroud_clearing_range,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_crush_vision_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.crusher_level != ent.crusher_level
+                || obj.crushable_level != ent.crushable_level
+                || (obj.vision_range - ent.vision_range).abs() > f32::EPSILON
+                || (obj.shroud_clearing_range - ent.shroud_clearing_range).abs() > f32::EPSILON;
+            if !changed {
+                continue;
+            }
+            obj.crusher_level = ent.crusher_level;
+            obj.crushable_level = ent.crushable_level;
+            obj.vision_range = ent.vision_range;
+            obj.shroud_clearing_range = ent.shroud_clearing_range;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_demo_mine_cheer_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4576,6 +4635,7 @@ pub fn shadow_session_after_host_tick(
     let selection_radius_events = crate::game_logic::host_selection_radius_log::drain();
     let model_condition_events = crate::game_logic::host_model_condition_log::drain();
     let demo_mine_cheer_events = crate::game_logic::host_demo_mine_cheer_log::drain();
+    let crush_vision_events = crate::game_logic::host_crush_vision_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4641,6 +4701,7 @@ pub fn shadow_session_after_host_tick(
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
     let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
     let _dmc_applied = shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events);
+    let _cv_applied = shadow.apply_host_crush_vision_events(&crush_vision_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4701,6 +4762,7 @@ pub fn shadow_session_after_host_tick(
     let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
     let _mc_wb = shadow.writeback_model_condition_to_host(logic);
     let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
+    let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -7644,7 +7706,86 @@ mod tests {
     }
 
     
+    
     #[test]
+    fn host_crush_vision_log_drives_set_crush_vision_channel() {
+        use crate::game_logic::{host_crush_vision_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CvCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CvU") {
+            let mut t = ThingTemplate::new("CvU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("CvU".into(), t);
+        }
+        let oid = logic
+            .create_object("CvU", Team::USA, glam::Vec3::new(30.0, 0.0, 30.0))
+            .expect("id");
+        host_crush_vision_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.crusher_level = 2;
+            o.crushable_level = 1;
+            o.vision_range = 175.0;
+            o.shroud_clearing_range = 200.0;
+            o.record_host_crush_vision();
+        }
+        let events = host_crush_vision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.crusher_level == 2
+                    && e.crushable_level == 1
+                    && (e.vision_range - 175.0).abs() < 1e-5
+                    && (e.shroud_clearing_range - 200.0).abs() < 1e-5
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_crush_vision();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.crusher_level = 0;
+            e.crushable_level = 0;
+            e.vision_range = 0.0;
+            e.shroud_clearing_range = 0.0;
+        }
+        let n = shadow.apply_host_crush_vision_events(&host_crush_vision_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.crusher_level, 2);
+        assert_eq!(e.crushable_level, 1);
+        assert!((e.vision_range - 175.0).abs() < 1e-5);
+        assert!((e.shroud_clearing_range - 200.0).abs() < 1e-5);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.crusher_level = 0;
+            o.crushable_level = 0;
+            o.vision_range = 0.0;
+            o.shroud_clearing_range = 0.0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.crusher_level = 2;
+            e.crushable_level = 1;
+            e.vision_range = 175.0;
+            e.shroud_clearing_range = 200.0;
+        }
+        assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.crusher_level, 2);
+        assert_eq!(o.crushable_level, 1);
+        assert!((o.vision_range - 175.0).abs() < 1e-5);
+        assert!((o.shroud_clearing_range - 200.0).abs() < 1e-5);
+    }
+
+#[test]
     fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
         use crate::game_logic::{
             host_demo_mine_cheer_log, host_mines::HostMineData, host_mines::HostMineKind, KindOf,
