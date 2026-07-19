@@ -7498,6 +7498,7 @@ impl Object {
         self.continuous_fire_level = 0;
         self.continuous_fire_coast_until_frame = 0;
         self.continuous_fire_victim = 0;
+        self.record_host_continuous_fire();
     }
 
     /// Install residual portable PropagandaTower addon
@@ -8474,6 +8475,16 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
+    pub fn record_host_continuous_fire(&self) {
+        let consecutive = self.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
+        crate::game_logic::host_continuous_fire_log::record(
+            self.id,
+            self.continuous_fire_level,
+            consecutive,
+            self.continuous_fire_coast_until_frame,
+        );
+    }
+
     pub fn record_host_detector(&self) {
         crate::game_logic::host_detector_log::record(
             self.id,

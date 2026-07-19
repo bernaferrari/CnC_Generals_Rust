@@ -555,6 +555,13 @@ pub enum WorldMutation {
         detection_range: f32,
         detection_rate_frames: u32,
     },
+    /// Host Object continuous-fire residual (gattling/minigun spin-up).
+    SetContinuousFire {
+        target: EntityId,
+        level: u8,
+        consecutive: u16,
+        coast_until_frame: u32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1047,6 +1054,20 @@ impl GameWorld {
                         e.is_detector = is_detector;
                         e.detection_range = detection_range.max(0.0);
                         e.detection_rate_frames = detection_rate_frames;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetContinuousFire {
+                    target,
+                    level,
+                    consecutive,
+                    coast_until_frame,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.continuous_fire_level = level;
+                        e.continuous_fire_consecutive = consecutive;
+
+                        e.continuous_fire_coast_until_frame = coast_until_frame;
                         applied += 1;
                     }
                 }

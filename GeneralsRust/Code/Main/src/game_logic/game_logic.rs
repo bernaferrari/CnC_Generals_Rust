@@ -27865,6 +27865,7 @@ impl GameLogic {
 
         let chain = gattling_building_has_chain_guns(&obj.applied_upgrades);
         obj.continuous_fire_level = new_level.as_u8();
+        obj.record_host_continuous_fire();
         obj.continuous_fire_consecutive = consecutive;
         obj.continuous_fire_victim = new_victim.unwrap_or(0);
         obj.continuous_fire_coast_until_frame =
@@ -27954,6 +27955,7 @@ impl GameLogic {
 
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
         obj.continuous_fire_level = new_level.as_u8();
+        obj.record_host_continuous_fire();
         obj.continuous_fire_consecutive = consecutive;
         obj.continuous_fire_victim = new_victim.unwrap_or(0);
         obj.continuous_fire_coast_until_frame = gattling_coast_until_after_shot(frame, new_level);
@@ -31086,6 +31088,7 @@ impl GameLogic {
         );
 
         obj.continuous_fire_level = new_level.as_u8();
+        obj.record_host_continuous_fire();
         obj.continuous_fire_consecutive = consecutive;
         obj.continuous_fire_victim = new_victim.unwrap_or(0);
         obj.continuous_fire_coast_until_frame =

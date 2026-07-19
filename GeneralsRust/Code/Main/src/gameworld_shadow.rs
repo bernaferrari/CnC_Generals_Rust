@@ -3211,6 +3211,55 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_continuous_fire_events(
+        &mut self,
+        events: &[crate::game_logic::host_continuous_fire_log::HostContinuousFireEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetContinuousFire {
+                    target: eid,
+                    level: ev.level,
+                    consecutive: ev.consecutive,
+                    coast_until_frame: ev.coast_until_frame,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_continuous_fire_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_consec = obj.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
+            let changed = obj.continuous_fire_level != ent.continuous_fire_level
+                || host_consec != ent.continuous_fire_consecutive
+                || obj.continuous_fire_coast_until_frame != ent.continuous_fire_coast_until_frame;
+            if !changed {
+                continue;
+            }
+            obj.continuous_fire_level = ent.continuous_fire_level;
+            obj.continuous_fire_consecutive = ent.continuous_fire_consecutive as u32;
+            obj.continuous_fire_coast_until_frame = ent.continuous_fire_coast_until_frame;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_detector_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3643,6 +3692,7 @@ pub fn shadow_session_after_host_tick(
     let turret_events = crate::game_logic::host_turret_log::drain();
     let target_location_events = crate::game_logic::host_target_location_log::drain();
     let detector_events = crate::game_logic::host_detector_log::drain();
+    let continuous_fire_events = crate::game_logic::host_continuous_fire_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3691,6 +3741,7 @@ pub fn shadow_session_after_host_tick(
     let _tur_applied = shadow.apply_host_turret_events(&turret_events);
     let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
     let _det_applied = shadow.apply_host_detector_events(&detector_events);
+    let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3734,6 +3785,7 @@ pub fn shadow_session_after_host_tick(
     let _tur_wb = shadow.writeback_turret_to_host(logic);
     let _tloc_wb = shadow.writeback_target_location_to_host(logic);
     let _det_wb = shadow.writeback_detector_to_host(logic);
+    let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6554,7 +6606,75 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_continuous_fire_log_drives_set_continuous_fire_channel() {
+        use crate::game_logic::{host_continuous_fire_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CFireCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CFU") {
+            let mut t = ThingTemplate::new("CFU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("CFU".into(), t);
+        }
+        let oid = logic
+            .create_object("CFU", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
+            .expect("id");
+        host_continuous_fire_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.continuous_fire_level = 2;
+            o.continuous_fire_consecutive = 9;
+            o.continuous_fire_coast_until_frame = 44;
+            o.record_host_continuous_fire();
+        }
+        let events = host_continuous_fire_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid && e.level == 2 && e.consecutive == 9 && e.coast_until_frame == 44
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_continuous_fire();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.continuous_fire_level = 0;
+            e.continuous_fire_consecutive = 0;
+            e.continuous_fire_coast_until_frame = 0;
+        }
+        let n = shadow.apply_host_continuous_fire_events(&host_continuous_fire_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.continuous_fire_level, 2);
+        assert_eq!(e.continuous_fire_consecutive, 9);
+        assert_eq!(e.continuous_fire_coast_until_frame, 44);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.continuous_fire_level = 0;
+            o.continuous_fire_consecutive = 0;
+            o.continuous_fire_coast_until_frame = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.continuous_fire_level = 2;
+            e.continuous_fire_consecutive = 9;
+            e.continuous_fire_coast_until_frame = 44;
+        }
+        assert!(shadow.writeback_continuous_fire_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.continuous_fire_level, 2);
+        assert_eq!(o.continuous_fire_consecutive, 9);
+        assert_eq!(o.continuous_fire_coast_until_frame, 44);
+    }
+
+#[test]
     fn host_detector_log_drives_set_detector_channel() {
         use crate::game_logic::{host_detector_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
