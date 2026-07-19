@@ -264,6 +264,14 @@ pub struct RenderableObject {
     pub is_firing_weapon: bool,
     /// Host ObjectStatus::is_aiming_weapon residual.
     pub is_aiming_weapon: bool,
+    /// Host ObjectStatus::disabled_emp residual.
+    pub disabled_emp: bool,
+    /// Host ObjectStatus::disabled_paralyzed residual.
+    pub disabled_paralyzed: bool,
+    /// Host ObjectStatus::weapons_jammed residual.
+    pub weapons_jammed: bool,
+    /// Host ObjectStatus::masked residual.
+    pub masked: bool,
     /// C++ OBJECT_STATUS_STEALTHED residual.
     pub stealthed: bool,
     /// C++ OBJECT_STATUS_DETECTED residual.
@@ -2419,6 +2427,10 @@ impl PresentationFrame {
                 attacking: obj.status.attacking,
                 is_firing_weapon: obj.status.is_firing_weapon,
                 is_aiming_weapon: obj.status.is_aiming_weapon,
+                disabled_emp: obj.status.disabled_emp,
+                disabled_paralyzed: obj.status.disabled_paralyzed,
+                weapons_jammed: obj.status.weapons_jammed,
+                masked: obj.status.masked,
                 stealthed: obj.status.stealthed,
                 detected: obj.status.detected,
                 effectively_stealthed: obj.is_effectively_stealthed(),
@@ -4264,6 +4276,26 @@ impl PresentationFrame {
             }
             if obj.is_aiming_weapon != ent.is_aiming_weapon {
                 obj.is_aiming_weapon = ent.is_aiming_weapon;
+                dirty = true;
+            }
+            if obj.disabled_emp != ent.disabled_emp {
+                obj.disabled_emp = ent.disabled_emp;
+                dirty = true;
+            }
+            if obj.disabled_paralyzed != ent.disabled_paralyzed {
+                obj.disabled_paralyzed = ent.disabled_paralyzed;
+                dirty = true;
+            }
+            if obj.weapons_jammed != ent.weapons_jammed {
+                obj.weapons_jammed = ent.weapons_jammed;
+                dirty = true;
+            }
+            if obj.masked != ent.masked {
+                obj.masked = ent.masked;
+                dirty = true;
+            }
+            if obj.disguised != ent.disguised {
+                obj.disguised = ent.disguised;
                 dirty = true;
             }
             if obj.team_color != ent.team_color {

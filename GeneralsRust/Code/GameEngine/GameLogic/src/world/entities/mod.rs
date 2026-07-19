@@ -180,6 +180,16 @@ pub struct Entity {
     pub disabled_unmanned: bool,
     /// Host Object::status.disabled_hacked residual.
     pub disabled_hacked: bool,
+    /// Host Object::status.disabled_emp residual.
+    pub disabled_emp: bool,
+    /// Host Object::status.disabled_paralyzed residual.
+    pub disabled_paralyzed: bool,
+    /// Host Object::status.weapons_jammed residual.
+    pub weapons_jammed: bool,
+    /// Host Object::status.masked residual.
+    pub masked: bool,
+    /// Host Object::status.disguised residual.
+    pub disguised: bool,
     /// Host Object::building_data present residual.
     pub is_building: bool,
     /// Host BuildingType residual ordinal (0..12; 255 = not a building).
@@ -470,6 +480,11 @@ impl EntityStore {
             disabled_underpowered: false,
             disabled_unmanned: false,
             disabled_hacked: false,
+            disabled_emp: false,
+            disabled_paralyzed: false,
+            weapons_jammed: false,
+            masked: false,
+            disguised: false,
             is_building: false,
             building_type_ordinal: 255,
             production_queue_len: 0,
