@@ -5469,7 +5469,38 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_overlord(&self) {
+        pub fn record_host_command_set(&self) {
+        crate::game_logic::host_command_set_log::record(
+            self.id,
+            self.command_set_override.clone(),
+        );
+    }
+
+    pub fn set_command_set_override(&mut self, command_set: Option<String>) {
+        if self.command_set_override != command_set {
+            self.command_set_override = command_set;
+            self.record_host_command_set();
+        }
+    }
+
+    pub fn record_host_disguise(&self) {
+        let team = self
+            .disguise_as_team
+            .map(|t| match t {
+                Team::USA => 0,
+                Team::China => 1,
+                Team::GLA => 2,
+                Team::Neutral => 3,
+            })
+            .unwrap_or(255);
+        crate::game_logic::host_disguise_log::record(
+            self.id,
+            self.disguise_as_template.clone(),
+            team,
+        );
+    }
+
+    pub fn record_host_overlord(&self) {
         let bunker_capacity = match self.overlord_bunker_capacity {
             Some(n) => n.min(u16::MAX as usize - 1) as u16,
             None => u16::MAX,
@@ -5593,6 +5624,7 @@ impl Object {
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
         // Keep previous appearance until halfpoint if any.
+        self.record_host_disguise();
     }
 
     /// Clear disguise residual (reveal transition).
@@ -5614,6 +5646,7 @@ impl Object {
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
         // Keep disguise_as_* until halfpoint swap back.
+        self.record_host_disguise();
     }
 
     /// Force-clear disguise residual immediately (no transition).
@@ -5630,6 +5663,7 @@ impl Object {
         self.set_status_disguise_transitioning_to(false);
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
+        self.record_host_disguise();
     }
 
     /// C++ StealthUpdate disguise transition residual tick.
@@ -5688,6 +5722,7 @@ impl Object {
             self.detection_expires_frame = 0;
             self.status.disguise_transition_opacity = 1.0;
         }
+        self.record_host_disguise();
         halfpoint
     }
 

@@ -17960,7 +17960,7 @@ impl GameLogic {
                 // Still ensure CommandSetUpgrade residual is applied if missing.
                 if obj.command_set_override.is_none() {
                     if let Some(cs) = demo_command_set_upgrade_for_template(&obj.template_name) {
-                        obj.command_set_override = Some(cs);
+                        obj.set_command_set_override(Some(cs));
                         command_sets = command_sets.saturating_add(1);
                     }
                 }
@@ -17969,7 +17969,7 @@ impl GameLogic {
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
             if let Some(cs) = demo_command_set_upgrade_for_template(&obj.template_name) {
-                obj.command_set_override = Some(cs);
+                obj.set_command_set_override(Some(cs));
                 command_sets = command_sets.saturating_add(1);
             }
             affected = affected.saturating_add(1);
@@ -20408,7 +20408,7 @@ impl GameLogic {
                                 if let Some(cs) =
                                     demo_command_set_upgrade_for_template(&obj.template_name)
                                 {
-                                    obj.command_set_override = Some(cs);
+                                    obj.set_command_set_override(Some(cs));
                                     self.demo_suicide_bomb.record_command_set_upgrade(1);
                                 }
                             }
