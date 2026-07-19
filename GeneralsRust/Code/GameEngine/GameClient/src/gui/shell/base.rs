@@ -2518,6 +2518,14 @@ impl Shell {
         self.is_shell_active
     }
 
+    /// Residual: force shell inactive without layout shutdown animation (match start).
+    pub fn set_shell_active(&mut self, active: bool) {
+        self.is_shell_active = active;
+        if !active {
+            self.clear_background = true;
+        }
+    }
+
     /// Check if the shell map background has been requested.
     pub fn is_shell_map_on(&self) -> bool {
         self.shell_map_on

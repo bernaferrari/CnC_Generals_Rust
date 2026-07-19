@@ -2146,6 +2146,13 @@ impl CnCGameEngine {
                 // enabled; fall back to Main SkirmishMenu mouse residual.
                 // Not direct start_game — both paths still go through start_game_from_ui
                 // (WND via NewGame drain on next Menu tick).
+                // Already in a match: ignore shell re-entry (control-file repeats must not
+                // bounce InGame → Menu via enter_shell_screen_from_runtime_host).
+                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd =
+                        "click_skirmish_start_already_ingame".into();
+                    return;
+                }
                 self.set_runtime_host_ui_screen_override(Some("Skirmish"));
                 if self.ui_manager.current_screen() != Some(Screen::Skirmish) {
                     self.ui_manager.transition_to_screen(Screen::Skirmish);
@@ -7759,10 +7766,23 @@ impl CnCGameEngine {
                 // Start game logic, enable input
                 self.game_paused = false;
                 self.game_logic.set_paused(false);
+                // C++ hides the shell when a match begins. Leaving layouts visible can
+                // re-init MainMenu on shell ticks and bounce status mid-match. Prefer
+                // hide_shell over a pop-loop (pop can re-enter layout shutdown/init).
+                #[cfg(feature = "game_client")]
+                {
+                    let _ = game_client::gui::try_with_shell_mut(|shell| {
+                        // Do not run layout shutdown/pop here — that can re-enter
+                        // MainMenuInit and stall the first InGame frames.
+                        shell.hide(true);
+                        shell.set_shell_active(false);
+                    });
+                }
                 self.ensure_gameplay_layouts();
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::GameHUD);
                 self.set_runtime_ui_state_projection(UISystemState::InGame);
+                self.runtime_host_ui_screen_override = None;
             }
             GameState::Paused => {
                 info!("Entering Paused state");
@@ -10778,7 +10798,59 @@ impl CnCGameEngine {
         // Dual-tick residual close: map load → presentation seed → InGame HUD/units
         // without waiting for the first logic frame (render collect uses snapshot IDs).
         self.seed_presentation_after_match_start();
+        // Residual: after seed, prefer a live local-unit centroid so the first InGame
+        // frustum contains host armies (metadata InitialCameraPosition can be far off).
+        self.snap_camera_to_local_units_if_needed();
         self.transition_to_state(GameState::InGame);
+    }
+
+    /// Prefer a local structure/unit centroid for the match camera when the current
+    /// target is far from any local object (common Lone Eagle residual).
+    fn snap_camera_to_local_units_if_needed(&mut self) {
+        let Some(team) = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.team)
+        else {
+            return;
+        };
+        let mut sum = Vec3::ZERO;
+        let mut n = 0u32;
+        for obj in self.game_logic.get_objects().values() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            // Prefer structures (base), then any local object.
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure)
+                || obj.is_mobile()
+                || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
+            {
+                sum += obj.get_position();
+                n += 1;
+            }
+        }
+        if n == 0 {
+            return;
+        }
+        let centroid = sum / n as f32;
+        let dx = centroid.x - self.camera_target.x;
+        let dz = centroid.z - self.camera_target.z;
+        let dist_sq = dx * dx + dz * dz;
+        // If already aimed near the local force, keep bootstrap (C++ InitialCamera).
+        if dist_sq < 200.0 * 200.0 {
+            return;
+        }
+        let height = self
+            .camera_position
+            .y
+            .max(self.camera_target.y + 80.0)
+            .max(120.0);
+        self.camera_target = Vec3::new(centroid.x, centroid.y, centroid.z);
+        // Simple elevated look-at residual (does not depend on orbit pitch tan edge cases).
+        self.camera_position = Vec3::new(centroid.x - 80.0, height, centroid.z - 160.0);
+        self.camera_zoom = self.camera_zoom.clamp(0.6, 1.8);
+        self.sync_orbit_from_camera_transform();
+        self.apply_camera_orbit_transform();
     }
 
     fn apply_map_lighting(
@@ -19908,4 +19980,21 @@ fn attack_lines_and_occupied_transports_residual() {
             && src.contains("select_all_occupied_transports()"),
         "Ctrl+Alt+J must select occupied transports residual"
     );
+}
+
+#[cfg(test)]
+mod world_scene_skip_residual_tests {
+    #[test]
+    fn ingame_does_not_skip_world_for_menu_warmup_counter() {
+        let src = include_str!("cnc_game_engine.rs");
+        let start = src
+            .find("fn should_skip_world_scene_for_shell_menu")
+            .expect("skip fn");
+        let body = &src[start..src.len().min(start + 900)];
+        assert!(body.contains("GameState::Menu =>"), "Menu branch required");
+        assert!(
+            body.contains("_ => false"),
+            "InGame and other states must not skip via menu warmup counter"
+        );
+    }
 }
