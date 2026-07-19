@@ -1835,9 +1835,23 @@ impl Object {
     }
 
     pub fn is_mobile(&self) -> bool {
-        self.is_kind_of(KindOf::Infantry)
+        // C++-ish: infantry/vehicle/aircraft, plus Worker KindOf.
+        // Do NOT call can_construct() here — that path can re-enter is_mobile.
+        // Host dozer residual: treat non-structure templates named *Dozer* as mobile.
+        if self.is_kind_of(KindOf::Infantry)
             || self.is_kind_of(KindOf::Vehicle)
             || self.is_kind_of(KindOf::Aircraft)
+            || self.is_kind_of(KindOf::Worker)
+        {
+            return true;
+        }
+        if !self.is_kind_of(KindOf::Structure) {
+            let name = self.template_name.to_ascii_lowercase();
+            if name.contains("dozer") || name.contains("worker") || name.contains("construction") {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn is_selectable(&self) -> bool {

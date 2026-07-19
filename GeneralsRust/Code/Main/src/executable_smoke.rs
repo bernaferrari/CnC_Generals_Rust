@@ -2363,10 +2363,8 @@ mod tests {
 
     #[test]
     fn parses_render_item_count_from_status() {
-        let path = std::env::temp_dir().join(format!(
-            "generals_smoke_status_{}.txt",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("generals_smoke_status_{}.txt", std::process::id()));
         std::fs::write(
             &path,
             "state=InGame\nrender_item_count=42\nrender_alive_objects=100\nrender_fow_filtered=10\nrender_frustum_culled=5\npresentation_frame_ok=true\n",
