@@ -625,6 +625,13 @@ pub enum WorldMutation {
         template: String,
         team_ordinal: u8,
     },
+    /// Host Object vision_spied_mask + camo residual.
+    SetVisionCamo {
+        target: EntityId,
+        vision_spied_mask: u32,
+        camo_friendly_opacity: f32,
+        camo_stealth_look: u8,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1236,6 +1243,19 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.disguise_as_template = template;
                         e.disguise_as_team_ordinal = team_ordinal;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetVisionCamo {
+                    target,
+                    vision_spied_mask,
+                    camo_friendly_opacity,
+                    camo_stealth_look,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.vision_spied_mask = vision_spied_mask;
+                        e.camo_friendly_opacity = camo_friendly_opacity;
+                        e.camo_stealth_look = camo_stealth_look;
                         applied += 1;
                     }
                 }

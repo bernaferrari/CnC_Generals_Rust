@@ -17892,6 +17892,7 @@ impl GameLogic {
             obj.stealth_delay_pending = false;
             // FriendlyOpacity residual: cloaked → min.
             obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
+            obj.record_host_vision_camo();
             obj.camo_opacity_pulse_phase = 0.0;
             // Sub-object net mesh residual: upgrade shows CamoNet presentation.
             obj.camo_net_sub_object_shown = true;
@@ -39023,6 +39024,7 @@ impl GameLogic {
                 // Clear all spy player bits that no longer have an active residual.
                 // Residual simplification: clear full mask when no active spy covers unit.
                 obj.vision_spied_mask = 0;
+                obj.record_host_vision_camo();
             }
         }
         if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
@@ -39876,6 +39878,7 @@ impl GameLogic {
                     obj.stealth_allowed_frame = 0;
                     // FriendlyOpacity residual: cloaked → min (then pulse).
                     obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
+                    obj.record_host_vision_camo();
                     obj.camo_opacity_pulse_phase = 0.0;
                     opacity_cloaks = opacity_cloaks.saturating_add(1);
                     recloaks = recloaks.saturating_add(1);
@@ -39888,6 +39891,7 @@ impl GameLogic {
                     }
                     // FriendlyOpacity residual: revealed → max (no pulse).
                     obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MAX;
+                    obj.record_host_vision_camo();
                     opacity_reveals = opacity_reveals.saturating_add(1);
                     reveals = reveals.saturating_add(1);
                     revealed_ids.push(sid);
@@ -39902,12 +39906,14 @@ impl GameLogic {
                     }
                     let (op, next_phase) = camo_netting_pulse_opacity(obj.camo_opacity_pulse_phase);
                     obj.camo_friendly_opacity = op;
+                    obj.record_host_vision_camo();
                     obj.camo_opacity_pulse_phase = next_phase;
                 } else {
                     // Revealed residual: hold max opacity.
                     if (obj.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MAX).abs() > 0.01
                     {
                         obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MAX;
+                        obj.record_host_vision_camo();
                         opacity_reveals = opacity_reveals.saturating_add(1);
                     }
                 }
@@ -39924,6 +39930,7 @@ impl GameLogic {
                     heat_vision = heat_vision.saturating_add(1);
                 }
                 obj.camo_stealth_look = look.as_u8();
+                obj.record_host_vision_camo();
                 obj.camo_heat_vision_opacity = hv;
                 // CamoNetting sub-object net mesh residual presentation.
                 if obj.camo_net_sub_object_shown || obj.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING) {
@@ -71055,6 +71062,7 @@ mod tests {
             t.set_status_detected(true);
             t.camo_heat_vision_opacity = 0.0;
             t.camo_stealth_look = 0;
+            t.record_host_vision_camo();
         }
         game_logic.update_stealth_and_detection();
         {

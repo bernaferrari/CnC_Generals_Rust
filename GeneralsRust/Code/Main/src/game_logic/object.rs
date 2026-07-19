@@ -5469,7 +5469,16 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_command_set(&self) {
+        pub fn record_host_vision_camo(&self) {
+        crate::game_logic::host_vision_camo_log::record(
+            self.id,
+            self.vision_spied_mask,
+            self.camo_friendly_opacity,
+            self.camo_stealth_look,
+        );
+    }
+
+    pub fn record_host_command_set(&self) {
         crate::game_logic::host_command_set_log::record(
             self.id,
             self.command_set_override.clone(),
@@ -5808,6 +5817,7 @@ impl Object {
             self.camo_friendly_opacity = 1.0;
             self.camo_opacity_pulse_phase = 0.0;
         }
+        self.record_host_vision_camo();
     }
 
     /// C++ StealthUpdate::receiveGrant residual (GPS Scrambler / GrantStealthBehavior).
@@ -5836,6 +5846,7 @@ impl Object {
         } else {
             self.vision_spied_mask &= !bit;
         }
+        self.record_host_vision_camo();
     }
 
     /// True if `player_id` currently has vision-spied residual on this unit.

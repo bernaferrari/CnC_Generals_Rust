@@ -3488,6 +3488,54 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_vision_camo_events(
+        &mut self,
+        events: &[crate::game_logic::host_vision_camo_log::HostVisionCamoEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetVisionCamo {
+                    target: eid,
+                    vision_spied_mask: ev.vision_spied_mask,
+                    camo_friendly_opacity: ev.camo_friendly_opacity,
+                    camo_stealth_look: ev.camo_stealth_look,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_vision_camo_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.vision_spied_mask != ent.vision_spied_mask
+                || (obj.camo_friendly_opacity - ent.camo_friendly_opacity).abs() > f32::EPSILON
+                || obj.camo_stealth_look != ent.camo_stealth_look;
+            if !changed {
+                continue;
+            }
+            obj.vision_spied_mask = ent.vision_spied_mask;
+            obj.camo_friendly_opacity = ent.camo_friendly_opacity;
+            obj.camo_stealth_look = ent.camo_stealth_look;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_disguise_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4214,6 +4262,7 @@ pub fn shadow_session_after_host_tick(
     let overlord_events = crate::game_logic::host_overlord_log::drain();
     let command_set_events = crate::game_logic::host_command_set_log::drain();
     let disguise_events = crate::game_logic::host_disguise_log::drain();
+    let vision_camo_events = crate::game_logic::host_vision_camo_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4273,6 +4322,7 @@ pub fn shadow_session_after_host_tick(
     let _ol_applied = shadow.apply_host_overlord_events(&overlord_events);
     let _cs_applied = shadow.apply_host_command_set_events(&command_set_events);
     let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
+    let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4327,6 +4377,7 @@ pub fn shadow_session_after_host_tick(
     let _ol_wb = shadow.writeback_overlord_to_host(logic);
     let _cs_wb = shadow.writeback_command_set_to_host(logic);
     let _dg_wb = shadow.writeback_disguise_to_host(logic);
+    let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -7210,7 +7261,79 @@ mod tests {
         assert_eq!(o.command_set_override.as_deref(), Some("Command_DemoSuicide"));
     }
 
+    
     #[test]
+    fn host_vision_camo_log_drives_set_vision_camo_channel() {
+        use crate::game_logic::{host_vision_camo_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("VcCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("VcU") {
+            let mut t = ThingTemplate::new("VcU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("VcU".into(), t);
+        }
+        let oid = logic
+            .create_object("VcU", Team::China, glam::Vec3::new(24.0, 0.0, 24.0))
+            .expect("id");
+        host_vision_camo_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.vision_spied_mask = 0b101;
+            o.camo_friendly_opacity = 0.35;
+            o.camo_stealth_look = 2;
+            o.record_host_vision_camo();
+        }
+        let events = host_vision_camo_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.vision_spied_mask == 0b101
+                    && (e.camo_friendly_opacity - 0.35).abs() < 1e-5
+                    && e.camo_stealth_look == 2
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_vision_camo();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.vision_spied_mask = 0;
+            e.camo_friendly_opacity = 1.0;
+            e.camo_stealth_look = 0;
+        }
+        let n = shadow.apply_host_vision_camo_events(&host_vision_camo_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.vision_spied_mask, 0b101);
+        assert!((e.camo_friendly_opacity - 0.35).abs() < 1e-5);
+        assert_eq!(e.camo_stealth_look, 2);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.vision_spied_mask = 0;
+            o.camo_friendly_opacity = 1.0;
+            o.camo_stealth_look = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.vision_spied_mask = 0b101;
+            e.camo_friendly_opacity = 0.35;
+            e.camo_stealth_look = 2;
+        }
+        assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.vision_spied_mask, 0b101);
+        assert!((o.camo_friendly_opacity - 0.35).abs() < 1e-5);
+        assert_eq!(o.camo_stealth_look, 2);
+    }
+
+#[test]
     fn host_disguise_log_drives_set_disguise_channel() {
         use crate::game_logic::{host_disguise_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
