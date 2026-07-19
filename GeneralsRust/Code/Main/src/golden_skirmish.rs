@@ -2026,6 +2026,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn host_construct_after_load_map_residual() {
+        crate::gameworld_shadow::ensure_gate_damage_authority();
+        set_verification_single_authority(true);
+        let (map_identity, map_exists) = resolve_map(None);
+        if !map_exists {
+            return;
+        }
+        let config = golden_skirmish_config(&map_identity);
+        let mut logic = GameLogic::new();
+        install_templates(&mut logic);
+        let _ = apply_skirmish_config(&mut logic, &config);
+        assert!(logic.load_map(&map_identity));
+        install_templates(&mut logic);
+        ensure_human_economy(&mut logic, 25_000, 500);
+        let base = logic
+            .get_objects()
+            .values()
+            .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
+            .map(|o| o.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let dozer = ensure_dozer(&mut logic, base).expect("dozer");
+        logic.update();
+        let bname =
+            first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
+                .unwrap_or_else(|| "Barracks".into());
+        let site = clamp_build_site(&logic, base + Vec3::new(40.0, 0.0, 0.0));
+        if let Some(d) = logic.get_object_mut(dozer) {
+            d.set_position(site + Vec3::new(-5.0, 0.0, 0.0));
+        }
+        logic.update();
+        // Simulate host construct: create under construction via legal path.
+        let id = logic.create_object_under_construction(&bname, Team::USA, site);
+        assert!(
+            id.is_some(),
+            "host construct residual must place {bname} at {site:?} lbc={}",
+            logic.legal_build_code_at_for_builder(Team::USA, site, &bname, Some(dozer))
+        );
+    }
+
+    #[test]
     fn load_map_start_vision_allows_build_residual() {
         crate::gameworld_shadow::ensure_gate_damage_authority();
         set_verification_single_authority(true);
