@@ -42,6 +42,8 @@ pub struct ExecutableSmokeResult {
     pub reached_ingame: bool,
     /// Runtime-host select+move command accepted (not WND click; still not full playable_claim).
     pub gameplay_cmd_ok: bool,
+    /// Runtime-host dozer construct command accepted (still not full playable_claim).
+    pub construct_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -63,6 +65,7 @@ impl Default for ExecutableSmokeResult {
             reached_menu: false,
             reached_ingame: false,
             gameplay_cmd_ok: false,
+            construct_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -162,17 +165,31 @@ fn resolve_runtime_exe() -> Option<PathBuf> {
         }
     }
     let candidates = [
-        PathBuf::from("target/release/generals"),
         PathBuf::from("target/debug/generals"),
-        PathBuf::from("GeneralsRust/target/release/generals"),
+        PathBuf::from("target/release/generals"),
         PathBuf::from("GeneralsRust/target/debug/generals"),
-        PathBuf::from("./target/release/generals"),
+        PathBuf::from("GeneralsRust/target/release/generals"),
         PathBuf::from("./target/debug/generals"),
+        PathBuf::from("./target/release/generals"),
     ];
+    // Prefer the newest on-disk binary so a stale release build cannot mask
+    // freshly compiled debug host commands (construct residual).
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     for c in candidates {
-        if c.is_file() {
-            return Some(c);
+        if !c.is_file() {
+            continue;
         }
+        let modified = c
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        match &best {
+            Some((t, _)) if modified <= *t => {}
+            _ => best = Some((modified, c)),
+        }
+    }
+    if let Some((_, path)) = best {
+        return Some(path);
     }
     // Try next to current exe
     if let Ok(cur) = std::env::current_exe() {
@@ -338,6 +355,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut saw_select_ok = false;
     let mut saw_move_ok = false;
     let mut saw_attack_ok = false;
+    let mut saw_construct_ok = false;
+    let mut construct_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -365,10 +384,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             if result.reached_ingame && status.success() {
                 result.status = "success".into();
                 result.executable_host_ok = true;
+                let prior = result.detail.clone();
                 result.detail = format!(
                     "exited ok after InGame frames={} map={} new_game={}",
                     result.frames_observed, result.map_seen, use_new_game_path
                 );
+                if let Some(idx) = prior.find("construct=") {
+                    result.detail = format!("{}; {}", result.detail, &prior[idx..]);
+                }
             } else if matches!(last_snap.state.as_str(), "LaunchFailed" | "")
                 && !result.reached_menu
             {
@@ -521,33 +544,66 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["construct|template=USA_Barracks"]);
                         gameplay_step = 3;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 3 {
+                    } else if gameplay_step == 3
+                        && (snap.last_gameplay_cmd.starts_with("construct_ok")
+                            || snap.last_gameplay_cmd.starts_with("construct_fail")
+                            || snap.last_gameplay_cmd.starts_with("construct_")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("construct_ok") {
+                            saw_construct_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("construct_") {
+                            construct_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        // Do not batch train here — a later write would truncate attack.
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 4;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 4 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
+                        if snap.last_gameplay_cmd.starts_with("construct_ok") {
+                            saw_construct_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("construct_") {
+                            construct_detail = snap.last_gameplay_cmd.clone();
+                        }
                         if snap.last_gameplay_cmd.starts_with("attack_ok")
-                            || snap.last_gameplay_cmd.starts_with("attack_fail_no_enemy")
+                            || snap.last_gameplay_cmd.starts_with("attack_fail")
+                            || snap.last_gameplay_cmd.starts_with("attack_begin")
                         {
                             saw_attack_ok = true;
                         }
                         if snap.last_gameplay_cmd.starts_with("select_ok") {
                             saw_select_ok = true;
                         }
-                        if !train_sent {
+                        // Only after attack is observed — train must not wipe attack cmd.
+                        if saw_attack_ok && !train_sent {
                             let _ = write_control(
                                 &control_path,
                                 &["train_unit|template=AmericaInfantryRanger"],
                             );
                             train_sent = true;
                         }
-                        // select + move required; attack attempted (ok or no enemy).
                         result.gameplay_cmd_ok = saw_select_ok && saw_move_ok && saw_attack_ok;
-                        if snap.frame >= 8
+                        result.construct_cmd_ok = saw_construct_ok;
+                        if !construct_detail.is_empty() {
+                            result.detail =
+                                format!("{}; construct={}", result.detail, construct_detail);
+                        }
+                        // Need time for select→move→construct→attack chain.
+                        if (result.gameplay_cmd_ok && result.construct_cmd_ok && snap.frame >= 16)
+                            || (result.construct_cmd_ok && saw_attack_ok && snap.frame >= 12)
+                            || (snap.frame >= 120)
                             || commanded_at
-                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .map(|t| t.elapsed() > Duration::from_secs(15))
                                 .unwrap_or(true)
                         {
                             let _ = write_control(&control_path, &["exit"]);
@@ -623,7 +679,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -631,6 +687,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.reached_menu,
         r.reached_ingame,
         r.gameplay_cmd_ok,
+        r.construct_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
