@@ -3545,6 +3545,94 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_movement_events(
+        &mut self,
+        events: &[crate::game_logic::host_movement_log::HostMovementEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetMovement {
+                    target: eid,
+                    velocity: ev.velocity,
+                    max_speed: ev.max_speed,
+                    path_index: ev.path_index,
+                    path_len: ev.path_len,
+                    path_waypoints: ev.path_waypoints.clone(),
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_movement_to_host(&self, logic: &mut GameLogic) -> usize {
+        use glam::Vec3;
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_v = [
+                obj.movement.velocity.x,
+                obj.movement.velocity.y,
+                obj.movement.velocity.z,
+            ];
+            let host_idx = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
+            let host_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
+            let vel_changed = host_v
+                .iter()
+                .zip(ent.velocity.iter())
+                .any(|(a, b)| (*a - *b).abs() > f32::EPSILON);
+            let path_changed = if ent.path_waypoints.is_empty() {
+                ent.path_len == 0 && !obj.movement.path.is_empty()
+            } else {
+                obj.movement.path.len() != ent.path_waypoints.len()
+                    || obj
+                        .movement
+                        .path
+                        .iter()
+                        .zip(ent.path_waypoints.iter())
+                        .any(|(p, e)| {
+                            (p.x - e[0]).abs() > f32::EPSILON
+                                || (p.y - e[1]).abs() > f32::EPSILON
+                                || (p.z - e[2]).abs() > f32::EPSILON
+                        })
+            };
+            let changed = vel_changed
+                || (obj.movement.max_speed - ent.move_max_speed).abs() > f32::EPSILON
+                || host_idx != ent.path_index
+                || host_len != ent.path_len
+                || path_changed;
+            if !changed {
+                continue;
+            }
+            obj.movement.velocity = Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
+            obj.movement.max_speed = ent.move_max_speed;
+            obj.movement.current_path_index = ent.path_index as usize;
+            if !ent.path_waypoints.is_empty() {
+                obj.movement.path = ent
+                    .path_waypoints
+                    .iter()
+                    .map(|p| Vec3::new(p[0], p[1], p[2]))
+                    .collect();
+            } else if ent.path_len == 0 {
+                obj.movement.path.clear();
+            }
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_weapon_stats_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4349,6 +4437,7 @@ pub fn shadow_session_after_host_tick(
     let disguise_events = crate::game_logic::host_disguise_log::drain();
     let vision_camo_events = crate::game_logic::host_vision_camo_log::drain();
     let weapon_stats_events = crate::game_logic::host_weapon_stats_log::drain();
+    let movement_events = crate::game_logic::host_movement_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4410,6 +4499,7 @@ pub fn shadow_session_after_host_tick(
     let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
     let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
     let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
+    let _mv_applied = shadow.apply_host_movement_events(&movement_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4466,6 +4556,7 @@ pub fn shadow_session_after_host_tick(
     let _dg_wb = shadow.writeback_disguise_to_host(logic);
     let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
     let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
+    let _mv_wb = shadow.writeback_movement_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -7351,7 +7442,92 @@ mod tests {
 
     
     
+    
     #[test]
+    fn host_movement_log_drives_set_movement_channel() {
+        use crate::game_logic::{host_movement_log, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MvCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("MvU") {
+            let mut t = ThingTemplate::new("MvU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("MvU".into(), t);
+        }
+        let oid = logic
+            .create_object("MvU", Team::USA, glam::Vec3::new(26.0, 0.0, 26.0))
+            .expect("id");
+        host_movement_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.movement.velocity = Vec3::new(3.0, 0.0, 4.0);
+            o.movement.max_speed = 12.5;
+            o.movement.path = vec![Vec3::new(1.0, 0.0, 1.0), Vec3::new(2.0, 0.0, 2.0)];
+            o.movement.current_path_index = 1;
+            o.record_host_movement();
+        }
+        let events = host_movement_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && (e.velocity[0] - 3.0).abs() < 1e-5
+                    && (e.velocity[2] - 4.0).abs() < 1e-5
+                    && (e.max_speed - 12.5).abs() < 1e-5
+                    && e.path_index == 1
+                    && e.path_len == 2
+                    && e.path_waypoints.len() == 2
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_movement();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.velocity = [0.0, 0.0, 0.0];
+            e.move_max_speed = 1.0;
+            e.path_index = 0;
+            e.path_len = 0;
+            e.path_waypoints.clear();
+        }
+        let n = shadow.apply_host_movement_events(&host_movement_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.velocity[0] - 3.0).abs() < 1e-5);
+        assert!((e.move_max_speed - 12.5).abs() < 1e-5);
+        assert_eq!(e.path_index, 1);
+        assert_eq!(e.path_len, 2);
+        assert_eq!(e.path_waypoints.len(), 2);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.movement.velocity = Vec3::ZERO;
+            o.movement.max_speed = 1.0;
+            o.movement.path.clear();
+            o.movement.current_path_index = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.velocity = [3.0, 0.0, 4.0];
+            e.move_max_speed = 12.5;
+            e.path_index = 1;
+            e.path_len = 2;
+            e.path_waypoints = vec![[1.0, 0.0, 1.0], [2.0, 0.0, 2.0]];
+        }
+        assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
+        assert!((o.movement.max_speed - 12.5).abs() < 1e-5);
+        assert_eq!(o.movement.current_path_index, 1);
+        assert_eq!(o.movement.path.len(), 2);
+    }
+
+#[test]
     fn host_weapon_stats_log_drives_set_weapon_stats_channel() {
         use crate::game_logic::{host_weapon_stats_log, KindOf, Team, ThingTemplate, Weapon};
         let mut logic = GameLogic::new();
