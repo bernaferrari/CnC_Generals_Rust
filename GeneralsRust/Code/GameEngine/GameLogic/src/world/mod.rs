@@ -584,6 +584,12 @@ pub enum WorldMutation {
         target: EntityId,
         enabled: bool,
     },
+    /// Host Object contain capacity residual (transport slots / garrison max).
+    SetContainCapacity {
+        target: EntityId,
+        max_transport: usize,
+        max_garrison: u16,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1124,6 +1130,17 @@ impl GameWorld {
                 WorldMutation::SetOvercharge { target, enabled } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.overcharge_enabled = enabled;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetContainCapacity {
+                    target,
+                    max_transport,
+                    max_garrison,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.max_transport = max_transport;
+                        e.max_garrison = max_garrison;
                         applied += 1;
                     }
                 }
