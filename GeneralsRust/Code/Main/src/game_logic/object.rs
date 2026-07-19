@@ -4204,6 +4204,7 @@ impl Object {
         self.movement.target_position = self.movement.path.first().copied();
         self.waiting_for_path = false;
         self.is_braking = false;
+        self.record_host_movement();
     }
 
     /// True if effectively moving (C++ isMoving || isWaitingForPath).
@@ -4420,6 +4421,7 @@ impl Object {
             self.movement.velocity += diff.normalize() * max_accel;
         }
         self.invalidate_velocity_magnitude();
+        self.record_host_movement();
     }
 
     /// C++ PhysicsBehavior::applyMotiveForce residual.
@@ -4442,6 +4444,7 @@ impl Object {
         self.shock_pitch_rate = 0.0;
         self.shock_roll_rate = 0.0;
         self.motive_frames_remaining = 0;
+        self.record_host_movement();
     }
 
     /// Integrate physics_accel into velocity residual (a → v per logic frame).
@@ -4885,6 +4888,7 @@ impl Object {
         let force = dir * factor;
         // mass≈1 → velocity += force (host residual, no separate accel integrate).
         self.movement.velocity += force;
+        self.record_host_movement();
         force
     }
 
@@ -5469,7 +5473,17 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_weapon_stats(&self) {
+        pub fn record_host_movement(&self) {
+        crate::game_logic::host_movement_log::record(
+            self.id,
+            self.movement.velocity,
+            self.movement.max_speed,
+            self.movement.current_path_index,
+            &self.movement.path,
+        );
+    }
+
+    pub fn record_host_weapon_stats(&self) {
         let (
             has_weapon,
             weapon_damage,
@@ -7195,6 +7209,7 @@ impl Object {
         if matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
             self.set_ai_state(AIState::Idle);
         }
+        self.record_host_movement();
     }
 
     pub fn attack_target(&mut self, target_id: ObjectId) {
@@ -8279,6 +8294,7 @@ impl Object {
                 }
             }
         }
+        self.record_host_movement();
     }
 
     /// C++ SalvageCrateCollide::doWeaponSet residual.
