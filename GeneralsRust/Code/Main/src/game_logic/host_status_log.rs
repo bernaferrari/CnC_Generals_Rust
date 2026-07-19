@@ -70,6 +70,30 @@ pub fn record_aiming(object: ObjectId, is_aiming_weapon: bool) {
     });
 }
 
+pub fn record_stealthed(object: ObjectId, stealthed: bool) {
+    push(HostStatusEvent {
+        object,
+        selected: None,
+        attacking: None,
+        is_firing_weapon: None,
+        is_aiming_weapon: None,
+        stealthed: Some(stealthed),
+        detected: None,
+    });
+}
+
+pub fn record_detected(object: ObjectId, detected: bool) {
+    push(HostStatusEvent {
+        object,
+        selected: None,
+        attacking: None,
+        is_firing_weapon: None,
+        is_aiming_weapon: None,
+        stealthed: None,
+        detected: Some(detected),
+    });
+}
+
 pub fn drain() -> Vec<HostStatusEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

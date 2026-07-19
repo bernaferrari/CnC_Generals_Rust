@@ -3915,6 +3915,67 @@ mod tests {
     }
 
     #[test]
+    fn host_stealth_status_log_drives_set_combat_status_channel() {
+        use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("StealthStatusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("StU") {
+            let mut t = ThingTemplate::new("StU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("StU".into(), t);
+        }
+        let id = logic
+            .create_object("StU", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
+            .expect("id");
+        host_status_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_status_stealthed(true);
+            o.set_status_detected(false);
+        }
+        let events = host_status_log::drain();
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.stealthed == Some(true)));
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.detected == Some(false)));
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_status_stealthed(true);
+            o.set_status_detected(false);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.stealthed = false;
+            e.detected = true;
+        }
+        for ev in host_status_log::drain() {
+            let _ = shadow.queue_set_combat_status_for_host(
+                ev.object,
+                ev.stealthed,
+                ev.detected,
+                ev.attacking,
+                ev.is_firing_weapon,
+                ev.is_aiming_weapon,
+                ev.selected,
+                None,
+                None,
+                None,
+                None,
+            );
+        }
+        assert!(shadow.apply_pending() >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.stealthed);
+        assert!(!e.detected);
+    }
+
+    #[test]
     fn sync_from_host_copies_entity_xp_status_residual() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EntityXpStatus");
