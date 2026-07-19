@@ -1369,6 +1369,8 @@ pub struct CnCGameEngine {
     runtime_host_headless: bool,
     runtime_host_base_ui_screen: Option<String>,
     runtime_host_ui_screen_override: Option<String>,
+    /// Sticky: open_skirmish_menu / Skirmish UI was entered this host session.
+    runtime_host_saw_skirmish_menu: bool,
     runtime_host_last_gameplay_cmd: String,
     /// Cumulative HP damage applied this match (host_damage_log residual).
     match_damage_applied: f32,
@@ -1952,6 +1954,9 @@ impl CnCGameEngine {
             .or(self.runtime_host_base_ui_screen.as_ref())
             .map(|screen| format!("Some({screen})"))
             .unwrap_or_else(|| format!("{:?}", self.ui_manager.current_screen()));
+        if ui_screen.to_ascii_lowercase().contains("skirmish") {
+            self.runtime_host_saw_skirmish_menu = true;
+        }
 
         let startup_progress = if matches!(self.current_state, GameState::Loading | GameState::Menu)
         {
@@ -2006,6 +2011,7 @@ impl CnCGameEngine {
         RuntimeHostSnapshot {
             state: format!("{:?}", self.current_state),
             ui_screen,
+            skirmish_menu_ok: self.runtime_host_saw_skirmish_menu,
             paused: self.game_paused,
             fps: self.fps.max(0.0),
             startup_progress,
@@ -2195,6 +2201,10 @@ impl CnCGameEngine {
                         "Menus/SkirmishGameOptionsMenu.wnd",
                     );
                 }
+                // Sticky residual: smoke polls may miss one-frame Skirmish ui_screen
+                // before start_game clears the override on InGame entry.
+                self.runtime_host_saw_skirmish_menu = true;
+                self.runtime_host_last_gameplay_cmd = "open_skirmish_menu_ok".into();
             }
             "click_skirmish_start" => {
                 // Prefer retail WND ButtonStart (GadgetSelected) when shell push is
@@ -2209,6 +2219,7 @@ impl CnCGameEngine {
                     return;
                 }
                 self.set_runtime_host_ui_screen_override(Some("Skirmish"));
+                self.runtime_host_saw_skirmish_menu = true;
                 if self.ui_manager.current_screen() != Some(Screen::Skirmish) {
                     self.ui_manager.transition_to_screen(Screen::Skirmish);
                 }
@@ -6372,6 +6383,7 @@ impl CnCGameEngine {
             runtime_host_headless,
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,
+            runtime_host_saw_skirmish_menu: false,
             runtime_host_last_gameplay_cmd: String::new(),
             match_damage_applied: 0.0,
             match_kills: 0,
@@ -16885,6 +16897,8 @@ impl Wake for NoopWake {
 struct RuntimeHostSnapshot {
     state: String,
     ui_screen: String,
+    /// Sticky skirmish menu residual (survives InGame ui_screen clear).
+    skirmish_menu_ok: bool,
     paused: bool,
     fps: f32,
     startup_progress: f32,
@@ -17055,6 +17069,7 @@ impl RuntimeHostBridge {
         let snapshot = RuntimeHostSnapshot {
             state: "Booting".to_string(),
             ui_screen: "None".to_string(),
+            skirmish_menu_ok: false,
             paused: false,
             fps: 0.0,
             startup_progress: 0.0,
@@ -17098,6 +17113,7 @@ impl RuntimeHostBridge {
         let mut payload = String::new();
         payload.push_str(&format!("state={}\n", snapshot.state));
         payload.push_str(&format!("ui_screen={}\n", snapshot.ui_screen));
+        payload.push_str(&format!("skirmish_menu_ok={}\n", snapshot.skirmish_menu_ok));
         payload.push_str(&format!("paused={}\n", snapshot.paused));
         payload.push_str(&format!("fps={:.3}\n", snapshot.fps.max(0.0)));
         payload.push_str(&format!(
