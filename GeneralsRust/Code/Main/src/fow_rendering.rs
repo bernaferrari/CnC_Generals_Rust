@@ -711,14 +711,18 @@ mod host_fow_fail_open_tests {
     #[test]
     fn host_fow_fail_open_without_object_membership() {
         let src = include_str!("fow_rendering.rs");
+        let start = src.find("fn shroud_runtime_active").expect("fn");
+        let body = &src[start..src.len().min(start + 900)];
         assert!(
-            src.contains(
-                "Fail-open unless this player has real visible/explored object membership"
-            ),
-            "shroud_runtime_active must not treat empty ObjectManager updates as active FOW"
+            body.contains("get_visible_objects(player_id)"),
+            "must require visible membership"
         );
         assert!(
-            !src.contains("get_last_update_frame() > 0 || !shroud_mgr.get_visible_objects"),
+            body.contains("get_explored_objects(player_id)"),
+            "must require explored membership"
+        );
+        assert!(
+            !body.contains("get_last_update_frame() > 0"),
             "last_update_frame alone must not activate FOW object filtering"
         );
     }

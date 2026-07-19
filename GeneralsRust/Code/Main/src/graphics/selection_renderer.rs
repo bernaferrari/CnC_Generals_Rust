@@ -811,12 +811,15 @@ mod selection_shader_residual_tests {
     #[test]
     fn selection_shader_module_contains_both_entry_points() {
         let src = include_str!("selection_renderer.rs");
-        assert!(src.contains("const SELECTION_SHADER"));
-        assert!(src.contains("fn vs_main"));
-        assert!(src.contains("fn fs_main"));
+        let start = src
+            .find("const SELECTION_SHADER")
+            .expect("SELECTION_SHADER");
+        let module = &src[start..src.len().min(start + 1200)];
+        assert!(module.contains("fn vs_main"));
+        assert!(module.contains("fn fs_main"));
         assert!(
-            !src.contains("SELECTION_VERTEX_SHADER"),
-            "fragment must not live in a separate unused module string"
+            module.contains("@fragment"),
+            "fragment stage must be in the same WGSL module as vs_main"
         );
     }
 }
