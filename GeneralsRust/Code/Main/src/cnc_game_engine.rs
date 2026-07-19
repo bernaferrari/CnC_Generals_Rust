@@ -3354,6 +3354,206 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "view_radar_ok".into();
                 }
             }
+            "force_attack" | "force_attack_ground" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "force_attack_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    let mut selected = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.selected_objects.clone())
+                        .unwrap_or_default();
+                    if selected.is_empty() {
+                        selected = self.selected_objects.clone();
+                    }
+                    if selected.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "force_attack_fail_no_selection".into();
+                    } else {
+                        let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                        let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                        let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                        let loc = glam::Vec3::new(x, y, z);
+                        self.game_logic
+                            .queue_command(crate::command_system::GameCommand {
+                                command_type:
+                                    crate::command_system::CommandType::ForceAttackGround {
+                                        location: loc,
+                                    },
+                                player_id: self.current_player_id,
+                                command_id: 0,
+                                timestamp: std::time::SystemTime::now(),
+                                selected_units: selected.clone(),
+                                modifier_keys: crate::command_system::ModifierKeys {
+                                    ctrl: true,
+                                    shift: false,
+                                    alt: false,
+                                },
+                            });
+                        self.game_logic.process_commands();
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("force_attack_ok:{},{},{}:{}", x, y, z, selected.len());
+                    }
+                }
+            }
+            "force_attack_object" | "force_attack_target" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd =
+                        "force_attack_object_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    let mut selected = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.selected_objects.clone())
+                        .unwrap_or_default();
+                    if selected.is_empty() {
+                        selected = self.selected_objects.clone();
+                    }
+                    if selected.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "force_attack_object_fail_no_selection".into();
+                    } else {
+                        let team = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team);
+                        let enemy = self
+                            .game_logic
+                            .get_objects()
+                            .iter()
+                            .find(|(_, o)| {
+                                Some(o.team) != team
+                                    && o.is_alive()
+                                    && !o.is_kind_of(crate::game_logic::KindOf::Structure)
+                            })
+                            .or_else(|| {
+                                self.game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| Some(o.team) != team && o.is_alive())
+                            });
+                        if let Some((eid, _)) = enemy {
+                            let target_id = *eid;
+                            self.game_logic
+                                .queue_command(crate::command_system::GameCommand {
+                                    command_type:
+                                        crate::command_system::CommandType::ForceAttackObject {
+                                            target_id,
+                                        },
+                                    player_id: self.current_player_id,
+                                    command_id: 0,
+                                    timestamp: std::time::SystemTime::now(),
+                                    selected_units: selected.clone(),
+                                    modifier_keys: crate::command_system::ModifierKeys {
+                                        ctrl: true,
+                                        shift: false,
+                                        alt: false,
+                                    },
+                                });
+                            self.game_logic.process_commands();
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("force_attack_object_ok:{}", target_id.0);
+                        } else {
+                            self.runtime_host_last_gameplay_cmd =
+                                "force_attack_object_fail_no_enemy".into();
+                        }
+                    }
+                }
+            }
+            "select_all" | "select_all_units" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "select_all_fail_not_ingame".into();
+                } else {
+                    self.select_all_friendly_units();
+                    let n = self.selected_objects.len().max(
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.selected_objects.len())
+                            .unwrap_or(0),
+                    );
+                    self.runtime_host_last_gameplay_cmd = format!("select_all_ok:{}", n);
+                }
+            }
+            "select_all_combat" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd =
+                        "select_all_combat_fail_not_ingame".into();
+                } else {
+                    self.select_all_friendly_combat();
+                    let n = self.selected_objects.len();
+                    self.runtime_host_last_gameplay_cmd = format!("select_all_combat_ok:{}", n);
+                }
+            }
+            "assign_control_group" | "set_control_group" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd =
+                        "control_group_assign_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    let group: u8 = args
+                        .get("group")
+                        .or_else(|| args.get("n"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(1)
+                        .clamp(0, 9);
+                    let selected = if !self.selected_objects.is_empty() {
+                        self.selected_objects.clone()
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.selected_objects.clone())
+                            .unwrap_or_default()
+                    };
+                    if selected.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "control_group_assign_fail_no_selection".into();
+                    } else {
+                        self.control_groups.insert(group, selected.clone());
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("control_group_assign_ok:{}:{}", group, selected.len());
+                    }
+                }
+            }
+            "recall_control_group" | "select_control_group" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd =
+                        "control_group_recall_fail_not_ingame".into();
+                } else {
+                    let group: u8 = args
+                        .get("group")
+                        .or_else(|| args.get("n"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(1)
+                        .clamp(0, 9);
+                    if let Some(ids) = self.control_groups.get(&group).cloned() {
+                        let alive: Vec<_> = ids
+                            .into_iter()
+                            .filter(|id| {
+                                self.game_logic
+                                    .get_object(*id)
+                                    .map(|o| o.is_alive())
+                                    .unwrap_or(false)
+                            })
+                            .collect();
+                        if alive.is_empty() {
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("control_group_recall_fail_empty:{}", group);
+                        } else {
+                            self.selected_objects = alive.clone();
+                            self.game_logic
+                                .select_objects(self.current_player_id, alive.clone());
+                            self.last_control_group_select = Some((group, Instant::now()));
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("control_group_recall_ok:{}:{}", group, alive.len());
+                        }
+                    } else {
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("control_group_recall_fail_unset:{}", group);
+                    }
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -19029,6 +19229,29 @@ fn runtime_host_special_named_residual() {
         "detonate_remote_ok",
         "view_last_radar",
         "view_radar_ok",
+    ] {
+        assert!(src.contains(needle), "missing host residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_force_select_group_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "force_attack",
+        "force_attack_ok:",
+        "ForceAttackGround",
+        "force_attack_object",
+        "force_attack_object_ok:",
+        "ForceAttackObject",
+        "select_all",
+        "select_all_ok:",
+        "select_all_combat",
+        "select_all_combat_ok:",
+        "assign_control_group",
+        "control_group_assign_ok:",
+        "recall_control_group",
+        "control_group_recall_ok:",
     ] {
         assert!(src.contains(needle), "missing host residual {needle}");
     }
