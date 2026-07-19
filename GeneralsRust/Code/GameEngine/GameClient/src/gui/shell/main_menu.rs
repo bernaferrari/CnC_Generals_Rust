@@ -777,12 +777,18 @@ impl MainMenu {
         update_gamespy_overlays();
 
         // Check if we should start the game - matches C++ lines 933-936
-        if state.start_game && get_shell().is_anim_finished() && self.transitions_finished() {
+        if state.start_game
+            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+            && self.transitions_finished()
+        {
             self.do_game_start(&mut state)?;
         }
 
         // Check if shutdown is complete - matches C++ lines 939-942
-        if state.is_shutting_down && get_shell().is_anim_finished() && self.transitions_finished() {
+        if state.is_shutting_down
+            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+            && self.transitions_finished()
+        {
             self.finish_shutdown_complete(Some(layout), &mut state)?;
             drop(state);
             self.complete_shell_shutdown()?;
@@ -963,28 +969,36 @@ impl MainMenu {
         for action in actions {
             match action {
                 PendingMainMenuAction::PushShellScreen(screen) => {
-                    if let Err(err) = get_shell().push(screen, false) {
-                        log::warn!("Main menu push failed for {}: {}", screen, err);
+                    match try_with_shell_mut(|shell| shell.push(screen.clone(), false)) {
+                        Some(Err(err)) => {
+                            log::warn!("Main menu push failed for {}: {}", screen, err)
+                        }
+                        None => log::debug!(
+                            "Main menu push skipped for {} (shell already borrowed)",
+                            screen
+                        ),
+                        Some(Ok(())) => {}
                     }
                 }
                 PendingMainMenuAction::ReverseTransitionGroup(group) => {
                     self.transition_reverse(group);
                 }
                 PendingMainMenuAction::ShowOptionsLayout => {
-                    let mut shell = get_shell();
-                    if let Some(layout) = shell.get_options_layout(true) {
-                        if let Err(err) = layout.run_init(None) {
-                            log::warn!("Options layout init failed: {}", err);
+                    let _ = try_with_shell_mut(|shell| {
+                        if let Some(layout) = shell.get_options_layout(true) {
+                            if let Err(err) = layout.run_init(None) {
+                                log::warn!("Options layout init failed: {}", err);
+                            }
+                            layout.hide(false);
+                            layout.bring_forward();
                         }
-                        layout.hide(false);
-                        layout.bring_forward();
-                    }
+                    });
                 }
                 PendingMainMenuAction::SignalUiInteract(hook) => {
                     TheScriptEngine::signal_ui_interact(hook);
                 }
                 PendingMainMenuAction::ReverseAnimateWindow => {
-                    get_shell().reverse_animate_window();
+                    let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
                 }
                 PendingMainMenuAction::StartPatchCheck => self.start_patch_check(),
                 PendingMainMenuAction::StartDownloadingPatches => {
@@ -1029,8 +1043,10 @@ impl MainMenu {
         TheScriptEngine::signal_ui_interact(
             THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED as usize],
         );
-        if let Err(err) = get_shell().pop() {
-            log::warn!("Main menu quit pop failed: {}", err);
+        match try_with_shell_mut(|shell| shell.pop()) {
+            Some(Err(err)) => log::warn!("Main menu quit pop failed: {}", err),
+            None => log::debug!("Main menu quit pop skipped: shell already borrowed"),
+            Some(Ok(())) => {}
         }
         if let Some(engine) = get_game_engine() {
             engine.lock().set_quitting(true);
@@ -1886,9 +1902,14 @@ impl MainMenu {
     }
 
     fn complete_shell_shutdown(&self) -> MainMenuResult<()> {
-        get_shell()
-            .shutdown_complete(None, false)
-            .map_err(|err| MainMenuError::ShutdownFailed(err.to_string()))
+        match try_with_shell_mut(|shell| shell.shutdown_complete(None, false)) {
+            Some(Ok(())) => Ok(()),
+            Some(Err(err)) => Err(MainMenuError::ShutdownFailed(err.to_string())),
+            None => {
+                log::debug!("complete_shell_shutdown skipped: shell already borrowed");
+                Ok(())
+            }
+        }
     }
 
     /// Reverse side for difficulty menu
@@ -1952,11 +1973,10 @@ impl MainMenu {
         );
         let _ = prefs.write();
 
-        {
-            let mut shell = get_shell();
+        let _ = try_with_shell_mut(|shell| {
             let _ = shell.reset();
             let _ = shell.show_shell(true);
-        }
+        });
 
         TheControlBar::hide_purchase_science();
         TheInGameUI::place_build_available(None, None);
@@ -2437,7 +2457,7 @@ mod tests {
                 .unwrap_or_else(|e| e.into_inner())
                 .clear_messages();
         }
-        get_shell().show_shell_map(false);
+        show_shell_map_if_available(false);
         assert!(!get_shell().is_shell_map_on());
 
         let previous_first_time =
@@ -2492,7 +2512,7 @@ mod tests {
             global.pending_file.clear();
             global.shell_map_on = false;
         }
-        get_shell().show_shell_map(false);
+        show_shell_map_if_available(false);
 
         FIRST_TIME_RUNNING_GAME.store(previous_first_time, std::sync::atomic::Ordering::SeqCst);
     }
