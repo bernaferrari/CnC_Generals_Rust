@@ -511,6 +511,19 @@ pub enum WorldMutation {
         target: EntityId,
         points: f32,
     },
+    /// Host Object weapon-bonus residual pack (propaganda/horde/nationalism/frenzy/battle plan).
+    SetWeaponBonus {
+        target: EntityId,
+        enthusiastic: bool,
+        subliminal: bool,
+        horde: bool,
+        nationalism: bool,
+        frenzy: bool,
+        frenzy_level: u8,
+        battle_plan_bombardment: bool,
+        battle_plan_hold_the_line: bool,
+        battle_plan_search_and_destroy: bool,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -919,6 +932,32 @@ impl GameWorld {
                 WorldMutation::SetExperience { target, points } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.experience_points = points.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetWeaponBonus {
+                    target,
+                    enthusiastic,
+                    subliminal,
+                    horde,
+                    nationalism,
+                    frenzy,
+                    frenzy_level,
+                    battle_plan_bombardment,
+                    battle_plan_hold_the_line,
+                    battle_plan_search_and_destroy,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.weapon_bonus_enthusiastic = enthusiastic;
+                        e.weapon_bonus_subliminal = subliminal;
+                        e.weapon_bonus_horde = horde;
+                        e.weapon_bonus_nationalism = nationalism;
+                        e.weapon_bonus_frenzy = frenzy;
+                        e.weapon_bonus_frenzy_level = frenzy_level;
+                        e.weapon_bonus_battle_plan_bombardment = battle_plan_bombardment;
+                        e.weapon_bonus_battle_plan_hold_the_line = battle_plan_hold_the_line;
+                        e.weapon_bonus_battle_plan_search_and_destroy =
+                            battle_plan_search_and_destroy;
                         applied += 1;
                     }
                 }

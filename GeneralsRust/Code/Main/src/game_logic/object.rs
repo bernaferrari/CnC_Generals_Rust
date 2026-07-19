@@ -2339,6 +2339,23 @@ impl Object {
         self.weapon_bonus_frenzy
     }
 
+    pub fn record_host_weapon_bonus(&self) {
+        crate::game_logic::host_weapon_bonus_log::record(
+            crate::game_logic::host_weapon_bonus_log::HostWeaponBonusEvent {
+                object: self.id,
+                enthusiastic: self.weapon_bonus_enthusiastic,
+                subliminal: self.weapon_bonus_subliminal,
+                horde: self.weapon_bonus_horde,
+                nationalism: self.weapon_bonus_nationalism,
+                frenzy: self.weapon_bonus_frenzy,
+                frenzy_level: self.weapon_bonus_frenzy_level,
+                battle_plan_bombardment: self.weapon_bonus_battle_plan_bombardment,
+                battle_plan_hold_the_line: self.weapon_bonus_battle_plan_hold_the_line,
+                battle_plan_search_and_destroy: self.weapon_bonus_battle_plan_search_and_destroy,
+            },
+        );
+    }
+
     /// Apply temporary Frenzy residual (C++ Object::doTempWeaponBonus FRENZY_*).
     /// Refresh extends the timer if a later expiry is provided; keeps higher level.
     pub fn apply_weapon_bonus_frenzy(&mut self, level: u8, until_frame: u32) {
@@ -2352,6 +2369,7 @@ impl Object {
         if until_frame > self.weapon_bonus_frenzy_until_frame {
             self.weapon_bonus_frenzy_until_frame = until_frame;
         }
+        self.record_host_weapon_bonus();
     }
 
     /// Clear Frenzy residual weapon-bonus flags.
@@ -2359,6 +2377,7 @@ impl Object {
         self.weapon_bonus_frenzy = false;
         self.weapon_bonus_frenzy_until_frame = 0;
         self.weapon_bonus_frenzy_level = 0;
+        self.record_host_weapon_bonus();
     }
 
     /// Expire Frenzy residual when the host frame passes the residual timer.
@@ -2412,6 +2431,7 @@ impl Object {
                 }
             }
         }
+        self.record_host_weapon_bonus();
     }
 
     /// Clear residual Strategy Center battle-plan bonuses.
@@ -2432,6 +2452,7 @@ impl Object {
             }
         }
         self.battle_plan_sight_scalar_applied = 1.0;
+        self.record_host_weapon_bonus();
     }
 
     /// Retail BATTLEPLAN_BOMBARDMENT DAMAGE multiplier (1.0 when clear).
