@@ -714,6 +714,20 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                     render_items_nonzero_polls = render_items_nonzero_polls.saturating_add(1);
                 }
             }
+            // Latch host residuals every poll — step boundaries can miss a one-frame
+            // last_gameplay_cmd when the control loop is busy or a later command lands first.
+            if snap.live_frame_ok {
+                saw_live_frame_ok = true;
+            }
+            if snap.last_gameplay_cmd.starts_with("select_all_ok") {
+                saw_select_all_ok = true;
+                select_all_detail = snap.last_gameplay_cmd.clone();
+            } else if snap.last_gameplay_cmd.starts_with("select_all_")
+                && !snap.last_gameplay_cmd.starts_with("select_all_combat")
+                && select_all_detail.is_empty()
+            {
+                select_all_detail = snap.last_gameplay_cmd.clone();
+            }
             last_snap = snap.clone();
             result.frames_observed = result.frames_observed.max(snap.frame);
             if snap.map != "-" && !snap.map.is_empty() {
@@ -1431,7 +1445,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         && (snap.last_gameplay_cmd.starts_with("select_all_ok")
                             || snap.last_gameplay_cmd.starts_with("select_all_fail")
                             || commanded_at
-                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .map(|t| t.elapsed() > Duration::from_secs(8))
                                 .unwrap_or(false))
                     {
                         if snap.last_gameplay_cmd.starts_with("select_all_ok") {
