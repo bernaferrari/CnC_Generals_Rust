@@ -1991,6 +1991,7 @@ impl CnCGameEngine {
                 .last_presentation_live_fallback_reads()
                 as u32,
             waypoint_mode: self.sticky_waypoint_mode,
+            live_frame_ok: false,
         }
     }
 
@@ -16564,6 +16565,8 @@ struct RuntimeHostSnapshot {
     presentation_live_fallback_reads: u32,
     /// Sticky waypoint mode residual.
     waypoint_mode: bool,
+    /// Live GPU/screenshot frame published (not shell fallback only).
+    live_frame_ok: bool,
 }
 
 #[derive(Debug)]
@@ -16690,13 +16693,15 @@ impl RuntimeHostBridge {
             presentation_frame_ok: false,
             presentation_live_fallback_reads: 0,
             waypoint_mode: false,
+            live_frame_ok: false,
         };
         self.publish_status(&snapshot);
     }
 
     fn publish_runtime(&mut self, snapshot: &RuntimeHostSnapshot) {
-        self.publish_status(snapshot);
+        // Promote capture before status so live_frame_ok reflects this frame.
         self.publish_frame(snapshot.frame, &snapshot.state);
+        self.publish_status(snapshot);
     }
 
     fn publish_status(&mut self, snapshot: &RuntimeHostSnapshot) {
@@ -16732,6 +16737,12 @@ impl RuntimeHostBridge {
             snapshot.presentation_live_fallback_reads
         ));
         payload.push_str(&format!("waypoint_mode={}\n", snapshot.waypoint_mode));
+        payload.push_str(&format!(
+            "live_frame_ok={}\n",
+            snapshot.live_frame_ok
+                || self.has_published_live_frame
+                || Self::png_file_looks_usable(&self.frame_path)
+        ));
         payload.push_str(&format!(
             "frame_path={}\n",
             self.frame_path.to_string_lossy()
@@ -19714,6 +19725,25 @@ fn runtime_host_pause_cancel_diplomacy_residual() {
     ] {
         assert!(src.contains(needle), "missing residual {needle}");
     }
+}
+
+#[test]
+fn runtime_host_live_frame_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("live_frame_ok")
+            && src.contains("has_published_live_frame")
+            && src.contains("png_file_looks_usable"),
+        "runtime host must publish live_frame_ok honesty"
+    );
+    let i = src.find("fn publish_runtime").expect("publish_runtime");
+    let w = &src[i..src.len().min(i + 350)];
+    let frame_i = w.find("publish_frame").expect("publish_frame");
+    let status_i = w.find("publish_status").expect("publish_status");
+    assert!(
+        frame_i < status_i,
+        "publish_frame must run before publish_status for live_frame_ok"
+    );
 }
 
 #[test]
