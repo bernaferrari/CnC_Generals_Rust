@@ -573,6 +573,12 @@ pub enum WorldMutation {
         target: EntityId,
         attitude: i8,
     },
+    /// Host Object weapon-set residual flags (player upgrade / armed riders).
+    SetWeaponSetFlags {
+        target: EntityId,
+        player_upgrade: bool,
+        armed_riders: bool,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1096,6 +1102,17 @@ impl GameWorld {
                 WorldMutation::SetAiAttitude { target, attitude } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.ai_attitude = attitude.clamp(-2, 2);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetWeaponSetFlags {
+                    target,
+                    player_upgrade,
+                    armed_riders,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.weapon_set_player_upgrade = player_upgrade;
+                        e.armed_riders_upgrade_weapon_set = armed_riders;
                         applied += 1;
                     }
                 }

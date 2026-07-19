@@ -17715,6 +17715,7 @@ impl GameLogic {
             obj.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
             // Host residual: PLAYER_UPGRADE weapon set flag for presentation honesty.
             obj.weapon_set_player_upgrade = true;
+            obj.record_host_weapon_set();
             affected = affected.saturating_add(1);
         }
         affected
@@ -17746,6 +17747,7 @@ impl GameLogic {
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
             obj.weapon_set_player_upgrade = true;
+            obj.record_host_weapon_set();
             affected = affected.saturating_add(1);
         }
         affected
@@ -24077,6 +24079,7 @@ impl GameLogic {
         let mut newly_upgraded = false;
         if let Some(container) = self.objects.get_mut(&container_id) {
             container.weapon_set_player_upgrade = any_armed;
+            container.record_host_weapon_set();
             if any_armed {
                 // Bind residual dummy weapon when primary is empty or still a
                 // passenger dummy (PLAYER_UPGRADE weapon set residual).
