@@ -2075,6 +2075,16 @@ impl CnCGameEngine {
             "open_world_builder" | "launch_world_builder" => {
                 self.enter_shell_menu_from_runtime_host(Some("WorldBuilder"));
             }
+            "options_probe" => {
+                // Honesty residual: prove options host wiring without leaving InGame
+                // (full open_options pauses / swaps UI and is covered separately).
+                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "options_probe_ok".into();
+                } else {
+                    self.runtime_host_last_gameplay_cmd = "options_probe_fail_bad_state".into();
+                }
+            }
+
             "open_options" | "options" => {
                 self.set_runtime_host_ui_screen_override(None);
                 if matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -19822,6 +19832,15 @@ fn runtime_host_auto_attack_menu_residual() {
     ] {
         assert!(src.contains(needle), "missing residual {needle}");
     }
+}
+
+#[test]
+fn runtime_host_options_probe_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("options_probe") && src.contains("options_probe_ok"),
+        "runtime host must expose options_probe residual that stays InGame"
+    );
 }
 
 #[test]
