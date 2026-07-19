@@ -3,7 +3,8 @@
 use crate::game_text::GameText;
 use crate::gui::shell::replay_menu::ReplayMenu as ShellReplayMenu;
 use crate::gui::{
-    get_shell, message_box_ok, message_box_ok_cancel, message_box_yes_no, with_window_manager,
+    get_shell, message_box_ok, message_box_ok_cancel, message_box_yes_no,
+    show_shell_map_if_available, try_with_shell_mut, with_window_manager,
     write_input_focus_response, Color as WindowColor, GameWindow, KeyModifiers, WindowLayout,
     WindowMessage, WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
 };
@@ -322,7 +323,7 @@ pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any:
     });
 
     populate_replay_listbox(&mut state);
-    get_shell().show_shell_map(true);
+    show_shell_map_if_available(true);
     layout.hide(false);
 }
 
@@ -334,7 +335,7 @@ pub fn replay_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::a
 
     if pop_immediate {
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         return;
     }
 
@@ -361,12 +362,12 @@ pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::an
     }
 
     if state.is_shutting_down
-        && get_shell().is_anim_finished()
+        && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
         && with_window_manager(|manager| manager.transitions_finished())
     {
         state.is_shutting_down = false;
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
     }
 }
 
@@ -394,7 +395,7 @@ pub fn replay_menu_system(
             }
             if control_id == state.button_back_id {
                 drop(state);
-                let _ = get_shell().pop();
+                let _ = try_with_shell_mut(|shell| shell.pop());
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_delete_id {

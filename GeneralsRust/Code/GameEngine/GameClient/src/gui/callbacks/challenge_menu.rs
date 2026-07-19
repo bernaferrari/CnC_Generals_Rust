@@ -8,8 +8,9 @@ use crate::gui::game_window::Image as WindowImage;
 use crate::gui::get_skirmish_setup;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowStatus,
 };
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
@@ -488,7 +489,7 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         });
     }
 
-    get_shell().show_shell_map(true);
+    show_shell_map_if_available(true);
     layout.hide(false);
     with_window_video_manager(|manager| manager.init());
 }
@@ -523,12 +524,12 @@ pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     }
 
     if state.is_shutting_down
-        && get_shell().is_anim_finished()
+        && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
         && with_window_manager(|manager| manager.transitions_finished())
     {
         state.is_shutting_down = false;
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
     }
 
     with_window_video_manager(|manager| manager.update());
@@ -550,7 +551,7 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     if pop_immediate {
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         return;
     }
 
@@ -644,7 +645,7 @@ pub fn challenge_menu_system(
             }
             if control_id == state.button_back_id {
                 drop(state);
-                let _ = get_shell().pop();
+                let _ = try_with_shell_mut(|shell| shell.pop());
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled
