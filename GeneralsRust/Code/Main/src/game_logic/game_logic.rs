@@ -502,6 +502,17 @@ impl Player {
         );
     }
 
+    pub fn record_host_sciences(&self) {
+        crate::game_logic::host_player_meta_log::record_sciences(
+            self.id,
+            self.unlocked_sciences.iter().cloned(),
+        );
+    }
+
+    pub fn record_host_alive(&self) {
+        crate::game_logic::host_player_meta_log::record_alive(self.id, self.is_alive);
+    }
+
     /// Award cash for a kill: `ceil(victim_build_cost * cash_bounty_percent)`.
     /// C++ Player::doBountyForKill residual (no floating text).
     /// Returns cash awarded (0 when disabled or zero cost).
@@ -552,6 +563,7 @@ impl Player {
             }
         }
         self.record_host_progress();
+        self.record_host_sciences();
         true
     }
 
@@ -697,6 +709,9 @@ impl Player {
             crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science_name)
         {
             self.set_cash_bounty(pct);
+        }
+        if inserted {
+            self.record_host_sciences();
         }
         inserted
     }
@@ -48824,11 +48839,21 @@ impl GameLogic {
 
 impl GameLogic {
     fn update_player_alive_state(&mut self) {
+        let mut events = Vec::new();
         for player in self.players.values_mut() {
-            player.is_alive = self
+            let alive = self
                 .objects
                 .values()
                 .any(|obj| obj.team == player.team && obj.is_alive());
+            if player.is_alive != alive {
+                player.is_alive = alive;
+                events.push((player.id, alive));
+            } else {
+                player.is_alive = alive;
+            }
+        }
+        for (id, alive) in events {
+            crate::game_logic::host_player_meta_log::record_alive(id, alive);
         }
     }
 
