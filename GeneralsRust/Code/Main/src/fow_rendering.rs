@@ -39,9 +39,13 @@ fn shroud_runtime_active(
     shroud_mgr: &gamelogic::system::shroud_manager::ShroudManager,
     player_id: u32,
 ) -> bool {
-    // C++ parity safeguard: when shroud has not been updated yet, fail open to avoid hiding
-    // the whole world in single-player startup paths.
-    shroud_mgr.get_last_update_frame() > 0 || !shroud_mgr.get_visible_objects(player_id).is_empty()
+    // Host residual: ShroudManager::update() queries the gamelogic ObjectManager.
+    // Main GameLogic objects are not in that registry on the default host path, so an
+    // "update" can clear player_visible_objects and leave them empty while still bumping
+    // last_update_frame. That must NOT activate FOW filtering (would hide the whole world).
+    // Fail-open unless this player has real visible/explored object membership.
+    !shroud_mgr.get_visible_objects(player_id).is_empty()
+        || !shroud_mgr.get_explored_objects(player_id).is_empty()
 }
 
 /// FOW visibility state for rendering an object
@@ -699,5 +703,23 @@ mod tests {
         assert_eq!(PresentationFowGrid::R8_SHROUDED, 0);
         assert_eq!(PresentationFowGrid::R8_FOGGED, 128);
         assert_eq!(PresentationFowGrid::R8_VISIBLE, 255);
+    }
+}
+
+#[cfg(test)]
+mod host_fow_fail_open_tests {
+    #[test]
+    fn host_fow_fail_open_without_object_membership() {
+        let src = include_str!("fow_rendering.rs");
+        assert!(
+            src.contains(
+                "Fail-open unless this player has real visible/explored object membership"
+            ),
+            "shroud_runtime_active must not treat empty ObjectManager updates as active FOW"
+        );
+        assert!(
+            !src.contains("get_last_update_frame() > 0 || !shroud_mgr.get_visible_objects"),
+            "last_update_frame alone must not activate FOW object filtering"
+        );
     }
 }
