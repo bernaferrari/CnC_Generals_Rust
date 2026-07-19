@@ -1417,18 +1417,47 @@ impl GameWorldShadow {
                     dirty = true;
                 }
             }
-            // Shared superweapon cooldown last-writer (Debug-name keys).
-            for (hk, hv) in player.shared_special_power_cooldowns.iter_mut() {
-                let key = format!("{hk:?}");
-                if let Some((_, rem)) = pd
-                    .shared_special_power_cooldowns
-                    .iter()
-                    .find(|(k, _)| k == &key)
-                {
-                    if (*hv - *rem).abs() > 1e-5 {
-                        *hv = *rem;
-                        dirty = true;
+                        // Shared superweapon cooldown last-writer (Debug-name keys).
+            {
+                use crate::command_system::SpecialPowerType;
+                let mut next = std::collections::HashMap::new();
+                // Preserve host keys while applying shadow remaining times by Debug name.
+                for (hk, hv) in player.shared_special_power_cooldowns.iter() {
+                    let key = format!("{hk:?}");
+                    if let Some((_, rem)) = pd
+                        .shared_special_power_cooldowns
+                        .iter()
+                        .find(|(k, _)| k == &key)
+                    {
+                        next.insert(hk.clone(), *rem);
+                    } else {
+                        next.insert(hk.clone(), *hv);
                     }
+                }
+                // Insert shadow-only timers for a small set of known powers (writeback residual).
+                for (sk, srem) in &pd.shared_special_power_cooldowns {
+                    let already = next.keys().any(|hk| format!("{hk:?}") == *sk);
+                    if already {
+                        continue;
+                    }
+                    for c in [
+                        SpecialPowerType::Airstrike,
+                        SpecialPowerType::NuclearMissile,
+                        SpecialPowerType::IonCannon,
+                        SpecialPowerType::NapalmStrike,
+                        SpecialPowerType::Paradrop,
+                        SpecialPowerType::EmergencyRepair,
+                        SpecialPowerType::CarpetBomb,
+                    ] {
+                        if format!("{c:?}") == *sk {
+                            next.insert(c, *srem);
+                            break;
+                        }
+                    }
+                }
+                if next != player.shared_special_power_cooldowns {
+                    player.shared_special_power_cooldowns = next;
+                    dirty = true;
                 }
             }
             if dirty {
@@ -2660,6 +2689,29 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_player_cooldown_events(
+        &mut self,
+        events: &[crate::game_logic::host_player_cooldown_log::HostPlayerCooldownEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&player) = self.host_player_to_gw.get(&ev.player_id) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetPlayerCooldowns {
+                    player,
+                    cooldowns: ev.cooldowns.clone(),
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+
     pub fn apply_host_contain_events(
         &mut self,
         events: &[crate::game_logic::host_contain_log::HostContainEvent],
@@ -3146,6 +3198,7 @@ pub fn shadow_session_after_host_tick(
     let radar_events = crate::game_logic::host_radar_log::drain();
     let player_progress_events = crate::game_logic::host_player_progress_log::drain();
     let player_meta_events = crate::game_logic::host_player_meta_log::drain();
+    let player_cooldown_events = crate::game_logic::host_player_cooldown_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -3164,6 +3217,7 @@ pub fn shadow_session_after_host_tick(
     let _radar_applied = shadow.apply_host_radar_events(&radar_events);
     let _progress_applied = shadow.apply_host_player_progress_events(&player_progress_events);
     let _meta_applied = shadow.apply_host_player_meta_events(&player_meta_events);
+    let _cd_applied = shadow.apply_host_player_cooldown_events(&player_cooldown_events);
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -4617,7 +4671,69 @@ mod tests {
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
     }
 
+    
     #[test]
+    fn host_player_cooldown_log_drives_set_player_cooldowns_channel() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_player_cooldown_log;
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PlayerCdCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = *logic.get_players().keys().next().expect("player");
+        host_player_cooldown_log::clear();
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            // Use a concrete SP type if available; format Debug name into log.
+            // ParticleUplink residual is common; fall back to first Debug variant via reset API.
+            p.reset_shared_special_power_timer(
+                &SpecialPowerType::Airstrike,
+                12.5,
+            );
+        }
+        let events = host_player_cooldown_log::drain();
+        assert!(
+            !events.is_empty() && events.iter().any(|e| e.player_id == pid && !e.cooldowns.is_empty()),
+            "events {:?}",
+            events
+        );
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.reset_shared_special_power_timer(
+                &SpecialPowerType::Airstrike,
+                12.5,
+            );
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let gw = *shadow.host_player_to_gw.get(&pid).expect("map");
+        if let Some(p) = shadow.world_mut().world_mut().player_mut(gw) {
+            p.shared_special_power_cooldowns.clear();
+        }
+        let n = shadow.apply_host_player_cooldown_events(&host_player_cooldown_log::drain());
+        assert!(n >= 1);
+        let p = shadow.world().player(gw).expect("p");
+        assert!(
+            p.shared_special_power_cooldowns
+                .iter()
+                .any(|(_, rem)| (*rem - 12.5).abs() < 1e-3),
+            "cds {:?}",
+            p.shared_special_power_cooldowns
+        );
+        // Poison host map and writeback
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.shared_special_power_cooldowns.clear();
+        }
+        assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
+        let p = logic.get_player(pid).expect("p");
+        assert!(
+            p.shared_special_power_cooldowns.values().any(|rem| (*rem - 12.5).abs() < 1e-3),
+            "host cds {:?}",
+            p.shared_special_power_cooldowns
+        );
+    }
+
+#[test]
     fn host_player_meta_log_drives_sciences_and_alive_channel() {
         use crate::game_logic::host_player_meta_log;
         let mut logic = GameLogic::new();
