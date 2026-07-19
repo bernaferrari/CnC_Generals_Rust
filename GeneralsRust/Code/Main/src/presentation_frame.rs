@@ -4805,6 +4805,24 @@ impl PresentationFrame {
             self.local_radar_disabled = p.radar_disabled;
             self.local_cash_bounty_percent = p.cash_bounty_percent;
             self.local_color_rgb = p.color_rgb;
+            self.local_rank_level = p.rank_level.max(1);
+            self.local_skill_points = p.skill_points;
+            self.local_science_purchase_points = p.science_purchase_points;
+            self.local_unlocked_sciences = p.unlocked_sciences.clone();
+            {
+                use crate::game_logic::host_rank_ui_residual::{
+                    rank_level_down_threshold_residual, rank_level_up_threshold_residual,
+                    rank_progress_percent_residual, RankSkillStateResidual,
+                };
+                let state = RankSkillStateResidual {
+                    rank_level: self.local_rank_level,
+                    skill_points: self.local_skill_points,
+                    science_purchase_points: self.local_science_purchase_points,
+                    level_up: rank_level_up_threshold_residual(self.local_rank_level),
+                    level_down: rank_level_down_threshold_residual(self.local_rank_level),
+                };
+                self.local_rank_progress_percent = rank_progress_percent_residual(&state);
+            }
         }
         // Roster is_alive / color from shadow slots (dense host id ↔ PlayerId residual).
         for pi in &mut self.players {
@@ -6508,6 +6526,10 @@ mod tests {
             p.radar_disabled = true;
             p.cash_bounty_percent = 0.25;
             p.color_rgb = (9, 8, 7);
+            p.rank_level = 3;
+            p.skill_points = 400;
+            p.science_purchase_points = 2;
+            p.unlocked_sciences = vec!["SCIENCE_TestRank".into()];
         }
         let mut frame = PresentationFrame::build_from_logic(&logic, 0);
         assert_eq!(frame.local_supplies, host_cash);
@@ -6524,6 +6546,13 @@ mod tests {
         assert!(frame.local_radar_disabled);
         assert!((frame.local_cash_bounty_percent - 0.25).abs() < 1e-5);
         assert_eq!(frame.local_color_rgb, (9, 8, 7));
+        assert_eq!(frame.local_rank_level, 3);
+        assert_eq!(frame.local_skill_points, 400);
+        assert_eq!(frame.local_science_purchase_points, 2);
+        assert!(frame
+            .local_unlocked_sciences
+            .iter()
+            .any(|s| s == "SCIENCE_TestRank"));
         if let Some(pi) = frame.players.iter().find(|p| p.id == frame.local_player_id) {
             assert!(!pi.is_alive);
             assert_eq!(pi.color_rgb, (9, 8, 7));
