@@ -535,6 +535,7 @@ impl GameWorldShadow {
                     e.model_key = crate::assets::mesh_asset_resolve::model_key_from_template(
                         obj.get_template(),
                     );
+                    e.model_condition_bits = obj.model_condition_bits;
                     e.mesh_scale = crate::assets::mesh_asset_resolve::mesh_scale_from_template(
                         obj.get_template(),
                     );
@@ -843,6 +844,7 @@ impl GameWorldShadow {
                 e.display_name = obj.name.clone();
                 e.model_key =
                     crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
+                    e.model_condition_bits = obj.model_condition_bits;
                 e.mesh_scale =
                     crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
                 {
@@ -3571,6 +3573,87 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_selection_radius_events(
+        &mut self,
+        events: &[crate::game_logic::host_selection_radius_log::HostSelectionRadiusEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetSelectionRadius {
+                    target: eid,
+                    selection_radius: ev.selection_radius,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_selection_radius_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if (obj.selection_radius - ent.selection_radius).abs() <= f32::EPSILON {
+                continue;
+            }
+            obj.selection_radius = ent.selection_radius;
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn apply_host_model_condition_events(
+        &mut self,
+        events: &[crate::game_logic::host_model_condition_log::HostModelConditionEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetModelCondition {
+                    target: eid,
+                    model_condition_bits: ev.model_condition_bits,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_model_condition_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.model_condition_bits == ent.model_condition_bits {
+                continue;
+            }
+            obj.model_condition_bits = ent.model_condition_bits;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_movement_to_host(&self, logic: &mut GameLogic) -> usize {
         use glam::Vec3;
         let mut updated = 0usize;
@@ -4438,6 +4521,8 @@ pub fn shadow_session_after_host_tick(
     let vision_camo_events = crate::game_logic::host_vision_camo_log::drain();
     let weapon_stats_events = crate::game_logic::host_weapon_stats_log::drain();
     let movement_events = crate::game_logic::host_movement_log::drain();
+    let selection_radius_events = crate::game_logic::host_selection_radius_log::drain();
+    let model_condition_events = crate::game_logic::host_model_condition_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4500,6 +4585,8 @@ pub fn shadow_session_after_host_tick(
     let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
     let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
+    let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
+    let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4557,6 +4644,8 @@ pub fn shadow_session_after_host_tick(
     let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
     let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
     let _mv_wb = shadow.writeback_movement_to_host(logic);
+    let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
+    let _mc_wb = shadow.writeback_model_condition_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -7443,7 +7532,119 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_selection_radius_log_drives_set_selection_radius_channel() {
+        use crate::game_logic::{host_selection_radius_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SrCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SrU") {
+            let mut t = ThingTemplate::new("SrU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("SrU".into(), t);
+        }
+        let oid = logic
+            .create_object("SrU", Team::USA, glam::Vec3::new(27.0, 0.0, 27.0))
+            .expect("id");
+        host_selection_radius_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_selection_radius(14.5);
+        }
+        let events = host_selection_radius_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && (e.selection_radius - 14.5).abs() < 1e-5),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_selection_radius();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.selection_radius = 1.0;
+        }
+        let n = shadow.apply_host_selection_radius_events(&host_selection_radius_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.selection_radius - 14.5).abs() < 1e-5);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.selection_radius = 1.0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.selection_radius = 14.5;
+        }
+        assert!(shadow.writeback_selection_radius_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!((o.selection_radius - 14.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn host_model_condition_log_drives_set_model_condition_channel() {
+        use crate::game_logic::{host_model_condition_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("McCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("McU") {
+            let mut t = ThingTemplate::new("McU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("McU".into(), t);
+        }
+        let oid = logic
+            .create_object("McU", Team::China, glam::Vec3::new(28.0, 0.0, 28.0))
+            .expect("id");
+        host_model_condition_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.model_condition_bits = 0b1011;
+            o.record_host_model_condition();
+        }
+        let events = host_model_condition_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.model_condition_bits == 0b1011),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_model_condition();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.model_condition_bits = 0;
+        }
+        let n = shadow.apply_host_model_condition_events(&host_model_condition_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.model_condition_bits, 0b1011);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.model_condition_bits = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.model_condition_bits = 0b1011;
+        }
+        assert!(shadow.writeback_model_condition_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.model_condition_bits, 0b1011);
+    }
+
+#[test]
     fn host_movement_log_drives_set_movement_channel() {
         use crate::game_logic::{host_movement_log, KindOf, Team, ThingTemplate};
         use glam::Vec3;
