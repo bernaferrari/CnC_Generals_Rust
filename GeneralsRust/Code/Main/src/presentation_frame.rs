@@ -4059,6 +4059,11 @@ impl PresentationFrame {
                 obj.move_destination = move_dest;
                 dirty = true;
             }
+            let rally = ent.rally_point.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
+            if obj.rally_point != rally {
+                obj.rally_point = rally;
+                dirty = true;
+            }
             let atk = ent
                 .attack_target
                 .and_then(|tid| shadow.host_for_entity(tid));
