@@ -2331,11 +2331,43 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "save_game" | "quicksave" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
+                } else {
+                    let slot = args
+                        .get("slot")
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "quicksave".to_string());
+                    let display = args
+                        .get("name")
+                        .cloned()
+                        .unwrap_or_else(|| format!("HostSave-{slot}"));
+                    self.save_game_from_ui(&slot, &display);
+                    let exists = self.save_file_manager.save_exists(&slot);
+                    self.runtime_host_last_gameplay_cmd = if exists {
+                        format!("save_ok:{slot}")
+                    } else {
+                        format!("save_fail:{slot}")
+                    };
+                }
+            }
+            "quickload" => {
+                if !self.save_file_manager.save_exists("quicksave") {
+                    self.runtime_host_last_gameplay_cmd = "load_fail_no_quicksave".into();
+                } else {
+                    self.set_runtime_host_ui_screen_override(None);
+                    self.load_game_from_ui("quicksave");
+                    self.runtime_host_last_gameplay_cmd = "load_ok:quicksave".into();
+                }
+            }
             "load_game" => {
                 let slot = args.get("slot").map(|slot| slot.trim()).unwrap_or_default();
                 if !slot.is_empty() {
                     self.set_runtime_host_ui_screen_override(None);
                     self.load_game_from_ui(slot);
+                    self.runtime_host_last_gameplay_cmd = format!("load_ok:{slot}");
                     if matches!(self.ui_manager.current_screen(), Some(Screen::GameHUD)) {
                         self.request_state_change(GameState::InGame);
                     }
@@ -18123,6 +18155,22 @@ fn runtime_host_train_residual() {
             && src.contains("under_construction")
             && src.contains("enqueue_production"),
         "train residual must complete unfinished barracks and enqueue production"
+    );
+}
+
+#[test]
+fn runtime_host_save_load_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("\"save_game\" | \"quicksave\"")
+            || (src.contains("save_ok:") && src.contains("quicksave")),
+        "runtime host must expose save_game/quicksave residual"
+    );
+    assert!(
+        src.contains("quickload")
+            && src.contains("load_ok:quicksave")
+            && src.contains("save_game_from_ui"),
+        "runtime host must expose quickload residual"
     );
 }
 
