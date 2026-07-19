@@ -2195,7 +2195,7 @@ impl Object {
     /// Apply InvulnerableTime residual until `until_frame` (absolute host logic frame).
     /// Refresh extends the timer if a later expiry is provided.
     pub fn apply_eject_invulnerable(&mut self, until_frame: u32) {
-        self.status.eject_invulnerable = true;
+        self.set_status_eject_invulnerable(true);
         if until_frame > self.status.eject_invulnerable_until_frame {
             self.status.eject_invulnerable_until_frame = until_frame;
         }
@@ -2221,9 +2221,9 @@ impl Object {
         let start_y = self.get_position().y;
         let ground_y = 0.0; // host residual ground plane
         let fudged = fudge_parachute_start_height(start_y, ground_y);
-        self.status.parachuting = true;
+        self.set_status_parachuting(true);
         self.status.airborne_target = true;
-        self.status.parachute_open = false;
+        self.set_status_parachute_open(false);
         self.status.parachute_start_height = fudged;
         // Freefall residual: pitch/roll rates seed only when chute opens.
         self.status.parachute_pitch = 0.0;
@@ -2241,9 +2241,9 @@ impl Object {
         let start_y = self.get_position().y;
         let ground_y = 0.0;
         let fudged = fudge_crate_parachute_start_height(start_y, ground_y);
-        self.status.parachuting = true;
+        self.set_status_parachuting(true);
         self.status.airborne_target = true;
-        self.status.parachute_open = false;
+        self.set_status_parachute_open(false);
         self.status.parachute_start_height = fudged;
         self.status.parachute_pitch = 0.0;
         self.status.parachute_roll = 0.0;
@@ -2268,7 +2268,7 @@ impl Object {
         use crate::game_logic::host_usa_pilot::{
             parachute_initial_pitch_rate, parachute_initial_roll_rate,
         };
-        self.status.parachute_open = true;
+        self.set_status_parachute_open(true);
         self.status.parachute_pitch = 0.0;
         self.status.parachute_roll = 0.0;
         self.status.parachute_pitch_rate = parachute_initial_pitch_rate();
@@ -2277,16 +2277,16 @@ impl Object {
 
     /// Clear parachuting residual on land.
     pub fn clear_eject_parachuting(&mut self) {
-        self.status.parachuting = false;
+        self.set_status_parachuting(false);
         self.status.airborne_target = false;
-        self.status.parachute_open = false;
+        self.set_status_parachute_open(false);
         self.status.parachute_start_height = 0.0;
         self.status.parachute_pitch = 0.0;
         self.status.parachute_roll = 0.0;
         self.status.parachute_pitch_rate = 0.0;
         self.status.parachute_roll_rate = 0.0;
         self.status.parachute_landing_override = None;
-        self.status.parachute_landing_override_set = false;
+        self.set_status_parachute_landing_override_set(false);
     }
 
     /// C++ ParachuteContain::setOverrideDestination residual.
@@ -2296,7 +2296,7 @@ impl Object {
     /// horizontal step.
     pub fn set_parachute_override_destination(&mut self, dest: glam::Vec3) {
         self.status.parachute_landing_override = Some(dest);
-        self.status.parachute_landing_override_set = true;
+        self.set_status_parachute_landing_override_set(true);
     }
 
     /// Whether landing override residual is armed.
@@ -2329,7 +2329,7 @@ impl Object {
             && self.status.eject_invulnerable_until_frame > 0
             && current_frame >= self.status.eject_invulnerable_until_frame
         {
-            self.status.eject_invulnerable = false;
+            self.set_status_eject_invulnerable(false);
             self.status.eject_invulnerable_until_frame = 0;
         }
     }
@@ -2468,7 +2468,7 @@ impl Object {
 
     /// Apply FAERIE_FIRE status residual until absolute frame (refresh extends timer).
     pub fn apply_faerie_fire(&mut self, until_frame: u32) {
-        self.status.faerie_fire = true;
+        self.set_status_faerie_fire(true);
         if until_frame > self.faerie_fire_until_frame {
             self.faerie_fire_until_frame = until_frame;
         }
@@ -2476,7 +2476,7 @@ impl Object {
 
     /// Clear FAERIE_FIRE residual status.
     pub fn clear_faerie_fire(&mut self) {
-        self.status.faerie_fire = false;
+        self.set_status_faerie_fire(false);
         self.faerie_fire_until_frame = 0;
     }
 
@@ -2535,7 +2535,7 @@ impl Object {
     }
     /// C++ Object::m_privateStatus CAPTURED residual (setCaptured).
     pub fn set_private_captured(&mut self, captured: bool) {
-        self.status.private_captured = captured;
+        self.set_status_private_captured(captured);
     }
 
     /// C++ Object::isCaptured residual.
@@ -2609,7 +2609,7 @@ impl Object {
         self.hijack_vehicle_id = Some(vehicle_id);
         self.hijacker_in_vehicle = true;
         self.hijacker_update_active = true;
-        self.status.no_collisions = true;
+        self.set_status_no_collisions(true);
         self.set_status_masked(true);
         self.status.unselectable = true;
         self.status.attacking = false;
@@ -2625,7 +2625,7 @@ impl Object {
         self.hijack_vehicle_id = None;
         self.hijacker_in_vehicle = false;
         self.hijacker_update_active = false;
-        self.status.no_collisions = false;
+        self.set_status_no_collisions(false);
         self.set_status_masked(false);
         self.status.unselectable = false;
         self.hijacker_was_airborne = was_airborne;
@@ -5483,8 +5483,8 @@ impl Object {
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
         self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
-        self.status.disguise_transitioning_to = true;
-        self.status.disguise_halfpoint_reached = false;
+        self.set_status_disguise_transitioning_to(true);
+        self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
         // Keep previous appearance until halfpoint if any.
     }
@@ -5504,8 +5504,8 @@ impl Object {
         }
         // Begin reveal transition residual (losing disguise look).
         self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
-        self.status.disguise_transitioning_to = false;
-        self.status.disguise_halfpoint_reached = false;
+        self.set_status_disguise_transitioning_to(false);
+        self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
         // Keep disguise_as_* until halfpoint swap back.
     }
@@ -5521,8 +5521,8 @@ impl Object {
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
         self.status.disguise_transition_frames = 0;
-        self.status.disguise_transitioning_to = false;
-        self.status.disguise_halfpoint_reached = false;
+        self.set_status_disguise_transitioning_to(false);
+        self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
     }
 
@@ -5552,7 +5552,7 @@ impl Object {
 
         let mut halfpoint = false;
         if factor >= 0.5 && !self.status.disguise_halfpoint_reached {
-            self.status.disguise_halfpoint_reached = true;
+            self.set_status_disguise_halfpoint_reached(true);
             halfpoint = true;
             if self.status.disguise_transitioning_to {
                 // changeVisualDisguise residual: commit pending appearance.
@@ -8283,6 +8283,60 @@ impl Object {
     pub fn set_status_disguised(&mut self, v: bool) {
         self.status.disguised = v;
         crate::game_logic::host_status_log::record_disguised(self.id, v);
+    }
+    pub fn set_status_no_collisions(&mut self, v: bool) {
+        self.status.no_collisions = v;
+        crate::game_logic::host_status_log::record_no_collisions(self.id, v);
+    }
+
+    pub fn set_status_private_captured(&mut self, v: bool) {
+        self.status.private_captured = v;
+        crate::game_logic::host_status_log::record_private_captured(self.id, v);
+    }
+
+    pub fn set_status_disguise_transitioning_to(&mut self, v: bool) {
+        self.status.disguise_transitioning_to = v;
+        crate::game_logic::host_status_log::record_disguise_transitioning_to(self.id, v);
+    }
+
+    pub fn set_status_disguise_halfpoint_reached(&mut self, v: bool) {
+        self.status.disguise_halfpoint_reached = v;
+        crate::game_logic::host_status_log::record_disguise_halfpoint_reached(self.id, v);
+    }
+
+    pub fn set_status_faerie_fire(&mut self, v: bool) {
+        self.status.faerie_fire = v;
+        crate::game_logic::host_status_log::record_faerie_fire(self.id, v);
+    }
+
+    pub fn set_status_booby_trapped(&mut self, v: bool) {
+        self.status.booby_trapped = v;
+        crate::game_logic::host_status_log::record_booby_trapped(self.id, v);
+    }
+
+    pub fn set_status_eject_invulnerable(&mut self, v: bool) {
+        self.status.eject_invulnerable = v;
+        crate::game_logic::host_status_log::record_eject_invulnerable(self.id, v);
+    }
+
+    pub fn set_status_pilot_did_move_to_base(&mut self, v: bool) {
+        self.status.pilot_did_move_to_base = v;
+        crate::game_logic::host_status_log::record_pilot_did_move_to_base(self.id, v);
+    }
+
+    pub fn set_status_parachuting(&mut self, v: bool) {
+        self.status.parachuting = v;
+        crate::game_logic::host_status_log::record_parachuting(self.id, v);
+    }
+
+    pub fn set_status_parachute_open(&mut self, v: bool) {
+        self.status.parachute_open = v;
+        crate::game_logic::host_status_log::record_parachute_open(self.id, v);
+    }
+
+    pub fn set_status_parachute_landing_override_set(&mut self, v: bool) {
+        self.status.parachute_landing_override_set = v;
+        crate::game_logic::host_status_log::record_parachute_landing_override_set(self.id, v);
     }
 
     /// Set the AI state for autonomous behavior

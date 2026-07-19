@@ -407,6 +407,17 @@ impl GameWorldShadow {
                     e.ignoring_stealth = obj.status.ignoring_stealth;
                     e.repulsor = obj.status.repulsor;
                     e.disabled_freefall = obj.status.disabled_freefall;
+                    e.no_collisions = obj.status.no_collisions;
+                    e.private_captured = obj.status.private_captured;
+                    e.disguise_transitioning_to = obj.status.disguise_transitioning_to;
+                    e.disguise_halfpoint_reached = obj.status.disguise_halfpoint_reached;
+                    e.faerie_fire = obj.status.faerie_fire;
+                    e.booby_trapped = obj.status.booby_trapped;
+                    e.eject_invulnerable = obj.status.eject_invulnerable;
+                    e.pilot_did_move_to_base = obj.status.pilot_did_move_to_base;
+                    e.parachuting = obj.status.parachuting;
+                    e.parachute_open = obj.status.parachute_open;
+                    e.parachute_landing_override_set = obj.status.parachute_landing_override_set;
                     e.is_building = obj.building_data.is_some();
                     if let Some(bd) = obj.building_data.as_ref() {
                         e.building_type_ordinal =
@@ -706,6 +717,17 @@ impl GameWorldShadow {
                 e.ignoring_stealth = obj.status.ignoring_stealth;
                 e.repulsor = obj.status.repulsor;
                 e.disabled_freefall = obj.status.disabled_freefall;
+                e.no_collisions = obj.status.no_collisions;
+                e.private_captured = obj.status.private_captured;
+                e.disguise_transitioning_to = obj.status.disguise_transitioning_to;
+                e.disguise_halfpoint_reached = obj.status.disguise_halfpoint_reached;
+                e.faerie_fire = obj.status.faerie_fire;
+                e.booby_trapped = obj.status.booby_trapped;
+                e.eject_invulnerable = obj.status.eject_invulnerable;
+                e.pilot_did_move_to_base = obj.status.pilot_did_move_to_base;
+                e.parachuting = obj.status.parachuting;
+                e.parachute_open = obj.status.parachute_open;
+                e.parachute_landing_override_set = obj.status.parachute_landing_override_set;
                 e.is_building = obj.building_data.is_some();
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
@@ -1671,6 +1693,50 @@ impl GameWorldShadow {
                 obj.status.disabled_freefall = ent.disabled_freefall;
                 dirty = true;
             }
+            if obj.status.no_collisions != ent.no_collisions {
+                obj.status.no_collisions = ent.no_collisions;
+                dirty = true;
+            }
+            if obj.status.private_captured != ent.private_captured {
+                obj.status.private_captured = ent.private_captured;
+                dirty = true;
+            }
+            if obj.status.disguise_transitioning_to != ent.disguise_transitioning_to {
+                obj.status.disguise_transitioning_to = ent.disguise_transitioning_to;
+                dirty = true;
+            }
+            if obj.status.disguise_halfpoint_reached != ent.disguise_halfpoint_reached {
+                obj.status.disguise_halfpoint_reached = ent.disguise_halfpoint_reached;
+                dirty = true;
+            }
+            if obj.status.faerie_fire != ent.faerie_fire {
+                obj.status.faerie_fire = ent.faerie_fire;
+                dirty = true;
+            }
+            if obj.status.booby_trapped != ent.booby_trapped {
+                obj.status.booby_trapped = ent.booby_trapped;
+                dirty = true;
+            }
+            if obj.status.eject_invulnerable != ent.eject_invulnerable {
+                obj.status.eject_invulnerable = ent.eject_invulnerable;
+                dirty = true;
+            }
+            if obj.status.pilot_did_move_to_base != ent.pilot_did_move_to_base {
+                obj.status.pilot_did_move_to_base = ent.pilot_did_move_to_base;
+                dirty = true;
+            }
+            if obj.status.parachuting != ent.parachuting {
+                obj.status.parachuting = ent.parachuting;
+                dirty = true;
+            }
+            if obj.status.parachute_open != ent.parachute_open {
+                obj.status.parachute_open = ent.parachute_open;
+                dirty = true;
+            }
+            if obj.status.parachute_landing_override_set != ent.parachute_landing_override_set {
+                obj.status.parachute_landing_override_set = ent.parachute_landing_override_set;
+                dirty = true;
+            }
             if obj.status.selected != ent.selected {
                 obj.status.selected = ent.selected;
                 dirty = true;
@@ -2170,6 +2236,17 @@ impl GameWorldShadow {
                 disabled_subdued: ev.disabled_subdued,
                 masked: ev.masked,
                 disguised: ev.disguised,
+                no_collisions: ev.no_collisions,
+                private_captured: ev.private_captured,
+                disguise_transitioning_to: ev.disguise_transitioning_to,
+                disguise_halfpoint_reached: ev.disguise_halfpoint_reached,
+                faerie_fire: ev.faerie_fire,
+                booby_trapped: ev.booby_trapped,
+                eject_invulnerable: ev.eject_invulnerable,
+                pilot_did_move_to_base: ev.pilot_did_move_to_base,
+                parachuting: ev.parachuting,
+                parachute_open: ev.parachute_open,
+                parachute_landing_override_set: ev.parachute_landing_override_set,
             });
         true
     }
@@ -3755,6 +3832,18 @@ mod tests {
                 disabled_subdued: None,
                 masked: Some(true),
                 disguised: Some(true),
+
+                no_collisions: None,
+                private_captured: None,
+                disguise_transitioning_to: None,
+                disguise_halfpoint_reached: None,
+                faerie_fire: None,
+                booby_trapped: None,
+                eject_invulnerable: None,
+                pilot_did_move_to_base: None,
+                parachuting: None,
+                parachute_open: None,
+                parachute_landing_override_set: None,
             }
         ));
         let n = shadow.world_mut().apply_pending_mutations();
@@ -3979,6 +4068,79 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_residual_status_log_drives_set_combat_status_channel() {
+        use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ResidualStatusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("ResU") {
+            let mut t = ThingTemplate::new("ResU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("ResU".into(), t);
+        }
+        let id = logic
+            .create_object("ResU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        host_status_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_status_no_collisions(true);
+            o.set_status_private_captured(true);
+            o.set_status_faerie_fire(true);
+            o.set_status_parachuting(true);
+        }
+        let events = host_status_log::drain();
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.no_collisions == Some(true)));
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.private_captured == Some(true)));
+        // Re-record for mutation apply.
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_status_no_collisions(true);
+            o.set_status_private_captured(true);
+            o.set_status_faerie_fire(true);
+            o.set_status_parachuting(true);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.no_collisions = false;
+            e.private_captured = false;
+            e.faerie_fire = false;
+            e.parachuting = false;
+        }
+        for ev in host_status_log::drain() {
+            let _ = shadow.queue_set_combat_status_for_host(ev);
+        }
+        assert!(shadow.apply_pending() >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.no_collisions);
+        assert!(e.private_captured);
+        assert!(e.faerie_fire);
+        assert!(e.parachuting);
+        // Poison host so writeback last-writer is observable.
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.status.no_collisions = false;
+            o.status.private_captured = false;
+            o.status.faerie_fire = false;
+            o.status.parachuting = false;
+        }
+        let wb = shadow.writeback_construction_to_host(&mut logic);
+        assert!(wb >= 1);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!(o.status.no_collisions);
+        assert!(o.status.private_captured);
+        assert!(o.status.faerie_fire);
+        assert!(o.status.parachuting);
     }
 
     #[test]

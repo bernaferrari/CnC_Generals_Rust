@@ -202,6 +202,28 @@ pub struct Entity {
     pub repulsor: bool,
     /// Host Object::status.disabled_freefall residual.
     pub disabled_freefall: bool,
+    /// Host Object::status.no_collisions residual.
+    pub no_collisions: bool,
+    /// Host Object::status.private_captured residual.
+    pub private_captured: bool,
+    /// Host Object::status.disguise_transitioning_to residual.
+    pub disguise_transitioning_to: bool,
+    /// Host Object::status.disguise_halfpoint_reached residual.
+    pub disguise_halfpoint_reached: bool,
+    /// Host Object::status.faerie_fire residual.
+    pub faerie_fire: bool,
+    /// Host Object::status.booby_trapped residual.
+    pub booby_trapped: bool,
+    /// Host Object::status.eject_invulnerable residual.
+    pub eject_invulnerable: bool,
+    /// Host Object::status.pilot_did_move_to_base residual.
+    pub pilot_did_move_to_base: bool,
+    /// Host Object::status.parachuting residual.
+    pub parachuting: bool,
+    /// Host Object::status.parachute_open residual.
+    pub parachute_open: bool,
+    /// Host Object::status.parachute_landing_override_set residual.
+    pub parachute_landing_override_set: bool,
     /// Host Object::building_data present residual.
     pub is_building: bool,
     /// Host BuildingType residual ordinal (0..12; 255 = not a building).
@@ -503,6 +525,17 @@ impl EntityStore {
             ignoring_stealth: false,
             repulsor: false,
             disabled_freefall: false,
+            no_collisions: false,
+            private_captured: false,
+            disguise_transitioning_to: false,
+            disguise_halfpoint_reached: false,
+            faerie_fire: false,
+            booby_trapped: false,
+            eject_invulnerable: false,
+            pilot_did_move_to_base: false,
+            parachuting: false,
+            parachute_open: false,
+            parachute_landing_override_set: false,
             is_building: false,
             building_type_ordinal: 255,
             production_queue_len: 0,

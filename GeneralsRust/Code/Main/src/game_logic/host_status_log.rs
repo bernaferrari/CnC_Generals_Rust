@@ -21,6 +21,17 @@ pub struct HostStatusEvent {
     pub disabled_subdued: Option<bool>,
     pub masked: Option<bool>,
     pub disguised: Option<bool>,
+    pub no_collisions: Option<bool>,
+    pub private_captured: Option<bool>,
+    pub disguise_transitioning_to: Option<bool>,
+    pub disguise_halfpoint_reached: Option<bool>,
+    pub faerie_fire: Option<bool>,
+    pub booby_trapped: Option<bool>,
+    pub eject_invulnerable: Option<bool>,
+    pub pilot_did_move_to_base: Option<bool>,
+    pub parachuting: Option<bool>,
+    pub parachute_open: Option<bool>,
+    pub parachute_landing_override_set: Option<bool>,
 }
 
 thread_local! {
@@ -49,6 +60,17 @@ fn empty(object: ObjectId) -> HostStatusEvent {
         disabled_subdued: None,
         masked: None,
         disguised: None,
+        no_collisions: None,
+        private_captured: None,
+        disguise_transitioning_to: None,
+        disguise_halfpoint_reached: None,
+        faerie_fire: None,
+        booby_trapped: None,
+        eject_invulnerable: None,
+        pilot_did_move_to_base: None,
+        parachuting: None,
+        parachute_open: None,
+        parachute_landing_override_set: None,
     }
 }
 
@@ -77,6 +99,23 @@ record_flag!(record_disabled_paralyzed, disabled_paralyzed);
 record_flag!(record_disabled_subdued, disabled_subdued);
 record_flag!(record_masked, masked);
 record_flag!(record_disguised, disguised);
+record_flag!(record_no_collisions, no_collisions);
+record_flag!(record_private_captured, private_captured);
+record_flag!(record_disguise_transitioning_to, disguise_transitioning_to);
+record_flag!(
+    record_disguise_halfpoint_reached,
+    disguise_halfpoint_reached
+);
+record_flag!(record_faerie_fire, faerie_fire);
+record_flag!(record_booby_trapped, booby_trapped);
+record_flag!(record_eject_invulnerable, eject_invulnerable);
+record_flag!(record_pilot_did_move_to_base, pilot_did_move_to_base);
+record_flag!(record_parachuting, parachuting);
+record_flag!(record_parachute_open, parachute_open);
+record_flag!(
+    record_parachute_landing_override_set,
+    parachute_landing_override_set
+);
 
 pub fn drain() -> Vec<HostStatusEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
