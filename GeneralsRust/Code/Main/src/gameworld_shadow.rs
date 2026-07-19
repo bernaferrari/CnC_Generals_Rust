@@ -368,6 +368,8 @@ impl GameWorldShadow {
                     e.under_construction = obj.status.under_construction;
                     e.sold = obj.status.sold;
                     e.reconstructing = obj.status.reconstructing;
+                    e.unselectable = obj.status.unselectable;
+                    e.deployed = obj.status.deployed;
                     e.moving = obj.status.moving;
                     e.attacking = obj.status.attacking;
                     e.team_color = obj.team_color;
@@ -652,6 +654,8 @@ impl GameWorldShadow {
                 e.under_construction = obj.status.under_construction;
                 e.sold = obj.status.sold;
                 e.reconstructing = obj.status.reconstructing;
+                e.unselectable = obj.status.unselectable;
+                e.deployed = obj.status.deployed;
                 e.moving = obj.status.moving;
                 e.attacking = obj.status.attacking;
                 e.team_color = obj.team_color;
@@ -1542,6 +1546,14 @@ impl GameWorldShadow {
             }
             if obj.status.reconstructing != ent.reconstructing {
                 obj.status.reconstructing = ent.reconstructing;
+                dirty = true;
+            }
+            if obj.status.unselectable != ent.unselectable {
+                obj.status.unselectable = ent.unselectable;
+                dirty = true;
+            }
+            if obj.status.deployed != ent.deployed {
+                obj.status.deployed = ent.deployed;
                 dirty = true;
             }
             if dirty {
@@ -3499,6 +3511,8 @@ mod tests {
             e.under_construction = true;
             e.sold = true;
             e.reconstructing = true;
+            e.unselectable = true;
+            e.deployed = true;
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
         assert!(n >= 1);
@@ -3507,6 +3521,8 @@ mod tests {
         assert!(obj.status.under_construction);
         assert!(obj.status.sold);
         assert!(obj.status.reconstructing);
+        assert!(obj.status.unselectable);
+        assert!(obj.status.deployed);
         // Complete residual
         {
             let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");

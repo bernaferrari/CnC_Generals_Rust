@@ -123,6 +123,10 @@ pub struct Entity {
     pub sold: bool,
     /// Host Object::status.reconstructing residual.
     pub reconstructing: bool,
+    /// Host Object::status.unselectable residual.
+    pub unselectable: bool,
+    /// Host Object::status.deployed residual.
+    pub deployed: bool,
     /// Host Object::status.moving residual.
     pub moving: bool,
     /// Host Object::status.attacking residual.
@@ -434,6 +438,8 @@ impl EntityStore {
             under_construction: false,
             sold: false,
             reconstructing: false,
+            unselectable: false,
+            deployed: false,
             moving: false,
             attacking: false,
             team_color: [1.0, 1.0, 1.0, 1.0],
