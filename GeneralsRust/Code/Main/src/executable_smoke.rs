@@ -2086,28 +2086,19 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if !train_detail.is_empty() {
                             result.detail = format!("{}; train={}", result.detail, train_detail);
                         }
-                        // Need time for select→move→construct→train→attack chain.
-                        if (result.gameplay_cmd_ok
+                        // Exit only after the full host command chain finishes
+                        // (step >= 59: pause/cancel/attack/options/diplomacy), or on
+                        // hard stall / frame budget. Do not cut off mid-chain once
+                        // construct/train/attack land — later residuals (pause, etc.)
+                        // would stay false forever.
+                        let chain_complete = gameplay_step >= 59
+                            && result.gameplay_cmd_ok
                             && result.construct_cmd_ok
-                            && result.train_cmd_ok
-                            && result.save_cmd_ok
-                            && result.load_cmd_ok
-                            && result.stop_cmd_ok
-                            && snap.frame >= 16)
-                            || (result.construct_cmd_ok
-                                && !train_detail.is_empty()
-                                && saw_attack_ok
-                                && snap.frame >= 20)
-                            || (result.construct_cmd_ok
-                                && !train_detail.is_empty()
-                                && commanded_at
-                                    .map(|t| t.elapsed() > Duration::from_secs(10))
-                                    .unwrap_or(false))
-                            || (snap.frame >= 220)
-                            || commanded_at
-                                .map(|t| t.elapsed() > Duration::from_secs(40))
-                                .unwrap_or(false)
-                        {
+                            && result.train_cmd_ok;
+                        let hard_stall = commanded_at
+                            .map(|t| t.elapsed() > Duration::from_secs(90))
+                            .unwrap_or(false);
+                        if chain_complete || hard_stall || snap.frame >= 400 {
                             let _ = write_control(&control_path, &["exit"]);
                             phase = 3;
                         }
@@ -2345,6 +2336,23 @@ mod skirmish_wnd_start_residual_tests {
         assert!(
             !env_block.contains("var_os(\"DISPLAY\")"),
             "WND enable must not gate on X11 DISPLAY"
+        );
+    }
+
+    #[test]
+    fn executable_smoke_waits_for_full_command_chain() {
+        let src = include_str!("executable_smoke.rs");
+        assert!(
+            src.contains("chain_complete")
+                && src.contains("gameplay_step >= 59")
+                && !src.contains(
+                    "saw_attack_ok\n                                && snap.frame >= 20)"
+                ),
+            "smoke must not exit on early construct/train/attack alone"
+        );
+        assert!(
+            src.contains("pause_ok:paused") && src.contains("pause_ok:resumed"),
+            "pause residual must remain in chain"
         );
     }
 
