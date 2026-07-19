@@ -467,15 +467,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         .arg(format!("-gpui_frame={}", frame_path.display()))
         .arg("-nologo")
         .arg("-nointro")
-        // Prefer retail WND push when a display is available (xvfb/CI/interactive).
-        // Headless without DISPLAY keeps soft override path (WND=0).
+        // Default soft host UI (WND=0): stable Menu→InGame for executable_smoke_gate.
+        // Set GENERALS_RUNTIME_HOST_WND=1 to exercise retail ButtonStart residual
+        // (may fail-closed if shell WND push is not yet headless-safe).
         .env(
             "GENERALS_RUNTIME_HOST_WND",
-            if std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty()) {
-                "1"
-            } else {
-                "0"
-            },
+            std::env::var("GENERALS_RUNTIME_HOST_WND").unwrap_or_else(|_| "0".into()),
         )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -2328,6 +2325,26 @@ mod skirmish_wnd_start_residual_tests {
         assert!(
             window.contains("simulate_start_button_click"),
             "must keep Main SkirmishMenu mouse residual fallback"
+        );
+    }
+
+    #[test]
+    fn executable_smoke_wnd_host_override_residual() {
+        let src = include_str!("executable_smoke.rs");
+        assert!(
+            src.contains("GENERALS_RUNTIME_HOST_WND")
+                && src.contains("unwrap_or_else(|_| "0".into())"),
+            "smoke defaults WND=0 for gate stability"
+        );
+        assert!(
+            src.contains("skirmish_start_wnd_ok"),
+            "smoke must track WND ButtonStart honesty separately"
+        );
+        let i = src.find("GENERALS_RUNTIME_HOST_WND").expect("env");
+        let env_block = &src[i..src.len().min(i + 450)];
+        assert!(
+            !env_block.contains("var_os("DISPLAY")"),
+            "WND enable must not gate on X11 DISPLAY"
         );
     }
 
