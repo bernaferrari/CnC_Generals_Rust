@@ -28,7 +28,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | Full `GameClient::update()` | **not** called (`draw_display` dual-own) | shell polls input+audio |
 
 - Target end state: `gamelogic::GameWorld` sole host; Main = composition root only.
-- Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/power/radar/alive/bounty/rank/pose/targets/production/construction/status (stealth/disable/emp/jam/mask/disguise/move/attack/select) via writeback + SetCombatStatus mutations (host_status_log selection/attack/move/fire/aim/stealth/detect/emp/jam/hack/unmanned/paralyze/subdue/mask/disguise/no_collisions/private_captured/disguise_transition/faerie/booby/parachute/force_attack/using_ability/deployed/construction/veterancy) + presentation overlay.
+- Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/power/radar/alive/bounty/rank/pose/targets/production/construction/status (stealth/disable/emp/jam/mask/disguise/move/attack/select) via writeback + SetCombatStatus mutations (host_status_log selection/attack/move/fire/aim/stealth/detect/emp/jam/hack/unmanned/paralyze/subdue/mask/disguise/no_collisions/private_captured/disguise_transition/faerie/booby/parachute/force_attack/using_ability/deployed/construction/veterancy/production_queue) + presentation overlay.
 - Draw/render path is presentation-only (no live `Option<&GameLogic>` dual-read on execute/collect/selection/terrain).
 
 ## Ownership rules
@@ -93,7 +93,7 @@ When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPi
 | Move destination | shadow SetMoveTarget + writeback | move_to / pathfinding |
 | World pose (render) | shadow overlay / SetTransform | path integration mid-frame |
 | Veterancy level | GameWorld SetVeterancy + writeback | gain_experience / set_min then log |
-| Production enqueue | host_production_log (probe) | enqueue_production + create_object spawn |
+| Production enqueue | GameWorld SetProductionQueue + writeback | enqueue_production then log |
 | Victory / match-over | shadow probe + runtime-host status | `evaluate_victory_condition` on host |
 | AI decisions / path step / projectile integrate | host `GameLogic::update_simulation` | GameWorld shadow last-writer |
 | OBJECT_REGISTRY pose/HP reads | disabled unless bridge env | only if `engine_object_id` + bridge on |
