@@ -5469,7 +5469,20 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_hive(&self) {
+        pub fn record_host_stealth_flags(&self) {
+        crate::game_logic::host_stealth_flags_log::record(
+            crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent {
+                object: self.id,
+                innate_stealth: self.innate_stealth,
+                stealth_breaks_on_attack: self.stealth_breaks_on_attack,
+                stealth_breaks_on_move: self.stealth_breaks_on_move,
+                is_tunnel_network: self.is_tunnel_network,
+                passengers_allowed_to_fire: self.passengers_allowed_to_fire,
+            },
+        );
+    }
+
+    pub fn record_host_hive(&self) {
         crate::game_logic::host_hive_log::record(
             self.id,
             self.hive_slave_count,
@@ -7601,6 +7614,7 @@ impl Object {
         self.armed_riders_upgrade_weapon_set = true;
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a Battle Bus residual transport.
@@ -7622,6 +7636,7 @@ impl Object {
             self.building_data = Some(bd);
         }
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this structure is a GLA Tunnel Network residual entrance.
@@ -7641,6 +7656,7 @@ impl Object {
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a GLA Technical residual transport.
@@ -7659,6 +7675,7 @@ impl Object {
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a GLA Combat Cycle residual transport.
@@ -7677,6 +7694,7 @@ impl Object {
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is an America Humvee residual transport.
@@ -7696,6 +7714,7 @@ impl Object {
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a China Troop Crawler residual transport.
@@ -7720,6 +7739,7 @@ impl Object {
         self.weapon_set_player_upgrade = false;
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is an AirF Combat Chinook residual transport.
@@ -7756,6 +7776,7 @@ impl Object {
         self.record_host_detector();
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a China Listening Outpost residual transport.

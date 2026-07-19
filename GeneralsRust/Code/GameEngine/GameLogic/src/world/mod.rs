@@ -596,6 +596,15 @@ pub enum WorldMutation {
         slave_count: u8,
         slave_hp: f32,
     },
+    /// Host Object stealth/tunnel/passenger-fire residual flags.
+    SetStealthFlags {
+        target: EntityId,
+        innate_stealth: bool,
+        stealth_breaks_on_attack: bool,
+        stealth_breaks_on_move: bool,
+        is_tunnel_network: bool,
+        passengers_allowed_to_fire: bool,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1158,6 +1167,23 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.hive_slave_count = slave_count;
                         e.hive_slave_hp = slave_hp.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetStealthFlags {
+                    target,
+                    innate_stealth,
+                    stealth_breaks_on_attack,
+                    stealth_breaks_on_move,
+                    is_tunnel_network,
+                    passengers_allowed_to_fire,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.innate_stealth = innate_stealth;
+                        e.stealth_breaks_on_attack = stealth_breaks_on_attack;
+                        e.stealth_breaks_on_move = stealth_breaks_on_move;
+                        e.is_tunnel_network = is_tunnel_network;
+                        e.passengers_allowed_to_fire = passengers_allowed_to_fire;
                         applied += 1;
                     }
                 }
