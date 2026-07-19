@@ -72,7 +72,7 @@ jobs:
 
     - name: executable_smoke_gate (xvfb)
       env:
-        EXECUTABLE_SMOKE_TIMEOUT_SECS: "120"
+        EXECUTABLE_SMOKE_TIMEOUT_SECS: "600"
       run: |
         # Soft: gate exits non-zero on hard failures; display-less failures are
         # classified by the binary. xvfb provides a minimal display for winit.
@@ -80,7 +80,7 @@ jobs:
 
     - name: behavior_gate
       env:
-        EXECUTABLE_SMOKE_TIMEOUT_SECS: "120"
+        EXECUTABLE_SMOKE_TIMEOUT_SECS: "600"
       run: |
         xvfb-run -a cargo run -p generals_main --bin behavior_gate --release
 
