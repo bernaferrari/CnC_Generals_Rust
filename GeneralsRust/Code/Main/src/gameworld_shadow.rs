@@ -2147,34 +2147,29 @@ impl GameWorldShadow {
     /// Queue borrow-first combat status residual onto a mapped host object.
     pub fn queue_set_combat_status_for_host(
         &mut self,
-        host: ObjectId,
-        stealthed: Option<bool>,
-        detected: Option<bool>,
-        attacking: Option<bool>,
-        is_firing_weapon: Option<bool>,
-        is_aiming_weapon: Option<bool>,
-        selected: Option<bool>,
-        disabled_emp: Option<bool>,
-        weapons_jammed: Option<bool>,
-        masked: Option<bool>,
-        disguised: Option<bool>,
+        ev: crate::game_logic::host_status_log::HostStatusEvent,
     ) -> bool {
-        let Some(target) = self.entity_for_host(host) else {
+        let Some(target) = self.entity_for_host(ev.object) else {
             return false;
         };
         self.world
             .queue_mutation(gamelogic::world::WorldMutation::SetCombatStatus {
                 target,
-                stealthed,
-                detected,
-                attacking,
-                is_firing_weapon,
-                is_aiming_weapon,
-                selected,
-                disabled_emp,
-                weapons_jammed,
-                masked,
-                disguised,
+                stealthed: ev.stealthed,
+                detected: ev.detected,
+                attacking: ev.attacking,
+                moving: ev.moving,
+                is_firing_weapon: ev.is_firing_weapon,
+                is_aiming_weapon: ev.is_aiming_weapon,
+                selected: ev.selected,
+                disabled_emp: ev.disabled_emp,
+                weapons_jammed: ev.weapons_jammed,
+                disabled_hacked: ev.disabled_hacked,
+                disabled_unmanned: ev.disabled_unmanned,
+                disabled_paralyzed: ev.disabled_paralyzed,
+                disabled_subdued: ev.disabled_subdued,
+                masked: ev.masked,
+                disguised: ev.disguised,
             });
         true
     }
@@ -2579,19 +2574,7 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.queue_set_move_target_for_host(ev.unit, ev.destination);
     }
     for ev in &status_events {
-        let _ = shadow.queue_set_combat_status_for_host(
-            ev.object,
-            ev.stealthed,
-            ev.detected,
-            ev.attacking,
-            ev.is_firing_weapon,
-            ev.is_aiming_weapon,
-            ev.selected,
-            ev.disabled_emp,
-            ev.weapons_jammed,
-            None,
-            None,
-        );
+        let _ = shadow.queue_set_combat_status_for_host(*ev);
     }
     if !attack_events.is_empty() || !move_events.is_empty() || !status_events.is_empty() {
         let _ = shadow.apply_pending();
@@ -3755,17 +3738,24 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.queue_set_combat_status_for_host(
-            id,
-            Some(true),  // stealthed
-            Some(false), // detected
-            Some(true),  // attacking
-            Some(true),  // firing
-            None,
-            Some(true), // selected
-            Some(true), // emp
-            None,
-            Some(true), // masked
-            Some(true), // disguised
+            crate::game_logic::host_status_log::HostStatusEvent {
+                object: id,
+                selected: Some(true),
+                attacking: Some(true),
+                moving: None,
+                is_firing_weapon: Some(true),
+                is_aiming_weapon: None,
+                stealthed: Some(true),
+                detected: Some(false),
+                disabled_emp: Some(true),
+                weapons_jammed: None,
+                disabled_hacked: None,
+                disabled_unmanned: None,
+                disabled_paralyzed: None,
+                disabled_subdued: None,
+                masked: Some(true),
+                disguised: Some(true),
+            }
         ));
         let n = shadow.world_mut().apply_pending_mutations();
         assert!(n >= 1);
@@ -3832,19 +3822,7 @@ mod tests {
         }
         let status_events = host_status_log::drain();
         for ev in &status_events {
-            let _ = shadow.queue_set_combat_status_for_host(
-                ev.object,
-                ev.stealthed,
-                ev.detected,
-                ev.attacking,
-                ev.is_firing_weapon,
-                ev.is_aiming_weapon,
-                ev.selected,
-                None,
-                None,
-                None,
-                None,
-            );
+            let _ = shadow.queue_set_combat_status_for_host(*ev);
         }
         let n = shadow.apply_pending();
         assert!(n >= 1);
@@ -3894,19 +3872,7 @@ mod tests {
             e.is_firing_weapon = false;
         }
         for ev in host_status_log::drain() {
-            let _ = shadow.queue_set_combat_status_for_host(
-                ev.object,
-                ev.stealthed,
-                ev.detected,
-                ev.attacking,
-                ev.is_firing_weapon,
-                ev.is_aiming_weapon,
-                ev.selected,
-                None,
-                None,
-                None,
-                None,
-            );
+            let _ = shadow.queue_set_combat_status_for_host(ev);
         }
         assert!(shadow.apply_pending() >= 1);
         let e = shadow.world().entity(eid).expect("e");
@@ -3955,19 +3921,7 @@ mod tests {
             e.detected = true;
         }
         for ev in host_status_log::drain() {
-            let _ = shadow.queue_set_combat_status_for_host(
-                ev.object,
-                ev.stealthed,
-                ev.detected,
-                ev.attacking,
-                ev.is_firing_weapon,
-                ev.is_aiming_weapon,
-                ev.selected,
-                None,
-                None,
-                None,
-                None,
-            );
+            let _ = shadow.queue_set_combat_status_for_host(ev);
         }
         assert!(shadow.apply_pending() >= 1);
         let e = shadow.world().entity(eid).expect("e");
@@ -4021,19 +3975,7 @@ mod tests {
             e.disabled_emp = false;
         }
         for ev in host_status_log::drain() {
-            let _ = shadow.queue_set_combat_status_for_host(
-                ev.object,
-                ev.stealthed,
-                ev.detected,
-                ev.attacking,
-                ev.is_firing_weapon,
-                ev.is_aiming_weapon,
-                ev.selected,
-                ev.disabled_emp,
-                ev.weapons_jammed,
-                None,
-                None,
-            );
+            let _ = shadow.queue_set_combat_status_for_host(ev);
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
