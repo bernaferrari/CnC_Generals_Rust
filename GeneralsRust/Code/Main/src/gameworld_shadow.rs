@@ -3324,6 +3324,66 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_contain_capacity_events(
+        &mut self,
+        events: &[crate::game_logic::host_contain_capacity_log::HostContainCapacityEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetContainCapacity {
+                    target: eid,
+                    max_transport: ev.max_transport,
+                    max_garrison: ev.max_garrison,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_contain_capacity_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_garrison = obj
+                .building_data
+                .as_ref()
+                .map(|bd| bd.max_garrison.min(u16::MAX as usize) as u16)
+                .unwrap_or(0);
+            let changed = obj.max_transport != ent.max_transport
+                || host_garrison != ent.max_garrison;
+            if !changed {
+                continue;
+            }
+            obj.max_transport = ent.max_transport;
+            if ent.max_garrison > 0 || obj.building_data.is_some() {
+                if let Some(bd) = obj.building_data.as_mut() {
+                    bd.max_garrison = ent.max_garrison as usize;
+                } else if ent.max_garrison > 0 {
+                    let mut bd = crate::game_logic::buildings::BuildingData::new(
+                        crate::game_logic::buildings::BuildingType::Bunker,
+                    );
+                    bd.max_garrison = ent.max_garrison as usize;
+                    obj.building_data = Some(bd);
+                }
+            }
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_overcharge_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3883,6 +3943,7 @@ pub fn shadow_session_after_host_tick(
     let ai_attitude_events = crate::game_logic::host_ai_attitude_log::drain();
     let weapon_set_events = crate::game_logic::host_weapon_set_log::drain();
     let overcharge_events = crate::game_logic::host_overcharge_log::drain();
+    let contain_capacity_events = crate::game_logic::host_contain_capacity_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3936,6 +3997,7 @@ pub fn shadow_session_after_host_tick(
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
+    let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3984,6 +4046,7 @@ pub fn shadow_session_after_host_tick(
     let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
     let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
     let _oc_wb = shadow.writeback_overcharge_to_host(logic);
+    let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6809,7 +6872,77 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_contain_capacity_log_drives_set_contain_capacity_channel() {
+        use crate::game_logic::buildings::{BuildingData, BuildingType};
+        use crate::game_logic::{host_contain_capacity_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CapCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CapU") {
+            let mut t = ThingTemplate::new("CapU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("CapU".into(), t);
+        }
+        let oid = logic
+            .create_object("CapU", Team::USA, glam::Vec3::new(18.0, 0.0, 18.0))
+            .expect("id");
+        host_contain_capacity_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.max_transport = 5;
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = 8;
+            o.building_data = Some(bd);
+            o.record_host_contain_capacity();
+        }
+        let events = host_contain_capacity_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.max_transport == 5 && e.max_garrison == 8),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_contain_capacity();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.max_transport = 0;
+            e.max_garrison = 0;
+        }
+        let n = shadow.apply_host_contain_capacity_events(&host_contain_capacity_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.max_transport, 5);
+        assert_eq!(e.max_garrison, 8);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.max_transport = 0;
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.max_garrison = 0;
+            }
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.max_transport = 5;
+            e.max_garrison = 8;
+        }
+        assert!(shadow.writeback_contain_capacity_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.max_transport, 5);
+        assert_eq!(
+            o.building_data.as_ref().map(|bd| bd.max_garrison),
+            Some(8)
+        );
+    }
+
+#[test]
     fn host_overcharge_log_drives_set_overcharge_channel() {
         use crate::game_logic::{host_overcharge_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();

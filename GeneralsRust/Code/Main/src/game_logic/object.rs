@@ -5469,6 +5469,19 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
+        pub fn record_host_contain_capacity(&self) {
+        let max_garrison = self
+            .building_data
+            .as_ref()
+            .map(|bd| bd.max_garrison.min(u16::MAX as usize) as u16)
+            .unwrap_or(0);
+        crate::game_logic::host_contain_capacity_log::record(
+            self.id,
+            self.max_transport,
+            max_garrison,
+        );
+    }
+
     pub fn record_host_overcharge(&self) {
         crate::game_logic::host_overcharge_log::record(self.id, self.overcharge_enabled);
     }
@@ -7555,6 +7568,7 @@ impl Object {
         self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
         // Helix can hold infantry / vehicle / portable structure residual.
         // Fail-closed: allow_inside matrix simplified to transport capacity.
+        self.record_host_contain_capacity();
     }
 
     /// True when portable gattling residual is active on this host.
@@ -7578,6 +7592,7 @@ impl Object {
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = true;
         self.record_host_weapon_set();
+        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is a Battle Bus residual transport.
@@ -7598,6 +7613,7 @@ impl Object {
             bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
             self.building_data = Some(bd);
         }
+        self.record_host_contain_capacity();
     }
 
     /// True when this structure is a GLA Tunnel Network residual entrance.
@@ -7616,6 +7632,7 @@ impl Object {
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
+        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is a GLA Technical residual transport.
@@ -7633,6 +7650,7 @@ impl Object {
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
+        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is a GLA Combat Cycle residual transport.
@@ -7650,6 +7668,7 @@ impl Object {
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
+        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is an America Humvee residual transport.
@@ -7668,6 +7687,7 @@ impl Object {
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
+        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is a China Troop Crawler residual transport.
@@ -7691,6 +7711,7 @@ impl Object {
         self.weapon = None;
         self.weapon_set_player_upgrade = false;
         self.record_host_weapon_set();
+        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is an AirF Combat Chinook residual transport.
@@ -7726,6 +7747,7 @@ impl Object {
         self.thing.template.add_kind_of(KindOf::Attackable);
         self.record_host_detector();
         self.record_host_weapon_set();
+        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is a China Listening Outpost residual transport.
