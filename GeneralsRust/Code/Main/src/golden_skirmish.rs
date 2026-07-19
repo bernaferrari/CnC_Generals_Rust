@@ -2098,6 +2098,11 @@ mod tests {
             load.contains("self.update_main_crate_vision()"),
             "load_map must reveal FOW around start units residual"
         );
+        assert!(
+            src.contains("fn relocate_host_ai_bases_to_map_starts")
+                && src.contains("relocate_host_ai_bases_to_map_starts()"),
+            "map load rebind must anchor AI soup on start structures residual"
+        );
         let build = src
             .split("fn is_build_location_shroud_clear")
             .nth(1)
