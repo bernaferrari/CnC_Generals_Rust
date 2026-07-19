@@ -456,6 +456,20 @@ pub enum WorldMutation {
         unit: EntityId,
         destination: Option<[f32; 3]>,
     },
+    /// Set combat/status residual flags (borrow-first status channel).
+    SetCombatStatus {
+        target: EntityId,
+        stealthed: Option<bool>,
+        detected: Option<bool>,
+        attacking: Option<bool>,
+        is_firing_weapon: Option<bool>,
+        is_aiming_weapon: Option<bool>,
+        selected: Option<bool>,
+        disabled_emp: Option<bool>,
+        weapons_jammed: Option<bool>,
+        masked: Option<bool>,
+        disguised: Option<bool>,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -628,6 +642,53 @@ impl GameWorld {
                 WorldMutation::SetMoveTarget { unit, destination } => {
                     if let Some(e) = self.inner.entity_mut(unit) {
                         e.move_target = destination;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetCombatStatus {
+                    target,
+                    stealthed,
+                    detected,
+                    attacking,
+                    is_firing_weapon,
+                    is_aiming_weapon,
+                    selected,
+                    disabled_emp,
+                    weapons_jammed,
+                    masked,
+                    disguised,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        if let Some(v) = stealthed {
+                            e.stealthed = v;
+                        }
+                        if let Some(v) = detected {
+                            e.detected = v;
+                        }
+                        if let Some(v) = attacking {
+                            e.attacking = v;
+                        }
+                        if let Some(v) = is_firing_weapon {
+                            e.is_firing_weapon = v;
+                        }
+                        if let Some(v) = is_aiming_weapon {
+                            e.is_aiming_weapon = v;
+                        }
+                        if let Some(v) = selected {
+                            e.selected = v;
+                        }
+                        if let Some(v) = disabled_emp {
+                            e.disabled_emp = v;
+                        }
+                        if let Some(v) = weapons_jammed {
+                            e.weapons_jammed = v;
+                        }
+                        if let Some(v) = masked {
+                            e.masked = v;
+                        }
+                        if let Some(v) = disguised {
+                            e.disguised = v;
+                        }
                         applied += 1;
                     }
                 }

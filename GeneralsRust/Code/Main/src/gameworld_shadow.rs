@@ -2126,6 +2126,41 @@ impl GameWorldShadow {
         true
     }
 
+    /// Queue borrow-first combat status residual onto a mapped host object.
+    pub fn queue_set_combat_status_for_host(
+        &mut self,
+        host: ObjectId,
+        stealthed: Option<bool>,
+        detected: Option<bool>,
+        attacking: Option<bool>,
+        is_firing_weapon: Option<bool>,
+        is_aiming_weapon: Option<bool>,
+        selected: Option<bool>,
+        disabled_emp: Option<bool>,
+        weapons_jammed: Option<bool>,
+        masked: Option<bool>,
+        disguised: Option<bool>,
+    ) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetCombatStatus {
+                target,
+                stealthed,
+                detected,
+                attacking,
+                is_firing_weapon,
+                is_aiming_weapon,
+                selected,
+                disabled_emp,
+                weapons_jammed,
+                masked,
+                disguised,
+            });
+        true
+    }
+
     /// Queue SetTransform for a mapped host object (move-command channel).
     pub fn queue_set_transform_for_host(
         &mut self,
@@ -3666,6 +3701,61 @@ mod tests {
         let obj = logic.get_objects().get(&id).expect("o");
         assert!((obj.construction_percent - 1.0).abs() < 1e-5);
         assert!(!obj.status.under_construction);
+    }
+
+    #[test]
+    fn set_combat_status_mutation_channel_updates_shadow_entity() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CombatStatusMut");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CbtU") {
+            let mut t = ThingTemplate::new("CbtU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("CbtU".into(), t);
+        }
+        let id = logic
+            .create_object("CbtU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.queue_set_combat_status_for_host(
+            id,
+            Some(true),  // stealthed
+            Some(false), // detected
+            Some(true),  // attacking
+            Some(true),  // firing
+            None,
+            Some(true), // selected
+            Some(true), // emp
+            None,
+            Some(true), // masked
+            Some(true), // disguised
+        ));
+        let n = shadow.world_mut().apply_pending_mutations();
+        assert!(n >= 1);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.stealthed);
+        assert!(!e.detected);
+        assert!(e.attacking);
+        assert!(e.is_firing_weapon);
+        assert!(e.selected);
+        assert!(e.disabled_emp);
+        assert!(e.masked);
+        assert!(e.disguised);
+        // writeback to host
+        let wb = shadow.writeback_construction_to_host(&mut logic);
+        assert!(wb >= 1);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!(o.status.stealthed);
+        assert!(o.status.attacking);
+        assert!(o.status.is_firing_weapon);
+        assert!(o.status.selected);
+        assert!(o.status.disabled_emp);
+        assert!(o.status.masked);
+        assert!(o.status.disguised);
     }
 
     #[test]
