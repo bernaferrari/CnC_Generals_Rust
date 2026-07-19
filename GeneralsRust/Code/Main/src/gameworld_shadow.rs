@@ -1264,6 +1264,21 @@ impl GameWorldShadow {
         }
     }
 
+    /// Reverse map GameWorld owner → host Team (for TransferOwner writeback).
+    fn host_team_for_gw_owner(&self, logic: &GameLogic, owner: Option<PlayerId>) -> Option<Team> {
+        let Some(pid) = owner else {
+            return Some(Team::Neutral);
+        };
+        for (&hid, &gpid) in &self.host_player_to_gw {
+            if gpid == pid {
+                if let Some(p) = logic.get_player(hid) {
+                    return Some(p.team);
+                }
+            }
+        }
+        None
+    }
+
     fn owner_for_host_object(&self, logic: &GameLogic, team: Team) -> Option<PlayerId> {
         let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
         ids.sort_unstable();
@@ -1274,10 +1289,9 @@ impl GameWorldShadow {
                 }
             }
         }
-        match team {
-            Team::Neutral => None,
-            _ => self.host_player_to_gw.values().next().copied(),
-        }
+        // No matching host player for this team: leave unowned (do not
+        // silently attach the first skirmish player).
+        None
     }
 
     /// Write shadow entity health/destroyed onto host objects.
@@ -1562,6 +1576,29 @@ impl GameWorldShadow {
                 dirty = true;
             }
             if dirty {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
+    /// Write shadow entity owner last-writer onto host object team.
+    pub fn writeback_owner_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(want_team) = self.host_team_for_gw_owner(logic, ent.owner) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.team != want_team {
+                // Direct assign to avoid re-logging host_owner_log during writeback.
+                obj.team = want_team;
+                obj.team_color = want_team.get_color();
                 updated += 1;
             }
         }
@@ -2790,6 +2827,7 @@ pub fn shadow_session_after_host_tick(
     let _pose_wb = shadow.writeback_transforms_to_host(logic);
     let _prod_wb = shadow.writeback_production_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
+    let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -4206,6 +4244,76 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_owner_log_drives_transfer_owner_channel() {
+        use crate::game_logic::{host_owner_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("OwnerXferCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("OwnU") {
+            let mut t = ThingTemplate::new("OwnU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("OwnU".into(), t);
+        }
+        let id = logic
+            .create_object("OwnU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        host_owner_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_team(Team::GLA);
+        }
+        let events = host_owner_log::drain();
+        assert!(
+            events.iter().any(|e| e.object == id && e.team == Team::GLA),
+            "expected owner log {:?}",
+            events
+        );
+        // Re-set for mutation path after drain.
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_team(Team::USA);
+            host_owner_log::clear();
+            o.set_team(Team::GLA);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        let gla_owner = shadow.world().entity(eid).expect("e").owner;
+        assert!(
+            gla_owner.is_some(),
+            "GLA object should map to Some owner after sync; players={:?}",
+            logic.get_players().keys().collect::<Vec<_>>()
+        );
+        // Poison to None (neutral) then apply TransferOwner from events.
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.owner = None;
+        }
+        let events = host_owner_log::drain();
+        assert!(!events.is_empty(), "events empty");
+        let n = shadow.apply_host_owner_events(&logic, &events);
+        assert!(n >= 1, "owner events {n} events={events:?}");
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.owner, gla_owner, "shadow owner should match GLA mapping");
+        // Poison host team back to USA then writeback.
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.team = Team::USA;
+            o.team_color = Team::USA.get_color();
+        }
+        let wb = shadow.writeback_owner_to_host(&mut logic);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!(
+            wb >= 1,
+            "writeback={wb} host_team={:?} shadow_owner={:?} after_host={:?}",
+            Team::USA,
+            e.owner,
+            o.team
+        );
+        assert_eq!(o.team, Team::GLA);
     }
 
     #[test]
