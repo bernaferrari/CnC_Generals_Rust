@@ -4789,13 +4789,15 @@ impl PresentationFrame {
                 updated += 1;
             }
         }
-        // Local supplies from shadow player 0 when economy authority is on.
+        // Local economy/power from shadow when economy authority is on (last-writer).
+        // Prefer local_player_id slot (same dense index as host player id residual).
         if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
-            if let Some(p) = shadow
-                .world()
-                .player(gamelogic::world::PlayerId::from_index(0))
-            {
+            let pid = gamelogic::world::PlayerId::from_index(self.local_player_id as u8);
+            if let Some(p) = shadow.world().player(pid) {
                 self.local_supplies = p.supplies;
+                self.local_power = p.power_available;
+                self.local_power_produced = p.power_produced;
+                self.local_power_consumed = p.power_consumed;
             }
         }
         updated
@@ -6452,6 +6454,45 @@ mod tests {
                 && src.contains("shadow last-writer residual"),
             "overlay must copy expanded entity residual"
         );
+    }
+
+    #[test]
+    fn overlay_gameworld_shadow_applies_local_economy_power() {
+        use crate::game_logic::GameLogic;
+        use crate::gameworld_shadow::GameWorldShadow;
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        // Ensure economy authority path is on for this process (gate default).
+        crate::gameworld_shadow::ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("OverlayEconPower");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        // Host starting cash from golden config.
+        let host_cash = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert!(host_cash > 0, "host must have cash");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Shadow last-writer: diverge economy/power from host.
+        if let Some(p) = shadow
+            .world_mut()
+            .player_mut(gamelogic::world::PlayerId::from_index(0u8))
+        {
+            p.supplies = host_cash.saturating_add(1234);
+            p.power_available = 77;
+            p.power_produced = 88;
+            p.power_consumed = 11;
+        }
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.local_supplies, host_cash);
+        let _ = frame.overlay_gameworld_shadow(&shadow);
+        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            assert_eq!(frame.local_supplies, host_cash.saturating_add(1234));
+            assert_eq!(frame.local_power, 77);
+            assert_eq!(frame.local_power_produced, 88);
+            assert_eq!(frame.local_power_consumed, 11);
+        }
     }
 
     fn unit_display_info_carries_command_set_override_residual() {
