@@ -5469,6 +5469,14 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
+    pub fn record_host_weapon_set(&self) {
+        crate::game_logic::host_weapon_set_log::record(
+            self.id,
+            self.weapon_set_player_upgrade,
+            self.armed_riders_upgrade_weapon_set,
+        );
+    }
+
     pub fn record_host_ai_attitude(&self) {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
@@ -7515,6 +7523,7 @@ impl Object {
         self.continuous_fire_coast_until_frame = 0;
         self.continuous_fire_victim = 0;
         self.record_host_continuous_fire();
+        self.record_host_weapon_set();
     }
 
     /// Install residual portable PropagandaTower addon
@@ -7557,6 +7566,7 @@ impl Object {
         self.max_transport = crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = true;
+        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a Battle Bus residual transport.
@@ -7594,6 +7604,7 @@ impl Object {
         self.max_transport = crate::game_logic::host_technical::TECHNICAL_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a GLA Technical residual transport.
@@ -7610,6 +7621,7 @@ impl Object {
         self.max_transport = crate::game_logic::host_combat_cycle::COMBAT_CYCLE_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a GLA Combat Cycle residual transport.
@@ -7626,6 +7638,7 @@ impl Object {
         self.max_transport = crate::game_logic::host_humvee::HUMVEE_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is an America Humvee residual transport.
@@ -7643,6 +7656,7 @@ impl Object {
         self.max_transport = crate::game_logic::host_troop_crawler::TROOP_CRAWLER_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a China Troop Crawler residual transport.
@@ -7665,6 +7679,7 @@ impl Object {
         // (ListeningOutpostUpgradedDummyWeapon). Strip kind-based Weapon::default.
         self.weapon = None;
         self.weapon_set_player_upgrade = false;
+        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is an AirF Combat Chinook residual transport.
@@ -7699,6 +7714,7 @@ impl Object {
         // KindOf residual includes CAN_ATTACK (for dummy weapon range residual).
         self.thing.template.add_kind_of(KindOf::Attackable);
         self.record_host_detector();
+        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a China Listening Outpost residual transport.
