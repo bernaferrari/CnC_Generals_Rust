@@ -46,6 +46,7 @@ pub struct ExecutableSmokeResult {
     pub construct_cmd_ok: bool,
     /// Runtime-host train_unit accepted (still not full playable_claim).
     pub train_cmd_ok: bool,
+    pub save_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -69,6 +70,7 @@ impl Default for ExecutableSmokeResult {
             gameplay_cmd_ok: false,
             construct_cmd_ok: false,
             train_cmd_ok: false,
+            save_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -362,6 +364,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut construct_detail = String::new();
     let mut saw_train_ok = false;
     let mut train_detail = String::new();
+    let mut saw_save_ok = false;
+    let mut save_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -591,10 +595,26 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("train_") {
                             train_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["quicksave"]);
                         gameplay_step = 5;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 5 {
+                    } else if gameplay_step == 5
+                        && (snap.last_gameplay_cmd.starts_with("save_ok")
+                            || snap.last_gameplay_cmd.starts_with("save_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("save_ok") {
+                            saw_save_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("save_") {
+                            save_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 6;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 6 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -609,6 +629,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             train_detail = snap.last_gameplay_cmd.clone();
                         } else if snap.last_gameplay_cmd.starts_with("train_") {
                             train_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("save_ok") {
+                            saw_save_ok = true;
+                            save_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("save_") {
+                            save_detail = snap.last_gameplay_cmd.clone();
                         }
                         if snap.last_gameplay_cmd.starts_with("attack_ok")
                             || snap.last_gameplay_cmd.starts_with("attack_fail")
@@ -633,6 +659,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.gameplay_cmd_ok = saw_select_ok && saw_move_ok && saw_attack_ok;
                         result.construct_cmd_ok = saw_construct_ok;
                         result.train_cmd_ok = saw_train_ok;
+                        result.save_cmd_ok = saw_save_ok;
                         result.detail =
                             format!("{}; last_cmd={}", result.detail, snap.last_gameplay_cmd);
                         if !construct_detail.is_empty() {
@@ -646,6 +673,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if (result.gameplay_cmd_ok
                             && result.construct_cmd_ok
                             && result.train_cmd_ok
+                            && result.save_cmd_ok
                             && snap.frame >= 16)
                             || (result.construct_cmd_ok
                                 && !train_detail.is_empty()
@@ -734,7 +762,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} save_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -744,6 +772,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.gameplay_cmd_ok,
         r.construct_cmd_ok,
         r.train_cmd_ok,
+        r.save_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
