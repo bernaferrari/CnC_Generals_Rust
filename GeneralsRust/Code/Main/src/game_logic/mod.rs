@@ -9,6 +9,7 @@ pub mod host_damage_log;
 pub mod host_heal_log;
 pub mod host_repulsor_gate;
 pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
+pub mod host_ai_state_log;
 pub mod host_attack_log;
 pub mod host_construction_log;
 pub mod host_construction_progress_log;
