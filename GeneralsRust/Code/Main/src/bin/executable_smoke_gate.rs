@@ -32,12 +32,31 @@ fn main() {
         std::process::exit(2);
     }
 
+    // InGame world-draw residual: require presentation snapshot + stable mesh items.
+    // Fail-closed: Menu→InGame without unit draw is not a playable host residual.
+    if r.executable_host_ok && r.reached_ingame {
+        if !r.presentation_frame_ok {
+            eprintln!(
+                "executable_smoke_gate: FAIL presentation_frame_ok=false (InGame without PresentationFrame)"
+            );
+            std::process::exit(5);
+        }
+        if !r.render_items_stable_ok || r.max_render_item_count == 0 {
+            eprintln!(
+                "executable_smoke_gate: FAIL render_items_stable={} max_render_items={} (InGame world mesh pass empty/unstable)",
+                r.render_items_stable_ok, r.max_render_item_count
+            );
+            std::process::exit(6);
+        }
+    }
+
     // Soft environments without display/binary: non-zero but distinct for CI classification.
     match r.status.as_str() {
         "success" | "success_partial_exit" | "success_forced_exit" if r.executable_host_ok => {
             println!(
-                "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} gameplay_cmd={} skirmish_menu={} frames={} new_game={})",
-                r.reached_ingame, r.reached_menu, r.gameplay_cmd_ok, r.skirmish_menu_ok, r.frames_observed, r.new_game_path
+                "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} gameplay_cmd={} skirmish_menu={} frames={} new_game={} presentation_ok={} render_items={} render_stable={})",
+                r.reached_ingame, r.reached_menu, r.gameplay_cmd_ok, r.skirmish_menu_ok, r.frames_observed, r.new_game_path,
+                r.presentation_frame_ok, r.max_render_item_count, r.render_items_stable_ok
             );
             std::process::exit(0);
         }

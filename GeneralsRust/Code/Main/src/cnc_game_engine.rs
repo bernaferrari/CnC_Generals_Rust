@@ -2673,7 +2673,7 @@ impl CnCGameEngine {
                     }
                 }
             }
-            "move_selected" => {
+            "move" | "move_selected" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "move_fail_not_ingame".into();
                 } else {

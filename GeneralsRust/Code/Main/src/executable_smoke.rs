@@ -102,6 +102,12 @@ pub struct ExecutableSmokeResult {
     pub diplomacy_cmd_ok: bool,
     /// Host published a usable live frame.png (GPU/screenshot residual).
     pub live_frame_ok: bool,
+    /// Peak InGame unit mesh render_item_count from host status (world draw residual).
+    pub max_render_item_count: u32,
+    /// Peak InGame presentation-alive object count.
+    pub max_render_alive_objects: u32,
+    /// True when InGame observed stable non-zero render items (not a one-frame flash).
+    pub render_items_stable_ok: bool,
     pub auto_attack_cmd_ok: bool,
     pub options_cmd_ok: bool,
     pub request_capture_cmd_ok: bool,
@@ -180,6 +186,9 @@ impl Default for ExecutableSmokeResult {
             cancel_production_cmd_ok: false,
             diplomacy_cmd_ok: false,
             live_frame_ok: false,
+            max_render_item_count: 0,
+            max_render_alive_objects: 0,
+            render_items_stable_ok: false,
             auto_attack_cmd_ok: false,
             options_cmd_ok: false,
             request_capture_cmd_ok: false,
@@ -211,6 +220,10 @@ struct StatusSnap {
     presentation_live_fallback_reads: u32,
     waypoint_mode: bool,
     live_frame_ok: bool,
+    render_item_count: u32,
+    render_alive_objects: u32,
+    render_fow_filtered: u32,
+    render_frustum_culled: u32,
 }
 
 fn parse_status(path: &Path) -> Option<StatusSnap> {
@@ -253,6 +266,18 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
+            }
+            "render_item_count" => {
+                snap.render_item_count = v.trim().parse().unwrap_or(0);
+            }
+            "render_alive_objects" => {
+                snap.render_alive_objects = v.trim().parse().unwrap_or(0);
+            }
+            "render_fow_filtered" => {
+                snap.render_fow_filtered = v.trim().parse().unwrap_or(0);
+            }
+            "render_frustum_culled" => {
+                snap.render_frustum_culled = v.trim().parse().unwrap_or(0);
             }
             "match_over" => snap.match_over = matches!(v.trim(), "true" | "1" | "True"),
             "victory_label" => snap.victory_label = v.trim().to_string(),
@@ -467,12 +492,11 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         .arg(format!("-gpui_frame={}", frame_path.display()))
         .arg("-nologo")
         .arg("-nointro")
-        // Default soft host UI (WND=0): stable Menu→InGame for executable_smoke_gate.
-        // Set GENERALS_RUNTIME_HOST_WND=1 to exercise retail ButtonStart residual
-        // (may fail-closed if shell WND push is not yet headless-safe).
+        // Default WND=1: retail ButtonStart residual is headless-safe after shell
+        // re-borrow + map resolve + InGame world-draw fixes. Override with =0 for soft UI.
         .env(
             "GENERALS_RUNTIME_HOST_WND",
-            std::env::var("GENERALS_RUNTIME_HOST_WND").unwrap_or_else(|_| "0".into()),
+            std::env::var("GENERALS_RUNTIME_HOST_WND").unwrap_or_else(|_| "1".into()),
         )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -597,6 +621,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut saw_diplomacy_ok = false;
     let mut diplomacy_detail = String::new();
     let mut saw_live_frame_ok = false;
+    let mut max_render_item_count: u32 = 0;
+    let mut max_render_alive_objects: u32 = 0;
+    let mut render_items_nonzero_polls: u32 = 0;
     let mut saw_auto_attack_ok = false;
     let mut auto_attack_detail = String::new();
     let mut saw_options_ok = false;
@@ -678,6 +705,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                     "frame_ok={} live_fallback={}",
                     snap.presentation_frame_ok, snap.presentation_live_fallback_reads
                 );
+            }
+            // InGame world-draw residual: peak + stability of mesh pass item count.
+            if matches!(snap.state.as_str(), "InGame" | "Paused") {
+                max_render_item_count = max_render_item_count.max(snap.render_item_count);
+                max_render_alive_objects = max_render_alive_objects.max(snap.render_alive_objects);
+                if snap.render_item_count > 0 {
+                    render_items_nonzero_polls = render_items_nonzero_polls.saturating_add(1);
+                }
             }
             last_snap = snap.clone();
             result.frames_observed = result.frames_observed.max(snap.frame);
@@ -2081,6 +2116,11 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.box_select_cmd_ok = saw_box_select_ok;
                         result.presentation_frame_ok = saw_presentation_frame_ok;
                         result.presentation_live_fallback_ok = saw_presentation_live_fallback_ok;
+                        result.max_render_item_count = max_render_item_count;
+                        result.max_render_alive_objects = max_render_alive_objects;
+                        // Stable = at least 3 InGame polls with items (not a one-frame flash).
+                        result.render_items_stable_ok =
+                            render_items_nonzero_polls >= 3 && max_render_item_count > 0;
                         result.select_similar_cmd_ok = saw_select_similar_ok;
                         result.select_on_screen_cmd_ok = saw_select_on_screen_ok;
                         result.select_structures_cmd_ok = saw_select_structures_ok;
@@ -2196,7 +2236,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2244,6 +2284,9 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.waypoint_cmd_ok,
         r.box_select_cmd_ok,
         r.presentation_frame_ok,
+        r.max_render_item_count,
+        r.render_items_stable_ok,
+        r.max_render_alive_objects,
         r.presentation_live_fallback_ok,
         r.select_similar_cmd_ok,
         r.select_on_screen_cmd_ok,
@@ -2316,6 +2359,35 @@ mod tests {
     fn playable_claim_always_false_on_default() {
         let r = ExecutableSmokeResult::default();
         assert!(!r.playable_claim);
+    }
+
+    #[test]
+    fn parses_render_item_count_from_status() {
+        let path = std::env::temp_dir().join(format!(
+            "generals_smoke_status_{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "state=InGame\nrender_item_count=42\nrender_alive_objects=100\nrender_fow_filtered=10\nrender_frustum_culled=5\npresentation_frame_ok=true\n",
+        )
+        .unwrap();
+        let snap = parse_status(&path).expect("snap");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(snap.render_item_count, 42);
+        assert_eq!(snap.render_alive_objects, 100);
+        assert!(snap.presentation_frame_ok);
+    }
+
+    #[test]
+    fn smoke_defaults_wnd_enabled() {
+        let src = include_str!("executable_smoke.rs");
+        assert!(
+            src.contains("unwrap_or_else(|_| \"1\".into())"),
+            "executable smoke should default GENERALS_RUNTIME_HOST_WND=1"
+        );
+        assert!(src.contains("max_render_item_count"));
+        assert!(src.contains("render_items_stable_ok"));
     }
 }
 
