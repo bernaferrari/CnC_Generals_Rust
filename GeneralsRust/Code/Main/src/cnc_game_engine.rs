@@ -2438,22 +2438,38 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "load_fail_no_quicksave".into();
                 } else {
                     self.set_runtime_host_ui_screen_override(None);
-                    self.load_game_from_ui("quicksave");
-                    // Host residual: keep/return InGame after load so smoke can continue.
-                    if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
-                        self.request_state_change(GameState::InGame);
+                    // Host residual: report real load Result (do not claim ok on deserialize fail).
+                    match self.load_game_from_ui("quicksave") {
+                        Ok(()) => {
+                            if !matches!(self.current_state, GameState::InGame | GameState::Paused)
+                            {
+                                self.request_state_change(GameState::InGame);
+                            }
+                            self.runtime_host_last_gameplay_cmd = "load_ok:quicksave".into();
+                        }
+                        Err(err) => {
+                            warn!("quickload failed: {err}");
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("load_fail:quicksave:{err}");
+                        }
                     }
-                    self.runtime_host_last_gameplay_cmd = "load_ok:quicksave".into();
                 }
             }
             "load_game" => {
                 let slot = args.get("slot").map(|slot| slot.trim()).unwrap_or_default();
                 if !slot.is_empty() {
                     self.set_runtime_host_ui_screen_override(None);
-                    self.load_game_from_ui(slot);
-                    self.runtime_host_last_gameplay_cmd = format!("load_ok:{slot}");
-                    if matches!(self.ui_manager.current_screen(), Some(Screen::GameHUD)) {
-                        self.request_state_change(GameState::InGame);
+                    match self.load_game_from_ui(slot) {
+                        Ok(()) => {
+                            self.runtime_host_last_gameplay_cmd = format!("load_ok:{slot}");
+                            if matches!(self.ui_manager.current_screen(), Some(Screen::GameHUD)) {
+                                self.request_state_change(GameState::InGame);
+                            }
+                        }
+                        Err(err) => {
+                            warn!("load_game failed for '{slot}': {err}");
+                            self.runtime_host_last_gameplay_cmd = format!("load_fail:{slot}:{err}");
+                        }
                     }
                 }
             }
@@ -9014,7 +9030,7 @@ impl CnCGameEngine {
                     if slot == "quicksave" {
                         self.quick_load_from_hotkey("UI quick-load");
                     } else {
-                        self.load_game_from_ui(&slot);
+                        let _ = self.load_game_from_ui(&slot);
                     }
                 }
                 UIEvent::SaveGame { slot, display_name } => {
@@ -10624,7 +10640,7 @@ impl CnCGameEngine {
         }
 
         info!("{} requested quick load from slot 'quicksave'", source);
-        self.load_game_from_ui("quicksave");
+        let _ = self.load_game_from_ui("quicksave");
     }
 
     fn save_game_from_ui(&mut self, slot: &str, display_name: &str) {
@@ -10646,15 +10662,21 @@ impl CnCGameEngine {
         }
     }
 
-    fn load_game_from_ui(&mut self, slot: &str) {
+    fn load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
         let slot = slot.trim();
         if slot.is_empty() {
-            return;
+            return Err("empty save slot".into());
         }
 
-        #[cfg(feature = "game_client")]
-        // Prefer presentation game_mode residual when installed.
-        self.prepare_cpp_load_screen_for_mode(self.presentation_or_live_game_mode(), true);
+        // Headless host residual: skip load-screen SFX / GPU rebinds that block the
+        // control loop for many seconds after snapshot restore.
+        let headless_host = self.runtime_host_headless;
+
+        if !headless_host {
+            #[cfg(feature = "game_client")]
+            // Prefer presentation game_mode residual when installed.
+            self.prepare_cpp_load_screen_for_mode(self.presentation_or_live_game_mode(), true);
+        }
         self.transition_to_state(GameState::Loading);
         match self.save_file_manager.load_game(slot, &mut self.game_logic) {
             Ok(save_info) => {
@@ -10669,37 +10691,41 @@ impl CnCGameEngine {
                 self.victory_summary = None;
                 self.selected_objects.clear();
 
-                Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
-                Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
-                Self::sync_render_terrain_visual(
-                    &mut self.render_pipeline,
-                    &self.graphics_system,
-                    &self.game_logic,
-                    save_info.map_name.as_str(),
-                );
-                if let Err(err) = Self::reinitialize_minimap_renderer(
-                    &mut self.render_pipeline,
-                    &self.graphics_system,
-                    &mut self.game_logic,
-                ) {
-                    warn!(
-                        "Failed to reinitialize minimap renderer after load: {}",
-                        err
+                if !headless_host {
+                    Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
+                    Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
+                    Self::sync_render_terrain_visual(
+                        &mut self.render_pipeline,
+                        &self.graphics_system,
+                        &self.game_logic,
+                        save_info.map_name.as_str(),
+                    );
+                    if let Err(err) = Self::reinitialize_minimap_renderer(
+                        &mut self.render_pipeline,
+                        &self.graphics_system,
+                        &mut self.game_logic,
+                    ) {
+                        warn!(
+                            "Failed to reinitialize minimap renderer after load: {}",
+                            err
+                        );
+                    }
+                    Self::apply_map_lighting(
+                        &mut self.graphics_system,
+                        &mut self.render_pipeline,
+                        &self.game_logic,
                     );
                 }
-                Self::apply_map_lighting(
-                    &mut self.graphics_system,
-                    &mut self.render_pipeline,
-                    &self.game_logic,
-                );
 
                 // Seed presentation before first InGame render (units/HUD identity).
                 self.seed_presentation_after_match_start();
                 self.transition_to_state(GameState::InGame);
+                Ok(())
             }
             Err(err) => {
                 warn!("Load failed for '{}': {}", slot, err);
                 self.return_to_main_menu_after_match();
+                Err(err.to_string())
             }
         }
     }
