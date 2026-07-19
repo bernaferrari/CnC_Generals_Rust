@@ -7220,6 +7220,7 @@ impl Object {
         }
         self.special_power_cooldown_remaining = max_rem;
         self.special_power_ready = max_rem <= 0.0;
+        self.record_host_special_power();
     }
 
     pub fn apply_upgrade_tag(&mut self, upgrade: &str) {
@@ -8462,9 +8463,18 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
+    pub fn record_host_special_power(&self) {
+        crate::game_logic::host_special_power_log::record(
+            self.id,
+            self.special_power_ready,
+            self.special_power_cooldown_remaining,
+            self.special_power_cooldown,
+        );
+    }
+
     pub fn set_special_power_ready(&mut self, ready: bool) {
         self.special_power_ready = ready;
-        crate::game_logic::host_special_power_log::record(self.id, ready);
+        self.record_host_special_power();
     }
 
     pub fn set_stored_supplies(&mut self, supplies: u32) {
