@@ -2333,7 +2333,7 @@ mod skirmish_wnd_start_residual_tests {
         let src = include_str!("executable_smoke.rs");
         assert!(
             src.contains("GENERALS_RUNTIME_HOST_WND")
-                && src.contains("unwrap_or_else(|_| "0".into())"),
+                && src.contains("unwrap_or_else(|_| \"0\".into())"),
             "smoke defaults WND=0 for gate stability"
         );
         assert!(
@@ -2343,7 +2343,7 @@ mod skirmish_wnd_start_residual_tests {
         let i = src.find("GENERALS_RUNTIME_HOST_WND").expect("env");
         let env_block = &src[i..src.len().min(i + 450)];
         assert!(
-            !env_block.contains("var_os("DISPLAY")"),
+            !env_block.contains("var_os(\"DISPLAY\")"),
             "WND enable must not gate on X11 DISPLAY"
         );
     }
