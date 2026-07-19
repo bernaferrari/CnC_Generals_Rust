@@ -2583,6 +2583,7 @@ impl Object {
             if !matches!(donor_level, crate::game_logic::VeterancyLevel::Rookie) {
                 let prev = self.experience.level;
                 self.experience.level = donor_level;
+                self.record_host_veterancy_level();
                 // Seed XP to at least the threshold for the donor level residual.
                 let thr = self.thing.template.veterancy_xp_thresholds;
                 let need = match donor_level {
@@ -2668,6 +2669,7 @@ impl Object {
         if rank(highest) > rank(self.experience.level) {
             let prev = self.experience.level;
             self.experience.level = highest;
+            self.record_host_veterancy_level();
             let thr = self.thing.template.veterancy_xp_thresholds;
             let need = match highest {
                 VeterancyLevel::Veteran => thr[0],
@@ -2734,6 +2736,7 @@ impl Object {
             if rank(highest) > rank(self.experience.level) {
                 let prev = self.experience.level;
                 self.experience.level = highest;
+                self.record_host_veterancy_level();
                 let thr = self.thing.template.veterancy_xp_thresholds;
                 let need = match highest {
                     VeterancyLevel::Veteran => thr[0],
@@ -8067,6 +8070,16 @@ impl Object {
         gained
     }
 
+    fn record_host_veterancy_level(&self) {
+        let ordinal = match self.experience.level {
+            crate::game_logic::VeterancyLevel::Rookie => 0u8,
+            crate::game_logic::VeterancyLevel::Veteran => 1,
+            crate::game_logic::VeterancyLevel::Elite => 2,
+            crate::game_logic::VeterancyLevel::Heroic => 3,
+        };
+        crate::game_logic::host_veterancy_log::record(self.id, ordinal);
+    }
+
     pub fn gain_experience(&mut self, amount: f32) {
         // Wave 79: AdvancedTraining ExperienceScalarUpgrade residual application.
         // C++ AddXPScalar 1.0 → double XP when the upgrade tag is present.
@@ -8099,6 +8112,7 @@ impl Object {
             self.experience.level = new_level;
             // Apply veterancy bonuses
             self.apply_veterancy_bonuses(previous_level, new_level);
+            self.record_host_veterancy_level();
         }
     }
 
@@ -8153,6 +8167,7 @@ impl Object {
             let rof_scale = rof_bonus / old_rof_bonus;
             weapon.reload_time *= rof_scale;
         }
+        self.record_host_veterancy_level();
     }
 
     /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).
