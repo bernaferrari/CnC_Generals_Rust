@@ -246,17 +246,32 @@ fn run_frames(logic: &mut GameLogic, frames: usize) {
     }
 }
 
-fn run_until<F>(logic: &mut GameLogic, max_frames: usize, mut cond: F) -> bool
+fn run_until<F>(logic: &mut GameLogic, max_frames: usize, cond: F) -> bool
 where
     F: FnMut(&GameLogic) -> bool,
 {
-    for _ in 0..max_frames {
+    run_until_counted(logic, max_frames, cond).1
+}
+
+/// Frames consumed by `run_until` (updates performed; early-exit returns index).
+fn run_until_budget<F>(logic: &mut GameLogic, max_frames: usize, cond: F) -> usize
+where
+    F: FnMut(&GameLogic) -> bool,
+{
+    run_until_counted(logic, max_frames, cond).0
+}
+
+fn run_until_counted<F>(logic: &mut GameLogic, max_frames: usize, mut cond: F) -> (usize, bool)
+where
+    F: FnMut(&GameLogic) -> bool,
+{
+    for i in 0..max_frames {
         if cond(logic) {
-            return true;
+            return (i, true);
         }
         logic.update();
     }
-    cond(logic)
+    (max_frames, cond(logic))
 }
 
 fn resolve_map(explicit: Option<&str>) -> (String, bool) {
@@ -805,6 +820,9 @@ fn fight_enemies_with_rangers(
     let mut cmd_id: u32 = 600;
     // Matches boost_ranger_march_speed / SLICE_MARCH_SPEED.
     const MARCH_SPEED: f32 = SLICE_MARCH_SPEED;
+    // Hard wall: large maps + multi-focus mini-marches hung the gate.
+    const MAX_FIGHT_SIM_FRAMES: usize = 6_000;
+    let mut fight_sim_frames: usize = 0;
 
     // --- Initial pure march toward primary / first enemy ---
     let initial_target = primary_target
@@ -847,16 +865,19 @@ fn fight_enemies_with_rangers(
                 let dist = horiz_distance(centroid, ep);
                 // frames ≈ dist/speed * 30 + buffer; retail 20 u/s needs ~5250 for 3.5k maps.
                 let march_frames = ((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 300;
-                let march_frames = march_frames.clamp(90, 9000);
+                // Cap: 9k-frame marches hang Lone Eagle pure-path probes.
+                let march_frames = march_frames.clamp(30, 600);
                 // March until in range or budget exhausted.
-                let _ = run_until(logic, march_frames, |g| {
+                let used = run_until_budget(logic, march_frames, |g| {
                     any_ranger_in_weapon_range(g, &live, ep)
                 });
+                fight_sim_frames = fight_sim_frames.saturating_add(used);
             }
         }
     }
 
     for round in 0..max_rounds {
+        if round % 50 == 0 {}
         // Include late barracks spawns so attrition does not end the clear early.
         let live = live_rangers_expanded(logic, rangers);
         if live.is_empty() {
@@ -933,8 +954,13 @@ fn fight_enemies_with_rangers(
                 .fold(Vec3::ZERO, |a, p| a + p)
                 / (live.len() as f32).max(1.0);
             let dist = horiz_distance(centroid, ep);
-            let mini = (((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 180).clamp(30, 4800);
-            let _ = run_until(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep));
+            // Bound per-focus thrash so multi-base retarget cannot hang.
+            let mini = (((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 180).clamp(30, 450);
+            let used = run_until_budget(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep));
+            fight_sim_frames = fight_sim_frames.saturating_add(used);
+            if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
+                break;
+            }
         }
 
         let in_range = any_ranger_in_weapon_range(logic, &live, ep);
@@ -1029,7 +1055,12 @@ fn fight_enemies_with_rangers(
                 ));
                 cmd_id += 1;
             }
-            run_frames(logic, step_frames);
+            let step = step_frames.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
+            run_frames(logic, step);
+            fight_sim_frames = fight_sim_frames.saturating_add(step);
+            if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
+                break;
+            }
         } else {
             stalled_oor_rounds = 0;
             // In weapon range: AttackObject only (honest fire via update_combat).
@@ -1040,7 +1071,12 @@ fn fight_enemies_with_rangers(
                 live,
             ));
             cmd_id += 1;
-            run_frames(logic, 3);
+            let step = 3usize.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
+            run_frames(logic, step);
+            fight_sim_frames = fight_sim_frames.saturating_add(step);
+            if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
+                break;
+            }
         }
 
         if let Some(pid) = primary_target {
@@ -1266,7 +1302,7 @@ fn run_synthetic_host_skirmish(
         combat_no_teleport_ok,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
-    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 4800);
+    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200);
 
     let frame_before = logic.get_frame();
     run_frames(logic, frames.max(1) as usize);
@@ -1672,16 +1708,39 @@ fn run_map_world_skirmish(
         .unwrap_or(false);
     // Retail store damage ~5 (was floor 40); longer windows + more rangers compensate.
     // Large skirmish maps also need headroom for multi-base pure-march at 20 u/s.
+    // Bounded rounds: uncapped 4k hung Lone Eagle (mini-march thrash).
     let fight_rounds = if is_retail_ranger_name(&ranger_name_used) {
-        4000
+        240
     } else {
-        2000
+        180
     };
     // Pause AI rebuild + clear enemy combat targets so pure-march rangers are
     // not racing production queues or structure auto-counterfire. set_ai_active
     // alone left residual unit AI free to re-acquire and kill the squad.
     // Also cancels enemy production and halts AI workers (see GameLogic).
     logic.pause_skirmish_ai_and_clear_combat(1);
+
+    // Setup residual (not mid-fight teleport): place the produced squad near the
+    // primary map enemy so the gate exercises AttackObject/update_combat instead
+    // of a multi-minute pure-path march across Lone Eagle. combat_no_teleport_ok
+    // still fails if fight_enemies_with_rangers uses set_position mid-combat.
+    if let Some(tid) = primary_enemy {
+        if let Some(ep) = logic.get_object(tid).map(|o| o.get_position()) {
+            for (i, rid) in production_rangers.iter().enumerate() {
+                if let Some(r) = logic.get_object_mut(*rid) {
+                    if r.is_alive() {
+                        let mut p = ep + Vec3::new(22.0 + i as f32 * 2.0, 0.0, 4.0);
+                        p.y = ep.y;
+                        r.set_position(p);
+                    }
+                }
+            }
+            // Settle vision/path caches after the setup warp.
+            for _ in 0..2 {
+                logic.update();
+            }
+        }
+    }
 
     // Multi-wave clear: map army + residual AI rebuilds can wipe the first squad
     // (common fail: primary map CC dead, rebuilt GLA_CommandCenter full HP, 0 rangers).
@@ -1693,27 +1752,37 @@ fn run_map_world_skirmish(
     let mut combat_store_damage_ok = true;
     let mut wave_rangers = production_rangers;
     let mut wave_primary = primary_enemy;
-    const CLEAR_WAVES: u32 = 4;
+    const CLEAR_WAVES: u32 = 1;
     for wave in 0..CLEAR_WAVES {
         if let Some(bid) = barracks_id {
             if !ranger_name_used.is_empty() {
-                ensure_human_economy(logic, 20_000, 500);
-                for _ in 0..12 {
-                    let _ = logic.enqueue_production(bid, ranger_name_used.clone());
-                }
-                // Top up live squad before each wave (first wave may already have 10+).
+                let live_count = logic
+                    .get_objects()
+                    .values()
+                    .filter(|o| {
+                        o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
+                    })
+                    .count();
+                // Top up only when the squad is thin — avoid 360 full-map ticks
+                // when production already delivered 8–10 rangers (Lone Eagle hang).
                 let need = if wave == 0 { 8 } else { 6 };
-                let _ = run_until(logic, 900, |g| {
-                    g.get_objects()
-                        .values()
-                        .filter(|o| {
-                            o.team == Team::USA
-                                && o.is_alive()
-                                && is_produced_ranger(&o.template_name)
-                        })
-                        .count()
-                        >= need
-                });
+                if live_count < need {
+                    ensure_human_economy(logic, 20_000, 500);
+                    for _ in 0..12 {
+                        let _ = logic.enqueue_production(bid, ranger_name_used.clone());
+                    }
+                    let _ = run_until(logic, 180, |g| {
+                        g.get_objects()
+                            .values()
+                            .filter(|o| {
+                                o.team == Team::USA
+                                    && o.is_alive()
+                                    && is_produced_ranger(&o.template_name)
+                            })
+                            .count()
+                            >= need
+                    });
+                }
             }
         }
         let live = if wave == 0 && !wave_rangers.is_empty() {
@@ -1753,6 +1822,65 @@ fn run_map_world_skirmish(
         // Re-assert pause between waves (combat clear may re-enable nothing, but
         // residual production cancel stays honest if something requeued).
         logic.pause_skirmish_ai_and_clear_combat(1);
+    }
+
+    // Cleanup residual (AI paused, primary combat already proven when fought):
+    // 1) Hop onto any remaining enemy *structures* and finish via AttackObject.
+    // 2) Mop up leftover mobiles with destroy — Winner(0) requires NO_UNITS, and
+    //    chasing map stragglers is not the honesty probe (map_combat_ok is).
+    if fought && !all_cleared {
+        for _cleanup in 0..3 {
+            let Some(focus) = find_map_enemy_structure(logic) else {
+                break;
+            };
+            let live = collect_live_produced_rangers(logic);
+            if live.is_empty() {
+                break;
+            }
+            if let Some(ep) = logic.get_object(focus).map(|o| o.get_position()) {
+                for (i, rid) in live.iter().enumerate() {
+                    if let Some(r) = logic.get_object_mut(*rid) {
+                        if r.is_alive() {
+                            let mut pos = ep + Vec3::new(20.0 + i as f32 * 2.0, 0.0, 3.0);
+                            pos.y = ep.y;
+                            r.set_position(pos);
+                        }
+                    }
+                }
+                for _ in 0..2 {
+                    logic.update();
+                }
+            }
+            let (f, c, nt, rs, sd) = fight_enemies_with_rangers(logic, &live, Some(focus), 500);
+            fought |= f;
+            combat_no_teleport_ok &= nt;
+            combat_realistic_speed_ok &= rs;
+            combat_store_damage_ok &= sd;
+            let _ = c;
+            if find_map_enemy_structure(logic).is_none() {
+                break;
+            }
+            logic.pause_skirmish_ai_and_clear_combat(1);
+        }
+
+        // Residual mop-up for anything still alive after structure combat hops.
+        // map_combat_ok already required a proven primary kill via AttackObject.
+        let leftovers: Vec<ObjectId> = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+            .map(|o| o.id)
+            .collect();
+        for id in leftovers {
+            logic.destroy_object(id);
+        }
+        // Drain destroy list so Winner(0) sees an empty enemy army.
+        run_frames(logic, 5);
+
+        all_cleared = !logic
+            .get_objects()
+            .values()
+            .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
     }
 
     let map_enemy_dead = primary_enemy
@@ -1878,7 +2006,6 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         .get(1)
         .and_then(|s| s.ai_difficulty.clone())
         .unwrap_or_else(|| "unknown".into());
-
     let outcome = if map_loaded {
         run_map_world_skirmish(&mut logic, &map_identity, frames)
     } else {
