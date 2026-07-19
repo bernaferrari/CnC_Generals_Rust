@@ -3512,6 +3512,91 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_weapon_stats_events(
+        &mut self,
+        events: &[crate::game_logic::host_weapon_stats_log::HostWeaponStatsEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetWeaponStats {
+                    target: eid,
+                    has_weapon: ev.has_weapon,
+                    weapon_damage: ev.weapon_damage,
+                    weapon_range: ev.weapon_range,
+                    weapon_min_range: ev.weapon_min_range,
+                    weapon_reload_time: ev.weapon_reload_time,
+                    weapon_ammo: ev.weapon_ammo,
+                    weapon_can_target_air: ev.weapon_can_target_air,
+                    weapon_can_target_ground: ev.weapon_can_target_ground,
+                    weapon_projectile_speed: ev.weapon_projectile_speed,
+                    has_secondary_weapon: ev.has_secondary_weapon,
+                    secondary_weapon_damage: ev.secondary_weapon_damage,
+                    secondary_weapon_range: ev.secondary_weapon_range,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_weapon_stats_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let mut changed = false;
+            if let Some(w) = obj.weapon.as_mut() {
+                if (w.damage - ent.weapon_damage).abs() > f32::EPSILON
+                    || (w.range - ent.weapon_range).abs() > f32::EPSILON
+                    || (w.min_range - ent.weapon_min_range).abs() > f32::EPSILON
+                    || (w.reload_time - ent.weapon_reload_time).abs() > f32::EPSILON
+                    || w.ammo.unwrap_or(u32::MAX) != ent.weapon_ammo
+                    || w.can_target_air != ent.weapon_can_target_air
+                    || w.can_target_ground != ent.weapon_can_target_ground
+                    || (w.projectile_speed - ent.weapon_projectile_speed).abs() > f32::EPSILON
+                {
+                    w.damage = ent.weapon_damage;
+                    w.range = ent.weapon_range;
+                    w.min_range = ent.weapon_min_range;
+                    w.reload_time = ent.weapon_reload_time;
+                    w.ammo = if ent.weapon_ammo == u32::MAX {
+                        None
+                    } else {
+                        Some(ent.weapon_ammo)
+                    };
+                    w.can_target_air = ent.weapon_can_target_air;
+                    w.can_target_ground = ent.weapon_can_target_ground;
+                    w.projectile_speed = ent.weapon_projectile_speed;
+                    changed = true;
+                }
+            }
+            if let Some(w) = obj.secondary_weapon.as_mut() {
+                if (w.damage - ent.secondary_weapon_damage).abs() > f32::EPSILON
+                    || (w.range - ent.secondary_weapon_range).abs() > f32::EPSILON
+                {
+                    w.damage = ent.secondary_weapon_damage;
+                    w.range = ent.secondary_weapon_range;
+                    changed = true;
+                }
+            }
+            if changed {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
+
     pub fn writeback_vision_camo_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4263,6 +4348,7 @@ pub fn shadow_session_after_host_tick(
     let command_set_events = crate::game_logic::host_command_set_log::drain();
     let disguise_events = crate::game_logic::host_disguise_log::drain();
     let vision_camo_events = crate::game_logic::host_vision_camo_log::drain();
+    let weapon_stats_events = crate::game_logic::host_weapon_stats_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4323,6 +4409,7 @@ pub fn shadow_session_after_host_tick(
     let _cs_applied = shadow.apply_host_command_set_events(&command_set_events);
     let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
     let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
+    let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4378,6 +4465,7 @@ pub fn shadow_session_after_host_tick(
     let _cs_wb = shadow.writeback_command_set_to_host(logic);
     let _dg_wb = shadow.writeback_disguise_to_host(logic);
     let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
+    let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -7262,7 +7350,128 @@ mod tests {
     }
 
     
+    
     #[test]
+    fn host_weapon_stats_log_drives_set_weapon_stats_channel() {
+        use crate::game_logic::{host_weapon_stats_log, KindOf, Team, ThingTemplate, Weapon};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WsCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WsU") {
+            let mut t = ThingTemplate::new("WsU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("WsU".into(), t);
+        }
+        let oid = logic
+            .create_object("WsU", Team::GLA, glam::Vec3::new(25.0, 0.0, 25.0))
+            .expect("id");
+        host_weapon_stats_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.weapon = Some(Weapon {
+                damage: 33.0,
+                range: 140.0,
+                min_range: 4.0,
+                reload_time: 0.75,
+                ammo: Some(12),
+                can_target_air: true,
+                can_target_ground: true,
+                projectile_speed: 90.0,
+                ..Weapon::default()
+            });
+            o.secondary_weapon = Some(Weapon {
+                damage: 9.0,
+                range: 80.0,
+                ..Weapon::default()
+            });
+            o.record_host_weapon_stats();
+        }
+        let events = host_weapon_stats_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.has_weapon
+                    && (e.weapon_damage - 33.0).abs() < 1e-5
+                    && (e.weapon_range - 140.0).abs() < 1e-5
+                    && e.weapon_ammo == 12
+                    && e.has_secondary_weapon
+                    && (e.secondary_weapon_damage - 9.0).abs() < 1e-5
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_weapon_stats();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.has_weapon = false;
+            e.weapon_damage = 0.0;
+            e.weapon_range = 0.0;
+            e.weapon_min_range = 0.0;
+            e.weapon_reload_time = 0.0;
+            e.weapon_ammo = u32::MAX;
+            e.weapon_can_target_air = false;
+            e.weapon_can_target_ground = false;
+            e.weapon_projectile_speed = 0.0;
+            e.has_secondary_weapon = false;
+            e.secondary_weapon_damage = 0.0;
+            e.secondary_weapon_range = 0.0;
+        }
+        let n = shadow.apply_host_weapon_stats_events(&host_weapon_stats_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.has_weapon && e.has_secondary_weapon);
+        assert!((e.weapon_damage - 33.0).abs() < 1e-5);
+        assert!((e.weapon_range - 140.0).abs() < 1e-5);
+        assert_eq!(e.weapon_ammo, 12);
+        assert!((e.secondary_weapon_damage - 9.0).abs() < 1e-5);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            if let Some(w) = o.weapon.as_mut() {
+                w.damage = 1.0;
+                w.range = 1.0;
+                w.min_range = 0.0;
+                w.reload_time = 0.1;
+                w.ammo = None;
+                w.can_target_air = false;
+                w.can_target_ground = true;
+                w.projectile_speed = 0.0;
+            }
+            if let Some(w) = o.secondary_weapon.as_mut() {
+                w.damage = 1.0;
+                w.range = 1.0;
+            }
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.weapon_damage = 33.0;
+            e.weapon_range = 140.0;
+            e.weapon_min_range = 4.0;
+            e.weapon_reload_time = 0.75;
+            e.weapon_ammo = 12;
+            e.weapon_can_target_air = true;
+            e.weapon_can_target_ground = true;
+            e.weapon_projectile_speed = 90.0;
+            e.secondary_weapon_damage = 9.0;
+            e.secondary_weapon_range = 80.0;
+        }
+        assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        let w = o.weapon.as_ref().expect("w");
+        assert!((w.damage - 33.0).abs() < 1e-5);
+        assert!((w.range - 140.0).abs() < 1e-5);
+        assert_eq!(w.ammo, Some(12));
+        let s = o.secondary_weapon.as_ref().expect("s");
+        assert!((s.damage - 9.0).abs() < 1e-5);
+        assert!((s.range - 80.0).abs() < 1e-5);
+    }
+
+#[test]
     fn host_vision_camo_log_drives_set_vision_camo_channel() {
         use crate::game_logic::{host_vision_camo_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();

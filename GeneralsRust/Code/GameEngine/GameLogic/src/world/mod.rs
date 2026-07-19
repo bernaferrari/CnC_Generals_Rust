@@ -632,6 +632,22 @@ pub enum WorldMutation {
         camo_friendly_opacity: f32,
         camo_stealth_look: u8,
     },
+    /// Host Object primary/secondary weapon stats residual.
+    SetWeaponStats {
+        target: EntityId,
+        has_weapon: bool,
+        weapon_damage: f32,
+        weapon_range: f32,
+        weapon_min_range: f32,
+        weapon_reload_time: f32,
+        weapon_ammo: u32,
+        weapon_can_target_air: bool,
+        weapon_can_target_ground: bool,
+        weapon_projectile_speed: f32,
+        has_secondary_weapon: bool,
+        secondary_weapon_damage: f32,
+        secondary_weapon_range: f32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1256,6 +1272,37 @@ impl GameWorld {
                         e.vision_spied_mask = vision_spied_mask;
                         e.camo_friendly_opacity = camo_friendly_opacity;
                         e.camo_stealth_look = camo_stealth_look;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetWeaponStats {
+                    target,
+                    has_weapon,
+                    weapon_damage,
+                    weapon_range,
+                    weapon_min_range,
+                    weapon_reload_time,
+                    weapon_ammo,
+                    weapon_can_target_air,
+                    weapon_can_target_ground,
+                    weapon_projectile_speed,
+                    has_secondary_weapon,
+                    secondary_weapon_damage,
+                    secondary_weapon_range,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.has_weapon = has_weapon;
+                        e.weapon_damage = weapon_damage;
+                        e.weapon_range = weapon_range;
+                        e.weapon_min_range = weapon_min_range;
+                        e.weapon_reload_time = weapon_reload_time;
+                        e.weapon_ammo = weapon_ammo;
+                        e.weapon_can_target_air = weapon_can_target_air;
+                        e.weapon_can_target_ground = weapon_can_target_ground;
+                        e.weapon_projectile_speed = weapon_projectile_speed;
+                        e.has_secondary_weapon = has_secondary_weapon;
+                        e.secondary_weapon_damage = secondary_weapon_damage;
+                        e.secondary_weapon_range = secondary_weapon_range;
                         applied += 1;
                     }
                 }

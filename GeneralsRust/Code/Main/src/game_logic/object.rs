@@ -5469,7 +5469,58 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_vision_camo(&self) {
+        pub fn record_host_weapon_stats(&self) {
+        let (
+            has_weapon,
+            weapon_damage,
+            weapon_range,
+            weapon_min_range,
+            weapon_reload_time,
+            weapon_ammo,
+            weapon_can_target_air,
+            weapon_can_target_ground,
+            weapon_projectile_speed,
+        ) = if let Some(w) = self.weapon.as_ref() {
+            (
+                true,
+                w.damage,
+                w.range,
+                w.min_range,
+                w.reload_time,
+                w.ammo.unwrap_or(u32::MAX),
+                w.can_target_air,
+                w.can_target_ground,
+                w.projectile_speed,
+            )
+        } else {
+            (false, 0.0, 0.0, 0.0, 0.0, u32::MAX, false, true, 0.0)
+        };
+        let (has_secondary_weapon, secondary_weapon_damage, secondary_weapon_range) =
+            if let Some(w) = self.secondary_weapon.as_ref() {
+                (true, w.damage, w.range)
+            } else {
+                (false, 0.0, 0.0)
+            };
+        crate::game_logic::host_weapon_stats_log::record(
+            crate::game_logic::host_weapon_stats_log::HostWeaponStatsEvent {
+                object: self.id,
+                has_weapon,
+                weapon_damage,
+                weapon_range,
+                weapon_min_range,
+                weapon_reload_time,
+                weapon_ammo,
+                weapon_can_target_air,
+                weapon_can_target_ground,
+                weapon_projectile_speed,
+                has_secondary_weapon,
+                secondary_weapon_damage,
+                secondary_weapon_range,
+            },
+        );
+    }
+
+    pub fn record_host_vision_camo(&self) {
         crate::game_logic::host_vision_camo_log::record(
             self.id,
             self.vision_spied_mask,
