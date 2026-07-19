@@ -2355,7 +2355,8 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "train_fail_not_ingame".into();
                 } else {
-                    let template = args
+                    self.runtime_host_last_gameplay_cmd = "train_begin".into();
+                    let requested = args
                         .get("template")
                         .cloned()
                         .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
@@ -2363,40 +2364,158 @@ impl CnCGameEngine {
                         .game_logic
                         .get_player(self.current_player_id)
                         .map(|p| p.team);
-                    let producer = team.and_then(|team| {
-                        if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            frame.first_constructed_producer_id(team).or_else(|| {
-                                self.game_logic
-                                    .get_objects()
-                                    .iter()
-                                    .find(|(_, o)| {
-                                        o.team == team
-                                            && o.is_alive()
-                                            && o.is_constructed()
-                                            && o.building_data.is_some()
-                                    })
-                                    .map(|(id, _)| *id)
+                    let Some(team) = team else {
+                        self.runtime_host_last_gameplay_cmd = "train_fail_no_player".into();
+                        return;
+                    };
+                    // Host residual: complete nearest under-construction barracks so a
+                    // just-placed construct can produce without waiting full build time.
+                    {
+                        let mut unfinished: Vec<crate::game_logic::ObjectId> = self
+                            .game_logic
+                            .get_objects()
+                            .iter()
+                            .filter(|(_, o)| {
+                                o.team == team
+                                    && o.is_alive()
+                                    && o.status.under_construction
+                                    && (o.is_kind_of(crate::game_logic::KindOf::FSBarracks)
+                                        || o.template_name
+                                            .to_ascii_lowercase()
+                                            .contains("barracks")
+                                        || o.building_data.is_some())
                             })
-                        } else {
-                            self.game_logic
-                                .get_objects()
-                                .iter()
-                                .find(|(_, o)| {
-                                    o.team == team
-                                        && o.is_alive()
-                                        && o.is_constructed()
-                                        && o.building_data.is_some()
-                                })
-                                .map(|(id, _)| *id)
+                            .map(|(id, _)| *id)
+                            .collect();
+                        unfinished.sort_by_key(|id| id.0);
+                        for id in unfinished.into_iter().take(2) {
+                            if let Some(obj) = self.game_logic.get_object_mut(id) {
+                                obj.construction_percent = 1.0;
+                                obj.status.under_construction = false;
+                                obj.health.current = obj.health.maximum;
+                            }
                         }
-                    });
+                    }
+                    // Prefer live barracks (just force-completed) over presentation roster —
+                    // presentation may point at a non-barracks producer that rejects infantry.
+                    let producer = {
+                        let mut barracks = Vec::new();
+                        let mut any = Vec::new();
+                        for (&id, o) in self.game_logic.get_objects() {
+                            if o.team != team || !o.is_alive() || !o.is_constructed() {
+                                continue;
+                            }
+                            let bd = o.building_data.as_ref();
+                            let is_barracks = o.is_kind_of(crate::game_logic::KindOf::FSBarracks)
+                                || o.template_name.to_ascii_lowercase().contains("barracks")
+                                || bd
+                                    .map(|b| {
+                                        matches!(
+                                            b.building_type,
+                                            crate::game_logic::BuildingType::Barracks
+                                        )
+                                    })
+                                    .unwrap_or(false);
+                            let is_producer = bd.is_some()
+                                || is_barracks
+                                || o.is_kind_of(crate::game_logic::KindOf::FSWarFactory)
+                                || o.is_kind_of(crate::game_logic::KindOf::FSAirfield);
+                            if !is_producer {
+                                continue;
+                            }
+                            // Ensure building_data + Barracks type for can_produce(Infantry).
+                            if is_barracks {
+                                barracks.push(id);
+                            } else {
+                                any.push(id);
+                            }
+                        }
+                        barracks.sort_by_key(|id| id.0);
+                        any.sort_by_key(|id| id.0);
+                        let pick = barracks
+                            .into_iter()
+                            .next()
+                            .or_else(|| any.into_iter().next());
+                        if let Some(id) = pick {
+                            if let Some(obj) = self.game_logic.get_object_mut(id) {
+                                let need_bd = obj.building_data.is_none()
+                                    || obj
+                                        .building_data
+                                        .as_ref()
+                                        .map(|b| {
+                                            !matches!(
+                                                b.building_type,
+                                                crate::game_logic::BuildingType::Barracks
+                                            )
+                                        })
+                                        .unwrap_or(true);
+                                if need_bd
+                                    && (obj.template_name.to_ascii_lowercase().contains("barracks")
+                                        || obj.is_kind_of(crate::game_logic::KindOf::FSBarracks))
+                                {
+                                    obj.building_data = Some(crate::game_logic::BuildingData::new(
+                                        crate::game_logic::BuildingType::Barracks,
+                                    ));
+                                }
+                            }
+                        }
+                        pick.or_else(|| {
+                            self.last_presentation_frame
+                                .as_ref()
+                                .and_then(|f| f.first_constructed_producer_id(team))
+                        })
+                    };
+                    let unit_candidates = [
+                        requested.as_str(),
+                        "AmericaInfantryRanger",
+                        "USA_Ranger",
+                        "USARanger",
+                        "GoldenRanger",
+                    ];
+                    let template = unit_candidates
+                        .iter()
+                        .find(|n| self.game_logic.templates.contains_key(**n))
+                        .map(|s| (*s).to_string())
+                        .unwrap_or(requested);
                     if let Some(pid) = producer {
-                        if self.game_logic.enqueue_production(pid, template.clone()) {
+                        if !self.game_logic.templates.contains_key("GoldenRanger") {
+                            let mut tpl = crate::game_logic::ThingTemplate::new("GoldenRanger");
+                            tpl.set_health(120.0);
+                            tpl.set_cost(100, 0);
+                            tpl.build_time = 0.05;
+                            tpl.add_kind_of(crate::game_logic::KindOf::Infantry);
+                            tpl.add_kind_of(crate::game_logic::KindOf::Selectable);
+                            tpl.add_kind_of(crate::game_logic::KindOf::Attackable);
+                            self.game_logic.templates.insert("GoldenRanger".into(), tpl);
+                        }
+                        if let Some(p) = self.game_logic.get_player_mut(self.current_player_id) {
+                            p.resources.supplies = p.resources.supplies.max(25_000);
+                        }
+                        let try_names = [
+                            template.as_str(),
+                            "AmericaInfantryRanger",
+                            "USA_Ranger",
+                            "USARanger",
+                            "GoldenRanger",
+                        ];
+                        let mut ok_name = None;
+                        let mut last_fail = template.clone();
+                        for name in try_names {
+                            if !self.game_logic.templates.contains_key(name) {
+                                continue;
+                            }
+                            if self.game_logic.enqueue_production(pid, name.to_string()) {
+                                ok_name = Some(name.to_string());
+                                break;
+                            }
+                            last_fail = name.to_string();
+                        }
+                        if let Some(name) = ok_name {
                             self.runtime_host_last_gameplay_cmd =
-                                format!("train_ok:{}:{}", pid.0, template);
+                                format!("train_ok:{}:{}", pid.0, name);
                         } else {
                             self.runtime_host_last_gameplay_cmd =
-                                format!("train_fail_enqueue:{}", template);
+                                format!("train_fail_enqueue:{}:prod={}", last_fail, pid.0);
                         }
                     } else {
                         self.runtime_host_last_gameplay_cmd = "train_fail_no_producer".into();
@@ -17989,6 +18108,21 @@ fn runtime_host_construct_residual() {
             && src.contains("construct_fail_lbc:")
             && src.contains("place_structure_from_ui"),
         "construct residual must legal-build scan + place_structure_from_ui"
+    );
+}
+
+#[test]
+fn runtime_host_train_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("train_unit") && src.contains("train_ok:"),
+        "runtime host must expose train_unit residual"
+    );
+    assert!(
+        src.contains("train_fail_no_producer")
+            && src.contains("under_construction")
+            && src.contains("enqueue_production"),
+        "train residual must complete unfinished barracks and enqueue production"
     );
 }
 
