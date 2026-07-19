@@ -4146,9 +4146,8 @@ impl CnCGameEngine {
         self.enter_shell_menu_from_runtime_host(override_screen);
         #[cfg(feature = "game_client")]
         {
-            // Headless executable smoke sets GENERALS_RUNTIME_HOST_WND=0 so UI
-            // screen override is observable without shell/WND push (show_shell_menu
-            // can fail-closed headless). Interactive default still pushes layouts.
+            // GENERALS_RUNTIME_HOST_WND=0 keeps soft UI override without shell push.
+            // Executable smoke defaults to WND=1 so ButtonStart residual can run.
             let push_wnd = std::env::var("GENERALS_RUNTIME_HOST_WND")
                 .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
                 .unwrap_or(true);
