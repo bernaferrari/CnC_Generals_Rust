@@ -17,6 +17,7 @@ pub mod host_construction_progress_log;
 pub mod host_contain_log;
 pub mod host_destroy_log;
 pub mod host_economy_log;
+pub mod host_experience_log;
 pub mod host_move_log;
 pub mod host_owner_log;
 pub mod host_player_meta_log;
