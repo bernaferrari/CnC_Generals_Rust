@@ -9004,6 +9004,17 @@ impl CnCGameEngine {
         }
 
         // Full presentation snapshot for render collect (transforms/model/selection/health).
+        // Boot/Menu residual: if no frame yet, freeze one from host logic so execute
+        // never dual-reads live GameLogic (immutable presentation boundary).
+        if self.last_presentation_frame.is_none() {
+            let local = self.current_player_id;
+            self.last_presentation_frame = Some(
+                crate::presentation_frame::PresentationFrame::build_from_logic(
+                    &self.game_logic,
+                    local,
+                ),
+            );
+        }
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -9036,12 +9047,8 @@ impl CnCGameEngine {
                 &mut self.render_pipeline,
                 &self.view_matrix,
                 &self.projection_matrix,
-                // Presentation-owned selection identity; live GameLogic only if no frame.
-                if self.last_presentation_frame.is_some() {
-                    None
-                } else {
-                    Some(&self.game_logic)
-                },
+                // Presentation-owned selection identity (frame always seeded above).
+                None,
                 drag_rect.filter(|r| r.is_valid()),
                 self.current_player_id,
                 self.last_presentation_frame.as_ref(),
@@ -9052,11 +9059,6 @@ impl CnCGameEngine {
         }
         self.render_pipeline.execute(
             &mut self.graphics_system,
-            if self.last_presentation_frame.is_some() {
-                None
-            } else {
-                Some(&self.game_logic)
-            },
             &self.view_matrix,
             &self.projection_matrix,
             self.camera_position,
