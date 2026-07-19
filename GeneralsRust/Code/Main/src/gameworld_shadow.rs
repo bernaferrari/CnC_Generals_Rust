@@ -404,6 +404,8 @@ impl GameWorldShadow {
                     e.disabled_subdued = obj.status.disabled_subdued;
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
+                    e.ignoring_stealth = obj.status.ignoring_stealth;
+                    e.repulsor = obj.status.repulsor;
                     e.is_building = obj.building_data.is_some();
                     if let Some(bd) = obj.building_data.as_ref() {
                         e.building_type_ordinal =
@@ -700,6 +702,8 @@ impl GameWorldShadow {
                 e.disabled_subdued = obj.status.disabled_subdued;
                 e.is_carbomb = obj.status.is_carbomb;
                 e.hijacked = obj.status.hijacked;
+                e.ignoring_stealth = obj.status.ignoring_stealth;
+                e.repulsor = obj.status.repulsor;
                 e.is_building = obj.building_data.is_some();
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
@@ -1651,6 +1655,14 @@ impl GameWorldShadow {
             }
             if obj.status.hijacked != ent.hijacked {
                 obj.status.hijacked = ent.hijacked;
+                dirty = true;
+            }
+            if obj.status.ignoring_stealth != ent.ignoring_stealth {
+                obj.status.ignoring_stealth = ent.ignoring_stealth;
+                dirty = true;
+            }
+            if obj.status.repulsor != ent.repulsor {
+                obj.status.repulsor = ent.repulsor;
                 dirty = true;
             }
             if obj.status.selected != ent.selected {

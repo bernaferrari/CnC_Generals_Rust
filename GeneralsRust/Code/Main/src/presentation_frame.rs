@@ -272,6 +272,10 @@ pub struct RenderableObject {
     pub weapons_jammed: bool,
     /// Host ObjectStatus::masked residual.
     pub masked: bool,
+    /// Host ObjectStatus::ignoring_stealth residual.
+    pub ignoring_stealth: bool,
+    /// Host ObjectStatus::repulsor residual.
+    pub repulsor: bool,
     /// C++ OBJECT_STATUS_STEALTHED residual.
     pub stealthed: bool,
     /// C++ OBJECT_STATUS_DETECTED residual.
@@ -2437,6 +2441,8 @@ impl PresentationFrame {
                 disabled_paralyzed: obj.status.disabled_paralyzed,
                 weapons_jammed: obj.status.weapons_jammed,
                 masked: obj.status.masked,
+                ignoring_stealth: obj.status.ignoring_stealth,
+                repulsor: obj.status.repulsor,
                 stealthed: obj.status.stealthed,
                 detected: obj.status.detected,
                 effectively_stealthed: obj.is_effectively_stealthed(),
@@ -4325,6 +4331,14 @@ impl PresentationFrame {
             }
             if (obj.selection_radius - ent.selection_radius).abs() > 1e-3 {
                 obj.selection_radius = ent.selection_radius;
+                dirty = true;
+            }
+            if obj.ignoring_stealth != ent.ignoring_stealth {
+                obj.ignoring_stealth = ent.ignoring_stealth;
+                dirty = true;
+            }
+            if obj.repulsor != ent.repulsor {
+                obj.repulsor = ent.repulsor;
                 dirty = true;
             }
             if obj.stealthed != ent.stealthed {
