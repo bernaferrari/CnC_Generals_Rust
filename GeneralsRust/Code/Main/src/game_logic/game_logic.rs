@@ -7375,12 +7375,12 @@ impl GameLogic {
             }
             let fallback = if primary_legal { 0u8 } else { 1u8 };
             if let Some(uu) = self.objects.get_mut(&unit_id) {
-                uu.active_weapon_slot = fallback;
+                uu.set_active_weapon_slot(fallback);
             }
             return true;
         };
         if let Some(uu) = self.objects.get_mut(&unit_id) {
-            uu.active_weapon_slot = slot;
+            uu.set_active_weapon_slot(slot);
         }
         true
     }
@@ -31660,7 +31660,7 @@ impl GameLogic {
 
         let src_pos = src_pos;
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.active_weapon_slot = 1;
+            obj.set_active_weapon_slot(1);
             obj.attack_target(target_id);
         }
         self.missile_defender_residual_laser_specials = self

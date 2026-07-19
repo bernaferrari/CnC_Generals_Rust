@@ -524,6 +524,11 @@ pub enum WorldMutation {
         battle_plan_hold_the_line: bool,
         battle_plan_search_and_destroy: bool,
     },
+    /// Host Object::active_weapon_slot residual (0 primary, 1 secondary, …).
+    SetActiveWeaponSlot {
+        target: EntityId,
+        slot: u8,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -965,6 +970,12 @@ impl GameWorld {
                         e.weapon_bonus_battle_plan_hold_the_line = battle_plan_hold_the_line;
                         e.weapon_bonus_battle_plan_search_and_destroy =
                             battle_plan_search_and_destroy;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetActiveWeaponSlot { target, slot } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.active_weapon_slot = slot;
                         applied += 1;
                     }
                 }
