@@ -3026,6 +3026,77 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_weapon_bonus_events(
+        &mut self,
+        events: &[crate::game_logic::host_weapon_bonus_log::HostWeaponBonusEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetWeaponBonus {
+                    target: eid,
+                    enthusiastic: ev.enthusiastic,
+                    subliminal: ev.subliminal,
+                    horde: ev.horde,
+                    nationalism: ev.nationalism,
+                    frenzy: ev.frenzy,
+                    frenzy_level: ev.frenzy_level,
+                    battle_plan_bombardment: ev.battle_plan_bombardment,
+                    battle_plan_hold_the_line: ev.battle_plan_hold_the_line,
+                    battle_plan_search_and_destroy: ev.battle_plan_search_and_destroy,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    /// Write shadow weapon-bonus pack back onto host Object residual flags.
+    pub fn writeback_weapon_bonus_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.weapon_bonus_enthusiastic != ent.weapon_bonus_enthusiastic
+                || obj.weapon_bonus_subliminal != ent.weapon_bonus_subliminal
+                || obj.weapon_bonus_horde != ent.weapon_bonus_horde
+                || obj.weapon_bonus_nationalism != ent.weapon_bonus_nationalism
+                || obj.weapon_bonus_frenzy != ent.weapon_bonus_frenzy
+                || obj.weapon_bonus_frenzy_level != ent.weapon_bonus_frenzy_level
+                || obj.weapon_bonus_battle_plan_bombardment
+                    != ent.weapon_bonus_battle_plan_bombardment
+                || obj.weapon_bonus_battle_plan_hold_the_line
+                    != ent.weapon_bonus_battle_plan_hold_the_line
+                || obj.weapon_bonus_battle_plan_search_and_destroy
+                    != ent.weapon_bonus_battle_plan_search_and_destroy;
+            if !changed {
+                continue;
+            }
+            obj.weapon_bonus_enthusiastic = ent.weapon_bonus_enthusiastic;
+            obj.weapon_bonus_subliminal = ent.weapon_bonus_subliminal;
+            obj.weapon_bonus_horde = ent.weapon_bonus_horde;
+            obj.weapon_bonus_nationalism = ent.weapon_bonus_nationalism;
+            obj.weapon_bonus_frenzy = ent.weapon_bonus_frenzy;
+            obj.weapon_bonus_frenzy_level = ent.weapon_bonus_frenzy_level;
+            obj.weapon_bonus_battle_plan_bombardment = ent.weapon_bonus_battle_plan_bombardment;
+            obj.weapon_bonus_battle_plan_hold_the_line = ent.weapon_bonus_battle_plan_hold_the_line;
+            obj.weapon_bonus_battle_plan_search_and_destroy =
+                ent.weapon_bonus_battle_plan_search_and_destroy;
+            updated += 1;
+        }
+        updated
+    }
+
+
     /// Write shadow Entity::experience_points back onto host Object::experience.current.
     pub fn writeback_experience_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -3290,6 +3361,7 @@ pub fn shadow_session_after_host_tick(
     let heal_events = crate::game_logic::host_heal_log::drain();
     let max_health_events = crate::game_logic::host_max_health_log::drain();
     let experience_events = crate::game_logic::host_experience_log::drain();
+    let weapon_bonus_events = crate::game_logic::host_weapon_bonus_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3332,6 +3404,7 @@ pub fn shadow_session_after_host_tick(
     let _heals = shadow.apply_host_heal_events(&heal_events);
     let _maxh_applied = shadow.apply_host_max_health_events(&max_health_events);
     let _xp_applied = shadow.apply_host_experience_events(&experience_events);
+    let _wb_applied = shadow.apply_host_weapon_bonus_events(&weapon_bonus_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3369,6 +3442,7 @@ pub fn shadow_session_after_host_tick(
         let (queued, applied) = shadow.apply_host_damage_events(&events);
         writebacks = shadow.writeback_health_to_host(logic);
     let _xp_wb = shadow.writeback_experience_to_host(logic);
+    let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
             events.len(),
@@ -6110,7 +6184,75 @@ mod tests {
 
     
     
+    
     #[test]
+    fn host_weapon_bonus_log_drives_set_weapon_bonus_channel() {
+        use crate::game_logic::{host_weapon_bonus_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WBonusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WBU") {
+            let mut t = ThingTemplate::new("WBU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("WBU".into(), t);
+        }
+        let oid = logic
+            .create_object("WBU", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("id");
+        host_weapon_bonus_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.apply_weapon_bonus_frenzy(2, 999);
+            o.weapon_bonus_horde = true;
+            o.weapon_bonus_nationalism = true;
+            o.record_host_weapon_bonus();
+        }
+        let events = host_weapon_bonus_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid && e.frenzy && e.frenzy_level == 2 && e.horde && e.nationalism
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_weapon_bonus();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.weapon_bonus_frenzy = false;
+            e.weapon_bonus_frenzy_level = 0;
+            e.weapon_bonus_horde = false;
+            e.weapon_bonus_nationalism = false;
+        }
+        let n = shadow.apply_host_weapon_bonus_events(&host_weapon_bonus_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.weapon_bonus_frenzy && e.weapon_bonus_frenzy_level == 2);
+        assert!(e.weapon_bonus_horde && e.weapon_bonus_nationalism);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.clear_weapon_bonus_frenzy();
+            o.weapon_bonus_horde = false;
+            o.weapon_bonus_nationalism = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.weapon_bonus_frenzy = true;
+            e.weapon_bonus_frenzy_level = 2;
+            e.weapon_bonus_horde = true;
+            e.weapon_bonus_nationalism = true;
+        }
+        assert!(shadow.writeback_weapon_bonus_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.weapon_bonus_frenzy && o.weapon_bonus_frenzy_level == 2);
+        assert!(o.weapon_bonus_horde && o.weapon_bonus_nationalism);
+    }
+
+#[test]
     fn host_experience_log_drives_set_experience_channel() {
         use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
