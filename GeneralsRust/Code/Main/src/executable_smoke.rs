@@ -39,6 +39,8 @@ pub struct ExecutableSmokeResult {
     pub executable_host_ok: bool,
     pub process_started: bool,
     pub reached_menu: bool,
+    /// Retail shell WND residual: shell active with MainMenu/Skirmish layout on stack.
+    pub shell_wnd_ok: bool,
     pub reached_ingame: bool,
     /// Runtime-host select+move command accepted (not WND click; still not full playable_claim).
     pub gameplay_cmd_ok: bool,
@@ -134,6 +136,7 @@ impl Default for ExecutableSmokeResult {
             executable_host_ok: false,
             process_started: false,
             reached_menu: false,
+            shell_wnd_ok: false,
             reached_ingame: false,
             gameplay_cmd_ok: false,
             construct_cmd_ok: false,
@@ -224,6 +227,9 @@ struct StatusSnap {
     match_over: bool,
     victory_label: String,
     presentation_frame_ok: bool,
+    shell_screen_count: u32,
+    shell_top_wnd: String,
+    shell_active: bool,
     presentation_live_fallback_reads: u32,
     waypoint_mode: bool,
     live_frame_ok: bool,
@@ -263,6 +269,16 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "last_gameplay_cmd" => snap.last_gameplay_cmd = v.trim().to_string(),
             "presentation_frame_ok" => {
                 snap.presentation_frame_ok = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "shell_screen_count" => {
+                snap.shell_screen_count = v.trim().parse().unwrap_or(0);
+            }
+            "shell_top_wnd" => snap.shell_top_wnd = v.trim().to_string(),
+            "shell_active" => {
+                snap.shell_active = matches!(
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
@@ -623,6 +639,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut saw_presentation_frame_ok = false;
     let mut saw_presentation_live_fallback_ok = false;
     let mut presentation_detail = String::new();
+    let mut saw_shell_wnd_ok = false;
+    let mut shell_wnd_detail = String::new();
     let mut saw_select_similar_ok = false;
     let mut select_similar_detail = String::new();
     let mut saw_select_on_screen_ok = false;
@@ -727,6 +745,25 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                 presentation_detail = format!(
                     "frame_ok={} live_fallback={}",
                     snap.presentation_frame_ok, snap.presentation_live_fallback_reads
+                );
+            }
+            // Retail shell WND residual: active shell with MainMenu/Skirmish layout.
+            let top = snap.shell_top_wnd.to_ascii_lowercase();
+            let wnd_layout =
+                top.contains("mainmenu.wnd") || top.contains("skirmish") || top.contains("menus/");
+            if snap.shell_active && snap.shell_screen_count > 0 && wnd_layout {
+                saw_shell_wnd_ok = true;
+                shell_wnd_detail = format!(
+                    "active={} count={} top={}",
+                    snap.shell_active, snap.shell_screen_count, snap.shell_top_wnd
+                );
+            } else if snap.shell_screen_count > 0
+                || snap.shell_active
+                || !snap.shell_top_wnd.is_empty()
+            {
+                shell_wnd_detail = format!(
+                    "active={} count={} top={}",
+                    snap.shell_active, snap.shell_screen_count, snap.shell_top_wnd
                 );
             }
             // InGame world-draw residual: peak + stability of mesh pass item count.
@@ -2191,6 +2228,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.box_select_cmd_ok = saw_box_select_ok;
                         result.presentation_frame_ok = saw_presentation_frame_ok;
                         result.presentation_live_fallback_ok = saw_presentation_live_fallback_ok;
+                        result.shell_wnd_ok = saw_shell_wnd_ok;
                         result.max_render_item_count = max_render_item_count;
                         result.max_render_alive_objects = max_render_alive_objects;
                         // Stable = at least 3 InGame polls with items (not a one-frame flash).
@@ -2311,12 +2349,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} shell_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
         r.process_started,
         r.reached_menu,
+        r.shell_wnd_ok,
         r.reached_ingame,
         r.gameplay_cmd_ok,
         r.construct_cmd_ok,
@@ -2462,6 +2501,40 @@ mod tests {
         );
         assert!(src.contains("max_render_item_count"));
         assert!(src.contains("render_items_stable_ok"));
+    }
+
+    #[test]
+    fn smoke_tracks_shell_wnd_residual_keys() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("shell_screen_count")
+                && eng.contains("shell_top_wnd")
+                && eng.contains("shell_active"),
+            "runtime host snapshot must publish shell WND residual"
+        );
+        let smoke = include_str!("executable_smoke.rs");
+        assert!(
+            smoke.contains("shell_wnd_ok") && smoke.contains("shell_top_wnd"),
+            "executable smoke must parse shell WND residual"
+        );
+        let path = std::env::temp_dir().join("generals_shell_wnd_status_sample.txt");
+        std::fs::write(
+            &path,
+            "state=Menu
+shell_screen_count=1
+shell_top_wnd=Menus/MainMenu.wnd
+shell_active=true
+",
+        )
+        .unwrap();
+        let snap = parse_status(&path).expect("parse");
+        assert_eq!(snap.shell_screen_count, 1);
+        assert!(snap.shell_active);
+        assert!(snap
+            .shell_top_wnd
+            .to_ascii_lowercase()
+            .contains("mainmenu.wnd"));
+        let _ = std::fs::remove_file(&path);
     }
 }
 
