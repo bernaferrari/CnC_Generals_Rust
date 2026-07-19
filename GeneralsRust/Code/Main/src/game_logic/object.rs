@@ -5469,7 +5469,15 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_contain_capacity(&self) {
+        pub fn record_host_hive(&self) {
+        crate::game_logic::host_hive_log::record(
+            self.id,
+            self.hive_slave_count,
+            self.hive_slave_hp,
+        );
+    }
+
+    pub fn record_host_contain_capacity(&self) {
         let max_garrison = self
             .building_data
             .as_ref()

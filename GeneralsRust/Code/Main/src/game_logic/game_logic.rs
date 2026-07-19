@@ -19972,7 +19972,9 @@ impl GameLogic {
                 object.hive_slaves = roster;
                 let (slaves, slave_hp) = sync_hive_slave_mirrors(&roster);
                 object.hive_slave_count = slaves;
+                object.record_host_hive();
                 object.hive_slave_hp = slave_hp;
+                object.record_host_hive();
                 object.hive_slave_respawn_frame = 0;
             }
 
@@ -36996,7 +36998,9 @@ impl GameLogic {
                 );
                 let (new_count, new_hp) = sync_hive_slave_mirrors(&obj.hive_slaves);
                 obj.hive_slave_count = new_count;
+                obj.record_host_hive();
                 obj.hive_slave_hp = new_hp;
+                obj.record_host_hive();
                 if result.slaves_killed > 0 {
                     obj.hive_slave_respawn_frame =
                         next_stinger_slave_respawn_frame(frame, respawn_frame);
@@ -37124,7 +37128,9 @@ impl GameLogic {
             if respawn_one_hive_slave(&mut obj.hive_slaves) {
                 let (c, h) = sync_hive_slave_mirrors(&obj.hive_slaves);
                 obj.hive_slave_count = c;
+                obj.record_host_hive();
                 obj.hive_slave_hp = h;
+                obj.record_host_hive();
             } else {
                 // Count-only fallback residual.
                 obj.hive_slave_count = obj
@@ -37133,6 +37139,7 @@ impl GameLogic {
                     .min(STINGER_SPAWN_NUMBER as u8);
                 if obj.hive_slave_count == 1 {
                     obj.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+                    obj.record_host_hive();
                 }
             }
             respawned = respawned.saturating_add(1);
