@@ -3297,6 +3297,32 @@ impl GameClient {
         }
     }
 
+    /// Apply presentation-owned world pose to bound drawables (no OBJECT_REGISTRY).
+    ///
+    /// C++ drawable instance transform residual driven by frozen `PresentationFrame`
+    /// positions/orientation instead of live GameLogic object locks.
+    pub fn apply_presentation_pose_to_drawables<I>(&mut self, entries: I) -> usize
+    where
+        I: IntoIterator<Item = (u32, [f32; 3], f32)>,
+    {
+        let mut updated = 0usize;
+        for (object_id, pos, orientation) in entries {
+            let Some(drawable_id) = self.drawable_object_map.get(&object_id).copied() else {
+                continue;
+            };
+            let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                continue;
+            };
+            let position = Vector3::new(pos[0], pos[1], pos[2]);
+            drawable.set_position(position);
+            // C++ Matrix3D translation * Rotate_Y residual (sync_with_game_logic parity).
+            let transform = Matrix4::translation(position).mul(&Matrix4::rotation_y(orientation));
+            drawable.set_instance_transform(transform);
+            updated += 1;
+        }
+        updated
+    }
+
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
     ///
     /// C++ script camera letterbox residual without dual-owning Main RenderPipeline 3D draw.
