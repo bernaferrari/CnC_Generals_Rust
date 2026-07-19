@@ -458,11 +458,19 @@ impl Player {
     /// C++ Player::addRadar residual (disable_proof ignored fail-closed).
     pub fn add_radar(&mut self, _disable_proof: bool) {
         self.radar_count = self.radar_count.saturating_add(1);
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
     /// C++ Player::removeRadar residual.
     pub fn remove_radar(&mut self, _disable_proof: bool) {
         self.radar_count = (self.radar_count - 1).max(0);
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
+    }
+
+    pub fn set_radar_state(&mut self, radar_count: i32, radar_disabled: bool) {
+        self.radar_count = radar_count;
+        self.radar_disabled = radar_disabled;
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
     /// C++ Player::getCashBounty().
@@ -19288,7 +19296,7 @@ impl GameLogic {
             };
             let count = providers_by_team.get(&player.team).copied().unwrap_or(0);
             let had = player.has_radar();
-            player.radar_count = count as i32;
+            player.set_radar_state(count as i32, player.radar_disabled);
             let has_now = player.has_radar();
             transition_events.push((count, had, has_now));
         }
