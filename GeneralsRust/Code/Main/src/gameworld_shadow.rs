@@ -1467,6 +1467,43 @@ impl GameWorldShadow {
         updated
     }
 
+    /// Write shadow PlayerData::completed_upgrades back onto host HostUpgradeRegistry.
+    /// Completes the CompleteUpgrade channel as GameWorld last-writer residual.
+    pub fn writeback_completed_upgrades_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::host_upgrades::{
+            normalize_upgrade_identity, HostUpgradePhase,
+        };
+        let mut updated = 0usize;
+        let frame = logic.get_frame();
+        for (&host_id, &gw) in &self.host_player_to_gw {
+            let Some(pd) = self.world.player(gw) else {
+                continue;
+            };
+            if pd.completed_upgrades.is_empty() {
+                continue;
+            }
+            let mut dirty = false;
+            for name in &pd.completed_upgrades {
+                let key = normalize_upgrade_identity(name);
+                let already = logic.host_upgrades().entries_snapshot().iter().any(|e| {
+                    e.player_id == host_id
+                        && e.phase == HostUpgradePhase::Completed
+                        && normalize_upgrade_identity(&e.name) == key
+                });
+                if already {
+                    continue;
+                }
+                let _ = logic.host_upgrades_mut().record_complete(name, host_id, frame, 0);
+                dirty = true;
+            }
+            if dirty {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
+
     /// Write shadow Entity::attack_target back onto host Object::target (stable IDs).
     /// Completes the attack command channel: host log / set_target → shadow mutation → host writeback.
     pub fn writeback_attack_targets_to_host(&self, logic: &mut GameLogic) -> usize {
@@ -3280,6 +3317,7 @@ pub fn shadow_session_after_host_tick(
             let (_q, _a) = shadow.apply_host_economy_events(&econ_events);
         }
         econ_wb = shadow.writeback_economy_to_host(logic);
+        let _upg_wb = shadow.writeback_completed_upgrades_to_host(logic);
     } else {
         // Avoid unbounded growth when economy authority off.
         let _ = crate::game_logic::host_economy_log::drain();
@@ -5987,13 +6025,77 @@ mod tests {
         let idx = src
             .find("fn shadow_session_after_host_tick")
             .expect("session");
-        let window = &src[idx..idx + 2500];
+        let window = &src[idx..idx + 6000];
         assert!(
             window.contains("completed_this_frame_snapshot")
                 && window.contains("apply_host_upgrade_events"),
             "session must apply host upgrade completes"
         );
     }
+
+    #[test]
+    fn writeback_completed_upgrades_restores_host_registry() {
+        use crate::game_logic::host_upgrades::{
+            normalize_upgrade_identity, HostUpgradePhase, UPGRADE_AMERICA_FLASHBANG,
+        };
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("UpgradeWb");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        let frame = logic.get_frame();
+        logic.host_upgrades_mut().record_complete(
+            UPGRADE_AMERICA_FLASHBANG,
+            pid,
+            frame,
+            1,
+        );
+        let events = logic.host_upgrades().completed_this_frame_snapshot();
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_host_upgrade_events(&events) >= 1);
+        assert!(shadow.completed_upgrade_count() >= 1);
+
+        // Poison host registry — clear completed flashbang.
+        logic.host_upgrades_mut().clear();
+        assert!(
+            logic
+                .host_upgrades()
+                .completed_of_kind(crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
+                    UPGRADE_AMERICA_FLASHBANG
+                ))
+                .is_empty()
+                || !logic.host_upgrades().honesty_complete_ok(
+                    crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
+                        UPGRADE_AMERICA_FLASHBANG
+                    )
+                )
+                || logic
+                    .host_upgrades()
+                    .entries_snapshot()
+                    .iter()
+                    .filter(|e| {
+                        e.player_id == pid
+                            && e.phase == HostUpgradePhase::Completed
+                            && normalize_upgrade_identity(&e.name)
+                                == normalize_upgrade_identity(UPGRADE_AMERICA_FLASHBANG)
+                    })
+                    .count()
+                    == 0
+        );
+        // After clear, no entries:
+        assert!(logic.host_upgrades().entries_snapshot().is_empty());
+
+        let n = shadow.writeback_completed_upgrades_to_host(&mut logic);
+        assert!(n >= 1, "writeback players {n}");
+        let restored = logic.host_upgrades().entries_snapshot().iter().any(|e| {
+            e.player_id == pid
+                && e.phase == HostUpgradePhase::Completed
+                && normalize_upgrade_identity(&e.name)
+                    == normalize_upgrade_identity(UPGRADE_AMERICA_FLASHBANG)
+        });
+        assert!(restored, "host registry must restore flashbang from GameWorld");
+    }
+
 
     #[test]
     fn sync_from_host_copies_host_orientation() {
