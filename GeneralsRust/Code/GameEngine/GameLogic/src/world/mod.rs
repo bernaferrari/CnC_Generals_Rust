@@ -579,6 +579,11 @@ pub enum WorldMutation {
         player_upgrade: bool,
         armed_riders: bool,
     },
+    /// Host Object::overcharge_enabled residual (China power plant).
+    SetOvercharge {
+        target: EntityId,
+        enabled: bool,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1113,6 +1118,12 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.weapon_set_player_upgrade = player_upgrade;
                         e.armed_riders_upgrade_weapon_set = armed_riders;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetOvercharge { target, enabled } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.overcharge_enabled = enabled;
                         applied += 1;
                     }
                 }
