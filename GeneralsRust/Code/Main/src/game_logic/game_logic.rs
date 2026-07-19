@@ -17842,9 +17842,12 @@ impl GameLogic {
             obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
+            obj.record_host_stealth_flags();
             // Rebel residual: uncloak while attacking; stay cloaked while moving.
             obj.stealth_breaks_on_attack = true;
+            obj.record_host_stealth_flags();
             obj.stealth_breaks_on_move = false;
+            obj.record_host_stealth_flags();
             affected = affected.saturating_add(1);
         }
         affected
@@ -17877,10 +17880,13 @@ impl GameLogic {
             obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
+            obj.record_host_stealth_flags();
             // Structure residual: ATTACKING + TAKING_DAMAGE uncloak; StealthDelay re-cloak.
             obj.stealth_breaks_on_attack = true;
+            obj.record_host_stealth_flags();
             obj.stealth_breaks_on_damage = true;
             obj.stealth_breaks_on_move = false;
+            obj.record_host_stealth_flags();
             obj.stealth_delay_frames = CAMO_NETTING_STEALTH_DELAY_FRAMES;
             obj.stealth_allowed_frame = 0;
             obj.stealth_delay_pending = false;
@@ -19857,6 +19863,7 @@ impl GameLogic {
                 // Innate stealth residual (StealthUpdate InnateStealth = Yes).
                 object.set_status_stealthed(true);
                 object.stealth_breaks_on_attack = true;
+                object.record_host_stealth_flags();
                 // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
                 // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
                 // Explicit template primary_weapon(_name) still keeps a bound gun (test/seed).
@@ -19879,8 +19886,11 @@ impl GameLogic {
                 }
                 object.set_status_stealthed(true);
                 object.innate_stealth = true;
+                object.record_host_stealth_flags();
                 object.stealth_breaks_on_attack = false;
+                object.record_host_stealth_flags();
                 object.stealth_breaks_on_move = true;
+                object.record_host_stealth_flags();
             }
 
             // Host residual: China Dragon Tank primary flame weapon bind.
@@ -20955,6 +20965,7 @@ impl GameLogic {
                     // Helix bunker enables passengers fire residual.
                     if obj.is_helix_transport {
                         obj.passengers_allowed_to_fire = true;
+                        obj.record_host_stealth_flags();
                     }
                     installed_bunker = true;
                 }
@@ -38657,6 +38668,7 @@ impl GameLogic {
                 // Innate stealth residual (StealthUpdate InnateStealth=Yes).
                 obj.set_status_stealthed(true);
                 obj.innate_stealth = true;
+                obj.record_host_stealth_flags();
                 obj.is_detector = true;
                 obj.record_host_detector();
                 obj.detection_range = SPY_DRONE_VISION_RANGE;

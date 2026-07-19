@@ -3369,6 +3369,60 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_stealth_flags_events(
+        &mut self,
+        events: &[crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetStealthFlags {
+                    target: eid,
+                    innate_stealth: ev.innate_stealth,
+                    stealth_breaks_on_attack: ev.stealth_breaks_on_attack,
+                    stealth_breaks_on_move: ev.stealth_breaks_on_move,
+                    is_tunnel_network: ev.is_tunnel_network,
+                    passengers_allowed_to_fire: ev.passengers_allowed_to_fire,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_stealth_flags_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.innate_stealth != ent.innate_stealth
+                || obj.stealth_breaks_on_attack != ent.stealth_breaks_on_attack
+                || obj.stealth_breaks_on_move != ent.stealth_breaks_on_move
+                || obj.is_tunnel_network != ent.is_tunnel_network
+                || obj.passengers_allowed_to_fire != ent.passengers_allowed_to_fire;
+            if !changed {
+                continue;
+            }
+            obj.innate_stealth = ent.innate_stealth;
+            obj.stealth_breaks_on_attack = ent.stealth_breaks_on_attack;
+            obj.stealth_breaks_on_move = ent.stealth_breaks_on_move;
+            obj.is_tunnel_network = ent.is_tunnel_network;
+            obj.passengers_allowed_to_fire = ent.passengers_allowed_to_fire;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_hive_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3989,6 +4043,7 @@ pub fn shadow_session_after_host_tick(
     let overcharge_events = crate::game_logic::host_overcharge_log::drain();
     let contain_capacity_events = crate::game_logic::host_contain_capacity_log::drain();
     let hive_events = crate::game_logic::host_hive_log::drain();
+    let stealth_flags_events = crate::game_logic::host_stealth_flags_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4044,6 +4099,7 @@ pub fn shadow_session_after_host_tick(
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
     let _hive_applied = shadow.apply_host_hive_events(&hive_events);
+    let _stf_applied = shadow.apply_host_stealth_flags_events(&stealth_flags_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4094,6 +4150,7 @@ pub fn shadow_session_after_host_tick(
     let _oc_wb = shadow.writeback_overcharge_to_host(logic);
     let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
     let _hive_wb = shadow.writeback_hive_to_host(logic);
+    let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6921,7 +6978,86 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_stealth_flags_log_drives_set_stealth_flags_channel() {
+        use crate::game_logic::{host_stealth_flags_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("StfCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("StfU") {
+            let mut t = ThingTemplate::new("StfU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("StfU".into(), t);
+        }
+        let oid = logic
+            .create_object("StfU", Team::GLA, glam::Vec3::new(20.0, 0.0, 20.0))
+            .expect("id");
+        host_stealth_flags_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.innate_stealth = true;
+            o.stealth_breaks_on_attack = true;
+            o.stealth_breaks_on_move = false;
+            o.is_tunnel_network = true;
+            o.passengers_allowed_to_fire = true;
+            o.record_host_stealth_flags();
+        }
+        let events = host_stealth_flags_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.innate_stealth
+                    && e.stealth_breaks_on_attack
+                    && !e.stealth_breaks_on_move
+                    && e.is_tunnel_network
+                    && e.passengers_allowed_to_fire
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_stealth_flags();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.innate_stealth = false;
+            e.stealth_breaks_on_attack = false;
+            e.stealth_breaks_on_move = true;
+            e.is_tunnel_network = false;
+            e.passengers_allowed_to_fire = false;
+        }
+        let n = shadow.apply_host_stealth_flags_events(&host_stealth_flags_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.innate_stealth && e.stealth_breaks_on_attack && !e.stealth_breaks_on_move);
+        assert!(e.is_tunnel_network && e.passengers_allowed_to_fire);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.innate_stealth = false;
+            o.stealth_breaks_on_attack = false;
+            o.stealth_breaks_on_move = true;
+            o.is_tunnel_network = false;
+            o.passengers_allowed_to_fire = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.innate_stealth = true;
+            e.stealth_breaks_on_attack = true;
+            e.stealth_breaks_on_move = false;
+            e.is_tunnel_network = true;
+            e.passengers_allowed_to_fire = true;
+        }
+        assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
+        assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
+    }
+
+#[test]
     fn host_hive_log_drives_set_hive_slaves_channel() {
         use crate::game_logic::{host_hive_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
