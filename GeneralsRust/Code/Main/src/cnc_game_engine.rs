@@ -1985,6 +1985,12 @@ impl CnCGameEngine {
             last_gameplay_cmd: self.runtime_host_last_gameplay_cmd.clone(),
             match_over,
             victory_label,
+            presentation_frame_ok: self.last_presentation_frame.is_some(),
+            presentation_live_fallback_reads: self
+                .render_pipeline
+                .last_presentation_live_fallback_reads()
+                as u32,
+            waypoint_mode: self.sticky_waypoint_mode,
         }
     }
 
@@ -3552,6 +3558,135 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd =
                             format!("control_group_recall_fail_unset:{}", group);
                     }
+                }
+            }
+            "waypoint_mode" | "toggle_waypoint" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "waypoint_mode_fail_not_ingame".into();
+                } else {
+                    let enable = match args
+                        .get("on")
+                        .or_else(|| args.get("enabled"))
+                        .map(|s| s.trim().to_ascii_lowercase())
+                        .as_deref()
+                    {
+                        Some("1") | Some("true") | Some("on") | Some("yes") => true,
+                        Some("0") | Some("false") | Some("off") | Some("no") => false,
+                        _ => !self.sticky_waypoint_mode,
+                    };
+                    self.sticky_waypoint_mode = enable;
+                    // Keep command-system sticky in sync when available.
+                    // CommandProcessor path uses alt/sticky on click; host sets engine sticky.
+                    self.runtime_host_last_gameplay_cmd = if enable {
+                        "waypoint_mode_ok:on".into()
+                    } else {
+                        "waypoint_mode_ok:off".into()
+                    };
+                }
+            }
+            "add_waypoint" | "waypoint" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "waypoint_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    let mut selected = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.selected_objects.clone())
+                        .unwrap_or_default();
+                    if selected.is_empty() {
+                        selected = self.selected_objects.clone();
+                    }
+                    if selected.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "waypoint_fail_no_selection".into();
+                    } else {
+                        let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(120.0);
+                        let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                        let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(120.0);
+                        let dest = glam::Vec3::new(x, y, z);
+                        self.game_logic
+                            .queue_command(crate::command_system::GameCommand {
+                                command_type: crate::command_system::CommandType::AddWaypoint {
+                                    destination: dest,
+                                },
+                                player_id: self.current_player_id,
+                                command_id: 0,
+                                timestamp: std::time::SystemTime::now(),
+                                selected_units: selected.clone(),
+                                modifier_keys: crate::command_system::ModifierKeys {
+                                    ctrl: false,
+                                    shift: true,
+                                    alt: true,
+                                },
+                            });
+                        self.game_logic.process_commands();
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("waypoint_ok:{},{},{}:{}", x, y, z, selected.len());
+                    }
+                }
+            }
+            "box_select" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "box_select_fail_not_ingame".into();
+                } else {
+                    // World-space AABB box select residual (same path as drag-select release).
+                    let min_x: f32 = args
+                        .get("min_x")
+                        .or_else(|| args.get("x0"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(-5000.0);
+                    let max_x: f32 = args
+                        .get("max_x")
+                        .or_else(|| args.get("x1"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(5000.0);
+                    let min_z: f32 = args
+                        .get("min_z")
+                        .or_else(|| args.get("z0"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(-5000.0);
+                    let max_z: f32 = args
+                        .get("max_z")
+                        .or_else(|| args.get("z1"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(5000.0);
+                    let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        frame.local_team()
+                    } else {
+                        match self.game_logic.get_player(self.current_player_id) {
+                            Some(p) => p.team,
+                            None => {
+                                self.runtime_host_last_gameplay_cmd =
+                                    "box_select_fail_no_player".into();
+                                return;
+                            }
+                        }
+                    };
+                    let boxed: Vec<ObjectId> = if let Some(frame) =
+                        self.last_presentation_frame.as_ref()
+                    {
+                        frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z)
+                    } else {
+                        let mut live = Vec::new();
+                        for (&id, obj) in self.game_logic.get_objects() {
+                            if obj.team != player_team || !obj.is_selectable() {
+                                continue;
+                            }
+                            let pos = obj.get_position();
+                            if pos.x < min_x || pos.x > max_x || pos.z < min_z || pos.z > max_z {
+                                continue;
+                            }
+                            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                                continue;
+                            }
+                            live.push(id);
+                        }
+                        live
+                    };
+                    self.selected_objects = boxed.clone();
+                    self.game_logic
+                        .select_objects(self.current_player_id, boxed.clone());
+                    self.runtime_host_last_gameplay_cmd = format!("box_select_ok:{}", boxed.len());
                 }
             }
             "construct" | "dozer_construct" | "place_structure" => {
@@ -16191,6 +16326,12 @@ struct RuntimeHostSnapshot {
     last_gameplay_cmd: String,
     match_over: bool,
     victory_label: String,
+    /// PresentationFrame installed for client/render residual.
+    presentation_frame_ok: bool,
+    /// Live GameLogic dual-reads during last presentation-owned collect (must be 0 in-game).
+    presentation_live_fallback_reads: u32,
+    /// Sticky waypoint mode residual.
+    waypoint_mode: bool,
 }
 
 #[derive(Debug)]
@@ -16314,6 +16455,9 @@ impl RuntimeHostBridge {
             last_gameplay_cmd: String::new(),
             match_over: false,
             victory_label: String::new(),
+            presentation_frame_ok: false,
+            presentation_live_fallback_reads: 0,
+            waypoint_mode: false,
         };
         self.publish_status(&snapshot);
     }
@@ -16347,6 +16491,15 @@ impl RuntimeHostBridge {
         ));
         payload.push_str(&format!("match_over={}\n", snapshot.match_over));
         payload.push_str(&format!("victory_label={}\n", snapshot.victory_label));
+        payload.push_str(&format!(
+            "presentation_frame_ok={}\n",
+            snapshot.presentation_frame_ok
+        ));
+        payload.push_str(&format!(
+            "presentation_live_fallback_reads={}\n",
+            snapshot.presentation_live_fallback_reads
+        ));
+        payload.push_str(&format!("waypoint_mode={}\n", snapshot.waypoint_mode));
         payload.push_str(&format!(
             "frame_path={}\n",
             self.frame_path.to_string_lossy()
@@ -19254,6 +19407,25 @@ fn runtime_host_force_select_group_residual() {
         "control_group_recall_ok:",
     ] {
         assert!(src.contains(needle), "missing host residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_waypoint_box_presentation_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "waypoint_mode",
+        "waypoint_mode_ok:",
+        "add_waypoint",
+        "waypoint_ok:",
+        "AddWaypoint",
+        "box_select",
+        "box_select_ok:",
+        "presentation_frame_ok",
+        "presentation_live_fallback_reads",
+        "last_presentation_live_fallback_reads",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
     }
 }
 
