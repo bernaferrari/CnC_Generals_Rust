@@ -2033,8 +2033,9 @@ impl CnCGameEngine {
             "exit" => {
                 self.request_state_change(GameState::Exiting);
             }
-            "menu" => {
+            "menu" | "quit_to_menu" | "exit_to_menu" => {
                 self.enter_shell_menu_from_runtime_host(None);
+                self.runtime_host_last_gameplay_cmd = "menu_ok".into();
             }
             "toggle_pause" | "pause" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -2065,7 +2066,7 @@ impl CnCGameEngine {
             "open_world_builder" | "launch_world_builder" => {
                 self.enter_shell_menu_from_runtime_host(Some("WorldBuilder"));
             }
-            "open_options" => {
+            "open_options" | "options" => {
                 self.set_runtime_host_ui_screen_override(None);
                 if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.ui_manager.transition_to_screen(Screen::Options);
@@ -2075,6 +2076,7 @@ impl CnCGameEngine {
                 } else {
                     self.enter_shell_options_from_runtime_host();
                 }
+                self.runtime_host_last_gameplay_cmd = "options_ok".into();
             }
             "open_credits" => {
                 self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd");
@@ -3921,6 +3923,28 @@ impl CnCGameEngine {
                 // Shell residual — open diplomacy overlay when available.
                 self.enter_shell_menu_from_runtime_host(Some("Diplomacy"));
                 self.runtime_host_last_gameplay_cmd = "diplomacy_ok".into();
+            }
+            "auto_attack" | "sticky_auto_attack" | "toggle_auto_attack" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "auto_attack_fail_not_ingame".into();
+                } else {
+                    let enable = match args
+                        .get("on")
+                        .or_else(|| args.get("enabled"))
+                        .map(|s| s.trim().to_ascii_lowercase())
+                        .as_deref()
+                    {
+                        Some("1") | Some("true") | Some("on") | Some("yes") => true,
+                        Some("0") | Some("false") | Some("off") | Some("no") => false,
+                        _ => !self.sticky_auto_attack,
+                    };
+                    self.sticky_auto_attack = enable;
+                    self.runtime_host_last_gameplay_cmd = if enable {
+                        "auto_attack_ok:on".into()
+                    } else {
+                        "auto_attack_ok:off".into()
+                    };
+                }
             }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -19744,6 +19768,22 @@ fn runtime_host_live_frame_residual() {
         frame_i < status_i,
         "publish_frame must run before publish_status for live_frame_ok"
     );
+}
+
+#[test]
+fn runtime_host_auto_attack_menu_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "auto_attack",
+        "auto_attack_ok:on",
+        "auto_attack_ok:off",
+        "sticky_auto_attack",
+        "quit_to_menu",
+        "menu_ok",
+        "options_ok",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
+    }
 }
 
 #[test]
