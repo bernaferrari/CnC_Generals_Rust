@@ -3776,6 +3776,78 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = format!("select_moving_ok:{}", n);
                 }
             }
+            "camera_reset" | "reset_camera" => {
+                if !matches!(
+                    self.current_state,
+                    GameState::InGame | GameState::Paused | GameState::Menu
+                ) {
+                    self.runtime_host_last_gameplay_cmd = "camera_reset_fail_bad_state".into();
+                } else {
+                    self.reset_camera_view_hotkey();
+                    self.runtime_host_last_gameplay_cmd = format!(
+                        "camera_reset_ok:{:.1},{:.1},{:.1}",
+                        self.camera_target.x, self.camera_target.y, self.camera_target.z
+                    );
+                }
+            }
+            "camera_look_at" | "look_at" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "camera_look_fail_not_ingame".into();
+                } else {
+                    let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let target = self.clamp_to_world_bounds(glam::Vec3::new(x, y, z));
+                    self.camera_target = target;
+                    // Keep camera offset relative if possible.
+                    let offset = self.camera_position - self.camera_target;
+                    // Recompute position with same planar offset magnitude toward target.
+                    let planar = glam::Vec3::new(offset.x, 0.0, offset.z);
+                    let dist = planar.length().max(50.0);
+                    let dir = if planar.length_squared() > 1.0 {
+                        planar.normalize()
+                    } else {
+                        glam::Vec3::new(0.0, 0.0, -1.0)
+                    };
+                    self.camera_position =
+                        target + dir * dist + glam::Vec3::new(0.0, offset.y.abs().max(100.0), 0.0);
+                    self.runtime_host_last_gameplay_cmd = format!(
+                        "camera_look_ok:{:.1},{:.1},{:.1}",
+                        target.x, target.y, target.z
+                    );
+                }
+            }
+            "camera_zoom" | "zoom" => {
+                if !matches!(
+                    self.current_state,
+                    GameState::InGame | GameState::Paused | GameState::Menu
+                ) {
+                    self.runtime_host_last_gameplay_cmd = "camera_zoom_fail_bad_state".into();
+                } else {
+                    let z: f32 = args
+                        .get("z")
+                        .or_else(|| args.get("zoom"))
+                        .or_else(|| args.get("level"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(1.0_f32)
+                        .clamp(0.2_f32, 4.0_f32);
+                    self.camera_zoom = z;
+                    self.camera_zoom_target = None;
+                    self.runtime_host_last_gameplay_cmd = format!("camera_zoom_ok:{:.3}", z);
+                }
+            }
+            "camera_track" | "toggle_camera_track" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "camera_track_fail_not_ingame".into();
+                } else {
+                    self.toggle_camera_tracking_drawable_hotkey();
+                    self.runtime_host_last_gameplay_cmd = if self.camera_tracking_selection {
+                        "camera_track_ok:on".into()
+                    } else {
+                        "camera_track_ok:off".into()
+                    };
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -19534,6 +19606,24 @@ fn runtime_host_selection_filter_residual() {
         "select_moving_ok:",
     ] {
         assert!(src.contains(needle), "missing selection residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_camera_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "camera_reset",
+        "camera_reset_ok:",
+        "reset_camera_view_hotkey",
+        "camera_look_at",
+        "camera_look_ok:",
+        "camera_zoom",
+        "camera_zoom_ok:",
+        "camera_track",
+        "camera_track_ok:",
+    ] {
+        assert!(src.contains(needle), "missing camera residual {needle}");
     }
 }
 
