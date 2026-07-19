@@ -9047,10 +9047,7 @@ impl CnCGameEngine {
                 &mut self.render_pipeline,
                 &self.view_matrix,
                 &self.projection_matrix,
-                // Presentation-owned selection identity (frame always seeded above).
-                None,
                 drag_rect.filter(|r| r.is_valid()),
-                self.current_player_id,
                 self.last_presentation_frame.as_ref(),
                 ground_markers,
                 self.show_move_lines,
