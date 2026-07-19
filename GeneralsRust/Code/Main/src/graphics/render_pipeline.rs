@@ -243,6 +243,7 @@ pub struct RenderPipeline {
     /// Live GameLogic dual-reads while a presentation frame is installed (must stay 0).
     debug_last_presentation_live_fallback_reads: usize,
     debug_last_fow_filtered: usize,
+    debug_last_frustum_culled: usize,
     debug_last_model_missing: usize,
     debug_last_deferred_model_loads: usize,
     debug_last_deferred_model_load_budget: usize,
@@ -350,6 +351,10 @@ impl RenderPipeline {
 
     pub fn debug_last_fow_filtered(&self) -> usize {
         self.debug_last_fow_filtered
+    }
+
+    pub fn debug_last_frustum_culled(&self) -> usize {
+        self.debug_last_frustum_culled
     }
 
     pub fn debug_last_model_missing(&self) -> usize {
@@ -595,6 +600,7 @@ impl RenderPipeline {
             debug_last_live_unit_identity_reads: 0,
             debug_last_presentation_live_fallback_reads: 0,
             debug_last_fow_filtered: 0,
+            debug_last_frustum_culled: 0,
             debug_last_model_missing: 0,
             debug_last_deferred_model_loads: 0,
             debug_last_deferred_model_load_budget: 0,
@@ -1390,6 +1396,7 @@ impl RenderPipeline {
 
         let mut alive_objects = 0usize;
         let mut fow_filtered = 0usize;
+        let mut frustum_culled = 0usize;
         let mut model_missing = 0usize;
         // Shell maps / presentation path: no live shroud batch.
         // Live fallback still queries FOW bridge once per collect.
@@ -1540,6 +1547,7 @@ impl RenderPipeline {
                 cull_radius,
                 camera_position,
             ) {
+                frustum_culled += 1;
                 continue;
             }
 
@@ -1849,6 +1857,7 @@ impl RenderPipeline {
 
         self.debug_last_alive_objects = alive_objects;
         self.debug_last_fow_filtered = fow_filtered;
+        self.debug_last_frustum_culled = frustum_culled;
         self.debug_last_model_missing = model_missing;
         debug!(
             "Collected {} render items for player {} (FOW filtering active)",
