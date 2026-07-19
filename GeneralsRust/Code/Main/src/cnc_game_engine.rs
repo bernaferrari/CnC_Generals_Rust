@@ -3100,14 +3100,25 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "formation_fail_not_ingame".into();
                 } else {
-                    self.ensure_host_mobile_selection();
-                    if self.selected_objects.len() < 2 {
-                        // try select more mobiles
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
+                    // Formation is a mobile-unit residual. Drop structures/dozer-only
+                    // selections that select_all can leave armed after construct.
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let mut mobile_sel: Vec<_> = self
+                        .selected_objects
+                        .iter()
+                        .copied()
+                        .filter(|id| {
+                            self.game_logic
+                                .get_object(*id)
+                                .map(|o| o.is_alive() && o.is_mobile())
+                                .unwrap_or(false)
+                        })
+                        .collect();
+                    if mobile_sel.len() < 2 {
+                        if let Some(team) = team {
                             let mut ids: Vec<_> = self
                                 .game_logic
                                 .get_objects()
@@ -3117,18 +3128,18 @@ impl CnCGameEngine {
                                 .collect();
                             ids.sort_by_key(|id| id.0);
                             ids.truncate(6);
-                            if ids.len() >= 2 {
-                                self.selected_objects = ids.clone();
-                                self.game_logic.select_objects(self.current_player_id, ids);
-                            }
+                            mobile_sel = ids;
                         }
                     }
-                    if self.selected_objects.len() < 2 {
+                    if mobile_sel.len() < 2 {
                         self.runtime_host_last_gameplay_cmd = "formation_fail_need_two".into();
                     } else {
+                        self.selected_objects = mobile_sel.clone();
+                        self.game_logic
+                            .select_objects(self.current_player_id, mobile_sel.clone());
                         self.issue_named_command_from_ui("Command_CreateFormation");
                         self.runtime_host_last_gameplay_cmd =
-                            format!("formation_ok:{}", self.selected_objects.len());
+                            format!("formation_ok:{}", mobile_sel.len());
                     }
                 }
             }
