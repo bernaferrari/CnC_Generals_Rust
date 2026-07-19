@@ -525,6 +525,12 @@ pub enum WorldMutation {
         garrison_count: Option<u16>,
         garrisoned_host_ids: Option<Vec<u32>>,
     },
+    /// Set player radar provider count / disabled residual.
+    SetPlayerRadar {
+        player: PlayerId,
+        radar_count: i32,
+        radar_disabled: bool,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -925,6 +931,17 @@ impl GameWorld {
                         if let Some(ids) = garrisoned_host_ids {
                             e.garrisoned_host_ids = ids;
                         }
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetPlayerRadar {
+                    player,
+                    radar_count,
+                    radar_disabled,
+                } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        p.radar_count = radar_count;
+                        p.radar_disabled = radar_disabled;
                         applied += 1;
                     }
                 }
