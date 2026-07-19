@@ -46707,7 +46707,7 @@ impl GameLogic {
         let bonus = CHINA_POWER_ENERGY_BONUS;
         if obj.overcharge_enabled {
             // Disable.
-            obj.overcharge_enabled = false;
+            obj.set_overcharge_enabled(false);
             obj.power_provided = (obj.power_provided - bonus).max(0);
             obj.record_host_entity_power();
             // C++ PowerPlantUpdate::extendRods(FALSE) residual.
@@ -46716,7 +46716,7 @@ impl GameLogic {
                 obj.model_condition_bits &= !(1u128 << bit);
             }
         } else {
-            obj.overcharge_enabled = true;
+            obj.set_overcharge_enabled(true);
             obj.power_provided = obj.power_provided.saturating_add(bonus);
             obj.record_host_entity_power();
             if let Some(bit) =
@@ -46762,7 +46762,7 @@ impl GameLogic {
                 // Auto-disable residual (GUI:OverchargeExhausted).
                 let bonus =
                     crate::game_logic::host_structure_economy_residual::CHINA_POWER_ENERGY_BONUS;
-                obj.overcharge_enabled = false;
+                obj.set_overcharge_enabled(false);
                 obj.power_provided = (obj.power_provided - bonus).max(0);
                 obj.record_host_entity_power();
                 if let Some(bit) =

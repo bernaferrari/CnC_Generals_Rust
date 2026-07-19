@@ -5469,6 +5469,17 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
+    pub fn record_host_overcharge(&self) {
+        crate::game_logic::host_overcharge_log::record(self.id, self.overcharge_enabled);
+    }
+
+    pub fn set_overcharge_enabled(&mut self, enabled: bool) {
+        if self.overcharge_enabled != enabled {
+            self.overcharge_enabled = enabled;
+            self.record_host_overcharge();
+        }
+    }
+
     pub fn record_host_weapon_set(&self) {
         crate::game_logic::host_weapon_set_log::record(
             self.id,
