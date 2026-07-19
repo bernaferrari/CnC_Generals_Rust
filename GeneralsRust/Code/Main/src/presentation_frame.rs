@@ -4789,15 +4789,35 @@ impl PresentationFrame {
                 updated += 1;
             }
         }
-        // Local economy/power from shadow when economy authority is on (last-writer).
+        // Local player residual from shadow (presentation last-writer).
         // Prefer local_player_id slot (same dense index as host player id residual).
-        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
-            let pid = gamelogic::world::PlayerId::from_index(self.local_player_id as u8);
-            if let Some(p) = shadow.world().player(pid) {
+        let local_pid = gamelogic::world::PlayerId::from_index(self.local_player_id as u8);
+        if let Some(p) = shadow.world().player(local_pid) {
+            if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
                 self.local_supplies = p.supplies;
                 self.local_power = p.power_available;
                 self.local_power_produced = p.power_produced;
                 self.local_power_consumed = p.power_consumed;
+            }
+            // Presentation-only player residual (always from shadow when mapped).
+            self.local_is_alive = p.is_alive;
+            self.local_radar_count = p.radar_count;
+            self.local_radar_disabled = p.radar_disabled;
+            self.local_cash_bounty_percent = p.cash_bounty_percent;
+            self.local_color_rgb = p.color_rgb;
+        }
+        // Roster is_alive / color from shadow slots (dense host id ↔ PlayerId residual).
+        for pi in &mut self.players {
+            let pid = gamelogic::world::PlayerId::from_index(pi.id as u8);
+            if let Some(p) = shadow.world().player(pid) {
+                if pi.is_alive != p.is_alive {
+                    pi.is_alive = p.is_alive;
+                    updated += 1;
+                }
+                if pi.color_rgb != p.color_rgb {
+                    pi.color_rgb = p.color_rgb;
+                    updated += 1;
+                }
             }
         }
         updated
@@ -6474,7 +6494,7 @@ mod tests {
         assert!(host_cash > 0, "host must have cash");
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
-        // Shadow last-writer: diverge economy/power from host.
+        // Shadow last-writer: diverge economy/power and player residual from host.
         if let Some(p) = shadow
             .world_mut()
             .player_mut(gamelogic::world::PlayerId::from_index(0u8))
@@ -6483,6 +6503,11 @@ mod tests {
             p.power_available = 77;
             p.power_produced = 88;
             p.power_consumed = 11;
+            p.is_alive = false;
+            p.radar_count = 3;
+            p.radar_disabled = true;
+            p.cash_bounty_percent = 0.25;
+            p.color_rgb = (9, 8, 7);
         }
         let mut frame = PresentationFrame::build_from_logic(&logic, 0);
         assert_eq!(frame.local_supplies, host_cash);
@@ -6492,6 +6517,16 @@ mod tests {
             assert_eq!(frame.local_power, 77);
             assert_eq!(frame.local_power_produced, 88);
             assert_eq!(frame.local_power_consumed, 11);
+        }
+        // Player residual always overlays from shadow when mapped.
+        assert!(!frame.local_is_alive);
+        assert_eq!(frame.local_radar_count, 3);
+        assert!(frame.local_radar_disabled);
+        assert!((frame.local_cash_bounty_percent - 0.25).abs() < 1e-5);
+        assert_eq!(frame.local_color_rgb, (9, 8, 7));
+        if let Some(pi) = frame.players.iter().find(|p| p.id == frame.local_player_id) {
+            assert!(!pi.is_alive);
+            assert_eq!(pi.color_rgb, (9, 8, 7));
         }
     }
 
