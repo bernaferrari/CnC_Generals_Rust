@@ -28,7 +28,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | Full `GameClient::update()` | **not** called (`draw_display` dual-own) | shell polls input+audio |
 
 - Target end state: `gamelogic::GameWorld` sole host; Main = composition root only.
-- Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/power/pose/targets + presentation overlay.
+- Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/power/radar/alive/bounty/pose/targets + presentation overlay.
 - Draw/render path is presentation-only (no live `Option<&GameLogic>` dual-read on execute/collect/selection/terrain).
 
 ## Ownership rules
