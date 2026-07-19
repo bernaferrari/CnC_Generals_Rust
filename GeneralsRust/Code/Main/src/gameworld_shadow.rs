@@ -1253,11 +1253,44 @@ impl GameWorldShadow {
             let Some(player) = logic.get_player_mut(hid) else {
                 continue;
             };
-            if player.resources.supplies != pd.supplies
-                || player.power_available != pd.power_available
-            {
+            let mut dirty = false;
+            if player.resources.supplies != pd.supplies {
                 player.resources.supplies = pd.supplies;
+                dirty = true;
+            }
+            if player.power_available != pd.power_available {
                 player.power_available = pd.power_available;
+                dirty = true;
+            }
+            if player.power_produced != pd.power_produced {
+                player.power_produced = pd.power_produced;
+                dirty = true;
+            }
+            if player.power_consumed != pd.power_consumed {
+                player.power_consumed = pd.power_consumed;
+                dirty = true;
+            }
+            if player.radar_count != pd.radar_count {
+                player.radar_count = pd.radar_count;
+                dirty = true;
+            }
+            if player.radar_disabled != pd.radar_disabled {
+                player.radar_disabled = pd.radar_disabled;
+                dirty = true;
+            }
+            if player.is_alive != pd.is_alive {
+                player.is_alive = pd.is_alive;
+                dirty = true;
+            }
+            if (player.cash_bounty_percent - pd.cash_bounty_percent).abs() > 1e-6 {
+                player.cash_bounty_percent = pd.cash_bounty_percent;
+                dirty = true;
+            }
+            if player.color_rgb != pd.color_rgb {
+                player.color_rgb = pd.color_rgb;
+                dirty = true;
+            }
+            if dirty {
                 updated += 1;
             }
         }
