@@ -512,6 +512,10 @@ pub enum WorldMutation {
         percent: f32,
         under_construction: bool,
     },
+    /// Set special-power ready residual on an entity.
+    SetSpecialPower { target: EntityId, ready: bool },
+    /// Set unit/structure stored supplies residual (supply truck / dock cargo).
+    SetStoredSupplies { target: EntityId, supplies: u32 },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -877,6 +881,18 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.construction_percent = percent.clamp(0.0, 1.0);
                         e.under_construction = under_construction;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetSpecialPower { target, ready } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.special_power_ready = ready;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetStoredSupplies { target, supplies } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.stored_supplies = supplies;
                         applied += 1;
                     }
                 }

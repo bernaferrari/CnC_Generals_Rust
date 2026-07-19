@@ -1658,6 +1658,14 @@ impl GameWorldShadow {
                 obj.force_attack = ent.force_attack;
                 dirty = true;
             }
+            if obj.special_power_ready != ent.special_power_ready {
+                obj.special_power_ready = ent.special_power_ready;
+                dirty = true;
+            }
+            if obj.stored_resources.supplies != ent.stored_supplies {
+                obj.stored_resources.supplies = ent.stored_supplies;
+                dirty = true;
+            }
             {
                 use crate::game_logic::VeterancyLevel as V;
                 let want = match ent.veterancy_ordinal.min(3) {
@@ -2423,6 +2431,59 @@ impl GameWorldShadow {
         true
     }
 
+    pub fn queue_set_special_power_for_host(&mut self, host: ObjectId, ready: bool) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetSpecialPower { target, ready });
+        true
+    }
+
+    pub fn queue_set_stored_supplies_for_host(&mut self, host: ObjectId, supplies: u32) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetStoredSupplies {
+                target,
+                supplies,
+            });
+        true
+    }
+
+    pub fn apply_host_special_power_events(
+        &mut self,
+        events: &[crate::game_logic::host_special_power_log::HostSpecialPowerEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_special_power_for_host(ev.object, ev.ready) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn apply_host_stored_supplies_events(
+        &mut self,
+        events: &[crate::game_logic::host_stored_supplies_log::HostStoredSuppliesEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_stored_supplies_for_host(ev.object, ev.supplies) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     /// Apply construction progress log as SetConstruction mutations.
     pub fn apply_host_construction_progress_events(
         &mut self,
@@ -2821,6 +2882,8 @@ pub fn shadow_session_after_host_tick(
     let production_events = crate::game_logic::host_production_log::drain();
     let construction_events = crate::game_logic::host_construction_log::drain();
     let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
+    let special_power_events = crate::game_logic::host_special_power_log::drain();
+    let stored_supplies_events = crate::game_logic::host_stored_supplies_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -2832,6 +2895,8 @@ pub fn shadow_session_after_host_tick(
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
     let _construction_progress_applied =
         shadow.apply_host_construction_progress_events(&construction_progress_events);
+    let _sp_applied = shadow.apply_host_special_power_events(&special_power_events);
+    let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -4283,6 +4348,100 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_special_power_log_drives_set_special_power_channel() {
+        use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SpReadyCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SpU") {
+            let mut t = ThingTemplate::new("SpU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("SpU".into(), t);
+        }
+        let id = logic
+            .create_object("SpU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        host_special_power_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_special_power_ready(true);
+        }
+        let events = host_special_power_log::drain();
+        assert!(events.iter().any(|e| e.object == id && e.ready));
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_special_power_ready(true);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.special_power_ready = false;
+        }
+        let n = shadow.apply_host_special_power_events(&host_special_power_log::drain());
+        assert!(n >= 1);
+        assert!(shadow.world().entity(eid).expect("e").special_power_ready);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.special_power_ready = false;
+        }
+        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        assert!(logic.get_objects().get(&id).expect("o").special_power_ready);
+    }
+
+    #[test]
+    fn host_stored_supplies_log_drives_set_stored_supplies_channel() {
+        use crate::game_logic::{host_stored_supplies_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("StoreSupCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SsU") {
+            let mut t = ThingTemplate::new("SsU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("SsU".into(), t);
+        }
+        let id = logic
+            .create_object("SsU", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        host_stored_supplies_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_stored_supplies(900);
+        }
+        let events = host_stored_supplies_log::drain();
+        assert!(events.iter().any(|e| e.object == id && e.supplies == 900));
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_stored_supplies(900);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.stored_supplies = 0;
+        }
+        let n = shadow.apply_host_stored_supplies_events(&host_stored_supplies_log::drain());
+        assert!(n >= 1);
+        assert_eq!(shadow.world().entity(eid).expect("e").stored_supplies, 900);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.stored_resources.supplies = 0;
+        }
+        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic
+                .get_objects()
+                .get(&id)
+                .expect("o")
+                .stored_resources
+                .supplies,
+            900
+        );
     }
 
     #[test]
