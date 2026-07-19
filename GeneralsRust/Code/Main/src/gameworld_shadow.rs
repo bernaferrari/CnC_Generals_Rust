@@ -396,6 +396,11 @@ impl GameWorldShadow {
                     e.disabled_underpowered = obj.status.disabled_underpowered;
                     e.disabled_unmanned = obj.status.disabled_unmanned;
                     e.disabled_hacked = obj.status.disabled_hacked;
+                    e.disabled_emp = obj.status.disabled_emp;
+                    e.disabled_paralyzed = obj.status.disabled_paralyzed;
+                    e.weapons_jammed = obj.status.weapons_jammed;
+                    e.masked = obj.status.masked;
+                    e.disguised = obj.status.disguised;
                     e.is_building = obj.building_data.is_some();
                     if let Some(bd) = obj.building_data.as_ref() {
                         e.building_type_ordinal =
@@ -684,6 +689,11 @@ impl GameWorldShadow {
                 e.disabled_underpowered = obj.status.disabled_underpowered;
                 e.disabled_unmanned = obj.status.disabled_unmanned;
                 e.disabled_hacked = obj.status.disabled_hacked;
+                e.disabled_emp = obj.status.disabled_emp;
+                e.disabled_paralyzed = obj.status.disabled_paralyzed;
+                e.weapons_jammed = obj.status.weapons_jammed;
+                e.masked = obj.status.masked;
+                e.disguised = obj.status.disguised;
                 e.is_building = obj.building_data.is_some();
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
@@ -1603,6 +1613,26 @@ impl GameWorldShadow {
             }
             if obj.status.is_aiming_weapon != ent.is_aiming_weapon {
                 obj.status.is_aiming_weapon = ent.is_aiming_weapon;
+                dirty = true;
+            }
+            if obj.status.disabled_emp != ent.disabled_emp {
+                obj.status.disabled_emp = ent.disabled_emp;
+                dirty = true;
+            }
+            if obj.status.disabled_paralyzed != ent.disabled_paralyzed {
+                obj.status.disabled_paralyzed = ent.disabled_paralyzed;
+                dirty = true;
+            }
+            if obj.status.weapons_jammed != ent.weapons_jammed {
+                obj.status.weapons_jammed = ent.weapons_jammed;
+                dirty = true;
+            }
+            if obj.status.masked != ent.masked {
+                obj.status.masked = ent.masked;
+                dirty = true;
+            }
+            if obj.status.disguised != ent.disguised {
+                obj.status.disguised = ent.disguised;
                 dirty = true;
             }
             if obj.status.selected != ent.selected {
@@ -3574,6 +3604,10 @@ mod tests {
             e.attacking = true;
             e.is_firing_weapon = true;
             e.is_aiming_weapon = true;
+            e.disabled_emp = true;
+            e.weapons_jammed = true;
+            e.masked = true;
+            e.disguised = true;
             e.selected = true;
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
@@ -3593,6 +3627,10 @@ mod tests {
         assert!(obj.status.attacking);
         assert!(obj.status.is_firing_weapon);
         assert!(obj.status.is_aiming_weapon);
+        assert!(obj.status.disabled_emp);
+        assert!(obj.status.weapons_jammed);
+        assert!(obj.status.masked);
+        assert!(obj.status.disguised);
         assert!(obj.status.selected);
         // Complete residual
         {
