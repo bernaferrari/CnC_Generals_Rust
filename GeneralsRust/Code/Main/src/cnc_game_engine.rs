@@ -2359,6 +2359,10 @@ impl CnCGameEngine {
                 } else {
                     self.set_runtime_host_ui_screen_override(None);
                     self.load_game_from_ui("quicksave");
+                    // Host residual: keep/return InGame after load so smoke can continue.
+                    if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                        self.request_state_change(GameState::InGame);
+                    }
                     self.runtime_host_last_gameplay_cmd = "load_ok:quicksave".into();
                 }
             }
