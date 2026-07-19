@@ -8198,12 +8198,32 @@ impl Object {
         if self.is_selectable() {
             self.selected = true;
             self.status.selected = true;
+            crate::game_logic::host_status_log::record_selected(self.id, true);
         }
     }
 
     pub fn deselect(&mut self) {
         self.selected = false;
         self.status.selected = false;
+        crate::game_logic::host_status_log::record_selected(self.id, false);
+    }
+
+    /// Host combat residual: mark attacking and log for GameWorld status channel.
+    pub fn set_status_attacking(&mut self, attacking: bool) {
+        self.status.attacking = attacking;
+        crate::game_logic::host_status_log::record_attacking(self.id, attacking);
+    }
+
+    /// Host weapon fire residual + status channel log.
+    pub fn set_status_firing_weapon(&mut self, firing: bool) {
+        self.status.is_firing_weapon = firing;
+        crate::game_logic::host_status_log::record_firing(self.id, firing);
+    }
+
+    /// Host weapon aim residual + status channel log.
+    pub fn set_status_aiming_weapon(&mut self, aiming: bool) {
+        self.status.is_aiming_weapon = aiming;
+        crate::game_logic::host_status_log::record_aiming(self.id, aiming);
     }
 
     /// Set the AI state for autonomous behavior
