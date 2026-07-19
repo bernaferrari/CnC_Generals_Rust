@@ -667,6 +667,13 @@ pub enum WorldMutation {
         target: EntityId,
         model_condition_bits: u128,
     },
+    /// Host demo-suicide / mine-present / cheer-timer residual.
+    SetDemoMineCheer {
+        target: EntityId,
+        demo_suicided_detonating: bool,
+        has_mine_data: bool,
+        cheer_timer: f32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1357,6 +1364,19 @@ impl GameWorld {
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.model_condition_bits = model_condition_bits;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetDemoMineCheer {
+                    target,
+                    demo_suicided_detonating,
+                    has_mine_data,
+                    cheer_timer,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.demo_suicided_detonating = demo_suicided_detonating;
+                        e.has_mine_data = has_mine_data;
+                        e.cheer_timer = cheer_timer;
                         applied += 1;
                     }
                 }
