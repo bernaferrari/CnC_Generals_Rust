@@ -516,6 +516,8 @@ pub enum WorldMutation {
     SetSpecialPower { target: EntityId, ready: bool },
     /// Set unit/structure stored supplies residual (supply truck / dock cargo).
     SetStoredSupplies { target: EntityId, supplies: u32 },
+    /// Set AI state ordinal residual (Idle=0 .. Capturing=19, GuardRetaliating=20).
+    SetAiState { target: EntityId, ordinal: u8 },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -893,6 +895,12 @@ impl GameWorld {
                 WorldMutation::SetStoredSupplies { target, supplies } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.stored_supplies = supplies;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetAiState { target, ordinal } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.ai_state_ordinal = ordinal;
                         applied += 1;
                     }
                 }

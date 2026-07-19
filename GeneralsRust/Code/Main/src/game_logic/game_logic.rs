@@ -3839,7 +3839,7 @@ impl GameLogic {
             let dir = dir.normalize_or_zero();
             unit.movement.velocity = dir * unit.movement.max_speed;
         }
-        unit.ai_state = AIState::Moving;
+        unit.set_ai_state(AIState::Moving);
         unit.set_status_moving(true);
         true
     }
@@ -3924,7 +3924,7 @@ impl GameLogic {
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(unit.movement.path[1]);
                     unit.set_status_moving(true);
-                    unit.ai_state = AIState::Attacking;
+                    unit.set_ai_state(AIState::Attacking);
                     unit.set_status_attacking(true);
                     if let Some(tid) = target_id {
                         unit.target = Some(tid);
@@ -3940,7 +3940,7 @@ impl GameLogic {
         // Fallback: path to target footprint (prior residual).
         if self.assign_unit_path(unit_id, target_pos, &[]) {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
-                unit.ai_state = AIState::Attacking;
+                unit.set_ai_state(AIState::Attacking);
                 unit.set_status_attacking(true);
                 if let Some(tid) = target_id {
                     unit.target = Some(tid);
@@ -4050,11 +4050,11 @@ impl GameLogic {
     fn path_approach_with_state(&mut self, object_id: ObjectId, goal: Vec3, state: AIState) {
         if self.assign_unit_path(object_id, goal, &[]) {
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.ai_state = state;
+                obj.set_ai_state(state);
             }
         } else if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_destination(goal);
-            obj.ai_state = state;
+            obj.set_ai_state(state);
         }
     }
 
@@ -4116,7 +4116,7 @@ impl GameLogic {
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
-        unit.ai_state = AIState::Moving;
+        unit.set_ai_state(AIState::Moving);
         unit.set_status_moving(true);
         true
     }
@@ -5928,7 +5928,7 @@ impl GameLogic {
                 {
                     obj.set_target(None);
                     obj.stop_moving();
-                    obj.ai_state = AIState::Idle;
+                    obj.set_ai_state(AIState::Idle);
                 }
             }
             if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
@@ -6479,7 +6479,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.move_to(target_position);
                 if let Some(state) = ai_state_override {
-                    obj.ai_state = state;
+                    obj.set_ai_state(state);
                 }
             }
             return;
@@ -6497,7 +6497,7 @@ impl GameLogic {
                     obj.movement.current_path_index = 1; // skip start node
                                                          // target_position will be set to path[1] by update_movement
                     obj.movement.target_position = Some(obj.movement.path[1]);
-                    obj.ai_state = ai_state_override.unwrap_or(AIState::Moving);
+                    obj.set_ai_state(ai_state_override.unwrap_or(AIState::Moving));
                     obj.set_status_moving(true);
                     // Final destination for shadow move channel (not intermediate waypoint).
                     crate::game_logic::host_move_log::record(
@@ -6507,14 +6507,14 @@ impl GameLogic {
                 } else {
                     obj.move_to(target_position);
                     if let Some(state) = ai_state_override {
-                        obj.ai_state = state;
+                        obj.set_ai_state(state);
                     }
                 }
             } else {
                 // No path found — fall back to direct movement.
                 obj.move_to(target_position);
                 if let Some(state) = ai_state_override {
-                    obj.ai_state = state;
+                    obj.set_ai_state(state);
                 }
             }
         }
@@ -7280,7 +7280,7 @@ impl GameLogic {
         u.stop_moving();
         u.set_status_attacking(false);
         u.target = None;
-        u.ai_state = AIState::Idle;
+        u.set_ai_state(AIState::Idle);
         true
     }
 
@@ -7986,7 +7986,7 @@ impl GameLogic {
             }
             // C++ aiMoveToObject residual.
             u.move_to(pos);
-            u.ai_state = AIState::Moving;
+            u.set_ai_state(AIState::Moving);
             // Remember crate as approach target via requested_victim residual optional.
             u.requested_victim_id = Some(crate_id);
             true
@@ -8109,7 +8109,7 @@ impl GameLogic {
         // Rider: contained + parachuting residual (hidden inside chute).
         if let Some(r) = self.objects.get_mut(&rider_id) {
             r.contained_by = Some(chute_id);
-            r.ai_state = crate::game_logic::AIState::Docked;
+            r.set_ai_state(crate::game_logic::AIState::Docked);
             r.set_position(pos);
             r.apply_eject_parachuting();
             // Still not selectable while in chute (partition restore already cleared
@@ -9208,7 +9208,7 @@ impl GameLogic {
             };
             u.target = Some(victim_id);
             u.set_status_attacking(true);
-            u.ai_state = AIState::Attacking;
+            u.set_ai_state(AIState::Attacking);
             u.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
             if u.max_shots_to_fire == 0 {
                 u.max_shots_to_fire = -1;
@@ -9413,7 +9413,7 @@ impl GameLogic {
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.target = Some(victim_id);
             u.set_status_attacking(true);
-            u.ai_state = AIState::Attacking;
+            u.set_ai_state(AIState::Attacking);
         }
 
         let in_range = {
@@ -9832,7 +9832,7 @@ impl GameLogic {
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_status_aiming_weapon(true);
             u.set_status_attacking(true);
-            u.ai_state = AIState::Attacking;
+            u.set_ai_state(AIState::Attacking);
         }
         // C++ AIAttackAimAtTargetState sets turret target when tur != INVALID.
         if let Some(vid) = tid {
@@ -9932,7 +9932,7 @@ impl GameLogic {
         }
         u.set_status_firing_weapon(true);
         u.set_status_attacking(true);
-        u.ai_state = AIState::Attacking;
+        u.set_ai_state(AIState::Attacking);
         true
     }
 
@@ -9996,7 +9996,7 @@ impl GameLogic {
             };
             u.set_status_firing_weapon(true);
             u.target = Some(victim_id);
-            u.ai_state = AIState::Attacking;
+            u.set_ai_state(AIState::Attacking);
             u.set_status_attacking(true);
             u.fire_at(victim_id, current_time)
         };
@@ -10720,7 +10720,7 @@ impl GameLogic {
             a.movement.path.clear();
             a.movement.current_path_index = 0;
             a.movement.target_position = Some(dest);
-            a.ai_state = AIState::Attacking;
+            a.set_ai_state(AIState::Attacking);
             a.set_status_attacking(true);
             a.set_status_moving(true);
             crate::game_logic::host_move_log::record(attacker_id, Some([dest.x, dest.y, dest.z]));
@@ -10794,7 +10794,7 @@ impl GameLogic {
         };
         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             attacker.target = Some(next_id);
-            attacker.ai_state = AIState::Attacking;
+            attacker.set_ai_state(AIState::Attacking);
             attacker.set_status_attacking(true);
             true
         } else {
@@ -11119,7 +11119,7 @@ impl GameLogic {
             } else {
                 // C++ setProducer + park residual: dock at airfield hangar.
                 jet.contained_by = Some(af_id);
-                jet.ai_state = AIState::Docked;
+                jet.set_ai_state(AIState::Docked);
                 jet.set_status_moving(false);
                 jet.status.airborne_target = false;
                 jet.movement.path.clear();
@@ -11503,7 +11503,7 @@ impl GameLogic {
                     // is within aim delta; turn in place toward the target instead.
                     {
                         let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            attacker.ai_state = AIState::Attacking;
+                            attacker.set_ai_state(AIState::Attacking);
                             attacker.set_status_attacking(true);
                             attacker.target = Some(target_id);
                             // Stationary / can-turn-in-place residual: complete the yaw
@@ -11552,7 +11552,7 @@ impl GameLogic {
                             // Out of pitch: keep engagement but do not fire this frame
                             // (C++ AI continues aiming / repositioning).
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                attacker.ai_state = AIState::Attacking;
+                                attacker.set_ai_state(AIState::Attacking);
                                 attacker.set_status_attacking(true);
                                 attacker.target = Some(target_id);
                             }
@@ -11598,7 +11598,7 @@ impl GameLogic {
                                 }
                                 if current_time + 1e-6 < attacker.pre_attack_ready_at {
                                     attacker.target = Some(target_id);
-                                    attacker.ai_state = AIState::Attacking;
+                                    attacker.set_ai_state(AIState::Attacking);
                                     attacker.set_status_attacking(true);
                                     true
                                 } else {
@@ -13041,7 +13041,7 @@ impl GameLogic {
                                     Some([approach.x, approach.y, approach.z]),
                                 );
                                 attacker.set_status_moving(true);
-                                attacker.ai_state = AIState::Attacking;
+                                attacker.set_ai_state(AIState::Attacking);
                                 attacker.set_status_attacking(true);
                             }
                         }
@@ -13103,7 +13103,7 @@ impl GameLogic {
                     // AcceptableAimDelta residual for force-attack-ground.
                     let ground_slot: u8 = if rocket_pod_ground { 1 } else { 0 };
                     let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        attacker.ai_state = AIState::AttackingGround;
+                        attacker.set_ai_state(AIState::AttackingGround);
                         attacker.set_status_attacking(true);
                         let max_step = if attacker.status.moving && attacker.can_move() {
                             0.2
@@ -13909,7 +13909,7 @@ impl GameLogic {
             }
             AICommand::SetAIState { object_id, state } => {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.ai_state = state;
+                    obj.set_ai_state(state);
                 }
             }
         }
@@ -14140,7 +14140,7 @@ impl GameLogic {
                         None => {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.set_target(None);
-                                obj.ai_state = AIState::Idle;
+                                obj.set_ai_state(AIState::Idle);
                                 obj.set_actively_constructing(false);
                             }
                             continue;
@@ -14150,7 +14150,7 @@ impl GameLogic {
                         // Another dozer owns sole-benefactor claim — cancel this dozer task.
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
-                            obj.ai_state = AIState::Idle;
+                            obj.set_ai_state(AIState::Idle);
                             obj.set_actively_constructing(false);
                         }
                         self.sole_benefactor_repair_rejects =
@@ -14171,7 +14171,7 @@ impl GameLogic {
                         self.repair_complete_events = self.repair_complete_events.saturating_add(1);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
-                            obj.ai_state = AIState::Idle;
+                            obj.set_ai_state(AIState::Idle);
                             obj.set_actively_constructing(false);
                         }
                     }
@@ -14289,7 +14289,7 @@ impl GameLogic {
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_target(None);
                         } else {
-                            obj.ai_state = state;
+                            obj.set_ai_state(state);
                         }
                     }
                     if vehicle_healed {
@@ -14597,11 +14597,12 @@ impl GameLogic {
                         obj.target = Some(container_id);
                         obj.contained_by = Some(container_id);
                         obj.set_position(container_pos);
-                        obj.ai_state = if container_is_structure {
+                        let __ai_st = if container_is_structure {
                             AIState::Garrisoned
                         } else {
                             AIState::Docked
                         };
+                        obj.set_ai_state(__ai_st);
                         obj.set_status_moving(false);
                     }
                     if container_is_tunnel_network {
@@ -14723,11 +14724,11 @@ impl GameLogic {
                     if can_move && position.distance(target_position) > capture_range {
                         if self.assign_unit_path(object_id, target_position, &[]) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.ai_state = AIState::Capturing;
+                                obj.set_ai_state(AIState::Capturing);
                             }
                         } else if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_destination(target_position);
-                            obj.ai_state = AIState::Capturing;
+                            obj.set_ai_state(AIState::Capturing);
                         }
                         continue;
                     }
@@ -15600,7 +15601,7 @@ impl GameLogic {
                                 obj.apply_disguise(&tpl, as_team);
                                 obj.stop_moving();
                                 obj.set_target(None);
-                                obj.ai_state = AIState::Idle;
+                                obj.set_ai_state(AIState::Idle);
                             }
                             self.bomb_truck_disguise.record_disguise(object_id, &tpl);
                             self.bomb_truck_disguise.record_transition_start();
@@ -19407,7 +19408,7 @@ impl GameLogic {
                 unit.set_position(building_pos + offset);
                 unit.set_target(None);
                 unit.contained_by = None;
-                unit.ai_state = AIState::Idle;
+                unit.set_ai_state(AIState::Idle);
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
             }
@@ -21091,7 +21092,7 @@ impl GameLogic {
                                 if let Some(a) = self.objects.get_mut(&object_id) {
                                     a.set_position(stand);
                                     a.attack_target(target_id);
-                                    a.ai_state = AIState::Attacking;
+                                    a.set_ai_state(AIState::Attacking);
                                     a.set_status_attacking(true);
                                     a.set_status_moving(false);
                                     a.movement.velocity = glam::Vec3::ZERO;
@@ -21354,7 +21355,7 @@ impl GameLogic {
                             unit.set_position(eject_origin + offset);
                             unit.set_target(None);
                             unit.contained_by = None;
-                            unit.ai_state = AIState::Idle;
+                            unit.set_ai_state(AIState::Idle);
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
                         }
@@ -21617,7 +21618,7 @@ impl GameLogic {
                     if other_obj.guard_target == Some(destroyed_id) {
                         other_obj.guard_target = None;
                         if other_obj.ai_state == AIState::GuardingObject {
-                            other_obj.ai_state = AIState::Idle;
+                            other_obj.set_ai_state(AIState::Idle);
                         }
                     }
                 }
@@ -24238,7 +24239,7 @@ impl GameLogic {
                     hunter.weapon = Some(tank_hunter_missile_weapon());
                 }
                 hunter.contained_by = Some(outpost_id);
-                hunter.ai_state = AIState::Docked;
+                hunter.set_ai_state(AIState::Docked);
                 hunter.stop_moving();
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
@@ -24319,7 +24320,7 @@ impl GameLogic {
                     });
                 }
                 guard.contained_by = Some(crawler_id);
-                guard.ai_state = AIState::Docked;
+                guard.set_ai_state(AIState::Docked);
                 guard.stop_moving();
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
@@ -24602,7 +24603,7 @@ impl GameLogic {
             attacker.target = Some(target_id);
             attacker.target_location = None;
             attacker.set_status_force_attack(false);
-            attacker.ai_state = AIState::Attacking;
+            attacker.set_ai_state(AIState::Attacking);
             attacker.set_status_attacking(true);
             // Turret natural-position residual: aim pitch/yaw at target (FirePitch 45).
             let (aim_a, aim_p) =
@@ -24839,7 +24840,7 @@ impl GameLogic {
             attacker.target = Some(target_id);
             attacker.target_location = None;
             attacker.set_status_force_attack(false);
-            attacker.ai_state = AIState::Attacking;
+            attacker.set_ai_state(AIState::Attacking);
             attacker.set_status_attacking(true);
             if destroyed {
                 attacker.gain_experience(kill_xp);
@@ -25194,7 +25195,7 @@ impl GameLogic {
                     w.last_fire_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
                 }
                 asst.target = Some(clip.victim_id);
-                asst.ai_state = AIState::Attacking;
+                asst.set_ai_state(AIState::Attacking);
                 asst.set_status_attacking(true);
                 if destroyed {
                     asst.gain_experience(kill_xp);
@@ -32445,7 +32446,7 @@ impl GameLogic {
             attacker.target = Some(target_id);
             attacker.target_location = None;
             attacker.set_status_force_attack(false);
-            attacker.ai_state = AIState::Attacking;
+            attacker.set_ai_state(AIState::Attacking);
             attacker.set_status_attacking(true);
             // STEALTH_NOT_WHILE_ATTACKING residual.
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
@@ -32561,7 +32562,7 @@ impl GameLogic {
             attacker.target = Some(target_id);
             attacker.target_location = None;
             attacker.set_status_force_attack(false);
-            attacker.ai_state = AIState::Attacking;
+            attacker.set_ai_state(AIState::Attacking);
             attacker.set_status_attacking(true);
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();
@@ -32759,7 +32760,7 @@ impl GameLogic {
                 continue;
             }
             occ.contained_by = None;
-            occ.ai_state = AIState::Idle;
+            occ.set_ai_state(AIState::Idle);
             // Residual occupant damage (BunkerBusterAntiTunnel ~400) — lethal for infantry.
             let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
             if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
@@ -32840,7 +32841,7 @@ impl GameLogic {
                 continue;
             }
             occ.contained_by = None;
-            occ.ai_state = AIState::Idle;
+            occ.set_ai_state(AIState::Idle);
             let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
             if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);
@@ -33787,7 +33788,7 @@ impl GameLogic {
                         o.turret_mood_target = false;
                         o.set_status_attacking(false);
                         if matches!(o.ai_state, AIState::Attacking) {
-                            o.ai_state = AIState::Idle;
+                            o.set_ai_state(AIState::Idle);
                         }
                     }
                     clears = clears.saturating_add(1);
@@ -33798,7 +33799,7 @@ impl GameLogic {
                     if let Some(o) = self.objects.get_mut(&cid) {
                         o.turret_angle_deg = aim_a;
                         o.turret_pitch_deg = aim_p;
-                        o.ai_state = AIState::Attacking;
+                        o.set_ai_state(AIState::Attacking);
                         o.set_status_attacking(true);
                     }
                 }
@@ -33884,7 +33885,7 @@ impl GameLogic {
                     o.turret_holding = false;
                     o.turret_hold_until_frame = 0;
                     o.turret_idle_recentering = false;
-                    o.ai_state = AIState::Attacking;
+                    o.set_ai_state(AIState::Attacking);
                     o.set_status_attacking(true);
                 }
                 acquires = acquires.saturating_add(1);
@@ -34271,7 +34272,7 @@ impl GameLogic {
 
         let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
             r.contained_by = None;
-            r.ai_state = AIState::Idle;
+            r.set_ai_state(AIState::Idle);
             r.set_position(eject_pos);
             // Chute destroyed → freefall residual (chute closed, still parachuting sink).
             r.set_status_parachute_open(false);
@@ -36630,7 +36631,7 @@ impl GameLogic {
                 }
                 if let Some(r) = self.objects.get_mut(rid) {
                     r.contained_by = None;
-                    r.ai_state = AIState::Idle;
+                    r.set_ai_state(AIState::Idle);
                     r.set_position(land_pos);
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
@@ -36911,7 +36912,7 @@ impl GameLogic {
                     if new_struct_hp <= 0.0 {
                         obj.health.current = 0.0;
                         obj.status.destroyed = true;
-                        obj.ai_state = AIState::Idle;
+                        obj.set_ai_state(AIState::Idle);
                         obj.target = None;
                         destroyed = true;
                     }
@@ -37400,7 +37401,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_target(Some(tid));
             obj.target_location = None;
-            obj.ai_state = AIState::Constructing;
+            obj.set_ai_state(AIState::Constructing);
         }
         self.path_approach_with_state(unit_id, tpos, AIState::Constructing);
     }
@@ -39310,7 +39311,7 @@ impl GameLogic {
             if had_hits {
                 if let Some(mob) = self.objects.get_mut(&plan.mob_id) {
                     mob.set_status_attacking(true);
-                    mob.ai_state = AIState::Attacking;
+                    mob.set_ai_state(AIState::Attacking);
                 }
                 let muzzle = self
                     .objects
@@ -39881,7 +39882,7 @@ impl GameLogic {
                         continue;
                     }
                     enemy.target = Some(rid);
-                    enemy.ai_state = AIState::Attacking;
+                    enemy.set_ai_state(AIState::Attacking);
                     self.camo_netting_order_idle_enemies_count =
                         self.camo_netting_order_idle_enemies_count.saturating_add(1);
                 }
@@ -40525,7 +40526,7 @@ impl GameLogic {
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
-                    obj.ai_state = AIState::Moving;
+                    obj.set_ai_state(AIState::Moving);
                     obj.movement.target_position = Some(mine_pos);
                     crate::game_logic::host_move_log::record(
                         clearer_id,
@@ -40592,7 +40593,7 @@ impl GameLogic {
                 clearer.target = None;
             }
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
-                clearer.ai_state = AIState::Idle;
+                clearer.set_ai_state(AIState::Idle);
                 clearer.movement.target_position = None;
                 clearer.set_status_moving(false);
                 clearer.set_status_attacking(false);
@@ -42244,7 +42245,7 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_moving();
                     obj.stop_attack();
-                    obj.ai_state = AIState::Idle;
+                    obj.set_ai_state(AIState::Idle);
                 }
             }
             log::trace!("{} commanded {} units to stop", player_id, selected.len());
@@ -42904,14 +42905,14 @@ impl GameLogic {
                         obj.ai_state,
                         AIState::Moving | AIState::Constructing | AIState::Repairing
                     ) {
-                        obj.ai_state = AIState::Idle;
+                        obj.set_ai_state(AIState::Idle);
                     }
                 }
                 if matches!(
                     obj.ai_state,
                     AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                 ) {
-                    obj.ai_state = AIState::Idle;
+                    obj.set_ai_state(AIState::Idle);
                 }
             }
         }
@@ -46770,7 +46771,7 @@ impl GameLogic {
                         unit.set_position(pos + offset);
                         unit.set_target(None);
                         unit.contained_by = None;
-                        unit.ai_state = AIState::Idle;
+                        unit.set_ai_state(AIState::Idle);
                         unit.set_status_moving(false);
                         unit.set_status_attacking(false);
                     }
@@ -46818,7 +46819,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving();
             obj.set_target(None);
-            obj.ai_state = AIState::Idle;
+            obj.set_ai_state(AIState::Idle);
             obj.set_status_moving(false);
             obj.set_status_attacking(false);
             // C++ Object::setCaptured(true) residual (sticky private status).
@@ -46916,7 +46917,7 @@ impl GameLogic {
                 unit.set_position(pos + offset);
                 unit.set_target(None);
                 unit.contained_by = None;
-                unit.ai_state = AIState::Idle;
+                unit.set_ai_state(AIState::Idle);
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
                 // Occupants keep their own team residual (don't flip with container).
@@ -46981,7 +46982,7 @@ impl GameLogic {
                 unit.set_position(pos + offset);
                 unit.set_target(None);
                 unit.contained_by = None;
-                unit.ai_state = AIState::Idle;
+                unit.set_ai_state(AIState::Idle);
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
             }
@@ -47032,7 +47033,7 @@ impl GameLogic {
                             unit.set_position(pos + offset);
                             unit.set_target(None);
                             unit.contained_by = None;
-                            unit.ai_state = AIState::Idle;
+                            unit.set_ai_state(AIState::Idle);
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
                         }
@@ -47097,7 +47098,7 @@ impl GameLogic {
             obj.set_status_unselectable(true);
             obj.set_status_under_construction(false);
             obj.status.selected = false;
-            obj.ai_state = AIState::Idle;
+            obj.set_ai_state(AIState::Idle);
             obj.apply_sell_scaffold_model_conditions();
         }
         // Deselect from all players.
@@ -47229,7 +47230,7 @@ impl GameLogic {
             };
             if targeting || (constructing && nearby) {
                 obj.target = None;
-                obj.ai_state = AIState::Idle;
+                obj.set_ai_state(AIState::Idle);
                 obj.set_actively_constructing(false);
                 cancelled = cancelled.saturating_add(1);
             }
@@ -47286,7 +47287,7 @@ impl GameLogic {
             }
             if let Some(dozer) = self.objects.get_mut(&dozer_id) {
                 dozer.target = Some(structure_id);
-                dozer.ai_state = AIState::Constructing;
+                dozer.set_ai_state(AIState::Constructing);
                 dozer.set_actively_constructing(true);
             }
             // Structure awaiting → actively being constructed residual when dozer assigned.
@@ -47429,7 +47430,7 @@ impl GameLogic {
             if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.target = Some(target_id);
-                    obj.ai_state = AIState::Repairing;
+                    obj.set_ai_state(AIState::Repairing);
                     obj.set_actively_constructing(true);
                     obj.idle_since_frame = 0;
                 }
@@ -47446,7 +47447,7 @@ impl GameLogic {
                     .unwrap_or(glam::Vec3::ZERO);
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.target = Some(mine_id);
-                    obj.ai_state = AIState::Attacking;
+                    obj.set_ai_state(AIState::Attacking);
                     obj.set_status_attacking(true);
                     obj.idle_since_frame = 0;
                 }
@@ -47782,7 +47783,7 @@ impl GameLogic {
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 w.set_status_unselectable(true);
                 w.set_status_masked(false);
-                w.ai_state = AIState::Constructing;
+                w.set_ai_state(AIState::Constructing);
             }
             self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
 
@@ -47803,7 +47804,7 @@ impl GameLogic {
             }
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 w.target = Some(new_id);
-                w.ai_state = AIState::Constructing;
+                w.set_ai_state(AIState::Constructing);
                 w.set_actively_constructing(true);
             }
             if let Some(h) = self.objects.get_mut(&hole_id) {
@@ -49743,7 +49744,7 @@ mod tests {
             .expect("attacker should exist");
         attacker.set_force_attack(true);
         attacker.set_target_location(Some(target_location));
-        attacker.ai_state = AIState::AttackingGround;
+        attacker.set_ai_state(AIState::AttackingGround);
         attacker.set_status_attacking(true);
         if let Some(weapon) = attacker.weapon.as_mut() {
             weapon.damage = 40.0;
@@ -49772,7 +49773,7 @@ mod tests {
                 .find_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(transport_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
             unit.set_status_moving(true);
         }
 
@@ -49813,7 +49814,7 @@ mod tests {
                 .find_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(transport_id);
-            unit.ai_state = AIState::Docking;
+            unit.set_ai_state(AIState::Docking);
         }
 
         game_logic.update_ai(&[transport_id, unit_id], 1.0 / 60.0);
@@ -49856,7 +49857,7 @@ mod tests {
                 .find_object_mut(enemy_occupant_id)
                 .expect("enemy occupant should exist");
             enemy_occupant.target = Some(enemy_transport_id);
-            enemy_occupant.ai_state = AIState::Docked;
+            enemy_occupant.set_ai_state(AIState::Docked);
         }
 
         game_logic.queue_command(crate::command_system::GameCommand {
@@ -49937,7 +49938,7 @@ mod tests {
                 .find_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(enemy_barracks_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
             unit.set_status_moving(true);
         }
 
@@ -49973,7 +49974,7 @@ mod tests {
                 .find_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(enemy_garrison_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
             unit.set_status_moving(true);
         }
 
@@ -50006,7 +50007,7 @@ mod tests {
             let guard = game_logic
                 .find_object_mut(guard_id)
                 .expect("guard should exist");
-            guard.ai_state = AIState::GuardingArea;
+            guard.set_ai_state(AIState::GuardingArea);
             guard.guard_position = Some(Vec3::new(0.0, 0.0, 0.0));
             guard.guard_radius = 100.0;
         }
@@ -50159,7 +50160,7 @@ mod tests {
                 .find_object_mut(repairer_id)
                 .expect("repairer should exist");
             repairer.target = Some(damaged_id);
-            repairer.ai_state = AIState::Repairing;
+            repairer.set_ai_state(AIState::Repairing);
         }
         let before = game_logic
             .find_object(damaged_id)
@@ -50199,7 +50200,7 @@ mod tests {
                 .expect("unit should exist");
             let _ = unit.take_damage(90.0);
             unit.target = Some(repair_bay_id);
-            unit.ai_state = AIState::SeekingRepair;
+            unit.set_ai_state(AIState::SeekingRepair);
         }
         let before = game_logic
             .find_object(unit_id)
@@ -50245,7 +50246,7 @@ mod tests {
                 .expect("unit should exist");
             let _ = unit.take_damage(90.0);
             unit.target = Some(repair_bay_id);
-            unit.ai_state = AIState::SeekingRepair;
+            unit.set_ai_state(AIState::SeekingRepair);
             unit.set_status_moving(true);
         }
 
@@ -50282,7 +50283,7 @@ mod tests {
                 .find_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(transport_id);
-            unit.ai_state = AIState::Docked;
+            unit.set_ai_state(AIState::Docked);
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
 
@@ -50425,7 +50426,7 @@ mod tests {
                 .find_object_mut(captor_id)
                 .expect("captor should exist");
             captor.target = Some(building_id);
-            captor.ai_state = AIState::Capturing;
+            captor.set_ai_state(AIState::Capturing);
         }
 
         game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
@@ -50483,7 +50484,7 @@ mod tests {
                 .find_object_mut(captor_id)
                 .expect("captor should exist");
             captor.target = Some(barracks_id);
-            captor.ai_state = AIState::Capturing;
+            captor.set_ai_state(AIState::Capturing);
         }
 
         game_logic.update_ai(&[captor_id, barracks_id], 1.0 / 60.0);
@@ -50588,7 +50589,7 @@ mod tests {
                 .find_object_mut(captor_id)
                 .expect("captor should exist");
             captor.target = Some(building_id);
-            captor.ai_state = AIState::Capturing;
+            captor.set_ai_state(AIState::Capturing);
         }
 
         game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
@@ -51952,7 +51953,7 @@ mod tests {
                 .find_object_mut(actor_id)
                 .expect("actor should exist");
             actor.target = Some(target_id);
-            actor.ai_state = AIState::SpecialAbility;
+            actor.set_ai_state(AIState::SpecialAbility);
         }
 
         game_logic.update_ai(&[actor_id, target_id], 1.0 / 60.0);
@@ -52200,7 +52201,7 @@ mod tests {
                 .find_object_mut(hijacker_id)
                 .expect("hijacker should exist");
             hijacker.set_position(Vec3::new(2.0, 0.0, 0.0));
-            hijacker.ai_state = AIState::SpecialAbility;
+            hijacker.set_ai_state(AIState::SpecialAbility);
             hijacker.target = Some(target_id);
         }
         game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
@@ -52304,7 +52305,7 @@ mod tests {
                 .find_object_mut(saboteur_id)
                 .expect("saboteur should exist");
             saboteur.set_position(Vec3::new(2.0, 0.0, 0.0));
-            saboteur.ai_state = AIState::SpecialAbility;
+            saboteur.set_ai_state(AIState::SpecialAbility);
             saboteur.target = Some(target_id);
         }
         game_logic.frame = 30;
@@ -52386,7 +52387,7 @@ mod tests {
         {
             let s = game_logic.find_object_mut(saboteur_id).unwrap();
             s.set_position(Vec3::new(1.0, 0.0, 0.0));
-            s.ai_state = AIState::SpecialAbility;
+            s.set_ai_state(AIState::SpecialAbility);
             s.target = Some(target_id);
         }
         game_logic.frame = 10;
@@ -52490,7 +52491,7 @@ mod tests {
                 .find_object_mut(sniper_id)
                 .expect("sniper should exist");
             sniper.set_position(Vec3::new(2.0, 0.0, 0.0));
-            sniper.ai_state = AIState::SpecialAbility;
+            sniper.set_ai_state(AIState::SpecialAbility);
             sniper.target = Some(target_id);
         }
         game_logic.update_ai(&[sniper_id, target_id], 1.0 / 60.0);
@@ -52759,7 +52760,7 @@ mod tests {
             w.set_stored_supplies(100);
             w.set_position(Vec3::new(5.0, 0.0, 0.0));
             w.target = Some(supply_id);
-            w.ai_state = AIState::ReturningResources;
+            w.set_ai_state(AIState::ReturningResources);
         }
         let cash_before = game_logic
             .get_player(0)
@@ -52825,7 +52826,7 @@ mod tests {
                 .find_object_mut(burton_id)
                 .expect("burton should exist");
             burton.set_position(Vec3::new(2.0, 0.0, 0.0));
-            burton.ai_state = AIState::SpecialAbility;
+            burton.set_ai_state(AIState::SpecialAbility);
             burton.target = Some(target_id);
         }
         game_logic.update_ai(&[burton_id, target_id], 1.0 / 60.0);
@@ -52902,7 +52903,7 @@ mod tests {
                 .find_object_mut(burton_id)
                 .expect("burton should exist");
             burton.set_position(Vec3::new(2.0, 0.0, 0.0));
-            burton.ai_state = AIState::SpecialAbility;
+            burton.set_ai_state(AIState::SpecialAbility);
             burton.target = Some(target_id);
         }
         game_logic.update_ai(&[burton_id, target_id, enemy_id], 1.0 / 60.0);
@@ -54191,7 +54192,7 @@ mod tests {
         // Residual: place hacker inside Internet Center.
         if let Some(obj) = game_logic.find_object_mut(hacker_id) {
             obj.contained_by = Some(ic_id);
-            obj.ai_state = AIState::Docked;
+            obj.set_ai_state(AIState::Docked);
         }
 
         let cash_before = game_logic
@@ -54402,7 +54403,7 @@ mod tests {
                 .find_object_mut(lotus_id)
                 .expect("lotus should exist");
             lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-            lotus.ai_state = AIState::SpecialAbility;
+            lotus.set_ai_state(AIState::SpecialAbility);
             lotus.target = Some(target_id);
         }
         game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
@@ -54581,7 +54582,7 @@ mod tests {
                 .find_object_mut(lotus_id)
                 .expect("lotus should exist");
             lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-            lotus.ai_state = AIState::SpecialAbility;
+            lotus.set_ai_state(AIState::SpecialAbility);
             lotus.target = Some(target_id);
         }
         game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
@@ -54682,7 +54683,7 @@ mod tests {
         {
             let lotus = game_logic.find_object_mut(lotus_id).expect("lotus");
             lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-            lotus.ai_state = AIState::Capturing;
+            lotus.set_ai_state(AIState::Capturing);
             lotus.target = Some(building_id);
         }
         game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
@@ -54834,7 +54835,7 @@ mod tests {
         {
             let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
             enemy.target = Some(ecm_id);
-            enemy.ai_state = AIState::Attacking;
+            enemy.set_ai_state(AIState::Attacking);
             enemy.set_status_attacking(true);
         }
         let ecm_hp_before = game_logic.find_object(ecm_id).expect("ecm").health.current;
@@ -55064,7 +55065,7 @@ mod tests {
         {
             let vehicle = game_logic.find_object_mut(vehicle_id).expect("vehicle");
             vehicle.target = Some(far_vehicle_id);
-            vehicle.ai_state = AIState::Attacking;
+            vehicle.set_ai_state(AIState::Attacking);
             vehicle.set_status_attacking(true);
         }
         let far_hp_before = game_logic
@@ -55296,7 +55297,7 @@ mod tests {
         {
             let ally = game_logic.find_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
-            ally.ai_state = AIState::Attacking;
+            ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
             // Place in range without path chase residual.
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
@@ -55595,7 +55596,7 @@ mod tests {
         {
             let ally = game_logic.find_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
-            ally.ai_state = AIState::Attacking;
+            ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
         }
@@ -55672,7 +55673,7 @@ mod tests {
                 ..Weapon::default()
             });
             enemy.target = Some(ally_id);
-            enemy.ai_state = AIState::Attacking;
+            enemy.set_ai_state(AIState::Attacking);
             enemy.set_status_attacking(true);
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
             enemy.thing.template.armor = 0.0;
@@ -55730,7 +55731,7 @@ mod tests {
             });
             ally.set_position(Vec3::new(0.0, 0.0, 0.0));
             ally.target = Some(enemy_id);
-            ally.ai_state = AIState::Attacking;
+            ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
         }
         {
@@ -55860,7 +55861,7 @@ mod tests {
         {
             let ally = game_logic.find_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
-            ally.ai_state = AIState::Attacking;
+            ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
         }
@@ -55895,7 +55896,7 @@ mod tests {
         {
             let ally = game_logic.find_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
-            ally.ai_state = AIState::Attacking;
+            ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
             ally.weapon = Some(Weapon {
                 damage: 20.0,
@@ -56328,7 +56329,7 @@ mod tests {
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
             p.experience.level = VeterancyLevel::Veteran; // levels_to_gain = 1
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
 
         // Closer Heroic unmanned tank — CollideModule canGainExp residual rejects.
@@ -56568,7 +56569,7 @@ mod tests {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
             assert!(is_pilot_template(&p.template_name));
             p.experience.level = VeterancyLevel::Veteran;
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
 
         // Healthy unmanned tank within scan range (100% HP ≥ MinHealth 0.5).
@@ -56662,7 +56663,7 @@ mod tests {
             .expect("human pilot");
         {
             let p = human_logic.find_object_mut(hp).expect("hp");
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
         let ht = human_logic
             .create_object("TestTank", Team::Neutral, Vec3::new(10.0, 0.0, 0.0))
@@ -56735,7 +56736,7 @@ mod tests {
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
             assert!(!p.status.pilot_did_move_to_base);
         }
 
@@ -56775,7 +56776,7 @@ mod tests {
         // Reset to Idle so residual is eligible again but did_move latches.
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
             p.stop_moving();
         }
         game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES * 2;
@@ -56822,7 +56823,7 @@ mod tests {
             .expect("hp");
         {
             let p = human_logic.find_object_mut(hp).expect("hp");
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
         human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
         human_logic.update_ai(&[hp, hcc], 1.0 / 30.0);
@@ -56870,7 +56871,7 @@ mod tests {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
             // Below NeverHeal 0.85 residual (50% HP).
             p.health.current = 50.0;
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
 
         assert!(!game_logic.honesty_pilot_auto_heal_ok());
@@ -56936,7 +56937,7 @@ mod tests {
             let p = healthy_logic.find_object_mut(hpilot).expect("hp");
             // Just above NeverHeal threshold residual.
             p.health.current = 100.0 * AUTO_FIND_HEALING_NEVER_HEAL + 1.0;
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
         healthy_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
         healthy_logic.update_ai(&[hpilot, hpad], 1.0 / 30.0);
@@ -56975,7 +56976,7 @@ mod tests {
         {
             let p = human_logic.find_object_mut(hp2).expect("hp");
             p.health.current = 40.0;
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
         human_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
         human_logic.update_ai(&[hp2, hpad2], 1.0 / 30.0);
@@ -57027,7 +57028,7 @@ mod tests {
         {
             let r = game_logic.find_object_mut(ranger_id).expect("ranger");
             r.health.current = 40.0;
-            r.ai_state = AIState::Idle;
+            r.set_ai_state(AIState::Idle);
         }
 
         assert!(!game_logic.honesty_infantry_auto_heal_ok());
@@ -57098,7 +57099,7 @@ mod tests {
         {
             let r = china_logic.find_object_mut(cred).expect("rg");
             r.health.current = 30.0;
-            r.ai_state = AIState::Idle;
+            r.set_ai_state(AIState::Idle);
         }
         china_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
         china_logic.update_ai(&[cred, cpad], 1.0 / 30.0);
@@ -57307,7 +57308,7 @@ mod tests {
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
             p.experience.level = VeterancyLevel::Veteran;
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
         }
 
         // Closer foreign-owner unmanned (China sniped) — PartitionFilter rejects.
@@ -57541,7 +57542,7 @@ mod tests {
         {
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.target = None;
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
             sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
             sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
@@ -57628,7 +57629,7 @@ mod tests {
             sc.turret_holding = false;
             sc.turret_idle_scan_desired_angle_deg = idle_scan_desired_angle_deg(1);
             sc.set_status_attacking(true);
-            sc.ai_state = AIState::Attacking;
+            sc.set_ai_state(AIState::Attacking);
         }
         game_logic.frame = game_logic.frame.saturating_add(1);
         game_logic.tick_battle_plan_door_residuals();
@@ -57687,7 +57688,7 @@ mod tests {
         {
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.target = None;
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
             sc.turret_angle_deg = desired;
             sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
@@ -57846,7 +57847,7 @@ mod tests {
         {
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.target = None;
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
             sc.turret_mood_target = false;
             sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
@@ -57958,7 +57959,7 @@ mod tests {
         {
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.target = None;
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
             sc.turret_mood_target = false;
             sc.set_ai_attitude(HostAiAttitude::Sleep);
@@ -57986,7 +57987,7 @@ mod tests {
             sc.last_damage_source = None;
             sc.turret_mood_target = false;
             sc.target = None;
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
         }
         game_logic.tick_battle_plan_door_residuals();
@@ -58005,7 +58006,7 @@ mod tests {
             sc.last_damage_source = Some(enemy_id);
             sc.turret_mood_target = false;
             sc.target = None;
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
         }
         game_logic.tick_battle_plan_door_residuals();
@@ -58352,7 +58353,7 @@ mod tests {
             if let Some(w) = sc.weapon.as_mut() {
                 w.last_fire_time = -100.0;
             }
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
         }
         // Natural angles before fire residual.
         {
@@ -58418,7 +58419,7 @@ mod tests {
             };
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.target = None;
-            sc.ai_state = AIState::Idle;
+            sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
             sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
             sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
@@ -58948,7 +58949,7 @@ mod tests {
         {
             use crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
-            sc.ai_state = AIState::Attacking;
+            sc.set_ai_state(AIState::Attacking);
             sc.set_status_attacking(true);
             sc.target = Some(ally_id);
             // 60° off natural → 30 frames at 2 deg/frame residual.
@@ -59423,7 +59424,7 @@ mod tests {
                 .find_object_mut(ally_vehicle_id)
                 .expect("ally vehicle");
             ally.target = Some(enemy_id);
-            ally.ai_state = AIState::Attacking;
+            ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
         }
@@ -59953,7 +59954,7 @@ mod tests {
                 .find_object_mut(bomber_id)
                 .expect("bomber should exist");
             bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
-            bomber.ai_state = AIState::SpecialAbility;
+            bomber.set_ai_state(AIState::SpecialAbility);
             bomber.target = Some(target_id);
         }
         game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
@@ -60034,7 +60035,7 @@ mod tests {
                 .find_object_mut(bomber_id)
                 .expect("bomber should exist");
             bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
-            bomber.ai_state = AIState::SpecialAbility;
+            bomber.set_ai_state(AIState::SpecialAbility);
             bomber.target = Some(target_id);
         }
         game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
@@ -60648,7 +60649,7 @@ mod tests {
                 .expect("jet");
             if let Some(jet) = logic.get_object_mut(j) {
                 jet.contained_by = Some(af);
-                jet.ai_state = AIState::Docked;
+                jet.set_ai_state(AIState::Docked);
                 jet.producer_id = Some(af);
             }
             if let Some(a) = logic.get_object_mut(af) {
@@ -66912,7 +66913,7 @@ mod tests {
                 .find_object_mut(infantry_id)
                 .expect("infantry mut");
             unit.target = Some(bunker_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
         assert_eq!(
@@ -66980,7 +66981,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(first_id).unwrap();
             unit.target = Some(bunker_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[first_id, bunker_id], 1.0 / 30.0);
         assert!(game_logic
@@ -67083,7 +67084,7 @@ mod tests {
             });
             unit.target = Some(bunker_id);
             unit.contained_by = Some(bunker_id);
-            unit.ai_state = AIState::Garrisoned;
+            unit.set_ai_state(AIState::Garrisoned);
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
         {
@@ -67230,7 +67231,7 @@ mod tests {
             {
                 let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
                 unit.target = Some(transport_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
         }
@@ -67312,7 +67313,7 @@ mod tests {
             {
                 let unit = game_logic.find_object_mut(unit_id).unwrap();
                 unit.target = Some(transport_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
         }
@@ -67359,7 +67360,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(first_id).unwrap();
             unit.target = Some(transport_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[first_id, transport_id], 1.0 / 30.0);
         assert!(game_logic
@@ -67545,7 +67546,7 @@ mod tests {
             {
                 let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
                 unit.target = Some(overlord_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[unit_id, overlord_id], 1.0 / 30.0);
         }
@@ -67626,7 +67627,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(first_id).unwrap();
             unit.target = Some(overlord_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[first_id, overlord_id], 1.0 / 30.0);
         assert!(game_logic
@@ -68246,7 +68247,7 @@ mod tests {
                     ..Weapon::default()
                 });
                 unit.target = Some(bus_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[unit_id, bus_id], 1.0 / 30.0);
         }
@@ -68339,7 +68340,7 @@ mod tests {
             });
             unit.target = Some(bus_id);
             unit.contained_by = Some(bus_id);
-            unit.ai_state = AIState::Docked;
+            unit.set_ai_state(AIState::Docked);
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
         {
@@ -68400,7 +68401,7 @@ mod tests {
             {
                 let unit = game_logic.find_object_mut(id).unwrap();
                 unit.target = Some(bus_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[id, bus_id], 1.0 / 30.0);
             loaded.push(id);
@@ -68548,7 +68549,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(infantry_id).unwrap();
             unit.target = Some(tunnel_a);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[infantry_id, tunnel_a, tunnel_b], 1.0 / 30.0);
         assert_eq!(
@@ -68639,7 +68640,7 @@ mod tests {
             {
                 let unit = game_logic.find_object_mut(id).unwrap();
                 unit.target = Some(tunnel);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[id, tunnel_a, tunnel_b], 1.0 / 30.0);
         }
@@ -68839,7 +68840,7 @@ mod tests {
                     ..Weapon::default()
                 });
                 unit.target = Some(chinook_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[unit_id, chinook_id], 1.0 / 30.0);
         }
@@ -68938,7 +68939,7 @@ mod tests {
             });
             unit.target = Some(chinook_id);
             unit.contained_by = Some(chinook_id);
-            unit.ai_state = AIState::Docked;
+            unit.set_ai_state(AIState::Docked);
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
         {
@@ -68997,7 +68998,7 @@ mod tests {
             {
                 let unit = game_logic.find_object_mut(id).unwrap();
                 unit.target = Some(chinook_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[id, chinook_id], 1.0 / 30.0);
         }
@@ -69052,7 +69053,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(tank_id).unwrap();
             unit.target = Some(chinook_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[tank_id, chinook_id], 1.0 / 30.0);
 
@@ -69203,7 +69204,7 @@ mod tests {
         // Move residual: uncloak while moving, re-cloak when idle.
         {
             let o = game_logic.find_object_mut(outpost_id).unwrap();
-            o.ai_state = AIState::Moving;
+            o.set_ai_state(AIState::Moving);
             o.set_status_moving(true);
             o.set_status_stealthed(true);
         }
@@ -69217,7 +69218,7 @@ mod tests {
         }
         {
             let o = game_logic.find_object_mut(outpost_id).unwrap();
-            o.ai_state = AIState::Idle;
+            o.set_ai_state(AIState::Idle);
             o.set_status_moving(false);
         }
         game_logic.update_stealth_and_detection();
@@ -69286,7 +69287,7 @@ mod tests {
                     ..Weapon::default()
                 });
                 unit.target = Some(outpost_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[unit_id, outpost_id], 1.0 / 30.0);
         }
@@ -69323,7 +69324,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(unit_c).unwrap();
             unit.target = Some(outpost_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[unit_c, outpost_id], 1.0 / 30.0);
         {
@@ -69406,7 +69407,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(tank_id).unwrap();
             unit.target = Some(outpost_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[tank_id, outpost_id], 1.0 / 30.0);
 
@@ -69784,7 +69785,7 @@ mod tests {
         {
             let dozer = game_logic.find_object_mut(dozer_id).unwrap();
             dozer.set_position(Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.25, 0.0, 0.0));
-            dozer.ai_state = AIState::Idle;
+            dozer.set_ai_state(AIState::Idle);
         }
         game_logic.update_mines_and_demo_traps();
 
@@ -70234,7 +70235,7 @@ mod tests {
             }
             // Drop ground target so AA scan prefers aircraft.
             s.target = None;
-            s.ai_state = AIState::Idle;
+            s.set_ai_state(AIState::Idle);
         }
         // Remove ground tank from consideration by destroying it.
         if let Some(t) = game_logic.find_object_mut(enemy_id) {
@@ -70748,7 +70749,7 @@ mod tests {
             s.stealth_allowed_frame = 0;
             s.stealth_delay_pending = false;
             s.set_status_attacking(true);
-            s.ai_state = AIState::Attacking;
+            s.set_ai_state(AIState::Attacking);
         }
         game_logic.frame = 2;
         game_logic.update_stealth_and_detection();
@@ -70767,7 +70768,7 @@ mod tests {
             s.stealth_allowed_frame = 0;
             s.stealth_delay_pending = false;
             s.set_status_attacking(false);
-            s.ai_state = AIState::Idle;
+            s.set_ai_state(AIState::Idle);
             s.set_status_using_ability(true);
         }
         game_logic.frame = 3;
@@ -70792,7 +70793,7 @@ mod tests {
             .expect("enemy tank");
         {
             let e = game_logic.find_object_mut(enemy_id).unwrap();
-            e.ai_state = AIState::Idle;
+            e.set_ai_state(AIState::Idle);
             e.target = None;
             e.weapon = Some(Weapon {
                 damage: 10.0,
@@ -70810,7 +70811,7 @@ mod tests {
             t.set_status_stealthed(true);
             t.set_status_attacking(false);
             t.set_status_using_ability(false);
-            t.ai_state = AIState::Idle;
+            t.set_ai_state(AIState::Idle);
             t.stealth_allowed_frame = 0;
             t.stealth_delay_pending = false;
             t.set_status_attacking(true); // force uncloak this frame
@@ -70849,7 +70850,7 @@ mod tests {
             let t = game_logic.find_object_mut(tunnel_id).unwrap();
             t.set_status_attacking(false);
             t.set_status_using_ability(false);
-            t.ai_state = AIState::Idle;
+            t.set_ai_state(AIState::Idle);
             t.target = None;
             t.set_status_stealthed(false);
             // frame < allowed forbids; equal allows re-cloak residual.
@@ -72342,7 +72343,7 @@ mod tests {
         for id in [inf_a, inf_b] {
             let u = game_logic.find_object_mut(id).unwrap();
             u.contained_by = Some(bunker_id);
-            u.ai_state = AIState::Garrisoned;
+            u.set_ai_state(AIState::Garrisoned);
             u.set_position(Vec3::new(80.0, 0.0, 0.0));
         }
 
@@ -72483,7 +72484,7 @@ mod tests {
         {
             let u = game_logic.find_object_mut(inf_id).unwrap();
             u.contained_by = Some(bunker_id);
-            u.ai_state = AIState::Garrisoned;
+            u.set_ai_state(AIState::Garrisoned);
         }
         {
             let f = game_logic.find_object_mut(fighter_id).unwrap();
@@ -72564,7 +72565,7 @@ mod tests {
         for id in [inf_a, inf_b] {
             let u = game_logic.find_object_mut(id).unwrap();
             u.contained_by = Some(bunker_id);
-            u.ai_state = AIState::Garrisoned;
+            u.set_ai_state(AIState::Garrisoned);
         }
 
         let bunker_hp_before = game_logic
@@ -73217,7 +73218,7 @@ mod tests {
             c.active_weapon_slot = 1;
             c.set_force_attack(true);
             c.set_target_location(Some(Vec3::new(100.0, 0.0, 0.0)));
-            c.ai_state = AIState::AttackingGround;
+            c.set_ai_state(AIState::AttackingGround);
             c.set_status_attacking(true);
             if let Some(w) = c.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -73763,7 +73764,7 @@ mod tests {
                 ..Weapon::default()
             });
             unit.target = Some(tech_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[infantry_id, tech_id], 1.0 / 30.0);
         {
@@ -74184,7 +74185,7 @@ mod tests {
         }
         {
             let s = game_logic.find_object_mut(sentry_id).unwrap();
-            s.ai_state = AIState::Idle;
+            s.set_ai_state(AIState::Idle);
             s.target = None;
             s.target_location = None;
             if let Some(w) = s.weapon.as_mut() {
@@ -74236,7 +74237,7 @@ mod tests {
                 w.reload_time = 0.1;
                 w.range = 150.0;
             }
-            t.ai_state = AIState::Idle;
+            t.set_ai_state(AIState::Idle);
             t.target = None;
         }
         let enemy_id = game_logic
@@ -74344,7 +74345,7 @@ mod tests {
         // Fire while stealthed: must remain stealthed (stealth_breaks_on_attack = false).
         {
             let p = game_logic.find_object_mut(pf_id).unwrap();
-            p.ai_state = AIState::Attacking;
+            p.set_ai_state(AIState::Attacking);
             p.target = Some(stealth_id);
             p.set_status_stealthed(true);
             if let Some(w) = p.weapon.as_mut() {
@@ -74386,7 +74387,7 @@ mod tests {
         // Move uncloaks; stop re-cloaks.
         {
             let p = game_logic.find_object_mut(pf_id).unwrap();
-            p.ai_state = AIState::Moving;
+            p.set_ai_state(AIState::Moving);
             p.set_status_moving(true);
             p.set_status_stealthed(true);
         }
@@ -74400,7 +74401,7 @@ mod tests {
         }
         {
             let p = game_logic.find_object_mut(pf_id).unwrap();
-            p.ai_state = AIState::Idle;
+            p.set_ai_state(AIState::Idle);
             p.set_status_moving(false);
         }
         game_logic.update_stealth_and_detection();
@@ -74524,7 +74525,7 @@ mod tests {
         }
         {
             let h = game_logic.find_object_mut(hf_id).unwrap();
-            h.ai_state = AIState::Idle;
+            h.set_ai_state(AIState::Idle);
             h.target = None;
             h.target_location = None;
             h.set_position(Vec3::new(0.0, 0.0, 0.0));
@@ -74731,7 +74732,7 @@ mod tests {
         {
             let truck = game_logic.find_object_mut(truck_id).expect("truck");
             truck.target = Some(usa_tank_id);
-            truck.ai_state = AIState::SpecialAbility;
+            truck.set_ai_state(AIState::SpecialAbility);
         }
         game_logic.queue_pending_special_ability(
             truck_id,
@@ -74753,7 +74754,7 @@ mod tests {
         {
             let truck = game_logic.find_object_mut(truck_id).expect("truck");
             truck.target = Some(victim_id);
-            truck.ai_state = AIState::Attacking;
+            truck.set_ai_state(AIState::Attacking);
             truck.set_status_attacking(true);
         }
         game_logic.update_stealth_and_detection();
@@ -75380,7 +75381,7 @@ mod tests {
         // Idle re-cloak residual.
         {
             let rebel = game_logic.find_object_mut(rebel_id).expect("rebel");
-            rebel.ai_state = AIState::Idle;
+            rebel.set_ai_state(AIState::Idle);
             rebel.set_status_attacking(false);
             rebel.target = None;
         }
@@ -77527,7 +77528,7 @@ mod tests {
         {
             let th = game_logic.find_object_mut(th0).unwrap();
             th.set_position(Vec3::new(200.0, 0.0, 2.0));
-            th.ai_state = AIState::SpecialAbility;
+            th.set_ai_state(AIState::SpecialAbility);
             th.target = Some(bldg);
         }
         game_logic.queue_pending_special_ability(
@@ -77931,7 +77932,7 @@ mod tests {
         {
             let hacker = game_logic.find_object_mut(hacker_id).expect("hacker");
             hacker.set_position(Vec3::new(10.0, 0.0, 0.0));
-            hacker.ai_state = AIState::SpecialAbility;
+            hacker.set_ai_state(AIState::SpecialAbility);
             hacker.target = Some(target_id);
         }
         game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
@@ -78540,7 +78541,7 @@ mod tests {
                     ..Weapon::default()
                 });
                 unit.target = Some(crawler_id);
-                unit.ai_state = AIState::Entering;
+                unit.set_ai_state(AIState::Entering);
             }
             game_logic.update_ai(&[unit_id, crawler_id], 1.0 / 30.0);
         }
@@ -78697,7 +78698,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(tank_id).unwrap();
             unit.target = Some(crawler_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[tank_id, crawler_id], 1.0 / 30.0);
 
@@ -79166,7 +79167,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(rpg_rider).unwrap();
             unit.target = Some(bike_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[rpg_rider, bike_id], 1.0 / 30.0);
         {
@@ -79252,7 +79253,7 @@ mod tests {
         {
             let a = game_logic.find_object_mut(avenger_id).unwrap();
             a.target = Some(enemy_id);
-            a.ai_state = AIState::Attacking;
+            a.set_ai_state(AIState::Attacking);
             if let Some(w) = a.weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.1;
@@ -79290,7 +79291,7 @@ mod tests {
         {
             let ally = game_logic.find_object_mut(ally_id).unwrap();
             ally.target = Some(enemy_id);
-            ally.ai_state = AIState::Attacking;
+            ally.set_ai_state(AIState::Attacking);
             if let Some(w) = ally.weapon.as_mut() {
                 w.damage = 10.0;
                 w.range = 200.0;
@@ -79371,7 +79372,7 @@ mod tests {
         {
             let a = game_logic.find_object_mut(avenger_id).unwrap();
             a.target = Some(jet_id);
-            a.ai_state = AIState::Attacking;
+            a.set_ai_state(AIState::Attacking);
             if let Some(w) = a.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.05;
@@ -79476,7 +79477,7 @@ mod tests {
         {
             let c = game_logic.find_object_mut(crusader_id).unwrap();
             c.target = Some(enemy_id);
-            c.ai_state = AIState::Attacking;
+            c.set_ai_state(AIState::Attacking);
             if let Some(w) = c.weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.1;
@@ -79772,7 +79773,7 @@ mod tests {
         {
             let c = game_logic.find_object_mut(crusader_id).unwrap();
             c.target = Some(enemy_id);
-            c.ai_state = AIState::Attacking;
+            c.set_ai_state(AIState::Attacking);
             if let Some(w) = c.weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.1;
@@ -79898,7 +79899,7 @@ mod tests {
         {
             let unit = game_logic.find_object_mut(r1).unwrap();
             unit.target = Some(humvee_id);
-            unit.ai_state = AIState::Entering;
+            unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[r1, humvee_id], 1.0 / 30.0);
         {
@@ -79942,7 +79943,7 @@ mod tests {
             let sec = h.secondary_weapon.as_ref().expect("TOW secondary");
             assert!(sec.can_target_air, "TOW residual must target air");
             h.target = Some(jet_id);
-            h.ai_state = AIState::Attacking;
+            h.set_ai_state(AIState::Attacking);
             if let Some(w) = h.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.1;
@@ -80526,7 +80527,7 @@ mod tests {
         game_logic.process_commands();
         if let Some(rebel) = game_logic.find_object_mut(rebel_id) {
             rebel.set_position(Vec3::new(1.0, 0.0, 0.0));
-            rebel.ai_state = AIState::SpecialAbility;
+            rebel.set_ai_state(AIState::SpecialAbility);
             rebel.target = Some(building_id);
         }
         for _ in 0..3 {
@@ -81862,7 +81863,7 @@ mod tests {
                 ..Weapon::default()
             });
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         let hp_before = logic
@@ -81922,7 +81923,7 @@ mod tests {
                 ..Weapon::default()
             });
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         let hp_before = logic
@@ -82017,7 +82018,7 @@ mod tests {
                 ..Weapon::default()
             });
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
         }
         assert!(
             logic.assign_unit_attack_path(atk, Some(tgt), to),
@@ -82097,7 +82098,7 @@ mod tests {
                 ..Weapon::default()
             });
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         let hp_before = logic
@@ -83249,7 +83250,7 @@ mod tests {
             )
             .expect("atk");
         if let Some(a) = logic.get_object_mut(aid) {
-            a.ai_state = AIState::Attacking;
+            a.set_ai_state(AIState::Attacking);
             a.target = Some(rid);
         }
         assert!(logic.handle_reconstructing_death(rid));
@@ -83352,7 +83353,7 @@ mod tests {
             )
             .expect("a");
         if let Some(a) = logic.get_object_mut(aid) {
-            a.ai_state = AIState::Attacking;
+            a.set_ai_state(AIState::Attacking);
             a.target = Some(sid);
         }
         let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
@@ -83578,7 +83579,7 @@ mod tests {
             )
             .expect("dozer");
         if let Some(o) = logic.get_object_mut(did) {
-            o.ai_state = AIState::Idle;
+            o.set_ai_state(AIState::Idle);
             o.idle_since_frame = 1;
         }
         logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
@@ -83629,7 +83630,7 @@ mod tests {
             )
             .expect("dozer");
         if let Some(o) = logic.get_object_mut(did) {
-            o.ai_state = AIState::Idle;
+            o.set_ai_state(AIState::Idle);
             o.idle_since_frame = 1;
         }
         // Before bored time: no assign.
@@ -83765,7 +83766,7 @@ mod tests {
             )
             .expect("dozer");
         if let Some(o) = logic.get_object_mut(did) {
-            o.ai_state = AIState::Repairing;
+            o.set_ai_state(AIState::Repairing);
             o.target = Some(sid);
             assert!(o.can_construct(), "dozer must can_construct");
             assert!(o.can_repair(), "dozer must can_repair");
@@ -83796,7 +83797,7 @@ mod tests {
                     logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
                     if let Some(d) = logic.get_object_mut(did) {
                         d.set_target(None);
-                        d.ai_state = AIState::Idle;
+                        d.set_ai_state(AIState::Idle);
                         d.set_actively_constructing(false);
                     }
                     break;
@@ -83934,7 +83935,7 @@ mod tests {
             )
             .expect("dozer");
         if let Some(o) = logic.get_object_mut(did) {
-            o.ai_state = AIState::Constructing;
+            o.set_ai_state(AIState::Constructing);
             o.target = Some(sid);
             o.set_actively_constructing(true);
         }
@@ -85401,7 +85402,7 @@ mod tests {
         {
             let o = logic.get_object_mut(air).unwrap();
             o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
-            o.ai_state = AIState::Docked;
+            o.set_ai_state(AIState::Docked);
             o.contained_by = Some(af_id);
             assert!(aircraft_has_countermeasures_upgrade(&o.applied_upgrades));
         }
@@ -88177,7 +88178,7 @@ mod tests {
         // Flip ownership first (C++ order: setTeam then onCapture).
         if let Some(obj) = logic.get_object_mut(id) {
             obj.set_team(Team::GLA);
-            obj.ai_state = AIState::Attacking;
+            obj.set_ai_state(AIState::Attacking);
             obj.set_status_attacking(true);
         }
 
@@ -88248,7 +88249,7 @@ mod tests {
         }
         if let Some(r) = logic.get_object_mut(rid) {
             r.contained_by = Some(tid);
-            r.ai_state = AIState::Docked;
+            r.set_ai_state(AIState::Docked);
         }
         logic.on_capture_kick_passengers(tid, Team::USA, Team::GLA);
         assert!(logic.capture_kick_outs > 0);
@@ -88365,7 +88366,7 @@ mod tests {
         }
         if let Some(r) = logic.get_object_mut(rid) {
             r.contained_by = Some(bid);
-            r.ai_state = AIState::Garrisoned;
+            r.set_ai_state(AIState::Garrisoned);
         }
         assert!(logic.start_sell_object(bid));
         assert!(logic.sell_passengers_ejected > 0);
@@ -88395,7 +88396,7 @@ mod tests {
         if let Some(j) = logic.get_object_mut(jid) {
             j.object_type = ObjectType::Aircraft;
             j.contained_by = Some(afid);
-            j.ai_state = AIState::Docked;
+            j.set_ai_state(AIState::Docked);
             j.status.airborne_target = false;
         }
         if let Some(a) = logic.get_object_mut(afid) {
@@ -88605,7 +88606,7 @@ mod tests {
             )
             .expect("dozer");
         if let Some(o) = logic.get_object_mut(did) {
-            o.ai_state = AIState::Constructing;
+            o.set_ai_state(AIState::Constructing);
         }
         let bid = logic
             .create_object(
@@ -88648,7 +88649,7 @@ mod tests {
         );
         // Clear when idle / empty queue.
         if let Some(o) = logic.get_object_mut(did) {
-            o.ai_state = AIState::Idle;
+            o.set_ai_state(AIState::Idle);
         }
         if let Some(o) = logic.get_object_mut(bid) {
             if let Some(bd) = o.building_data.as_mut() {
@@ -90028,7 +90029,7 @@ mod tests {
         {
             let h = logic.objects.get_mut(&hid).unwrap();
             h.contained_by = Some(c1);
-            h.ai_state = AIState::Garrisoned;
+            h.set_ai_state(AIState::Garrisoned);
         }
 
         let until = logic.frame + SABOTEUR_INTERNET_DURATION_FRAMES;
@@ -90362,7 +90363,7 @@ mod tests {
             let mut o = Object::new(vt, vid, Team::USA);
             o.experience.level = VeterancyLevel::Veteran;
             o.experience.current = 80.0;
-            o.ai_state = AIState::Constructing;
+            o.set_ai_state(AIState::Constructing);
             o
         });
         let donor = logic.objects.get(&hid).cloned();
@@ -90972,7 +90973,7 @@ mod tests {
         ut.add_kind_of(KindOf::Infantry);
         let uid = ObjectId(4610);
         let mut unit = Object::new(ut, uid, Team::China);
-        unit.ai_state = AIState::Idle;
+        unit.set_ai_state(AIState::Idle);
         unit.movement.max_speed = 8.0;
         unit.set_position(glam::Vec3::ZERO);
         logic.objects.insert(uid, unit);
@@ -91123,7 +91124,7 @@ mod tests {
         let fid = ObjectId(4402);
         let mut friend = Object::new(ft, fid, Team::USA);
         friend.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
-        friend.ai_state = AIState::Idle;
+        friend.set_ai_state(AIState::Idle);
         friend.weapon = Some(Weapon {
             range: 100.0,
             damage: 10.0,
@@ -91174,7 +91175,7 @@ mod tests {
         logic.objects.insert(fid, {
             let mut o = Object::new(ft, fid, Team::USA);
             o.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
-            o.ai_state = AIState::Idle;
+            o.set_ai_state(AIState::Idle);
             o.weapon = Some(Weapon {
                 range: 80.0,
                 ..Default::default()
@@ -91326,7 +91327,7 @@ mod tests {
         let cid = ObjectId(4220);
         let mut civ = Object::new(ct, cid, Team::Neutral);
         civ.vision_range = 200.0;
-        civ.ai_state = AIState::Idle;
+        civ.set_ai_state(AIState::Idle);
         // Ensure can_move
         civ.movement.max_speed = 5.0;
         logic.objects.insert(cid, civ);
@@ -91971,7 +91972,7 @@ mod tests {
             let mut o = Object::new(at, aid, Team::China);
             o.set_position(Vec3::ZERO);
             o.set_orientation(0.0);
-            o.ai_state = AIState::Idle;
+            o.set_ai_state(AIState::Idle);
             o.ai_attitude = 2; // Aggressive
             o.vision_range = 200.0;
             o.next_mood_check_time = 0;
@@ -92024,7 +92025,7 @@ mod tests {
         logic.objects.insert(atk, {
             let mut o = mk(2403, Team::USA);
             o.target = Some(from);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.turret_enabled = true;
             o.turret_target_id = Some(from);
             o.turret_substate = TurretSubState::Aim;
@@ -92762,7 +92763,7 @@ mod tests {
         let id = ObjectId(1311);
         logic.objects.insert(id, {
             let mut o = Object::new(t, id, Team::USA);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
             o.target = Some(ObjectId(1));
             o.movement.target_position = Some(Vec3::ONE);
@@ -94294,7 +94295,7 @@ mod tests {
                 ..Weapon::default()
             });
             o.target = Some(inf);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         if let Some(o) = logic.objects.get_mut(&inf) {
@@ -94327,7 +94328,7 @@ mod tests {
                     w.last_fire_time = -100.0;
                 }
                 o.target = Some(inf);
-                o.ai_state = AIState::Attacking;
+                o.set_ai_state(AIState::Attacking);
             }
             logic.update_combat(&[gun, inf], 1.0 / 30.0);
         }
@@ -94392,7 +94393,7 @@ mod tests {
                 ..Weapon::default()
             });
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         let h0 = logic
@@ -94419,7 +94420,7 @@ mod tests {
             o.movement.target_position = None;
             o.movement.path.clear();
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             if let Some(w) = o.weapon.as_mut() {
                 w.last_fire_time = -100.0;
             }
@@ -94443,7 +94444,7 @@ mod tests {
             o.movement.path.clear();
             o.set_status_moving(false);
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             if let Some(w) = o.weapon.as_mut() {
                 w.last_fire_time = -100.0;
             }
@@ -94562,7 +94563,7 @@ mod tests {
                 .expect("jet");
             if let Some(o) = logic.objects.get_mut(&j) {
                 o.object_type = ObjectType::Aircraft;
-                o.ai_state = AIState::Docked;
+                o.set_ai_state(AIState::Docked);
                 o.contained_by = Some(af);
                 o.status.airborne_target = false;
             }
@@ -94820,7 +94821,7 @@ mod tests {
             o.health.current = 5000.0;
             o.health.maximum = 5000.0;
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         if let Some(o) = logic.objects.get_mut(&tgt) {
@@ -94856,7 +94857,7 @@ mod tests {
                 w.last_fire_time = -100.0;
             }
             o.target = Some(tgt);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         for _ in 0..30 {
@@ -94914,7 +94915,7 @@ mod tests {
                 ..Weapon::default()
             });
             o.target = Some(mine1);
-            o.ai_state = AIState::Attacking;
+            o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
         for id in [mine1, mine2, mine_far] {
