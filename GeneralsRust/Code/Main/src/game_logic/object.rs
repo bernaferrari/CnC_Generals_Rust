@@ -2432,6 +2432,7 @@ impl Object {
             }
         }
         self.record_host_weapon_bonus();
+        self.record_host_detector();
     }
 
     /// Clear residual Strategy Center battle-plan bonuses.
@@ -2453,6 +2454,7 @@ impl Object {
         }
         self.battle_plan_sight_scalar_applied = 1.0;
         self.record_host_weapon_bonus();
+        self.record_host_detector();
     }
 
     /// Retail BATTLEPLAN_BOMBARDMENT DAMAGE multiplier (1.0 when clear).
@@ -7679,6 +7681,7 @@ impl Object {
         self.weapon_set_player_upgrade = false;
         // KindOf residual includes CAN_ATTACK (for dummy weapon range residual).
         self.thing.template.add_kind_of(KindOf::Attackable);
+        self.record_host_detector();
     }
 
     /// True when this vehicle is a China Listening Outpost residual transport.
@@ -8471,6 +8474,33 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
+    pub fn record_host_detector(&self) {
+        crate::game_logic::host_detector_log::record(
+            self.id,
+            self.is_detector,
+            self.detection_range,
+            self.detection_rate_frames,
+        );
+    }
+
+    pub fn set_detector_state(
+        &mut self,
+        is_detector: bool,
+        detection_range: f32,
+        detection_rate_frames: u32,
+    ) {
+        let detection_range = detection_range.max(0.0);
+        if self.is_detector != is_detector
+            || (self.detection_range - detection_range).abs() > 1e-5
+            || self.detection_rate_frames != detection_rate_frames
+        {
+            self.is_detector = is_detector;
+            self.detection_range = detection_range;
+            self.detection_rate_frames = detection_rate_frames;
+            self.record_host_detector();
+        }
+    }
+
     pub fn record_host_target_location(&self) {
         let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
         crate::game_logic::host_target_location_log::record(self.id, loc);

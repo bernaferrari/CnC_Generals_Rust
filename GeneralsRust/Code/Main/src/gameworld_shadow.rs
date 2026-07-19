@@ -3188,6 +3188,53 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_detector_events(
+        &mut self,
+        events: &[crate::game_logic::host_detector_log::HostDetectorEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world.queue_mutation(gamelogic::world::WorldMutation::SetDetector {
+                target: eid,
+                is_detector: ev.is_detector,
+                detection_range: ev.detection_range,
+                detection_rate_frames: ev.detection_rate_frames,
+            });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_detector_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.is_detector != ent.is_detector
+                || (obj.detection_range - ent.detection_range).abs() > 1e-4
+                || obj.detection_rate_frames != ent.detection_rate_frames;
+            if !changed {
+                continue;
+            }
+            obj.is_detector = ent.is_detector;
+            obj.detection_range = ent.detection_range.max(0.0);
+            obj.detection_rate_frames = ent.detection_rate_frames;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_target_location_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3595,6 +3642,7 @@ pub fn shadow_session_after_host_tick(
     let entity_power_events = crate::game_logic::host_entity_power_log::drain();
     let turret_events = crate::game_logic::host_turret_log::drain();
     let target_location_events = crate::game_logic::host_target_location_log::drain();
+    let detector_events = crate::game_logic::host_detector_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3642,6 +3690,7 @@ pub fn shadow_session_after_host_tick(
     let _epow_applied = shadow.apply_host_entity_power_events(&entity_power_events);
     let _tur_applied = shadow.apply_host_turret_events(&turret_events);
     let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
+    let _det_applied = shadow.apply_host_detector_events(&detector_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3684,6 +3733,7 @@ pub fn shadow_session_after_host_tick(
     let _epow_wb = shadow.writeback_entity_power_to_host(logic);
     let _tur_wb = shadow.writeback_turret_to_host(logic);
     let _tloc_wb = shadow.writeback_target_location_to_host(logic);
+    let _det_wb = shadow.writeback_detector_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6503,7 +6553,75 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_detector_log_drives_set_detector_channel() {
+        use crate::game_logic::{host_detector_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DetCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("DetU") {
+            let mut t = ThingTemplate::new("DetU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("DetU".into(), t);
+        }
+        let oid = logic
+            .create_object("DetU", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
+            .expect("id");
+        host_detector_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_detector_state(true, 175.0, 12);
+        }
+        let events = host_detector_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.is_detector
+                    && (e.detection_range - 175.0).abs() < 1e-3
+                    && e.detection_rate_frames == 12
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_detector();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.is_detector = false;
+            e.detection_range = 0.0;
+            e.detection_rate_frames = 0;
+        }
+        let n = shadow.apply_host_detector_events(&host_detector_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.is_detector);
+        assert!((e.detection_range - 175.0).abs() < 1e-3);
+        assert_eq!(e.detection_rate_frames, 12);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.is_detector = false;
+            o.detection_range = 0.0;
+            o.detection_rate_frames = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.is_detector = true;
+            e.detection_range = 175.0;
+            e.detection_rate_frames = 12;
+        }
+        assert!(shadow.writeback_detector_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.is_detector);
+        assert!((o.detection_range - 175.0).abs() < 1e-3);
+        assert_eq!(o.detection_rate_frames, 12);
+    }
+
+#[test]
     fn host_target_location_log_drives_set_target_location_channel() {
         use crate::game_logic::{host_target_location_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
