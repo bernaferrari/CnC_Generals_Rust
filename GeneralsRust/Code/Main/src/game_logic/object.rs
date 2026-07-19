@@ -7691,6 +7691,11 @@ impl Object {
         self.contained_units().len()
     }
 
+    pub fn set_contained_by(&mut self, container: Option<ObjectId>) {
+        self.contained_by = container;
+        crate::game_logic::host_contain_log::record_contained_by(self.id, container);
+    }
+
     pub fn add_occupant(&mut self, unit_id: ObjectId) -> bool {
         if !self.can_contain() || !self.has_capacity_for(1) {
             return false;
@@ -7700,12 +7705,22 @@ impl Object {
                 return true;
             }
             building.garrisoned_units.push(unit_id);
+            crate::game_logic::host_contain_log::record_garrison(
+                self.id,
+                &building.garrisoned_units,
+                building.max_garrison.min(u16::MAX as usize) as u16,
+            );
             true
         } else {
             if self.occupants.contains(&unit_id) {
                 return true;
             }
             self.occupants.push(unit_id);
+            crate::game_logic::host_contain_log::record_garrison(
+                self.id,
+                &self.occupants,
+                self.occupants.len().min(u16::MAX as usize) as u16,
+            );
             true
         }
     }
@@ -7726,11 +7741,21 @@ impl Object {
                 .position(|&id| id == unit_id)
             {
                 building.garrisoned_units.remove(pos);
+                crate::game_logic::host_contain_log::record_garrison(
+                    self.id,
+                    &building.garrisoned_units,
+                    building.max_garrison.min(u16::MAX as usize) as u16,
+                );
                 return true;
             }
         }
         if let Some(pos) = self.occupants.iter().position(|&id| id == unit_id) {
             self.occupants.remove(pos);
+            crate::game_logic::host_contain_log::record_garrison(
+                self.id,
+                &self.occupants,
+                self.occupants.len().min(u16::MAX as usize) as u16,
+            );
             return true;
         }
         false

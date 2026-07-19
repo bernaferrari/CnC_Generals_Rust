@@ -8108,7 +8108,7 @@ impl GameLogic {
 
         // Rider: contained + parachuting residual (hidden inside chute).
         if let Some(r) = self.objects.get_mut(&rider_id) {
-            r.contained_by = Some(chute_id);
+            r.set_contained_by(Some(chute_id));
             r.set_ai_state(crate::game_logic::AIState::Docked);
             r.set_position(pos);
             r.apply_eject_parachuting();
@@ -11033,7 +11033,7 @@ impl GameLogic {
             };
             let was_parked = jet.is_parked_at_airfield() || jet.contained_by.is_some();
             let af = jet.takeoff_from_airfield_parking();
-            jet.contained_by = None;
+            jet.set_contained_by(None);
             was_parked || af.is_some()
         };
         let mut freed = false;
@@ -11118,7 +11118,7 @@ impl GameLogic {
                 false
             } else {
                 // C++ setProducer + park residual: dock at airfield hangar.
-                jet.contained_by = Some(af_id);
+                jet.set_contained_by(Some(af_id));
                 jet.set_ai_state(AIState::Docked);
                 jet.set_status_moving(false);
                 jet.status.airborne_target = false;
@@ -14595,7 +14595,7 @@ impl GameLogic {
                         obj.target_location = None;
                         obj.set_status_force_attack(false);
                         obj.target = Some(container_id);
-                        obj.contained_by = Some(container_id);
+                        obj.set_contained_by(Some(container_id));
                         obj.set_position(container_pos);
                         let __ai_st = if container_is_structure {
                             AIState::Garrisoned
@@ -15916,7 +15916,7 @@ impl GameLogic {
                         .or(target_id);
                     let Some(container_id) = container_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.contained_by = None;
+                            obj.set_contained_by(None);
                             obj.set_target(None);
                         }
                         continue;
@@ -15932,7 +15932,7 @@ impl GameLogic {
                         })
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.contained_by = None;
+                            obj.set_contained_by(None);
                             obj.set_target(None);
                         }
                         continue;
@@ -15940,14 +15940,14 @@ impl GameLogic {
 
                     if !container_alive || !container_has_unit {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.contained_by = None;
+                            obj.set_contained_by(None);
                             obj.set_target(None);
                         }
                         continue;
                     }
 
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.contained_by = Some(container_id);
+                        obj.set_contained_by(Some(container_id));
                         obj.set_position(container_pos);
                         obj.stop_moving();
                         obj.set_status_moving(false);
@@ -19407,7 +19407,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_position(building_pos + offset);
                 unit.set_target(None);
-                unit.contained_by = None;
+                unit.set_contained_by(None);
                 unit.set_ai_state(AIState::Idle);
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
@@ -21354,7 +21354,7 @@ impl GameLogic {
                             unit.stop_moving();
                             unit.set_position(eject_origin + offset);
                             unit.set_target(None);
-                            unit.contained_by = None;
+                            unit.set_contained_by(None);
                             unit.set_ai_state(AIState::Idle);
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
@@ -24238,7 +24238,7 @@ impl GameLogic {
                 {
                     hunter.weapon = Some(tank_hunter_missile_weapon());
                 }
-                hunter.contained_by = Some(outpost_id);
+                hunter.set_contained_by(Some(outpost_id));
                 hunter.set_ai_state(AIState::Docked);
                 hunter.stop_moving();
                 hunter.set_status_moving(false);
@@ -24319,7 +24319,7 @@ impl GameLogic {
                         ..Weapon::default()
                     });
                 }
-                guard.contained_by = Some(crawler_id);
+                guard.set_contained_by(Some(crawler_id));
                 guard.set_ai_state(AIState::Docked);
                 guard.stop_moving();
                 guard.set_status_moving(false);
@@ -24374,7 +24374,7 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&occ_id) {
                 unit.stop_moving();
                 unit.set_position(crawler_pos + offset);
-                unit.contained_by = None;
+                unit.set_contained_by(None);
                 unit.set_status_moving(false);
                 // GoAggressiveOnExit residual: attack designated target.
                 unit.attack_target(target_id);
@@ -32759,7 +32759,7 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
-            occ.contained_by = None;
+            occ.set_contained_by(None);
             occ.set_ai_state(AIState::Idle);
             // Residual occupant damage (BunkerBusterAntiTunnel ~400) — lethal for infantry.
             let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
@@ -32840,7 +32840,7 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
-            occ.contained_by = None;
+            occ.set_contained_by(None);
             occ.set_ai_state(AIState::Idle);
             let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
             if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
@@ -34271,7 +34271,7 @@ impl GameLogic {
         let dmg = free_fall_damage_amount(max_hp);
 
         let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
-            r.contained_by = None;
+            r.set_contained_by(None);
             r.set_ai_state(AIState::Idle);
             r.set_position(eject_pos);
             // Chute destroyed → freefall residual (chute closed, still parachuting sink).
@@ -36630,7 +36630,7 @@ impl GameLogic {
                     let _ = chute.exit_transport(*rid);
                 }
                 if let Some(r) = self.objects.get_mut(rid) {
-                    r.contained_by = None;
+                    r.set_contained_by(None);
                     r.set_ai_state(AIState::Idle);
                     r.set_position(land_pos);
                     r.clear_eject_parachuting();
@@ -46770,7 +46770,7 @@ impl GameLogic {
                         unit.stop_moving();
                         unit.set_position(pos + offset);
                         unit.set_target(None);
-                        unit.contained_by = None;
+                        unit.set_contained_by(None);
                         unit.set_ai_state(AIState::Idle);
                         unit.set_status_moving(false);
                         unit.set_status_attacking(false);
@@ -46916,7 +46916,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_position(pos + offset);
                 unit.set_target(None);
-                unit.contained_by = None;
+                unit.set_contained_by(None);
                 unit.set_ai_state(AIState::Idle);
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
@@ -46981,7 +46981,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_position(pos + offset);
                 unit.set_target(None);
-                unit.contained_by = None;
+                unit.set_contained_by(None);
                 unit.set_ai_state(AIState::Idle);
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
@@ -47032,7 +47032,7 @@ impl GameLogic {
                             unit.stop_moving();
                             unit.set_position(pos + offset);
                             unit.set_target(None);
-                            unit.contained_by = None;
+                            unit.set_contained_by(None);
                             unit.set_ai_state(AIState::Idle);
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
@@ -54191,7 +54191,7 @@ mod tests {
             .expect("hacker");
         // Residual: place hacker inside Internet Center.
         if let Some(obj) = game_logic.find_object_mut(hacker_id) {
-            obj.contained_by = Some(ic_id);
+            obj.set_contained_by(Some(ic_id));
             obj.set_ai_state(AIState::Docked);
         }
 
@@ -60648,7 +60648,7 @@ mod tests {
                 )
                 .expect("jet");
             if let Some(jet) = logic.get_object_mut(j) {
-                jet.contained_by = Some(af);
+                jet.set_contained_by(Some(af));
                 jet.set_ai_state(AIState::Docked);
                 jet.producer_id = Some(af);
             }
@@ -67083,7 +67083,7 @@ mod tests {
                 ..Weapon::default()
             });
             unit.target = Some(bunker_id);
-            unit.contained_by = Some(bunker_id);
+            unit.set_contained_by(Some(bunker_id));
             unit.set_ai_state(AIState::Garrisoned);
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
@@ -68339,7 +68339,7 @@ mod tests {
                 ..Weapon::default()
             });
             unit.target = Some(bus_id);
-            unit.contained_by = Some(bus_id);
+            unit.set_contained_by(Some(bus_id));
             unit.set_ai_state(AIState::Docked);
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
@@ -68938,7 +68938,7 @@ mod tests {
                 ..Weapon::default()
             });
             unit.target = Some(chinook_id);
-            unit.contained_by = Some(chinook_id);
+            unit.set_contained_by(Some(chinook_id));
             unit.set_ai_state(AIState::Docked);
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
@@ -72342,7 +72342,7 @@ mod tests {
         }
         for id in [inf_a, inf_b] {
             let u = game_logic.find_object_mut(id).unwrap();
-            u.contained_by = Some(bunker_id);
+            u.set_contained_by(Some(bunker_id));
             u.set_ai_state(AIState::Garrisoned);
             u.set_position(Vec3::new(80.0, 0.0, 0.0));
         }
@@ -72483,7 +72483,7 @@ mod tests {
         }
         {
             let u = game_logic.find_object_mut(inf_id).unwrap();
-            u.contained_by = Some(bunker_id);
+            u.set_contained_by(Some(bunker_id));
             u.set_ai_state(AIState::Garrisoned);
         }
         {
@@ -72564,7 +72564,7 @@ mod tests {
         }
         for id in [inf_a, inf_b] {
             let u = game_logic.find_object_mut(id).unwrap();
-            u.contained_by = Some(bunker_id);
+            u.set_contained_by(Some(bunker_id));
             u.set_ai_state(AIState::Garrisoned);
         }
 
@@ -85403,7 +85403,7 @@ mod tests {
             let o = logic.get_object_mut(air).unwrap();
             o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
             o.set_ai_state(AIState::Docked);
-            o.contained_by = Some(af_id);
+            o.set_contained_by(Some(af_id));
             assert!(aircraft_has_countermeasures_upgrade(&o.applied_upgrades));
         }
         // Exhaust flares residual.
@@ -88248,7 +88248,7 @@ mod tests {
             assert!(t.add_occupant(rid));
         }
         if let Some(r) = logic.get_object_mut(rid) {
-            r.contained_by = Some(tid);
+            r.set_contained_by(Some(tid));
             r.set_ai_state(AIState::Docked);
         }
         logic.on_capture_kick_passengers(tid, Team::USA, Team::GLA);
@@ -88365,7 +88365,7 @@ mod tests {
             assert!(b.add_occupant(rid));
         }
         if let Some(r) = logic.get_object_mut(rid) {
-            r.contained_by = Some(bid);
+            r.set_contained_by(Some(bid));
             r.set_ai_state(AIState::Garrisoned);
         }
         assert!(logic.start_sell_object(bid));
@@ -88395,7 +88395,7 @@ mod tests {
             .expect("jet");
         if let Some(j) = logic.get_object_mut(jid) {
             j.object_type = ObjectType::Aircraft;
-            j.contained_by = Some(afid);
+            j.set_contained_by(Some(afid));
             j.set_ai_state(AIState::Docked);
             j.status.airborne_target = false;
         }
@@ -90028,7 +90028,7 @@ mod tests {
         }
         {
             let h = logic.objects.get_mut(&hid).unwrap();
-            h.contained_by = Some(c1);
+            h.set_contained_by(Some(c1));
             h.set_ai_state(AIState::Garrisoned);
         }
 
@@ -90212,7 +90212,7 @@ mod tests {
         }
         {
             let h = logic.objects.get_mut(&hid).unwrap();
-            h.contained_by = Some(chute_id);
+            h.set_contained_by(Some(chute_id));
             h.apply_eject_parachuting();
             h.set_status_parachute_open(true);
             h.set_position(glam::Vec3::new(0.0, high, 0.0));
@@ -94564,7 +94564,7 @@ mod tests {
             if let Some(o) = logic.objects.get_mut(&j) {
                 o.object_type = ObjectType::Aircraft;
                 o.set_ai_state(AIState::Docked);
-                o.contained_by = Some(af);
+                o.set_contained_by(Some(af));
                 o.status.airborne_target = false;
             }
             if let Some(a) = logic.objects.get_mut(&af) {
@@ -94646,7 +94646,7 @@ mod tests {
             if let Some(o) = logic.objects.get_mut(&h) {
                 o.object_type = ObjectType::Aircraft;
                 o.status.airborne_target = true;
-                o.contained_by = None;
+                o.set_contained_by(None);
             }
             assert!(logic.reserve_airfield_runway(af, h).is_some());
         }
