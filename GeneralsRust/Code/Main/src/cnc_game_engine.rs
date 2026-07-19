@@ -1370,6 +1370,8 @@ pub struct CnCGameEngine {
     runtime_host_base_ui_screen: Option<String>,
     runtime_host_ui_screen_override: Option<String>,
     runtime_host_last_gameplay_cmd: String,
+    /// Host asked for an immediate screenshot residual (bridge/event-loop consumes).
+    runtime_host_pending_capture: bool,
 
     // Model loading state
     models_loaded: bool,
@@ -1905,6 +1907,12 @@ impl CnCGameEngine {
             .map(str::to_string);
     }
 
+    fn take_runtime_host_pending_capture(&mut self) -> bool {
+        let pending = self.runtime_host_pending_capture;
+        self.runtime_host_pending_capture = false;
+        pending
+    }
+
     fn runtime_host_status_snapshot(&mut self) -> RuntimeHostSnapshot {
         // Prefer presentation victory residual when installed (no live re-evaluate dual-read).
         let (match_over, victory_label) = if let Some(pres) = self.last_presentation_frame.as_ref()
@@ -1992,6 +2000,7 @@ impl CnCGameEngine {
                 as u32,
             waypoint_mode: self.sticky_waypoint_mode,
             live_frame_ok: false,
+            pending_capture: self.runtime_host_pending_capture,
         }
     }
 
@@ -3945,6 +3954,10 @@ impl CnCGameEngine {
                         "auto_attack_ok:off".into()
                     };
                 }
+            }
+            "request_capture" | "screenshot" => {
+                self.runtime_host_pending_capture = true;
+                self.runtime_host_last_gameplay_cmd = "request_capture_ok".into();
             }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -6220,6 +6233,7 @@ impl CnCGameEngine {
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,
             runtime_host_last_gameplay_cmd: String::new(),
+            runtime_host_pending_capture: false,
             models_loaded: true, // Already loaded during init
             pending_shell_model_prewarm,
             menu_enter_frame: None,
@@ -16591,6 +16605,8 @@ struct RuntimeHostSnapshot {
     waypoint_mode: bool,
     /// Live GPU/screenshot frame published (not shell fallback only).
     live_frame_ok: bool,
+    /// Host requested capture this frame (bridge should force screenshot).
+    pending_capture: bool,
 }
 
 #[derive(Debug)]
@@ -16616,6 +16632,24 @@ impl RuntimeHostBridge {
     const CAPTURE_REQUEST_INTERVAL_LOADING: Duration = Duration::from_millis(120);
     const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(40);
     const CAPTURE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+
+    fn force_capture_request(&mut self) {
+        // Drop interval gate so next publish_frame requests a screenshot immediately.
+        self.last_capture_request_at = None;
+        self.capture_request_in_flight = false;
+        self.capture_request_started_at = None;
+        // Best-effort immediate request.
+        match ww3d_engine::make_screenshot(&self.capture_path) {
+            Ok(()) => {
+                self.last_capture_request_at = Some(Instant::now());
+                self.capture_request_in_flight = true;
+                self.capture_request_started_at = Some(Instant::now());
+            }
+            Err(err) => {
+                log::trace!("force_capture_request screenshot failed: {err:?}");
+            }
+        }
+    }
 
     fn capture_interval_for_state(state: &str) -> Duration {
         match state {
@@ -16718,6 +16752,7 @@ impl RuntimeHostBridge {
             presentation_live_fallback_reads: 0,
             waypoint_mode: false,
             live_frame_ok: false,
+            pending_capture: false,
         };
         self.publish_status(&snapshot);
     }
@@ -16767,6 +16802,7 @@ impl RuntimeHostBridge {
                 || self.has_published_live_frame
                 || Self::png_file_looks_usable(&self.frame_path)
         ));
+        payload.push_str(&format!("pending_capture={}\n", snapshot.pending_capture));
         payload.push_str(&format!(
             "frame_path={}\n",
             self.frame_path.to_string_lossy()
@@ -17083,6 +17119,9 @@ pub async fn run_cnc_game(
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 for command in bridge.drain_commands() {
                     engine.apply_runtime_host_command(&command);
+                }
+                if engine.take_runtime_host_pending_capture() {
+                    bridge.force_capture_request();
                 }
             }
 
@@ -19781,6 +19820,21 @@ fn runtime_host_auto_attack_menu_residual() {
         "quit_to_menu",
         "menu_ok",
         "options_ok",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_request_capture_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "request_capture",
+        "request_capture_ok",
+        "runtime_host_pending_capture",
+        "take_runtime_host_pending_capture",
+        "force_capture_request",
+        "pending_capture",
     ] {
         assert!(src.contains(needle), "missing residual {needle}");
     }
