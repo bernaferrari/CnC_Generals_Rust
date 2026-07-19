@@ -117,6 +117,14 @@ pub struct Entity {
     pub team_ordinal: u8,
     /// Host Object::selection_radius residual.
     pub selection_radius: f32,
+    /// Host Object::crusher_level residual.
+    pub crusher_level: u8,
+    /// Host Object::crushable_level residual.
+    pub crushable_level: u8,
+    /// Host Object::vision_range residual.
+    pub vision_range: f32,
+    /// Host Object::shroud_clearing_range residual.
+    pub shroud_clearing_range: f32,
     /// Host Object::status.under_construction residual.
     pub under_construction: bool,
     /// Host Object::status.sold residual.
@@ -485,6 +493,10 @@ impl EntityStore {
             construction_percent: 1.0,
             team_ordinal: 255,
             selection_radius: 5.0,
+            crusher_level: 0,
+            crushable_level: 0,
+            vision_range: 0.0,
+            shroud_clearing_range: 0.0,
             under_construction: false,
             sold: false,
             reconstructing: false,

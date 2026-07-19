@@ -674,6 +674,14 @@ pub enum WorldMutation {
         has_mine_data: bool,
         cheer_timer: f32,
     },
+    /// Host crush levels + vision/shroud ranges residual.
+    SetCrushVision {
+        target: EntityId,
+        crusher_level: u8,
+        crushable_level: u8,
+        vision_range: f32,
+        shroud_clearing_range: f32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1377,6 +1385,21 @@ impl GameWorld {
                         e.demo_suicided_detonating = demo_suicided_detonating;
                         e.has_mine_data = has_mine_data;
                         e.cheer_timer = cheer_timer;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetCrushVision {
+                    target,
+                    crusher_level,
+                    crushable_level,
+                    vision_range,
+                    shroud_clearing_range,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.crusher_level = crusher_level;
+                        e.crushable_level = crushable_level;
+                        e.vision_range = vision_range;
+                        e.shroud_clearing_range = shroud_clearing_range;
                         applied += 1;
                     }
                 }
