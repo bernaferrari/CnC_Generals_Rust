@@ -118,6 +118,9 @@ pub struct PlayerData {
     pub skill_points: i32,
     /// Host Player::science_purchase_points residual.
     pub science_purchase_points: i32,
+    /// Host Player::shared_special_power_cooldowns residual.
+    /// Keys are `SpecialPowerType` Debug names; values are seconds remaining.
+    pub shared_special_power_cooldowns: Vec<(String, f32)>,
 }
 
 impl PlayerData {
@@ -287,6 +290,7 @@ impl World {
                 rank_level: 1,
                 skill_points: 0,
                 science_purchase_points: 0,
+                shared_special_power_cooldowns: Vec::new(),
             });
         }
         Some(id)

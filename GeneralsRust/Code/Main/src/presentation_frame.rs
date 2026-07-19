@@ -2039,6 +2039,8 @@ pub struct PresentationSuperweaponTimer {
     pub unlocked: bool,
     /// Ready residual (unlocked && remaining <= 0).
     pub ready: bool,
+    /// `SpecialPowerType` Debug name for shadow cooldown overlay.
+    pub power_key: String,
 }
 
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
@@ -2780,6 +2782,7 @@ impl PresentationFrame {
                     remaining,
                     unlocked,
                     ready,
+                    power_key: format!("{power:?}"),
                 });
             }
             // Stable HUD order by name.
@@ -4823,6 +4826,28 @@ impl PresentationFrame {
                 };
                 self.local_rank_progress_percent = rank_progress_percent_residual(&state);
             }
+            // Superweapon PublicTimer remaining from shadow shared cooldowns.
+            for timer in &mut self.superweapon_timers {
+                if timer.power_key.is_empty() {
+                    continue;
+                }
+                if let Some((_, rem)) = p
+                    .shared_special_power_cooldowns
+                    .iter()
+                    .find(|(k, _)| k == &timer.power_key)
+                {
+                    let rem = (*rem).max(0.0);
+                    if (timer.remaining - rem).abs() > 1e-5 {
+                        timer.remaining = rem;
+                        updated += 1;
+                    }
+                    let ready = timer.unlocked && rem <= 0.0;
+                    if timer.ready != ready {
+                        timer.ready = ready;
+                        updated += 1;
+                    }
+                }
+            }
         }
         // Roster is_alive / color from shadow slots (dense host id ↔ PlayerId residual).
         for pi in &mut self.players {
@@ -6530,6 +6555,8 @@ mod tests {
             p.skill_points = 400;
             p.science_purchase_points = 2;
             p.unlocked_sciences = vec!["SCIENCE_TestRank".into()];
+            p.shared_special_power_cooldowns =
+                vec![("ParticleCannon".into(), 42.0), ("ScudStorm".into(), 0.0)];
         }
         let mut frame = PresentationFrame::build_from_logic(&logic, 0);
         assert_eq!(frame.local_supplies, host_cash);
@@ -6553,6 +6580,42 @@ mod tests {
             .local_unlocked_sciences
             .iter()
             .any(|s| s == "SCIENCE_TestRank"));
+        // Superweapon timers get remaining from shadow shared cooldowns by power_key.
+        frame.superweapon_timers.push(PresentationSuperweaponTimer {
+            name: "PUC".into(),
+            template_name: "T".into(),
+            icon: "I".into(),
+            recharge_time: 300.0,
+            remaining: 1.0,
+            unlocked: true,
+            ready: false,
+            power_key: "ParticleCannon".into(),
+        });
+        frame.superweapon_timers.push(PresentationSuperweaponTimer {
+            name: "SCUD".into(),
+            template_name: "T2".into(),
+            icon: "I2".into(),
+            recharge_time: 360.0,
+            remaining: 99.0,
+            unlocked: true,
+            ready: false,
+            power_key: "ScudStorm".into(),
+        });
+        let _ = frame.overlay_gameworld_shadow(&shadow);
+        let puc = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.power_key == "ParticleCannon")
+            .expect("puc timer");
+        assert!((puc.remaining - 42.0).abs() < 1e-5, "got {}", puc.remaining);
+        assert!(!puc.ready);
+        let scud = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.power_key == "ScudStorm")
+            .expect("scud timer");
+        assert!(scud.remaining <= 0.0, "got {}", scud.remaining);
+        assert!(scud.ready);
         if let Some(pi) = frame.players.iter().find(|p| p.id == frame.local_player_id) {
             assert!(!pi.is_alive);
             assert_eq!(pi.color_rgb, (9, 8, 7));
@@ -7402,6 +7465,7 @@ mod tests {
             remaining: 12.5,
             unlocked: true,
             ready: false,
+            power_key: "ParticleCannon".into(),
         });
         frame.superweapon_timers.push(PresentationSuperweaponTimer {
             name: "Locked".into(),
@@ -7411,6 +7475,7 @@ mod tests {
             remaining: 360.0,
             unlocked: false,
             ready: false,
+            power_key: "ScudStorm".into(),
         });
         let mut hud = crate::ui::GameHUD::new();
         frame.apply_to_game_hud(&mut hud);
