@@ -10,8 +10,9 @@ Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 OS input → normalized commands → Main GameLogic (30 Hz host sim)
   → host_* logs (damage/economy/spawn/destroy/attack)
   → GameWorldShadow session (always-on) → WorldMutations last-writer
-  → host writeback (HP/cash) → PresentationFrame (minimap terrain base prefers snapshot heights; execute passes `None` live GameLogic when frame is set) + shadow overlay
-  → GameClient / audio / renderer
+  → host writeback (HP/cash/pose/targets)
+  → PresentationFrame built from host, then shadow overlay (HP/pose/economy/power)
+  → GameClient / audio / renderer  (draw path is presentation-only; no live &GameLogic)
 ```
 
 | Concern | Production default | Opt out |
@@ -23,10 +24,12 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | Attack target channel (shadow↔host) | **on** with shadow session | — |
 | Move destination channel (shadow↔host) | **on** with shadow session | — |
 | `engine_object_id` bridge | **off** unless dual/bridge env | `GENERALS_BRIDGE_ENGINE_OBJECTS` |
+| Draw path `&GameLogic` | **removed** — `RenderPipeline::execute` / selection / terrain helpers are presentation-only | — |
 | Full `GameClient::update()` | **not** called (`draw_display` dual-own) | shell polls input+audio |
 
 - Target end state: `gamelogic::GameWorld` sole host; Main = composition root only.
-- Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/pose/targets + presentation overlay.
+- Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/power/pose/targets + presentation overlay.
+- Draw/render path is presentation-only (no live `Option<&GameLogic>` dual-read on execute/collect/selection/terrain).
 
 ## Ownership rules
 
