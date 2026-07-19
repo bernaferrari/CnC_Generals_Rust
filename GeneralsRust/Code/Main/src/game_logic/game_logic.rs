@@ -5864,7 +5864,7 @@ impl GameLogic {
 
                     if obj.construction_percent >= 1.0 {
                         obj.construction_percent = 1.0;
-                        obj.status.under_construction = false;
+                        obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
                         obj.health.current = obj.health.maximum;
                         crate::game_logic::host_heal_log::record(id, obj.health.current);
@@ -8095,7 +8095,7 @@ impl GameLogic {
                 }
                 chute.apply_eject_parachuting();
                 // Parachute is not selectable residual (C++ drawable on container).
-                chute.status.unselectable = true;
+                chute.set_status_unselectable(true);
                 chute.set_status_no_collisions(true);
             }
         }
@@ -8108,7 +8108,7 @@ impl GameLogic {
             r.apply_eject_parachuting();
             // Still not selectable while in chute (partition restore already cleared
             // MASKED from vehicle ride; chute contain keeps soft-hide).
-            r.status.unselectable = true;
+            r.set_status_unselectable(true);
             r.set_status_no_collisions(true);
             r.set_status_masked(true);
         }
@@ -14587,7 +14587,7 @@ impl GameLogic {
                         obj.stop_moving();
                         obj.set_status_attacking(false);
                         obj.target_location = None;
-                        obj.force_attack = false;
+                        obj.set_status_force_attack(false);
                         obj.target = Some(container_id);
                         obj.contained_by = Some(container_id);
                         obj.set_position(container_pos);
@@ -24593,7 +24593,7 @@ impl GameLogic {
             }
             attacker.target = Some(target_id);
             attacker.target_location = None;
-            attacker.force_attack = false;
+            attacker.set_status_force_attack(false);
             attacker.ai_state = AIState::Attacking;
             attacker.set_status_attacking(true);
             // Turret natural-position residual: aim pitch/yaw at target (FirePitch 45).
@@ -24830,7 +24830,7 @@ impl GameLogic {
             // a player AttackObject. Structures stay immobile (no chase).
             attacker.target = Some(target_id);
             attacker.target_location = None;
-            attacker.force_attack = false;
+            attacker.set_status_force_attack(false);
             attacker.ai_state = AIState::Attacking;
             attacker.set_status_attacking(true);
             if destroyed {
@@ -32436,7 +32436,7 @@ impl GameLogic {
             }
             attacker.target = Some(target_id);
             attacker.target_location = None;
-            attacker.force_attack = false;
+            attacker.set_status_force_attack(false);
             attacker.ai_state = AIState::Attacking;
             attacker.set_status_attacking(true);
             // STEALTH_NOT_WHILE_ATTACKING residual.
@@ -32552,7 +32552,7 @@ impl GameLogic {
             }
             attacker.target = Some(target_id);
             attacker.target_location = None;
-            attacker.force_attack = false;
+            attacker.set_status_force_attack(false);
             attacker.ai_state = AIState::Attacking;
             attacker.set_status_attacking(true);
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
@@ -34270,7 +34270,7 @@ impl GameLogic {
             r.set_status_parachuting(true);
             r.status.airborne_target = true;
             r.set_status_masked(false);
-            r.status.unselectable = false;
+            r.set_status_unselectable(false);
             r.set_status_no_collisions(false);
             // DAMAGE_FALLING / DEATH_SPLATTED residual if this kill finishes them.
             let killed = r.take_damage_from_typed_death(
@@ -36627,7 +36627,7 @@ impl GameLogic {
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
                     r.set_status_masked(false);
-                    r.status.unselectable = false;
+                    r.set_status_unselectable(false);
                     r.set_status_no_collisions(false);
                     r.stop_moving();
                     r.target = None;
@@ -38035,7 +38035,7 @@ impl GameLogic {
 
         if let Some(car) = self.objects.get_mut(&car_id) {
             car.status.destroyed = true;
-            car.status.is_carbomb = false;
+            car.set_status_is_carbomb(false);
         }
         self.mark_object_for_destruction(car_id, Some(car_team));
         for (vid, killer) in destroy_ids {
@@ -42887,7 +42887,7 @@ impl GameLogic {
                 obj.stop_attack();
                 obj.target = None;
                 obj.target_location = None;
-                obj.force_attack = false;
+                obj.set_status_force_attack(false);
                 // Halt workers/dozers mid-rebuild so paused AI does not finish distant CCs.
                 if obj.is_kind_of(KindOf::Worker) || obj.template_name.contains("Dozer") {
                     obj.stop_moving();
@@ -47085,9 +47085,9 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
             obj.construction_percent = 0.999;
-            obj.status.sold = true;
-            obj.status.unselectable = true;
-            obj.status.under_construction = false;
+            obj.set_status_sold(true);
+            obj.set_status_unselectable(true);
+            obj.set_status_under_construction(false);
             obj.status.selected = false;
             obj.ai_state = AIState::Idle;
             obj.apply_sell_scaffold_model_conditions();
@@ -47484,7 +47484,7 @@ impl GameLogic {
         hole.rebuild_reconstructing_id = None;
         hole.rebuild_worker_id = None;
         hole.set_status_masked(false);
-        hole.status.unselectable = false;
+        hole.set_status_unselectable(false);
         hole.rebuild_ready_frame = self
             .frame
             .max(1)
@@ -47592,7 +47592,7 @@ impl GameLogic {
         let hole_id = self.create_object(hole_name, team, pos)?;
         if let Some(h) = self.objects.get_mut(&hole_id) {
             h.set_orientation(orient);
-            h.status.under_construction = false;
+            h.set_status_under_construction(false);
             h.construction_percent = 1.0;
             h.health.current = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
             h.health.maximum = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
@@ -47714,7 +47714,7 @@ impl GameLogic {
                         .and_then(|h| h.rebuild_reconstructing_id)
                     {
                         if let Some(b) = self.objects.get_mut(&rid) {
-                            b.status.reconstructing = false;
+                            b.set_status_reconstructing(false);
                             b.set_status_masked(false);
                         }
                     }
@@ -47772,7 +47772,7 @@ impl GameLogic {
                 continue;
             };
             if let Some(w) = self.objects.get_mut(&worker_id) {
-                w.status.unselectable = true;
+                w.set_status_unselectable(true);
                 w.set_status_masked(false);
                 w.ai_state = AIState::Constructing;
             }
@@ -47785,8 +47785,8 @@ impl GameLogic {
             };
             if let Some(o) = self.objects.get_mut(&new_id) {
                 o.set_orientation(orient);
-                o.status.under_construction = true;
-                o.status.reconstructing = true;
+                o.set_status_under_construction(true);
+                o.set_status_reconstructing(true);
                 o.construction_percent = 0.0;
                 o.set_under_construction_model_conditions(true);
                 o.health.current = (o.health.maximum * 0.1).max(1.0);
@@ -47803,7 +47803,7 @@ impl GameLogic {
                 h.rebuild_reconstructing_id = Some(new_id);
                 // C++ maskObject(TRUE) while reconstructing.
                 h.set_status_masked(true);
-                h.status.unselectable = true;
+                h.set_status_unselectable(true);
             }
             // C++ transferAttack(hole, reconstructing) residual.
             let n = self.transfer_attack(hole_id, new_id);
@@ -50229,7 +50229,7 @@ mod tests {
             let repair_bay = game_logic
                 .find_object_mut(repair_bay_id)
                 .expect("repair source should exist");
-            repair_bay.status.under_construction = true;
+            repair_bay.set_status_under_construction(true);
         }
         {
             let unit = game_logic
@@ -50530,7 +50530,7 @@ mod tests {
             let building = game_logic
                 .find_object_mut(building_id)
                 .expect("building should exist");
-            building.status.under_construction = true;
+            building.set_status_under_construction(true);
         }
 
         game_logic.queue_command(crate::command_system::GameCommand {
@@ -50573,7 +50573,7 @@ mod tests {
             let building = game_logic
                 .find_object_mut(building_id)
                 .expect("building should exist");
-            building.status.under_construction = true;
+            building.set_status_under_construction(true);
         }
         {
             let captor = game_logic
@@ -51714,7 +51714,7 @@ mod tests {
             let repair_pad = game_logic
                 .find_object_mut(repair_pad_id)
                 .expect("repair pad should exist");
-            repair_pad.status.under_construction = true;
+            repair_pad.set_status_under_construction(true);
         }
 
         game_logic.queue_command(crate::command_system::GameCommand {
@@ -51905,7 +51905,7 @@ mod tests {
             let heal_pad = game_logic
                 .find_object_mut(heal_pad_id)
                 .expect("heal pad should exist");
-            heal_pad.status.under_construction = true;
+            heal_pad.set_status_under_construction(true);
         }
 
         game_logic.queue_command(crate::command_system::GameCommand {
@@ -52995,7 +52995,7 @@ mod tests {
             .create_object("TestCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("command center");
         if let Some(obj) = game_logic.find_object_mut(cc_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
             obj.construction_percent = 1.0;
         }
 
@@ -53066,7 +53066,7 @@ mod tests {
             .create_object("TestRadarVan", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
             .expect("radar van");
         if let Some(obj) = game_logic.find_object_mut(van_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
             obj.construction_percent = 1.0;
         }
 
@@ -53104,7 +53104,7 @@ mod tests {
             .create_object("FakeGLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("fake cc");
         if let Some(obj) = game_logic.find_object_mut(fake_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
             obj.construction_percent = 1.0;
         }
 
@@ -53147,7 +53147,7 @@ mod tests {
             .expect("black market");
         // Ensure constructed residual (create_object may leave under-construction off for tests).
         if let Some(obj) = game_logic.find_object_mut(market_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
         }
 
         let cash_before = game_logic
@@ -53224,7 +53224,7 @@ mod tests {
             .create_object("FakeGLABlackMarket", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("fake market");
         if let Some(obj) = game_logic.find_object_mut(fake_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
         }
         let deposits_before_fake = game_logic.black_markets().deposits;
         game_logic.frame = BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES * 3;
@@ -53272,7 +53272,7 @@ mod tests {
             .create_object("TestOilDerrick", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
             .expect("oil derrick");
         if let Some(obj) = game_logic.find_object_mut(derrick_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
         }
 
         let cash_before = game_logic
@@ -53451,7 +53451,7 @@ mod tests {
             .create_object("TestSupplyDropZone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("supply drop zone");
         if let Some(obj) = game_logic.find_object_mut(zone_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
         }
 
         let cash_before = game_logic
@@ -54062,7 +54062,7 @@ mod tests {
             .create_object("AmericaSupplyDropZone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("uc zone");
         if let Some(obj) = game_logic.find_object_mut(uc_id) {
-            obj.status.under_construction = true;
+            obj.set_status_under_construction(true);
         }
 
         // Neutral constructed zone.
@@ -54074,7 +54074,7 @@ mod tests {
             )
             .expect("neutral zone");
         if let Some(obj) = game_logic.find_object_mut(neutral_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
         }
 
         let cash_before = game_logic
@@ -54117,7 +54117,7 @@ mod tests {
             .create_object("TestOilDerrick", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("oil derrick");
         if let Some(obj) = game_logic.find_object_mut(derrick_id) {
-            obj.status.under_construction = true;
+            obj.set_status_under_construction(true);
         }
 
         let cash_before = game_logic
@@ -54174,7 +54174,7 @@ mod tests {
             .create_object("TestInternetCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("internet center");
         if let Some(obj) = game_logic.find_object_mut(ic_id) {
-            obj.status.under_construction = false;
+            obj.set_status_under_construction(false);
         }
 
         let hacker_id = game_logic
@@ -56234,7 +56234,7 @@ mod tests {
             h.apply_hijacked();
             let _ = h.take_damage(h.max_health * 2.0);
             // Preserve HIJACKED after damage residual.
-            h.status.hijacked = true;
+            h.set_status_hijacked(true);
             h.status.destroyed = true;
         }
         game_logic.mark_object_for_destruction(hijack_id, Some(Team::GLA));
@@ -60691,14 +60691,14 @@ mod tests {
         }
         // Disabled factory residual.
         if let Some(o) = logic.get_object_mut(barracks) {
-            o.status.disabled_underpowered = true;
+            o.set_status_disabled_underpowered(true);
         }
         assert_eq!(
             logic.can_make_unit(barracks, "TestInfantry"),
             CANMAKE_FACTORY_IS_DISABLED
         );
         if let Some(o) = logic.get_object_mut(barracks) {
-            o.status.disabled_underpowered = false;
+            o.set_status_disabled_underpowered(false);
         }
 
         // Queue full residual.
@@ -70760,7 +70760,7 @@ mod tests {
             s.stealth_delay_pending = false;
             s.set_status_attacking(false);
             s.ai_state = AIState::Idle;
-            s.status.using_ability = true;
+            s.set_status_using_ability(true);
         }
         game_logic.frame = 3;
         game_logic.update_stealth_and_detection();
@@ -70774,7 +70774,7 @@ mod tests {
         // Clear ability so re-cloak path can exercise.
         {
             let s = game_logic.find_object_mut(stinger_id).unwrap();
-            s.status.using_ability = false;
+            s.set_status_using_ability(false);
         }
 
         // OrderIdleEnemiesToAttackMeUponReveal residual: idle enemy in vision
@@ -70801,7 +70801,7 @@ mod tests {
             let t = game_logic.find_object_mut(tunnel_id).unwrap();
             t.set_status_stealthed(true);
             t.set_status_attacking(false);
-            t.status.using_ability = false;
+            t.set_status_using_ability(false);
             t.ai_state = AIState::Idle;
             t.stealth_allowed_frame = 0;
             t.stealth_delay_pending = false;
@@ -70840,7 +70840,7 @@ mod tests {
         {
             let t = game_logic.find_object_mut(tunnel_id).unwrap();
             t.set_status_attacking(false);
-            t.status.using_ability = false;
+            t.set_status_using_ability(false);
             t.ai_state = AIState::Idle;
             t.target = None;
             t.set_status_stealthed(false);
@@ -72662,7 +72662,7 @@ mod tests {
             // Ensure structure residual + constructed.
             b.object_type = ObjectType::Building;
             b.construction_percent = 1.0;
-            b.status.under_construction = false;
+            b.set_status_under_construction(false);
         }
 
         assert!(!game_logic.honesty_microwave_disable_ok());
@@ -72716,7 +72716,7 @@ mod tests {
             let a = game_logic.find_object_mut(ally_id).unwrap();
             a.object_type = ObjectType::Building;
             a.construction_percent = 1.0;
-            a.status.under_construction = false;
+            a.set_status_under_construction(false);
             // Force cook attempt on ally (should not disable).
         }
         {
@@ -72766,7 +72766,7 @@ mod tests {
             let b = game_logic.find_object_mut(barracks_id).unwrap();
             b.object_type = ObjectType::Building;
             b.construction_percent = 1.0;
-            b.status.under_construction = false;
+            b.set_status_under_construction(false);
         }
         {
             let t = game_logic.find_object_mut(tank_id).unwrap();
@@ -79538,7 +79538,7 @@ mod tests {
             .expect("lazr patriot");
         // Mark constructed residual (structures start under construction).
         if let Some(p) = game_logic.find_object_mut(pat_id) {
-            p.status.under_construction = false;
+            p.set_status_under_construction(false);
             p.construction_percent = 100.0;
         }
 
@@ -79654,7 +79654,7 @@ mod tests {
             .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("tunnel");
         if let Some(t) = game_logic.find_object_mut(tunnel_id) {
-            t.status.under_construction = false;
+            t.set_status_under_construction(false);
             t.construction_percent = 100.0;
         }
         {
@@ -80632,7 +80632,7 @@ mod tests {
             )
             .expect("supw patriot");
         if let Some(p) = game_logic.find_object_mut(pat_id) {
-            p.status.under_construction = false;
+            p.set_status_under_construction(false);
             p.construction_percent = 100.0;
         }
 
@@ -81063,7 +81063,7 @@ mod tests {
             .expect("airfield");
         {
             let af = game_logic.find_object_mut(airfield_id).unwrap();
-            af.status.under_construction = false;
+            af.set_status_under_construction(false);
         }
 
         // Deny without science.
@@ -83211,7 +83211,7 @@ mod tests {
             )
             .expect("orig");
         if let Some(o) = logic.get_object_mut(orig) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let hole = logic.maybe_spawn_rebuild_hole(orig).expect("hole");
@@ -83224,8 +83224,8 @@ mod tests {
             )
             .expect("recon");
         if let Some(o) = logic.get_object_mut(rid) {
-            o.status.under_construction = true;
-            o.status.reconstructing = true;
+            o.set_status_under_construction(true);
+            o.set_status_reconstructing(true);
             o.producer_id = Some(hole);
             o.construction_percent = 0.3;
         }
@@ -83276,7 +83276,7 @@ mod tests {
                 )
                 .expect("s");
             if let Some(o) = logic.get_object_mut(sid) {
-                o.status.under_construction = false;
+                o.set_status_under_construction(false);
                 o.construction_percent = 1.0;
             }
             logic.maybe_spawn_rebuild_hole(sid).expect("hole")
@@ -83333,7 +83333,7 @@ mod tests {
             .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("b");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let aid = logic
@@ -83359,8 +83359,8 @@ mod tests {
             .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("recon");
         if let Some(o) = logic.get_object_mut(rid) {
-            o.status.under_construction = true;
-            o.status.reconstructing = true;
+            o.set_status_under_construction(true);
+            o.set_status_reconstructing(true);
             o.construction_percent = 0.2;
         }
         // Simulate cancel refund policy.
@@ -83393,7 +83393,7 @@ mod tests {
             )
             .expect("tn");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
@@ -83433,7 +83433,7 @@ mod tests {
         assert!(logic.get_object(rid).unwrap().status.reconstructing);
         // Complete construction → hole removed.
         if let Some(b) = logic.get_object_mut(rid) {
-            b.status.under_construction = false;
+            b.set_status_under_construction(false);
             b.construction_percent = 1.0;
         }
         logic.update_rebuild_holes();
@@ -83609,7 +83609,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.health.current = 400.0;
         }
@@ -83665,7 +83665,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.health.current = 200.0;
         }
@@ -83745,7 +83745,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.health.current = 100.0; // damaged
         }
@@ -83837,7 +83837,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = true;
+            o.set_status_under_construction(true);
             o.construction_percent = 0.35;
             o.set_under_construction_model_conditions(false); // awaiting
         }
@@ -83878,7 +83878,7 @@ mod tests {
         assert!(!logic.resume_construction(&[did2], sid));
         // Completed structure rejects resume.
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
         }
         assert!(!logic.can_resume_construction_of(did, sid));
     }
@@ -83915,7 +83915,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = true;
+            o.set_status_under_construction(true);
             o.construction_percent = 0.4;
         }
         let did = logic
@@ -84637,7 +84637,7 @@ mod tests {
                 .insert(SpecialPowerType::ParticleCannon, 100.0);
             o.special_power_cooldown_remaining = 100.0;
             o.special_power_ready = false;
-            o.status.disabled_underpowered = false;
+            o.set_status_disabled_underpowered(false);
         }
         // Tick while enabled: countdown advances.
         if let Some(o) = logic.get_object_mut(puc) {
@@ -84651,7 +84651,7 @@ mod tests {
         }
         // Disable (underpowered residual) → freeze.
         if let Some(o) = logic.get_object_mut(puc) {
-            o.status.disabled_underpowered = true;
+            o.set_status_disabled_underpowered(true);
             let _ = o.tick_timers(50.0);
             let rem = o
                 .special_power_cooldowns
@@ -84665,7 +84665,7 @@ mod tests {
         }
         // Re-enable → resume.
         if let Some(o) = logic.get_object_mut(puc) {
-            o.status.disabled_underpowered = false;
+            o.set_status_disabled_underpowered(false);
             let _ = o.tick_timers(5.0);
             let rem = o
                 .special_power_cooldowns
@@ -84841,7 +84841,7 @@ mod tests {
         // Finish construction residual.
         if let Some(o) = logic.get_object_mut(scud_uc) {
             o.construction_percent = 1.0;
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
         }
         logic.notify_structure_construction_complete(scud_uc);
         let scud_cd = special_power_reload_seconds(&SpecialPowerType::ScudStorm).unwrap();
@@ -85139,7 +85139,7 @@ mod tests {
             o.power_consumed = 0;
         }
         if let Some(o) = logic.get_object_mut(id) {
-            o.status.disabled_underpowered = false;
+            o.set_status_disabled_underpowered(false);
             o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 0.05);
             o.special_power_cooldown_remaining = 0.05;
@@ -85379,7 +85379,7 @@ mod tests {
             .expect("af");
         // Ensure constructed residual for dock.
         if let Some(o) = logic.get_object_mut(af_id) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
 
@@ -87767,12 +87767,12 @@ mod tests {
         if let Some(o) = logic.get_object_mut(aid) {
             o.power_provided = 5;
             o.construction_percent = 1.0;
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
         }
         if let Some(o) = logic.get_object_mut(cid) {
             o.power_provided = 10;
             o.construction_percent = 1.0;
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
         }
 
         let n = logic
@@ -87817,7 +87817,7 @@ mod tests {
         if let Some(o) = logic.get_object_mut(id) {
             o.power_provided = 10;
             o.construction_percent = 1.0;
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
         }
         assert!(logic.toggle_overcharge_object(id));
         assert!(logic.overcharge_toggles > 0);
@@ -88289,7 +88289,7 @@ mod tests {
             )
             .expect("tn");
         if let Some(o) = logic.get_object_mut(tid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let uid = logic
@@ -88339,7 +88339,7 @@ mod tests {
             .create_object("AmericaBunker", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("bunker");
         if let Some(o) = logic.get_object_mut(bid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             if let Some(bd) = o.building_data.as_mut() {
                 bd.max_garrison = 5;
@@ -88374,7 +88374,7 @@ mod tests {
             )
             .expect("af");
         if let Some(o) = logic.get_object_mut(afid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let jid = logic
@@ -88424,7 +88424,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let mid = logic
@@ -88464,18 +88464,18 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(id) {
-            o.status.under_construction = true;
+            o.set_status_under_construction(true);
             o.construction_percent = 0.5;
         }
         assert!(!logic.start_sell_object(id));
         if let Some(o) = logic.get_object_mut(id) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
-            o.status.reconstructing = true;
+            o.set_status_reconstructing(true);
         }
         assert!(!logic.start_sell_object(id));
         if let Some(o) = logic.get_object_mut(id) {
-            o.status.reconstructing = false;
+            o.set_status_reconstructing(false);
         }
         assert!(logic.start_sell_object(id));
         assert!(logic.is_object_being_sold(id));
@@ -88510,7 +88510,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(id) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.status.selected = true;
         }
@@ -88607,7 +88607,7 @@ mod tests {
             )
             .expect("barracks");
         if let Some(o) = logic.get_object_mut(bid) {
-            o.status.under_construction = false;
+            o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             if let Some(bd) = o.building_data.as_mut() {
                 // Non-empty queue residual for factory ACTIVELY_CONSTRUCTING.
@@ -88690,7 +88690,7 @@ mod tests {
             )
             .expect("pp");
         if let Some(o) = logic.get_object_mut(sid) {
-            o.status.under_construction = true;
+            o.set_status_under_construction(true);
             o.construction_percent = 0.1;
         }
         // No dozer → awaiting
@@ -91294,7 +91294,7 @@ mod tests {
         let eid = ObjectId(4211);
         let mut enemy = Object::new(et, eid, Team::GLA);
         enemy.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
-        enemy.status.repulsor = true;
+        enemy.set_status_repulsor(true);
         logic.objects.insert(eid, enemy);
 
         // Disabled by default (C++ m_enableRepulsors = false).
@@ -91328,7 +91328,7 @@ mod tests {
         let eid = ObjectId(4221);
         let mut enemy = Object::new(et, eid, Team::China);
         enemy.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
-        enemy.status.repulsor = true;
+        enemy.set_status_repulsor(true);
         logic.objects.insert(eid, enemy);
 
         assert!(logic.try_idle_repulse(cid));

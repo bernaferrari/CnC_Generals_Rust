@@ -1777,7 +1777,7 @@ impl Object {
     pub fn new_under_construction(template: ThingTemplate, id: ObjectId, team: Team) -> Self {
         let mut obj = Self::new(template, id, team);
         obj.construction_percent = 0.0;
-        obj.status.under_construction = true;
+        obj.set_status_under_construction(true);
         obj.health.current = 0.1; // Very low health during construction
         obj
     }
@@ -1977,7 +1977,7 @@ impl Object {
             // C++ canFireWeapon false while subdued: drop in-progress attack fire
             // but do not freeze movement (jam residual is weapons-only).
             self.status.attacking = false;
-            self.force_attack = false;
+            self.set_status_force_attack(false);
         } else {
             self.set_status_weapons_jammed(false);
         }
@@ -1993,7 +1993,7 @@ impl Object {
             self.set_status_disabled_subdued(true);
             // C++ orderAllPassengersToIdle residual: drop attack / move orders.
             self.status.attacking = false;
-            self.force_attack = false;
+            self.set_status_force_attack(false);
             self.target = None;
             self.target_location = None;
             // Structures do not move; stop any residual production-related AI.
@@ -2028,7 +2028,7 @@ impl Object {
         self.stop_moving();
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         self.ai_state = AIState::Idle;
     }
 
@@ -2060,7 +2060,7 @@ impl Object {
         self.stop_moving();
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         self.ai_state = AIState::Idle;
         self.set_team(pilot_team);
 
@@ -2116,7 +2116,7 @@ impl Object {
         self.stop_moving();
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         self.ai_state = AIState::Idle;
     }
 
@@ -2144,7 +2144,7 @@ impl Object {
         self.stop_moving();
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         self.ai_state = AIState::Idle;
     }
 
@@ -2172,7 +2172,7 @@ impl Object {
         self.stop_moving();
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         self.ai_state = AIState::Idle;
     }
 
@@ -2507,7 +2507,7 @@ impl Object {
         }
         self.repulsor_until_frame = self.repulsor_until_frame.saturating_sub(1);
         if self.repulsor_until_frame == 0 {
-            self.status.repulsor = false;
+            self.set_status_repulsor(false);
         }
     }
 
@@ -2557,13 +2557,13 @@ impl Object {
 
     /// Convert with optional donor (terrorist) residual endowments.
     pub fn apply_convert_to_car_bomb_from(&mut self, donor: Option<&Object>) {
-        self.status.is_carbomb = true;
+        self.set_status_is_carbomb(true);
         self.set_status_disabled_unmanned(false);
         self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
-        self.status.hijacked = false;
+        self.set_status_hijacked(false);
         self.weapon = Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon());
         self.secondary_weapon = None;
         self.active_weapon_slot = 0;
@@ -2572,7 +2572,7 @@ impl Object {
         self.stop_moving();
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         self.ai_state = AIState::Idle;
         if let Some(d) = donor {
             // C++ setVisionRange / setShroudClearingRange from converter.
@@ -2611,7 +2611,7 @@ impl Object {
         self.hijacker_update_active = true;
         self.set_status_no_collisions(true);
         self.set_status_masked(true);
-        self.status.unselectable = true;
+        self.set_status_unselectable(true);
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving();
@@ -2627,7 +2627,7 @@ impl Object {
         self.hijacker_update_active = false;
         self.set_status_no_collisions(false);
         self.set_status_masked(false);
-        self.status.unselectable = false;
+        self.set_status_unselectable(false);
         self.hijacker_was_airborne = was_airborne;
         self.hijacker_eject_pos = Some(eject_pos);
         self.set_position(eject_pos);
@@ -2694,19 +2694,19 @@ impl Object {
     /// - cancel dozer tasks
     /// - MAX(target, jacker) veterancy on both (jacker may be destroyed after)
     pub fn apply_hijacked_from(&mut self, donor: Option<&Object>) {
-        self.status.hijacked = true;
+        self.set_status_hijacked(true);
         self.set_status_disabled_unmanned(false);
         self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
-        self.status.is_carbomb = false;
+        self.set_status_is_carbomb(false);
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         // C++ aiMoveToPosition(self) then aiIdle — host: clear move + Idle.
         self.ai_state = AIState::Idle;
         // Cancel dozer construction/repair residual.
@@ -5217,7 +5217,7 @@ impl Object {
         self.ai_state = AIState::Idle;
         self.target = None;
         self.shock_stun_frames = 0;
-        self.status.disabled_freefall = false;
+        self.set_status_disabled_freefall(false);
         self.refresh_model_condition_bits();
         true
     }
@@ -5237,7 +5237,7 @@ impl Object {
                 self.movement.velocity.y = 0.0;
                 self.shock_was_airborne = false;
                 self.shock_allow_bounce = false;
-                self.status.disabled_freefall = false;
+                self.set_status_disabled_freefall(false);
                 let _ = self.maybe_kill_when_resting_on_ground();
             }
             return;
@@ -5287,25 +5287,25 @@ impl Object {
                     }
                     self.shock_was_airborne = false;
                     // C++ clear IS_IN_FREEFALL / DISABLED_FREEFALL when grounded.
-                    self.status.disabled_freefall = false;
+                    self.set_status_disabled_freefall(false);
                 } else {
                     // Bounce still airborne residual.
                     self.shock_was_airborne = true;
-                    self.status.disabled_freefall = true;
+                    self.set_status_disabled_freefall(true);
                 }
             } else {
                 pos.y = new_y;
                 self.set_position(pos);
                 self.shock_was_airborne = true;
                 // C++ IS_IN_FREEFALL → DISABLED_FREEFALL + MODELCONDITION_FREEFALL.
-                self.status.disabled_freefall = true;
+                self.set_status_disabled_freefall(true);
             }
         } else {
             // Lateral bleed only when grounded.
             if self.movement.velocity.y.abs() < 0.5 {
                 self.movement.velocity.y = 0.0;
             }
-            self.status.disabled_freefall = false;
+            self.set_status_disabled_freefall(false);
             self.shock_was_airborne = false;
         }
         // Lateral friction residual while stunned on ground.
@@ -5314,7 +5314,7 @@ impl Object {
             self.movement.velocity.z *= 0.92;
             // Ground contact residual: freefall disable only while airborne.
             if self.movement.velocity.y <= 0.01 {
-                self.status.disabled_freefall = false;
+                self.set_status_disabled_freefall(false);
             }
             // C++ killWhenRestingOnGround after settle.
             let _ = self.maybe_kill_when_resting_on_ground();
@@ -5402,7 +5402,7 @@ impl Object {
             && actual_damage > 0.0
             && self.is_kind_of(KindOf::CanBeRepulsed)
         {
-            self.status.repulsor = true;
+            self.set_status_repulsor(true);
             // 2 * LOGICFRAMES_PER_SECOND residual; frame base applied by host tick if 0.
             // Store absolute if known; else relative sentinel cleared by tick with current frame.
             if self.repulsor_until_frame == 0 || self.repulsor_until_frame < 100_000 {
@@ -7007,7 +7007,7 @@ impl Object {
             }
             self.target = Some(target_id);
             self.target_location = None;
-            self.force_attack = false;
+            self.set_status_force_attack(false);
             self.ai_state = AIState::Attacking;
             self.status.attacking = true;
             crate::game_logic::host_attack_log::record(self.id, Some(target_id));
@@ -7047,7 +7047,7 @@ impl Object {
     pub fn stop_attack(&mut self) {
         self.target = None;
         self.target_location = None;
-        self.force_attack = false;
+        self.set_status_force_attack(false);
         self.pre_attack_target = None;
         self.pre_attack_ready_at = 0.0;
         self.consecutive_shot_target = None;
@@ -7114,7 +7114,7 @@ impl Object {
             self.status.attacking = true;
         } else {
             self.target_location = None;
-            self.force_attack = false;
+            self.set_status_force_attack(false);
             self.ai_state = AIState::Idle;
             self.status.attacking = false;
         }
@@ -7215,12 +7215,12 @@ impl Object {
             self.ai_state = AIState::Attacking;
             self.status.attacking = true;
         } else {
-            self.force_attack = false;
+            self.set_status_force_attack(false);
         }
     }
 
     pub fn set_force_attack(&mut self, force: bool) {
-        self.force_attack = force;
+        self.set_status_force_attack(force);
     }
 
     pub fn stop(&mut self) {
@@ -7779,7 +7779,7 @@ impl Object {
 
             if self.construction_percent >= 1.0 {
                 self.construction_percent = 1.0;
-                self.status.under_construction = false;
+                self.set_status_under_construction(false);
                 self.health.current = self.health.maximum;
             } else {
                 // Health scales with construction progress
@@ -8337,6 +8337,58 @@ impl Object {
     pub fn set_status_parachute_landing_override_set(&mut self, v: bool) {
         self.status.parachute_landing_override_set = v;
         crate::game_logic::host_status_log::record_parachute_landing_override_set(self.id, v);
+    }
+    pub fn set_status_using_ability(&mut self, v: bool) {
+        self.status.using_ability = v;
+        crate::game_logic::host_status_log::record_using_ability(self.id, v);
+    }
+    pub fn set_status_deployed(&mut self, v: bool) {
+        self.status.deployed = v;
+        crate::game_logic::host_status_log::record_deployed(self.id, v);
+    }
+    pub fn set_status_under_construction(&mut self, v: bool) {
+        self.status.under_construction = v;
+        crate::game_logic::host_status_log::record_under_construction(self.id, v);
+    }
+    pub fn set_status_sold(&mut self, v: bool) {
+        self.status.sold = v;
+        crate::game_logic::host_status_log::record_sold(self.id, v);
+    }
+    pub fn set_status_reconstructing(&mut self, v: bool) {
+        self.status.reconstructing = v;
+        crate::game_logic::host_status_log::record_reconstructing(self.id, v);
+    }
+    pub fn set_status_unselectable(&mut self, v: bool) {
+        self.status.unselectable = v;
+        crate::game_logic::host_status_log::record_unselectable(self.id, v);
+    }
+    pub fn set_status_ignoring_stealth(&mut self, v: bool) {
+        self.status.ignoring_stealth = v;
+        crate::game_logic::host_status_log::record_ignoring_stealth(self.id, v);
+    }
+    pub fn set_status_repulsor(&mut self, v: bool) {
+        self.status.repulsor = v;
+        crate::game_logic::host_status_log::record_repulsor(self.id, v);
+    }
+    pub fn set_status_disabled_underpowered(&mut self, v: bool) {
+        self.status.disabled_underpowered = v;
+        crate::game_logic::host_status_log::record_disabled_underpowered(self.id, v);
+    }
+    pub fn set_status_disabled_freefall(&mut self, v: bool) {
+        self.status.disabled_freefall = v;
+        crate::game_logic::host_status_log::record_disabled_freefall(self.id, v);
+    }
+    pub fn set_status_is_carbomb(&mut self, v: bool) {
+        self.status.is_carbomb = v;
+        crate::game_logic::host_status_log::record_is_carbomb(self.id, v);
+    }
+    pub fn set_status_hijacked(&mut self, v: bool) {
+        self.status.hijacked = v;
+        crate::game_logic::host_status_log::record_hijacked(self.id, v);
+    }
+    pub fn set_status_force_attack(&mut self, v: bool) {
+        self.force_attack = v;
+        crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
 
     /// Set the AI state for autonomous behavior

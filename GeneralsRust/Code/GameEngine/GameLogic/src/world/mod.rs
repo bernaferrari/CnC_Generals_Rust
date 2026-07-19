@@ -485,6 +485,19 @@ pub enum WorldMutation {
         parachuting: Option<bool>,
         parachute_open: Option<bool>,
         parachute_landing_override_set: Option<bool>,
+        using_ability: Option<bool>,
+        deployed: Option<bool>,
+        under_construction: Option<bool>,
+        sold: Option<bool>,
+        reconstructing: Option<bool>,
+        unselectable: Option<bool>,
+        ignoring_stealth: Option<bool>,
+        repulsor: Option<bool>,
+        disabled_underpowered: Option<bool>,
+        disabled_freefall: Option<bool>,
+        is_carbomb: Option<bool>,
+        hijacked: Option<bool>,
+        force_attack: Option<bool>,
     },
 }
 
@@ -689,6 +702,19 @@ impl GameWorld {
                     parachuting,
                     parachute_open,
                     parachute_landing_override_set,
+                    using_ability,
+                    deployed,
+                    under_construction,
+                    sold,
+                    reconstructing,
+                    unselectable,
+                    ignoring_stealth,
+                    repulsor,
+                    disabled_underpowered,
+                    disabled_freefall,
+                    is_carbomb,
+                    hijacked,
+                    force_attack,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         if let Some(v) = stealthed {
@@ -768,6 +794,45 @@ impl GameWorld {
                         }
                         if let Some(v) = parachute_landing_override_set {
                             e.parachute_landing_override_set = v;
+                        }
+                        if let Some(v) = using_ability {
+                            e.using_ability = v;
+                        }
+                        if let Some(v) = deployed {
+                            e.deployed = v;
+                        }
+                        if let Some(v) = under_construction {
+                            e.under_construction = v;
+                        }
+                        if let Some(v) = sold {
+                            e.sold = v;
+                        }
+                        if let Some(v) = reconstructing {
+                            e.reconstructing = v;
+                        }
+                        if let Some(v) = unselectable {
+                            e.unselectable = v;
+                        }
+                        if let Some(v) = ignoring_stealth {
+                            e.ignoring_stealth = v;
+                        }
+                        if let Some(v) = repulsor {
+                            e.repulsor = v;
+                        }
+                        if let Some(v) = disabled_underpowered {
+                            e.disabled_underpowered = v;
+                        }
+                        if let Some(v) = disabled_freefall {
+                            e.disabled_freefall = v;
+                        }
+                        if let Some(v) = is_carbomb {
+                            e.is_carbomb = v;
+                        }
+                        if let Some(v) = hijacked {
+                            e.hijacked = v;
+                        }
+                        if let Some(v) = force_attack {
+                            e.force_attack = v;
                         }
                         applied += 1;
                     }
