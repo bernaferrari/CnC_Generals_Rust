@@ -102,7 +102,7 @@ mod tests {
     }
 
     #[test]
-        #[test]
+    #[test]
     fn show_shell_menu_sets_shell_active_for_wnd_residual() {
         let src = include_str!("cnc_game_engine.rs");
         let i = src.find("fn show_shell_menu").expect("show_shell_menu");
@@ -117,7 +117,7 @@ mod tests {
         );
     }
 
-fn match_start_presentation_seed_uses_shadow_overlay() {
+    fn match_start_presentation_seed_uses_shadow_overlay() {
         let src = include_str!("cnc_game_engine.rs");
         // Tokenize so this test name does not match the production fn finder.
         let needle = format!("fn {}{}(", "seed_presentation_after_", "match_start");
