@@ -543,6 +543,11 @@ pub enum WorldMutation {
         holding: bool,
         idle_scanning: bool,
     },
+    /// Host Object::target_location residual (ground attack aim point).
+    SetTargetLocation {
+        unit: EntityId,
+        location: Option<[f32; 3]>,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1016,6 +1021,12 @@ impl GameWorld {
                         e.turret_pitch_deg = pitch_deg;
                         e.turret_holding = holding;
                         e.turret_idle_scanning = idle_scanning;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetTargetLocation { unit, location } => {
+                    if let Some(e) = self.inner.entity_mut(unit) {
+                        e.target_location = location;
                         applied += 1;
                     }
                 }

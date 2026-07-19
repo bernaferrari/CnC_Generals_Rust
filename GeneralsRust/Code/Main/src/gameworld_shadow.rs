@@ -3166,6 +3166,58 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_target_location_events(
+        &mut self,
+        events: &[crate::game_logic::host_target_location_log::HostTargetLocationEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetTargetLocation {
+                    unit: eid,
+                    location: ev.location,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_target_location_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_loc = obj.target_location.map(|p| [p.x, p.y, p.z]);
+            let ent_loc = ent.target_location;
+            let same = match (host_loc, ent_loc) {
+                (None, None) => true,
+                (Some(a), Some(b)) => {
+                    (a[0] - b[0]).abs() <= 1e-4
+                        && (a[1] - b[1]).abs() <= 1e-4
+                        && (a[2] - b[2]).abs() <= 1e-4
+                }
+                _ => false,
+            };
+            if same {
+                continue;
+            }
+            obj.target_location = ent_loc.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_turret_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3542,6 +3594,7 @@ pub fn shadow_session_after_host_tick(
     let weapon_slot_events = crate::game_logic::host_weapon_slot_log::drain();
     let entity_power_events = crate::game_logic::host_entity_power_log::drain();
     let turret_events = crate::game_logic::host_turret_log::drain();
+    let target_location_events = crate::game_logic::host_target_location_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3588,6 +3641,7 @@ pub fn shadow_session_after_host_tick(
     let _wslot_applied = shadow.apply_host_weapon_slot_events(&weapon_slot_events);
     let _epow_applied = shadow.apply_host_entity_power_events(&entity_power_events);
     let _tur_applied = shadow.apply_host_turret_events(&turret_events);
+    let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3629,6 +3683,7 @@ pub fn shadow_session_after_host_tick(
     let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
     let _epow_wb = shadow.writeback_entity_power_to_host(logic);
     let _tur_wb = shadow.writeback_turret_to_host(logic);
+    let _tloc_wb = shadow.writeback_target_location_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6447,7 +6502,67 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_target_location_log_drives_set_target_location_channel() {
+        use crate::game_logic::{host_target_location_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("TLocCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("TLocU") {
+            let mut t = ThingTemplate::new("TLocU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("TLocU".into(), t);
+        }
+        let oid = logic
+            .create_object("TLocU", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
+            .expect("id");
+        host_target_location_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_target_location(Some(glam::Vec3::new(11.0, 0.0, 13.0)));
+        }
+        let events = host_target_location_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.location
+                        .map(|p| (p[0] - 11.0).abs() < 1e-3 && (p[2] - 13.0).abs() < 1e-3)
+                        .unwrap_or(false)
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_target_location();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.target_location = None;
+        }
+        let n = shadow.apply_host_target_location_events(&host_target_location_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        let tl = e.target_location.expect("tl");
+        assert!((tl[0] - 11.0).abs() < 1e-3 && (tl[2] - 13.0).abs() < 1e-3);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.target_location = None;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.target_location = Some([11.0, 0.0, 13.0]);
+        }
+        assert!(shadow.writeback_target_location_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        let p = o.target_location.expect("host tl");
+        assert!((p.x - 11.0).abs() < 1e-3 && (p.z - 13.0).abs() < 1e-3);
+    }
+
+#[test]
     fn host_turret_log_drives_set_turret_channel() {
         use crate::game_logic::{host_turret_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
