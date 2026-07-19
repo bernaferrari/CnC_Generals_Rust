@@ -3347,6 +3347,50 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_hive_events(
+        &mut self,
+        events: &[crate::game_logic::host_hive_log::HostHiveEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world.queue_mutation(gamelogic::world::WorldMutation::SetHiveSlaves {
+                target: eid,
+                slave_count: ev.slave_count,
+                slave_hp: ev.slave_hp,
+            });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_hive_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.hive_slave_count != ent.hive_slave_count
+                || (obj.hive_slave_hp - ent.hive_slave_hp).abs() > 1e-4;
+            if !changed {
+                continue;
+            }
+            obj.hive_slave_count = ent.hive_slave_count;
+            obj.hive_slave_hp = ent.hive_slave_hp.max(0.0);
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_contain_capacity_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3944,6 +3988,7 @@ pub fn shadow_session_after_host_tick(
     let weapon_set_events = crate::game_logic::host_weapon_set_log::drain();
     let overcharge_events = crate::game_logic::host_overcharge_log::drain();
     let contain_capacity_events = crate::game_logic::host_contain_capacity_log::drain();
+    let hive_events = crate::game_logic::host_hive_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3998,6 +4043,7 @@ pub fn shadow_session_after_host_tick(
     let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
+    let _hive_applied = shadow.apply_host_hive_events(&hive_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4047,6 +4093,7 @@ pub fn shadow_session_after_host_tick(
     let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
     let _oc_wb = shadow.writeback_overcharge_to_host(logic);
     let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
+    let _hive_wb = shadow.writeback_hive_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6873,7 +6920,70 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_hive_log_drives_set_hive_slaves_channel() {
+        use crate::game_logic::{host_hive_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HiveCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("HiveU") {
+            let mut t = ThingTemplate::new("HiveU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("HiveU".into(), t);
+        }
+        let oid = logic
+            .create_object("HiveU", Team::GLA, glam::Vec3::new(19.0, 0.0, 19.0))
+            .expect("id");
+        host_hive_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.hive_slave_count = 3;
+            o.hive_slave_hp = 55.0;
+            o.record_host_hive();
+        }
+        let events = host_hive_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid && e.slave_count == 3 && (e.slave_hp - 55.0).abs() < 1e-3
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_hive();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.hive_slave_count = 0;
+            e.hive_slave_hp = 0.0;
+        }
+        let n = shadow.apply_host_hive_events(&host_hive_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.hive_slave_count, 3);
+        assert!((e.hive_slave_hp - 55.0).abs() < 1e-3);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.hive_slave_count = 0;
+            o.hive_slave_hp = 0.0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.hive_slave_count = 3;
+            e.hive_slave_hp = 55.0;
+        }
+        assert!(shadow.writeback_hive_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.hive_slave_count, 3);
+        assert!((o.hive_slave_hp - 55.0).abs() < 1e-3);
+    }
+
+#[test]
     fn host_contain_capacity_log_drives_set_contain_capacity_channel() {
         use crate::game_logic::buildings::{BuildingData, BuildingType};
         use crate::game_logic::{host_contain_capacity_log, KindOf, Team, ThingTemplate};

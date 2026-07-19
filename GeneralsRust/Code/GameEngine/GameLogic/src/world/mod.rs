@@ -590,6 +590,12 @@ pub enum WorldMutation {
         max_transport: usize,
         max_garrison: u16,
     },
+    /// Host Object hive-slave residual (Stinger site soldier pool).
+    SetHiveSlaves {
+        target: EntityId,
+        slave_count: u8,
+        slave_hp: f32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1141,6 +1147,17 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.max_transport = max_transport;
                         e.max_garrison = max_garrison;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetHiveSlaves {
+                    target,
+                    slave_count,
+                    slave_hp,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.hive_slave_count = slave_count;
+                        e.hive_slave_hp = slave_hp.max(0.0);
                         applied += 1;
                     }
                 }
