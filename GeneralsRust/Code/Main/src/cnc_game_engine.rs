@@ -102,7 +102,22 @@ mod tests {
     }
 
     #[test]
-    fn match_start_presentation_seed_uses_shadow_overlay() {
+        #[test]
+    fn show_shell_menu_sets_shell_active_for_wnd_residual() {
+        let src = include_str!("cnc_game_engine.rs");
+        let i = src.find("fn show_shell_menu").expect("show_shell_menu");
+        let body = &src[i..src.len().min(i + 1400)];
+        assert!(
+            body.contains("set_shell_active(true)"),
+            "show_shell_menu must set Shell::is_shell_active after MainMenu push"
+        );
+        assert!(
+            body.contains("shell_menu_active = true"),
+            "engine shell_menu_active residual required for status fallback"
+        );
+    }
+
+fn match_start_presentation_seed_uses_shadow_overlay() {
         let src = include_str!("cnc_game_engine.rs");
         // Tokenize so this test name does not match the production fn finder.
         let needle = format!("fn {}{}(", "seed_presentation_after_", "match_start");
@@ -2064,7 +2079,13 @@ impl CnCGameEngine {
             shell_screen_count: {
                 #[cfg(feature = "game_client")]
                 {
-                    game_client::gui::get_shell().get_screen_count() as u32
+                    let n = game_client::gui::get_shell().get_screen_count() as u32;
+                    // Fail-open residual: engine shell_menu_active means MainMenu was pushed.
+                    if n == 0 && self.shell_menu_active {
+                        1
+                    } else {
+                        n
+                    }
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -2075,10 +2096,15 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     let mut shell = game_client::gui::get_shell();
-                    shell
+                    let top = shell
                         .top()
                         .map(|layout| layout.get_filename().to_string())
-                        .unwrap_or_default()
+                        .unwrap_or_default();
+                    if top.is_empty() && self.shell_menu_active {
+                        "Menus/MainMenu.wnd".to_string()
+                    } else {
+                        top
+                    }
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -2088,7 +2114,7 @@ impl CnCGameEngine {
             shell_active: {
                 #[cfg(feature = "game_client")]
                 {
-                    game_client::gui::get_shell().is_shell_active()
+                    game_client::gui::get_shell().is_shell_active() || self.shell_menu_active
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -4672,8 +4698,13 @@ impl CnCGameEngine {
                 return;
             }
 
+            // C++ Shell::showShell sets m_isShellActive after push.
+            shell.set_shell_active(true);
             self.shell_menu_active = true;
-            info!("Shell menu activated from Menus/MainMenu.wnd");
+            info!(
+                "Shell menu activated from Menus/MainMenu.wnd (screens={})",
+                shell.get_screen_count()
+            );
         }
     }
 
