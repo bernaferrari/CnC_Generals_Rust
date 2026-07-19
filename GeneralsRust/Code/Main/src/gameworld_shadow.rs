@@ -3142,6 +3142,56 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_turret_events(
+        &mut self,
+        events: &[crate::game_logic::host_turret_log::HostTurretEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world.queue_mutation(gamelogic::world::WorldMutation::SetTurret {
+                target: eid,
+                angle_deg: ev.angle_deg,
+                pitch_deg: ev.pitch_deg,
+                holding: ev.holding,
+                idle_scanning: ev.idle_scanning,
+            });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_turret_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = (obj.turret_angle_deg - ent.turret_angle_deg).abs() > 1e-4
+                || (obj.turret_pitch_deg - ent.turret_pitch_deg).abs() > 1e-4
+                || obj.turret_holding != ent.turret_holding
+                || obj.turret_idle_scanning != ent.turret_idle_scanning;
+            if !changed {
+                continue;
+            }
+            obj.turret_angle_deg = ent.turret_angle_deg;
+            obj.turret_pitch_deg = ent.turret_pitch_deg;
+            obj.turret_holding = ent.turret_holding;
+            obj.turret_idle_scanning = ent.turret_idle_scanning;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_entity_power_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3491,6 +3541,7 @@ pub fn shadow_session_after_host_tick(
     let weapon_bonus_events = crate::game_logic::host_weapon_bonus_log::drain();
     let weapon_slot_events = crate::game_logic::host_weapon_slot_log::drain();
     let entity_power_events = crate::game_logic::host_entity_power_log::drain();
+    let turret_events = crate::game_logic::host_turret_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3536,6 +3587,7 @@ pub fn shadow_session_after_host_tick(
     let _wb_applied = shadow.apply_host_weapon_bonus_events(&weapon_bonus_events);
     let _wslot_applied = shadow.apply_host_weapon_slot_events(&weapon_slot_events);
     let _epow_applied = shadow.apply_host_entity_power_events(&entity_power_events);
+    let _tur_applied = shadow.apply_host_turret_events(&turret_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3576,6 +3628,7 @@ pub fn shadow_session_after_host_tick(
     let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
     let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
     let _epow_wb = shadow.writeback_entity_power_to_host(logic);
+    let _tur_wb = shadow.writeback_turret_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6393,7 +6446,79 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_turret_log_drives_set_turret_channel() {
+        use crate::game_logic::{host_turret_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("TurretCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("TurU") {
+            let mut t = ThingTemplate::new("TurU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("TurU".into(), t);
+        }
+        let oid = logic
+            .create_object("TurU", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
+            .expect("id");
+        host_turret_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.turret_angle_deg = 33.0;
+            o.turret_pitch_deg = 12.0;
+            o.turret_holding = true;
+            o.turret_idle_scanning = false;
+            o.record_host_turret();
+        }
+        let events = host_turret_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && (e.angle_deg - 33.0).abs() < 1e-3
+                    && (e.pitch_deg - 12.0).abs() < 1e-3
+                    && e.holding
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_turret();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.turret_angle_deg = 0.0;
+            e.turret_pitch_deg = 0.0;
+            e.turret_holding = false;
+        }
+        let n = shadow.apply_host_turret_events(&host_turret_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.turret_angle_deg - 33.0).abs() < 1e-3);
+        assert!((e.turret_pitch_deg - 12.0).abs() < 1e-3);
+        assert!(e.turret_holding);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.turret_angle_deg = 0.0;
+            o.turret_pitch_deg = 0.0;
+            o.turret_holding = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.turret_angle_deg = 33.0;
+            e.turret_pitch_deg = 12.0;
+            e.turret_holding = true;
+        }
+        assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
+        assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
+        assert!(o.turret_holding);
+    }
+
+#[test]
     fn host_entity_power_log_drives_set_entity_power_channel() {
         use crate::game_logic::{host_entity_power_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
