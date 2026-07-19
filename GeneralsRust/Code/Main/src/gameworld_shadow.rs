@@ -3279,6 +3279,51 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_weapon_set_events(
+        &mut self,
+        events: &[crate::game_logic::host_weapon_set_log::HostWeaponSetEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetWeaponSetFlags {
+                    target: eid,
+                    player_upgrade: ev.player_upgrade,
+                    armed_riders: ev.armed_riders,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_weapon_set_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.weapon_set_player_upgrade == ent.weapon_set_player_upgrade
+                && obj.armed_riders_upgrade_weapon_set == ent.armed_riders_upgrade_weapon_set
+            {
+                continue;
+            }
+            obj.weapon_set_player_upgrade = ent.weapon_set_player_upgrade;
+            obj.armed_riders_upgrade_weapon_set = ent.armed_riders_upgrade_weapon_set;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_ai_attitude_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3795,6 +3840,7 @@ pub fn shadow_session_after_host_tick(
     let continuous_fire_events = crate::game_logic::host_continuous_fire_log::drain();
     let guard_events = crate::game_logic::host_guard_log::drain();
     let ai_attitude_events = crate::game_logic::host_ai_attitude_log::drain();
+    let weapon_set_events = crate::game_logic::host_weapon_set_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3846,6 +3892,7 @@ pub fn shadow_session_after_host_tick(
     let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
+    let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3892,6 +3939,7 @@ pub fn shadow_session_after_host_tick(
     let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
     let _guard_wb = shadow.writeback_guard_to_host(logic);
     let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
+    let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6715,7 +6763,67 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_weapon_set_log_drives_set_weapon_set_flags_channel() {
+        use crate::game_logic::{host_weapon_set_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WSetCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WSU") {
+            let mut t = ThingTemplate::new("WSU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("WSU".into(), t);
+        }
+        let oid = logic
+            .create_object("WSU", Team::USA, glam::Vec3::new(16.0, 0.0, 16.0))
+            .expect("id");
+        host_weapon_set_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.weapon_set_player_upgrade = true;
+            o.armed_riders_upgrade_weapon_set = true;
+            o.record_host_weapon_set();
+        }
+        let events = host_weapon_set_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.player_upgrade && e.armed_riders),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_weapon_set();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.weapon_set_player_upgrade = false;
+            e.armed_riders_upgrade_weapon_set = false;
+        }
+        let n = shadow.apply_host_weapon_set_events(&host_weapon_set_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.weapon_set_player_upgrade && e.armed_riders_upgrade_weapon_set);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.weapon_set_player_upgrade = false;
+            o.armed_riders_upgrade_weapon_set = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.weapon_set_player_upgrade = true;
+            e.armed_riders_upgrade_weapon_set = true;
+        }
+        assert!(shadow.writeback_weapon_set_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.weapon_set_player_upgrade && o.armed_riders_upgrade_weapon_set);
+    }
+
+#[test]
     fn host_ai_attitude_log_drives_set_ai_attitude_channel() {
         use crate::game_logic::{host_ai_attitude_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
