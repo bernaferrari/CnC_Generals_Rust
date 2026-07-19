@@ -499,6 +499,8 @@ pub enum WorldMutation {
         hijacked: Option<bool>,
         force_attack: Option<bool>,
     },
+    /// Set veterancy ordinal residual (0 Rookie .. 3 Heroic).
+    SetVeterancy { target: EntityId, ordinal: u8 },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -834,6 +836,12 @@ impl GameWorld {
                         if let Some(v) = force_attack {
                             e.force_attack = v;
                         }
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetVeterancy { target, ordinal } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.veterancy_ordinal = ordinal.min(3);
                         applied += 1;
                     }
                 }

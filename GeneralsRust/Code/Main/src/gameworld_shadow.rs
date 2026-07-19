@@ -1621,6 +1621,35 @@ impl GameWorldShadow {
                 obj.force_attack = ent.force_attack;
                 dirty = true;
             }
+            {
+                use crate::game_logic::VeterancyLevel as V;
+                let want = match ent.veterancy_ordinal.min(3) {
+                    0 => V::Rookie,
+                    1 => V::Veteran,
+                    2 => V::Elite,
+                    _ => V::Heroic,
+                };
+                if obj.experience.level != want {
+                    let prev = obj.experience.level;
+                    obj.experience.level = want;
+                    // Keep XP seed coherent with level for host residual.
+                    let thr = obj.thing.template.veterancy_xp_thresholds;
+                    let seed = match want {
+                        V::Rookie => 0.0,
+                        V::Veteran => thr[0],
+                        V::Elite => thr[1],
+                        V::Heroic => thr[2],
+                    };
+                    if obj.experience.current < seed {
+                        obj.experience.current = seed;
+                    }
+                    // Avoid re-log during writeback: set level without host_veterancy_log.
+                    // Bonuses already applied on host when level first changed; only repair
+                    // level label here if shadow last-writer diverged.
+                    let _ = prev;
+                    dirty = true;
+                }
+            }
             if obj.status.airborne_target != ent.airborne_target {
                 obj.status.airborne_target = ent.airborne_target;
                 dirty = true;
@@ -2268,6 +2297,19 @@ impl GameWorldShadow {
         true
     }
 
+    /// Queue SetVeterancy residual onto a mapped host object.
+    pub fn queue_set_veterancy_for_host(&mut self, host: ObjectId, ordinal: u8) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetVeterancy {
+                target,
+                ordinal: ordinal.min(3),
+            });
+        true
+    }
+
     /// Queue SetTransform for a mapped host object (move-command channel).
     pub fn queue_set_transform_for_host(
         &mut self,
@@ -2644,6 +2686,7 @@ pub fn shadow_session_after_host_tick(
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
     let status_events = crate::game_logic::host_status_log::drain();
+    let veterancy_events = crate::game_logic::host_veterancy_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
     let construction_events = crate::game_logic::host_construction_log::drain();
@@ -2670,7 +2713,14 @@ pub fn shadow_session_after_host_tick(
     for ev in &status_events {
         let _ = shadow.queue_set_combat_status_for_host(*ev);
     }
-    if !attack_events.is_empty() || !move_events.is_empty() || !status_events.is_empty() {
+    for ev in &veterancy_events {
+        let _ = shadow.queue_set_veterancy_for_host(ev.object, ev.ordinal);
+    }
+    if !attack_events.is_empty()
+        || !move_events.is_empty()
+        || !status_events.is_empty()
+        || !veterancy_events.is_empty()
+    {
         let _ = shadow.apply_pending();
     }
     let _atks = shadow.apply_host_attack_targets(logic);
@@ -4099,6 +4149,72 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_veterancy_log_drives_set_veterancy_channel() {
+        use crate::game_logic::{host_veterancy_log, KindOf, Team, ThingTemplate, VeterancyLevel};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("VetStatusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("VetU") {
+            let mut t = ThingTemplate::new("VetU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            // Low thresholds so gain_experience levels quickly.
+            t.veterancy_xp_thresholds = [10.0, 20.0, 30.0];
+            logic.templates.insert("VetU".into(), t);
+        }
+        let id = logic
+            .create_object("VetU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        host_veterancy_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.gain_experience(25.0); // Elite
+        }
+        let events = host_veterancy_log::drain();
+        assert!(
+            events.iter().any(|e| e.object == id && e.ordinal >= 2),
+            "expected elite+ veterancy log, got {:?}",
+            events
+        );
+        // Re-level for mutation path.
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.experience.level = VeterancyLevel::Rookie;
+            o.experience.current = 0.0;
+            host_veterancy_log::clear();
+            o.gain_experience(25.0);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.veterancy_ordinal = 0;
+        }
+        for ev in host_veterancy_log::drain() {
+            assert!(shadow.queue_set_veterancy_for_host(ev.object, ev.ordinal));
+        }
+        assert!(shadow.apply_pending() >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(
+            e.veterancy_ordinal >= 2,
+            "shadow ordinal {}",
+            e.veterancy_ordinal
+        );
+        // Poison host level then writeback.
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.experience.level = VeterancyLevel::Rookie;
+        }
+        let wb = shadow.writeback_construction_to_host(&mut logic);
+        assert!(wb >= 1);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!(matches!(
+            o.experience.level,
+            VeterancyLevel::Elite | VeterancyLevel::Heroic
+        ));
     }
 
     #[test]
