@@ -1409,6 +1409,14 @@ impl GameWorldShadow {
                 player.science_purchase_points = pd.science_purchase_points;
                 dirty = true;
             }
+            {
+                use std::collections::HashSet;
+                let want: HashSet<String> = pd.unlocked_sciences.iter().cloned().collect();
+                if player.unlocked_sciences != want {
+                    player.unlocked_sciences = want;
+                    dirty = true;
+                }
+            }
             // Shared superweapon cooldown last-writer (Debug-name keys).
             for (hk, hv) in player.shared_special_power_cooldowns.iter_mut() {
                 let key = format!("{hk:?}");
@@ -2608,6 +2616,50 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_player_meta_events(
+        &mut self,
+        events: &[crate::game_logic::host_player_meta_log::HostPlayerMetaEvent],
+    ) -> usize {
+        use crate::game_logic::host_player_meta_log::HostPlayerMetaEvent;
+        let mut n = 0usize;
+        for ev in events {
+            match ev {
+                HostPlayerMetaEvent::Sciences {
+                    player_id,
+                    unlocked_sciences,
+                } => {
+                    let Some(&player) = self.host_player_to_gw.get(player_id) else {
+                        continue;
+                    };
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetPlayerSciences {
+                            player,
+                            unlocked_sciences: unlocked_sciences.clone(),
+                        });
+                    n += 1;
+                }
+                HostPlayerMetaEvent::Alive {
+                    player_id,
+                    is_alive,
+                } => {
+                    let Some(&player) = self.host_player_to_gw.get(player_id) else {
+                        continue;
+                    };
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetPlayerAlive {
+                            player,
+                            is_alive: *is_alive,
+                        });
+                    n += 1;
+                }
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_contain_events(
         &mut self,
         events: &[crate::game_logic::host_contain_log::HostContainEvent],
@@ -3093,6 +3145,7 @@ pub fn shadow_session_after_host_tick(
     let contain_events = crate::game_logic::host_contain_log::drain();
     let radar_events = crate::game_logic::host_radar_log::drain();
     let player_progress_events = crate::game_logic::host_player_progress_log::drain();
+    let player_meta_events = crate::game_logic::host_player_meta_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -3110,6 +3163,7 @@ pub fn shadow_session_after_host_tick(
     let _contain_applied = shadow.apply_host_contain_events(&contain_events);
     let _radar_applied = shadow.apply_host_radar_events(&radar_events);
     let _progress_applied = shadow.apply_host_player_progress_events(&player_progress_events);
+    let _meta_applied = shadow.apply_host_player_meta_events(&player_meta_events);
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -4561,6 +4615,67 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_player_meta_log_drives_sciences_and_alive_channel() {
+        use crate::game_logic::host_player_meta_log;
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PlayerMetaCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = *logic.get_players().keys().next().expect("player");
+        host_player_meta_log::clear();
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            assert!(p.unlock_science("SCIENCE_PaladinTank"));
+            p.is_alive = true;
+            p.record_host_alive();
+        }
+        let events = host_player_meta_log::drain();
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                host_player_meta_log::HostPlayerMetaEvent::Sciences { player_id, unlocked_sciences }
+                    if *player_id == pid && unlocked_sciences.iter().any(|s| s.contains("Paladin"))
+            )),
+            "sciences {:?}",
+            events
+        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            host_player_meta_log::HostPlayerMetaEvent::Alive { player_id, is_alive: true }
+                if *player_id == pid
+        )));
+
+        // Re-record for apply
+        host_player_meta_log::clear();
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.record_host_sciences();
+            p.is_alive = false;
+            p.record_host_alive();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let gw = *shadow.host_player_to_gw.get(&pid).expect("map");
+        if let Some(p) = shadow.world_mut().world_mut().player_mut(gw) {
+            p.unlocked_sciences.clear();
+            p.is_alive = true;
+        }
+        let n = shadow.apply_host_player_meta_events(&host_player_meta_log::drain());
+        assert!(n >= 1);
+        let p = shadow.world().player(gw).expect("p");
+        assert!(p.unlocked_sciences.iter().any(|s| s.contains("Paladin")));
+        assert!(!p.is_alive);
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.unlocked_sciences.clear();
+            p.is_alive = true;
+        }
+        assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
+        let p = logic.get_player(pid).expect("p");
+        assert!(p.unlocked_sciences.iter().any(|s| s.contains("Paladin")));
+        assert!(!p.is_alive);
     }
 
     #[test]

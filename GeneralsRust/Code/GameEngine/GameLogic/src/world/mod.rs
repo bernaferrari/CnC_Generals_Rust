@@ -539,6 +539,13 @@ pub enum WorldMutation {
         science_purchase_points: i32,
         cash_bounty_percent: f32,
     },
+    /// Replace unlocked sciences residual for a player.
+    SetPlayerSciences {
+        player: PlayerId,
+        unlocked_sciences: Vec<String>,
+    },
+    /// Set player alive residual (defeat / victory).
+    SetPlayerAlive { player: PlayerId, is_alive: bool },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -965,6 +972,21 @@ impl GameWorld {
                         p.skill_points = skill_points;
                         p.science_purchase_points = science_purchase_points;
                         p.cash_bounty_percent = cash_bounty_percent;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetPlayerSciences {
+                    player,
+                    unlocked_sciences,
+                } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        p.unlocked_sciences = unlocked_sciences;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetPlayerAlive { player, is_alive } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        p.is_alive = is_alive;
                         applied += 1;
                     }
                 }
