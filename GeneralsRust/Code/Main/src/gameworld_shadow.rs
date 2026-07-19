@@ -1332,12 +1332,17 @@ impl GameWorldShadow {
                 continue;
             };
             let new_h = ent.health.max(0.0);
+            let new_max = ent.max_health.max(1.0);
             let changed = (obj.health.current - new_h).abs() > 0.000_1
-                || ((new_h <= 0.0) != obj.status.destroyed);
+                || ((new_h <= 0.0) != obj.status.destroyed)
+                || (obj.max_health - new_max).abs() > 0.000_1
+                || (obj.health.maximum - new_max).abs() > 0.000_1;
             if !changed {
                 continue;
             }
-            obj.health.current = new_h;
+            obj.health.current = new_h.min(new_max);
+            obj.max_health = new_max;
+            obj.health.maximum = new_max;
             if new_h <= 0.0 {
                 obj.status.destroyed = true;
                 obj.ai_state = crate::game_logic::AIState::Idle;
@@ -2978,6 +2983,28 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_max_health_events(
+        &mut self,
+        events: &[crate::game_logic::host_max_health_log::HostMaxHealthEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world.queue_mutation(gamelogic::world::WorldMutation::SetMaxHealth {
+                target: eid,
+                max_health: ev.max_health,
+            });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+
     pub fn apply_host_damage_events(
         &mut self,
         events: &[crate::game_logic::host_damage_log::HostDamageEvent],
@@ -3218,6 +3245,7 @@ pub fn shadow_session_after_host_tick(
 ) -> GameWorldShadowProbe {
     let events = crate::game_logic::host_damage_log::drain();
     let heal_events = crate::game_logic::host_heal_log::drain();
+    let max_health_events = crate::game_logic::host_max_health_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3258,6 +3286,7 @@ pub fn shadow_session_after_host_tick(
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
+    let _maxh_applied = shadow.apply_host_max_health_events(&max_health_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -6033,7 +6062,69 @@ mod tests {
         );
     }
 
+    
     #[test]
+    fn host_max_health_log_drives_set_max_health_channel() {
+        use crate::game_logic::{host_max_health_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MaxHealthCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("MaxHU") {
+            let mut t = ThingTemplate::new("MaxHU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("MaxHU".into(), t);
+        }
+        let oid = logic
+            .create_object("MaxHU", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        host_max_health_log::clear();
+        {
+            let obj = logic.get_objects_mut().get_mut(&oid).expect("o");
+            obj.max_health = 250.0;
+            obj.health.maximum = 250.0;
+            obj.health.current = 200.0;
+            obj.record_host_max_health();
+        }
+        let events = host_max_health_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && (e.max_health - 250.0).abs() < 1e-3),
+            "events {:?}",
+            events
+        );
+        {
+            let obj = logic.get_objects_mut().get_mut(&oid).expect("o");
+            obj.record_host_max_health();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.max_health = 1.0;
+        }
+        let n = shadow.apply_host_max_health_events(&host_max_health_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.max_health - 250.0).abs() < 1e-3, "max {}", e.max_health);
+        {
+            let obj = logic.get_objects_mut().get_mut(&oid).expect("o");
+            obj.max_health = 10.0;
+            obj.health.maximum = 10.0;
+            obj.health.current = 10.0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.health = 200.0;
+            e.max_health = 250.0;
+        }
+        assert!(shadow.writeback_health_to_host(&mut logic) >= 1);
+        let obj = logic.get_objects().get(&oid).expect("o");
+        assert!((obj.max_health - 250.0).abs() < 1e-3, "host max {}", obj.max_health);
+        assert!((obj.health.maximum - 250.0).abs() < 1e-3);
+    }
+
+#[test]
     fn writeback_completed_upgrades_restores_host_registry() {
         use crate::game_logic::host_upgrades::{
             normalize_upgrade_identity, HostUpgradePhase, UPGRADE_AMERICA_FLASHBANG,

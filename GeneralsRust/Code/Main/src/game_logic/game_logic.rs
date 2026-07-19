@@ -16717,6 +16717,7 @@ impl GameLogic {
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_GLA_FORTIFIED_STRUCTURE);
             obj.max_health = (obj.max_health + add).max(1.0);
+            obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
             obj.health.current = (obj.health.current + add).min(obj.health.maximum);
             n = n.saturating_add(1);
@@ -16807,6 +16808,7 @@ impl GameLogic {
             obj.applied_upgrades
                 .insert(UPGRADE_AMERICA_DRONE_ARMOR.to_string());
             obj.max_health = (obj.max_health + add).max(1.0);
+            obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
             obj.health.current = (obj.health.current + add).min(obj.health.maximum);
             n = n.saturating_add(1);
@@ -16849,6 +16851,7 @@ impl GameLogic {
             let mut maximum = obj.health.maximum;
             apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
             obj.max_health = max_h;
+            obj.record_host_max_health();
             obj.health.current = cur;
             obj.health.maximum = maximum;
             n = n.saturating_add(1);
@@ -17646,6 +17649,7 @@ impl GameLogic {
             let mut maximum = obj.health.maximum;
             apply_composite_armor_health(&mut max_h, &mut cur, &mut maximum);
             obj.max_health = max_h;
+            obj.record_host_max_health();
             obj.health.current = cur;
             obj.health.maximum = maximum;
             crate::game_logic::host_heal_log::record(obj.id, obj.health.current);

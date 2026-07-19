@@ -419,6 +419,11 @@ pub enum WorldMutation {
     Destroy(EntityId),
     /// Set absolute health.
     SetHealth { target: EntityId, health: f32 },
+    /// Host Object::max_health / health.maximum residual (armor / veterancy).
+    SetMaxHealth {
+        target: EntityId,
+        max_health: f32,
+    },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -654,6 +659,17 @@ impl GameWorld {
                 WorldMutation::SetHealth { target, health } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.health = health.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetMaxHealth { target, max_health } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        let m = max_health.max(1.0);
+                        e.max_health = m;
+                        // Keep current health within new max (C++ armor/veterancy residual).
+                        if e.health > m {
+                            e.health = m;
+                        }
                         applied += 1;
                     }
                 }

@@ -8163,6 +8163,10 @@ impl Object {
                 .any(|u| is_advanced_training_upgrade(u))
     }
 
+    pub fn record_host_max_health(&self) {
+        crate::game_logic::host_max_health_log::record(self.id, self.max_health.max(self.health.maximum).max(1.0));
+    }
+
     pub(crate) fn apply_veterancy_bonuses(
         &mut self,
         previous_level: VeterancyLevel,
@@ -8193,6 +8197,8 @@ impl Object {
             weapon.reload_time *= rof_scale;
         }
         self.record_host_veterancy_level();
+        self.max_health = self.health.maximum.max(1.0);
+        self.record_host_max_health();
     }
 
     /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).
