@@ -84,6 +84,12 @@ pub struct ExecutableSmokeResult {
     pub force_attack_object_cmd_ok: bool,
     pub select_all_cmd_ok: bool,
     pub control_group_cmd_ok: bool,
+    pub waypoint_cmd_ok: bool,
+    pub box_select_cmd_ok: bool,
+    /// InGame status reported presentation_frame_ok=true at least once.
+    pub presentation_frame_ok: bool,
+    /// No live GameLogic dual-reads while presentation owned collect (status residual).
+    pub presentation_live_fallback_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -142,6 +148,10 @@ impl Default for ExecutableSmokeResult {
             force_attack_object_cmd_ok: false,
             select_all_cmd_ok: false,
             control_group_cmd_ok: false,
+            waypoint_cmd_ok: false,
+            box_select_cmd_ok: false,
+            presentation_frame_ok: false,
+            presentation_live_fallback_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -165,6 +175,9 @@ struct StatusSnap {
     last_gameplay_cmd: String,
     match_over: bool,
     victory_label: String,
+    presentation_frame_ok: bool,
+    presentation_live_fallback_reads: u32,
+    waypoint_mode: bool,
 }
 
 fn parse_status(path: &Path) -> Option<StatusSnap> {
@@ -187,6 +200,21 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "selected_count" => snap.selected_count = v.trim().parse().unwrap_or(0),
             "local_mobile_units" => snap.local_mobile_units = v.trim().parse().unwrap_or(0),
             "last_gameplay_cmd" => snap.last_gameplay_cmd = v.trim().to_string(),
+            "presentation_frame_ok" => {
+                snap.presentation_frame_ok = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "presentation_live_fallback_reads" => {
+                snap.presentation_live_fallback_reads = v.trim().parse().unwrap_or(0);
+            }
+            "waypoint_mode" => {
+                snap.waypoint_mode = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
             "match_over" => snap.match_over = matches!(v.trim(), "true" | "1" | "True"),
             "victory_label" => snap.victory_label = v.trim().to_string(),
             _ => {}
@@ -505,6 +533,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut select_all_detail = String::new();
     let mut saw_control_group_ok = false;
     let mut control_group_detail = String::new();
+    let mut saw_waypoint_ok = false;
+    let mut waypoint_detail = String::new();
+    let mut saw_box_select_ok = false;
+    let mut box_select_detail = String::new();
+    let mut saw_presentation_frame_ok = false;
+    let mut saw_presentation_live_fallback_ok = false;
+    let mut presentation_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -567,6 +602,19 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         }
 
         if let Some(snap) = parse_status(&status_path) {
+            // Presentation honesty residual from host status every poll.
+            if snap.presentation_frame_ok {
+                saw_presentation_frame_ok = true;
+            }
+            if snap.presentation_frame_ok && snap.presentation_live_fallback_reads == 0 {
+                saw_presentation_live_fallback_ok = true;
+            }
+            if snap.presentation_frame_ok || snap.presentation_live_fallback_reads > 0 {
+                presentation_detail = format!(
+                    "frame_ok={} live_fallback={}",
+                    snap.presentation_frame_ok, snap.presentation_live_fallback_reads
+                );
+            }
             last_snap = snap.clone();
             result.frames_observed = result.frames_observed.max(snap.frame);
             if snap.map != "-" && !snap.map.is_empty() {
@@ -1343,10 +1391,59 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             control_group_detail =
                                 format!("{};{}", control_group_detail, snap.last_gameplay_cmd);
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["waypoint_mode|on=1"]);
                         gameplay_step = 41;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 41 {
+                    } else if gameplay_step == 41
+                        && (snap.last_gameplay_cmd.starts_with("waypoint_mode_ok")
+                            || snap.last_gameplay_cmd.starts_with("waypoint_mode_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("waypoint_mode_") {
+                            waypoint_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["add_waypoint|x=130|y=0|z=130"]);
+                        gameplay_step = 42;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 42
+                        && (snap.last_gameplay_cmd.starts_with("waypoint_ok")
+                            || snap.last_gameplay_cmd.starts_with("waypoint_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("waypoint_ok") {
+                            saw_waypoint_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("waypoint_") {
+                            waypoint_detail =
+                                format!("{};{}", waypoint_detail, snap.last_gameplay_cmd);
+                        }
+                        let _ = write_control(
+                            &control_path,
+                            &["box_select|min_x=-8000|max_x=8000|min_z=-8000|max_z=8000"],
+                        );
+                        gameplay_step = 43;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 43
+                        && (snap.last_gameplay_cmd.starts_with("box_select_ok")
+                            || snap.last_gameplay_cmd.starts_with("box_select_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("box_select_ok") {
+                            saw_box_select_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("box_select_") {
+                            box_select_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 44;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 44 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -1647,6 +1744,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.force_attack_object_cmd_ok = saw_force_attack_object_ok;
                         result.select_all_cmd_ok = saw_select_all_ok;
                         result.control_group_cmd_ok = saw_control_group_ok;
+                        result.waypoint_cmd_ok = saw_waypoint_ok;
+                        result.box_select_cmd_ok = saw_box_select_ok;
+                        result.presentation_frame_ok = saw_presentation_frame_ok;
+                        result.presentation_live_fallback_ok = saw_presentation_live_fallback_ok;
+                        if !presentation_detail.is_empty() {
+                            result.detail =
+                                format!("{}; presentation={}", result.detail, presentation_detail);
+                        }
                         result.detail =
                             format!("{}; last_cmd={}", result.detail, snap.last_gameplay_cmd);
                         if !construct_detail.is_empty() {
@@ -1751,7 +1856,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -1796,6 +1901,10 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.force_attack_object_cmd_ok,
         r.select_all_cmd_ok,
         r.control_group_cmd_ok,
+        r.waypoint_cmd_ok,
+        r.box_select_cmd_ok,
+        r.presentation_frame_ok,
+        r.presentation_live_fallback_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
