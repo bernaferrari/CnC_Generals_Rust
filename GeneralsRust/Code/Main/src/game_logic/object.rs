@@ -1973,13 +1973,13 @@ impl Object {
     /// Apply / clear weapons-jam residual (ECM field coverage).
     pub fn set_weapons_jammed(&mut self, jammed: bool) {
         if jammed {
-            self.status.weapons_jammed = true;
+            self.set_status_weapons_jammed(true);
             // C++ canFireWeapon false while subdued: drop in-progress attack fire
             // but do not freeze movement (jam residual is weapons-only).
             self.status.attacking = false;
             self.force_attack = false;
         } else {
-            self.status.weapons_jammed = false;
+            self.set_status_weapons_jammed(false);
         }
     }
 
@@ -2019,7 +2019,7 @@ impl Object {
         self.status.disabled_unmanned = true;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
-        self.status.disabled_emp = false;
+        self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
         self.status.disabled_paralyzed = false;
         self.status.disabled_paralyzed_until_frame = 0;
@@ -2051,7 +2051,7 @@ impl Object {
         self.status.unmanned_owner_team = None;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
-        self.status.disabled_emp = false;
+        self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
         self.status.disabled_paralyzed = false;
         self.status.disabled_paralyzed_until_frame = 0;
@@ -2135,11 +2135,11 @@ impl Object {
     /// C++ EMPUpdate::doDisableAttack: setDisabledUntil(DISABLED_EMP, now + DisabledDuration).
     /// Refresh extends the timer if a later expiry is provided.
     pub fn apply_disabled_emp(&mut self, until_frame: u32) {
-        self.status.disabled_emp = true;
+        self.set_status_disabled_emp(true);
         if until_frame > self.status.disabled_emp_until_frame {
             self.status.disabled_emp_until_frame = until_frame;
         }
-        self.status.attacking = false;
+        self.set_status_attacking(false);
         self.status.moving = false;
         self.stop_moving();
         self.target = None;
@@ -2154,7 +2154,7 @@ impl Object {
             && self.status.disabled_emp_until_frame > 0
             && current_frame >= self.status.disabled_emp_until_frame
         {
-            self.status.disabled_emp = false;
+            self.set_status_disabled_emp(false);
             self.status.disabled_emp_until_frame = 0;
         }
     }
@@ -2561,7 +2561,7 @@ impl Object {
         self.status.disabled_unmanned = false;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
-        self.status.disabled_emp = false;
+        self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
         self.status.hijacked = false;
         self.weapon = Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon());
@@ -2698,7 +2698,7 @@ impl Object {
         self.status.disabled_unmanned = false;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
-        self.status.disabled_emp = false;
+        self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
         self.status.is_carbomb = false;
         self.status.attacking = false;
@@ -8236,6 +8236,18 @@ impl Object {
     pub fn set_status_detected(&mut self, detected: bool) {
         self.status.detected = detected;
         crate::game_logic::host_status_log::record_detected(self.id, detected);
+    }
+
+    /// Host EMP disable residual + status channel log.
+    pub fn set_status_disabled_emp(&mut self, disabled: bool) {
+        self.status.disabled_emp = disabled;
+        crate::game_logic::host_status_log::record_disabled_emp(self.id, disabled);
+    }
+
+    /// Host weapon jam residual + status channel log.
+    pub fn set_status_weapons_jammed(&mut self, jammed: bool) {
+        self.status.weapons_jammed = jammed;
+        crate::game_logic::host_status_log::record_weapons_jammed(self.id, jammed);
     }
 
     /// Set the AI state for autonomous behavior
