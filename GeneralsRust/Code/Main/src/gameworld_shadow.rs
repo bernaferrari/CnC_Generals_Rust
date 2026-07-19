@@ -1062,6 +1062,13 @@ impl GameWorldShadow {
         pd.rank_level = p.rank_level.max(1);
         pd.skill_points = p.skill_points;
         pd.science_purchase_points = p.science_purchase_points;
+        let mut cds: Vec<(String, f32)> = p
+            .shared_special_power_cooldowns
+            .iter()
+            .map(|(k, v)| (format!("{k:?}"), (*v).max(0.0)))
+            .collect();
+        cds.sort_by(|a, b| a.0.cmp(&b.0));
+        pd.shared_special_power_cooldowns = cds;
         pd.is_human = p.is_local;
         pd.name = p.name.clone();
     }
@@ -1304,6 +1311,20 @@ impl GameWorldShadow {
             if player.science_purchase_points != pd.science_purchase_points {
                 player.science_purchase_points = pd.science_purchase_points;
                 dirty = true;
+            }
+            // Shared superweapon cooldown last-writer (Debug-name keys).
+            for (hk, hv) in player.shared_special_power_cooldowns.iter_mut() {
+                let key = format!("{hk:?}");
+                if let Some((_, rem)) = pd
+                    .shared_special_power_cooldowns
+                    .iter()
+                    .find(|(k, _)| k == &key)
+                {
+                    if (*hv - *rem).abs() > 1e-5 {
+                        *hv = *rem;
+                        dirty = true;
+                    }
+                }
             }
             if dirty {
                 updated += 1;
@@ -3597,6 +3618,55 @@ mod tests {
         assert_eq!(host.rank_level, 5);
         assert_eq!(host.skill_points, 600);
         assert_eq!(host.science_purchase_points, 4);
+    }
+
+    #[test]
+    fn sync_players_copies_shared_special_power_cooldowns() {
+        use crate::command_system::SpecialPowerType;
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SwCdShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = logic.get_players().keys().copied().min().expect("player");
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.shared_special_power_cooldowns
+                .insert(SpecialPowerType::ParticleCannon, 55.0);
+            p.shared_special_power_cooldowns
+                .insert(SpecialPowerType::ScudStorm, 10.0);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let gw = shadow.host_player_to_gw.get(&pid).copied().expect("map");
+        let pd = shadow.world().player(gw).expect("pd");
+        assert!(
+            pd.shared_special_power_cooldowns
+                .iter()
+                .any(|(k, v)| k == "ParticleCannon" && (*v - 55.0).abs() < 1e-5),
+            "must copy ParticleCannon cooldown"
+        );
+        // last-writer writeback
+        {
+            let p = shadow.world_mut().player_mut(gw).expect("m");
+            if let Some((_, v)) = p
+                .shared_special_power_cooldowns
+                .iter_mut()
+                .find(|(k, _)| k == "ParticleCannon")
+            {
+                *v = 3.0;
+            }
+        }
+        let _ = shadow.writeback_economy_to_host(&mut logic);
+        let host = logic.get_player(pid).expect("h");
+        assert!(
+            (host
+                .shared_special_power_cooldowns
+                .get(&SpecialPowerType::ParticleCannon)
+                .copied()
+                .unwrap_or(-1.0)
+                - 3.0)
+                .abs()
+                < 1e-5
+        );
     }
 
     #[test]
