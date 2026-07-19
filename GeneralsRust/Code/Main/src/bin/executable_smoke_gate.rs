@@ -1,6 +1,6 @@
 //! Gate: production `generals` binary via runtime host bridge.
 //!
-//! Prefer NewGame queue path (Menu drain). Falls back is internal to harness.
+//! Default NewGame queue path (Menu drain). Opt out with EXECUTABLE_SMOKE_NEW_GAME=0.
 //! `playable_claim` must stay false.
 
 use generals_main::executable_smoke::{format_executable_smoke_report, run_executable_smoke};
@@ -18,10 +18,11 @@ fn main() {
                 .and_then(|s| s.parse().ok())
         })
         .unwrap_or(480);
-    // Default: direct start_game (proven). Opt into NewGame drain with EXECUTABLE_SMOKE_NEW_GAME=1.
+    // Default: NewGame Menu drain (retail Start residual). Opt out with EXECUTABLE_SMOKE_NEW_GAME=0
+    // to force direct start_game.
     let use_new_game = std::env::var("EXECUTABLE_SMOKE_NEW_GAME")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+        .unwrap_or(true);
 
     let r = run_executable_smoke(Duration::from_secs(timeout_secs), use_new_game);
     println!("{}", format_executable_smoke_report(&r));
