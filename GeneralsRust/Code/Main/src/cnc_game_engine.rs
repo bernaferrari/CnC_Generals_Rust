@@ -3689,6 +3689,93 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = format!("box_select_ok:{}", boxed.len());
                 }
             }
+            "select_similar" | "double_click_select" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "select_similar_fail_not_ingame".into();
+                } else {
+                    // Seed from current selection or first local mobile.
+                    let seed = self
+                        .selected_objects
+                        .first()
+                        .copied()
+                        .or_else(|| {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .and_then(|p| p.selected_objects.first().copied())
+                        })
+                        .or_else(|| {
+                            let team = self
+                                .game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)?;
+                            self.game_logic.get_objects().iter().find_map(|(id, o)| {
+                                if o.team == team && o.is_alive() && o.is_mobile() {
+                                    Some(*id)
+                                } else {
+                                    None
+                                }
+                            })
+                        });
+                    if let Some(seed) = seed {
+                        self.select_similar_units(seed);
+                        let n = self.selected_objects.len().max(
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.selected_objects.len())
+                                .unwrap_or(0),
+                        );
+                        self.runtime_host_last_gameplay_cmd = format!("select_similar_ok:{}", n);
+                    } else {
+                        self.runtime_host_last_gameplay_cmd = "select_similar_fail_no_seed".into();
+                    }
+                }
+            }
+            "select_on_screen" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "select_on_screen_fail_not_ingame".into();
+                } else {
+                    self.select_all_friendly_on_screen();
+                    let n = self.selected_objects.len();
+                    self.runtime_host_last_gameplay_cmd = format!("select_on_screen_ok:{}", n);
+                }
+            }
+            "select_aircraft" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "select_aircraft_fail_not_ingame".into();
+                } else {
+                    self.select_all_friendly_aircraft();
+                    let n = self.selected_objects.len();
+                    self.runtime_host_last_gameplay_cmd = format!("select_aircraft_ok:{}", n);
+                }
+            }
+            "select_idle_harvesters" | "select_idle" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "select_idle_fail_not_ingame".into();
+                } else {
+                    self.select_idle_harvesters();
+                    let n = self.selected_objects.len();
+                    self.runtime_host_last_gameplay_cmd = format!("select_idle_ok:{}", n);
+                }
+            }
+            "select_structures" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd =
+                        "select_structures_fail_not_ingame".into();
+                } else {
+                    self.select_all_friendly_structures();
+                    let n = self.selected_objects.len();
+                    self.runtime_host_last_gameplay_cmd = format!("select_structures_ok:{}", n);
+                }
+            }
+            "select_moving" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "select_moving_fail_not_ingame".into();
+                } else {
+                    self.select_all_friendly_moving();
+                    let n = self.selected_objects.len();
+                    self.runtime_host_last_gameplay_cmd = format!("select_moving_ok:{}", n);
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -19426,6 +19513,27 @@ fn runtime_host_waypoint_box_presentation_residual() {
         "last_presentation_live_fallback_reads",
     ] {
         assert!(src.contains(needle), "missing residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_selection_filter_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "select_similar",
+        "select_similar_ok:",
+        "select_on_screen",
+        "select_on_screen_ok:",
+        "select_aircraft",
+        "select_aircraft_ok:",
+        "select_idle_harvesters",
+        "select_idle_ok:",
+        "select_structures",
+        "select_structures_ok:",
+        "select_moving",
+        "select_moving_ok:",
+    ] {
+        assert!(src.contains(needle), "missing selection residual {needle}");
     }
 }
 

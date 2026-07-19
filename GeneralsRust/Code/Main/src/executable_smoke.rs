@@ -90,6 +90,9 @@ pub struct ExecutableSmokeResult {
     pub presentation_frame_ok: bool,
     /// No live GameLogic dual-reads while presentation owned collect (status residual).
     pub presentation_live_fallback_ok: bool,
+    pub select_similar_cmd_ok: bool,
+    pub select_on_screen_cmd_ok: bool,
+    pub select_structures_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -152,6 +155,9 @@ impl Default for ExecutableSmokeResult {
             box_select_cmd_ok: false,
             presentation_frame_ok: false,
             presentation_live_fallback_ok: false,
+            select_similar_cmd_ok: false,
+            select_on_screen_cmd_ok: false,
+            select_structures_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -540,6 +546,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut saw_presentation_frame_ok = false;
     let mut saw_presentation_live_fallback_ok = false;
     let mut presentation_detail = String::new();
+    let mut saw_select_similar_ok = false;
+    let mut select_similar_detail = String::new();
+    let mut saw_select_on_screen_ok = false;
+    let mut select_on_screen_detail = String::new();
+    let mut saw_select_structures_ok = false;
+    let mut select_structures_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -1440,10 +1452,58 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("box_select_") {
                             box_select_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["select_similar"]);
                         gameplay_step = 44;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 44 {
+                    } else if gameplay_step == 44
+                        && (snap.last_gameplay_cmd.starts_with("select_similar_ok")
+                            || snap.last_gameplay_cmd.starts_with("select_similar_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("select_similar_ok") {
+                            saw_select_similar_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("select_similar_") {
+                            select_similar_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["select_on_screen"]);
+                        gameplay_step = 45;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 45
+                        && (snap.last_gameplay_cmd.starts_with("select_on_screen_ok")
+                            || snap.last_gameplay_cmd.starts_with("select_on_screen_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("select_on_screen_ok") {
+                            saw_select_on_screen_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("select_on_screen_") {
+                            select_on_screen_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["select_structures"]);
+                        gameplay_step = 46;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 46
+                        && (snap.last_gameplay_cmd.starts_with("select_structures_ok")
+                            || snap.last_gameplay_cmd.starts_with("select_structures_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("select_structures_ok") {
+                            saw_select_structures_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("select_structures_") {
+                            select_structures_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 47;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 47 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -1748,6 +1808,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.box_select_cmd_ok = saw_box_select_ok;
                         result.presentation_frame_ok = saw_presentation_frame_ok;
                         result.presentation_live_fallback_ok = saw_presentation_live_fallback_ok;
+                        result.select_similar_cmd_ok = saw_select_similar_ok;
+                        result.select_on_screen_cmd_ok = saw_select_on_screen_ok;
+                        result.select_structures_cmd_ok = saw_select_structures_ok;
                         if !presentation_detail.is_empty() {
                             result.detail =
                                 format!("{}; presentation={}", result.detail, presentation_detail);
@@ -1856,7 +1919,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -1905,6 +1968,9 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.box_select_cmd_ok,
         r.presentation_frame_ok,
         r.presentation_live_fallback_ok,
+        r.select_similar_cmd_ok,
+        r.select_on_screen_cmd_ok,
+        r.select_structures_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
