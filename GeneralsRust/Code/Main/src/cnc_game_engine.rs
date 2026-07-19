@@ -3019,6 +3019,111 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "capture" | "capture_building" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "capture_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "capture_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_CaptureBuilding");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("capture_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "return_supplies" | "return_to_supply" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "return_supplies_fail_not_ingame".into();
+                } else {
+                    // Prefer harvester-like selection; else any mobile.
+                    if self.selected_objects.is_empty() {
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            let mut ids: Vec<_> = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && (o.template_name.to_ascii_lowercase().contains("supply")
+                                            || o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("worker")
+                                            || o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("dozer")
+                                            || o.is_kind_of(crate::game_logic::KindOf::Worker))
+                                })
+                                .map(|(id, _)| *id)
+                                .collect();
+                            ids.sort_by_key(|id| id.0);
+                            if ids.is_empty() {
+                                self.ensure_host_mobile_selection();
+                            } else {
+                                self.selected_objects = ids.clone();
+                                self.game_logic.select_objects(self.current_player_id, ids);
+                            }
+                        }
+                    }
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "return_supplies_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_ReturnSupplies");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("return_supplies_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "evacuate" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "evacuate_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "evacuate_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_Evacuate");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("evacuate_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "repair" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "repair_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "repair_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_Repair");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("repair_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "return_to_base" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "return_to_base_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "return_to_base_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_ReturnToBase");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("return_to_base_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -18615,6 +18720,31 @@ fn runtime_host_patrol_deploy_formation_residual() {
     assert!(
         src.contains("create_formation") && src.contains("formation_ok:"),
         "runtime host must expose formation residual"
+    );
+}
+
+#[test]
+fn runtime_host_capture_economy_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("capture_building") && src.contains("capture_ok:"),
+        "runtime host must expose capture residual"
+    );
+    assert!(
+        src.contains("return_supplies") && src.contains("return_supplies_ok:"),
+        "runtime host must expose return_supplies residual"
+    );
+    assert!(
+        src.contains("\"evacuate\"") && src.contains("evacuate_ok:"),
+        "runtime host must expose evacuate residual"
+    );
+    assert!(
+        src.contains("\"repair\"") && src.contains("repair_ok:"),
+        "runtime host must expose repair residual"
+    );
+    assert!(
+        src.contains("return_to_base") && src.contains("return_to_base_ok:"),
+        "runtime host must expose return_to_base residual"
     );
 }
 
