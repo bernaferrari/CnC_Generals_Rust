@@ -93,6 +93,10 @@ pub struct ExecutableSmokeResult {
     pub select_similar_cmd_ok: bool,
     pub select_on_screen_cmd_ok: bool,
     pub select_structures_cmd_ok: bool,
+    pub select_aircraft_cmd_ok: bool,
+    pub select_idle_cmd_ok: bool,
+    pub camera_reset_cmd_ok: bool,
+    pub camera_zoom_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -158,6 +162,10 @@ impl Default for ExecutableSmokeResult {
             select_similar_cmd_ok: false,
             select_on_screen_cmd_ok: false,
             select_structures_cmd_ok: false,
+            select_aircraft_cmd_ok: false,
+            select_idle_cmd_ok: false,
+            camera_reset_cmd_ok: false,
+            camera_zoom_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -552,6 +560,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut select_on_screen_detail = String::new();
     let mut saw_select_structures_ok = false;
     let mut select_structures_detail = String::new();
+    let mut saw_select_aircraft_ok = false;
+    let mut select_aircraft_detail = String::new();
+    let mut saw_select_idle_ok = false;
+    let mut select_idle_detail = String::new();
+    let mut saw_camera_reset_ok = false;
+    let mut camera_reset_detail = String::new();
+    let mut saw_camera_zoom_ok = false;
+    let mut camera_zoom_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -1500,10 +1516,74 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("select_structures_") {
                             select_structures_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["select_aircraft"]);
                         gameplay_step = 47;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 47 {
+                    } else if gameplay_step == 47
+                        && (snap.last_gameplay_cmd.starts_with("select_aircraft_ok")
+                            || snap.last_gameplay_cmd.starts_with("select_aircraft_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("select_aircraft_ok") {
+                            saw_select_aircraft_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("select_aircraft_") {
+                            select_aircraft_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["select_idle_harvesters"]);
+                        gameplay_step = 48;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 48
+                        && (snap.last_gameplay_cmd.starts_with("select_idle_ok")
+                            || snap.last_gameplay_cmd.starts_with("select_idle_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("select_idle_ok") {
+                            saw_select_idle_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("select_idle_") {
+                            select_idle_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["camera_reset"]);
+                        gameplay_step = 49;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 49
+                        && (snap.last_gameplay_cmd.starts_with("camera_reset_ok")
+                            || snap.last_gameplay_cmd.starts_with("camera_reset_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("camera_reset_ok") {
+                            saw_camera_reset_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("camera_reset_") {
+                            camera_reset_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["camera_zoom|z=1.25"]);
+                        gameplay_step = 50;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 50
+                        && (snap.last_gameplay_cmd.starts_with("camera_zoom_ok")
+                            || snap.last_gameplay_cmd.starts_with("camera_zoom_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("camera_zoom_ok") {
+                            saw_camera_zoom_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("camera_zoom_") {
+                            camera_zoom_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 51;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 51 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -1811,6 +1891,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.select_similar_cmd_ok = saw_select_similar_ok;
                         result.select_on_screen_cmd_ok = saw_select_on_screen_ok;
                         result.select_structures_cmd_ok = saw_select_structures_ok;
+                        result.select_aircraft_cmd_ok = saw_select_aircraft_ok;
+                        result.select_idle_cmd_ok = saw_select_idle_ok;
+                        result.camera_reset_cmd_ok = saw_camera_reset_ok;
+                        result.camera_zoom_cmd_ok = saw_camera_zoom_ok;
                         if !presentation_detail.is_empty() {
                             result.detail =
                                 format!("{}; presentation={}", result.detail, presentation_detail);
@@ -1919,7 +2003,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -1971,6 +2055,10 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.select_similar_cmd_ok,
         r.select_on_screen_cmd_ok,
         r.select_structures_cmd_ok,
+        r.select_aircraft_cmd_ok,
+        r.select_idle_cmd_ok,
+        r.camera_reset_cmd_ok,
+        r.camera_zoom_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
