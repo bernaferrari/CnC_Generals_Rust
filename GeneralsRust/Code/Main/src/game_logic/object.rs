@@ -5469,7 +5469,21 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_stealth_flags(&self) {
+        pub fn record_host_overlord(&self) {
+        let bunker_capacity = match self.overlord_bunker_capacity {
+            Some(n) => n.min(u16::MAX as usize - 1) as u16,
+            None => u16::MAX,
+        };
+        crate::game_logic::host_overlord_log::record(
+            self.id,
+            self.has_overlord_gattling_addon,
+            self.has_overlord_propaganda_addon,
+            bunker_capacity,
+            self.is_helix_transport,
+        );
+    }
+
+    pub fn record_host_stealth_flags(&self) {
         crate::game_logic::host_stealth_flags_log::record(
             crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent {
                 object: self.id,
@@ -7539,6 +7553,7 @@ impl Object {
         if !emperor {
             self.has_overlord_propaganda_addon = false;
         }
+        self.record_host_overlord();
     }
 
     /// Install residual portable GattlingCannon addon
@@ -7569,6 +7584,7 @@ impl Object {
         self.continuous_fire_victim = 0;
         self.record_host_continuous_fire();
         self.record_host_weapon_set();
+        self.record_host_overlord();
     }
 
     /// Install residual portable PropagandaTower addon
@@ -7581,6 +7597,7 @@ impl Object {
             self.overlord_bunker_capacity = Some(0);
         }
         self.has_overlord_propaganda_addon = true;
+        self.record_host_overlord();
     }
 
     /// Install residual HelixContain transport (Slots=5).
@@ -7590,6 +7607,7 @@ impl Object {
         // Helix can hold infantry / vehicle / portable structure residual.
         // Fail-closed: allow_inside matrix simplified to transport capacity.
         self.record_host_contain_capacity();
+        self.record_host_overlord();
     }
 
     /// True when portable gattling residual is active on this host.

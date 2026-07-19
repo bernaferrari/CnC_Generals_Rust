@@ -3395,6 +3395,65 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_overlord_events(
+        &mut self,
+        events: &[crate::game_logic::host_overlord_log::HostOverlordEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetOverlordAddon {
+                    target: eid,
+                    has_gattling: ev.has_gattling,
+                    has_propaganda: ev.has_propaganda,
+                    bunker_capacity: ev.bunker_capacity,
+                    is_helix_transport: ev.is_helix_transport,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_overlord_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_cap = match obj.overlord_bunker_capacity {
+                Some(n) => n.min(u16::MAX as usize - 1) as u16,
+                None => u16::MAX,
+            };
+            let changed = obj.has_overlord_gattling_addon != ent.has_overlord_gattling_addon
+                || obj.has_overlord_propaganda_addon != ent.has_overlord_propaganda_addon
+                || host_cap != ent.overlord_bunker_capacity
+                || obj.is_helix_transport != ent.is_helix_transport;
+            if !changed {
+                continue;
+            }
+            obj.has_overlord_gattling_addon = ent.has_overlord_gattling_addon;
+            obj.has_overlord_propaganda_addon = ent.has_overlord_propaganda_addon;
+            obj.is_helix_transport = ent.is_helix_transport;
+            obj.overlord_bunker_capacity = if ent.overlord_bunker_capacity == u16::MAX {
+                None
+            } else {
+                Some(ent.overlord_bunker_capacity as usize)
+            };
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_stealth_flags_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4044,6 +4103,7 @@ pub fn shadow_session_after_host_tick(
     let contain_capacity_events = crate::game_logic::host_contain_capacity_log::drain();
     let hive_events = crate::game_logic::host_hive_log::drain();
     let stealth_flags_events = crate::game_logic::host_stealth_flags_log::drain();
+    let overlord_events = crate::game_logic::host_overlord_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4100,6 +4160,7 @@ pub fn shadow_session_after_host_tick(
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
     let _hive_applied = shadow.apply_host_hive_events(&hive_events);
     let _stf_applied = shadow.apply_host_stealth_flags_events(&stealth_flags_events);
+    let _ol_applied = shadow.apply_host_overlord_events(&overlord_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4151,6 +4212,7 @@ pub fn shadow_session_after_host_tick(
     let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
     let _hive_wb = shadow.writeback_hive_to_host(logic);
     let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
+    let _ol_wb = shadow.writeback_overlord_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6979,7 +7041,84 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_overlord_log_drives_set_overlord_addon_channel() {
+        use crate::game_logic::{host_overlord_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("OlCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("OlU") {
+            let mut t = ThingTemplate::new("OlU");
+            t.set_health(400.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("OlU".into(), t);
+        }
+        let oid = logic
+            .create_object("OlU", Team::China, glam::Vec3::new(21.0, 0.0, 21.0))
+            .expect("id");
+        host_overlord_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.has_overlord_gattling_addon = true;
+            o.has_overlord_propaganda_addon = false;
+            o.overlord_bunker_capacity = Some(4);
+            o.is_helix_transport = true;
+            o.record_host_overlord();
+        }
+        let events = host_overlord_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.has_gattling
+                    && !e.has_propaganda
+                    && e.bunker_capacity == 4
+                    && e.is_helix_transport
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_overlord();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.has_overlord_gattling_addon = false;
+            e.has_overlord_propaganda_addon = true;
+            e.overlord_bunker_capacity = u16::MAX;
+            e.is_helix_transport = false;
+        }
+        let n = shadow.apply_host_overlord_events(&host_overlord_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.has_overlord_gattling_addon && !e.has_overlord_propaganda_addon);
+        assert_eq!(e.overlord_bunker_capacity, 4);
+        assert!(e.is_helix_transport);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.has_overlord_gattling_addon = false;
+            o.has_overlord_propaganda_addon = true;
+            o.overlord_bunker_capacity = None;
+            o.is_helix_transport = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.has_overlord_gattling_addon = true;
+            e.has_overlord_propaganda_addon = false;
+            e.overlord_bunker_capacity = 4;
+            e.is_helix_transport = true;
+        }
+        assert!(shadow.writeback_overlord_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.has_overlord_gattling_addon && !o.has_overlord_propaganda_addon);
+        assert_eq!(o.overlord_bunker_capacity, Some(4));
+        assert!(o.is_helix_transport);
+    }
+
+#[test]
     fn host_stealth_flags_log_drives_set_stealth_flags_channel() {
         use crate::game_logic::{host_stealth_flags_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
