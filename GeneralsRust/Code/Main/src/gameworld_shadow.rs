@@ -372,6 +372,8 @@ impl GameWorldShadow {
                     e.deployed = obj.status.deployed;
                     e.moving = obj.status.moving;
                     e.attacking = obj.status.attacking;
+                    e.is_firing_weapon = obj.status.is_firing_weapon;
+                    e.is_aiming_weapon = obj.status.is_aiming_weapon;
                     e.team_color = obj.team_color;
                     e.power_provided = obj.power_provided;
                     e.power_consumed = obj.power_consumed;
@@ -658,6 +660,8 @@ impl GameWorldShadow {
                 e.deployed = obj.status.deployed;
                 e.moving = obj.status.moving;
                 e.attacking = obj.status.attacking;
+                e.is_firing_weapon = obj.status.is_firing_weapon;
+                e.is_aiming_weapon = obj.status.is_aiming_weapon;
                 e.team_color = obj.team_color;
                 e.power_provided = obj.power_provided;
                 e.power_consumed = obj.power_consumed;
@@ -1591,6 +1595,14 @@ impl GameWorldShadow {
             }
             if obj.status.attacking != ent.attacking {
                 obj.status.attacking = ent.attacking;
+                dirty = true;
+            }
+            if obj.status.is_firing_weapon != ent.is_firing_weapon {
+                obj.status.is_firing_weapon = ent.is_firing_weapon;
+                dirty = true;
+            }
+            if obj.status.is_aiming_weapon != ent.is_aiming_weapon {
+                obj.status.is_aiming_weapon = ent.is_aiming_weapon;
                 dirty = true;
             }
             if obj.status.selected != ent.selected {
@@ -3560,6 +3572,8 @@ mod tests {
             e.disabled_underpowered = true;
             e.moving = true;
             e.attacking = true;
+            e.is_firing_weapon = true;
+            e.is_aiming_weapon = true;
             e.selected = true;
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
@@ -3577,6 +3591,8 @@ mod tests {
         assert!(obj.status.disabled_underpowered);
         assert!(obj.status.moving);
         assert!(obj.status.attacking);
+        assert!(obj.status.is_firing_weapon);
+        assert!(obj.status.is_aiming_weapon);
         assert!(obj.status.selected);
         // Complete residual
         {

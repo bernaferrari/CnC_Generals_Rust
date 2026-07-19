@@ -260,6 +260,10 @@ pub struct RenderableObject {
     pub moving: bool,
     /// Host ObjectStatus::attacking residual.
     pub attacking: bool,
+    /// Host ObjectStatus::is_firing_weapon residual.
+    pub is_firing_weapon: bool,
+    /// Host ObjectStatus::is_aiming_weapon residual.
+    pub is_aiming_weapon: bool,
     /// C++ OBJECT_STATUS_STEALTHED residual.
     pub stealthed: bool,
     /// C++ OBJECT_STATUS_DETECTED residual.
@@ -2413,6 +2417,8 @@ impl PresentationFrame {
                 experience_points: obj.experience.current.max(0.0),
                 moving: obj.status.moving,
                 attacking: obj.status.attacking,
+                is_firing_weapon: obj.status.is_firing_weapon,
+                is_aiming_weapon: obj.status.is_aiming_weapon,
                 stealthed: obj.status.stealthed,
                 detected: obj.status.detected,
                 effectively_stealthed: obj.is_effectively_stealthed(),
@@ -4250,6 +4256,14 @@ impl PresentationFrame {
             }
             if obj.attacking != ent.attacking {
                 obj.attacking = ent.attacking;
+                dirty = true;
+            }
+            if obj.is_firing_weapon != ent.is_firing_weapon {
+                obj.is_firing_weapon = ent.is_firing_weapon;
+                dirty = true;
+            }
+            if obj.is_aiming_weapon != ent.is_aiming_weapon {
+                obj.is_aiming_weapon = ent.is_aiming_weapon;
                 dirty = true;
             }
             if obj.team_color != ent.team_color {
