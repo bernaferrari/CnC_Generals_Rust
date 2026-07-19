@@ -562,6 +562,12 @@ pub enum WorldMutation {
         consecutive: u16,
         coast_until_frame: u32,
     },
+    /// Host Object guard residual (area position + guarded object id).
+    SetGuard {
+        unit: EntityId,
+        position: Option<[f32; 3]>,
+        target_host: u32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1068,6 +1074,17 @@ impl GameWorld {
                         e.continuous_fire_consecutive = consecutive;
 
                         e.continuous_fire_coast_until_frame = coast_until_frame;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetGuard {
+                    unit,
+                    position,
+                    target_host,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(unit) {
+                        e.guard_position = position;
+                        e.guard_target_host = target_host;
                         applied += 1;
                     }
                 }
