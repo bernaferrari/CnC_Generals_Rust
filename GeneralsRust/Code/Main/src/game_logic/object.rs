@@ -2000,7 +2000,7 @@ impl Object {
             if !self.is_kind_of(KindOf::Structure) {
                 self.set_status_moving(false);
                 self.stop_moving();
-                self.ai_state = AIState::Idle;
+                self.set_ai_state(AIState::Idle);
             }
         } else {
             self.set_status_disabled_subdued(false);
@@ -2029,7 +2029,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
     }
 
     /// Apply USA Pilot recrew residual onto this unmanned vehicle.
@@ -2061,7 +2061,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
         self.set_team(pilot_team);
 
         let previous = self.experience.level;
@@ -2117,7 +2117,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
     }
 
     /// Expire DISABLED_HACKED when the host frame passes the residual timer.
@@ -2145,7 +2145,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
     }
 
     /// Expire DISABLED_EMP when the host frame passes the residual timer.
@@ -2173,7 +2173,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
     }
 
     /// Expire DISABLED_PARALYZED when the host frame passes the residual timer.
@@ -2573,7 +2573,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
         if let Some(d) = donor {
             // C++ setVisionRange / setShroudClearingRange from converter.
             self.vision_range = d.vision_range;
@@ -2617,7 +2617,7 @@ impl Object {
         self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
         // Soft-hide: not destroyed, not selectable.
     }
 
@@ -2632,7 +2632,7 @@ impl Object {
         self.hijacker_was_airborne = was_airborne;
         self.hijacker_eject_pos = Some(eject_pos);
         self.set_position(eject_pos);
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
         self.stop_moving();
         self.target = None;
     }
@@ -2710,10 +2710,10 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         // C++ aiMoveToPosition(self) then aiIdle — host: clear move + Idle.
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
         // Cancel dozer construction/repair residual.
         if self.is_kind_of(KindOf::Worker) || self.is_worker() {
-            self.ai_state = AIState::Idle;
+            self.set_ai_state(AIState::Idle);
             // Clear construction target residual if any.
             self.target = None;
         }
@@ -2771,7 +2771,7 @@ impl Object {
             return None;
         }
         let af = self.contained_by.take();
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
         self.status.airborne_target = true;
         // Retail AmericaAirfield ApproachHeight residual.
         use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
@@ -4151,7 +4151,7 @@ impl Object {
                 && self.movement.target_position.is_none()
             {
                 // Temporary AI move expired with no destination — idle residual.
-                self.ai_state = AIState::Idle;
+                self.set_ai_state(AIState::Idle);
             }
         }
     }
@@ -5217,7 +5217,7 @@ impl Object {
         self.health.current = 0.0;
         self.status.destroyed = true;
         self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
         self.target = None;
         self.shock_stun_frames = 0;
         self.set_status_disabled_freefall(false);
@@ -5418,7 +5418,7 @@ impl Object {
         let destroyed = if !self.health.is_alive() {
             self.status.destroyed = true;
             self.status.death_type = death_type;
-            self.ai_state = AIState::Idle;
+            self.set_ai_state(AIState::Idle);
             self.target = None;
             true // Object was destroyed
         } else {
@@ -6535,7 +6535,7 @@ impl Object {
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
                 self.target = Some(target_id);
-                self.ai_state = AIState::Attacking;
+                self.set_ai_state(AIState::Attacking);
                 self.status.attacking = true;
                 return false;
             }
@@ -6960,7 +6960,7 @@ impl Object {
     pub fn move_to(&mut self, position: Vec3) {
         if self.is_mobile() && self.is_alive() {
             self.movement.target_position = Some(position);
-            self.ai_state = AIState::Moving;
+            self.set_ai_state(AIState::Moving);
             self.set_status_moving(true);
             crate::game_logic::host_move_log::record(
                 self.id,
@@ -6988,7 +6988,7 @@ impl Object {
         // set a destination while remaining in-state; clobbering them to Idle
         // aborted capture/repair on arrival before support-state resolution.
         if matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
-            self.ai_state = AIState::Idle;
+            self.set_ai_state(AIState::Idle);
         }
     }
 
@@ -7011,7 +7011,7 @@ impl Object {
             self.target = Some(target_id);
             self.target_location = None;
             self.set_status_force_attack(false);
-            self.ai_state = AIState::Attacking;
+            self.set_ai_state(AIState::Attacking);
             self.status.attacking = true;
             crate::game_logic::host_attack_log::record(self.id, Some(target_id));
         }
@@ -7062,11 +7062,11 @@ impl Object {
         // rather than going fully idle. The guard anchor/radius are preserved
         // so the support-states update loop will re-engage nearby enemies.
         if self.guard_target.is_some() {
-            self.ai_state = AIState::GuardingObject;
+            self.set_ai_state(AIState::GuardingObject);
         } else if self.guard_position.is_some() {
-            self.ai_state = AIState::GuardingArea;
+            self.set_ai_state(AIState::GuardingArea);
         } else {
-            self.ai_state = AIState::Idle;
+            self.set_ai_state(AIState::Idle);
         }
     }
 
@@ -7113,12 +7113,12 @@ impl Object {
         self.target = target;
         if target.is_some() {
             self.target_location = None;
-            self.ai_state = AIState::Attacking;
+            self.set_ai_state(AIState::Attacking);
             self.status.attacking = true;
         } else {
             self.target_location = None;
             self.set_status_force_attack(false);
-            self.ai_state = AIState::Idle;
+            self.set_ai_state(AIState::Idle);
             self.status.attacking = false;
         }
         crate::game_logic::host_attack_log::record(self.id, target);
@@ -7181,7 +7181,7 @@ impl Object {
             self.special_power_cooldowns.remove(power);
         }
         self.refresh_special_power_aggregate_cooldown();
-        self.ai_state = AIState::Idle;
+        self.set_ai_state(AIState::Idle);
     }
 
     /// Refresh legacy aggregate ready/remaining from per-power residual timers.
@@ -7215,7 +7215,7 @@ impl Object {
         self.target_location = location;
         if location.is_some() {
             self.target = None;
-            self.ai_state = AIState::Attacking;
+            self.set_ai_state(AIState::Attacking);
             self.status.attacking = true;
         } else {
             self.set_status_force_attack(false);
@@ -7235,14 +7235,14 @@ impl Object {
     pub fn set_guard_position(&mut self, position: Option<Vec3>) {
         self.guard_position = position;
         if position.is_some() {
-            self.ai_state = AIState::GuardingArea;
+            self.set_ai_state(AIState::GuardingArea);
         }
     }
 
     pub fn set_guard_target(&mut self, target: Option<ObjectId>) {
         self.guard_target = target;
         if target.is_some() {
-            self.ai_state = AIState::GuardingObject;
+            self.set_ai_state(AIState::GuardingObject);
         }
     }
 
@@ -7286,7 +7286,7 @@ impl Object {
         }
         self.target = Some(victim);
         self.target_location = None;
-        self.ai_state = AIState::GuardRetaliating;
+        self.set_ai_state(AIState::GuardRetaliating);
         self.status.attacking = true;
         if let Some(max) = max_shots {
             self.max_shots_to_fire = max;
@@ -7301,11 +7301,11 @@ impl Object {
         self.target = None;
         self.status.attacking = false;
         if self.guard_target.is_some() {
-            self.ai_state = AIState::GuardingObject;
+            self.set_ai_state(AIState::GuardingObject);
         } else if self.guard_position.is_some() {
-            self.ai_state = AIState::GuardingArea;
+            self.set_ai_state(AIState::GuardingArea);
         } else {
-            self.ai_state = AIState::Idle;
+            self.set_ai_state(AIState::Idle);
         }
         crate::game_logic::host_attack_log::record(self.id, None);
     }
@@ -7330,7 +7330,7 @@ impl Object {
                     // Host: issue move then end attack bit.
                     self.target = None;
                     self.status.attacking = false;
-                    self.ai_state = AIState::Moving;
+                    self.set_ai_state(AIState::Moving);
                     // stash that we should re-enter guard when move completes via clear on kill path
                     return;
                 }
@@ -7750,7 +7750,7 @@ impl Object {
         if self.cheer_timer > 0.0 {
             self.cheer_timer -= dt;
             if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
-                self.ai_state = AIState::Idle;
+                self.set_ai_state(AIState::Idle);
                 self.cheer_timer = 0.0;
             }
         }
@@ -8417,7 +8417,31 @@ impl Object {
 
     /// Set the AI state for autonomous behavior
     pub fn set_ai_state(&mut self, state: AIState) {
-        self.ai_state = state;
+        let ordinal = match state {
+            AIState::Idle => 0u8,
+            AIState::Moving => 1,
+            AIState::Attacking => 2,
+            AIState::AttackMoving => 3,
+            AIState::AttackingGround => 4,
+            AIState::Gathering => 5,
+            AIState::ReturningResources => 6,
+            AIState::Constructing => 7,
+            AIState::Repairing => 8,
+            AIState::GuardingArea => 9,
+            AIState::GuardingObject => 10,
+            AIState::Patrolling => 11,
+            AIState::Docked => 12,
+            AIState::Garrisoned => 13,
+            AIState::SpecialAbility => 14,
+            AIState::SeekingRepair => 15,
+            AIState::SeekingHealing => 16,
+            AIState::Entering => 17,
+            AIState::Docking => 18,
+            AIState::Capturing => 19,
+            AIState::GuardRetaliating => 20,
+        };
+        self.set_ai_state(state);
+        crate::game_logic::host_ai_state_log::record(self.id, ordinal);
     }
 
     /// Get visual information for rendering
@@ -9172,10 +9196,10 @@ mod tests {
         assert!((hp0 - jet.health.current - dmg).abs() < 1e-3);
         // Docked: no damage.
         jet.health.current = 100.0;
-        jet.ai_state = AIState::Docked;
+        jet.set_ai_state(AIState::Docked);
         assert_eq!(jet.apply_out_of_ammo_damage_frame(), 0.0);
         // Rearmed: no damage.
-        jet.ai_state = AIState::Idle;
+        jet.set_ai_state(AIState::Idle);
         jet.rearm_return_to_base_weapons();
         assert_eq!(jet.apply_out_of_ammo_damage_frame(), 0.0);
     }
@@ -9204,7 +9228,7 @@ mod tests {
             ..Weapon::default()
         });
         jet.contained_by = Some(ObjectId(99));
-        jet.ai_state = AIState::Docked;
+        jet.set_ai_state(AIState::Docked);
         jet.status.airborne_target = false;
         assert!(jet.is_parked_at_airfield());
         assert!(jet.can_attack()); // parked aircraft may sortie
@@ -9218,7 +9242,7 @@ mod tests {
 
         // Re-dock and move.
         jet.contained_by = Some(ObjectId(99));
-        jet.ai_state = AIState::Docked;
+        jet.set_ai_state(AIState::Docked);
         jet.status.airborne_target = false;
         jet.set_position(Vec3::new(10.0, 0.0, 0.0));
         jet.set_destination(Vec3::new(100.0, 0.0, 0.0));

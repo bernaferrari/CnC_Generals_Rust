@@ -241,6 +241,33 @@ impl GameWorldShadow {
         }
     }
 
+    pub(crate) fn ai_state_from_ordinal(ordinal: u8) -> crate::game_logic::AIState {
+        use crate::game_logic::AIState as A;
+        match ordinal {
+            1 => A::Moving,
+            2 => A::Attacking,
+            3 => A::AttackMoving,
+            4 => A::AttackingGround,
+            5 => A::Gathering,
+            6 => A::ReturningResources,
+            7 => A::Constructing,
+            8 => A::Repairing,
+            9 => A::GuardingArea,
+            10 => A::GuardingObject,
+            11 => A::Patrolling,
+            12 => A::Docked,
+            13 => A::Garrisoned,
+            14 => A::SpecialAbility,
+            15 => A::SeekingRepair,
+            16 => A::SeekingHealing,
+            17 => A::Entering,
+            18 => A::Docking,
+            19 => A::Capturing,
+            20 => A::GuardRetaliating,
+            _ => A::Idle,
+        }
+    }
+
     /// Presentation KindOf ORDER residual (must match PresentationFrame freeze ORDER).
     fn host_kind_of_bits(obj: &crate::game_logic::Object) -> u32 {
         use crate::game_logic::KindOf;
@@ -1662,6 +1689,14 @@ impl GameWorldShadow {
                 obj.special_power_ready = ent.special_power_ready;
                 dirty = true;
             }
+            {
+                let want = Self::ai_state_from_ordinal(ent.ai_state_ordinal);
+                if obj.ai_state != want {
+                    // Direct assign — avoid re-logging host_ai_state_log on writeback.
+                    obj.ai_state = want;
+                    dirty = true;
+                }
+            }
             if obj.stored_resources.supplies != ent.stored_supplies {
                 obj.stored_resources.supplies = ent.stored_supplies;
                 dirty = true;
@@ -2440,6 +2475,31 @@ impl GameWorldShadow {
         true
     }
 
+    pub fn queue_set_ai_state_for_host(&mut self, host: ObjectId, ordinal: u8) -> bool {
+        let Some(target) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetAiState { target, ordinal });
+        true
+    }
+
+    pub fn apply_host_ai_state_events(
+        &mut self,
+        events: &[crate::game_logic::host_ai_state_log::HostAiStateEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_ai_state_for_host(ev.object, ev.ordinal) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn queue_set_stored_supplies_for_host(&mut self, host: ObjectId, supplies: u32) -> bool {
         let Some(target) = self.entity_for_host(host) else {
             return false;
@@ -2884,6 +2944,7 @@ pub fn shadow_session_after_host_tick(
     let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
     let special_power_events = crate::game_logic::host_special_power_log::drain();
     let stored_supplies_events = crate::game_logic::host_stored_supplies_log::drain();
+    let ai_state_events = crate::game_logic::host_ai_state_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -2897,6 +2958,7 @@ pub fn shadow_session_after_host_tick(
         shadow.apply_host_construction_progress_events(&construction_progress_events);
     let _sp_applied = shadow.apply_host_special_power_events(&special_power_events);
     let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
+    let _ai_applied = shadow.apply_host_ai_state_events(&ai_state_events);
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -4348,6 +4410,56 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_ai_state_log_drives_set_ai_state_channel() {
+        use crate::game_logic::{host_ai_state_log, AIState, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiStateCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("AiU") {
+            let mut t = ThingTemplate::new("AiU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("AiU".into(), t);
+        }
+        let id = logic
+            .create_object("AiU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        host_ai_state_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_ai_state(AIState::GuardingObject);
+        }
+        let events = host_ai_state_log::drain();
+        assert!(
+            events.iter().any(|e| e.object == id && e.ordinal == 10),
+            "expected GuardingObject ordinal 10, got {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_ai_state(AIState::GuardingObject);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.ai_state_ordinal = 0;
+        }
+        let n = shadow.apply_host_ai_state_events(&host_ai_state_log::drain());
+        assert!(n >= 1);
+        assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 10);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.ai_state = AIState::Idle;
+        }
+        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&id).expect("o").ai_state,
+            AIState::GuardingObject
+        );
     }
 
     #[test]
