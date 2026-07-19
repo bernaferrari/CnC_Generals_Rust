@@ -6329,7 +6329,10 @@ impl Object {
             self.turret_rotating = true;
         }
         self.turret_angle_deg = actual.to_degrees();
-        Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0)
+        let aligned =
+            Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0);
+        self.record_host_turret();
+        aligned
     }
 
     /// C++ TurretAI::setTurretTargetObject residual (object-local).
@@ -6352,7 +6355,9 @@ impl Object {
             actual = Self::normalize_angle_rad(actual - pitch_rate);
         }
         self.turret_pitch_deg = actual.to_degrees();
-        Self::normalize_angle_rad(actual - desired).abs() <= 1e-4
+        let aligned = Self::normalize_angle_rad(actual - desired).abs() <= 1e-4;
+        self.record_host_turret();
+        aligned
     }
 
     pub fn set_turret_target_object(&mut self, victim: Option<ObjectId>, force_attacking: bool) {
@@ -8463,6 +8468,16 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
+    pub fn record_host_turret(&self) {
+        crate::game_logic::host_turret_log::record(
+            self.id,
+            self.turret_angle_deg,
+            self.turret_pitch_deg,
+            self.turret_holding,
+            self.turret_idle_scanning,
+        );
+    }
+
     pub fn record_host_entity_power(&self) {
         crate::game_logic::host_entity_power_log::record(
             self.id,

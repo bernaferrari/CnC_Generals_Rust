@@ -535,6 +535,14 @@ pub enum WorldMutation {
         power_provided: i32,
         power_consumed: i32,
     },
+    /// Host Object turret residual (angle/pitch/holding/idle-scan).
+    SetTurret {
+        target: EntityId,
+        angle_deg: f32,
+        pitch_deg: f32,
+        holding: bool,
+        idle_scanning: bool,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -993,6 +1001,21 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.power_provided = power_provided;
                         e.power_consumed = power_consumed;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetTurret {
+                    target,
+                    angle_deg,
+                    pitch_deg,
+                    holding,
+                    idle_scanning,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.turret_angle_deg = angle_deg;
+                        e.turret_pitch_deg = pitch_deg;
+                        e.turret_holding = holding;
+                        e.turret_idle_scanning = idle_scanning;
                         applied += 1;
                     }
                 }
