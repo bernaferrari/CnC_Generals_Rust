@@ -19720,6 +19720,7 @@ impl GameLogic {
                 crate::game_logic::host_mines::residual_data_for_template(template_name, self.frame)
             {
                 object.mine_data = Some(mine_data);
+                object.record_host_demo_mine_cheer();
             }
 
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
@@ -40272,6 +40273,7 @@ impl GameLogic {
         }
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
+            obj.record_host_demo_mine_cheer();
             obj.movement.max_speed = 0.0;
             obj.weapon = None;
             obj.secondary_weapon = None;
@@ -40462,6 +40464,7 @@ impl GameLogic {
 
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
+            obj.record_host_demo_mine_cheer();
             // Mines/charges are not combat movers.
             obj.movement.max_speed = 0.0;
             obj.weapon = None;
@@ -45841,6 +45844,7 @@ impl GameLogic {
         // Mark before blast so destroy path skips DestroyedWeapon double-fire.
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.demo_suicided_detonating = true;
+            obj.record_host_demo_mine_cheer();
             obj.status.destroyed = true;
         }
         self.demo_suicide_bomb.record_tertiary_suicide_issued();
