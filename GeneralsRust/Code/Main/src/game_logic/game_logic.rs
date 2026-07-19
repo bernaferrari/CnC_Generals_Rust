@@ -8096,7 +8096,7 @@ impl GameLogic {
                 chute.apply_eject_parachuting();
                 // Parachute is not selectable residual (C++ drawable on container).
                 chute.status.unselectable = true;
-                chute.status.no_collisions = true;
+                chute.set_status_no_collisions(true);
             }
         }
 
@@ -8109,7 +8109,7 @@ impl GameLogic {
             // Still not selectable while in chute (partition restore already cleared
             // MASKED from vehicle ride; chute contain keeps soft-hide).
             r.status.unselectable = true;
-            r.status.no_collisions = true;
+            r.set_status_no_collisions(true);
             r.set_status_masked(true);
         }
 
@@ -15646,7 +15646,7 @@ impl GameLogic {
                                     geom,
                                 );
                                 if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                    target.status.booby_trapped = true;
+                                    target.set_status_booby_trapped(true);
                                 }
                                 self.queue_audio_event(
                                     AudioEventRequest::new(BOOBY_TRAP_INSTALL_AUDIO)
@@ -34266,12 +34266,12 @@ impl GameLogic {
             r.ai_state = AIState::Idle;
             r.set_position(eject_pos);
             // Chute destroyed → freefall residual (chute closed, still parachuting sink).
-            r.status.parachute_open = false;
-            r.status.parachuting = true;
+            r.set_status_parachute_open(false);
+            r.set_status_parachuting(true);
             r.status.airborne_target = true;
             r.set_status_masked(false);
             r.status.unselectable = false;
-            r.status.no_collisions = false;
+            r.set_status_no_collisions(false);
             // DAMAGE_FALLING / DEATH_SPLATTED residual if this kill finishes them.
             let killed = r.take_damage_from_typed_death(
                 dmg,
@@ -34281,8 +34281,8 @@ impl GameLogic {
             );
             // Ensure freefall continues even if take_damage cleared parachuting on death.
             if !killed {
-                r.status.parachuting = true;
-                r.status.parachute_open = false;
+                r.set_status_parachuting(true);
+                r.set_status_parachute_open(false);
                 r.status.airborne_target = true;
             }
             killed
@@ -36367,7 +36367,7 @@ impl GameLogic {
             // C++ clears m_didMoveToBase when a vehicle target is found.
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                 pilot.set_target(Some(vehicle_id));
-                pilot.status.pilot_did_move_to_base = false;
+                pilot.set_status_pilot_did_move_to_base(false);
                 let _ = pilot_radius;
                 let _ = pilot_team;
             }
@@ -36397,7 +36397,7 @@ impl GameLogic {
         };
         if let Some(pilot) = self.objects.get_mut(&pilot_id) {
             pilot.set_target(None);
-            pilot.status.pilot_did_move_to_base = true;
+            pilot.set_status_pilot_did_move_to_base(true);
         }
         self.path_approach_with_state(pilot_id, base_pos, AIState::Moving);
         self.usa_pilot.record_base_center_move();
@@ -36628,7 +36628,7 @@ impl GameLogic {
                     // Partition restore residual after chute dump.
                     r.set_status_masked(false);
                     r.status.unselectable = false;
-                    r.status.no_collisions = false;
+                    r.set_status_no_collisions(false);
                     r.stop_moving();
                     r.target = None;
                 }
@@ -37660,7 +37660,7 @@ impl GameLogic {
         let Some(plant) = self.booby_trap.take_plant(structure_id) else {
             // Status may lag registry — clear flag only.
             if let Some(obj) = self.objects.get_mut(&structure_id) {
-                obj.status.booby_trapped = false;
+                obj.set_status_booby_trapped(false);
             }
             return 0;
         };
@@ -37683,7 +37683,7 @@ impl GameLogic {
         }
 
         if let Some(obj) = self.objects.get_mut(&structure_id) {
-            obj.status.booby_trapped = false;
+            obj.set_status_booby_trapped(false);
         }
 
         let max_r = booby_trap_splash_radius(plant.geometry_radius);
@@ -57429,7 +57429,7 @@ mod tests {
             let mut pos = p.get_position();
             pos.y = thr + 50.0;
             p.set_position(pos);
-            p.status.parachute_open = true; // open chute then cut residual
+            p.set_status_parachute_open(true); // open chute then cut residual
             p.health.current = p.health.maximum;
         }
         let hp_before = game_logic.find_object(pilot_id).unwrap().health.current;
@@ -80537,7 +80537,7 @@ mod tests {
                 .booby_trap
                 .install(building_id, rebel_id, Team::GLA, game_logic.frame, geom);
             if let Some(b) = game_logic.find_object_mut(building_id) {
-                b.status.booby_trapped = true;
+                b.set_status_booby_trapped(true);
             }
         }
         assert!(
@@ -90199,13 +90199,13 @@ mod tests {
             c.max_transport = 1;
             let _ = c.enter_transport(hid);
             c.apply_eject_parachuting();
-            c.status.parachute_open = true;
+            c.set_status_parachute_open(true);
         }
         {
             let h = logic.objects.get_mut(&hid).unwrap();
             h.contained_by = Some(chute_id);
             h.apply_eject_parachuting();
-            h.status.parachute_open = true;
+            h.set_status_parachute_open(true);
             h.set_position(glam::Vec3::new(0.0, high, 0.0));
             h.health.current = h.health.maximum;
         }
@@ -90460,7 +90460,7 @@ mod tests {
             let mut o = Object::new(vt, vid, Team::USA);
             o.health.current = 30.0;
             o.health.maximum = 30.0;
-            o.status.booby_trapped = true;
+            o.set_status_booby_trapped(true);
             o
         });
         // Simulate booby path: damage both fully
@@ -93851,7 +93851,7 @@ mod tests {
         let mut p = Object::new(pt, pid, Team::USA);
         p.set_position(Vec3::new(0.0, 10.0, 0.0));
         p.movement.velocity = Vec3::new(3.0, -1.0, 0.0);
-        p.status.parachuting = true;
+        p.set_status_parachuting(true);
         logic.objects.insert(pid, p);
         assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0));
         let p = logic.objects.get(&pid).unwrap();

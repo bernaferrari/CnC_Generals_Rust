@@ -474,6 +474,17 @@ pub enum WorldMutation {
         disabled_subdued: Option<bool>,
         masked: Option<bool>,
         disguised: Option<bool>,
+        no_collisions: Option<bool>,
+        private_captured: Option<bool>,
+        disguise_transitioning_to: Option<bool>,
+        disguise_halfpoint_reached: Option<bool>,
+        faerie_fire: Option<bool>,
+        booby_trapped: Option<bool>,
+        eject_invulnerable: Option<bool>,
+        pilot_did_move_to_base: Option<bool>,
+        parachuting: Option<bool>,
+        parachute_open: Option<bool>,
+        parachute_landing_override_set: Option<bool>,
     },
 }
 
@@ -667,6 +678,17 @@ impl GameWorld {
                     disabled_subdued,
                     masked,
                     disguised,
+                    no_collisions,
+                    private_captured,
+                    disguise_transitioning_to,
+                    disguise_halfpoint_reached,
+                    faerie_fire,
+                    booby_trapped,
+                    eject_invulnerable,
+                    pilot_did_move_to_base,
+                    parachuting,
+                    parachute_open,
+                    parachute_landing_override_set,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         if let Some(v) = stealthed {
@@ -713,6 +735,39 @@ impl GameWorld {
                         }
                         if let Some(v) = disguised {
                             e.disguised = v;
+                        }
+                        if let Some(v) = no_collisions {
+                            e.no_collisions = v;
+                        }
+                        if let Some(v) = private_captured {
+                            e.private_captured = v;
+                        }
+                        if let Some(v) = disguise_transitioning_to {
+                            e.disguise_transitioning_to = v;
+                        }
+                        if let Some(v) = disguise_halfpoint_reached {
+                            e.disguise_halfpoint_reached = v;
+                        }
+                        if let Some(v) = faerie_fire {
+                            e.faerie_fire = v;
+                        }
+                        if let Some(v) = booby_trapped {
+                            e.booby_trapped = v;
+                        }
+                        if let Some(v) = eject_invulnerable {
+                            e.eject_invulnerable = v;
+                        }
+                        if let Some(v) = pilot_did_move_to_base {
+                            e.pilot_did_move_to_base = v;
+                        }
+                        if let Some(v) = parachuting {
+                            e.parachuting = v;
+                        }
+                        if let Some(v) = parachute_open {
+                            e.parachute_open = v;
+                        }
+                        if let Some(v) = parachute_landing_override_set {
+                            e.parachute_landing_override_set = v;
                         }
                         applied += 1;
                     }
