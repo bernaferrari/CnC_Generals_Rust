@@ -7,10 +7,17 @@ use generals_main::executable_smoke::{format_executable_smoke_report, run_execut
 use std::time::Duration;
 
 fn main() {
-    let timeout_secs: u64 = std::env::var("EXECUTABLE_SMOKE_TIMEOUT_SECS")
-        .ok()
+    // CLI seconds (e.g. `executable_smoke_gate 900`) > env > default 480.
+    // Smoke command chain exceeds 120s after map load on debug builds.
+    let timeout_secs: u64 = std::env::args()
+        .nth(1)
         .and_then(|s| s.parse().ok())
-        .unwrap_or(120);
+        .or_else(|| {
+            std::env::var("EXECUTABLE_SMOKE_TIMEOUT_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+        })
+        .unwrap_or(480);
     // Default: direct start_game (proven). Opt into NewGame drain with EXECUTABLE_SMOKE_NEW_GAME=1.
     let use_new_game = std::env::var("EXECUTABLE_SMOKE_NEW_GAME")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
