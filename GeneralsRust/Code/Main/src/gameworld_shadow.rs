@@ -2530,6 +2530,40 @@ impl GameWorldShadow {
         true
     }
 
+    pub fn queue_set_player_radar(
+        &mut self,
+        host_player_id: u32,
+        radar_count: i32,
+        radar_disabled: bool,
+    ) -> bool {
+        let Some(&player) = self.host_player_to_gw.get(&host_player_id) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetPlayerRadar {
+                player,
+                radar_count,
+                radar_disabled,
+            });
+        true
+    }
+
+    pub fn apply_host_radar_events(
+        &mut self,
+        events: &[crate::game_logic::host_radar_log::HostRadarEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_player_radar(ev.player_id, ev.radar_count, ev.radar_disabled) {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_contain_events(
         &mut self,
         events: &[crate::game_logic::host_contain_log::HostContainEvent],
@@ -3013,6 +3047,7 @@ pub fn shadow_session_after_host_tick(
     let stored_supplies_events = crate::game_logic::host_stored_supplies_log::drain();
     let ai_state_events = crate::game_logic::host_ai_state_log::drain();
     let contain_events = crate::game_logic::host_contain_log::drain();
+    let radar_events = crate::game_logic::host_radar_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -3028,6 +3063,7 @@ pub fn shadow_session_after_host_tick(
     let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
     let _ai_applied = shadow.apply_host_ai_state_events(&ai_state_events);
     let _contain_applied = shadow.apply_host_contain_events(&contain_events);
+    let _radar_applied = shadow.apply_host_radar_events(&radar_events);
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -4479,6 +4515,49 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_radar_log_drives_set_player_radar_channel() {
+        use crate::game_logic::host_radar_log;
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("RadarCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let pid = *logic.get_players().keys().next().expect("player");
+        host_radar_log::clear();
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.set_radar_state(2, false);
+        }
+        let events = host_radar_log::drain();
+        assert!(events
+            .iter()
+            .any(|e| e.player_id == pid && e.radar_count == 2 && !e.radar_disabled));
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.set_radar_state(2, false);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let gw = *shadow.host_player_to_gw.get(&pid).expect("map");
+        if let Some(p) = shadow.world_mut().world_mut().player_mut(gw) {
+            p.radar_count = 0;
+            p.radar_disabled = true;
+        }
+        let n = shadow.apply_host_radar_events(&host_radar_log::drain());
+        assert!(n >= 1);
+        let p = shadow.world().player(gw).expect("p");
+        assert_eq!(p.radar_count, 2);
+        assert!(!p.radar_disabled);
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.radar_count = 0;
+            p.radar_disabled = true;
+        }
+        assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
+        let p = logic.get_player(pid).expect("p");
+        assert_eq!(p.radar_count, 2);
+        assert!(!p.radar_disabled);
     }
 
     #[test]

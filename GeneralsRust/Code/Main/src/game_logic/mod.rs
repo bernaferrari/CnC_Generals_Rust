@@ -19,6 +19,7 @@ pub mod host_economy_log;
 pub mod host_move_log;
 pub mod host_owner_log;
 pub mod host_production_log;
+pub mod host_radar_log;
 pub mod host_spawn_log;
 pub mod host_special_power_log;
 pub mod host_status_log;
