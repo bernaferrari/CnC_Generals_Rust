@@ -2946,6 +2946,79 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "patrol" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "patrol_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "patrol_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_Patrol");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("patrol_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "deploy" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "deploy_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "deploy_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_Deploy");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("deploy_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "cheer" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "cheer_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    self.issue_named_command_from_ui("Command_Cheer");
+                    self.runtime_host_last_gameplay_cmd = "cheer_ok".into();
+                }
+            }
+            "formation" | "create_formation" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "formation_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.len() < 2 {
+                        // try select more mobiles
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            let mut ids: Vec<_> = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                                .map(|(id, _)| *id)
+                                .collect();
+                            ids.sort_by_key(|id| id.0);
+                            ids.truncate(6);
+                            if ids.len() >= 2 {
+                                self.selected_objects = ids.clone();
+                                self.game_logic.select_objects(self.current_player_id, ids);
+                            }
+                        }
+                    }
+                    if self.selected_objects.len() < 2 {
+                        self.runtime_host_last_gameplay_cmd = "formation_fail_need_two".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_CreateFormation");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("formation_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -13048,6 +13121,31 @@ impl CnCGameEngine {
 
     /// Issue Stop to all friendly mobile units residual (Ctrl+Alt+S is structures).
     /// Ctrl+Shift+Period residual: stop everything friendly.
+
+    /// Runtime-host residual: ensure at least one local mobile is selected.
+    fn ensure_host_mobile_selection(&mut self) {
+        if !self.selected_objects.is_empty() {
+            return;
+        }
+        let Some(team) = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.team)
+        else {
+            return;
+        };
+        if let Some((id, _)) = self
+            .game_logic
+            .get_objects()
+            .iter()
+            .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+        {
+            self.selected_objects = vec![*id];
+            self.game_logic
+                .select_objects(self.current_player_id, vec![*id]);
+        }
+    }
+
     fn stop_all_friendly_units(&mut self) {
         let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_team()
@@ -18496,6 +18594,27 @@ fn runtime_host_attack_move_scatter_residual() {
             && src.contains("scatter_ok:")
             && src.contains("Command_Scatter"),
         "runtime host must expose scatter residual"
+    );
+}
+
+#[test]
+fn runtime_host_patrol_deploy_formation_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("\"patrol\"") && src.contains("patrol_ok:"),
+        "runtime host must expose patrol residual"
+    );
+    assert!(
+        src.contains("\"deploy\"") && src.contains("deploy_ok:"),
+        "runtime host must expose deploy residual"
+    );
+    assert!(
+        src.contains("\"cheer\"") && src.contains("cheer_ok"),
+        "runtime host must expose cheer residual"
+    );
+    assert!(
+        src.contains("create_formation") && src.contains("formation_ok:"),
+        "runtime host must expose formation residual"
     );
 }
 
