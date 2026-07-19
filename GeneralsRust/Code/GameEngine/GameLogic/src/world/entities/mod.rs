@@ -190,6 +190,12 @@ pub struct Entity {
     pub masked: bool,
     /// Host Object::status.disguised residual.
     pub disguised: bool,
+    /// Host Object::status.disabled_subdued residual.
+    pub disabled_subdued: bool,
+    /// Host Object::status.is_carbomb residual.
+    pub is_carbomb: bool,
+    /// Host Object::status.hijacked residual.
+    pub hijacked: bool,
     /// Host Object::building_data present residual.
     pub is_building: bool,
     /// Host BuildingType residual ordinal (0..12; 255 = not a building).
@@ -485,6 +491,9 @@ impl EntityStore {
             weapons_jammed: false,
             masked: false,
             disguised: false,
+            disabled_subdued: false,
+            is_carbomb: false,
+            hijacked: false,
             is_building: false,
             building_type_ordinal: 255,
             production_queue_len: 0,
