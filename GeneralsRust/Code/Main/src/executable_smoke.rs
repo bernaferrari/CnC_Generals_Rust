@@ -53,6 +53,8 @@ pub struct ExecutableSmokeResult {
     pub stop_cmd_ok: bool,
     /// Runtime-host sell accepted (still not full playable_claim).
     pub sell_cmd_ok: bool,
+    pub upgrade_cmd_ok: bool,
+    pub guard_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -80,6 +82,8 @@ impl Default for ExecutableSmokeResult {
             load_cmd_ok: false,
             stop_cmd_ok: false,
             sell_cmd_ok: false,
+            upgrade_cmd_ok: false,
+            guard_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -381,6 +385,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut stop_detail = String::new();
     let mut saw_sell_ok = false;
     let mut sell_detail = String::new();
+    let mut saw_upgrade_ok = false;
+    let mut upgrade_detail = String::new();
+    let mut saw_guard_ok = false;
+    let mut guard_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -610,10 +618,29 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("train_") {
                             train_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["quicksave"]);
+                        let _ = write_control(
+                            &control_path,
+                            &["upgrade|name=UpgradeAmericaRangerCaptureBuilding"],
+                        );
                         gameplay_step = 5;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 5
+                        && (snap.last_gameplay_cmd.starts_with("upgrade_ok")
+                            || snap.last_gameplay_cmd.starts_with("upgrade_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(6))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("upgrade_ok") {
+                            saw_upgrade_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("upgrade_") {
+                            upgrade_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["quicksave"]);
+                        gameplay_step = 6;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 6
                         && (snap.last_gameplay_cmd.starts_with("save_ok")
                             || snap.last_gameplay_cmd.starts_with("save_fail")
                             || commanded_at
@@ -628,9 +655,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         }
                         // Round-trip residual: load the slot we just wrote.
                         let _ = write_control(&control_path, &["quickload"]);
-                        gameplay_step = 6;
+                        gameplay_step = 7;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step == 6
+                    } else if gameplay_step == 7
                         && (snap.last_gameplay_cmd.starts_with("load_ok")
                             || snap.last_gameplay_cmd.starts_with("load_fail")
                             || commanded_at
@@ -644,9 +671,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             load_detail = snap.last_gameplay_cmd.clone();
                         }
                         let _ = write_control(&control_path, &["stop_all"]);
-                        gameplay_step = 7;
+                        gameplay_step = 8;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step == 7
+                    } else if gameplay_step == 8
                         && (snap.last_gameplay_cmd.starts_with("stop_ok")
                             || snap.last_gameplay_cmd.starts_with("stop_fail")
                             || commanded_at
@@ -660,9 +687,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             stop_detail = snap.last_gameplay_cmd.clone();
                         }
                         let _ = write_control(&control_path, &["sell"]);
-                        gameplay_step = 8;
+                        gameplay_step = 9;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step == 8
+                    } else if gameplay_step == 9
                         && (snap.last_gameplay_cmd.starts_with("sell_ok")
                             || snap.last_gameplay_cmd.starts_with("sell_fail")
                             || commanded_at
@@ -675,10 +702,26 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("sell_") {
                             sell_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
-                        gameplay_step = 9;
+                        let _ = write_control(&control_path, &["guard|x=120|y=0|z=120"]);
+                        gameplay_step = 10;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 9 {
+                    } else if gameplay_step == 10
+                        && (snap.last_gameplay_cmd.starts_with("guard_ok")
+                            || snap.last_gameplay_cmd.starts_with("guard_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("guard_ok") {
+                            saw_guard_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("guard_") {
+                            guard_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 11;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 11 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -718,6 +761,18 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         } else if snap.last_gameplay_cmd.starts_with("sell_") {
                             sell_detail = snap.last_gameplay_cmd.clone();
                         }
+                        if snap.last_gameplay_cmd.starts_with("upgrade_ok") {
+                            saw_upgrade_ok = true;
+                            upgrade_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("upgrade_") {
+                            upgrade_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("guard_ok") {
+                            saw_guard_ok = true;
+                            guard_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("guard_") {
+                            guard_detail = snap.last_gameplay_cmd.clone();
+                        }
                         if snap.last_gameplay_cmd.starts_with("attack_ok")
                             || snap.last_gameplay_cmd.starts_with("attack_fail")
                             || snap.last_gameplay_cmd.starts_with("attack_begin")
@@ -745,6 +800,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.load_cmd_ok = saw_load_ok;
                         result.stop_cmd_ok = saw_stop_ok;
                         result.sell_cmd_ok = saw_sell_ok;
+                        result.upgrade_cmd_ok = saw_upgrade_ok;
+                        result.guard_cmd_ok = saw_guard_ok;
                         result.detail =
                             format!("{}; last_cmd={}", result.detail, snap.last_gameplay_cmd);
                         if !construct_detail.is_empty() {
@@ -849,7 +906,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -859,10 +916,12 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.gameplay_cmd_ok,
         r.construct_cmd_ok,
         r.train_cmd_ok,
+        r.upgrade_cmd_ok,
         r.save_cmd_ok,
         r.load_cmd_ok,
         r.stop_cmd_ok,
         r.sell_cmd_ok,
+        r.guard_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,

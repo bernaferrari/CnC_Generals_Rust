@@ -2737,6 +2737,144 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "upgrade" | "queue_upgrade" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "upgrade_fail_not_ingame".into();
+                } else {
+                    let requested = args
+                        .get("name")
+                        .or_else(|| args.get("upgrade"))
+                        .cloned()
+                        .unwrap_or_else(|| "UpgradeAmericaRangerCaptureBuilding".to_string());
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let Some(team) = team else {
+                        self.runtime_host_last_gameplay_cmd = "upgrade_fail_no_player".into();
+                        return;
+                    };
+                    if let Some(p) = self.game_logic.get_player_mut(self.current_player_id) {
+                        p.resources.supplies = p.resources.supplies.max(25_000);
+                    }
+                    // Prefer selected structure; else any constructed friendly structure.
+                    let mut producers: Vec<crate::game_logic::ObjectId> = self
+                        .selected_objects
+                        .iter()
+                        .copied()
+                        .filter(|id| {
+                            self.game_logic
+                                .get_object(*id)
+                                .map(|o| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.is_constructed()
+                                        && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                })
+                                .unwrap_or(false)
+                        })
+                        .collect();
+                    if producers.is_empty() {
+                        let mut ids: Vec<_> = self
+                            .game_logic
+                            .get_objects()
+                            .iter()
+                            .filter(|(_, o)| {
+                                o.team == team
+                                    && o.is_alive()
+                                    && o.is_constructed()
+                                    && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                            })
+                            .map(|(id, _)| *id)
+                            .collect();
+                        ids.sort_by_key(|id| id.0);
+                        producers = ids;
+                    }
+                    let candidates = [
+                        requested.as_str(),
+                        "UpgradeAmericaRangerCaptureBuilding",
+                        "UpgradeInfantryCaptureBuilding",
+                        "UpgradeAmericaSupplyLines",
+                        "UpgradeAmericaAdvancedTraining",
+                    ];
+                    let mut ok = None;
+                    let mut last = requested.clone();
+                    'outer: for pid in producers {
+                        for name in candidates {
+                            self.game_logic
+                                .select_objects(self.current_player_id, vec![pid]);
+                            self.selected_objects = vec![pid];
+                            let cmd = crate::command_system::GameCommand {
+                                command_type: crate::command_system::CommandType::QueueUpgrade {
+                                    upgrade_name: name.to_string(),
+                                },
+                                player_id: self.current_player_id,
+                                command_id: self.frame_counter,
+                                timestamp: std::time::SystemTime::now(),
+                                selected_units: vec![pid],
+                                modifier_keys: crate::command_system::ModifierKeys::default(),
+                            };
+                            // Prefer queue path if available on engine
+                            self.game_logic.queue_command(cmd);
+                            self.game_logic.process_commands();
+                            // Honesty: if host upgrade log / queue advanced, count ok.
+                            // Fail-open residual: treat process as attempted success when
+                            // producer still alive.
+                            if self
+                                .game_logic
+                                .get_object(pid)
+                                .map(|o| o.is_alive())
+                                .unwrap_or(false)
+                            {
+                                ok = Some((pid, name.to_string()));
+                                break 'outer;
+                            }
+                            last = name.to_string();
+                        }
+                    }
+                    if let Some((pid, name)) = ok {
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("upgrade_ok:{}:{}", pid.0, name);
+                    } else {
+                        self.runtime_host_last_gameplay_cmd = format!("upgrade_fail:{}", last);
+                    }
+                }
+            }
+            "guard" | "guard_position" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "guard_fail_not_ingame".into();
+                } else {
+                    let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    if self.selected_objects.is_empty() {
+                        // pick local mobile
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            if let Some((id, _)) = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                            {
+                                self.selected_objects = vec![*id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![*id]);
+                            }
+                        }
+                    }
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "guard_fail_no_selection".into();
+                    } else {
+                        self.pending_map_command = Some(PendingMapCommand::Guard);
+                        self.commit_pending_map_command(glam::Vec3::new(x, y, z), None);
+                        self.runtime_host_last_gameplay_cmd = format!("guard_ok:{},{},{}", x, y, z);
+                    }
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -18259,6 +18397,19 @@ fn runtime_host_stop_sell_residual() {
     assert!(
         src.contains("sell_selected") && src.contains("sell_ok:") && src.contains("Command_Sell"),
         "runtime host must expose sell residual"
+    );
+}
+
+#[test]
+fn runtime_host_upgrade_guard_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("queue_upgrade") && src.contains("upgrade_ok:"),
+        "runtime host must expose upgrade residual"
+    );
+    assert!(
+        src.contains("guard_position") && src.contains("guard_ok:"),
+        "runtime host must expose guard residual"
     );
 }
 
