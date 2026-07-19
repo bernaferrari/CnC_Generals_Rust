@@ -36,6 +36,7 @@ pub mod host_radar_log;
 pub mod host_spawn_log;
 pub mod host_special_power_log;
 pub mod host_status_log;
+pub mod host_stealth_flags_log;
 pub mod host_stored_supplies_log;
 pub mod host_turret_log;
 pub mod host_target_location_log;
