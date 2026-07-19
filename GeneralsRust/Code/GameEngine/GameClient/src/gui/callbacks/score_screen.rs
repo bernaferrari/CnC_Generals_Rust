@@ -12,8 +12,9 @@ use crate::gui::challenge_generals::get_challenge_generals;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::shell::Shell;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowStatus,
 };
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -264,10 +265,9 @@ fn leave_score_screen_for_next_campaign(shell: &mut impl NextCampaignShellAction
 }
 
 fn start_next_campaign_game() {
-    {
-        let mut shell = get_shell();
-        leave_score_screen_for_next_campaign(&mut *shell);
-    }
+    let _ = try_with_shell_mut(|shell| {
+        leave_score_screen_for_next_campaign(shell);
+    });
 
     let pending_file = {
         let manager = get_campaign_manager();
@@ -1135,7 +1135,7 @@ pub fn score_screen_shutdown(layout: &WindowLayout, _user_data: Option<&mut dyn 
     set_dont_show_main_menu(false);
 
     layout.hide(true);
-    let _ = get_shell().shutdown_complete(None, false);
+    let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
 
     if let Some(audio) = TheAudio::get() {
         audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
@@ -1183,7 +1183,7 @@ pub fn score_screen_system(
             set_replay_was_pressed(false);
 
             if control_id == state.button_ok_id {
-                let _ = get_shell().pop();
+                let _ = try_with_shell_mut(|shell| shell.pop());
                 get_campaign_manager().set_campaign("");
             } else if control_id == state.button_continue_id {
                 if !state.button_is_finish_campaign {
@@ -1193,7 +1193,7 @@ pub fn score_screen_system(
                     let map_name = get_campaign_manager().get_current_map().unwrap_or_default();
                     if map_name.is_empty() {
                         set_replay_was_pressed(false);
-                        let _ = get_shell().pop();
+                        let _ = try_with_shell_mut(|shell| shell.pop());
                     } else {
                         start_next_campaign_game();
                     }

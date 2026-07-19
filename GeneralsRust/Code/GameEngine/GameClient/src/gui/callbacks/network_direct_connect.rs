@@ -8,8 +8,9 @@ use std::sync::{Mutex, OnceLock};
 use crate::gui::callbacks::{set_lan_button_pushed, set_lan_is_shutting_down};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, LanPreferences,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    write_input_focus_response, GameWindow, LanPreferences, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{LanApi, LanConfig};
@@ -332,7 +333,7 @@ fn handle_back(state: &mut NetworkDirectConnectState) {
     request_set_name(name);
     set_lan_button_pushed(true);
     state.button_pushed = true;
-    let _ = get_shell().pop();
+    let _ = try_with_shell_mut(|shell| shell.pop());
 }
 
 pub fn network_direct_connect_init(
@@ -385,7 +386,7 @@ pub fn network_direct_connect_init(
     set_local_ip_for_api(local_ip, name.clone());
     request_leave_lobby();
 
-    get_shell().show_shell_map(true);
+    show_shell_map_if_available(true);
     layout.hide(false);
     layout.bring_forward();
 }
@@ -398,12 +399,12 @@ pub fn network_direct_connect_update(
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     if state.is_shutting_down
-        && get_shell().is_anim_finished()
+        && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
         && with_window_manager(|manager| manager.transitions_finished())
     {
         state.is_shutting_down = false;
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
     }
 }
 
@@ -418,11 +419,11 @@ pub fn network_direct_connect_shutdown(
 
     if pop_immediate {
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         return;
     }
 
-    get_shell().reverse_animate_window();
+    let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
     with_window_manager(|manager| manager.transition_reverse("NetworkDirectConnectFade"));
 
     let mut state = network_direct_connect_state()

@@ -7,8 +7,9 @@ use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_lan_setup, get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowStatus, GLM_RIGHT_CLICKED,
+    get_lan_setup, get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    GLM_RIGHT_CLICKED,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
@@ -924,9 +925,10 @@ fn start_lan_game(state: &mut LanGameOptionsState) {
         let mut data = data.write();
         data.pending_file = map_name;
     }
-    let mut shell = get_shell();
-    let _ = shell.pop();
-    let _ = shell.hide_shell();
+    let _ = try_with_shell_mut(|shell| {
+        let _ = shell.pop();
+        let _ = shell.hide_shell();
+    });
     TheGameLogic::prepare_new_game(GAME_LAN, 1, 0);
 }
 
@@ -1012,7 +1014,7 @@ pub fn lan_game_options_menu_update(
 ) {
     // Check shutdown - matches C++ pattern
     if lan_is_shutting_down()
-        && get_shell().is_anim_finished()
+        && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
         && with_window_manager(|manager| manager.transitions_finished())
     {
         // Clear window refs before shutdown complete
@@ -1024,7 +1026,7 @@ pub fn lan_game_options_menu_update(
         });
         set_lan_is_shutting_down(false);
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         return;
     }
 
@@ -1062,12 +1064,12 @@ pub fn lan_game_options_menu_shutdown(
             state.listbox_chat = None;
         });
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         return;
     }
 
     set_lan_is_shutting_down(true);
-    get_shell().reverse_animate_window();
+    let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
     with_window_manager(|manager| manager.transition_reverse("LanGameOptionsFade"));
 }
 
@@ -1087,7 +1089,7 @@ pub fn lan_game_options_menu_system(
                 return;
             }
             if control_id == state.button_back_id {
-                let _ = get_shell().pop();
+                let _ = try_with_shell_mut(|shell| shell.pop());
                 handled = true;
                 return;
             }
