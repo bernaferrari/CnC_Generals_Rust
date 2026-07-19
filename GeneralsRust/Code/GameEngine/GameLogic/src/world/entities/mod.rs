@@ -196,6 +196,10 @@ pub struct Entity {
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
     pub hijacked: bool,
+    /// Host Object::status.ignoring_stealth residual.
+    pub ignoring_stealth: bool,
+    /// Host Object::status.repulsor residual.
+    pub repulsor: bool,
     /// Host Object::building_data present residual.
     pub is_building: bool,
     /// Host BuildingType residual ordinal (0..12; 255 = not a building).
@@ -494,6 +498,8 @@ impl EntityStore {
             disabled_subdued: false,
             is_carbomb: false,
             hijacked: false,
+            ignoring_stealth: false,
+            repulsor: false,
             is_building: false,
             building_type_ordinal: 255,
             production_queue_len: 0,
