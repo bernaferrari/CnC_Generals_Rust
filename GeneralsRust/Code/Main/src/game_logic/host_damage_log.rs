@@ -7,7 +7,7 @@
 //! (borrow-first at the drain boundary; no Arc on the world).
 
 use super::ObjectId;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 /// One damage application observed on the host authority.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -20,14 +20,20 @@ pub struct HostDamageEvent {
 }
 
 thread_local! {
-    static LOG: RefCell<Vec<HostDamageEvent>> = RefCell::new(Vec::new());
-    static LAST_DRAIN: RefCell<Vec<HostDamageEvent>> = RefCell::new(Vec::new());
+    static LOG: RefCell<Vec<HostDamageEvent>> = const { RefCell::new(Vec::new()) };
+    static LAST_DRAIN: RefCell<Vec<HostDamageEvent>> = const { RefCell::new(Vec::new()) };
+    static CUM_DAMAGE: Cell<f32> = const { Cell::new(0.0) };
+    static CUM_KILLS: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Record a damage event (called from Object::take_damage_from).
 pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed: bool) {
     if amount <= 0.0 && !destroyed {
         return;
+    }
+    CUM_DAMAGE.set(CUM_DAMAGE.get() + amount.max(0.0));
+    if destroyed {
+        CUM_KILLS.set(CUM_KILLS.get().saturating_add(1));
     }
     LOG.with(|log| {
         log.borrow_mut().push(HostDamageEvent {
@@ -54,10 +60,22 @@ pub fn len() -> usize {
     LOG.with(|log| log.borrow().len())
 }
 
+/// Match-scoped cumulative totals (survives drain; reset via `clear` / `reset_cumulative`).
+pub fn cumulative_totals() -> (f32, u32) {
+    (CUM_DAMAGE.get(), CUM_KILLS.get())
+}
+
+/// Reset cumulative match counters (new skirmish residual).
+pub fn reset_cumulative() {
+    CUM_DAMAGE.set(0.0);
+    CUM_KILLS.set(0);
+}
+
 /// Clear without returning (test isolation).
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
+    reset_cumulative();
 }
 
 /// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
@@ -86,5 +104,8 @@ mod tests {
         assert_eq!(v[1].destroyed, true);
         assert!(drain().is_empty());
         assert_eq!(last_drain_snapshot().len(), 2);
+        let (d, k) = cumulative_totals();
+        assert!((d - 15.0).abs() < f32::EPSILON);
+        assert_eq!(k, 1);
     }
 }

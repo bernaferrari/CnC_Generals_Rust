@@ -1370,6 +1370,10 @@ pub struct CnCGameEngine {
     runtime_host_base_ui_screen: Option<String>,
     runtime_host_ui_screen_override: Option<String>,
     runtime_host_last_gameplay_cmd: String,
+    /// Cumulative HP damage applied this match (host_damage_log residual).
+    match_damage_applied: f32,
+    /// Cumulative destroy events from damage this match.
+    match_kills: u32,
     /// Host asked for an immediate screenshot residual (bridge/event-loop consumes).
     runtime_host_pending_capture: bool,
 
@@ -1993,6 +1997,12 @@ impl CnCGameEngine {
             })
             .unwrap_or(0);
 
+        {
+            let (d, k) = crate::game_logic::host_damage_log::cumulative_totals();
+            self.match_damage_applied = d;
+            self.match_kills = k;
+        }
+
         RuntimeHostSnapshot {
             state: format!("{:?}", self.current_state),
             ui_screen,
@@ -2005,6 +2015,8 @@ impl CnCGameEngine {
             logic_frame: self.game_logic.get_frame(),
             logic_steps: self.game_logic.fixed_step_diagnostics().steps_run as u32,
             under_construction,
+            match_damage_applied: self.match_damage_applied,
+            match_kills: self.match_kills,
             selected_count,
             local_mobile_units,
             last_gameplay_cmd: self.runtime_host_last_gameplay_cmd.clone(),
@@ -2737,6 +2749,40 @@ impl CnCGameEngine {
                         .game_logic
                         .get_player(self.current_player_id)
                         .map(|p| p.team);
+                    // Prefer combat-capable mobiles (select_all often arms structures/dozers).
+                    if let Some(team) = team {
+                        let mut attackers: Vec<_> = self
+                            .selected_objects
+                            .iter()
+                            .copied()
+                            .filter(|id| {
+                                self.game_logic.get_object(*id).is_some_and(|o| {
+                                    o.team == team && o.is_alive() && o.can_attack()
+                                })
+                            })
+                            .collect();
+                        if attackers.is_empty() {
+                            attackers = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.can_attack()
+                                        && o.is_mobile()
+                                })
+                                .map(|(id, _)| *id)
+                                .collect();
+                            attackers.sort_by_key(|id| id.0);
+                            attackers.truncate(8);
+                        }
+                        if !attackers.is_empty() {
+                            self.selected_objects = attackers.clone();
+                            self.game_logic
+                                .select_objects(self.current_player_id, attackers);
+                        }
+                    }
                     let selected = self
                         .game_logic
                         .get_player(self.current_player_id)
@@ -6327,6 +6373,8 @@ impl CnCGameEngine {
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,
             runtime_host_last_gameplay_cmd: String::new(),
+            match_damage_applied: 0.0,
+            match_kills: 0,
             runtime_host_pending_capture: false,
             models_loaded: true, // Already loaded during init
             pending_shell_model_prewarm,
@@ -8750,6 +8798,10 @@ impl CnCGameEngine {
     /// the first InGame frame has units/minimap/selection identity without waiting for
     /// the next dual-tick. Does not advance logic frames.
     fn seed_presentation_after_match_start(&mut self) {
+        self.match_damage_applied = 0.0;
+        self.match_kills = 0;
+        crate::game_logic::host_damage_log::reset_cumulative();
+
         let local_id = self.current_player_id;
         let pres = crate::presentation_frame::PresentationFrame::build_and_apply_for_hud(
             &self.game_logic,
@@ -16845,6 +16897,10 @@ struct RuntimeHostSnapshot {
     logic_steps: u32,
     /// Friendly under-construction structures (local player team).
     under_construction: u32,
+    /// Match damage applied residual (host combat honesty).
+    match_damage_applied: f32,
+    /// Match kill events residual (host combat honesty).
+    match_kills: u32,
     selected_count: u32,
     local_mobile_units: u32,
     last_gameplay_cmd: String,
@@ -17008,6 +17064,8 @@ impl RuntimeHostBridge {
             logic_frame: 0,
             logic_steps: 0,
             under_construction: 0,
+            match_damage_applied: 0.0,
+            match_kills: 0,
             selected_count: 0,
             local_mobile_units: 0,
             last_gameplay_cmd: String::new(),
@@ -17055,6 +17113,11 @@ impl RuntimeHostBridge {
             "under_construction={}\n",
             snapshot.under_construction
         ));
+        payload.push_str(&format!(
+            "match_damage_applied={:.3}\n",
+            snapshot.match_damage_applied
+        ));
+        payload.push_str(&format!("match_kills={}\n", snapshot.match_kills));
         payload.push_str(&format!("selected_count={}\n", snapshot.selected_count));
         payload.push_str(&format!(
             "local_mobile_units={}\n",
