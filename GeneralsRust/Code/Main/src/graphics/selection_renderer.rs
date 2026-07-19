@@ -512,57 +512,12 @@ pub fn collect_selected_units_from_presentation(
 /// snapshot-owned (position/team/selected/aliveness). Live `GameLogic` is only used
 /// as a fallback when no frame is available (boot/loading residuals).
 pub fn collect_selected_units(
-    game_logic: Option<&crate::game_logic::GameLogic>,
-    _local_player_id: u32,
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
 ) -> Vec<SelectedUnit> {
-    if let Some(frame) = presentation {
-        return collect_selected_units_from_presentation(frame);
-    }
-
-    // Boot/loading residual only — production path always supplies presentation.
-    let Some(game_logic) = game_logic else {
-        return Vec::new();
-    };
-
-    let mut units = Vec::new();
-
-    for object in game_logic.get_objects().values() {
-        if !object.is_alive() || !object.selected {
-            continue;
-        }
-
-        let color = if object.team_color[3] > 0.0 {
-            object.team_color
-        } else {
-            let player_index = game_logic
-                .get_players()
-                .values()
-                .find(|player| player.team == object.team)
-                .map(|player| player.id as u8)
-                .unwrap_or_else(|| match object.team {
-                    crate::game_logic::Team::China => 0,
-                    crate::game_logic::Team::USA => 1,
-                    crate::game_logic::Team::GLA => 4,
-                    crate::game_logic::Team::Neutral => 7,
-                });
-            let c = crate::ui::color_for_player(player_index);
-            [
-                c.r as f32 / 255.0,
-                c.g as f32 / 255.0,
-                c.b as f32 / 255.0,
-                CIRCLE_ALPHA,
-            ]
-        };
-
-        units.push(SelectedUnit {
-            position: object.get_position(),
-            radius: object.selection_radius.max(5.0),
-            team_color: color,
-        });
-    }
-
-    units
+    // Presentation-only boundary: engine always seeds a frame before draw.
+    presentation
+        .map(collect_selected_units_from_presentation)
+        .unwrap_or_default()
 }
 
 /// PARITY_NOTE: C++ draws the selection region in `W3DInGameUI::draw()` as a
@@ -611,9 +566,7 @@ pub fn enqueue_selection_render(
     pipeline: &mut crate::graphics::render_pipeline::RenderPipeline,
     view_matrix: &Mat4,
     projection_matrix: &Mat4,
-    game_logic: Option<&crate::game_logic::GameLogic>,
     drag_rect: Option<DragSelectRect>,
-    local_player_id: u32,
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
     // Placement ghost / special-power radius / guard area residual circles.
     ground_markers: Vec<SelectedUnit>,
@@ -628,7 +581,7 @@ pub fn enqueue_selection_render(
     let view_proj = *projection_matrix * *view_matrix;
     let inv_view_proj = view_proj.inverse();
 
-    let mut selected_units = collect_selected_units(game_logic, local_player_id, presentation);
+    let mut selected_units = collect_selected_units(presentation);
     selected_units.extend(ground_markers);
 
     // Move/attack order line residual from presentation snapshot.
@@ -742,8 +695,8 @@ mod presentation_selection_tests {
             o.health.current = 1.0;
         }
 
-        // Shipped path with presentation prefers snapshot.
-        let units = collect_selected_units(Some(&logic), 0, Some(&snap));
+        // Shipped path is presentation-only.
+        let units = collect_selected_units(Some(&snap));
         assert_eq!(units.len(), 1, "snapshot still has selected unit");
         assert!(
             (units[0].position.x - 12.0).abs() < 0.01,
@@ -761,11 +714,10 @@ mod presentation_selection_tests {
         assert_eq!(direct.len(), 1);
         assert!((direct[0].position.x - 12.0).abs() < 0.01);
 
-        // Without presentation, live re-read would see deselected unit (empty).
-        let live_fallback = collect_selected_units(Some(&logic), 0, None);
+        // No presentation → empty (no live GameLogic dual-read residual).
         assert!(
-            live_fallback.is_empty(),
-            "live path reflects post-snapshot mutation (deselected)"
+            collect_selected_units(None).is_empty(),
+            "missing presentation yields no selection overlay units"
         );
     }
 
@@ -782,12 +734,14 @@ mod presentation_selection_tests {
             src.contains("last_presentation_frame.as_ref()"),
             "selection enqueue must pass presentation snapshot"
         );
-        // With presentation installed, live GameLogic must not be dual-read.
+        // Selection enqueue is presentation-only (no GameLogic argument).
         let idx = src.find("enqueue_selection_render").expect("enqueue site");
-        let window = &src[idx..idx + 500];
+        let window = &src[idx..idx + 450];
         assert!(
-            window.contains("None") && window.contains("last_presentation_frame.is_some()"),
-            "selection overlay must pass None GameLogic when presentation is present: {window}"
+            window.contains("last_presentation_frame.as_ref()")
+                && !window.contains("game_logic")
+                && !window.contains("Some(&self.game_logic)"),
+            "selection overlay must not take live GameLogic: {window}"
         );
         assert!(
             src.contains("selection_renderer::enqueue_selection_render"),
