@@ -5466,6 +5466,19 @@ impl Object {
         attitude: crate::game_logic::host_strategy_center::HostAiAttitude,
     ) {
         self.ai_attitude = attitude.as_i8();
+        crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
+    }
+
+    pub fn record_host_ai_attitude(&self) {
+        crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
+    }
+
+    pub fn set_ai_attitude_i8(&mut self, attitude: i8) {
+        let a = attitude.clamp(-2, 2);
+        if self.ai_attitude != a {
+            self.ai_attitude = a;
+            self.record_host_ai_attitude();
+        }
     }
 
     pub fn heal(&mut self, amount: f32) {

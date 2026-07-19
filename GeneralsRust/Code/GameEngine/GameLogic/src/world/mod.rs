@@ -568,6 +568,11 @@ pub enum WorldMutation {
         position: Option<[f32; 3]>,
         target_host: u32,
     },
+    /// Host Object::ai_attitude residual (-2 Sleep .. +2 Aggressive).
+    SetAiAttitude {
+        target: EntityId,
+        attitude: i8,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1085,6 +1090,12 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(unit) {
                         e.guard_position = position;
                         e.guard_target_host = target_host;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetAiAttitude { target, attitude } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.ai_attitude = attitude.clamp(-2, 2);
                         applied += 1;
                     }
                 }
