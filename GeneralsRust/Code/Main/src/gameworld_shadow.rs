@@ -1617,6 +1617,10 @@ impl GameWorldShadow {
                 obj.status.using_ability = ent.using_ability;
                 dirty = true;
             }
+            if obj.force_attack != ent.force_attack {
+                obj.force_attack = ent.force_attack;
+                dirty = true;
+            }
             if obj.status.airborne_target != ent.airborne_target {
                 obj.status.airborne_target = ent.airborne_target;
                 dirty = true;
@@ -2247,6 +2251,19 @@ impl GameWorldShadow {
                 parachuting: ev.parachuting,
                 parachute_open: ev.parachute_open,
                 parachute_landing_override_set: ev.parachute_landing_override_set,
+                using_ability: ev.using_ability,
+                deployed: ev.deployed,
+                under_construction: ev.under_construction,
+                sold: ev.sold,
+                reconstructing: ev.reconstructing,
+                unselectable: ev.unselectable,
+                ignoring_stealth: ev.ignoring_stealth,
+                repulsor: ev.repulsor,
+                disabled_underpowered: ev.disabled_underpowered,
+                disabled_freefall: ev.disabled_freefall,
+                is_carbomb: ev.is_carbomb,
+                hijacked: ev.hijacked,
+                force_attack: ev.force_attack,
             });
         true
     }
@@ -3844,6 +3861,20 @@ mod tests {
                 parachuting: None,
                 parachute_open: None,
                 parachute_landing_override_set: None,
+
+                using_ability: None,
+                deployed: None,
+                under_construction: None,
+                sold: None,
+                reconstructing: None,
+                unselectable: None,
+                ignoring_stealth: None,
+                repulsor: None,
+                disabled_underpowered: None,
+                disabled_freefall: None,
+                is_carbomb: None,
+                hijacked: None,
+                force_attack: None,
             }
         ));
         let n = shadow.world_mut().apply_pending_mutations();
@@ -4068,6 +4099,71 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+    }
+
+    #[test]
+    fn host_force_attack_status_log_drives_set_combat_status_channel() {
+        use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ForceAtkStatusCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("FaU") {
+            let mut t = ThingTemplate::new("FaU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("FaU".into(), t);
+        }
+        let id = logic
+            .create_object("FaU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        host_status_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_force_attack(true);
+            o.set_status_using_ability(true);
+            o.set_status_deployed(true);
+        }
+        let events = host_status_log::drain();
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.force_attack == Some(true)));
+        assert!(events
+            .iter()
+            .any(|e| e.object == id && e.using_ability == Some(true)));
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.set_force_attack(true);
+            o.set_status_using_ability(true);
+            o.set_status_deployed(true);
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.force_attack = false;
+            e.using_ability = false;
+            e.deployed = false;
+        }
+        for ev in host_status_log::drain() {
+            let _ = shadow.queue_set_combat_status_for_host(ev);
+        }
+        assert!(shadow.apply_pending() >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.force_attack);
+        assert!(e.using_ability);
+        assert!(e.deployed);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.force_attack = false;
+            o.status.using_ability = false;
+            o.status.deployed = false;
+        }
+        let wb = shadow.writeback_construction_to_host(&mut logic);
+        assert!(wb >= 1);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!(o.force_attack);
+        assert!(o.status.using_ability);
+        assert!(o.status.deployed);
     }
 
     #[test]

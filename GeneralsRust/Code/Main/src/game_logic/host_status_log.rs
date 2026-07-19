@@ -32,6 +32,19 @@ pub struct HostStatusEvent {
     pub parachuting: Option<bool>,
     pub parachute_open: Option<bool>,
     pub parachute_landing_override_set: Option<bool>,
+    pub using_ability: Option<bool>,
+    pub deployed: Option<bool>,
+    pub under_construction: Option<bool>,
+    pub sold: Option<bool>,
+    pub reconstructing: Option<bool>,
+    pub unselectable: Option<bool>,
+    pub ignoring_stealth: Option<bool>,
+    pub repulsor: Option<bool>,
+    pub disabled_underpowered: Option<bool>,
+    pub disabled_freefall: Option<bool>,
+    pub is_carbomb: Option<bool>,
+    pub hijacked: Option<bool>,
+    pub force_attack: Option<bool>,
 }
 
 thread_local! {
@@ -71,6 +84,19 @@ fn empty(object: ObjectId) -> HostStatusEvent {
         parachuting: None,
         parachute_open: None,
         parachute_landing_override_set: None,
+        using_ability: None,
+        deployed: None,
+        under_construction: None,
+        sold: None,
+        reconstructing: None,
+        unselectable: None,
+        ignoring_stealth: None,
+        repulsor: None,
+        disabled_underpowered: None,
+        disabled_freefall: None,
+        is_carbomb: None,
+        hijacked: None,
+        force_attack: None,
     }
 }
 
@@ -112,6 +138,19 @@ record_flag!(record_eject_invulnerable, eject_invulnerable);
 record_flag!(record_pilot_did_move_to_base, pilot_did_move_to_base);
 record_flag!(record_parachuting, parachuting);
 record_flag!(record_parachute_open, parachute_open);
+record_flag!(record_using_ability, using_ability);
+record_flag!(record_deployed, deployed);
+record_flag!(record_under_construction, under_construction);
+record_flag!(record_sold, sold);
+record_flag!(record_reconstructing, reconstructing);
+record_flag!(record_unselectable, unselectable);
+record_flag!(record_ignoring_stealth, ignoring_stealth);
+record_flag!(record_repulsor, repulsor);
+record_flag!(record_disabled_underpowered, disabled_underpowered);
+record_flag!(record_disabled_freefall, disabled_freefall);
+record_flag!(record_is_carbomb, is_carbomb);
+record_flag!(record_hijacked, hijacked);
+record_flag!(record_force_attack, force_attack);
 record_flag!(
     record_parachute_landing_override_set,
     parachute_landing_override_set
