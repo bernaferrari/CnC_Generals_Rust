@@ -100,6 +100,8 @@ pub struct ExecutableSmokeResult {
     pub pause_cmd_ok: bool,
     pub cancel_production_cmd_ok: bool,
     pub diplomacy_cmd_ok: bool,
+    /// Host published a usable live frame.png (GPU/screenshot residual).
+    pub live_frame_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -172,6 +174,7 @@ impl Default for ExecutableSmokeResult {
             pause_cmd_ok: false,
             cancel_production_cmd_ok: false,
             diplomacy_cmd_ok: false,
+            live_frame_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -198,6 +201,7 @@ struct StatusSnap {
     presentation_frame_ok: bool,
     presentation_live_fallback_reads: u32,
     waypoint_mode: bool,
+    live_frame_ok: bool,
 }
 
 fn parse_status(path: &Path) -> Option<StatusSnap> {
@@ -231,6 +235,12 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             }
             "waypoint_mode" => {
                 snap.waypoint_mode = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "live_frame_ok" => {
+                snap.live_frame_ok = matches!(
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
@@ -580,6 +590,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut cancel_production_detail = String::new();
     let mut saw_diplomacy_ok = false;
     let mut diplomacy_detail = String::new();
+    let mut saw_live_frame_ok = false;
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -1990,6 +2001,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.pause_cmd_ok = saw_pause_ok;
                         result.cancel_production_cmd_ok = saw_cancel_production_ok;
                         result.diplomacy_cmd_ok = saw_diplomacy_ok;
+                        result.live_frame_ok = saw_live_frame_ok;
                         if !presentation_detail.is_empty() {
                             result.detail =
                                 format!("{}; presentation={}", result.detail, presentation_detail);
@@ -2098,7 +2110,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2157,6 +2169,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.pause_cmd_ok,
         r.cancel_production_cmd_ok,
         r.diplomacy_cmd_ok,
+        r.live_frame_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
