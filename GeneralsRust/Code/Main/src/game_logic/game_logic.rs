@@ -5861,12 +5861,18 @@ impl GameLogic {
                     let base_rate = 1.0 / obj.thing.template.build_time;
                     let effective_rate = base_rate * dozer_count as f32 * power_factor;
                     obj.construction_percent += effective_rate * dt;
+                    crate::game_logic::host_construction_progress_log::record(
+                        id,
+                        obj.construction_percent,
+                        obj.status.under_construction,
+                    );
 
                     if obj.construction_percent >= 1.0 {
                         obj.construction_percent = 1.0;
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
                         obj.health.current = obj.health.maximum;
+                        crate::game_logic::host_construction_progress_log::record(id, 1.0, false);
                         crate::game_logic::host_heal_log::record(id, obj.health.current);
                         crate::game_logic::host_construction_log::record(
                             id,
