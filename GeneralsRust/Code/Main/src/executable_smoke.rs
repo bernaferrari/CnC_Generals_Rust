@@ -728,6 +728,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             {
                 select_all_detail = snap.last_gameplay_cmd.clone();
             }
+            if snap.last_gameplay_cmd.starts_with("formation_ok") {
+                saw_formation_ok = true;
+                formation_detail = snap.last_gameplay_cmd.clone();
+            } else if snap.last_gameplay_cmd.starts_with("formation_")
+                && formation_detail.is_empty()
+            {
+                formation_detail = snap.last_gameplay_cmd.clone();
+            }
             last_snap = snap.clone();
             result.frames_observed = result.frames_observed.max(snap.frame);
             if snap.map != "-" && !snap.map.is_empty() {
@@ -902,12 +910,23 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("train_") {
                             train_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(
-                            &control_path,
-                            &["upgrade|name=UpgradeAmericaRangerCaptureBuilding"],
-                        );
-                        gameplay_step = 5;
-                        commanded_at = Some(Instant::now());
+                        // Host residual: train_ok queues production; wait until a second
+                        // local mobile exits so later formation/select residuals are honest.
+                        // Fail-closed timeout still advances so the chain cannot hang forever.
+                        let train_mobile_ready = snap.local_mobile_units >= 2;
+                        let train_wait_expired = commanded_at
+                            .map(|t| t.elapsed() > Duration::from_secs(20))
+                            .unwrap_or(false);
+                        if !train_mobile_ready && !train_wait_expired {
+                            // keep polling; do not advance yet
+                        } else {
+                            let _ = write_control(
+                                &control_path,
+                                &["upgrade|name=UpgradeAmericaRangerCaptureBuilding"],
+                            );
+                            gameplay_step = 5;
+                            commanded_at = Some(Instant::now());
+                        }
                     } else if gameplay_step == 5
                         && (snap.last_gameplay_cmd.starts_with("upgrade_ok")
                             || snap.last_gameplay_cmd.starts_with("upgrade_fail")
