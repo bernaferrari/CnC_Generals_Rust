@@ -614,6 +614,17 @@ pub enum WorldMutation {
         bunker_capacity: u16,
         is_helix_transport: bool,
     },
+    /// Host Object::command_set_override residual (empty = none).
+    SetCommandSet {
+        target: EntityId,
+        command_set: String,
+    },
+    /// Host Object disguise residual (empty template = none; team 255 = none).
+    SetDisguise {
+        target: EntityId,
+        template: String,
+        team_ordinal: u8,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1208,6 +1219,23 @@ impl GameWorld {
                         e.has_overlord_propaganda_addon = has_propaganda;
                         e.overlord_bunker_capacity = bunker_capacity;
                         e.is_helix_transport = is_helix_transport;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetCommandSet { target, command_set } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.command_set_override = command_set;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetDisguise {
+                    target,
+                    template,
+                    team_ordinal,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.disguise_as_template = template;
+                        e.disguise_as_team_ordinal = team_ordinal;
                         applied += 1;
                     }
                 }
