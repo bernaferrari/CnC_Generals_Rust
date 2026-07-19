@@ -506,6 +506,11 @@ pub enum WorldMutation {
     },
     /// Set veterancy ordinal residual (0 Rookie .. 3 Heroic).
     SetVeterancy { target: EntityId, ordinal: u8 },
+    /// Host Object::experience.current residual.
+    SetExperience {
+        target: EntityId,
+        points: f32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -908,6 +913,12 @@ impl GameWorld {
                 WorldMutation::SetVeterancy { target, ordinal } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.veterancy_ordinal = ordinal.min(3);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetExperience { target, points } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.experience_points = points.max(0.0);
                         applied += 1;
                     }
                 }

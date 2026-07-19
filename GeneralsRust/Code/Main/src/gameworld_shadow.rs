@@ -3004,6 +3004,49 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_experience_events(
+        &mut self,
+        events: &[crate::game_logic::host_experience_log::HostExperienceEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetExperience {
+                    target: eid,
+                    points: ev.points,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    /// Write shadow Entity::experience_points back onto host Object::experience.current.
+    pub fn writeback_experience_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let pts = ent.experience_points.max(0.0);
+            if (obj.experience.current - pts).abs() <= 0.000_1 {
+                continue;
+            }
+            obj.experience.current = pts;
+            updated += 1;
+        }
+        updated
+    }
+
+
 
     pub fn apply_host_damage_events(
         &mut self,
@@ -3246,6 +3289,7 @@ pub fn shadow_session_after_host_tick(
     let events = crate::game_logic::host_damage_log::drain();
     let heal_events = crate::game_logic::host_heal_log::drain();
     let max_health_events = crate::game_logic::host_max_health_log::drain();
+    let experience_events = crate::game_logic::host_experience_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3287,6 +3331,7 @@ pub fn shadow_session_after_host_tick(
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
     let _maxh_applied = shadow.apply_host_max_health_events(&max_health_events);
+    let _xp_applied = shadow.apply_host_experience_events(&experience_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3323,6 +3368,7 @@ pub fn shadow_session_after_host_tick(
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
         writebacks = shadow.writeback_health_to_host(logic);
+    let _xp_wb = shadow.writeback_experience_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
             events.len(),
@@ -6063,7 +6109,63 @@ mod tests {
     }
 
     
+    
     #[test]
+    fn host_experience_log_drives_set_experience_channel() {
+        use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("XpCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("XpU") {
+            let mut t = ThingTemplate::new("XpU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.veterancy_xp_thresholds = [1000.0, 2000.0, 3000.0];
+            logic.templates.insert("XpU".into(), t);
+        }
+        let oid = logic
+            .create_object("XpU", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        host_experience_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.gain_experience(42.0);
+        }
+        let events = host_experience_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && (e.points - 42.0).abs() < 1e-3),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_experience();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.experience_points = 0.0;
+        }
+        let n = shadow.apply_host_experience_events(&host_experience_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.experience_points - 42.0).abs() < 1e-3, "xp {}", e.experience_points);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.experience.current = 1.0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.experience_points = 42.0;
+        }
+        assert!(shadow.writeback_experience_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!((o.experience.current - 42.0).abs() < 1e-3);
+    }
+
+#[test]
     fn host_max_health_log_drives_set_max_health_channel() {
         use crate::game_logic::{host_max_health_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
