@@ -66,6 +66,12 @@ pub struct ExecutableSmokeResult {
     pub evacuate_cmd_ok: bool,
     pub repair_cmd_ok: bool,
     pub return_to_base_cmd_ok: bool,
+    pub attitude_cmd_ok: bool,
+    pub rally_cmd_ok: bool,
+    pub switch_weapons_cmd_ok: bool,
+    pub view_cc_cmd_ok: bool,
+    pub clear_mines_cmd_ok: bool,
+    pub beacon_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -106,6 +112,12 @@ impl Default for ExecutableSmokeResult {
             evacuate_cmd_ok: false,
             repair_cmd_ok: false,
             return_to_base_cmd_ok: false,
+            attitude_cmd_ok: false,
+            rally_cmd_ok: false,
+            switch_weapons_cmd_ok: false,
+            view_cc_cmd_ok: false,
+            clear_mines_cmd_ok: false,
+            beacon_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -433,6 +445,18 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut repair_detail = String::new();
     let mut saw_return_to_base_ok = false;
     let mut return_to_base_detail = String::new();
+    let mut saw_attitude_ok = false;
+    let mut attitude_detail = String::new();
+    let mut saw_rally_ok = false;
+    let mut rally_detail = String::new();
+    let mut saw_switch_weapons_ok = false;
+    let mut switch_weapons_detail = String::new();
+    let mut saw_view_cc_ok = false;
+    let mut view_cc_detail = String::new();
+    let mut saw_clear_mines_ok = false;
+    let mut clear_mines_detail = String::new();
+    let mut saw_beacon_ok = false;
+    let mut beacon_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -938,10 +962,106 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("return_to_base_") {
                             return_to_base_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["attitude_aggressive"]);
                         gameplay_step = 22;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 22 {
+                    } else if gameplay_step == 22
+                        && (snap.last_gameplay_cmd.starts_with("attitude_ok")
+                            || snap.last_gameplay_cmd.starts_with("attitude_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("attitude_ok") {
+                            saw_attitude_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("attitude_") {
+                            attitude_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["rally|x=90|y=0|z=90"]);
+                        gameplay_step = 23;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 23
+                        && (snap.last_gameplay_cmd.starts_with("rally_ok")
+                            || snap.last_gameplay_cmd.starts_with("rally_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("rally_ok") {
+                            saw_rally_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("rally_") {
+                            rally_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["switch_weapons"]);
+                        gameplay_step = 24;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 24
+                        && (snap.last_gameplay_cmd.starts_with("switch_weapons_ok")
+                            || snap.last_gameplay_cmd.starts_with("switch_weapons_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("switch_weapons_ok") {
+                            saw_switch_weapons_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("switch_weapons_") {
+                            switch_weapons_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["view_cc"]);
+                        gameplay_step = 25;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 25
+                        && (snap.last_gameplay_cmd.starts_with("view_cc_ok")
+                            || snap.last_gameplay_cmd.starts_with("view_cc_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("view_cc_ok") {
+                            saw_view_cc_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("view_cc_") {
+                            view_cc_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["clear_mines"]);
+                        gameplay_step = 26;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 26
+                        && (snap.last_gameplay_cmd.starts_with("clear_mines_ok")
+                            || snap.last_gameplay_cmd.starts_with("clear_mines_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("clear_mines_ok") {
+                            saw_clear_mines_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("clear_mines_") {
+                            clear_mines_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["place_beacon|x=60|y=0|z=60"]);
+                        gameplay_step = 27;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 27
+                        && (snap.last_gameplay_cmd.starts_with("beacon_ok")
+                            || snap.last_gameplay_cmd.starts_with("beacon_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("beacon_ok") {
+                            saw_beacon_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("beacon_") {
+                            beacon_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 28;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 28 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -1059,6 +1179,42 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         } else if snap.last_gameplay_cmd.starts_with("return_to_base_") {
                             return_to_base_detail = snap.last_gameplay_cmd.clone();
                         }
+                        if snap.last_gameplay_cmd.starts_with("attitude_ok") {
+                            saw_attitude_ok = true;
+                            attitude_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("attitude_") {
+                            attitude_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("rally_ok") {
+                            saw_rally_ok = true;
+                            rally_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("rally_") {
+                            rally_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("switch_weapons_ok") {
+                            saw_switch_weapons_ok = true;
+                            switch_weapons_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("switch_weapons_") {
+                            switch_weapons_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("view_cc_ok") {
+                            saw_view_cc_ok = true;
+                            view_cc_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("view_cc_") {
+                            view_cc_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("clear_mines_ok") {
+                            saw_clear_mines_ok = true;
+                            clear_mines_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("clear_mines_") {
+                            clear_mines_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("beacon_ok") {
+                            saw_beacon_ok = true;
+                            beacon_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("beacon_") {
+                            beacon_detail = snap.last_gameplay_cmd.clone();
+                        }
                         if snap.last_gameplay_cmd.starts_with("attack_ok")
                             || snap.last_gameplay_cmd.starts_with("attack_fail")
                             || snap.last_gameplay_cmd.starts_with("attack_begin")
@@ -1099,6 +1255,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.evacuate_cmd_ok = saw_evacuate_ok;
                         result.repair_cmd_ok = saw_repair_ok;
                         result.return_to_base_cmd_ok = saw_return_to_base_ok;
+                        result.attitude_cmd_ok = saw_attitude_ok;
+                        result.rally_cmd_ok = saw_rally_ok;
+                        result.switch_weapons_cmd_ok = saw_switch_weapons_ok;
+                        result.view_cc_cmd_ok = saw_view_cc_ok;
+                        result.clear_mines_cmd_ok = saw_clear_mines_ok;
+                        result.beacon_cmd_ok = saw_beacon_ok;
                         result.detail =
                             format!("{}; last_cmd={}", result.detail, snap.last_gameplay_cmd);
                         if !construct_detail.is_empty() {
@@ -1203,7 +1365,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -1230,6 +1392,12 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.evacuate_cmd_ok,
         r.repair_cmd_ok,
         r.return_to_base_cmd_ok,
+        r.attitude_cmd_ok,
+        r.rally_cmd_ok,
+        r.switch_weapons_cmd_ok,
+        r.view_cc_cmd_ok,
+        r.clear_mines_cmd_ok,
+        r.beacon_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,

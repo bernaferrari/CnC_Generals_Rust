@@ -3124,6 +3124,120 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "attitude_aggressive" | "aggressive" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "attitude_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    self.issue_named_command_from_ui("Command_AttitudeAggressive");
+                    self.runtime_host_last_gameplay_cmd = "attitude_ok:aggressive".into();
+                }
+            }
+            "attitude_passive" | "passive" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "attitude_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    self.issue_named_command_from_ui("Command_AttitudePassive");
+                    self.runtime_host_last_gameplay_cmd = "attitude_ok:passive".into();
+                }
+            }
+            "attitude_sleep" | "sleep" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "attitude_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    self.issue_named_command_from_ui("Command_AttitudeSleep");
+                    self.runtime_host_last_gameplay_cmd = "attitude_ok:sleep".into();
+                }
+            }
+            "set_rally" | "rally" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "rally_fail_not_ingame".into();
+                } else {
+                    let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(80.0);
+                    let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(80.0);
+                    // Prefer selected structure producer.
+                    if self.selected_objects.is_empty() {
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            if let Some((id, _)) =
+                                self.game_logic.get_objects().iter().find(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.is_constructed()
+                                        && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                })
+                            {
+                                self.selected_objects = vec![*id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![*id]);
+                            }
+                        }
+                    }
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "rally_fail_no_structure".into();
+                    } else {
+                        self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
+                        self.commit_pending_map_command(glam::Vec3::new(x, y, z), None);
+                        self.runtime_host_last_gameplay_cmd = format!("rally_ok:{},{},{}", x, y, z);
+                    }
+                }
+            }
+            "switch_weapons" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "switch_weapons_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "switch_weapons_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_SwitchWeapons");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("switch_weapons_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "view_command_center" | "view_cc" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "view_cc_fail_not_ingame".into();
+                } else {
+                    self.issue_named_command_from_ui("Command_ViewCommandCenter");
+                    self.runtime_host_last_gameplay_cmd = "view_cc_ok".into();
+                }
+            }
+            "clear_mines" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "clear_mines_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "clear_mines_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_ClearMines");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("clear_mines_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "place_beacon" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "beacon_fail_not_ingame".into();
+                } else {
+                    let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(50.0);
+                    let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(50.0);
+                    self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
+                    self.commit_pending_map_command(glam::Vec3::new(x, y, z), None);
+                    self.runtime_host_last_gameplay_cmd = format!("beacon_ok:{},{},{}", x, y, z);
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -18745,6 +18859,35 @@ fn runtime_host_capture_economy_residual() {
     assert!(
         src.contains("return_to_base") && src.contains("return_to_base_ok:"),
         "runtime host must expose return_to_base residual"
+    );
+}
+
+#[test]
+fn runtime_host_misc_command_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("attitude_aggressive") && src.contains("attitude_ok:aggressive"),
+        "runtime host must expose attitude residuals"
+    );
+    assert!(
+        src.contains("set_rally") && src.contains("rally_ok:"),
+        "runtime host must expose set_rally residual"
+    );
+    assert!(
+        src.contains("switch_weapons") && src.contains("switch_weapons_ok:"),
+        "runtime host must expose switch_weapons residual"
+    );
+    assert!(
+        src.contains("view_command_center") && src.contains("view_cc_ok"),
+        "runtime host must expose view_command_center residual"
+    );
+    assert!(
+        src.contains("clear_mines") && src.contains("clear_mines_ok:"),
+        "runtime host must expose clear_mines residual"
+    );
+    assert!(
+        src.contains("place_beacon") && src.contains("beacon_ok:"),
+        "runtime host must expose place_beacon residual"
     );
 }
 
