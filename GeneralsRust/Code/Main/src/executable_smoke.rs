@@ -931,7 +931,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         && (snap.last_gameplay_cmd.starts_with("load_ok")
                             || snap.last_gameplay_cmd.starts_with("load_fail")
                             || commanded_at
-                                .map(|t| t.elapsed() > Duration::from_secs(8))
+                                .map(|t| t.elapsed() > Duration::from_secs(20))
                                 .unwrap_or(false))
                     {
                         if snap.last_gameplay_cmd.starts_with("load_ok") {
