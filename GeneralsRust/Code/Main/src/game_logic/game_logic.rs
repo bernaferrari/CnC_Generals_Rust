@@ -9694,6 +9694,7 @@ impl GameLogic {
                         u.turret_hold_until_frame =
                             logic_frame.saturating_add(u.turret_recenter_frames.max(1));
                         u.turret_holding = true;
+                        u.record_host_turret();
                     }
                     return AttackAimResult::Continue;
                 };
@@ -9757,6 +9758,7 @@ impl GameLogic {
                 if done {
                     if let Some(u) = self.objects.get_mut(&unit_id) {
                         u.turret_holding = false;
+                        u.record_host_turret();
                         u.turret_hold_until_frame = 0;
                         u.turret_substate = TurretSubState::Recenter;
                         u.turret_idle_recentering = true;
@@ -24664,11 +24666,15 @@ impl GameLogic {
                     fire_pos.x, fire_pos.z, impact.x, impact.z,
                 );
             attacker.turret_angle_deg = aim_a;
+            attacker.record_host_turret();
             attacker.turret_pitch_deg = aim_p;
+            attacker.record_host_turret();
             // Fire cancels idle-scan / Hold / idle-recenter residual;
             // next idle interval starts after coast.
             attacker.turret_idle_scanning = false;
+            attacker.record_host_turret();
             attacker.turret_holding = false;
+            attacker.record_host_turret();
             attacker.turret_hold_until_frame = 0;
             attacker.turret_idle_recentering = false;
             attacker.turret_idle_scan_next_frame = self.frame.saturating_add(
@@ -33857,7 +33863,9 @@ impl GameLogic {
                         strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
                     if let Some(o) = self.objects.get_mut(&cid) {
                         o.turret_angle_deg = aim_a;
+                        o.record_host_turret();
                         o.turret_pitch_deg = aim_p;
+                        o.record_host_turret();
                         o.set_ai_state(AIState::Attacking);
                         o.set_status_attacking(true);
                     }
@@ -33938,10 +33946,14 @@ impl GameLogic {
                     o.target = Some(tid);
                     o.turret_mood_target = true;
                     o.turret_angle_deg = aim_a;
+                    o.record_host_turret();
                     o.turret_pitch_deg = aim_p;
+                    o.record_host_turret();
                     // Mood acquire cancels idle-scan residual.
                     o.turret_idle_scanning = false;
+                    o.record_host_turret();
                     o.turret_holding = false;
+                    o.record_host_turret();
                     o.turret_hold_until_frame = 0;
                     o.turret_idle_recentering = false;
                     o.set_ai_state(AIState::Attacking);
@@ -34117,14 +34129,18 @@ impl GameLogic {
 
             if let Some(obj) = self.objects.get_mut(&cid) {
                 obj.turret_idle_scanning = scanning;
+                obj.record_host_turret();
                 obj.turret_holding = holding;
+                obj.record_host_turret();
                 obj.turret_idle_recentering = idle_recentering;
                 obj.turret_hold_until_frame = hold_until;
                 obj.turret_idle_scan_desired_angle_deg = desired;
                 obj.turret_idle_scan_next_frame = next_frame;
                 obj.turret_idle_scan_index = scan_index;
                 obj.turret_angle_deg = angle;
+                obj.record_host_turret();
                 obj.turret_pitch_deg = pitch;
+                obj.record_host_turret();
             }
         }
         for _ in 0..scan_started {
@@ -34395,12 +34411,16 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&cid) {
                 // Pack recenter cancels idle-scan / Hold / idle-recenter residual.
                 obj.turret_idle_scanning = false;
+                obj.record_host_turret();
                 obj.turret_holding = false;
+                obj.record_host_turret();
                 obj.turret_hold_until_frame = 0;
                 obj.turret_idle_recentering = false;
                 let (a, p) = step_turret_toward_natural(obj.turret_angle_deg, obj.turret_pitch_deg);
                 obj.turret_angle_deg = a;
+                obj.record_host_turret();
                 obj.turret_pitch_deg = p;
+                obj.record_host_turret();
             }
         }
 

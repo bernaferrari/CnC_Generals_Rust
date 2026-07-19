@@ -30,6 +30,7 @@ pub mod host_spawn_log;
 pub mod host_special_power_log;
 pub mod host_status_log;
 pub mod host_stored_supplies_log;
+pub mod host_turret_log;
 pub mod host_veterancy_log;
 pub mod host_weapon_bonus_log;
 pub mod host_weapon_slot_log;
