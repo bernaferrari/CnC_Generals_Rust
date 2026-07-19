@@ -2571,12 +2571,23 @@ impl GameWorldShadow {
         true
     }
 
-    pub fn queue_set_special_power_for_host(&mut self, host: ObjectId, ready: bool) -> bool {
-        let Some(target) = self.entity_for_host(host) else {
+    pub fn queue_set_special_power_for_host(
+        &mut self,
+        host_id: ObjectId,
+        ready: bool,
+        cooldown_remaining: f32,
+        cooldown: f32,
+    ) -> bool {
+        let Some(&eid) = self.host_to_entity.get(&host_id.0) else {
             return false;
         };
         self.world
-            .queue_mutation(gamelogic::world::WorldMutation::SetSpecialPower { target, ready });
+            .queue_mutation(gamelogic::world::WorldMutation::SetSpecialPower {
+                target: eid,
+                ready,
+                cooldown_remaining,
+                cooldown,
+            });
         true
     }
 
@@ -2809,7 +2820,12 @@ impl GameWorldShadow {
     ) -> usize {
         let mut n = 0usize;
         for ev in events {
-            if self.queue_set_special_power_for_host(ev.object, ev.ready) {
+            if self.queue_set_special_power_for_host(
+                ev.object,
+                ev.ready,
+                ev.cooldown_remaining,
+                ev.cooldown,
+            ) {
                 n += 1;
             }
         }
@@ -2818,6 +2834,31 @@ impl GameWorldShadow {
         }
         n
     }
+
+    pub fn writeback_special_power_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.special_power_ready != ent.special_power_ready
+                || (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining).abs()
+                    > 1e-4
+                || (obj.special_power_cooldown - ent.special_power_cooldown).abs() > 1e-4;
+            if !changed {
+                continue;
+            }
+            obj.special_power_ready = ent.special_power_ready;
+            obj.special_power_cooldown_remaining = ent.special_power_cooldown_remaining.max(0.0);
+            obj.special_power_cooldown = ent.special_power_cooldown.max(0.0);
+            updated += 1;
+        }
+        updated
+    }
+
 
     pub fn apply_host_stored_supplies_events(
         &mut self,
@@ -3443,6 +3484,7 @@ pub fn shadow_session_after_host_tick(
         writebacks = shadow.writeback_health_to_host(logic);
     let _xp_wb = shadow.writeback_experience_to_host(logic);
     let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
+    let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
             events.len(),
@@ -5239,7 +5281,79 @@ mod tests {
         );
     }
 
+    
     #[test]
+    fn host_special_power_cooldown_remaining_channel() {
+        use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SpCdCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SpU") {
+            let mut t = ThingTemplate::new("SpU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.special_power_cooldown = 45.0;
+            logic.templates.insert("SpU".into(), t);
+        }
+        let oid = logic
+            .create_object("SpU", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        host_special_power_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.special_power_cooldown = 45.0;
+            o.special_power_cooldown_remaining = 18.0;
+            o.special_power_ready = false;
+            o.record_host_special_power();
+        }
+        let events = host_special_power_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && !e.ready
+                    && (e.cooldown_remaining - 18.0).abs() < 1e-3
+                    && (e.cooldown - 45.0).abs() < 1e-3
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_special_power();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.special_power_ready = true;
+            e.special_power_cooldown_remaining = 0.0;
+            e.special_power_cooldown = 0.0;
+        }
+        let n = shadow.apply_host_special_power_events(&host_special_power_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(!e.special_power_ready);
+        assert!((e.special_power_cooldown_remaining - 18.0).abs() < 1e-3);
+        assert!((e.special_power_cooldown - 45.0).abs() < 1e-3);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.special_power_ready = true;
+            o.special_power_cooldown_remaining = 0.0;
+            o.special_power_cooldown = 1.0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.special_power_ready = false;
+            e.special_power_cooldown_remaining = 18.0;
+            e.special_power_cooldown = 45.0;
+        }
+        assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(!o.special_power_ready);
+        assert!((o.special_power_cooldown_remaining - 18.0).abs() < 1e-3);
+        assert!((o.special_power_cooldown - 45.0).abs() < 1e-3);
+    }
+
+#[test]
     fn host_special_power_log_drives_set_special_power_channel() {
         use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();

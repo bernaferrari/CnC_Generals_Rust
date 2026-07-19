@@ -1,22 +1,30 @@
-//! Frame-local host special-power ready log for GameWorld SetSpecialPower parity.
+//! Frame-local host special-power log for GameWorld SetSpecialPower parity.
 
 use super::ObjectId;
 use std::cell::RefCell;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostSpecialPowerEvent {
     pub object: ObjectId,
     pub ready: bool,
+    /// Seconds remaining on aggregate object SP timer residual.
+    pub cooldown_remaining: f32,
+    /// Full cooldown duration residual (seconds).
+    pub cooldown: f32,
 }
 
 thread_local! {
     static LOG: RefCell<Vec<HostSpecialPowerEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record(object: ObjectId, ready: bool) {
+pub fn record(object: ObjectId, ready: bool, cooldown_remaining: f32, cooldown: f32) {
     LOG.with(|log| {
-        log.borrow_mut()
-            .push(HostSpecialPowerEvent { object, ready });
+        log.borrow_mut().push(HostSpecialPowerEvent {
+            object,
+            ready,
+            cooldown_remaining: cooldown_remaining.max(0.0),
+            cooldown: cooldown.max(0.0),
+        });
     });
 }
 
