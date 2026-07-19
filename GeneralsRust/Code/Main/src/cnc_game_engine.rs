@@ -1979,6 +1979,20 @@ impl CnCGameEngine {
             })
             .unwrap_or(0);
 
+        let local_team = self
+            .game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.team);
+        let under_construction = local_team
+            .map(|team| {
+                self.game_logic
+                    .get_objects()
+                    .values()
+                    .filter(|o| o.is_alive() && o.team == team && o.status.under_construction)
+                    .count() as u32
+            })
+            .unwrap_or(0);
+
         RuntimeHostSnapshot {
             state: format!("{:?}", self.current_state),
             ui_screen,
@@ -1988,6 +2002,9 @@ impl CnCGameEngine {
             startup_phase: self.startup_loading_phase.clone(),
             map: map_name,
             frame: self.frame_counter,
+            logic_frame: self.game_logic.get_frame(),
+            logic_steps: self.game_logic.fixed_step_diagnostics().steps_run as u32,
+            under_construction,
             selected_count,
             local_mobile_units,
             last_gameplay_cmd: self.runtime_host_last_gameplay_cmd.clone(),
@@ -9540,10 +9557,12 @@ impl CnCGameEngine {
             return;
         }
 
+        // Prefer the active local/host player (skirmish human), not hard-coded slot 0.
         let player_id = self
             .game_logic
-            .get_player(0)
+            .get_player(self.current_player_id)
             .map(|p| p.id)
+            .or_else(|| self.game_logic.get_player(0).map(|p| p.id))
             .or_else(|| self.game_logic.get_players().keys().copied().min())
             .unwrap_or(0);
         let team = self
@@ -16796,6 +16815,12 @@ struct RuntimeHostSnapshot {
     startup_phase: String,
     map: String,
     frame: u32,
+    /// Host GameLogic fixed-step frame counter (30 Hz residual).
+    logic_frame: u32,
+    /// Last step_simulation steps_run (catch-up residual).
+    logic_steps: u32,
+    /// Friendly under-construction structures (local player team).
+    under_construction: u32,
     selected_count: u32,
     local_mobile_units: u32,
     last_gameplay_cmd: String,
@@ -16956,6 +16981,9 @@ impl RuntimeHostBridge {
             startup_phase: "Booting runtime".to_string(),
             map: "-".to_string(),
             frame: self.last_published_frame,
+            logic_frame: 0,
+            logic_steps: 0,
+            under_construction: 0,
             selected_count: 0,
             local_mobile_units: 0,
             last_gameplay_cmd: String::new(),
@@ -16997,6 +17025,12 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("startup_phase={}\n", snapshot.startup_phase));
         payload.push_str(&format!("map={}\n", snapshot.map));
         payload.push_str(&format!("frame={}\n", snapshot.frame));
+        payload.push_str(&format!("logic_frame={}\n", snapshot.logic_frame));
+        payload.push_str(&format!("logic_steps={}\n", snapshot.logic_steps));
+        payload.push_str(&format!(
+            "under_construction={}\n",
+            snapshot.under_construction
+        ));
         payload.push_str(&format!("selected_count={}\n", snapshot.selected_count));
         payload.push_str(&format!(
             "local_mobile_units={}\n",
@@ -17843,6 +17877,10 @@ pub async fn run_cnc_game(
                     let runtime_window_suspended = runtime_window_minimized;
                     if runtime_headless_mode {
                         drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                        // Headless residual: pace like a real present loop. Without this,
+                        // next_redraw_at stays in the past and AboutToWait busy-spins full
+                        // GPU frames while logic still only saw 1/60 dt (pre WW3D fix).
+                        next_redraw_at = Instant::now() + FRAME_INTERVAL;
                     } else if cmd_args.wants_smoke_test() {
                         drive_frame(engine, current_window, &mut runtime_host_bridge, false);
                         if engine.is_quitting() {

@@ -743,6 +743,10 @@ pub struct Engine {
     frame_active: bool,
     frame_index: u64,
     last_frame_start: Option<Instant>,
+    /// Timing snapshot from the last update()/begin_render() call.
+    /// Main drive_frame reads timing() after update(); without this cache the
+    /// subsequent timing() would measure near-zero delta from the just-updated clock.
+    last_emitted_timing: Option<FrameTiming>,
     color_format: wgpu::TextureFormat,
     _depth_format: Option<wgpu::TextureFormat>,
     /// All integrated subsystems
@@ -820,6 +824,7 @@ impl Engine {
             frame_active: false,
             frame_index: 0,
             last_frame_start: None,
+            last_emitted_timing: None,
             color_format,
             _depth_format: depth_format,
             subsystems: EngineSubsystems::new(),
@@ -886,6 +891,7 @@ impl Engine {
             frame_active: false,
             frame_index: 0,
             last_frame_start: None,
+            last_emitted_timing: None,
             color_format: format,
             _depth_format: depth_format,
             subsystems: EngineSubsystems::new(),
@@ -922,6 +928,13 @@ impl Engine {
 
         // Update all subsystems
         self.subsystems.update(&timing);
+
+        // Main drive_frame uses update()+timing() without WW3D begin_render.
+        // Advance last_frame_start here so delta_seconds reflects wall time between
+        // logic frames (otherwise timing always falls back to 1/60 and construction
+        // / production stall under slow headless renders).
+        self.last_frame_start = Some(now);
+        self.last_emitted_timing = Some(timing);
 
         Ok(())
     }
@@ -970,6 +983,7 @@ impl Engine {
         };
 
         self.last_frame_start = Some(start_time);
+        self.last_emitted_timing = Some(timing);
 
         let encoder = self
             .gpu_device
@@ -1071,6 +1085,12 @@ impl Engine {
 
     /// Get current frame timing information
     pub fn timing(&self) -> FrameTiming {
+        // Prefer the snapshot produced by update()/begin_render so callers that
+        // sequence update() then timing() observe the real frame delta rather than
+        // a near-zero duration since last_frame_start was just stamped.
+        if let Some(timing) = self.last_emitted_timing {
+            return timing;
+        }
         let now = Instant::now();
         let delta_time = self
             .last_frame_start
