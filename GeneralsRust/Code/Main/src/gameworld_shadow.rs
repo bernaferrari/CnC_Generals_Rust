@@ -3097,6 +3097,47 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_weapon_slot_events(
+        &mut self,
+        events: &[crate::game_logic::host_weapon_slot_log::HostWeaponSlotEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetActiveWeaponSlot {
+                    target: eid,
+                    slot: ev.slot,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_weapon_slot_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.active_weapon_slot == ent.active_weapon_slot {
+                continue;
+            }
+            obj.active_weapon_slot = ent.active_weapon_slot;
+            updated += 1;
+        }
+        updated
+    }
+
+
     /// Write shadow weapon-bonus pack back onto host Object residual flags.
     pub fn writeback_weapon_bonus_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -3403,6 +3444,7 @@ pub fn shadow_session_after_host_tick(
     let max_health_events = crate::game_logic::host_max_health_log::drain();
     let experience_events = crate::game_logic::host_experience_log::drain();
     let weapon_bonus_events = crate::game_logic::host_weapon_bonus_log::drain();
+    let weapon_slot_events = crate::game_logic::host_weapon_slot_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3446,6 +3488,7 @@ pub fn shadow_session_after_host_tick(
     let _maxh_applied = shadow.apply_host_max_health_events(&max_health_events);
     let _xp_applied = shadow.apply_host_experience_events(&experience_events);
     let _wb_applied = shadow.apply_host_weapon_bonus_events(&weapon_bonus_events);
+    let _wslot_applied = shadow.apply_host_weapon_slot_events(&weapon_slot_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3484,6 +3527,7 @@ pub fn shadow_session_after_host_tick(
         writebacks = shadow.writeback_health_to_host(logic);
     let _xp_wb = shadow.writeback_experience_to_host(logic);
     let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
+    let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6299,7 +6343,60 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_weapon_slot_log_drives_set_active_weapon_slot_channel() {
+        use crate::game_logic::{host_weapon_slot_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WSlotCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WSU") {
+            let mut t = ThingTemplate::new("WSU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("WSU".into(), t);
+        }
+        let oid = logic
+            .create_object("WSU", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
+            .expect("id");
+        host_weapon_slot_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_active_weapon_slot(1);
+        }
+        let events = host_weapon_slot_log::drain();
+        assert!(
+            events.iter().any(|e| e.object == oid && e.slot == 1),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_weapon_slot();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.active_weapon_slot = 0;
+        }
+        let n = shadow.apply_host_weapon_slot_events(&host_weapon_slot_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.active_weapon_slot, 1);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.active_weapon_slot = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.active_weapon_slot = 1;
+        }
+        assert!(shadow.writeback_weapon_slot_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.active_weapon_slot, 1);
+    }
+
+#[test]
     fn host_weapon_bonus_log_drives_set_weapon_bonus_channel() {
         use crate::game_logic::{host_weapon_bonus_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();

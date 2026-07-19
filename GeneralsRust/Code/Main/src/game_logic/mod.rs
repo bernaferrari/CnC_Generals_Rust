@@ -31,6 +31,7 @@ pub mod host_status_log;
 pub mod host_stored_supplies_log;
 pub mod host_veterancy_log;
 pub mod host_weapon_bonus_log;
+pub mod host_weapon_slot_log;
 pub use host_economy_log::{drain as drain_host_economy_events, HostEconomyEvent};
 pub mod host_ai_path_combat_residual_wave105;
 pub mod host_ambush;

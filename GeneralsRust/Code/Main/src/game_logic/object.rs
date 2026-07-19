@@ -2587,7 +2587,7 @@ impl Object {
         self.set_status_hijacked(false);
         self.weapon = Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon());
         self.secondary_weapon = None;
-        self.active_weapon_slot = 0;
+        self.set_active_weapon_slot(0);
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving();
@@ -8463,6 +8463,17 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
+    pub fn record_host_weapon_slot(&self) {
+        crate::game_logic::host_weapon_slot_log::record(self.id, self.active_weapon_slot);
+    }
+
+    pub fn set_active_weapon_slot(&mut self, slot: u8) {
+        if self.active_weapon_slot != slot {
+            self.active_weapon_slot = slot;
+            self.record_host_weapon_slot();
+        }
+    }
+
     pub fn record_host_special_power(&self) {
         crate::game_logic::host_special_power_log::record(
             self.id,
