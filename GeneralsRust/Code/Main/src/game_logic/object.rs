@@ -8095,6 +8095,10 @@ impl Object {
         gained
     }
 
+    pub fn record_host_experience(&self) {
+        crate::game_logic::host_experience_log::record(self.id, self.experience.current.max(0.0));
+    }
+
     fn record_host_veterancy_level(&self) {
         let ordinal = match self.experience.level {
             crate::game_logic::VeterancyLevel::Rookie => 0u8,
@@ -8139,6 +8143,7 @@ impl Object {
             self.apply_veterancy_bonuses(previous_level, new_level);
             self.record_host_veterancy_level();
         }
+        self.record_host_experience();
     }
 
     /// C++ parity (GameData.ini veterancy bonuses):
