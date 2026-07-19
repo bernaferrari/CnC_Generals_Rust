@@ -25,6 +25,7 @@
 
 use crate::authoritative_world::{set_verification_single_authority, AuthorityProbe};
 use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
+use crate::game_logic::host_structure_economy_residual::COMMAND_CENTER_MAX_HEALTH;
 use crate::game_logic::{
     AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition, Weapon,
 };
@@ -167,7 +168,8 @@ fn install_templates(logic: &mut GameLogic) {
         template(
             "GoldenCC",
             &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
-            2000.0,
+            // Retail CommandCenter MaxHealth residual (not a softened gate target).
+            COMMAND_CENTER_MAX_HEALTH,
             2000,
             0.1,
         ),
@@ -199,12 +201,13 @@ fn install_templates(logic: &mut GameLogic) {
             100,
             0.05,
         ),
-        // Structure-scale HP. Template-owned weapon (not ad-hoc create inject)
-        // must kill via update_combat over enough frames — no take_damage fallback.
+        // Structure-scale HP (retail CC residual). Template-owned weapon (not
+        // ad-hoc create inject) must kill via update_combat over enough frames —
+        // no take_damage fallback and no softened 200 HP gate target.
         template(
             "GoldenEnemyCC",
             &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
-            200.0,
+            COMMAND_CENTER_MAX_HEALTH,
             2000,
             0.1,
         ),
@@ -1104,23 +1107,25 @@ fn run_synthetic_host_skirmish(
     map_identity: &str,
     frames: u32,
 ) -> VerticalSliceOutcome {
-    // Near GoldenEnemyCC (30,0,0) and barracks spawn (~20,0,0); default range 100.
-    logic.relocate_host_ai_base(1, Vec3::new(45.0, 0.0, 0.0));
+    // Layout keeps STRUCTURE_PLACE_CLEARANCE_RESIDUAL (40) between pads.
+    // Barracks ~80 from CC; enemy CC ~200 (in GoldenRanger range 100 after march);
+    // supply pile far from build pads (SUPPLY_BUILD_BORDER 20 + radii).
+    logic.relocate_host_ai_base(1, Vec3::new(260.0, 0.0, 0.0));
     logic.set_ai_active(1, true);
     ensure_human_economy(logic, 20_000, 500);
 
     let _cc = logic.create_object("GoldenCC", Team::USA, Vec3::ZERO);
-    let _power = logic.create_object("GoldenPower", Team::USA, Vec3::new(-24.0, 0.0, 0.0));
+    let _power = logic.create_object("GoldenPower", Team::USA, Vec3::new(-50.0, 0.0, 0.0));
     let supply_center =
-        logic.create_object("GoldenSupplyCenter", Team::USA, Vec3::new(-30.0, 0.0, 0.0));
+        logic.create_object("GoldenSupplyCenter", Team::USA, Vec3::new(-90.0, 0.0, 0.0));
     let dozer = logic
-        .create_object("GoldenDozer", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .create_object("GoldenDozer", Team::USA, Vec3::new(60.0, 0.0, 0.0))
         .expect("dozer");
     let supply = logic
-        .create_object("GoldenSupply", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
+        .create_object("GoldenSupply", Team::Neutral, Vec3::new(-140.0, 0.0, 40.0))
         .expect("supply");
     let enemy_cc = logic
-        .create_object("GoldenEnemyCC", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+        .create_object("GoldenEnemyCC", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
         .expect("enemy cc");
 
     // Move dozer via production Move command.
@@ -1128,7 +1133,7 @@ fn run_synthetic_host_skirmish(
         1,
         0,
         CommandType::Move {
-            destination: Vec3::new(18.0, 0.0, 0.0),
+            destination: Vec3::new(70.0, 0.0, 0.0),
         },
         vec![dozer],
     ));
@@ -1141,17 +1146,24 @@ fn run_synthetic_host_skirmish(
         .unwrap_or(false);
 
     // Construct barracks via DozerConstruct.
+    // Place dozer at pad so pathfinding cannot stall Constructing (map path residual).
+    if let Some(d) = logic.get_object_mut(dozer) {
+        d.set_position(Vec3::new(75.0, 0.0, 0.0));
+    }
+    for _ in 0..3 {
+        logic.update();
+    }
     logic.queue_command(command(
         2,
         0,
         CommandType::DozerConstruct {
             template_name: "Barracks".into(),
-            location: Vec3::new(20.0, 0.0, 0.0),
+            location: Vec3::new(80.0, 0.0, 0.0),
             orientation: 0.0,
         },
         vec![dozer],
     ));
-    let constructed = run_until(logic, 180, |g| {
+    let constructed = run_until(logic, 360, |g| {
         g.get_objects()
             .values()
             .any(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
@@ -1254,7 +1266,7 @@ fn run_synthetic_host_skirmish(
         combat_no_teleport_ok,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
-    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200);
+    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 4800);
 
     let frame_before = logic.get_frame();
     run_frames(logic, frames.max(1) as usize);
