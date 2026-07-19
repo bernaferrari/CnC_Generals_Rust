@@ -56,6 +56,8 @@ pub struct ExecutableSmokeResult {
     pub upgrade_cmd_ok: bool,
     pub guard_cmd_ok: bool,
     pub attack_move_cmd_ok: bool,
+    /// Host attack applied observable HP damage (combat residual).
+    pub combat_damage_ok: bool,
     pub scatter_cmd_ok: bool,
     pub patrol_cmd_ok: bool,
     pub deploy_cmd_ok: bool,
@@ -143,6 +145,7 @@ impl Default for ExecutableSmokeResult {
             upgrade_cmd_ok: false,
             guard_cmd_ok: false,
             attack_move_cmd_ok: false,
+            combat_damage_ok: false,
             scatter_cmd_ok: false,
             patrol_cmd_ok: false,
             deploy_cmd_ok: false,
@@ -213,6 +216,8 @@ struct StatusSnap {
     startup_phase: String,
     selected_count: u32,
     local_mobile_units: u32,
+    match_damage_applied: f32,
+    match_kills: u32,
     last_gameplay_cmd: String,
     match_over: bool,
     victory_label: String,
@@ -245,6 +250,10 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "startup_phase" => snap.startup_phase = v.trim().to_string(),
             "selected_count" => snap.selected_count = v.trim().parse().unwrap_or(0),
             "local_mobile_units" => snap.local_mobile_units = v.trim().parse().unwrap_or(0),
+            "match_damage_applied" => {
+                snap.match_damage_applied = v.trim().parse().unwrap_or(0.0);
+            }
+            "match_kills" => snap.match_kills = v.trim().parse().unwrap_or(0),
             "last_gameplay_cmd" => snap.last_gameplay_cmd = v.trim().to_string(),
             "presentation_frame_ok" => {
                 snap.presentation_frame_ok = matches!(
@@ -502,7 +511,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         .stdout(Stdio::null())
         // CRITICAL: do not pipe stderr without a drain thread — Roads.ini warn
         // spam fills the OS pipe and deadlocks the child in Booting.
-        .stderr(Stdio::null())
+        // File redirect keeps panic traces for smoke diagnosis without pipe deadlock.
+        .stderr(
+            std::fs::File::create(tmp.join("child_stderr.txt")).unwrap_or_else(|_| {
+                // Fallback if tmp missing — still avoid pipe deadlock.
+                std::fs::File::create(std::env::temp_dir().join("generals_smoke_child_stderr.txt"))
+                    .expect("smoke stderr file")
+            }),
+        )
         .spawn()
     {
         Ok(c) => c,
@@ -546,6 +562,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut saw_cheer_ok = false;
     let mut cheer_detail = String::new();
     let mut saw_formation_ok = false;
+    let mut saw_combat_damage = false;
     let mut formation_detail = String::new();
     let mut saw_capture_ok = false;
     let mut capture_detail = String::new();
@@ -718,6 +735,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             // last_gameplay_cmd when the control loop is busy or a later command lands first.
             if snap.live_frame_ok {
                 saw_live_frame_ok = true;
+            }
+            if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
+                saw_combat_damage = true;
             }
             if snap.last_gameplay_cmd.starts_with("select_all_ok") {
                 saw_select_all_ok = true;
@@ -2117,6 +2137,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.upgrade_cmd_ok = saw_upgrade_ok;
                         result.guard_cmd_ok = saw_guard_ok;
                         result.attack_move_cmd_ok = saw_attack_move_ok;
+                        result.combat_damage_ok = saw_combat_damage;
                         result.scatter_cmd_ok = saw_scatter_ok;
                         result.patrol_cmd_ok = saw_patrol_ok;
                         result.deploy_cmd_ok = saw_deploy_ok;
@@ -2269,7 +2290,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2286,6 +2307,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.sell_cmd_ok,
         r.guard_cmd_ok,
         r.attack_move_cmd_ok,
+        r.combat_damage_ok,
         r.scatter_cmd_ok,
         r.patrol_cmd_ok,
         r.deploy_cmd_ok,

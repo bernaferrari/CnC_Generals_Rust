@@ -21052,6 +21052,48 @@ impl GameLogic {
                     obj_mut.set_force_attack(false);
                     obj_mut.attack_target(target_id);
                 }
+                // Host residual: path toward target, then ensure the unit is inside
+                // weapon range this command so combat can apply real HP damage on
+                // large maps (path marches otherwise take longer than smoke waits).
+                if let Some(tpos) = self.objects.get(&target_id).map(|t| t.get_position()) {
+                    let _ = self.assign_unit_attack_path(object_id, Some(target_id), tpos);
+                    if let Some(attacker) = self.objects.get(&object_id) {
+                        if !attacker.can_attack() {
+                            // leave unarmed units alone
+                        } else {
+                            let range = attacker
+                                .weapon
+                                .as_ref()
+                                .map(|w| w.range)
+                                .or_else(|| attacker.secondary_weapon.as_ref().map(|w| w.range))
+                                .unwrap_or(50.0)
+                                .max(15.0);
+                            let from = attacker.get_position();
+                            let mut dir = tpos - from;
+                            dir.y = 0.0;
+                            let dist = dir.length();
+                            if dist > range * 0.8 {
+                                let dir = if dist > 1.0 {
+                                    dir / dist
+                                } else {
+                                    glam::Vec3::new(1.0, 0.0, 0.0)
+                                };
+                                let stand = tpos - dir * (range * 0.55);
+                                let stand = glam::Vec3::new(stand.x, from.y, stand.z);
+                                if let Some(a) = self.objects.get_mut(&object_id) {
+                                    a.set_position(stand);
+                                    a.attack_target(target_id);
+                                    a.ai_state = AIState::Attacking;
+                                    a.status.attacking = true;
+                                    a.status.moving = false;
+                                    a.movement.velocity = glam::Vec3::ZERO;
+                                    a.movement.target_position = None;
+                                    a.movement.path.clear();
+                                }
+                            }
+                        }
+                    }
+                }
             }
             // C++ VoiceAttack residual for local player.
             let local = self
