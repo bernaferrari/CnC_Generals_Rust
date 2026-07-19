@@ -1863,14 +1863,12 @@ mod tests {
         let window = &gc[start..start + 2500.min(gc.len() - start)];
         assert!(
             gc.contains("update_presentation_shell")
-                && gc.contains("Eva residual runs via update_post_draw_ui")
-                && gc.contains("update_drawables_local")
-                && window.contains("self.update_input()?")
-                && window.contains("self.update_audio()?")
-                && window.contains("Main still owns OS WindowEvent")
-                && window.contains("Distinct from Main GameLogic::process_audio_events")
-                && !window.contains("self.draw_display()?"),
-            "presentation shell drains client audio without dual-owning Main 3D draw"
+                && window.contains("without Main-owned input/audio or Display DRAW dual-ownership")
+                && window.contains("update_drawables_local")
+                && !window.contains("self.draw_display()?")
+                && !window.contains("self.update_input()?")
+                && !window.contains("self.update_audio()?"),
+            "presentation shell ticks drawables/UI without dual-owning Main OS input/audio/3D draw"
         );
         assert!(
             gc.contains("fn update_post_draw_ui") && gc.contains("crate::eva::update_eva_system()"),
@@ -1909,16 +1907,12 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/src/cnc_game_engine.rs"
         ));
-        let i = eng
-            .find("let alliance_events = self.game_logic.take_alliance_events();")
-            .expect("alliance_events drain");
-        let window = &eng[i..i.saturating_add(500).min(eng.len())];
         assert!(
-            window.contains("last_presentation_frame")
-                && window.contains("local_player_id")
-                && window.contains("Prefer presentation local_player residual")
-                && window.contains("or_else(|| self.game_logic.local_player_id())"),
-            "alliance notifications must prefer presentation local_player_id"
+            eng.contains("take_alliance_events")
+                && eng.contains("last_presentation_frame")
+                && eng.contains("Prefer presentation local_player residual")
+                && eng.contains("local_player_id"),
+            "alliance notifications must prefer presentation residual then drain live take"
         );
     }
 
@@ -2671,10 +2665,9 @@ mod tests {
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
             eng.contains("set_presentation_frame(self.last_presentation_frame.clone())")
-                && eng.contains("if self.last_presentation_frame.is_some()")
-                && eng.contains("None")
-                && eng.contains("Some(&self.game_logic)"),
-            "engine must pass game_logic: None into RenderPipeline::execute when frame installed"
+                && eng.contains("PresentationFrame::build_from_logic")
+                && eng.contains("last_presentation_frame.is_none()"),
+            "engine must seed presentation before execute (no live GameLogic dual-read)"
         );
         // Structural: execute call site prefers None when presentation is Some.
         let idx = eng
@@ -2682,10 +2675,13 @@ mod tests {
             .expect("execute call");
         let window = &eng[idx..idx + 450];
         assert!(
-            window.contains("if self.last_presentation_frame.is_some()")
-                && window.contains("None")
-                && window.contains("Some(&self.game_logic)"),
-            "execute window must gate live GameLogic on missing presentation frame: {window}"
+            !window.contains("Some(&self.game_logic)"),
+            "execute must not pass live GameLogic (presentation-only boundary): {window}"
+        );
+        assert!(
+            eng.contains("PresentationFrame::build_from_logic")
+                && eng.contains("last_presentation_frame.is_none()"),
+            "engine must seed a presentation frame before execute when missing"
         );
         let rp = include_str!("graphics/render_pipeline.rs");
         assert!(

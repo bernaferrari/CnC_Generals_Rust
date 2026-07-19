@@ -662,9 +662,8 @@ impl RenderPipeline {
     pub fn execute(
         &mut self,
         graphics_system: &mut GraphicsSystem,
-        // Live residual only when presentation is absent. Prefer None after
-        // set_presentation_frame(Some(_)) for the immutable snapshot path.
-        game_logic: Option<&GameLogic>,
+        // Immutable presentation boundary: world collect reads only
+        // `self.presentation_frame` (engine always seeds a frame before execute).
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         camera_position: Vec3,
@@ -713,7 +712,7 @@ impl RenderPipeline {
         let mut sort_elapsed = std::time::Duration::ZERO;
         let mut terrain_elapsed = std::time::Duration::ZERO;
         if render_world_scene {
-            self.sync_lighting_from_map_metadata(game_logic);
+            self.sync_lighting_from_map_metadata(None);
             if allow_sync_model_loads {
                 if self.frame_number <= 5 {
                     info!(
@@ -721,7 +720,7 @@ impl RenderPipeline {
                         self.frame_number
                     );
                 }
-                self.prewarm_startup_models(graphics_system, game_logic, allow_sync_model_loads);
+                self.prewarm_startup_models(graphics_system, None, allow_sync_model_loads);
                 if self.frame_number <= 5 {
                     info!(
                         "RenderPipeline::execute frame {} prewarm_done",
@@ -757,7 +756,7 @@ impl RenderPipeline {
             }
             self.collect_render_items(
                 graphics_system,
-                game_logic,
+                None,
                 view_matrix,
                 projection_matrix,
                 camera_position,
@@ -823,17 +822,15 @@ impl RenderPipeline {
             self.debug_last_model_missing = 0;
         }
 
-        let shell_scene = if let Some(p) = self.presentation_frame.as_ref() {
-            p.fow_shell_bypass
-        } else if let Some(g) = game_logic {
-            g.isInShellGame()
-        } else {
-            false
-        };
+        let shell_scene = self
+            .presentation_frame
+            .as_ref()
+            .map(|p| p.fow_shell_bypass)
+            .unwrap_or(false);
         if render_world_scene && !shell_scene {
             // Presentation-owned bounds/heights when frame is set; live GameLogic
             // is only a boot fallback (execute already passes None with snapshot).
-            if let Err(e) = self.refresh_minimap_terrain_base(game_logic) {
+            if let Err(e) = self.refresh_minimap_terrain_base(None) {
                 error!("Failed to refresh minimap terrain base: {}", e);
             }
 
@@ -876,7 +873,7 @@ impl RenderPipeline {
 
         graphics_system.end_frame();
         if render_world_scene && !shell_scene {
-            self.maybe_load_heightmap_hint_after_first_present(graphics_system, game_logic);
+            self.maybe_load_heightmap_hint_after_first_present(graphics_system, None);
         }
 
         // Removed excessive logging
@@ -4899,15 +4896,21 @@ mod tests {
     #[test]
     fn execute_accepts_optional_game_logic_for_presentation_only_path() {
         let src = include_str!("render_pipeline.rs");
+        let exec_at = src.find("pub fn execute(").expect("execute must exist");
         assert!(
-            src.contains("game_logic: Option<&GameLogic>"),
-            "execute/collect must take Option<&GameLogic>"
+            !src[exec_at..exec_at + 500].contains("game_logic: Option<&GameLogic>"),
+            "execute must not take live GameLogic (presentation-only boundary)"
         );
         let cnc = include_str!("../cnc_game_engine.rs");
+        let call_at = cnc
+            .find("self.render_pipeline.execute(")
+            .expect("engine execute call must exist");
         assert!(
-            cnc.contains("last_presentation_frame.is_some()")
-                && cnc.contains("Some(&self.game_logic)"),
-            "engine must pass None when presentation snapshot exists"
+            cnc.contains("PresentationFrame::build_from_logic")
+                && cnc.contains("last_presentation_frame.is_none()")
+                && !cnc[call_at..call_at + 350].contains("Some(&self.game_logic)")
+                && !cnc[call_at..call_at + 350].contains("game_logic"),
+            "engine must seed presentation and never pass live GameLogic into execute"
         );
     }
     #[test]
