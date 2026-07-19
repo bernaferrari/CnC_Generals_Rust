@@ -15730,18 +15730,20 @@ impl GameLogic {
                         >= MAX_CARRY;
 
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.stored_resources.supplies = obj
-                            .stored_resources
-                            .supplies
-                            .saturating_add(gather_amount)
-                            .min(MAX_CARRY);
+                        obj.set_stored_supplies(
+                            obj.stored_resources
+                                .supplies
+                                .saturating_add(gather_amount)
+                                .min(MAX_CARRY),
+                        );
                     }
 
                     // Deplete the supply source.
                     if let Some(source) = self.objects.get_mut(&source_id) {
                         let taken = gather_amount.min(source.stored_resources.supplies);
-                        source.stored_resources.supplies =
-                            source.stored_resources.supplies.saturating_sub(taken);
+                        source.set_stored_supplies(
+                            source.stored_resources.supplies.saturating_sub(taken),
+                        );
                         if source.stored_resources.supplies == 0 {
                             source.status.destroyed = true;
                             self.mark_object_for_destruction(source_id, None);
@@ -15813,7 +15815,7 @@ impl GameLogic {
 
                             // Clear carried resources.
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.stored_resources.supplies = 0;
+                                obj.set_stored_supplies(0);
                             }
                             // Player-level Supply Lines residual boost (flat per drop-off).
                             let has_supply_lines = self
@@ -20467,7 +20469,7 @@ impl GameLogic {
             if obj.stored_resources.supplies == 0
                 && (obj.is_kind_of(KindOf::Harvestable) || obj.object_type == ObjectType::Supply)
             {
-                // Some piles use infinite residual; only skip if explicitly zero and Harvestable
+                // Some piles use infinite residual); only skip if explicitly zero and Harvestable
                 // with supplies field used as stock. Fail-open if never depleted.
                 if obj.template_name.to_ascii_lowercase().contains("warehouse")
                     || obj.template_name.to_ascii_lowercase().contains("dock")
@@ -34112,7 +34114,7 @@ impl GameLogic {
             return false;
         }
         // startPowerRecharge residual: force full recharge from now.
-        target.special_power_ready = false;
+        target.set_special_power_ready(false);
         if target.special_power_cooldown <= 0.0 {
             // Fail-closed default residual when template cooldown not bound.
             target.special_power_cooldown = 10.0;
@@ -52754,7 +52756,7 @@ mod tests {
         // Drop-off residual: worker with cargo deposits +8 shoes boost.
         {
             let w = game_logic.find_object_mut(worker_id).expect("worker mut");
-            w.stored_resources.supplies = 100;
+            w.set_stored_supplies(100);
             w.set_position(Vec3::new(5.0, 0.0, 0.0));
             w.target = Some(supply_id);
             w.ai_state = AIState::ReturningResources;
@@ -54947,7 +54949,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -55122,7 +55124,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
         // Place a target so disable honesty can trip (caster is skipped as self).
@@ -55181,7 +55183,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -55348,7 +55350,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             // Caster can self-buff residual (WeaponBonusUpdate iterates all allies
             // including source when legal CAN_ATTACK). Ensure weapon so can_attack.
@@ -55453,7 +55455,7 @@ mod tests {
             .expect("strategy center");
         {
             let center = game_logic.find_object_mut(center_id).expect("center");
-            center.special_power_ready = true;
+            center.set_special_power_ready(true);
             center.special_power_cooldown_remaining = 0.0;
             center.object_type = ObjectType::Building;
         }
@@ -55617,7 +55619,7 @@ mod tests {
         // --- HoldTheLine residual: armor damage scalar 0.9 + center max-health ×2 ---
         {
             let center = game_logic.find_object_mut(center_id).expect("center");
-            center.special_power_ready = true;
+            center.set_special_power_ready(true);
             center.special_power_cooldown_remaining = 0.0;
         }
         let center_max_before = game_logic.find_object(center_id).unwrap().max_health;
@@ -55692,7 +55694,7 @@ mod tests {
         // --- SearchAndDestroy residual: RANGE 120% ---
         {
             let center = game_logic.find_object_mut(center_id).expect("center");
-            center.special_power_ready = true;
+            center.set_special_power_ready(true);
             center.special_power_cooldown_remaining = 0.0;
         }
         assert!(game_logic.activate_battle_plan(
@@ -59101,7 +59103,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -59234,7 +59236,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.health.current = caster.health.maximum * 0.5;
         }
@@ -59291,7 +59293,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -59456,7 +59458,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -59521,7 +59523,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -59748,7 +59750,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -62462,7 +62464,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -62604,7 +62606,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -62688,7 +62690,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -62926,7 +62928,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -63150,7 +63152,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -63321,7 +63323,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -63458,7 +63460,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -63599,7 +63601,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -63720,7 +63722,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -63832,7 +63834,7 @@ mod tests {
             .expect("ambulance");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -63950,7 +63952,7 @@ mod tests {
             .expect("ambulance");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
         game_logic.queue_command(GameCommand {
@@ -64026,7 +64028,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -64230,7 +64232,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -64432,7 +64434,7 @@ mod tests {
         }
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
@@ -64605,7 +64607,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -64665,7 +64667,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -64771,7 +64773,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -64833,7 +64835,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -64951,7 +64953,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
         // Enemy unit so residual has a vision-spy target.
@@ -65015,7 +65017,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -65182,7 +65184,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -65236,7 +65238,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).expect("caster");
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.thing.template.armor = 0.0;
         }
@@ -66756,7 +66758,7 @@ mod tests {
                 .expect("dozer");
             {
                 let dozer = game_logic.find_object_mut(dozer_id).expect("dozer mut");
-                dozer.stored_resources.supplies = CARGO;
+                dozer.set_stored_supplies(CARGO);
                 dozer.set_ai_state(AIState::ReturningResources);
             }
 
@@ -69598,7 +69600,7 @@ mod tests {
             .expect("caster");
         {
             let caster = game_logic.find_object_mut(caster_id).unwrap();
-            caster.special_power_ready = true;
+            caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
 
@@ -75028,7 +75030,7 @@ mod tests {
             .expect("helix");
         {
             let h = game_logic.find_object_mut(helix_id).unwrap();
-            h.special_power_ready = true;
+            h.set_special_power_ready(true);
             h.special_power_cooldown_remaining = 0.0;
             // Production Helix requires upgrade; TestHelix residual unlocks without it,
             // but still record the upgrade tag for BlackNapalm path symmetry.
@@ -75166,7 +75168,7 @@ mod tests {
             .expect("helix");
         {
             let h = game_logic.find_object_mut(helix_id).unwrap();
-            h.special_power_ready = true;
+            h.set_special_power_ready(true);
             h.special_power_cooldown_remaining = 0.0;
             // No Upgrade_HelixNapalmBomb.
         }
@@ -84642,7 +84644,7 @@ mod tests {
             o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 100.0);
             o.special_power_cooldown_remaining = 100.0;
-            o.special_power_ready = false;
+            o.set_special_power_ready(false);
             o.set_status_disabled_underpowered(false);
         }
         // Tick while enabled: countdown advances.
@@ -84712,7 +84714,7 @@ mod tests {
             o.special_power_cooldowns
                 .remove(&SpecialPowerType::ParticleCannon);
             o.special_power_cooldown_remaining = 0.0;
-            o.special_power_ready = true;
+            o.set_special_power_ready(true);
             o.thing.template.add_kind_of(KindOf::Powered);
             assert!(!o.is_disabled());
         }
@@ -85149,7 +85151,7 @@ mod tests {
             o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 0.05);
             o.special_power_cooldown_remaining = 0.05;
-            o.special_power_ready = false;
+            o.set_special_power_ready(false);
         }
         assert!(!logic.honesty_eva_superweapon_ready_ok());
         // Object tick_timers edge → try_eva_superweapon_ready residual.
@@ -85203,7 +85205,7 @@ mod tests {
             o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 123.0);
             o.special_power_cooldown_remaining = 123.0;
-            o.special_power_ready = false;
+            o.set_special_power_ready(false);
         }
         // Player shared map must NOT drive structure SW HUD residual.
         if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
@@ -89954,7 +89956,7 @@ mod tests {
             .expect("sw");
         {
             let o = logic.objects.get_mut(&id).unwrap();
-            o.special_power_ready = true;
+            o.set_special_power_ready(true);
             o.special_power_cooldown = 60.0;
             o.special_power_cooldown_remaining = 0.0;
         }
