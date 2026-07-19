@@ -482,12 +482,24 @@ impl Player {
     pub fn set_cash_bounty(&mut self, percentage: f32) {
         if percentage > self.cash_bounty_percent {
             self.cash_bounty_percent = percentage;
+            self.record_host_progress();
         }
     }
 
     /// Force-set cash bounty percent (tests / load restore).
     pub fn force_set_cash_bounty(&mut self, percentage: f32) {
         self.cash_bounty_percent = percentage.max(0.0);
+        self.record_host_progress();
+    }
+
+    pub fn record_host_progress(&self) {
+        crate::game_logic::host_player_progress_log::record(
+            self.id,
+            self.rank_level,
+            self.skill_points,
+            self.science_purchase_points,
+            self.cash_bounty_percent,
+        );
     }
 
     /// Award cash for a kill: `ceil(victim_build_cost * cash_bounty_percent)`.
@@ -539,6 +551,7 @@ impl Player {
                     .insert(row.science_granted.to_string());
             }
         }
+        self.record_host_progress();
         true
     }
 
