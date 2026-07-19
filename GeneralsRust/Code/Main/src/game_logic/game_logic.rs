@@ -8141,6 +8141,7 @@ impl GameLogic {
             if let Some(chute) = self.objects.get_mut(&chute_id) {
                 // Force 1-slot AmericaParachute residual capacity.
                 chute.max_transport = 1;
+                chute.record_host_contain_capacity();
                 if !chute.enter_transport(rider_id) {
                     // Fail-closed: force occupant list even if kind gate rejects.
                     if !chute.occupants.contains(&rider_id) {
