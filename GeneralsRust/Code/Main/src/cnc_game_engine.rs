@@ -2666,6 +2666,77 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "stop_all" | "stop_selected" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "stop_fail_not_ingame".into();
+                } else {
+                    let n = self.selected_objects.len();
+                    if n > 0 {
+                        // Stop only selection when present.
+                        self.game_logic.command_stop(self.current_player_id);
+                        self.runtime_host_last_gameplay_cmd = format!("stop_ok:selected:{n}");
+                    } else {
+                        self.stop_all_friendly_units();
+                        self.runtime_host_last_gameplay_cmd = "stop_ok:all".into();
+                    }
+                }
+            }
+            "sell" | "sell_selected" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "sell_fail_not_ingame".into();
+                } else {
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let Some(team) = team else {
+                        self.runtime_host_last_gameplay_cmd = "sell_fail_no_player".into();
+                        return;
+                    };
+                    // Prefer selected structure; else newest friendly non-CC structure.
+                    let mut targets: Vec<crate::game_logic::ObjectId> = self
+                        .selected_objects
+                        .iter()
+                        .copied()
+                        .filter(|id| {
+                            self.game_logic
+                                .get_object(*id)
+                                .map(|o| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                        && !o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
+                                })
+                                .unwrap_or(false)
+                        })
+                        .collect();
+                    if targets.is_empty() {
+                        let mut ids: Vec<_> = self
+                            .game_logic
+                            .get_objects()
+                            .iter()
+                            .filter(|(_, o)| {
+                                o.team == team
+                                    && o.is_alive()
+                                    && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                    && !o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
+                            })
+                            .map(|(id, _)| *id)
+                            .collect();
+                        ids.sort_by_key(|id| id.0);
+                        targets = ids.into_iter().rev().take(1).collect();
+                    }
+                    if targets.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "sell_fail_no_structure".into();
+                    } else {
+                        self.game_logic
+                            .select_objects(self.current_player_id, targets.clone());
+                        self.selected_objects = targets.clone();
+                        self.issue_named_command_from_ui("Command_Sell");
+                        self.runtime_host_last_gameplay_cmd = format!("sell_ok:{}", targets[0].0);
+                    }
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -18175,6 +18246,19 @@ fn runtime_host_save_load_residual() {
             && src.contains("load_ok:quicksave")
             && src.contains("save_game_from_ui"),
         "runtime host must expose quickload residual"
+    );
+}
+
+#[test]
+fn runtime_host_stop_sell_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    assert!(
+        src.contains("stop_all") && src.contains("stop_ok:"),
+        "runtime host must expose stop_all residual"
+    );
+    assert!(
+        src.contains("sell_selected") && src.contains("sell_ok:") && src.contains("Command_Sell"),
+        "runtime host must expose sell residual"
     );
 }
 
