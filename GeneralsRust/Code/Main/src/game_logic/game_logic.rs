@@ -35491,7 +35491,7 @@ impl GameLogic {
                 jam_ticks = jam_ticks.saturating_add(1);
             } else {
                 // Already jammed — keep flag set (coverage refresh).
-                target.status.weapons_jammed = true;
+                target.set_status_weapons_jammed(true);
             }
         }
 
