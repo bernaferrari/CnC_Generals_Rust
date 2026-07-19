@@ -3119,6 +3119,51 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_entity_power_events(
+        &mut self,
+        events: &[crate::game_logic::host_entity_power_log::HostEntityPowerEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetEntityPower {
+                    target: eid,
+                    power_provided: ev.power_provided,
+                    power_consumed: ev.power_consumed,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_entity_power_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.power_provided == ent.power_provided
+                && obj.power_consumed == ent.power_consumed
+            {
+                continue;
+            }
+            obj.power_provided = ent.power_provided;
+            obj.power_consumed = ent.power_consumed;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_weapon_slot_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3445,6 +3490,7 @@ pub fn shadow_session_after_host_tick(
     let experience_events = crate::game_logic::host_experience_log::drain();
     let weapon_bonus_events = crate::game_logic::host_weapon_bonus_log::drain();
     let weapon_slot_events = crate::game_logic::host_weapon_slot_log::drain();
+    let entity_power_events = crate::game_logic::host_entity_power_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3489,6 +3535,7 @@ pub fn shadow_session_after_host_tick(
     let _xp_applied = shadow.apply_host_experience_events(&experience_events);
     let _wb_applied = shadow.apply_host_weapon_bonus_events(&weapon_bonus_events);
     let _wslot_applied = shadow.apply_host_weapon_slot_events(&weapon_slot_events);
+    let _epow_applied = shadow.apply_host_entity_power_events(&entity_power_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3528,6 +3575,7 @@ pub fn shadow_session_after_host_tick(
     let _xp_wb = shadow.writeback_experience_to_host(logic);
     let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
     let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
+    let _epow_wb = shadow.writeback_entity_power_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6344,7 +6392,68 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_entity_power_log_drives_set_entity_power_channel() {
+        use crate::game_logic::{host_entity_power_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EPowerCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("EPU") {
+            let mut t = ThingTemplate::new("EPU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("EPU".into(), t);
+        }
+        let oid = logic
+            .create_object("EPU", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
+            .expect("id");
+        host_entity_power_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_entity_power(50, 5);
+        }
+        let events = host_entity_power_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.power_provided == 50 && e.power_consumed == 5),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_entity_power();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.power_provided = 0;
+            e.power_consumed = 0;
+        }
+        let n = shadow.apply_host_entity_power_events(&host_entity_power_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.power_provided, 50);
+        assert_eq!(e.power_consumed, 5);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.power_provided = 1;
+            o.power_consumed = 1;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.power_provided = 50;
+            e.power_consumed = 5;
+        }
+        assert!(shadow.writeback_entity_power_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.power_provided, 50);
+        assert_eq!(o.power_consumed, 5);
+    }
+
+#[test]
     fn host_weapon_slot_log_drives_set_active_weapon_slot_channel() {
         use crate::game_logic::{host_weapon_slot_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();

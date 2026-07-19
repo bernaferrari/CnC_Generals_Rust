@@ -17441,6 +17441,7 @@ impl GameLogic {
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
             obj.power_provided = obj.power_provided.saturating_add(bonus);
+            obj.record_host_entity_power();
             if let Some(b) = bit {
                 obj.model_condition_bits |= 1u128 << b;
             }
@@ -46668,6 +46669,7 @@ impl GameLogic {
             // Disable.
             obj.overcharge_enabled = false;
             obj.power_provided = (obj.power_provided - bonus).max(0);
+            obj.record_host_entity_power();
             // C++ PowerPlantUpdate::extendRods(FALSE) residual.
             use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
             if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADED") {
@@ -46676,6 +46678,7 @@ impl GameLogic {
         } else {
             obj.overcharge_enabled = true;
             obj.power_provided = obj.power_provided.saturating_add(bonus);
+            obj.record_host_entity_power();
             if let Some(bit) =
                 crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
                     "POWER_PLANT_UPGRADED",
@@ -46721,6 +46724,7 @@ impl GameLogic {
                     crate::game_logic::host_structure_economy_residual::CHINA_POWER_ENERGY_BONUS;
                 obj.overcharge_enabled = false;
                 obj.power_provided = (obj.power_provided - bonus).max(0);
+                obj.record_host_entity_power();
                 if let Some(bit) =
                     crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
                         "POWER_PLANT_UPGRADED",

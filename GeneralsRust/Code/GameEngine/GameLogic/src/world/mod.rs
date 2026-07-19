@@ -529,6 +529,12 @@ pub enum WorldMutation {
         target: EntityId,
         slot: u8,
     },
+    /// Host Object::power_provided / power_consumed residual (plant overcharge / rods).
+    SetEntityPower {
+        target: EntityId,
+        power_provided: i32,
+        power_consumed: i32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -976,6 +982,17 @@ impl GameWorld {
                 WorldMutation::SetActiveWeaponSlot { target, slot } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.active_weapon_slot = slot;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetEntityPower {
+                    target,
+                    power_provided,
+                    power_consumed,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.power_provided = power_provided;
+                        e.power_consumed = power_consumed;
                         applied += 1;
                     }
                 }
