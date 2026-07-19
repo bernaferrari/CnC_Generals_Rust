@@ -252,6 +252,11 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     // Special power: consume charge + SpecialAbility AI state (production executor path).
     let mut special_ok = false;
     if let Some(iid) = infantry {
+        // C++ SpecialPowerStore::canUseSpecialPower science residual for A10 strike.
+        if let Some(p) = logic.get_player_mut(0) {
+            p.unlocked_sciences
+                .insert("SCIENCE_A10ThunderboltMissileStrike1".into());
+        }
         // Re-arm special power readiness after prior command may have changed state.
         if let Some(u) = logic.get_object_mut(iid) {
             u.special_power_ready = true;
@@ -304,8 +309,21 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             .unwrap_or(0);
         let sell_cmd = command(4, 0, CommandType::Sell { object_id: bldg }, vec![]);
         let sell_result = system.execute_command(&sell_cmd, &mut logic);
-        // destroy_object defers removal to the destroy list; advance logic so it applies.
-        logic.update();
+        // C++ BuildAssistant::sellObject multi-frame residual:
+        // FRAMES_TO_ALLOW_SCAFFOLD(45) + TOTAL_FRAMES_TO_SELL_OBJECT(90) ≈ 135 ticks.
+        // C++ BuildAssistant::sellObject multi-frame residual:
+        // FRAMES_TO_ALLOW_SCAFFOLD(45) + TOTAL_FRAMES_TO_SELL_OBJECT(90).
+        // status.sold is set at sell *start* (scaffold) — do not treat it as done.
+        for _ in 0..200 {
+            logic.update();
+            if logic
+                .get_object(bldg)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+            {
+                break;
+            }
+        }
         let after = logic
             .get_player(0)
             .map(|p| p.resources.supplies)
@@ -316,11 +334,6 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             .unwrap_or(true);
         salvage_ok =
             sell_result == CommandResult::Success && cost > 0 && after > before && destroyed;
-        if !salvage_ok {
-            log::warn!(
-                "salvage fail: result={sell_result:?} cost={cost} before={before} after={after} destroyed={destroyed}"
-            );
-        }
     }
 
     // Stealth residual: stealthed not targetable until detector reveals.
