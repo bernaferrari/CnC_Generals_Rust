@@ -205,8 +205,8 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
     // AI still must start additional builds via process_building_queue.
     logic.ensure_ai_faction_templates(Team::GLA);
     for (name, pos) in [
-        ("GLA_Barracks", Vec3::new(200.0, 0.0, 200.0)),
-        ("GLA_ArmsDealer", Vec3::new(230.0, 0.0, 200.0)),
+        ("GLA_Barracks", Vec3::new(120.0, 0.0, 120.0)),
+        ("GLA_ArmsDealer", Vec3::new(150.0, 0.0, 120.0)),
     ] {
         if let Some(id) = logic.create_object(name, Team::GLA, pos) {
             if let Some(obj) = logic.get_object_mut(id) {
@@ -438,8 +438,6 @@ mod tests {
         );
     }
 
-    /// Highest-value residual: after load_map preserve/rebind, Medium AI still
-    /// builds/produces (not full checkReadyTeams C++ parity).
     #[test]
     fn medium_ai_takes_productive_action_after_load_map() {
         let result = run_medium_ai_after_load_map(150);
@@ -501,8 +499,8 @@ mod tests {
 
         // Seed constructed factories after rebind (map may not place GLA_*).
         for (name, pos) in [
-            ("GLA_Barracks", Vec3::new(200.0, 0.0, 200.0)),
-            ("GLA_ArmsDealer", Vec3::new(230.0, 0.0, 200.0)),
+            ("GLA_Barracks", Vec3::new(120.0, 0.0, 120.0)),
+            ("GLA_ArmsDealer", Vec3::new(150.0, 0.0, 120.0)),
         ] {
             if let Some(id) = logic.create_object(name, Team::GLA, pos) {
                 if let Some(obj) = logic.get_object_mut(id) {

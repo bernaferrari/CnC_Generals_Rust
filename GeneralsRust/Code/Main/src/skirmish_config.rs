@@ -578,7 +578,7 @@ mod tests {
         // Stale object_id on the AI build queue (map wipe residual) without spending cash.
         {
             // Touch AI queue via public relocate (re-seeds layout) then rebind will clear refs.
-            logic.relocate_host_ai_base(1, glam::Vec3::new(200.0, 0.0, 200.0));
+            logic.relocate_host_ai_base(1, glam::Vec3::new(120.0, 0.0, 120.0));
         }
 
         // Snapshot immediately before load — preserve path must not rewrite cash/slots.

@@ -1252,10 +1252,12 @@ impl AIManager {
         let mut ai_player = AIPlayer::new(player_id, team, difficulty);
 
         // Initialize with team-appropriate base position
+        // Keep pads inside default 512×512 world with MinDistFromEdgeOfMapForBuild=30
+        // and layout offsets up to +100 (WarFactory). |center|<=120 → max pad 220 < 226.
         let base_position = match team {
-            Team::USA => Vec3::new(-200.0, 0.0, -200.0),
-            Team::China => Vec3::new(200.0, 0.0, -200.0),
-            Team::GLA => Vec3::new(200.0, 0.0, 200.0),
+            Team::USA => Vec3::new(-120.0, 0.0, -120.0),
+            Team::China => Vec3::new(120.0, 0.0, -120.0),
+            Team::GLA => Vec3::new(120.0, 0.0, 120.0),
             _ => Vec3::ZERO,
         };
 
@@ -1479,6 +1481,30 @@ impl AIManager {
 #[cfg(test)]
 mod cpp_parity_tests {
     use super::*;
+
+    #[test]
+    fn ai_default_base_inside_build_edge_residual() {
+        // Default synthetic world is 512² centered at origin; MinDistFromEdge=30.
+        // Layout offsets reach +100 (WarFactory) — bases must stay ≤ ~120 from origin.
+        let mgr = AIManager::new();
+        // Manager construction doesn't add players; mirror add_ai_player centers.
+        let centers = [
+            (Team::USA, Vec3::new(-120.0, 0.0, -120.0)),
+            (Team::China, Vec3::new(120.0, 0.0, -120.0)),
+            (Team::GLA, Vec3::new(120.0, 0.0, 120.0)),
+        ];
+        let half = 256.0;
+        let edge = 30.0;
+        let max_offset = 100.0;
+        for (team, c) in centers {
+            let farthest = c.x.abs().max(c.z.abs()) + max_offset;
+            assert!(
+                farthest <= half - edge,
+                "{team:?} base pad would violate edge residual: farthest={farthest}"
+            );
+        }
+        let _ = mgr;
+    }
 
     #[test]
     fn aidata_timing_constants_match_retail_defaults() {

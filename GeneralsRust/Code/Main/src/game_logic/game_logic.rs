@@ -42239,11 +42239,46 @@ impl GameLogic {
         // preserve load. Never wipe intentional positive cash; only top-up empty
         // AI slots (e.g. map path that recreated players without starting_cash).
         self.ensure_skirmish_ai_starting_cash(10_000);
+        // Map residual: synthetic default bases (e.g. 120,120) are often shrouded /
+        // far from the retail start. Anchor each AI rebuild soup on that team's
+        // living CommandCenter (or any structure) so LegalBuildCode can pass FOW.
+        self.relocate_host_ai_bases_to_map_starts();
         log::info!(
             "Host AI rebound after map load: ai_players={}, host_players={}",
             self.ai_manager.ai_players.len(),
             self.players.len()
         );
+    }
+
+    /// After load_map, move host AI base layouts onto map start structures.
+    pub fn relocate_host_ai_bases_to_map_starts(&mut self) {
+        let ai_ids: Vec<(u32, Team)> = self
+            .ai_manager
+            .ai_players
+            .iter()
+            .map(|(&id, ai)| (id, ai.team))
+            .collect();
+        for (pid, team) in ai_ids {
+            let anchor = self
+                .objects
+                .values()
+                .filter(|o| o.team == team && o.is_alive() && o.is_kind_of(KindOf::CommandCenter))
+                .map(|o| o.get_position())
+                .next()
+                .or_else(|| {
+                    self.objects
+                        .values()
+                        .filter(|o| {
+                            o.team == team && o.is_alive() && o.is_kind_of(KindOf::Structure)
+                        })
+                        .map(|o| o.get_position())
+                        .next()
+                });
+            if let Some(pos) = anchor {
+                // Offset slightly so soup pads are not stacked on the CC footprint.
+                self.relocate_host_ai_base(pid, pos + glam::Vec3::new(40.0, 0.0, 40.0));
+            }
+        }
     }
 
     /// Ensure registered host AI players have at least `min_cash` supplies.
