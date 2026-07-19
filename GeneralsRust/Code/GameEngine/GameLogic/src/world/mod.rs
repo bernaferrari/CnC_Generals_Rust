@@ -657,6 +657,16 @@ pub enum WorldMutation {
         path_len: u16,
         path_waypoints: Vec<[f32; 3]>,
     },
+    /// Host Object::selection_radius residual.
+    SetSelectionRadius {
+        target: EntityId,
+        selection_radius: f32,
+    },
+    /// Host Object::model_condition_bits residual.
+    SetModelCondition {
+        target: EntityId,
+        model_condition_bits: u128,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1329,6 +1339,24 @@ impl GameWorld {
                         e.path_index = path_index;
                         e.path_len = path_len;
                         e.path_waypoints = path_waypoints;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetSelectionRadius {
+                    target,
+                    selection_radius,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.selection_radius = selection_radius;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetModelCondition {
+                    target,
+                    model_condition_bits,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.model_condition_bits = model_condition_bits;
                         applied += 1;
                     }
                 }

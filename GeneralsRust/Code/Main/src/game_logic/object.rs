@@ -2953,6 +2953,7 @@ impl Object {
         self.production_door_phase = 1;
         self.production_door_phase_end_frame = now.saturating_add(15);
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     /// C++ ProductionUpdate::setHoldDoorOpen residual.
@@ -2990,7 +2991,7 @@ impl Object {
         let wait_b = door_1_waiting_open_model_bit();
         let wait_close_b = door_1_waiting_to_close_model_bit();
         let close_b = door_1_closing_model_bit();
-        match self.production_door_phase {
+        let result = match self.production_door_phase {
             1 => {
                 // OPENING → WAITING_OPEN
                 self.model_condition_bits &= !(1u128 << open_b);
@@ -3052,7 +3053,9 @@ impl Object {
                 self.production_door_phase = 0;
                 false
             }
-        }
+        };
+        self.record_host_model_condition();
+        result
     }
 
     pub fn extend_radar(&mut self, done_frame: u32) {
@@ -3066,6 +3069,7 @@ impl Object {
         self.radar_extend_complete = false;
         self.radar_active = true;
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     /// C++ RadarUpdate::update extend completion residual.
@@ -3085,6 +3089,7 @@ impl Object {
         self.model_condition_bits &= !(1u128 << radar_extending_model_bit());
         self.model_condition_bits |= 1u128 << radar_upgraded_model_bit();
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
         true
     }
 
@@ -3110,6 +3115,7 @@ impl Object {
             self.model_condition_bits &= !(1u128 << bit);
         }
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     pub fn has_captured_model_condition(&self) -> bool {
@@ -3132,6 +3138,7 @@ impl Object {
         self.model_condition_bits |= 1u128 << part_b;
         self.model_condition_bits |= 1u128 << active_b;
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     /// C++ BuildAssistant: when construction percent crosses to <= 0 during sell.
@@ -3149,6 +3156,7 @@ impl Object {
         self.model_condition_bits &= !(1u128 << active_b);
         self.model_condition_bits |= 1u128 << sold_b;
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     /// C++ Object::attemptHealingFromSoleBenefactor residual.
@@ -3187,6 +3195,7 @@ impl Object {
             self.model_condition_bits &= !(1u128 << bit);
         }
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     pub fn set_under_construction_model_conditions(&mut self, actively_built: bool) {
@@ -3210,6 +3219,7 @@ impl Object {
             self.model_condition_bits |= 1u128 << await_b;
         }
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     /// C++ clear construction model conditions on finish (before CONSTRUCTION_COMPLETE).
@@ -3225,6 +3235,7 @@ impl Object {
         self.model_condition_bits &= !(1u128 << part_b);
         self.model_condition_bits &= !(1u128 << active_b);
         self.refresh_model_condition_bits();
+        self.record_host_model_condition();
     }
 
     /// C++ ProductionUpdate ConstructionCompleteDuration residual (default 45f / 1500ms).
@@ -3424,6 +3435,7 @@ impl Object {
             bits |= 1u128 << sold_model_bit();
         }
         self.model_condition_bits = bits;
+        self.record_host_model_condition();
     }
 
     pub fn take_damage(&mut self, damage: f32) -> bool {
@@ -5473,7 +5485,22 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_movement(&self) {
+        pub fn record_host_selection_radius(&self) {
+        crate::game_logic::host_selection_radius_log::record(self.id, self.selection_radius);
+    }
+
+    pub fn set_selection_radius(&mut self, selection_radius: f32) {
+        if (self.selection_radius - selection_radius).abs() > f32::EPSILON {
+            self.selection_radius = selection_radius;
+            self.record_host_selection_radius();
+        }
+    }
+
+    pub fn record_host_model_condition(&self) {
+        crate::game_logic::host_model_condition_log::record(self.id, self.model_condition_bits);
+    }
+
+    pub fn record_host_movement(&self) {
         crate::game_logic::host_movement_log::record(
             self.id,
             self.movement.velocity,
