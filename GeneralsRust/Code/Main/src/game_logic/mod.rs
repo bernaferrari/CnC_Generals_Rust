@@ -13,6 +13,7 @@ pub mod host_ai_state_log;
 pub mod host_attack_log;
 pub mod host_construction_log;
 pub mod host_construction_progress_log;
+pub mod host_contain_log;
 pub mod host_destroy_log;
 pub mod host_economy_log;
 pub mod host_move_log;
