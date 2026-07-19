@@ -3235,6 +3235,65 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_guard_events(
+        &mut self,
+        events: &[crate::game_logic::host_guard_log::HostGuardEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world.queue_mutation(gamelogic::world::WorldMutation::SetGuard {
+                unit: eid,
+                position: ev.position,
+                target_host: ev.target_host,
+            });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_guard_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_pos = obj.guard_position.map(|p| [p.x, p.y, p.z]);
+            let host_tgt = obj.guard_target.map(|id| id.0).unwrap_or(0);
+            let pos_same = match (host_pos, ent.guard_position) {
+                (None, None) => true,
+                (Some(a), Some(b)) => {
+                    (a[0] - b[0]).abs() <= 1e-4
+                        && (a[1] - b[1]).abs() <= 1e-4
+                        && (a[2] - b[2]).abs() <= 1e-4
+                }
+                _ => false,
+            };
+            if pos_same && host_tgt == ent.guard_target_host {
+                continue;
+            }
+            obj.guard_position = ent
+                .guard_position
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            obj.guard_target = if ent.guard_target_host == 0 {
+                None
+            } else {
+                Some(ObjectId(ent.guard_target_host))
+            };
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_continuous_fire_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3693,6 +3752,7 @@ pub fn shadow_session_after_host_tick(
     let target_location_events = crate::game_logic::host_target_location_log::drain();
     let detector_events = crate::game_logic::host_detector_log::drain();
     let continuous_fire_events = crate::game_logic::host_continuous_fire_log::drain();
+    let guard_events = crate::game_logic::host_guard_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -3742,6 +3802,7 @@ pub fn shadow_session_after_host_tick(
     let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
     let _det_applied = shadow.apply_host_detector_events(&detector_events);
     let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
+    let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -3786,6 +3847,7 @@ pub fn shadow_session_after_host_tick(
     let _tloc_wb = shadow.writeback_target_location_to_host(logic);
     let _det_wb = shadow.writeback_detector_to_host(logic);
     let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
+    let _guard_wb = shadow.writeback_guard_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -6607,7 +6669,77 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_guard_log_drives_set_guard_channel() {
+        use crate::game_logic::{host_guard_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("GuardCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("GU") {
+            let mut t = ThingTemplate::new("GU");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("GU".into(), t);
+        }
+        let oid = logic
+            .create_object("GU", Team::USA, glam::Vec3::new(12.0, 0.0, 12.0))
+            .expect("id");
+        let tid = logic
+            .create_object("GU", Team::USA, glam::Vec3::new(14.0, 0.0, 14.0))
+            .expect("tid");
+        host_guard_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_guard_position(Some(glam::Vec3::new(3.0, 0.0, 5.0)));
+            o.set_guard_target(Some(tid));
+        }
+        let events = host_guard_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.target_host == tid.0
+                    && e.position
+                        .map(|p| (p[0] - 3.0).abs() < 1e-3 && (p[2] - 5.0).abs() < 1e-3)
+                        .unwrap_or(false)
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_guard();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.guard_position = None;
+            e.guard_target_host = 0;
+        }
+        let n = shadow.apply_host_guard_events(&host_guard_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        let gp = e.guard_position.expect("gp");
+        assert!((gp[0] - 3.0).abs() < 1e-3 && (gp[2] - 5.0).abs() < 1e-3);
+        assert_eq!(e.guard_target_host, tid.0);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.guard_position = None;
+            o.guard_target = None;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.guard_position = Some([3.0, 0.0, 5.0]);
+            e.guard_target_host = tid.0;
+        }
+        assert!(shadow.writeback_guard_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        let p = o.guard_position.expect("host gp");
+        assert!((p.x - 3.0).abs() < 1e-3 && (p.z - 5.0).abs() < 1e-3);
+        assert_eq!(o.guard_target, Some(tid));
+    }
+
+#[test]
     fn host_continuous_fire_log_drives_set_continuous_fire_channel() {
         use crate::game_logic::{host_continuous_fire_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
