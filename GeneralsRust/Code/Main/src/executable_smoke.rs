@@ -55,6 +55,8 @@ pub struct ExecutableSmokeResult {
     pub sell_cmd_ok: bool,
     pub upgrade_cmd_ok: bool,
     pub guard_cmd_ok: bool,
+    pub attack_move_cmd_ok: bool,
+    pub scatter_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -84,6 +86,8 @@ impl Default for ExecutableSmokeResult {
             sell_cmd_ok: false,
             upgrade_cmd_ok: false,
             guard_cmd_ok: false,
+            attack_move_cmd_ok: false,
+            scatter_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -389,6 +393,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut upgrade_detail = String::new();
     let mut saw_guard_ok = false;
     let mut guard_detail = String::new();
+    let mut saw_attack_move_ok = false;
+    let mut attack_move_detail = String::new();
+    let mut saw_scatter_ok = false;
+    let mut scatter_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -718,10 +726,42 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("guard_") {
                             guard_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["attack_move|x=150|y=0|z=150"]);
                         gameplay_step = 11;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 11 {
+                    } else if gameplay_step == 11
+                        && (snap.last_gameplay_cmd.starts_with("attack_move_ok")
+                            || snap.last_gameplay_cmd.starts_with("attack_move_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("attack_move_ok") {
+                            saw_attack_move_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("attack_move_") {
+                            attack_move_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["scatter"]);
+                        gameplay_step = 12;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 12
+                        && (snap.last_gameplay_cmd.starts_with("scatter_ok")
+                            || snap.last_gameplay_cmd.starts_with("scatter_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("scatter_ok") {
+                            saw_scatter_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("scatter_") {
+                            scatter_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 13;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 13 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -773,6 +813,18 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         } else if snap.last_gameplay_cmd.starts_with("guard_") {
                             guard_detail = snap.last_gameplay_cmd.clone();
                         }
+                        if snap.last_gameplay_cmd.starts_with("attack_move_ok") {
+                            saw_attack_move_ok = true;
+                            attack_move_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("attack_move_") {
+                            attack_move_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("scatter_ok") {
+                            saw_scatter_ok = true;
+                            scatter_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("scatter_") {
+                            scatter_detail = snap.last_gameplay_cmd.clone();
+                        }
                         if snap.last_gameplay_cmd.starts_with("attack_ok")
                             || snap.last_gameplay_cmd.starts_with("attack_fail")
                             || snap.last_gameplay_cmd.starts_with("attack_begin")
@@ -802,6 +854,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.sell_cmd_ok = saw_sell_ok;
                         result.upgrade_cmd_ok = saw_upgrade_ok;
                         result.guard_cmd_ok = saw_guard_ok;
+                        result.attack_move_cmd_ok = saw_attack_move_ok;
+                        result.scatter_cmd_ok = saw_scatter_ok;
                         result.detail =
                             format!("{}; last_cmd={}", result.detail, snap.last_gameplay_cmd);
                         if !construct_detail.is_empty() {
@@ -906,7 +960,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -922,6 +976,8 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.stop_cmd_ok,
         r.sell_cmd_ok,
         r.guard_cmd_ok,
+        r.attack_move_cmd_ok,
+        r.scatter_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
