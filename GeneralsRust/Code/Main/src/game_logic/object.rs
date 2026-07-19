@@ -5485,7 +5485,16 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_selection_radius(&self) {
+        pub fn record_host_demo_mine_cheer(&self) {
+        crate::game_logic::host_demo_mine_cheer_log::record(
+            self.id,
+            self.demo_suicided_detonating,
+            self.mine_data.is_some(),
+            self.cheer_timer,
+        );
+    }
+
+    pub fn record_host_selection_radius(&self) {
         crate::game_logic::host_selection_radius_log::record(self.id, self.selection_radius);
     }
 
@@ -8062,6 +8071,7 @@ impl Object {
             if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
                 self.set_ai_state(AIState::Idle);
                 self.cheer_timer = 0.0;
+                self.record_host_demo_mine_cheer();
             }
         }
 
