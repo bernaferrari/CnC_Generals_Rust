@@ -3238,6 +3238,122 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = format!("beacon_ok:{},{},{}", x, y, z);
                 }
             }
+            "hack_internet" | "hack" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "hack_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "hack_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_HackInternet");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("hack_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "cleanup_area" | "cleanup" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "cleanup_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "cleanup_fail_no_selection".into();
+                    } else {
+                        self.issue_named_command_from_ui("Command_CleanupArea");
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("cleanup_ok:{}", self.selected_objects.len());
+                    }
+                }
+            }
+            "combat_drop" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "combat_drop_fail_not_ingame".into();
+                } else {
+                    let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(70.0);
+                    let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(70.0);
+                    self.ensure_host_mobile_selection();
+                    if self.selected_objects.is_empty() {
+                        self.runtime_host_last_gameplay_cmd =
+                            "combat_drop_fail_no_selection".into();
+                    } else {
+                        self.pending_map_command = Some(PendingMapCommand::CombatDrop);
+                        self.commit_pending_map_command(glam::Vec3::new(x, y, z), None);
+                        self.runtime_host_last_gameplay_cmd =
+                            format!("combat_drop_ok:{},{},{}", x, y, z);
+                    }
+                }
+            }
+            "toggle_overcharge" | "overcharge" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "overcharge_fail_not_ingame".into();
+                } else {
+                    // Prefer power plant selection.
+                    if self.selected_objects.is_empty() {
+                        if let Some(team) = self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                        {
+                            if let Some((id, _)) =
+                                self.game_logic.get_objects().iter().find(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.template_name.to_ascii_lowercase().contains("power")
+                                })
+                            {
+                                self.selected_objects = vec![*id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![*id]);
+                            }
+                        }
+                    }
+                    self.issue_named_command_from_ui("Command_ToggleOvercharge");
+                    self.runtime_host_last_gameplay_cmd = "overcharge_ok".into();
+                }
+            }
+            "special_power" | "do_special_power" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "special_power_fail_not_ingame".into();
+                } else {
+                    self.issue_named_command_from_ui("Command_DoSpecialPower");
+                    self.runtime_host_last_gameplay_cmd = "special_power_ok".into();
+                }
+            }
+            "remove_beacon" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "remove_beacon_fail_not_ingame".into();
+                } else {
+                    self.issue_named_command_from_ui("Command_RemoveBeacon");
+                    self.runtime_host_last_gameplay_cmd = "remove_beacon_ok".into();
+                }
+            }
+            "demo_suicide" | "detonate_demo" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "demo_fail_not_ingame".into();
+                } else {
+                    self.ensure_host_mobile_selection();
+                    self.issue_named_command_from_ui("Command_DemoTertiarySuicide");
+                    self.runtime_host_last_gameplay_cmd = "demo_suicide_ok".into();
+                }
+            }
+            "detonate_remote" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "detonate_remote_fail_not_ingame".into();
+                } else {
+                    self.issue_named_command_from_ui("Command_DetonateRemoteDemoCharges");
+                    self.runtime_host_last_gameplay_cmd = "detonate_remote_ok".into();
+                }
+            }
+            "view_last_radar" | "view_radar" => {
+                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.runtime_host_last_gameplay_cmd = "view_radar_fail_not_ingame".into();
+                } else {
+                    self.issue_named_command_from_ui("Command_ViewLastRadarEvent");
+                    self.runtime_host_last_gameplay_cmd = "view_radar_ok".into();
+                }
+            }
             "construct" | "dozer_construct" | "place_structure" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
@@ -18889,6 +19005,33 @@ fn runtime_host_misc_command_residual() {
         src.contains("place_beacon") && src.contains("beacon_ok:"),
         "runtime host must expose place_beacon residual"
     );
+}
+
+#[test]
+fn runtime_host_special_named_residual() {
+    let src = include_str!("cnc_game_engine.rs");
+    for needle in [
+        "hack_internet",
+        "hack_ok:",
+        "cleanup_area",
+        "cleanup_ok:",
+        "combat_drop",
+        "combat_drop_ok:",
+        "toggle_overcharge",
+        "overcharge_ok",
+        "do_special_power",
+        "special_power_ok",
+        "remove_beacon",
+        "remove_beacon_ok",
+        "demo_suicide",
+        "demo_suicide_ok",
+        "detonate_remote",
+        "detonate_remote_ok",
+        "view_last_radar",
+        "view_radar_ok",
+    ] {
+        assert!(src.contains(needle), "missing host residual {needle}");
+    }
 }
 
 #[test]
