@@ -102,6 +102,38 @@ mod tests {
     }
 
     #[test]
+    fn match_start_presentation_seed_uses_shadow_overlay() {
+        let src = include_str!("cnc_game_engine.rs");
+        // Tokenize so this test name does not match the production fn finder.
+        let needle = format!("fn {}{}(", "seed_presentation_after_", "match_start");
+        let i = src
+            .find(&needle)
+            .expect("seed_presentation_after_match_start");
+        let body = &src[i..src.len().min(i + 1200)];
+        assert!(
+            body.contains("overlay_gameworld_shadow"),
+            "match-start seed must overlay GameWorld shadow last-writer residual"
+        );
+        assert!(
+            body.contains("sync_from_host"),
+            "match-start seed must sync shadow before overlay"
+        );
+        assert!(
+            !body.contains("build_and_apply_for_hud"),
+            "seed must not skip shadow via build_and_apply_for_hud"
+        );
+        // Boot/render residual seed also overlays.
+        let j = src
+            .find("Boot/Menu residual: if no frame yet")
+            .expect("boot residual comment");
+        let boot = &src[j..src.len().min(j + 700)];
+        assert!(
+            boot.contains("overlay_gameworld_shadow"),
+            "boot presentation seed must overlay shadow"
+        );
+    }
+
+    #[test]
     fn apply_presentation_to_huds_dual_no_recurse_residual() {
         let src = include_str!("cnc_game_engine.rs");
         let marker = "fn apply_presentation_to_huds(";
@@ -8815,11 +8847,21 @@ impl CnCGameEngine {
         crate::game_logic::host_damage_log::reset_cumulative();
 
         let local_id = self.current_player_id;
-        let pres = crate::presentation_frame::PresentationFrame::build_and_apply_for_hud(
+        // Match post-tick boundary: host freeze → shadow sync/overlay → HUD consumers.
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            shadow.sync_from_host(&self.game_logic);
+        }
+        let mut pres = crate::presentation_frame::PresentationFrame::build_from_logic(
             &self.game_logic,
             local_id,
-            &mut self.game_hud,
         );
+        if let Some(ref shadow) = self.gameworld_shadow {
+            let n = pres.overlay_gameworld_shadow(shadow);
+            if n > 0 {
+                log::trace!("seed presentation overlay from GameWorld shadow: {n}");
+            }
+        }
+        pres.apply_to_game_hud(&mut self.game_hud);
         #[cfg(feature = "game_client")]
         {
             pres.apply_to_control_bar(&mut self.control_bar);
@@ -9008,12 +9050,17 @@ impl CnCGameEngine {
         // never dual-reads live GameLogic (immutable presentation boundary).
         if self.last_presentation_frame.is_none() {
             let local = self.current_player_id;
-            self.last_presentation_frame = Some(
-                crate::presentation_frame::PresentationFrame::build_from_logic(
-                    &self.game_logic,
-                    local,
-                ),
+            if let Some(ref mut shadow) = self.gameworld_shadow {
+                shadow.sync_from_host(&self.game_logic);
+            }
+            let mut frame = crate::presentation_frame::PresentationFrame::build_from_logic(
+                &self.game_logic,
+                local,
             );
+            if let Some(ref shadow) = self.gameworld_shadow {
+                let _ = frame.overlay_gameworld_shadow(shadow);
+            }
+            self.last_presentation_frame = Some(frame);
         }
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
