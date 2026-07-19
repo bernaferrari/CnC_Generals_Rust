@@ -22598,6 +22598,19 @@ impl GameLogic {
             }
         }
 
+        // Own-force residual: every alive object on a player's team is always
+        // membership-visible to that player (C++ always draws controlling player units).
+        for obj in self.objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            for (&pid, player) in &self.players {
+                if player.team == obj.team && player.team != Team::Neutral {
+                    shroud_mgr.mark_host_object_seen(pid, obj.id.0);
+                }
+            }
+        }
+
         // Object membership residual: mark host objects seen by each viewer's allies.
         // Required because ShroudManager::update() only consults ObjectManager, which
         // does not hold Main host objects on the default authority path.
