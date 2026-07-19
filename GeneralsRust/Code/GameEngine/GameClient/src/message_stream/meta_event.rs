@@ -33,6 +33,7 @@ use crate::display::display::DebugDisplayCallback;
 use crate::display::view::{with_tactical_view, FilterMode, FilterType};
 use crate::drawable::drawable_manager::with_drawable_manager_ref;
 use crate::gui::shell::get_shell;
+use crate::gui::try_with_shell_mut;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
@@ -2500,13 +2501,19 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_LETTERBOX") {
-        if get_shell().is_shell_active() {
-            let mut shell = get_shell();
-            if let Some(layout) = shell.top() {
-                let hide = !layout.is_hidden();
-                layout.hide(hide);
+        let handled = try_with_shell_mut(|shell| {
+            if shell.is_shell_active() {
+                if let Some(layout) = shell.top() {
+                    let hide = !layout.is_hidden();
+                    layout.hide(hide);
+                }
+                true
+            } else {
+                false
             }
-        } else {
+        })
+        .unwrap_or(false);
+        if !handled {
             let _ = toggle_script_display_letter_box();
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -3057,7 +3064,7 @@ impl GameMessageTranslator for MetaEventTranslator {
                 new_mod_state |= MOD_ALT;
             }
 
-            let shell_active = get_shell().is_shell_active();
+            let shell_active = try_with_shell_mut(|shell| shell.is_shell_active()).unwrap_or(false);
             let client_frame =
                 crate::core::game_client::with_live_game_client_mut(|client| client.get_frame())
                     .unwrap_or(0);
