@@ -531,6 +531,14 @@ pub enum WorldMutation {
         radar_count: i32,
         radar_disabled: bool,
     },
+    /// Set player rank / skill / science / bounty residual.
+    SetPlayerProgress {
+        player: PlayerId,
+        rank_level: u32,
+        skill_points: i32,
+        science_purchase_points: i32,
+        cash_bounty_percent: f32,
+    },
 }
 
 /// Borrow-first façade over [`World`] — the target API shape for simulation code.
@@ -942,6 +950,21 @@ impl GameWorld {
                     if let Some(p) = self.inner.player_mut(player) {
                         p.radar_count = radar_count;
                         p.radar_disabled = radar_disabled;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetPlayerProgress {
+                    player,
+                    rank_level,
+                    skill_points,
+                    science_purchase_points,
+                    cash_bounty_percent,
+                } => {
+                    if let Some(p) = self.inner.player_mut(player) {
+                        p.rank_level = rank_level;
+                        p.skill_points = skill_points;
+                        p.science_purchase_points = science_purchase_points;
+                        p.cash_bounty_percent = cash_bounty_percent;
                         applied += 1;
                     }
                 }
