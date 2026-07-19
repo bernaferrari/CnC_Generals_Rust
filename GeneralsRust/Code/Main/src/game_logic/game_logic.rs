@@ -7524,7 +7524,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        u.ai_attitude = attitude_i8.clamp(-2, 2);
+        u.set_ai_attitude_i8(attitude_i8.clamp(-2, 2));
         true
     }
 
@@ -7597,7 +7597,7 @@ impl GameLogic {
             // Only apply prototype attitude when still at default Normal (0).
             // Script/setAttitude overrides must win over re-inherit.
             if u.ai_attitude == 0 && initial_att_i8 != 0 {
-                u.ai_attitude = initial_att_i8.clamp(-2, 2);
+                u.set_ai_attitude_i8(initial_att_i8.clamp(-2, 2));
             }
         }
     }
@@ -92014,7 +92014,7 @@ mod tests {
         logic.objects.insert(aid, {
             let mut o = Object::new(at, aid, Team::China);
             o.set_position(Vec3::ZERO);
-            o.ai_attitude = -2;
+            o.set_ai_attitude_i8(-2);
             o.vision_range = 200.0;
             o.weapon = Some(Weapon {
                 range: 80.0,
@@ -92211,7 +92211,7 @@ mod tests {
         let aid = ObjectId(2412);
         logic.objects.insert(aid, {
             let mut o = Object::new(at, aid, Team::USA);
-            o.ai_attitude = -2;
+            o.set_ai_attitude_i8(-2);
             o.weapon = Some(Weapon {
                 range: 50.0,
                 damage: 10.0,
