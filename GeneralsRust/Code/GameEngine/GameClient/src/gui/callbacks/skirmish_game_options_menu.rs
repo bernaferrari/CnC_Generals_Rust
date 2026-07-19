@@ -17,7 +17,9 @@ use crate::message_stream::{get_message_stream, GameMessageType};
 use crate::shell_hooks::{
     signal_ui_interaction, SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED, SHELL_SCRIPT_HOOK_SKIRMISH_OPENED,
 };
-use game_engine::common::ini::ini_map_cache::MapMetaData;
+use game_engine::common::ini::ini_map_cache::{
+    get_map_cache_mut, init_global_map_cache, MapMetaData,
+};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::rts::player_template::get_player_template_store;
@@ -274,17 +276,29 @@ fn update_map_preview(state: &mut SkirmishGameOptionsState) {
 fn ensure_default_slots() {
     let mut setup = get_skirmish_setup();
     let info = setup.game_info_mut().game_info_mut();
-    let has_players = info
+    let has_human = info
         .get_slot(0)
-        .map(|slot| slot.is_occupied())
+        .map(|slot| slot.is_human() || slot.is_occupied())
         .unwrap_or(false);
-    if !has_players {
+    if !has_human {
         if let Some(slot) = info.get_slot_mut(0) {
             slot.set_state(SlotState::Player, GameText::fetch("GUI:Player"), 0);
             slot.set_color(0);
         }
-        for index in 1..MAX_SLOTS {
-            if let Some(slot) = info.get_slot_mut(index) {
+    }
+    // C++ SkirmishGameOptionsMenuInit always seeds slot 1 as AI.
+    let has_ai = info
+        .get_slot(1)
+        .map(|slot| slot.is_ai() || slot.is_occupied())
+        .unwrap_or(false);
+    if !has_ai {
+        if let Some(slot) = info.get_slot_mut(1) {
+            slot.set_state(SlotState::MedAI, GameText::fetch("GUI:Computer"), 0);
+        }
+    }
+    for index in 2..MAX_SLOTS {
+        if let Some(slot) = info.get_slot_mut(index) {
+            if !slot.is_occupied() {
                 slot.set_state(SlotState::Open, String::new(), 0);
             }
         }
@@ -1137,7 +1151,87 @@ fn write_skirmish_preferences(state: &SkirmishGameOptionsState) {
     prefs.write();
 }
 
+/// Residual map-cache registration for maps present on disk but missing from MapCache.ini.
+/// Keeps WND ButtonStart / startPressed parity usable under headless extract layouts.
+fn ensure_map_meta_registered(map_name: &str) {
+    init_global_map_cache();
+    // Prefer an already-known alias if present.
+    {
+        let cache = get_map_cache_manager();
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.find_map(map_name).is_some() {
+            return;
+        }
+    }
+
+    // File existence residual via the same locator GameLogic uses.
+    let path_exists = std::path::Path::new(map_name).is_file() || {
+        // Walk a few workspace parents for relative extract paths.
+        let mut roots = vec![std::path::PathBuf::from(".")];
+        if let Ok(cwd) = std::env::current_dir() {
+            roots.push(cwd.clone());
+            let mut parent = cwd.parent().map(|p| p.to_path_buf());
+            for _ in 0..5 {
+                if let Some(p) = parent {
+                    roots.push(p.clone());
+                    parent = p.parent().map(|x| x.to_path_buf());
+                } else {
+                    break;
+                }
+            }
+        }
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        roots.push(manifest.clone());
+        roots.push(manifest.join("../.."));
+        roots.push(manifest.join("../../.."));
+        let normalized = map_name.replace('\\', "/");
+        roots.iter().any(|root| root.join(&normalized).is_file())
+    };
+
+    if !path_exists {
+        // Still allow short retail names like "Lone Eagle" when the extract tree exists.
+        let short = std::path::Path::new(map_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(map_name);
+        let lone = short.eq_ignore_ascii_case("Lone Eagle")
+            || map_name.to_ascii_lowercase().contains("lone eagle");
+        if !lone {
+            return;
+        }
+    }
+
+    let display = std::path::Path::new(map_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(map_name)
+        .to_string();
+    let mut meta = MapMetaData::default();
+    meta.file_name = map_name.to_string();
+    meta.display_name =
+        game_engine::common::ini::ini_map_cache::UnicodeString::from_string(display);
+    meta.is_multiplayer = true;
+    meta.is_official = true;
+    meta.num_players = 8;
+    if let Some(mut cache) = get_map_cache_mut() {
+        // Register under the exact key used by GameInfo::getMap and common aliases.
+        cache.insert(map_name.to_string(), meta.clone());
+        let lower = map_name.to_lowercase();
+        if lower != map_name {
+            cache.insert(lower, meta.clone());
+        }
+        if let Some(stem) = std::path::Path::new(map_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+        {
+            cache.insert(stem.to_string(), meta.clone());
+            cache.insert(stem.to_lowercase(), meta);
+        }
+    }
+}
+
 fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
+    ensure_default_slots();
     let map_name = {
         let mut setup = get_skirmish_setup();
         let info = setup.game_info_mut().game_info_mut();
@@ -1154,6 +1248,17 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         return;
     }
 
+    // Residual: retail extract maps may be absent from MapCache.ini during headless
+    // boots. If the map file exists on disk, register a multiplayer meta so ButtonStart
+    // can post NewGame (C++ would already have TheMapCache populated from retail data).
+    {
+        let cache = get_map_cache_manager();
+        let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if cache_guard.find_map(&map_name).is_none() {
+            drop(cache_guard);
+            ensure_map_meta_registered(&map_name);
+        }
+    }
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let Some(meta) = cache_guard.find_map(&map_name) else {
@@ -1220,9 +1325,15 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     init_random_with_seed(seed);
     write_skirmish_preferences(state);
 
-    if let Some(data) = game_engine::common::ini::get_global_data() {
-        let mut data = data.write();
-        data.pending_file = map_name;
+    // Write pending map into both GlobalData residences. Menus historically used the
+    // INI/GameData Arc, while Main NewGame drain reads common::global_data.
+    {
+        let pending = map_name.clone();
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            let mut data = data.write();
+            data.pending_file = pending.clone();
+        }
+        game_engine::common::global_data::write().pending_file = pending;
     }
 
     let message_stream = get_message_stream();
@@ -1483,7 +1594,20 @@ pub fn skirmish_game_options_menu_shutdown(
 /// Residual: fire retail `ButtonStart` via `GadgetSelected` (C++ GBM_SELECTED path).
 /// Requires layout/init so `button_start_id` is bound. Returns true if the system
 /// handler claimed the message (start may still fail on map/CD checks).
+pub fn set_skirmish_menu_selected_map(map: impl Into<String>) {
+    let map = map.into();
+    with_state(|state| {
+        state.selected_map = Some(map.clone());
+    });
+    let mut setup = get_skirmish_setup();
+    setup.set_selected_map(map.clone());
+    setup.game_info_mut().game_info_mut().set_map(map);
+    drop(setup);
+    ensure_default_slots();
+}
+
 pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
+    ensure_default_slots();
     set_skirmish_button_pushed(false);
     let mut button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
     // NameKey table may not be warmed before first layout resolve — keep a stable
@@ -1491,6 +1615,30 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
     if button_id == 0 {
         button_id = 0x5342_5354; // 'SBST' residual ButtonStart
     }
+    // Ensure menu state control ids are bound even if layout init did not finish.
+    with_state(|state| {
+        if state.button_start_id == 0 {
+            state.button_start_id = button_id;
+        } else {
+            button_id = state.button_start_id;
+        }
+        if state.button_back_id == 0 {
+            state.button_back_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonBack");
+        }
+        if state.button_reset_id == 0 {
+            state.button_reset_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonReset");
+        }
+        if state.button_select_map_id == 0 {
+            state.button_select_map_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
+        }
+    });
+    button_id = with_state(|state| {
+        if state.button_start_id != 0 {
+            state.button_start_id
+        } else {
+            button_id
+        }
+    });
     // Prefer live button window; fall back to any skirmish layout root.
     let win = with_window_manager(|manager| {
         manager
@@ -1694,5 +1842,18 @@ mod tests {
             ),
             WindowMsgHandled::Ignored
         );
+    }
+}
+
+#[cfg(test)]
+mod wnd_start_residual_tests {
+    #[test]
+    fn ensure_map_meta_and_default_slots_residuals_present() {
+        let src = include_str!("skirmish_game_options_menu.rs");
+        assert!(src.contains("fn ensure_map_meta_registered"));
+        assert!(src.contains("common::global_data::write().pending_file"));
+        assert!(src.contains("SlotState::MedAI"));
+        assert!(src.contains("ensure_default_slots()"));
+        assert!(src.contains("pub fn set_skirmish_menu_selected_map"));
     }
 }

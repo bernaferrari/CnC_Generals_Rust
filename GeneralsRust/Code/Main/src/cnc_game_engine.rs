@@ -2170,9 +2170,9 @@ impl CnCGameEngine {
                         );
                         // Bind control IDs + selected map into WND state when possible.
                         if let Some(map) = args.get("map") {
-                            let mut setup = game_client::gui::get_skirmish_setup();
-                            setup.set_selected_map(map.clone());
-                            setup.game_info_mut().game_info_mut().set_map(map.clone());
+                            game_client::gui::callbacks::set_skirmish_menu_selected_map(
+                                map.clone(),
+                            );
                         }
                         wnd_start_ok = game_client::gui::callbacks::simulate_skirmish_start_button_gadget_selected();
                         if wnd_start_ok {
