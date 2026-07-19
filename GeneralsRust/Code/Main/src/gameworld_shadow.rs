@@ -1512,6 +1512,33 @@ impl GameWorldShadow {
         updated
     }
 
+    /// Write shadow construction residual last-writer onto host objects.
+    pub fn writeback_construction_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let mut dirty = false;
+            let pct = ent.construction_percent.clamp(0.0, 1.0);
+            if (obj.construction_percent - pct).abs() > 1e-5 {
+                obj.construction_percent = pct;
+                dirty = true;
+            }
+            if obj.status.under_construction != ent.under_construction {
+                obj.status.under_construction = ent.under_construction;
+                dirty = true;
+            }
+            if dirty {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
     /// Count completed upgrade names across mapped shadow players (probe residual).
     /// True when any shadow player has non-zero produced or consumed power residual.
     /// True when any shadow player has radar providers or a disabled flag residual.
@@ -2384,6 +2411,7 @@ pub fn shadow_session_after_host_tick(
     // Pose last-writer after all SetTransform mutations this session.
     let _pose_wb = shadow.writeback_transforms_to_host(logic);
     let _prod_wb = shadow.writeback_production_to_host(logic);
+    let _construction_wb = shadow.writeback_construction_to_host(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -3428,6 +3456,51 @@ mod tests {
         let bd = obj.building_data.as_ref().expect("bd");
         assert_eq!(bd.rally_point, Some(glam::Vec3::new(9.0, 0.0, 8.0)));
         assert!((bd.production_queue[0].progress - 0.75).abs() < 1e-5);
+    }
+
+    #[test]
+    fn writeback_construction_percent_to_host() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ConstrWb");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("BuildPad") {
+            let mut t = ThingTemplate::new("BuildPad");
+            t.set_health(500.0);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("BuildPad".into(), t);
+        }
+        let id = logic
+            .create_object("BuildPad", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        {
+            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            obj.construction_percent = 0.2;
+            obj.status.under_construction = true;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(id).expect("map");
+        {
+            let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
+            e.construction_percent = 0.85;
+            e.under_construction = true;
+        }
+        let n = shadow.writeback_construction_to_host(&mut logic);
+        assert!(n >= 1);
+        let obj = logic.get_objects().get(&id).expect("o");
+        assert!((obj.construction_percent - 0.85).abs() < 1e-5);
+        assert!(obj.status.under_construction);
+        // Complete residual
+        {
+            let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
+            e.construction_percent = 1.0;
+            e.under_construction = false;
+        }
+        let _ = shadow.writeback_construction_to_host(&mut logic);
+        let obj = logic.get_objects().get(&id).expect("o");
+        assert!((obj.construction_percent - 1.0).abs() < 1e-5);
+        assert!(!obj.status.under_construction);
     }
 
     #[test]

@@ -697,8 +697,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         if let Ok(Some(status)) = child.try_wait() {
             result.exit_code = status.code();
             if result.reached_ingame && status.success() {
-                result.status = "success".into();
-                result.executable_host_ok = true;
+                result.executable_host_ok =
+                    executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                result.status = if result.executable_host_ok {
+                    "success".into()
+                } else {
+                    "ingame_without_shell_wnd".into()
+                };
                 let prior = result.detail.clone();
                 result.detail = format!(
                     "exited ok after InGame frames={} map={} new_game={}",
@@ -726,8 +731,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                 );
                 // Partial success: reached InGame even if non-zero (e.g. unclean shutdown).
                 if result.reached_ingame {
-                    result.executable_host_ok = true;
-                    result.status = "success_partial_exit".into();
+                    result.executable_host_ok =
+                        executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                    result.status = if result.executable_host_ok {
+                        "success_partial_exit".into()
+                    } else {
+                        "ingame_without_shell_wnd".into()
+                    };
                 }
             }
             break;
@@ -2286,15 +2296,21 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                     if let Ok(Some(status)) = child.try_wait() {
                         result.exit_code = status.code();
                         if result.reached_ingame {
-                            result.executable_host_ok = true;
-                            result.status = "success".into();
+                            result.executable_host_ok =
+                                executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                            result.status = if result.executable_host_ok {
+                                "success".into()
+                            } else {
+                                "ingame_without_shell_wnd".into()
+                            };
                             result.detail = format!(
-                                "InGame frames={} map={} exit={:?} new_game={} menu={}",
+                                "InGame frames={} map={} exit={:?} new_game={} menu={} shell_wnd={}",
                                 result.frames_observed,
                                 result.map_seen,
                                 status.code(),
                                 use_new_game_path,
-                                result.reached_menu
+                                result.reached_menu,
+                                result.shell_wnd_ok
                             );
                         } else if result.reached_menu {
                             result.status = "menu_only".into();
@@ -2320,11 +2336,16 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                     {
                         kill_child(&mut child);
                         if result.reached_ingame {
-                            result.executable_host_ok = true;
-                            result.status = "success_forced_exit".into();
+                            result.executable_host_ok =
+                                executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                            result.status = if result.executable_host_ok {
+                                "success_forced_exit".into()
+                            } else {
+                                "ingame_without_shell_wnd".into()
+                            };
                             result.detail = format!(
-                                "InGame ok but exit hang; frames={} map={}",
-                                result.frames_observed, result.map_seen
+                                "InGame ok but exit hang; frames={} map={} shell_wnd={}",
+                                result.frames_observed, result.map_seen, result.shell_wnd_ok
                             );
                         } else {
                             result.status = "exit_hang".into();
@@ -2345,6 +2366,29 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // Never flip retail claim from this harness.
     result.playable_claim = false;
     result
+}
+
+fn runtime_host_wnd_enabled() -> bool {
+    !matches!(
+        std::env::var("GENERALS_RUNTIME_HOST_WND")
+            .unwrap_or_else(|_| "1".into())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "off" | "no"
+    )
+}
+
+/// When WND push is enabled, limited host_ok also requires shell_wnd residual.
+fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -> bool {
+    if !reached_ingame {
+        return false;
+    }
+    if runtime_host_wnd_enabled() {
+        shell_wnd_ok
+    } else {
+        true
+    }
 }
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
@@ -2490,6 +2534,33 @@ mod tests {
         assert_eq!(snap.render_item_count, 42);
         assert_eq!(snap.render_alive_objects, 100);
         assert!(snap.presentation_frame_ok);
+    }
+
+    #[test]
+    fn host_ok_requires_shell_wnd_when_wnd_enabled() {
+        let _guard = std::env::var("GENERALS_RUNTIME_HOST_WND");
+        // Safety: process-local env for this test only.
+        unsafe {
+            std::env::set_var("GENERALS_RUNTIME_HOST_WND", "1");
+        }
+        assert!(
+            !executable_host_ok_from_residuals(true, false),
+            "WND path must not claim host_ok without shell_wnd residual"
+        );
+        assert!(executable_host_ok_from_residuals(true, true));
+        assert!(!executable_host_ok_from_residuals(false, true));
+        unsafe {
+            std::env::set_var("GENERALS_RUNTIME_HOST_WND", "0");
+        }
+        assert!(
+            executable_host_ok_from_residuals(true, false),
+            "WND-off path allows host_ok without shell residual"
+        );
+        // restore
+        match _guard {
+            Ok(v) => unsafe { std::env::set_var("GENERALS_RUNTIME_HOST_WND", v) },
+            Err(_) => unsafe { std::env::remove_var("GENERALS_RUNTIME_HOST_WND") },
+        }
     }
 
     #[test]
