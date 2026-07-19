@@ -9,8 +9,9 @@ use crate::gui::menu_flags::{
 };
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, KeyModifiers,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
+    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    write_input_focus_response, GameWindow, KeyModifiers, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
@@ -425,7 +426,7 @@ fn close_save_menu(window: &GameWindow, is_popup: bool) {
             layout.borrow_mut().hide(true);
         }
     } else {
-        let _ = get_shell().hide_shell();
+        let _ = try_with_shell_mut(|shell| shell.hide_shell());
     }
 }
 
@@ -434,7 +435,7 @@ fn do_load_game(state: &SaveLoadMenuState) {
         return;
     };
 
-    let shell_active = get_shell().is_shell_active();
+    let shell_active = try_with_shell_mut(|shell| shell.is_shell_active()).unwrap_or(false);
     if !shell_active {
         destroy_quit_menu();
     } else {
@@ -457,7 +458,7 @@ fn do_load_game(state: &SaveLoadMenuState) {
             let mut engine = engine.lock();
             let _ = pollster::block_on(engine.reset());
         }
-        let _ = get_shell().show_shell(true);
+        let _ = try_with_shell_mut(|shell| shell.show_shell(true));
     }
 }
 
@@ -466,7 +467,7 @@ fn process_load_button_press(state: &mut SaveLoadMenuState, window: &GameWindow)
         return;
     }
 
-    if get_shell().is_shell_active() {
+    if try_with_shell_mut(|shell| shell.is_shell_active()).unwrap_or(false) {
         close_save_menu(window, state.is_popup);
         do_load_game(state);
         return;
@@ -528,8 +529,7 @@ pub fn save_load_menu_full_screen_init(
     layout: &WindowLayout,
     user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut shell = get_shell();
-    shell.show_shell_map(true);
+    show_shell_map_if_available(true);
 
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -584,7 +584,7 @@ pub fn save_load_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     if pop_immediate {
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         return;
     }
 
@@ -622,11 +622,11 @@ pub fn save_load_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     }
 
     if state.is_shutting_down {
-        let shell_finished = get_shell().is_anim_finished();
+        let shell_finished = try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false);
         let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
         if shell_finished && transitions_finished {
             layout.hide(true);
-            let _ = get_shell().shutdown_complete(None, false);
+            let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
         }
     }
 }
@@ -752,7 +752,7 @@ pub fn save_load_menu_system(
                 if state.is_popup {
                     close_save_menu(window, true);
                 } else {
-                    let _ = get_shell().pop();
+                    let _ = try_with_shell_mut(|shell| shell.pop());
                 }
                 return WindowMsgHandled::Handled;
             }
