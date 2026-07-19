@@ -2005,6 +2005,32 @@ impl CnCGameEngine {
             render_fow_filtered: self.render_pipeline.debug_last_fow_filtered() as u32,
             render_item_count: self.render_pipeline.debug_render_item_count() as u32,
             render_model_missing: self.render_pipeline.debug_last_model_missing() as u32,
+            render_frustum_culled: self.render_pipeline.debug_last_frustum_culled() as u32,
+            camera_pos: format!(
+                "{:.1},{:.1},{:.1}",
+                self.camera_position.x, self.camera_position.y, self.camera_position.z
+            ),
+            camera_target: format!(
+                "{:.1},{:.1},{:.1}",
+                self.camera_target.x, self.camera_target.y, self.camera_target.z
+            ),
+            sample_unit_pos: {
+                let team = self
+                    .game_logic
+                    .get_player(self.current_player_id)
+                    .map(|p| p.team);
+                let mut sample = "-".to_string();
+                if let Some(team) = team {
+                    for obj in self.game_logic.get_objects().values() {
+                        if obj.team == team && obj.is_alive() {
+                            let pos = obj.get_position();
+                            sample = format!("{:.1},{:.1},{:.1}:{}", pos.x, pos.y, pos.z, obj.name);
+                            break;
+                        }
+                    }
+                }
+                sample
+            },
         }
     }
 
@@ -8849,6 +8875,13 @@ impl CnCGameEngine {
                 render_call, skip_world_scene, self.current_state
             );
         }
+        // Keep match camera orbit→view_matrix coherent every draw. Shell→InGame
+        // residual: update_camera may skip apply when no input, leaving a stale
+        // view_matrix from the shell map.
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.apply_camera_orbit_transform();
+        }
+
         // Full presentation snapshot for render collect (transforms/model/selection/health).
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
@@ -10804,52 +10837,105 @@ impl CnCGameEngine {
         self.transition_to_state(GameState::InGame);
     }
 
-    /// Prefer a local structure/unit centroid for the match camera when the current
-    /// target is far from any local object (common Lone Eagle residual).
+    /// Prefer a local base focus for the match camera when bootstrap aim is far
+    /// from the human force (common Lone Eagle residual).
+    ///
+    /// Do **not** average every local object — map-wide centroid pulls the camera
+    /// between bases and frustum-culls everything.
     fn snap_camera_to_local_units_if_needed(&mut self) {
-        let Some(team) = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team)
-        else {
+        let Some(player) = self.game_logic.get_player(self.current_player_id) else {
             return;
         };
-        let mut sum = Vec3::ZERO;
-        let mut n = 0u32;
+        let team = player.team;
+        // Prefer host team base, else current camera target as proximity hint.
+        let start_hint = self
+            .game_logic
+            .team_base_position(team)
+            .unwrap_or(self.camera_target);
+
+        let mut command_center: Option<Vec3> = None;
+        let mut nearest_structure: Option<(f32, Vec3)> = None;
+        let mut nearest_mobile: Option<(f32, Vec3)> = None;
+        let mut structure_sum = Vec3::ZERO;
+        let mut structure_n = 0u32;
+
         for obj in self.game_logic.get_objects().values() {
             if obj.team != team || !obj.is_alive() {
                 continue;
             }
-            // Prefer structures (base), then any local object.
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                || obj.is_mobile()
-                || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
-            {
-                sum += obj.get_position();
-                n += 1;
+            let pos = obj.get_position();
+            let d2 = {
+                let dx = pos.x - start_hint.x;
+                let dz = pos.z - start_hint.z;
+                dx * dx + dz * dz
+            };
+            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                structure_sum += pos;
+                structure_n += 1;
+                let name = obj.name.to_ascii_lowercase();
+                if name.contains("commandcenter") || name.contains("command_center") {
+                    // Prefer CC closest to the player's start slot.
+                    match command_center {
+                        None => command_center = Some(pos),
+                        Some(prev) => {
+                            let pdx = prev.x - start_hint.x;
+                            let pdz = prev.z - start_hint.z;
+                            if d2 < pdx * pdx + pdz * pdz {
+                                command_center = Some(pos);
+                            }
+                        }
+                    }
+                }
+                nearest_structure = Some(match nearest_structure {
+                    None => (d2, pos),
+                    Some((best, p)) if d2 < best => (d2, pos),
+                    Some(other) => other,
+                });
+            } else if obj.is_mobile() || obj.is_kind_of(crate::game_logic::KindOf::Infantry) {
+                nearest_mobile = Some(match nearest_mobile {
+                    None => (d2, pos),
+                    Some((best, p)) if d2 < best => (d2, pos),
+                    Some(other) => other,
+                });
             }
         }
-        if n == 0 {
+
+        let focus = command_center
+            .or_else(|| nearest_structure.map(|(_, p)| p))
+            .or_else(|| {
+                if structure_n > 0 {
+                    Some(structure_sum / structure_n as f32)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| nearest_mobile.map(|(_, p)| p));
+        let Some(focus) = focus else {
             return;
-        }
-        let centroid = sum / n as f32;
-        let dx = centroid.x - self.camera_target.x;
-        let dz = centroid.z - self.camera_target.z;
+        };
+
+        let dx = focus.x - self.camera_target.x;
+        let dz = focus.z - self.camera_target.z;
         let dist_sq = dx * dx + dz * dz;
-        // If already aimed near the local force, keep bootstrap (C++ InitialCamera).
-        if dist_sq < 200.0 * 200.0 {
+        // If already aimed near the local base, keep bootstrap (C++ InitialCamera).
+        if dist_sq < 250.0 * 250.0 {
+            // Still force a sane orbit so frustum is not degenerate after shell→match.
+            if self.camera_orbit_distance < 40.0 || self.camera_orbit_distance > 800.0 {
+                self.camera_orbit_distance = 280.0;
+                self.camera_pitch_radians = 35.0_f32.to_radians();
+                self.camera_yaw_radians = 0.0;
+                self.apply_camera_orbit_transform();
+            }
             return;
         }
-        let height = self
-            .camera_position
-            .y
-            .max(self.camera_target.y + 80.0)
-            .max(120.0);
-        self.camera_target = Vec3::new(centroid.x, centroid.y, centroid.z);
-        // Simple elevated look-at residual (does not depend on orbit pitch tan edge cases).
-        self.camera_position = Vec3::new(centroid.x - 80.0, height, centroid.z - 160.0);
-        self.camera_zoom = self.camera_zoom.clamp(0.6, 1.8);
-        self.sync_orbit_from_camera_transform();
+
+        self.camera_target = Vec3::new(focus.x, focus.y, focus.z);
+        // Retail-ish elevated look: fixed orbit, not a one-off look_at that
+        // update_camera immediately overwrites with a broken pitch/distance.
+        self.camera_orbit_distance = 320.0;
+        self.camera_pitch_radians = 38.0_f32.to_radians();
+        self.camera_yaw_radians = 0.35; // slight yaw so bases aren't edge-on
+        self.camera_zoom = 1.0;
         self.apply_camera_orbit_transform();
     }
 
@@ -15680,7 +15766,10 @@ impl CnCGameEngine {
 
             // Edge scrolling (C++ LookAt.cpp: near screen edge).
             // Enable for windowed + fullscreen so map-panning works without arrows.
+            // Headless runtime-host residual: mouse stays at (0,0) without OS cursor
+            // events, which would permanently edge-scroll the camera off the map.
             if matches!(self.current_state, GameState::InGame | GameState::Paused)
+                && !self.runtime_host_headless
                 && !self.chat_panel.is_open()
                 && !self.diplomacy_panel.is_active()
             {
@@ -16701,6 +16790,10 @@ struct RuntimeHostSnapshot {
     render_fow_filtered: u32,
     render_item_count: u32,
     render_model_missing: u32,
+    render_frustum_culled: u32,
+    camera_pos: String,
+    camera_target: String,
+    sample_unit_pos: String,
 }
 
 #[derive(Debug)]
@@ -16851,6 +16944,10 @@ impl RuntimeHostBridge {
             render_fow_filtered: 0,
             render_item_count: 0,
             render_model_missing: 0,
+            render_frustum_culled: 0,
+            camera_pos: String::new(),
+            camera_target: String::new(),
+            sample_unit_pos: String::new(),
         };
         self.publish_status(&snapshot);
     }
@@ -16916,6 +17013,13 @@ impl RuntimeHostBridge {
             "render_model_missing={}\n",
             snapshot.render_model_missing
         ));
+        payload.push_str(&format!(
+            "render_frustum_culled={}\n",
+            snapshot.render_frustum_culled
+        ));
+        payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
+        payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
+        payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));
         payload.push_str(&format!("pending_capture={}\n", snapshot.pending_capture));
         payload.push_str(&format!(
             "frame_path={}\n",
@@ -19995,6 +20099,22 @@ mod world_scene_skip_residual_tests {
         assert!(
             body.contains("_ => false"),
             "InGame and other states must not skip via menu warmup counter"
+        );
+    }
+}
+
+#[cfg(test)]
+mod headless_edge_scroll_residual_tests {
+    #[test]
+    fn edge_scroll_disabled_when_headless() {
+        let src = include_str!("cnc_game_engine.rs");
+        let i = src
+            .find("Edge scrolling (C++ LookAt.cpp")
+            .expect("edge scroll");
+        let body = &src[i..src.len().min(i + 500)];
+        assert!(
+            body.contains("!self.runtime_host_headless"),
+            "headless runtime host must not edge-scroll from stuck (0,0) mouse"
         );
     }
 }
