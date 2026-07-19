@@ -57,6 +57,10 @@ pub struct ExecutableSmokeResult {
     pub guard_cmd_ok: bool,
     pub attack_move_cmd_ok: bool,
     pub scatter_cmd_ok: bool,
+    pub patrol_cmd_ok: bool,
+    pub deploy_cmd_ok: bool,
+    pub cheer_cmd_ok: bool,
+    pub formation_cmd_ok: bool,
     /// Runtime-host opened Skirmish UI screen before start_game.
     pub skirmish_menu_ok: bool,
     /// Runtime-host exercised SkirmishMenu Start button click path (not WND widget tree).
@@ -88,6 +92,10 @@ impl Default for ExecutableSmokeResult {
             guard_cmd_ok: false,
             attack_move_cmd_ok: false,
             scatter_cmd_ok: false,
+            patrol_cmd_ok: false,
+            deploy_cmd_ok: false,
+            cheer_cmd_ok: false,
+            formation_cmd_ok: false,
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             frames_observed: 0,
@@ -397,6 +405,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut attack_move_detail = String::new();
     let mut saw_scatter_ok = false;
     let mut scatter_detail = String::new();
+    let mut saw_patrol_ok = false;
+    let mut patrol_detail = String::new();
+    let mut saw_deploy_ok = false;
+    let mut deploy_detail = String::new();
+    let mut saw_cheer_ok = false;
+    let mut cheer_detail = String::new();
+    let mut saw_formation_ok = false;
+    let mut formation_detail = String::new();
     let mut train_sent = false;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
@@ -758,10 +774,74 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("scatter_") {
                             scatter_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        let _ = write_control(&control_path, &["patrol"]);
                         gameplay_step = 13;
                         commanded_at = Some(Instant::now());
-                    } else if gameplay_step >= 13 {
+                    } else if gameplay_step == 13
+                        && (snap.last_gameplay_cmd.starts_with("patrol_ok")
+                            || snap.last_gameplay_cmd.starts_with("patrol_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("patrol_ok") {
+                            saw_patrol_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("patrol_") {
+                            patrol_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["deploy"]);
+                        gameplay_step = 14;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 14
+                        && (snap.last_gameplay_cmd.starts_with("deploy_ok")
+                            || snap.last_gameplay_cmd.starts_with("deploy_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("deploy_ok") {
+                            saw_deploy_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("deploy_") {
+                            deploy_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["cheer"]);
+                        gameplay_step = 15;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 15
+                        && (snap.last_gameplay_cmd.starts_with("cheer_ok")
+                            || snap.last_gameplay_cmd.starts_with("cheer_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(4))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("cheer_ok") {
+                            saw_cheer_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("cheer_") {
+                            cheer_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["formation"]);
+                        gameplay_step = 16;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 16
+                        && (snap.last_gameplay_cmd.starts_with("formation_ok")
+                            || snap.last_gameplay_cmd.starts_with("formation_fail")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .unwrap_or(false))
+                    {
+                        if snap.last_gameplay_cmd.starts_with("formation_ok") {
+                            saw_formation_ok = true;
+                        }
+                        if snap.last_gameplay_cmd.starts_with("formation_") {
+                            formation_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        let _ = write_control(&control_path, &["attack_nearest_enemy"]);
+                        gameplay_step = 17;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 17 {
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
@@ -825,6 +905,30 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         } else if snap.last_gameplay_cmd.starts_with("scatter_") {
                             scatter_detail = snap.last_gameplay_cmd.clone();
                         }
+                        if snap.last_gameplay_cmd.starts_with("patrol_ok") {
+                            saw_patrol_ok = true;
+                            patrol_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("patrol_") {
+                            patrol_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("deploy_ok") {
+                            saw_deploy_ok = true;
+                            deploy_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("deploy_") {
+                            deploy_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("cheer_ok") {
+                            saw_cheer_ok = true;
+                            cheer_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("cheer_") {
+                            cheer_detail = snap.last_gameplay_cmd.clone();
+                        }
+                        if snap.last_gameplay_cmd.starts_with("formation_ok") {
+                            saw_formation_ok = true;
+                            formation_detail = snap.last_gameplay_cmd.clone();
+                        } else if snap.last_gameplay_cmd.starts_with("formation_") {
+                            formation_detail = snap.last_gameplay_cmd.clone();
+                        }
                         if snap.last_gameplay_cmd.starts_with("attack_ok")
                             || snap.last_gameplay_cmd.starts_with("attack_fail")
                             || snap.last_gameplay_cmd.starts_with("attack_begin")
@@ -856,6 +960,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.guard_cmd_ok = saw_guard_ok;
                         result.attack_move_cmd_ok = saw_attack_move_ok;
                         result.scatter_cmd_ok = saw_scatter_ok;
+                        result.patrol_cmd_ok = saw_patrol_ok;
+                        result.deploy_cmd_ok = saw_deploy_ok;
+                        result.cheer_cmd_ok = saw_cheer_ok;
+                        result.formation_cmd_ok = saw_formation_ok;
                         result.detail =
                             format!("{}; last_cmd={}", result.detail, snap.last_gameplay_cmd);
                         if !construct_detail.is_empty() {
@@ -960,7 +1068,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -978,6 +1086,10 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.guard_cmd_ok,
         r.attack_move_cmd_ok,
         r.scatter_cmd_ok,
+        r.patrol_cmd_ok,
+        r.deploy_cmd_ok,
+        r.cheer_cmd_ok,
+        r.formation_cmd_ok,
         r.skirmish_menu_ok,
         r.skirmish_start_click_ok,
         r.frames_observed,
