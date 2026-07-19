@@ -19,8 +19,8 @@ use crate::gui::load_screen::{
     LoadScreenKind, LoadScreenRequest,
 };
 use crate::gui::{
-    get_shell, hide_control_bar, with_window_manager, HintData, HintType, MouseCursor, MouseMode,
-    WindowLayout, WindowStatus,
+    get_shell, hide_control_bar, show_shell_map_if_available, try_with_shell_mut,
+    with_window_manager, HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus,
 };
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
@@ -309,7 +309,7 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
     }
 
     fn hide_shell(&self) {
-        let _ = get_shell().hide_shell();
+        let _ = try_with_shell_mut(|shell| shell.hide_shell());
     }
 }
 
@@ -371,11 +371,14 @@ impl GameClientLoadScreenHooks {
             return;
         }
 
-        {
-            let mut shell = get_shell();
-            if let Err(err) = shell.show_main_menu_after_shell_game_start() {
-                log::warn!("Failed to activate shell main menu after shell-map load: {err}");
+        match try_with_shell_mut(|shell| shell.show_main_menu_after_shell_game_start()) {
+            Some(Err(err)) => {
+                log::warn!("Failed to activate shell main menu after shell-map load: {err}")
             }
+            None => {
+                log::debug!("show_main_menu_after_shell_game_start skipped: shell already borrowed")
+            }
+            Some(Ok(())) => {}
         }
 
         if let Err(err) = hide_control_bar(true) {
