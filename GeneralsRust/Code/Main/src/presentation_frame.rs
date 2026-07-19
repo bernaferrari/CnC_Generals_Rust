@@ -4224,6 +4224,14 @@ impl PresentationFrame {
                 obj.under_construction = ent.under_construction;
                 dirty = true;
             }
+            if obj.sold != ent.sold {
+                obj.sold = ent.sold;
+                dirty = true;
+            }
+            if obj.reconstructing != ent.reconstructing {
+                obj.reconstructing = ent.reconstructing;
+                dirty = true;
+            }
             if (obj.construction_percent - ent.construction_percent).abs() > 1e-4 {
                 obj.construction_percent = ent.construction_percent;
                 dirty = true;

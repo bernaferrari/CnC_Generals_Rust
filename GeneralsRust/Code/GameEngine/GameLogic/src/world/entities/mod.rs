@@ -119,6 +119,10 @@ pub struct Entity {
     pub selection_radius: f32,
     /// Host Object::status.under_construction residual.
     pub under_construction: bool,
+    /// Host Object::status.sold residual.
+    pub sold: bool,
+    /// Host Object::status.reconstructing residual.
+    pub reconstructing: bool,
     /// Host Object::status.moving residual.
     pub moving: bool,
     /// Host Object::status.attacking residual.
@@ -428,6 +432,8 @@ impl EntityStore {
             team_ordinal: 255,
             selection_radius: 5.0,
             under_construction: false,
+            sold: false,
+            reconstructing: false,
             moving: false,
             attacking: false,
             team_color: [1.0, 1.0, 1.0, 1.0],

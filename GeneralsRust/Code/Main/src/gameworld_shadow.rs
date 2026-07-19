@@ -366,6 +366,8 @@ impl GameWorldShadow {
                     e.team_ordinal = Self::host_team_ordinal(obj.team);
                     e.selection_radius = obj.selection_radius.max(5.0);
                     e.under_construction = obj.status.under_construction;
+                    e.sold = obj.status.sold;
+                    e.reconstructing = obj.status.reconstructing;
                     e.moving = obj.status.moving;
                     e.attacking = obj.status.attacking;
                     e.team_color = obj.team_color;
@@ -648,6 +650,8 @@ impl GameWorldShadow {
                 e.team_ordinal = Self::host_team_ordinal(obj.team);
                 e.selection_radius = obj.selection_radius.max(5.0);
                 e.under_construction = obj.status.under_construction;
+                e.sold = obj.status.sold;
+                e.reconstructing = obj.status.reconstructing;
                 e.moving = obj.status.moving;
                 e.attacking = obj.status.attacking;
                 e.team_color = obj.team_color;
@@ -1530,6 +1534,14 @@ impl GameWorldShadow {
             }
             if obj.status.under_construction != ent.under_construction {
                 obj.status.under_construction = ent.under_construction;
+                dirty = true;
+            }
+            if obj.status.sold != ent.sold {
+                obj.status.sold = ent.sold;
+                dirty = true;
+            }
+            if obj.status.reconstructing != ent.reconstructing {
+                obj.status.reconstructing = ent.reconstructing;
                 dirty = true;
             }
             if dirty {
@@ -3485,12 +3497,16 @@ mod tests {
             let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
             e.construction_percent = 0.85;
             e.under_construction = true;
+            e.sold = true;
+            e.reconstructing = true;
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
         assert!(n >= 1);
         let obj = logic.get_objects().get(&id).expect("o");
         assert!((obj.construction_percent - 0.85).abs() < 1e-5);
         assert!(obj.status.under_construction);
+        assert!(obj.status.sold);
+        assert!(obj.status.reconstructing);
         // Complete residual
         {
             let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
