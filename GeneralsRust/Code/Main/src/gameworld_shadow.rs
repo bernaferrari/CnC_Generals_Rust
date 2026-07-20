@@ -6684,6 +6684,7 @@ mod tests {
             bunker.0
         );
         assert!(shadow.world().entity(eid_b).expect("e").garrison_count >= 1);
+        assert!(shadow.world().entity(eid_b).expect("e").occupant_count >= 1);
         // Poison host then writeback via SetContain last-writer residual.
         {
             let o = logic.get_objects_mut().get_mut(&inf).expect("i");
