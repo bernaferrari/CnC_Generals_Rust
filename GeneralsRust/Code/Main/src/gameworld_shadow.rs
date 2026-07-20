@@ -524,6 +524,13 @@ impl GameWorldShadow {
                     e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                     e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
                     e.waiting_for_path = obj.waiting_for_path;
+                    e.locomotor_surfaces = obj.locomotor_surfaces;
+                    e.is_attack_path = obj.is_attack_path;
+                    e.is_blocked_and_stuck = obj.is_blocked_and_stuck;
+                    e.is_braking = obj.is_braking;
+                    e.is_safe_path = obj.is_safe_path;
+                    e.queue_for_path_frames = obj.queue_for_path_frames;
+                    e.path_timestamp = obj.path_timestamp;
                     e.path_waypoints = obj
                         .movement
                         .path
@@ -3676,6 +3683,13 @@ impl GameWorldShadow {
                     path_len: ev.path_len,
                     path_waypoints: ev.path_waypoints.clone(),
                     waiting_for_path: ev.waiting_for_path,
+                    locomotor_surfaces: ev.locomotor_surfaces,
+                    is_attack_path: ev.is_attack_path,
+                    is_blocked_and_stuck: ev.is_blocked_and_stuck,
+                    is_braking: ev.is_braking,
+                    is_safe_path: ev.is_safe_path,
+                    queue_for_path_frames: ev.queue_for_path_frames,
+                    path_timestamp: ev.path_timestamp,
                 });
             n += 1;
         }
@@ -4271,29 +4285,58 @@ impl GameWorldShadow {
                 .iter()
                 .zip(ent.velocity.iter())
                 .any(|(a, b)| (*a - *b).abs() > f32::EPSILON);
+            let path_changed = if ent.path_waypoints.is_empty() {
+                ent.path_len == 0 && !obj.movement.path.is_empty()
+            } else {
+                obj.movement.path.len() != ent.path_waypoints.len()
+                    || obj
+                        .movement
+                        .path
+                        .iter()
+                        .zip(ent.path_waypoints.iter())
+                        .any(|(p, e)| {
+                            (p.x - e[0]).abs() > f32::EPSILON
+                                || (p.y - e[1]).abs() > f32::EPSILON
+                                || (p.z - e[2]).abs() > f32::EPSILON
+                        })
+            };
+            let flags_changed = obj.waiting_for_path != ent.waiting_for_path
+                || obj.locomotor_surfaces != ent.locomotor_surfaces
+                || obj.is_attack_path != ent.is_attack_path
+                || obj.is_blocked_and_stuck != ent.is_blocked_and_stuck
+                || obj.is_braking != ent.is_braking
+                || obj.is_safe_path != ent.is_safe_path
+                || obj.queue_for_path_frames != ent.queue_for_path_frames
+                || obj.path_timestamp != ent.path_timestamp;
             let changed = vel_changed
                 || (obj.movement.max_speed - ent.move_max_speed).abs() > f32::EPSILON
                 || host_idx != ent.path_index
                 || host_len != ent.path_len
-                || obj.waiting_for_path != ent.waiting_for_path;
+                || path_changed
+                || flags_changed;
             if !changed {
                 continue;
             }
             obj.movement.velocity = Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
             obj.movement.max_speed = ent.move_max_speed;
             obj.movement.current_path_index = ent.path_index as usize;
-            // Prefer entity residual path when lengths match channel snapshot; else keep host path.
-            if ent.path_len as usize == ent.path_waypoints.len()
-                && !ent.path_waypoints.is_empty()
-                && obj.movement.path.len() != ent.path_waypoints.len()
-            {
+            if !ent.path_waypoints.is_empty() {
                 obj.movement.path = ent
                     .path_waypoints
                     .iter()
                     .map(|p| Vec3::new(p[0], p[1], p[2]))
                     .collect();
+            } else if ent.path_len == 0 {
+                obj.movement.path.clear();
             }
             obj.waiting_for_path = ent.waiting_for_path;
+            obj.locomotor_surfaces = ent.locomotor_surfaces;
+            obj.is_attack_path = ent.is_attack_path;
+            obj.is_blocked_and_stuck = ent.is_blocked_and_stuck;
+            obj.is_braking = ent.is_braking;
+            obj.is_safe_path = ent.is_safe_path;
+            obj.queue_for_path_frames = ent.queue_for_path_frames;
+            obj.path_timestamp = ent.path_timestamp;
             updated += 1;
         }
         updated
@@ -12182,7 +12225,21 @@ mod tests {
             o.waiting_for_path = true;
             o.movement.max_speed = 12.0;
         }
-        host_movement_log::record(oid, glam::Vec3::ZERO, 12.0, 0, &[], true);
+        host_movement_log::record(
+            oid,
+            glam::Vec3::ZERO,
+            12.0,
+            0,
+            &[],
+            true,
+            0,
+            false,
+            false,
+            false,
+            false,
+            0,
+            0,
+        );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
@@ -12197,6 +12254,78 @@ mod tests {
             logic.get_objects().get(&oid).unwrap().waiting_for_path,
             "waiting_for_path writeback"
         );
+    }
+
+    #[test]
+    fn locomotor_path_flags_channel_via_set_movement() {
+        use crate::game_logic::host_movement_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_movement_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("LocoPath");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("LocoU") {
+            let mut t = ThingTemplate::new("LocoU");
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("LocoU".into(), t);
+        }
+        let oid = logic
+            .create_object("LocoU", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.locomotor_surfaces = 0b101; // ground|cliff
+            o.is_attack_path = true;
+            o.is_braking = true;
+            o.is_blocked_and_stuck = false;
+            o.is_safe_path = true;
+            o.queue_for_path_frames = 3;
+            o.path_timestamp = 42;
+            o.waiting_for_path = true;
+            o.movement.max_speed = 15.0;
+        }
+        host_movement_log::record(
+            oid,
+            glam::Vec3::ZERO,
+            15.0,
+            0,
+            &[],
+            true,
+            0b101,
+            true,
+            false,
+            true,
+            true,
+            3,
+            42,
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_movement_events(&host_movement_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.locomotor_surfaces, 0b101);
+        assert!(e.is_attack_path);
+        assert!(e.is_braking);
+        assert!(e.is_safe_path);
+        assert_eq!(e.queue_for_path_frames, 3);
+        assert_eq!(e.path_timestamp, 42);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.locomotor_surfaces = 0;
+            o.is_attack_path = false;
+            o.is_braking = false;
+            o.queue_for_path_frames = 0;
+            o.path_timestamp = 0;
+            o.waiting_for_path = false;
+        }
+        assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.locomotor_surfaces, 0b101);
+        assert!(o.is_attack_path);
+        assert!(o.is_braking);
+        assert_eq!(o.queue_for_path_frames, 3);
+        assert_eq!(o.path_timestamp, 42);
     }
 
     #[test]
