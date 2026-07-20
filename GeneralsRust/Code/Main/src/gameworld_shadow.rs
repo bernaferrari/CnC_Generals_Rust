@@ -389,6 +389,9 @@ impl GameWorldShadow {
                     e.disabled_unmanned = obj.status.disabled_unmanned;
                     e.disabled_hacked = obj.status.disabled_hacked;
                     e.disabled_emp = obj.status.disabled_emp;
+                    e.disabled_emp_until_frame = obj.status.disabled_emp_until_frame;
+                    e.disabled_hacked_until_frame = obj.status.disabled_hacked_until_frame;
+                    e.disabled_paralyzed_until_frame = obj.status.disabled_paralyzed_until_frame;
                     e.disabled_paralyzed = obj.status.disabled_paralyzed;
                     e.weapons_jammed = obj.status.weapons_jammed;
                     e.masked = obj.status.masked;
@@ -710,6 +713,9 @@ impl GameWorldShadow {
                 e.disabled_unmanned = obj.status.disabled_unmanned;
                 e.disabled_hacked = obj.status.disabled_hacked;
                 e.disabled_emp = obj.status.disabled_emp;
+                e.disabled_emp_until_frame = obj.status.disabled_emp_until_frame;
+                e.disabled_hacked_until_frame = obj.status.disabled_hacked_until_frame;
+                e.disabled_paralyzed_until_frame = obj.status.disabled_paralyzed_until_frame;
                 e.disabled_paralyzed = obj.status.disabled_paralyzed;
                 e.weapons_jammed = obj.status.weapons_jammed;
                 e.masked = obj.status.masked;
@@ -3794,6 +3800,53 @@ impl GameWorldShadow {
         updated
     }
 
+    pub fn apply_host_disable_timers_events(
+        &mut self,
+        events: &[crate::game_logic::host_disable_timers_log::HostDisableTimersEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetDisableTimers {
+                    target: eid,
+                    emp_until_frame: ev.emp_until_frame,
+                    hacked_until_frame: ev.hacked_until_frame,
+                    paralyzed_until_frame: ev.paralyzed_until_frame,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_disable_timers_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.status.disabled_emp_until_frame == ent.disabled_emp_until_frame
+                && obj.status.disabled_hacked_until_frame == ent.disabled_hacked_until_frame
+                && obj.status.disabled_paralyzed_until_frame == ent.disabled_paralyzed_until_frame
+            {
+                continue;
+            }
+            obj.status.disabled_emp_until_frame = ent.disabled_emp_until_frame;
+            obj.status.disabled_hacked_until_frame = ent.disabled_hacked_until_frame;
+            obj.status.disabled_paralyzed_until_frame = ent.disabled_paralyzed_until_frame;
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn writeback_ground_height_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4913,6 +4966,7 @@ pub fn shadow_session_after_host_tick(
     let kind_of_events = crate::game_logic::host_kind_of_log::drain();
     let faerie_events = crate::game_logic::host_faerie_fire_log::drain();
     let repulsor_events = crate::game_logic::host_repulsor_log::drain();
+    let disable_timer_events = crate::game_logic::host_disable_timers_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4987,6 +5041,7 @@ pub fn shadow_session_after_host_tick(
     let _ko_applied = shadow.apply_host_kind_of_events(&kind_of_events);
     let _ff_applied = shadow.apply_host_faerie_fire_events(&faerie_events);
     let _rp_applied = shadow.apply_host_repulsor_events(&repulsor_events);
+    let _dt_applied = shadow.apply_host_disable_timers_events(&disable_timer_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -5027,6 +5082,7 @@ pub fn shadow_session_after_host_tick(
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
         let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
         let _rp_wb = shadow.writeback_repulsor_to_host(logic);
+        let _dt_wb = shadow.writeback_disable_timers_to_host(logic);
         let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
@@ -10005,6 +10061,79 @@ mod tests {
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.status.repulsor);
         assert_eq!(o.repulsor_until_frame, 12);
+    }
+
+    #[test]
+    fn host_disable_timers_log_drives_set_disable_timers_channel() {
+        use crate::game_logic::{host_disable_timers_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DtCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerDt") {
+            let mut t = ThingTemplate::new("RangerDt");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("RangerDt".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerDt", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+
+        host_disable_timers_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.apply_disabled_emp(500);
+            o.apply_disabled_hacked(600);
+            o.apply_disabled_paralyzed(700);
+        }
+        let events = host_disable_timers_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.emp_until_frame == 500
+                    && e.hacked_until_frame == 600
+                    && e.paralyzed_until_frame == 700
+            }),
+            "events {:?}",
+            events
+        );
+
+        host_disable_timers_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_disable_timers();
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.disabled_emp_until_frame = 0;
+            e.disabled_hacked_until_frame = 0;
+            e.disabled_paralyzed_until_frame = 0;
+        }
+        let n = shadow.apply_host_disable_timers_events(&host_disable_timers_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.disabled_emp_until_frame, 500);
+        assert_eq!(e.disabled_hacked_until_frame, 600);
+        assert_eq!(e.disabled_paralyzed_until_frame, 700);
+
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.status.disabled_emp_until_frame = 0;
+            o.status.disabled_hacked_until_frame = 0;
+            o.status.disabled_paralyzed_until_frame = 0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.disabled_emp_until_frame = 11;
+            e.disabled_hacked_until_frame = 22;
+            e.disabled_paralyzed_until_frame = 33;
+        }
+        assert!(shadow.writeback_disable_timers_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.status.disabled_emp_until_frame, 11);
+        assert_eq!(o.status.disabled_hacked_until_frame, 22);
+        assert_eq!(o.status.disabled_paralyzed_until_frame, 33);
     }
 
     #[test]

@@ -26,6 +26,7 @@ pub mod host_crush_vision_log;
 pub mod host_demo_mine_cheer_log;
 pub mod host_destroy_log;
 pub mod host_detector_log;
+pub mod host_disable_timers_log;
 pub mod host_disguise_log;
 pub mod host_economy_log;
 pub mod host_entity_power_log;

@@ -190,6 +190,12 @@ pub struct Entity {
     pub disabled_hacked: bool,
     /// Host Object::status.disabled_emp residual.
     pub disabled_emp: bool,
+    /// Host status.disabled_emp_until_frame residual.
+    pub disabled_emp_until_frame: u32,
+    /// Host status.disabled_hacked_until_frame residual.
+    pub disabled_hacked_until_frame: u32,
+    /// Host status.disabled_paralyzed_until_frame residual.
+    pub disabled_paralyzed_until_frame: u32,
     /// Host Object::status.disabled_paralyzed residual.
     pub disabled_paralyzed: bool,
     /// Host Object::status.weapons_jammed residual.
@@ -531,6 +537,9 @@ impl EntityStore {
             disabled_unmanned: false,
             disabled_hacked: false,
             disabled_emp: false,
+            disabled_emp_until_frame: 0,
+            disabled_hacked_until_frame: 0,
+            disabled_paralyzed_until_frame: 0,
             disabled_paralyzed: false,
             weapons_jammed: false,
             masked: false,

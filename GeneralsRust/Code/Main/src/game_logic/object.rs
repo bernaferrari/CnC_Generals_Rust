@@ -2121,6 +2121,7 @@ impl Object {
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
         self.set_status_disabled_hacked(true);
         self.status.disabled_hacked_until_frame = until_frame;
+        self.record_disable_timers();
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving();
@@ -2144,11 +2145,23 @@ impl Object {
     /// Apply DISABLED_EMP residual until `until_frame` (absolute host logic frame).
     /// C++ EMPUpdate::doDisableAttack: setDisabledUntil(DISABLED_EMP, now + DisabledDuration).
     /// Refresh extends the timer if a later expiry is provided.
+
+    /// Disable until_frame residual → GameWorld SetDisableTimers.
+    pub fn record_disable_timers(&mut self) {
+        crate::game_logic::host_disable_timers_log::record(
+            self.id,
+            self.status.disabled_emp_until_frame,
+            self.status.disabled_hacked_until_frame,
+            self.status.disabled_paralyzed_until_frame,
+        );
+    }
+
     pub fn apply_disabled_emp(&mut self, until_frame: u32) {
         self.set_status_disabled_emp(true);
         if until_frame > self.status.disabled_emp_until_frame {
             self.status.disabled_emp_until_frame = until_frame;
         }
+        self.record_disable_timers();
         self.set_status_attacking(false);
         self.set_status_moving(false);
         self.stop_moving();
@@ -2177,6 +2190,7 @@ impl Object {
         if until_frame > self.status.disabled_paralyzed_until_frame {
             self.status.disabled_paralyzed_until_frame = until_frame;
         }
+        self.record_disable_timers();
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving();
