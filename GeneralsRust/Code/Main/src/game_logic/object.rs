@@ -3413,6 +3413,10 @@ impl Object {
                     == crate::game_logic::host_usa_pilot::HostDeathType::Splatted)
         {
             bits |= 1u128 << MC_BIT_SPLATTED;
+            crate::game_logic::host_death_type_log::record(
+                self.id,
+                self.status.death_type.ordinal(),
+            );
         }
         if had_radar_ext {
             bits |= 1u128 << radar_extending_model_bit();
@@ -5297,6 +5301,7 @@ impl Object {
         self.health.current = 0.0;
         self.status.destroyed = true;
         self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
+        crate::game_logic::host_death_type_log::record(self.id, self.status.death_type.ordinal());
         self.set_ai_state(AIState::Idle);
         self.target = None;
         self.shock_stun_frames = 0;
@@ -5506,6 +5511,10 @@ impl Object {
             let destroyed = if !self.health.is_alive() {
                 self.status.destroyed = true;
                 self.status.death_type = death_type;
+                crate::game_logic::host_death_type_log::record(
+                    self.id,
+                    self.status.death_type.ordinal(),
+                );
                 self.set_ai_state(AIState::Idle);
                 self.target = None;
                 true

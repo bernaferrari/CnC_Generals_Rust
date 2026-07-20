@@ -178,6 +178,46 @@ impl HostDeathType {
             Self::PoisonedGamma => "POISONED_GAMMA",
         }
     }
+
+    #[inline]
+    pub fn ordinal(self) -> u8 {
+        match self {
+            HostDeathType::Normal => 0,
+            HostDeathType::None => 1,
+            HostDeathType::Crushed => 2,
+            HostDeathType::Burned => 3,
+            HostDeathType::Exploded => 4,
+            HostDeathType::Poisoned => 5,
+            HostDeathType::Toppled => 6,
+            HostDeathType::Flooded => 7,
+            HostDeathType::Suicided => 8,
+            HostDeathType::Lasered => 9,
+            HostDeathType::Detonated => 10,
+            HostDeathType::Splatted => 11,
+            HostDeathType::PoisonedBeta => 12,
+            HostDeathType::PoisonedGamma => 13,
+        }
+    }
+
+    #[inline]
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => HostDeathType::None,
+            2 => HostDeathType::Crushed,
+            3 => HostDeathType::Burned,
+            4 => HostDeathType::Exploded,
+            5 => HostDeathType::Poisoned,
+            6 => HostDeathType::Toppled,
+            7 => HostDeathType::Flooded,
+            8 => HostDeathType::Suicided,
+            9 => HostDeathType::Lasered,
+            10 => HostDeathType::Detonated,
+            11 => HostDeathType::Splatted,
+            12 => HostDeathType::PoisonedBeta,
+            13 => HostDeathType::PoisonedGamma,
+            _ => HostDeathType::Normal,
+        }
+    }
 }
 
 /// Retail pilot template family residual.
