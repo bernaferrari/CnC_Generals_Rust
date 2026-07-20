@@ -2796,6 +2796,57 @@ impl GameWorldShadow {
         n
     }
 
+
+    pub fn writeback_contain_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let mut did = false;
+            let new_cb = if ent.contained_by_host == 0 {
+                None
+            } else {
+                Some(ObjectId(ent.contained_by_host))
+            };
+            if obj.contained_by != new_cb {
+                obj.contained_by = new_cb;
+                did = true;
+            }
+            if let Some(bd) = obj.building_data.as_mut() {
+                let new_units: Vec<ObjectId> = ent
+                    .garrisoned_host_ids
+                    .iter()
+                    .copied()
+                    .map(ObjectId)
+                    .collect();
+                if bd.garrisoned_units != new_units {
+                    bd.garrisoned_units = new_units;
+                    did = true;
+                }
+            } else if !ent.garrisoned_host_ids.is_empty() {
+                let new_occ: Vec<ObjectId> = ent
+                    .garrisoned_host_ids
+                    .iter()
+                    .copied()
+                    .map(ObjectId)
+                    .collect();
+                if obj.occupants != new_occ {
+                    obj.occupants = new_occ;
+                    did = true;
+                }
+            }
+            if did {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
+
     pub fn apply_host_ai_state_events(
         &mut self,
         events: &[crate::game_logic::host_ai_state_log::HostAiStateEvent],
@@ -6529,7 +6580,7 @@ mod tests {
             bunker.0
         );
         assert!(shadow.world().entity(eid_b).expect("e").garrison_count >= 1);
-        // Poison host then writeback
+        // Poison host then writeback via SetContain last-writer residual.
         {
             let o = logic.get_objects_mut().get_mut(&inf).expect("i");
             o.contained_by = None;
@@ -6539,8 +6590,16 @@ mod tests {
             if let Some(bd) = o.building_data.as_mut() {
                 bd.garrisoned_units.clear();
             }
+            o.occupants.clear();
         }
-        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid_i) {
+            e.contained_by_host = bunker.0;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid_b) {
+            e.garrison_count = 1;
+            e.garrisoned_host_ids = vec![inf.0];
+        }
+        assert!(shadow.writeback_contain_to_host(&mut logic) >= 1);
         assert_eq!(
             logic.get_objects().get(&inf).expect("i").contained_by,
             Some(bunker)
