@@ -17,16 +17,21 @@ pub struct HostProductionQueueItem {
 pub struct HostProductionProgressEvent {
     pub producer: ObjectId,
     pub items: Vec<HostProductionQueueItem>,
+    /// C++ QueueProductionExitUpdate residual (seconds).
+    pub exit_delay_remaining: f32,
 }
 
 thread_local! {
     static LOG: RefCell<Vec<HostProductionProgressEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record(producer: ObjectId, items: Vec<HostProductionQueueItem>) {
+pub fn record(producer: ObjectId, items: Vec<HostProductionQueueItem>, exit_delay_remaining: f32) {
     LOG.with(|log| {
-        log.borrow_mut()
-            .push(HostProductionProgressEvent { producer, items });
+        log.borrow_mut().push(HostProductionProgressEvent {
+            producer,
+            items,
+            exit_delay_remaining: exit_delay_remaining.max(0.0),
+        });
     });
 }
 
