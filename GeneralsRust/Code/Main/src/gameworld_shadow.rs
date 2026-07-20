@@ -5035,6 +5035,9 @@ pub fn shadow_session_after_host_tick(
     let _construction_progress_applied =
         shadow.apply_host_construction_progress_events(&construction_progress_events);
     let _sp_applied = shadow.apply_host_special_power_events(&special_power_events);
+    // Host owns SP countdown execution; events update GameWorld for presentation.
+    // Writeback is available for explicit tests / authority peels — not every tick.
+
     let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
     let _ai_applied = shadow.apply_host_ai_state_events(&ai_state_events);
     let _contain_applied = shadow.apply_host_contain_events(&contain_events);
@@ -5179,7 +5182,7 @@ pub fn shadow_session_after_host_tick(
         let _bt_wb = shadow.writeback_building_type_to_host(logic);
         let _id_wb = shadow.writeback_identity_to_host(logic);
         let _gh_wb = shadow.writeback_ground_height_to_host(logic);
-        let _sp_wb = shadow.writeback_special_power_to_host(logic);
+
         let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
@@ -11688,6 +11691,44 @@ mod tests {
             "events {:?}",
             events
         );
+    }
+
+    #[test]
+    #[test]
+    #[test]
+    fn special_power_session_writeback_after_tick() {
+        use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+        host_special_power_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SpWb");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SpWbU") {
+            let mut t = ThingTemplate::new("SpWbU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("SpWbU".into(), t);
+        }
+        let oid = logic
+            .create_object("SpWbU", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.special_power_cooldown = 10.0;
+            o.special_power_cooldown_remaining = 2.0;
+            o.set_special_power_ready(false);
+            o.record_host_special_power();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let events = host_special_power_log::drain();
+        assert!(shadow.apply_host_special_power_events(&events) >= 1);
+        // Desync host after GameWorld apply so writeback has work.
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.special_power_cooldown_remaining = 9.0;
+        }
+        assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!((o.special_power_cooldown_remaining - 2.0).abs() < 1e-3);
     }
 
     #[test]
