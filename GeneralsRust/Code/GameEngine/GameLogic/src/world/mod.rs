@@ -698,6 +698,8 @@ pub enum WorldMutation {
         is_explored: f32,
         visibility_falloff: f32,
     },
+    /// Host ThingTemplate kind_of presentation ORDER bits residual.
+    SetKindOfBits { target: EntityId, kind_of_bits: u32 },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1476,6 +1478,15 @@ impl GameWorld {
                         e.fow_visibility_alpha = visibility_alpha;
                         e.fow_is_explored = is_explored;
                         e.fow_visibility_falloff = visibility_falloff;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetKindOfBits {
+                    target,
+                    kind_of_bits,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.kind_of_bits = kind_of_bits;
                         applied += 1;
                     }
                 }
