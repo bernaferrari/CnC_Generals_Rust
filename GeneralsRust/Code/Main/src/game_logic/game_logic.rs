@@ -6578,6 +6578,13 @@ impl GameLogic {
 
     /// Update movement for all objects
     fn update_movement(&mut self, object_ids: &[ObjectId], dt: f32) {
+        // GameWorld movement authority: path integrate + pose last-write runs in
+        // shadow_session_after_host_tick via GameWorld::step_movement. Host still
+        // owns path *commands* (move_to / attack-move logs) earlier in the frame.
+        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            let _ = (object_ids, dt);
+            return;
+        }
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 // Dual-world factory objects only when bridge is on.

@@ -224,6 +224,145 @@ impl World {
         }
     }
 
+    /// Integrate path waypoints + move_target for living entities (XZ march residual).
+    ///
+    /// Behavioral mirror of Main `GameLogic::update_movement` for GameWorld
+    /// movement-authority frames. Uses entity move_max_speed / path_waypoints /
+    /// move_target residuals already synced from host command channels.
+    pub fn step_movement(&mut self, dt: f32) -> usize {
+        let dt = if dt.is_finite() && dt > 0.0 {
+            dt
+        } else {
+            1.0 / 30.0
+        };
+        let ids = self.entities.ids();
+        let mut stepped = 0usize;
+        for id in ids {
+            let Some(e) = self.entities.get_mut(id) else {
+                continue;
+            };
+            if e.destroyed || e.health <= 0.0 || e.under_construction {
+                continue;
+            }
+
+            let horiz = |ax: f32, az: f32, bx: f32, bz: f32| -> f32 {
+                let dx = ax - bx;
+                let dz = az - bz;
+                (dx * dx + dz * dz).sqrt()
+            };
+
+            let px = e.transform.position.x;
+            let py = e.transform.position.y;
+            let pz = e.transform.position.z;
+
+            if !e.path_waypoints.is_empty() {
+                let mut idx = e.path_index as usize;
+                if idx < e.path_waypoints.len() {
+                    let wp = e.path_waypoints[idx];
+                    if horiz(px, pz, wp[0], wp[2]) < 5.0 {
+                        idx = idx.saturating_add(1);
+                        e.path_index = idx.min(u16::MAX as usize) as u16;
+                        if idx >= e.path_waypoints.len() {
+                            e.move_target = None;
+                            e.velocity = [0.0, 0.0, 0.0];
+                            e.path_waypoints.clear();
+                            e.path_len = 0;
+                            e.path_index = 0;
+                            e.moving = false;
+                            stepped += 1;
+                            continue;
+                        }
+                    }
+                    let mut target = e.path_waypoints[e.path_index as usize];
+                    target[1] = py;
+                    e.move_target = Some(target);
+                    e.path_len = e.path_waypoints.len().min(u16::MAX as usize) as u16;
+                }
+            }
+
+            let Some(target) = e.move_target else {
+                continue;
+            };
+            let tx = target[0];
+            let tz = target[2];
+            let dx = tx - px;
+            let dz = tz - pz;
+            let dist = (dx * dx + dz * dz).sqrt();
+            if dist <= f32::EPSILON {
+                e.velocity = [0.0, 0.0, 0.0];
+                if e.path_waypoints.is_empty()
+                    || (e.path_index as usize) + 1 >= e.path_waypoints.len()
+                {
+                    e.move_target = None;
+                    e.moving = false;
+                }
+                stepped += 1;
+                continue;
+            }
+
+            let inv = 1.0 / dist;
+            let dir_x = dx * inv;
+            let dir_z = dz * inv;
+            let max_speed = if e.move_max_speed.is_finite() && e.move_max_speed > 0.0 {
+                e.move_max_speed
+            } else {
+                30.0
+            };
+            let desired_vx = dir_x * max_speed;
+            let desired_vz = dir_z * max_speed;
+            // Host residual: acceleration ≈ 4× max_speed toward desired velocity.
+            let accel = (max_speed * 4.0).max(1.0);
+            let max_dv = accel * dt;
+            let mut vx = e.velocity[0];
+            let mut vz = e.velocity[2];
+            let dvx = desired_vx - vx;
+            let dvz = desired_vz - vz;
+            let dvl = (dvx * dvx + dvz * dvz).sqrt();
+            if dvl <= max_dv || dvl <= f32::EPSILON {
+                vx = desired_vx;
+                vz = desired_vz;
+            } else {
+                let s = max_dv / dvl;
+                vx += dvx * s;
+                vz += dvz * s;
+            }
+            e.velocity = [vx, 0.0, vz];
+
+            let mut nx = px + vx * dt;
+            let mut nz = pz + vz * dt;
+            let ndx = tx - nx;
+            let ndz = tz - nz;
+            if ndx * dir_x + ndz * dir_z <= 0.0 {
+                nx = tx;
+                nz = tz;
+            }
+            let reached = horiz(nx, nz, tx, tz) < 2.0;
+            let orient = (-vz).atan2(vx);
+            e.transform = entities::Transform::new([nx, py, nz], orient);
+            e.moving = true;
+
+            if reached {
+                if e.path_waypoints.is_empty()
+                    || (e.path_index as usize) + 1 >= e.path_waypoints.len()
+                {
+                    e.move_target = None;
+                    e.velocity = [0.0, 0.0, 0.0];
+                    e.path_waypoints.clear();
+                    e.path_len = 0;
+                    e.path_index = 0;
+                    e.moving = false;
+                } else {
+                    e.path_index = e.path_index.saturating_add(1);
+                    let mut next = e.path_waypoints[e.path_index as usize];
+                    next[1] = py;
+                    e.move_target = Some(next);
+                }
+            }
+            stepped += 1;
+        }
+        stepped
+    }
+
     /// Adjust the number of supported player slots.
     pub fn resize(&mut self, max_players: usize) {
         if max_players == self.slots.len() {
@@ -858,6 +997,12 @@ impl GameWorld {
     }
 
     /// Apply all pending mutations in queue order. Returns how many succeeded.
+
+    /// Mid-frame path / move-target integration (movement authority peel).
+    pub fn step_movement(&mut self, dt: f32) -> usize {
+        self.inner.step_movement(dt)
+    }
+
     pub fn apply_pending_mutations(&mut self) -> usize {
         let pending = std::mem::take(&mut self.pending);
         let mut applied = 0;
