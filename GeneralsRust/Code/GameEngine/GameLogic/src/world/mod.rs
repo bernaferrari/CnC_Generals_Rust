@@ -688,6 +688,12 @@ pub enum WorldMutation {
         is_building: bool,
         building_type_ordinal: u8,
     },
+    /// Host Object name + team_color residual (presentation identity).
+    SetIdentity {
+        target: EntityId,
+        name: String,
+        team_color: [f32; 4],
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1417,6 +1423,17 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.is_building = is_building;
                         e.building_type_ordinal = building_type_ordinal;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetIdentity {
+                    target,
+                    name,
+                    team_color,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.display_name = name;
+                        e.team_color = team_color;
                         applied += 1;
                     }
                 }
