@@ -563,6 +563,12 @@ pub enum WorldMutation {
         active: bool,
         until_frame: u32,
     },
+    /// Host repulsor status + countdown residual.
+    SetRepulsor {
+        target: EntityId,
+        active: bool,
+        until_frame: u32,
+    },
     /// Host Object guard residual (area position + guarded object id).
     SetGuard {
         unit: EntityId,
@@ -1231,6 +1237,17 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.faerie_fire = active;
                         e.faerie_fire_until_frame = until_frame;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetRepulsor {
+                    target,
+                    active,
+                    until_frame,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.repulsor = active;
+                        e.repulsor_until_frame = until_frame;
                         applied += 1;
                     }
                 }
