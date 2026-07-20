@@ -787,6 +787,8 @@ pub enum WorldMutation {
         weapon_range: f32,
         weapon_min_range: f32,
         weapon_reload_time: f32,
+        /// Host Weapon::last_fire_time residual (sim seconds).
+        weapon_last_fire_time: f32,
         weapon_ammo: u32,
         weapon_can_target_air: bool,
         weapon_can_target_ground: bool,
@@ -1544,6 +1546,7 @@ impl GameWorld {
                     weapon_range,
                     weapon_min_range,
                     weapon_reload_time,
+                    weapon_last_fire_time,
                     weapon_ammo,
                     weapon_can_target_air,
                     weapon_can_target_ground,
@@ -1558,6 +1561,7 @@ impl GameWorld {
                         e.weapon_range = weapon_range;
                         e.weapon_min_range = weapon_min_range;
                         e.weapon_reload_time = weapon_reload_time;
+                        e.weapon_last_fire_time = weapon_last_fire_time;
                         e.weapon_ammo = weapon_ammo;
                         e.weapon_can_target_air = weapon_can_target_air;
                         e.weapon_can_target_ground = weapon_can_target_ground;
