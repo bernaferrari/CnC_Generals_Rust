@@ -20459,6 +20459,10 @@ impl GameLogic {
                 team_ord,
                 [position.x, position.y, position.z],
             );
+            if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                obj.record_model_mesh_from_template();
+                obj.record_kind_of_bits_from_template();
+            }
             Some(id)
         } else {
             log::warn!("Template not found: {}", template_name);
