@@ -4904,6 +4904,7 @@ pub fn shadow_session_after_host_tick(
         }
         econ_wb = shadow.writeback_economy_to_host(logic);
         let _upg_wb = shadow.writeback_completed_upgrades_to_host(logic);
+    let _ss_wb = shadow.writeback_stored_supplies_to_host(logic);
     } else {
         // Avoid unbounded growth when economy authority off.
         let _ = crate::game_logic::host_economy_log::drain();
