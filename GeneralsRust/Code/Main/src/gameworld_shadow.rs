@@ -2981,6 +2981,26 @@ impl GameWorldShadow {
         n
     }
 
+
+    pub fn writeback_stored_supplies_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            if obj.stored_resources.supplies == ent.stored_supplies {
+                continue;
+            }
+            obj.stored_resources.supplies = ent.stored_supplies;
+            updated += 1;
+        }
+        updated
+    }
+
+
     /// Apply construction progress log as SetConstruction mutations.
     pub fn apply_host_construction_progress_events(
         &mut self,
@@ -6821,7 +6841,10 @@ mod tests {
             let o = logic.get_objects_mut().get_mut(&id).expect("o");
             o.stored_resources.supplies = 0;
         }
-        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.stored_supplies = 900;
+        }
+        assert!(shadow.writeback_stored_supplies_to_host(&mut logic) >= 1);
         assert_eq!(
             logic
                 .get_objects()
