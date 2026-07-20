@@ -33,6 +33,7 @@ pub mod host_experience_log;
 pub mod host_ground_height_log;
 pub mod host_identity_log;
 pub mod host_model_condition_log;
+pub mod host_model_mesh_log;
 pub mod host_move_log;
 pub mod host_movement_log;
 pub mod host_overcharge_log;
