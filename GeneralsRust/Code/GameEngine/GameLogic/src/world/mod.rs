@@ -685,6 +685,12 @@ pub enum WorldMutation {
         ground_height: f32,
         from_terrain: bool,
     },
+    /// Host template model_key + mesh_scale residual (presentation mesh identity).
+    SetModelMesh {
+        target: EntityId,
+        model_key: String,
+        mesh_scale: f32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1439,6 +1445,17 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.ground_height = ground_height;
                         e.ground_height_from_terrain = from_terrain;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetModelMesh {
+                    target,
+                    model_key,
+                    mesh_scale,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.model_key = model_key;
+                        e.mesh_scale = mesh_scale;
                         applied += 1;
                     }
                 }
