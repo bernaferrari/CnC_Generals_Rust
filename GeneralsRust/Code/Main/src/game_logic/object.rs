@@ -3525,6 +3525,7 @@ impl Object {
         if self.shock_up_z > 1.0 {
             self.shock_up_z = 1.0;
         }
+        self.record_host_shock_stun();
     }
 
     pub fn apply_shock_wave_impulse(&mut self, force: glam::Vec3) -> bool {
@@ -5333,6 +5334,7 @@ impl Object {
             return;
         }
         self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
+        self.record_host_shock_stun();
         // Integrate yaw rate residual while stunned (tumble settle).
         if self.shock_yaw_rate.abs() > 1e-5 {
             let ori = self.get_orientation() + self.shock_yaw_rate;
@@ -5725,6 +5727,22 @@ impl Object {
             self.radar_extend_done_frame,
             self.radar_extend_complete,
             self.radar_active,
+        );
+    }
+
+    pub fn record_host_shock_stun(&self) {
+        crate::game_logic::host_shock_stun_log::record(
+            self.id,
+            self.shock_stun_frames,
+            self.shock_yaw_rate,
+            self.shock_pitch_rate,
+            self.shock_roll_rate,
+            self.shock_up_z,
+            self.shock_allow_bounce,
+            self.shock_grounded_once,
+            self.shock_was_airborne,
+            self.cell_is_cliff,
+            self.cell_is_underwater,
         );
     }
 

@@ -574,6 +574,20 @@ pub enum WorldMutation {
         radar_extend_complete: bool,
         radar_active: bool,
     },
+    /// Host shock/stun physics residual (PhysicsBehavior bounce stun).
+    SetShockStun {
+        target: EntityId,
+        shock_stun_frames: u32,
+        shock_yaw_rate: f32,
+        shock_pitch_rate: f32,
+        shock_roll_rate: f32,
+        shock_up_z: f32,
+        shock_allow_bounce: bool,
+        shock_grounded_once: bool,
+        shock_was_airborne: bool,
+        cell_is_cliff: bool,
+        cell_is_underwater: bool,
+    },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -1100,6 +1114,33 @@ impl GameWorld {
                         e.radar_extend_done_frame = radar_extend_done_frame;
                         e.radar_extend_complete = radar_extend_complete;
                         e.radar_active = radar_active;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetShockStun {
+                    target,
+                    shock_stun_frames,
+                    shock_yaw_rate,
+                    shock_pitch_rate,
+                    shock_roll_rate,
+                    shock_up_z,
+                    shock_allow_bounce,
+                    shock_grounded_once,
+                    shock_was_airborne,
+                    cell_is_cliff,
+                    cell_is_underwater,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.shock_stun_frames = shock_stun_frames;
+                        e.shock_yaw_rate = shock_yaw_rate;
+                        e.shock_pitch_rate = shock_pitch_rate;
+                        e.shock_roll_rate = shock_roll_rate;
+                        e.shock_up_z = shock_up_z;
+                        e.shock_allow_bounce = shock_allow_bounce;
+                        e.shock_grounded_once = shock_grounded_once;
+                        e.shock_was_airborne = shock_was_airborne;
+                        e.cell_is_cliff = cell_is_cliff;
+                        e.cell_is_underwater = cell_is_underwater;
                         applied += 1;
                     }
                 }

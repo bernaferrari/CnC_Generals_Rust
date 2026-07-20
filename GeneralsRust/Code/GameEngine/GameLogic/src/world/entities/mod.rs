@@ -318,6 +318,26 @@ pub struct Entity {
     pub queue_for_path_frames: u32,
     /// Host Object::path_timestamp residual.
     pub path_timestamp: u32,
+    /// Host Object::shock_stun_frames residual.
+    pub shock_stun_frames: u32,
+    /// Host Object::shock_yaw_rate residual.
+    pub shock_yaw_rate: f32,
+    /// Host Object::shock_pitch_rate residual.
+    pub shock_pitch_rate: f32,
+    /// Host Object::shock_roll_rate residual.
+    pub shock_roll_rate: f32,
+    /// Host Object::shock_up_z residual.
+    pub shock_up_z: f32,
+    /// Host Object::shock_allow_bounce residual.
+    pub shock_allow_bounce: bool,
+    /// Host Object::shock_grounded_once residual.
+    pub shock_grounded_once: bool,
+    /// Host Object::shock_was_airborne residual.
+    pub shock_was_airborne: bool,
+    /// Host Object::cell_is_cliff residual.
+    pub cell_is_cliff: bool,
+    /// Host Object::cell_is_underwater residual.
+    pub cell_is_underwater: bool,
     /// Host Movement::path waypoints residual (capped for presentation line pack).
     pub path_waypoints: Vec<[f32; 3]>,
     /// Host secondary weapon range residual.
@@ -646,6 +666,16 @@ impl EntityStore {
             is_safe_path: false,
             queue_for_path_frames: 0,
             path_timestamp: 0,
+            shock_stun_frames: 0,
+            shock_yaw_rate: 0.0,
+            shock_pitch_rate: 0.0,
+            shock_roll_rate: 0.0,
+            shock_up_z: 1.0,
+            shock_allow_bounce: false,
+            shock_grounded_once: false,
+            shock_was_airborne: false,
+            cell_is_cliff: false,
+            cell_is_underwater: false,
             path_waypoints: Vec::new(),
             secondary_weapon_range: 0.0,
             secondary_weapon_damage: 0.0,
