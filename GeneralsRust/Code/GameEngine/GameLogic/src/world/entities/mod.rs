@@ -208,6 +208,8 @@ pub struct Entity {
     pub ignoring_stealth: bool,
     /// Host Object::status.repulsor residual.
     pub repulsor: bool,
+    /// Host Object::repulsor_until_frame residual (countdown frames; 0 = permanent/none).
+    pub repulsor_until_frame: u32,
     /// Host Object::status.disabled_freefall residual.
     pub disabled_freefall: bool,
     /// Host Object::status.no_collisions residual.
@@ -538,6 +540,7 @@ impl EntityStore {
             hijacked: false,
             ignoring_stealth: false,
             repulsor: false,
+            repulsor_until_frame: 0,
             disabled_freefall: false,
             no_collisions: false,
             private_captured: false,

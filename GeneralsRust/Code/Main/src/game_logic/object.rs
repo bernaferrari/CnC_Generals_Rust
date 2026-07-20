@@ -8887,6 +8887,13 @@ impl Object {
     pub fn set_status_repulsor(&mut self, v: bool) {
         self.status.repulsor = v;
         crate::game_logic::host_status_log::record_repulsor(self.id, v);
+        crate::game_logic::host_repulsor_log::record(self.id, v, self.repulsor_until_frame);
+    }
+
+    /// Arm temporary repulsor helper countdown (C++ ObjectRepulsorHelper residual).
+    pub fn arm_repulsor_countdown(&mut self, remaining_frames: u32) {
+        self.repulsor_until_frame = remaining_frames;
+        self.set_status_repulsor(true);
     }
     pub fn set_status_disabled_underpowered(&mut self, v: bool) {
         self.status.disabled_underpowered = v;
