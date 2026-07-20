@@ -6016,9 +6016,15 @@ impl GameLogic {
                         obj.construction_percent = 1.0;
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
-                        obj.health.current = obj.health.maximum;
+                        let full_hp = obj.health.maximum;
+                        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                            // HP last-writer via heal channel + writeback.
+                            crate::game_logic::host_heal_log::record(id, full_hp);
+                        } else {
+                            obj.health.current = full_hp;
+                            crate::game_logic::host_heal_log::record(id, obj.health.current);
+                        }
                         crate::game_logic::host_construction_progress_log::record(id, 1.0, false);
-                        crate::game_logic::host_heal_log::record(id, obj.health.current);
                         crate::game_logic::host_construction_log::record(
                             id,
                             obj.template_name.clone(),
@@ -6027,9 +6033,13 @@ impl GameLogic {
                         completed_superweapon_detects.push((obj.team, obj.template_name.clone()));
                         completed_structures.push(id);
                     } else {
-                        obj.health.current =
-                            obj.health.maximum * (0.1 + 0.9 * obj.construction_percent);
-                        crate::game_logic::host_heal_log::record(id, obj.health.current);
+                        let build_hp = obj.health.maximum * (0.1 + 0.9 * obj.construction_percent);
+                        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                            crate::game_logic::host_heal_log::record(id, build_hp);
+                        } else {
+                            obj.health.current = build_hp;
+                            crate::game_logic::host_heal_log::record(id, obj.health.current);
+                        }
                     }
                 }
                 if obj.tick_timers(dt) {

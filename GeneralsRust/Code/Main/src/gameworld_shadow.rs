@@ -11537,6 +11537,56 @@ mod tests {
     }
 
     #[test]
+    fn construction_complete_heal_log_sets_full_hp_via_writeback() {
+        use crate::game_logic::{
+            host_construction_progress_log, host_heal_log, KindOf, Team, ThingTemplate,
+        };
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        assert!(gameworld_damage_authority_enabled());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ConstHp");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PadHp") {
+            let mut t = ThingTemplate::new("PadHp");
+            t.set_health(500.0);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("PadHp".into(), t);
+        }
+        let oid = logic
+            .create_object("PadHp", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.status.under_construction = true;
+            o.construction_percent = 0.99;
+            o.health.current = 50.0;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Simulate completion residual: log full HP without host mutate.
+        host_heal_log::clear();
+        host_construction_progress_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let full = o.health.maximum;
+            crate::game_logic::host_heal_log::record(oid, full);
+            crate::game_logic::host_construction_progress_log::record(oid, 1.0, false);
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+        assert!((logic.get_objects().get(&oid).expect("o").health.current - 50.0).abs() < 1e-5);
+        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(
+            (o.health.current - o.health.maximum).abs() < 1e-3,
+            "hp {}",
+            o.health.current
+        );
+        assert!((o.construction_percent - 1.0).abs() < 1e-5);
+        assert!(!o.status.under_construction);
+    }
+
+    #[test]
     fn damage_authority_writeback_is_last_writer() {
         crate::game_logic::host_damage_log::clear();
         let mut logic = GameLogic::new();
