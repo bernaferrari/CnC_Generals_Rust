@@ -5115,8 +5115,14 @@ pub fn shadow_session_after_host_tick(
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
-    if auth && !events.is_empty() {
-        let (queued, applied) = shadow.apply_host_damage_events(&events);
+    // HP last-writer: damage mutations and/or absolute heal SetHealth events.
+    if auth && (!events.is_empty() || !heal_events.is_empty()) {
+        let (mut queued, mut applied) = (0usize, 0usize);
+        if !events.is_empty() {
+            let pair = shadow.apply_host_damage_events(&events);
+            queued = pair.0;
+            applied = pair.1;
+        }
         writebacks = shadow.writeback_health_to_host(logic);
         let _xp_wb = shadow.writeback_experience_to_host(logic);
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
@@ -10198,6 +10204,55 @@ mod tests {
             after < before - 20.0,
             "writeback must apply damage before={before} after={after}"
         );
+    }
+
+    #[test]
+    fn heal_authority_defers_host_hp_until_writeback() {
+        use crate::game_logic::{host_heal_log, KindOf, Team, ThingTemplate};
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        assert!(gameworld_damage_authority_enabled());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HealAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerHeal") {
+            let mut t = ThingTemplate::new("RangerHeal");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("RangerHeal".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerHeal", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        // Seed wounded host HP without authority path (direct field for setup).
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.health.current = 40.0;
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        host_heal_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.heal(30.0);
+        }
+        let mid = logic.get_objects().get(&oid).expect("o").health.current;
+        assert!((mid - 40.0).abs() < 1e-5, "host heal deferred mid={mid}");
+        let events = host_heal_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.target == oid && (e.health - 70.0).abs() < 1e-5),
+            "events {:?}",
+            events
+        );
+        host_heal_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.heal(30.0);
+        }
+        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        let after = logic.get_objects().get(&oid).expect("o").health.current;
+        assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
     }
 
     #[test]
