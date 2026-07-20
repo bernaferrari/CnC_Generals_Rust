@@ -6151,7 +6151,11 @@ impl GameLogic {
                                 }
                             })
                             .collect();
-                    crate::game_logic::host_production_progress_log::record(id, items);
+                    crate::game_logic::host_production_progress_log::record(
+                        id,
+                        items,
+                        building.exit_delay_remaining,
+                    );
                 }
                 if let Some((completed, kind)) = completed_prod {
                     match kind {
