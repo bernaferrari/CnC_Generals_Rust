@@ -535,6 +535,20 @@ impl GameWorldShadow {
                     e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                     e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
                     e.waiting_for_path = obj.waiting_for_path;
+                    e.motive_frames_remaining = obj.motive_frames_remaining;
+                    e.physics_mass = obj.physics_mass;
+                    e.physics_accel = [
+                        obj.physics_accel.x,
+                        obj.physics_accel.y,
+                        obj.physics_accel.z,
+                    ];
+                    e.forward_friction = obj.forward_friction;
+                    e.lateral_friction = obj.lateral_friction;
+                    e.z_friction = obj.z_friction;
+                    e.can_path_through_units = obj.can_path_through_units;
+                    e.ignore_collisions_until_frame = obj.ignore_collisions_until_frame;
+                    e.is_panicking = obj.is_panicking;
+                    e.move_away_frames = obj.move_away_frames;
                     e.shock_stun_frames = obj.shock_stun_frames;
                     e.shock_yaw_rate = obj.shock_yaw_rate;
                     e.shock_pitch_rate = obj.shock_pitch_rate;
@@ -4023,6 +4037,37 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_physics_motive_events(
+        &mut self,
+        events: &[crate::game_logic::host_physics_motive_log::HostPhysicsMotiveEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetPhysicsMotive {
+                    target: eid,
+                    motive_frames_remaining: ev.motive_frames_remaining,
+                    physics_mass: ev.physics_mass,
+                    physics_accel: ev.physics_accel,
+                    forward_friction: ev.forward_friction,
+                    lateral_friction: ev.lateral_friction,
+                    z_friction: ev.z_friction,
+                    can_path_through_units: ev.can_path_through_units,
+                    ignore_collisions_until_frame: ev.ignore_collisions_until_frame,
+                    is_panicking: ev.is_panicking,
+                    move_away_frames: ev.move_away_frames,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_selection_radius_events(
         &mut self,
         events: &[crate::game_logic::host_selection_radius_log::HostSelectionRadiusEvent],
@@ -4671,6 +4716,49 @@ impl GameWorldShadow {
             obj.is_blocked = ent.is_blocked;
             obj.move_away_from = ent.move_away_from_id.map(ObjectId);
             obj.requested_victim_id = ent.requested_victim_id.map(ObjectId);
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn writeback_physics_motive_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.motive_frames_remaining != ent.motive_frames_remaining
+                || (obj.physics_mass - ent.physics_mass).abs() > f32::EPSILON
+                || (obj.physics_accel.x - ent.physics_accel[0]).abs() > f32::EPSILON
+                || (obj.physics_accel.y - ent.physics_accel[1]).abs() > f32::EPSILON
+                || (obj.physics_accel.z - ent.physics_accel[2]).abs() > f32::EPSILON
+                || (obj.forward_friction - ent.forward_friction).abs() > f32::EPSILON
+                || (obj.lateral_friction - ent.lateral_friction).abs() > f32::EPSILON
+                || (obj.z_friction - ent.z_friction).abs() > f32::EPSILON
+                || obj.can_path_through_units != ent.can_path_through_units
+                || obj.ignore_collisions_until_frame != ent.ignore_collisions_until_frame
+                || obj.is_panicking != ent.is_panicking
+                || obj.move_away_frames != ent.move_away_frames;
+            if !changed {
+                continue;
+            }
+            obj.motive_frames_remaining = ent.motive_frames_remaining;
+            obj.physics_mass = ent.physics_mass;
+            obj.physics_accel = glam::Vec3::new(
+                ent.physics_accel[0],
+                ent.physics_accel[1],
+                ent.physics_accel[2],
+            );
+            obj.forward_friction = ent.forward_friction;
+            obj.lateral_friction = ent.lateral_friction;
+            obj.z_friction = ent.z_friction;
+            obj.can_path_through_units = ent.can_path_through_units;
+            obj.ignore_collisions_until_frame = ent.ignore_collisions_until_frame;
+            obj.is_panicking = ent.is_panicking;
+            obj.move_away_frames = ent.move_away_frames;
             updated += 1;
         }
         updated
@@ -5646,6 +5734,8 @@ pub fn shadow_session_after_host_tick(
     let sole_healing_events = crate::game_logic::host_sole_healing_log::drain();
     let _sh_applied = shadow.apply_host_sole_healing_events(&sole_healing_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
+    let physics_motive_events = crate::game_logic::host_physics_motive_log::drain();
+    let _pm_applied = shadow.apply_host_physics_motive_events(&physics_motive_events);
 
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
     let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
@@ -5708,6 +5798,7 @@ pub fn shadow_session_after_host_tick(
     // (do not gate on damage-channel auth — path frames often have empty damage logs).
     if gameworld_movement_authority_enabled() {
         let _mv_wb = shadow.writeback_movement_to_host(logic);
+        let _ = shadow.writeback_physics_motive_to_host(logic);
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
     }
@@ -5759,6 +5850,7 @@ pub fn shadow_session_after_host_tick(
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
+        let _ = shadow.writeback_physics_motive_to_host(logic);
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
         let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
@@ -9315,6 +9407,7 @@ mod tests {
             .create_object("MvU", Team::USA, glam::Vec3::new(26.0, 0.0, 26.0))
             .expect("id");
         host_movement_log::clear();
+        crate::game_logic::host_physics_motive_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.movement.velocity = Vec3::new(3.0, 0.0, 4.0);
@@ -9374,6 +9467,7 @@ mod tests {
             e.path_waypoints = vec![[1.0, 0.0, 1.0], [2.0, 0.0, 2.0]];
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
         assert!((o.movement.max_speed - 12.5).abs() < 1e-5);
@@ -12623,6 +12717,7 @@ mod tests {
             o.waiting_for_path = false;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         assert!(
             logic.get_objects().get(&oid).unwrap().waiting_for_path,
             "waiting_for_path writeback"
@@ -12698,6 +12793,7 @@ mod tests {
             o.waiting_for_path = false;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.locomotor_surfaces, 0b101);
         assert!(o.is_attack_path);
@@ -12830,6 +12926,7 @@ mod tests {
             o.requested_victim_id = None;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
         assert_eq!(o.num_frames_blocked, 7);
@@ -13103,6 +13200,76 @@ mod tests {
         assert_eq!(o.production_door_phase, 2);
         assert_eq!(o.production_door_phase_end_frame, 500);
         assert!(o.production_door_hold_open);
+    }
+
+    #[test]
+    fn physics_motive_channel_via_set_physics_motive() {
+        use crate::game_logic::host_physics_motive_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_physics_motive_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PhysMot");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PhysU") {
+            let mut t = ThingTemplate::new("PhysU");
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("PhysU".into(), t);
+        }
+        let oid = logic
+            .create_object("PhysU", Team::USA, glam::Vec3::new(70.0, 0.0, 70.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.motive_frames_remaining = 12;
+            o.physics_mass = 2.5;
+            o.physics_accel = glam::Vec3::new(1.0, 0.0, 0.5);
+            o.forward_friction = 0.15;
+            o.lateral_friction = 0.2;
+            o.z_friction = 0.1;
+            o.can_path_through_units = true;
+            o.ignore_collisions_until_frame = 40;
+            o.is_panicking = true;
+            o.move_away_frames = 5;
+        }
+        host_physics_motive_log::record(
+            oid,
+            12,
+            2.5,
+            [1.0, 0.0, 0.5],
+            0.15,
+            0.2,
+            0.1,
+            true,
+            40,
+            true,
+            5,
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_physics_motive_events(&host_physics_motive_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.motive_frames_remaining, 12);
+        assert!((e.physics_mass - 2.5).abs() < 1e-5);
+        assert!((e.physics_accel[0] - 1.0).abs() < 1e-5);
+        assert!(e.can_path_through_units);
+        assert!(e.is_panicking);
+        assert_eq!(e.ignore_collisions_until_frame, 40);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.motive_frames_remaining = 0;
+            o.physics_mass = 1.0;
+            o.can_path_through_units = false;
+            o.is_panicking = false;
+            o.ignore_collisions_until_frame = 0;
+        }
+        assert!(shadow.writeback_physics_motive_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.motive_frames_remaining, 12);
+        assert!((o.physics_mass - 2.5).abs() < 1e-5);
+        assert!(o.can_path_through_units);
+        assert!(o.is_panicking);
+        assert_eq!(o.ignore_collisions_until_frame, 40);
     }
 
     #[test]

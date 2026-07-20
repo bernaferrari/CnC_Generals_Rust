@@ -13,6 +13,7 @@ pub mod host_guard_log;
 pub mod host_heal_log;
 pub mod host_hive_log;
 pub mod host_max_health_log;
+pub mod host_physics_motive_log;
 pub mod host_production_door_log;
 pub mod host_rebuild_producer_log;
 pub mod host_repulsor_gate;
