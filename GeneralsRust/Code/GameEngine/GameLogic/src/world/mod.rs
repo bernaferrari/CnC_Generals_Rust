@@ -569,6 +569,13 @@ pub enum WorldMutation {
         active: bool,
         until_frame: u32,
     },
+    /// Host EMP/hacked/paralyzed disable until_frame residuals.
+    SetDisableTimers {
+        target: EntityId,
+        emp_until_frame: u32,
+        hacked_until_frame: u32,
+        paralyzed_until_frame: u32,
+    },
     /// Host Object guard residual (area position + guarded object id).
     SetGuard {
         unit: EntityId,
@@ -1248,6 +1255,19 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.repulsor = active;
                         e.repulsor_until_frame = until_frame;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetDisableTimers {
+                    target,
+                    emp_until_frame,
+                    hacked_until_frame,
+                    paralyzed_until_frame,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.disabled_emp_until_frame = emp_until_frame;
+                        e.disabled_hacked_until_frame = hacked_until_frame;
+                        e.disabled_paralyzed_until_frame = paralyzed_until_frame;
                         applied += 1;
                     }
                 }
