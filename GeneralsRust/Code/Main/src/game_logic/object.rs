@@ -5470,8 +5470,6 @@ impl Object {
             typed * armor_factor * battle_plan_armor
         };
 
-        self.health.damage(actual_damage);
-
         // C++ ActiveBody: damaged CAN_BE_REPULSED civilians scare others when EnableRepulsors.
         // Object::setStatus(REPULSOR) + ObjectRepulsorHelper sleepUntil(+2 sec).
         if crate::game_logic::host_repulsor_gate::is_enabled()
@@ -5487,19 +5485,29 @@ impl Object {
             }
         }
 
-        // Check if object is destroyed
-        let destroyed = if !self.health.is_alive() {
-            self.status.destroyed = true;
-            self.status.death_type = death_type;
-            self.set_ai_state(AIState::Idle);
-            self.target = None;
-            true // Object was destroyed
+        // GameWorld damage authority: host logs intent only; HP/destroyed last-write
+        // via shadow session mutations + writeback_health_to_host (no mid-frame host HP mutate).
+        let damage_auth = crate::gameworld_shadow::gameworld_damage_authority_enabled();
+        let destroyed = if damage_auth {
+            let projected = (self.health.current - actual_damage).max(0.0);
+            let will_die = projected <= 0.0 || actual_damage >= self.health.current;
+            crate::game_logic::host_damage_log::record(self.id, actual_damage, source, will_die);
+            // Callers (combat kill credit) see projected destruction without host HP poke.
+            will_die
         } else {
-            false
+            self.health.damage(actual_damage);
+            let destroyed = if !self.health.is_alive() {
+                self.status.destroyed = true;
+                self.status.death_type = death_type;
+                self.set_ai_state(AIState::Idle);
+                self.target = None;
+                true
+            } else {
+                false
+            };
+            crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
+            destroyed
         };
-
-        // Frame-local log for GameWorld shadow mutation parity (actual HP damage).
-        crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
 
         self.refresh_model_condition_bits();
         destroyed
