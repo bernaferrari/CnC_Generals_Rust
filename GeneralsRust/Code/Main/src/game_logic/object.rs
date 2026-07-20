@@ -5550,6 +5550,61 @@ impl Object {
         );
     }
 
+    /// Presentation kind_of ORDER bits residual (same ORDER as GameWorldShadow::host_kind_of_bits).
+    pub fn presentation_kind_of_bits(&self) -> u32 {
+        use crate::game_logic::KindOf;
+        const ORDER: &[KindOf] = &[
+            KindOf::Structure,
+            KindOf::Infantry,
+            KindOf::Vehicle,
+            KindOf::Aircraft,
+            KindOf::Projectile,
+            KindOf::Resource,
+            KindOf::Selectable,
+            KindOf::Attackable,
+            KindOf::CommandCenter,
+            KindOf::Worker,
+            KindOf::Hero,
+            KindOf::SupplyCenter,
+            KindOf::PowerPlant,
+            KindOf::FSBarracks,
+            KindOf::FSWarFactory,
+            KindOf::FSAirfield,
+            KindOf::FSInternetCenter,
+            KindOf::FSPower,
+            KindOf::FSBaseDefense,
+            KindOf::FSSupplyDropzone,
+            KindOf::FSSupplyCenter,
+            KindOf::FSSuperweapon,
+            KindOf::FSStrategyCenter,
+            KindOf::FSFake,
+            KindOf::FSTechnology,
+            KindOf::FSBlackMarket,
+            KindOf::FSAdvancedTech,
+            KindOf::Harvestable,
+            KindOf::Powered,
+        ];
+        let set = &self.get_template().kind_of;
+        let mut bits = 0u32;
+        for (i, k) in ORDER.iter().enumerate() {
+            if set.contains(k) {
+                bits |= 1u32 << i;
+            }
+        }
+        bits
+    }
+
+    /// kind_of bits residual → GameWorld SetKindOfBits.
+    pub fn set_kind_of_bits_residual(&mut self, kind_of_bits: u32) {
+        crate::game_logic::host_kind_of_log::record(self.id, kind_of_bits);
+    }
+
+    /// Resolve and log kind_of bits from the active template.
+    pub fn record_kind_of_bits_from_template(&mut self) {
+        let bits = self.presentation_kind_of_bits();
+        self.set_kind_of_bits_residual(bits);
+    }
+
     pub fn record_host_identity(&self) {
         crate::game_logic::host_identity_log::record(self.id, self.name.clone(), self.team_color);
     }
@@ -5917,6 +5972,7 @@ impl Object {
                 self.set_status_disguised(true);
 
                 self.record_model_mesh_from_template();
+                self.record_kind_of_bits_from_template();
                 self.set_status_stealthed(true);
                 self.set_status_detected(false);
             } else {

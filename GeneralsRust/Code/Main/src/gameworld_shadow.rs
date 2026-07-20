@@ -270,46 +270,7 @@ impl GameWorldShadow {
 
     /// Presentation KindOf ORDER residual (must match PresentationFrame freeze ORDER).
     fn host_kind_of_bits(obj: &crate::game_logic::Object) -> u32 {
-        use crate::game_logic::KindOf;
-        const ORDER: &[KindOf] = &[
-            KindOf::Structure,
-            KindOf::Infantry,
-            KindOf::Vehicle,
-            KindOf::Aircraft,
-            KindOf::Projectile,
-            KindOf::Resource,
-            KindOf::Selectable,
-            KindOf::Attackable,
-            KindOf::CommandCenter,
-            KindOf::Worker,
-            KindOf::Hero,
-            KindOf::SupplyCenter,
-            KindOf::PowerPlant,
-            KindOf::FSBarracks,
-            KindOf::FSWarFactory,
-            KindOf::FSAirfield,
-            KindOf::FSInternetCenter,
-            KindOf::FSPower,
-            KindOf::FSBaseDefense,
-            KindOf::FSSupplyDropzone,
-            KindOf::FSSupplyCenter,
-            KindOf::FSSuperweapon,
-            KindOf::FSStrategyCenter,
-            KindOf::FSFake,
-            KindOf::FSTechnology,
-            KindOf::FSBlackMarket,
-            KindOf::FSAdvancedTech,
-            KindOf::Harvestable,
-            KindOf::Powered,
-        ];
-        let set = &obj.get_template().kind_of;
-        let mut bits = 0u32;
-        for (i, k) in ORDER.iter().enumerate() {
-            if set.contains(k) {
-                bits |= 1u32 << i;
-            }
-        }
-        bits
+        obj.presentation_kind_of_bits()
     }
 
     fn host_object_type_ordinal(t: crate::game_logic::ObjectType) -> u8 {
@@ -3713,6 +3674,28 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_kind_of_events(
+        &mut self,
+        events: &[crate::game_logic::host_kind_of_log::HostKindOfEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetKindOfBits {
+                    target: eid,
+                    kind_of_bits: ev.kind_of_bits,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn writeback_ground_height_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4823,6 +4806,7 @@ pub fn shadow_session_after_host_tick(
     let ground_height_events = crate::game_logic::host_ground_height_log::drain();
     let model_mesh_events = crate::game_logic::host_model_mesh_log::drain();
     let fow_events = crate::game_logic::host_fow_log::drain();
+    let kind_of_events = crate::game_logic::host_kind_of_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4894,6 +4878,7 @@ pub fn shadow_session_after_host_tick(
     let _gh_applied = shadow.apply_host_ground_height_events(&ground_height_events);
     let _mm_applied = shadow.apply_host_model_mesh_events(&model_mesh_events);
     let _fow_applied = shadow.apply_host_fow_events(&fow_events);
+    let _ko_applied = shadow.apply_host_kind_of_events(&kind_of_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -8086,6 +8071,57 @@ mod tests {
         assert!((e.fow_visibility_alpha - 0.35).abs() < 1e-5);
         assert!((e.fow_is_explored - 1.0).abs() < 1e-5);
         assert!((e.fow_visibility_falloff - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn host_kind_of_log_drives_set_kind_of_bits_channel() {
+        use crate::game_logic::{host_kind_of_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("KoCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerKo") {
+            let mut t = ThingTemplate::new("RangerKo");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("RangerKo".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerKo", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+
+        let bits = {
+            let o = logic.get_objects().get(&oid).expect("o");
+            o.presentation_kind_of_bits()
+        };
+        assert!(bits != 0, "bits {bits}");
+
+        host_kind_of_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_kind_of_bits_residual(bits | (1u32 << 10)); // set Hero bit residual
+        }
+        let events = host_kind_of_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.kind_of_bits == (bits | (1u32 << 10))),
+            "events {:?}",
+            events
+        );
+
+        host_kind_of_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_kind_of_bits_residual(bits | (1u32 << 10));
+        }
+        let n = shadow.apply_host_kind_of_events(&host_kind_of_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.kind_of_bits, bits | (1u32 << 10));
     }
 
     #[test]
