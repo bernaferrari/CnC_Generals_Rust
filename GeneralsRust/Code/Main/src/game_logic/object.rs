@@ -608,7 +608,7 @@ pub struct Object {
 
     /// Visual properties for rendering
     pub show_health_bar: bool,
-        pub selection_radius: f32,
+    pub selection_radius: f32,
     /// Terrain ground height residual at object XY (presentation / FOW residual).
     #[serde(default)]
     pub ground_height: f32,
