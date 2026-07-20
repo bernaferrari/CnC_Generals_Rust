@@ -5754,6 +5754,16 @@ impl Object {
         );
     }
 
+    pub fn record_host_ai_mood(&self) {
+        crate::game_logic::host_ai_mood_log::record(
+            self.id,
+            self.idle_since_frame,
+            self.mood_attack_check_rate,
+            self.auto_acquire_when_idle,
+            self.attack_priority_set.clone().unwrap_or_default(),
+        );
+    }
+
     pub fn record_host_sole_healing(&self) {
         crate::game_logic::host_sole_healing_log::record(
             self.id,
@@ -9210,6 +9220,7 @@ impl Object {
         };
         self.ai_state = state;
         crate::game_logic::host_ai_state_log::record(self.id, ordinal);
+        self.record_host_ai_mood();
     }
 
     /// Get visual information for rendering

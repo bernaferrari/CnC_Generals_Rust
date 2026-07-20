@@ -751,6 +751,14 @@ pub enum WorldMutation {
     },
     /// Host Object::ai_attitude residual (-2 Sleep .. +2 Aggressive).
     SetAiAttitude { target: EntityId, attitude: i8 },
+    /// Host AI mood/idle residual (dozer idle timestamp + auto-acquire).
+    SetAiMood {
+        target: EntityId,
+        idle_since_frame: u32,
+        mood_attack_check_rate: u32,
+        auto_acquire_when_idle: bool,
+        attack_priority_set: String,
+    },
     /// Host Object weapon-set residual flags (player upgrade / armed riders).
     SetWeaponSetFlags {
         target: EntityId,
@@ -1584,6 +1592,21 @@ impl GameWorld {
                 WorldMutation::SetAiAttitude { target, attitude } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.ai_attitude = attitude.clamp(-2, 2);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetAiMood {
+                    target,
+                    idle_since_frame,
+                    mood_attack_check_rate,
+                    auto_acquire_when_idle,
+                    attack_priority_set,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.idle_since_frame = idle_since_frame;
+                        e.mood_attack_check_rate = mood_attack_check_rate;
+                        e.auto_acquire_when_idle = auto_acquire_when_idle;
+                        e.attack_priority_set = attack_priority_set;
                         applied += 1;
                     }
                 }
