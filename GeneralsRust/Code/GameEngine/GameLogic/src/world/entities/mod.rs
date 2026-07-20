@@ -268,6 +268,8 @@ pub struct Entity {
     pub weapon_min_range: f32,
     /// Host Weapon::reload_time residual (seconds).
     pub weapon_reload_time: f32,
+    /// Host Weapon::last_fire_time residual (seconds, sim clock).
+    pub weapon_last_fire_time: f32,
     /// Host Weapon::ammo residual (`u32::MAX` = unlimited/None).
     pub weapon_ammo: u32,
     /// Host Weapon::can_target_air residual.
@@ -581,6 +583,7 @@ impl EntityStore {
             weapon_range: 0.0,
             weapon_min_range: 0.0,
             weapon_reload_time: 0.0,
+            weapon_last_fire_time: 0.0,
             weapon_ammo: u32::MAX,
             weapon_can_target_air: false,
             weapon_can_target_ground: true,

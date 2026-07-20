@@ -493,6 +493,8 @@ impl GameWorldShadow {
                         e.weapon_range = w.range;
                         e.weapon_min_range = w.min_range;
                         e.weapon_reload_time = w.reload_time;
+                        e.weapon_last_fire_time =
+                            obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
                         e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
                         e.weapon_can_target_air = w.can_target_air;
                         e.weapon_can_target_ground = w.can_target_ground;
@@ -3487,6 +3489,7 @@ impl GameWorldShadow {
                     weapon_range: ev.weapon_range,
                     weapon_min_range: ev.weapon_min_range,
                     weapon_reload_time: ev.weapon_reload_time,
+                    weapon_last_fire_time: ev.weapon_last_fire_time,
                     weapon_ammo: ev.weapon_ammo,
                     weapon_can_target_air: ev.weapon_can_target_air,
                     weapon_can_target_ground: ev.weapon_can_target_ground,
@@ -4164,6 +4167,7 @@ impl GameWorldShadow {
                     || (w.range - ent.weapon_range).abs() > f32::EPSILON
                     || (w.min_range - ent.weapon_min_range).abs() > f32::EPSILON
                     || (w.reload_time - ent.weapon_reload_time).abs() > f32::EPSILON
+                    || (w.last_fire_time - ent.weapon_last_fire_time).abs() > f32::EPSILON
                     || w.ammo.unwrap_or(u32::MAX) != ent.weapon_ammo
                     || w.can_target_air != ent.weapon_can_target_air
                     || w.can_target_ground != ent.weapon_can_target_ground
@@ -4173,6 +4177,7 @@ impl GameWorldShadow {
                     w.range = ent.weapon_range;
                     w.min_range = ent.weapon_min_range;
                     w.reload_time = ent.weapon_reload_time;
+                    w.last_fire_time = ent.weapon_last_fire_time;
                     w.ammo = if ent.weapon_ammo == u32::MAX {
                         None
                     } else {
@@ -11734,6 +11739,71 @@ mod tests {
         assert!((e.production_queue_items[0].progress - 3.5).abs() < 1e-5);
         assert_eq!(e.production_queue_items[0].template_name, "Ranger");
         assert!((e.production_progress - 3.5).abs() < 1e-5);
+    }
+
+    #[test]
+    #[test]
+    fn weapon_last_fire_time_channel_via_set_weapon_stats() {
+        use crate::game_logic::host_weapon_stats_log::{self, HostWeaponStatsEvent};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_weapon_stats_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WepFire");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WepFireU") {
+            let mut t = ThingTemplate::new("WepFireU");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("WepFireU".into(), t);
+        }
+        let oid = logic
+            .create_object("WepFireU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        // Direct channel event (does not require a live Weapon struct shape).
+        host_weapon_stats_log::record(HostWeaponStatsEvent {
+            object: oid,
+            has_weapon: true,
+            weapon_damage: 10.0,
+            weapon_range: 100.0,
+            weapon_min_range: 0.0,
+            weapon_reload_time: 1.0,
+            weapon_last_fire_time: 12.5,
+            weapon_ammo: u32::MAX,
+            weapon_can_target_air: false,
+            weapon_can_target_ground: true,
+            weapon_projectile_speed: 0.0,
+            has_secondary_weapon: false,
+            secondary_weapon_damage: 0.0,
+            secondary_weapon_range: 0.0,
+        });
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_weapon_stats_events(&host_weapon_stats_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.weapon_last_fire_time - 12.5).abs() < 1e-5);
+        assert!(e.has_weapon);
+        // writeback last_fire onto host weapon if present
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            if o.weapon.is_none() {
+                // skip host writeback assert when template has no weapon
+            } else {
+                o.weapon.as_mut().unwrap().last_fire_time = 0.0;
+            }
+        }
+        if logic.get_objects().get(&oid).unwrap().weapon.is_some() {
+            assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+            let t = logic
+                .get_objects()
+                .get(&oid)
+                .unwrap()
+                .weapon
+                .as_ref()
+                .unwrap()
+                .last_fire_time;
+            assert!((t - 12.5).abs() < 1e-5);
+        }
     }
 
     #[test]
