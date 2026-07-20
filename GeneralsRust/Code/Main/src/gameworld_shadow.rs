@@ -11438,9 +11438,16 @@ mod tests {
             .player(gamelogic::world::PlayerId::from_index(0))
             .unwrap()
             .supplies;
-        assert_eq!(sh, after_host);
+        let expect = if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            after_eff
+        } else {
+            after_host
+        };
+        assert_eq!(sh, expect, "shadow supplies from economy log");
         let wb = shadow.writeback_economy_to_host(&mut logic);
-        assert!(wb >= 1 || logic.get_player(hid).unwrap().resources.supplies == after_host);
+        assert!(wb >= 1 || logic.get_player(hid).unwrap().resources.supplies == expect);
+        assert_eq!(logic.get_player(hid).unwrap().resources.supplies, expect);
+        assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
     }
 
     #[test]
