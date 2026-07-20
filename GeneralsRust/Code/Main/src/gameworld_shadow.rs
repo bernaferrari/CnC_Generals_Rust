@@ -559,14 +559,19 @@ impl GameWorldShadow {
                     }
                     {
                         let pos = obj.get_position();
-                        match logic.terrain_height_at(pos) {
-                            Some(h) if h.is_finite() => {
-                                e.ground_height = h;
-                                e.ground_height_from_terrain = true;
-                            }
-                            _ => {
-                                e.ground_height = 0.0;
-                                e.ground_height_from_terrain = false;
+                        if obj.ground_height_from_terrain {
+                            e.ground_height = obj.ground_height;
+                            e.ground_height_from_terrain = true;
+                        } else {
+                            match logic.terrain_height_at(pos) {
+                                Some(h) if h.is_finite() => {
+                                    e.ground_height = h;
+                                    e.ground_height_from_terrain = true;
+                                }
+                                _ => {
+                                    e.ground_height = obj.ground_height;
+                                    e.ground_height_from_terrain = obj.ground_height_from_terrain;
+                                }
                             }
                         }
                     }
@@ -3640,6 +3645,51 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_ground_height_events(
+        &mut self,
+        events: &[crate::game_logic::host_ground_height_log::HostGroundHeightEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetGroundHeight {
+                    target: eid,
+                    ground_height: ev.ground_height,
+                    from_terrain: ev.from_terrain,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_ground_height_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = (obj.ground_height - ent.ground_height).abs() > f32::EPSILON
+                || obj.ground_height_from_terrain != ent.ground_height_from_terrain;
+            if !changed {
+                continue;
+            }
+            obj.ground_height = ent.ground_height;
+            obj.ground_height_from_terrain = ent.ground_height_from_terrain;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_identity_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4742,6 +4792,7 @@ pub fn shadow_session_after_host_tick(
     let crush_vision_events = crate::game_logic::host_crush_vision_log::drain();
     let building_type_events = crate::game_logic::host_building_type_log::drain();
     let identity_events = crate::game_logic::host_identity_log::drain();
+    let ground_height_events = crate::game_logic::host_ground_height_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4810,6 +4861,7 @@ pub fn shadow_session_after_host_tick(
     let _cv_applied = shadow.apply_host_crush_vision_events(&crush_vision_events);
     let _bt_applied = shadow.apply_host_building_type_events(&building_type_events);
     let _id_applied = shadow.apply_host_identity_events(&identity_events);
+    let _gh_applied = shadow.apply_host_ground_height_events(&ground_height_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4874,6 +4926,7 @@ pub fn shadow_session_after_host_tick(
     let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
     let _bt_wb = shadow.writeback_building_type_to_host(logic);
     let _id_wb = shadow.writeback_identity_to_host(logic);
+    let _gh_wb = shadow.writeback_ground_height_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
     let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         log::trace!(
@@ -7870,7 +7923,68 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_ground_height_log_drives_set_ground_height_channel() {
+        use crate::game_logic::{host_ground_height_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("GhCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("GhU") {
+            let mut t = ThingTemplate::new("GhU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("GhU".into(), t);
+        }
+        let oid = logic
+            .create_object("GhU", Team::USA, glam::Vec3::new(34.0, 0.0, 34.0))
+            .expect("id");
+        host_ground_height_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_ground_height_residual(12.5, true);
+        }
+        let events = host_ground_height_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid && (e.ground_height - 12.5).abs() < 1e-5 && e.from_terrain
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_ground_height();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.ground_height = 0.0;
+            e.ground_height_from_terrain = false;
+        }
+        let n = shadow.apply_host_ground_height_events(&host_ground_height_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.ground_height - 12.5).abs() < 1e-5);
+        assert!(e.ground_height_from_terrain);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.ground_height = 0.0;
+            o.ground_height_from_terrain = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.ground_height = 12.5;
+            e.ground_height_from_terrain = true;
+        }
+        assert!(shadow.writeback_ground_height_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!((o.ground_height - 12.5).abs() < 1e-5);
+        assert!(o.ground_height_from_terrain);
+    }
+
+#[test]
     fn host_identity_log_drives_set_identity_channel() {
         use crate::game_logic::{host_identity_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
