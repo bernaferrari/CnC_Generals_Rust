@@ -612,6 +612,25 @@ pub enum WorldMutation {
         physics_current_overlap_id: Option<u32>,
         physics_previous_overlap_id: Option<u32>,
     },
+    /// Host locomotor / path-approach residual.
+    SetLocomotor {
+        target: EntityId,
+        is_approach_path: bool,
+        on_invalid_movement_terrain: bool,
+        was_airborne_last_frame: bool,
+        can_move_backward: bool,
+        moving_backwards: bool,
+        no_slow_down_as_approaching_dest: bool,
+        turn_pivot_offset: f32,
+        wander_width_factor: f32,
+        loco_apply_2d_friction_airborne: bool,
+        loco_extra_2d_friction: f32,
+        loco_preferred_height: f32,
+        loco_preferred_height_damping: f32,
+        loco_appearance_ordinal: u8,
+        loco_behavior_z_ordinal: u8,
+        min_turn_speed: f32,
+    },
     /// Host bounce/land/collision residual pack.
     SetBounceLand {
         target: EntityId,
@@ -1307,6 +1326,43 @@ impl GameWorld {
                         e.immune_to_falling_damage = immune_to_falling_damage;
                         e.physics_current_overlap_id = physics_current_overlap_id;
                         e.physics_previous_overlap_id = physics_previous_overlap_id;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetLocomotor {
+                    target,
+                    is_approach_path,
+                    on_invalid_movement_terrain,
+                    was_airborne_last_frame,
+                    can_move_backward,
+                    moving_backwards,
+                    no_slow_down_as_approaching_dest,
+                    turn_pivot_offset,
+                    wander_width_factor,
+                    loco_apply_2d_friction_airborne,
+                    loco_extra_2d_friction,
+                    loco_preferred_height,
+                    loco_preferred_height_damping,
+                    loco_appearance_ordinal,
+                    loco_behavior_z_ordinal,
+                    min_turn_speed,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.is_approach_path = is_approach_path;
+                        e.on_invalid_movement_terrain = on_invalid_movement_terrain;
+                        e.was_airborne_last_frame = was_airborne_last_frame;
+                        e.can_move_backward = can_move_backward;
+                        e.moving_backwards = moving_backwards;
+                        e.no_slow_down_as_approaching_dest = no_slow_down_as_approaching_dest;
+                        e.turn_pivot_offset = turn_pivot_offset;
+                        e.wander_width_factor = wander_width_factor;
+                        e.loco_apply_2d_friction_airborne = loco_apply_2d_friction_airborne;
+                        e.loco_extra_2d_friction = loco_extra_2d_friction;
+                        e.loco_preferred_height = loco_preferred_height;
+                        e.loco_preferred_height_damping = loco_preferred_height_damping;
+                        e.loco_appearance_ordinal = loco_appearance_ordinal;
+                        e.loco_behavior_z_ordinal = loco_behavior_z_ordinal;
+                        e.min_turn_speed = min_turn_speed;
                         applied += 1;
                     }
                 }
