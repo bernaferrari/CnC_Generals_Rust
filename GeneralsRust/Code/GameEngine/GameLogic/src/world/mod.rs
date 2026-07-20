@@ -1511,11 +1511,14 @@ impl GameWorld {
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.contained_by_host = contained_by_host;
-                        if let Some(c) = garrison_count {
-                            e.garrison_count = c;
-                        }
                         if let Some(ids) = garrisoned_host_ids {
+                            let n = ids.len().min(u16::MAX as usize) as u16;
                             e.garrisoned_host_ids = ids;
+                            e.occupant_count = n;
+                            e.garrison_count = garrison_count.unwrap_or(n);
+                        } else if let Some(c) = garrison_count {
+                            e.garrison_count = c;
+                            e.occupant_count = c;
                         }
                         applied += 1;
                     }
