@@ -56,6 +56,26 @@ pub enum AttackSubState {
     ChaseTarget,
 }
 
+impl AttackSubState {
+    pub fn to_ordinal(self) -> u8 {
+        match self {
+            AttackSubState::AimAtTarget => 0,
+            AttackSubState::FireWeapon => 1,
+            AttackSubState::ApproachTarget => 2,
+            AttackSubState::ChaseTarget => 3,
+        }
+    }
+
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => AttackSubState::FireWeapon,
+            2 => AttackSubState::ApproachTarget,
+            3 => AttackSubState::ChaseTarget,
+            _ => AttackSubState::AimAtTarget,
+        }
+    }
+}
+
 fn default_one_f32() -> f32 {
     1.0
 }
@@ -4063,6 +4083,7 @@ impl Object {
     pub fn loco_maintain_current_position(&mut self, ground_y: f32) -> bool {
         if !self.maintain_pos_valid {
             self.maintain_pos = Some(self.get_position());
+            self.record_host_combat_attack();
             self.maintain_pos_valid = true;
         }
         self.is_braking = false;
@@ -4269,6 +4290,7 @@ impl Object {
             {
                 // Temporary AI move expired with no destination — idle residual.
                 self.set_ai_state(AIState::Idle);
+                self.record_host_combat_attack();
             }
         }
     }
@@ -4276,6 +4298,7 @@ impl Object {
     /// C++ privateAttackObject max-shots residual.
     pub fn set_max_shots_to_fire(&mut self, max_shots: i32) {
         self.max_shots_to_fire = max_shots;
+        self.record_host_combat_attack();
     }
 
     /// C++ AIUpdateInterface::requestPath residual (fail-closed straight path).
@@ -7136,12 +7159,15 @@ impl Object {
     pub fn record_shot_at_target(&mut self, target_id: ObjectId) {
         if self.consecutive_shot_target == Some(target_id) {
             self.consecutive_shots_at_target = self.consecutive_shots_at_target.saturating_add(1);
+            self.record_host_combat_attack();
         } else {
             self.consecutive_shot_target = Some(target_id);
             self.consecutive_shots_at_target = 1;
+            self.record_host_combat_attack();
         }
         // PER_SHOT: force next fire_at to re-arm delay by clearing ready stamp into the past.
         self.pre_attack_ready_at = 0.0;
+        self.record_host_combat_attack();
     }
 
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
@@ -7209,7 +7235,9 @@ impl Object {
                 self.pre_attack_target != Some(target_id) || self.pre_attack_ready_at <= 0.0;
             if needs_arm {
                 self.pre_attack_target = Some(target_id);
+                self.record_host_combat_attack();
                 self.pre_attack_ready_at = current_time + pre_delay;
+                self.record_host_combat_attack();
                 // C++ Weapon::preFireWeapon LeechRange activate residual.
                 self.activate_leech_range_for_slot(slot);
             }
@@ -7222,6 +7250,7 @@ impl Object {
             // Delay complete — fall through to fire; record_shot clears ready_at.
         } else {
             self.pre_attack_target = Some(target_id);
+            self.record_host_combat_attack();
         }
 
         let fire_weapon_name = if slot == 1 {
@@ -7661,6 +7690,7 @@ impl Object {
         self.is_approach_path = false;
         self.is_safe_path = false;
         self.temporary_move_frames = 0;
+        self.record_host_combat_attack();
         self.is_blocked = false;
         self.is_blocked_and_stuck = false;
         // Only pure locomotion returns to Idle when the destination is reached.
@@ -7687,7 +7717,9 @@ impl Object {
             if self.pre_attack_target != Some(target_id) {
                 // New target — fire_at will start PRE_ATTACK clock.
                 self.pre_attack_target = None;
+                self.record_host_combat_attack();
                 self.pre_attack_ready_at = 0.0;
+                self.record_host_combat_attack();
             }
             self.target = Some(target_id);
             self.target_location = None;
@@ -7734,9 +7766,12 @@ impl Object {
         self.record_host_target_location();
         self.set_status_force_attack(false);
         self.pre_attack_target = None;
+        self.record_host_combat_attack();
         self.pre_attack_ready_at = 0.0;
+        self.record_host_combat_attack();
         self.consecutive_shot_target = None;
         self.consecutive_shots_at_target = 0;
+        self.record_host_combat_attack();
         self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
         crate::game_logic::host_attack_log::record(self.id, None);
@@ -7977,6 +8012,7 @@ impl Object {
         self.status.attacking = true;
         if let Some(max) = max_shots {
             self.max_shots_to_fire = max;
+            self.record_host_combat_attack();
         }
         crate::game_logic::host_attack_log::record(self.id, Some(victim));
         self.record_host_guard();
@@ -8155,6 +8191,7 @@ impl Object {
         self.continuous_fire_level = 0;
         self.continuous_fire_coast_until_frame = 0;
         self.continuous_fire_victim = 0;
+        self.record_host_combat_attack();
         self.record_host_continuous_fire();
         self.record_host_weapon_set();
         self.record_host_overlord();
@@ -9244,6 +9281,23 @@ impl Object {
     pub fn record_host_target_location(&self) {
         let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
         crate::game_logic::host_target_location_log::record(self.id, loc);
+    }
+
+    pub fn record_host_combat_attack(&self) {
+        crate::game_logic::host_combat_attack_log::record(
+            self.id,
+            self.pre_attack_target.map(|id| id.0).unwrap_or(0),
+            self.pre_attack_ready_at,
+            self.consecutive_shots_at_target,
+            self.max_shots_to_fire,
+            self.attack_substate.to_ordinal(),
+            self.approach_timestamp,
+            self.continuous_fire_victim,
+            self.maintain_pos_valid,
+            self.maintain_pos.map(|p| [p.x, p.y, p.z]),
+            self.temporary_move_frames,
+            self.group_speed_factor,
+        );
     }
 
     pub fn record_host_stealth_delay(&self) {

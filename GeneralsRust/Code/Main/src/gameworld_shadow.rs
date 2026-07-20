@@ -783,6 +783,17 @@ impl GameWorldShadow {
                     e.has_mine_data = obj.mine_data.is_some();
                     e.weapon_bonus_frenzy_until_frame = obj.weapon_bonus_frenzy_until_frame;
                     e.continuous_fire_coast_until_frame = obj.continuous_fire_coast_until_frame;
+                    e.pre_attack_target_host = obj.pre_attack_target.map(|id| id.0).unwrap_or(0);
+                    e.pre_attack_ready_at = obj.pre_attack_ready_at;
+                    e.consecutive_shots_at_target = obj.consecutive_shots_at_target;
+                    e.max_shots_to_fire = obj.max_shots_to_fire;
+                    e.attack_substate_ordinal = obj.attack_substate.to_ordinal();
+                    e.approach_timestamp = obj.approach_timestamp;
+                    e.continuous_fire_victim = obj.continuous_fire_victim;
+                    e.maintain_pos_valid = obj.maintain_pos_valid;
+                    e.maintain_pos = obj.maintain_pos.map(|p| [p.x, p.y, p.z]);
+                    e.temporary_move_frames = obj.temporary_move_frames;
+                    e.group_speed_factor = obj.group_speed_factor;
                     e.battle_plan_sight_scalar_applied = obj.battle_plan_sight_scalar_applied;
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
@@ -3563,6 +3574,38 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_combat_attack_events(
+        &mut self,
+        events: &[crate::game_logic::host_combat_attack_log::HostCombatAttackEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetCombatAttack {
+                    target: eid,
+                    pre_attack_target_host: ev.pre_attack_target_host,
+                    pre_attack_ready_at: ev.pre_attack_ready_at,
+                    consecutive_shots_at_target: ev.consecutive_shots_at_target,
+                    max_shots_to_fire: ev.max_shots_to_fire,
+                    attack_substate_ordinal: ev.attack_substate_ordinal,
+                    approach_timestamp: ev.approach_timestamp,
+                    continuous_fire_victim: ev.continuous_fire_victim,
+                    maintain_pos_valid: ev.maintain_pos_valid,
+                    maintain_pos: ev.maintain_pos,
+                    temporary_move_frames: ev.temporary_move_frames,
+                    group_speed_factor: ev.group_speed_factor,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_guard_events(
         &mut self,
         events: &[crate::game_logic::host_guard_log::HostGuardEvent],
@@ -5333,6 +5376,51 @@ impl GameWorldShadow {
         updated
     }
 
+    pub fn writeback_combat_attack_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.pre_attack_target.map(|id| id.0).unwrap_or(0)
+                != ent.pre_attack_target_host
+                || (obj.pre_attack_ready_at - ent.pre_attack_ready_at).abs() > f32::EPSILON
+                || obj.consecutive_shots_at_target != ent.consecutive_shots_at_target
+                || obj.max_shots_to_fire != ent.max_shots_to_fire
+                || obj.attack_substate.to_ordinal() != ent.attack_substate_ordinal
+                || obj.approach_timestamp != ent.approach_timestamp
+                || obj.continuous_fire_victim != ent.continuous_fire_victim
+                || obj.maintain_pos_valid != ent.maintain_pos_valid
+                || obj.maintain_pos.map(|p| [p.x, p.y, p.z]) != ent.maintain_pos
+                || obj.temporary_move_frames != ent.temporary_move_frames
+                || (obj.group_speed_factor - ent.group_speed_factor).abs() > f32::EPSILON;
+            if !changed {
+                continue;
+            }
+            obj.pre_attack_target = if ent.pre_attack_target_host == 0 {
+                None
+            } else {
+                Some(ObjectId(ent.pre_attack_target_host))
+            };
+            obj.pre_attack_ready_at = ent.pre_attack_ready_at;
+            obj.consecutive_shots_at_target = ent.consecutive_shots_at_target;
+            obj.max_shots_to_fire = ent.max_shots_to_fire;
+            obj.attack_substate =
+                crate::game_logic::AttackSubState::from_ordinal(ent.attack_substate_ordinal);
+            obj.approach_timestamp = ent.approach_timestamp;
+            obj.continuous_fire_victim = ent.continuous_fire_victim;
+            obj.maintain_pos_valid = ent.maintain_pos_valid;
+            obj.maintain_pos = ent.maintain_pos.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            obj.temporary_move_frames = ent.temporary_move_frames;
+            obj.group_speed_factor = ent.group_speed_factor;
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn writeback_detector_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -5973,6 +6061,8 @@ pub fn shadow_session_after_host_tick(
     let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
     let _det_applied = shadow.apply_host_detector_events(&detector_events);
     let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
+    let combat_attack_events = crate::game_logic::host_combat_attack_log::drain();
+    let _ca_applied = shadow.apply_host_combat_attack_events(&combat_attack_events);
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
@@ -6105,9 +6195,11 @@ pub fn shadow_session_after_host_tick(
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
+        let _ = shadow.writeback_combat_attack_to_host(logic);
         let _tloc_wb = shadow.writeback_target_location_to_host(logic);
         let _det_wb = shadow.writeback_detector_to_host(logic);
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
+        let _ = shadow.writeback_combat_attack_to_host(logic);
         let _guard_wb = shadow.writeback_guard_to_host(logic);
         let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
@@ -6117,11 +6209,13 @@ pub fn shadow_session_after_host_tick(
         let _hive_wb = shadow.writeback_hive_to_host(logic);
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
+        let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
         let _cs_wb = shadow.writeback_command_set_to_host(logic);
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
+        let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
@@ -9944,6 +10038,7 @@ mod tests {
         }
         assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.vision_spied_mask, 0b101);
         assert!((o.camo_friendly_opacity - 0.35).abs() < 1e-5);
@@ -10166,6 +10261,7 @@ mod tests {
         }
         assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
         assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
@@ -10549,6 +10645,7 @@ mod tests {
             .create_object("CFU", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
             .expect("id");
         host_continuous_fire_log::clear();
+        crate::game_logic::host_combat_attack_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.continuous_fire_level = 2;
@@ -10594,6 +10691,7 @@ mod tests {
             e.continuous_fire_coast_until_frame = 44;
         }
         assert!(shadow.writeback_continuous_fire_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.continuous_fire_level, 2);
         assert_eq!(o.continuous_fire_consecutive, 9);
@@ -10792,6 +10890,7 @@ mod tests {
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
         assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
@@ -13738,6 +13837,7 @@ mod tests {
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
         assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
@@ -13795,11 +13895,92 @@ mod tests {
             o.camo_net_sub_object_shown = false;
         }
         assert!(shadow.writeback_stealth_delay_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.stealth_delay_pending);
         assert_eq!(o.stealth_allowed_frame, 300);
         assert_eq!(o.stealth_delay_frames, 75);
         assert!(o.camo_net_sub_object_shown);
+    }
+
+    #[test]
+    fn combat_attack_channel_via_set_combat_attack() {
+        use crate::game_logic::host_combat_attack_log;
+        use crate::game_logic::{AttackSubState, KindOf, Team, ThingTemplate};
+        host_combat_attack_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CbtAtk");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CbtU") {
+            let mut t = ThingTemplate::new("CbtU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("CbtU".into(), t);
+        }
+        let oid = logic
+            .create_object("CbtU", Team::USA, glam::Vec3::new(130.0, 0.0, 130.0))
+            .expect("id");
+        let tgt = logic
+            .create_object("CbtU", Team::China, glam::Vec3::new(160.0, 0.0, 130.0))
+            .expect("tgt");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.pre_attack_target = Some(tgt);
+            o.pre_attack_ready_at = 12.5;
+            o.consecutive_shots_at_target = 3;
+            o.max_shots_to_fire = 5;
+            o.attack_substate = AttackSubState::FireWeapon;
+            o.approach_timestamp = 90;
+            o.continuous_fire_victim = tgt.0;
+            o.maintain_pos_valid = true;
+            o.maintain_pos = Some(glam::Vec3::new(1.0, 2.0, 3.0));
+            o.temporary_move_frames = 7;
+            o.group_speed_factor = 0.85;
+        }
+        host_combat_attack_log::record(
+            oid,
+            tgt.0,
+            12.5,
+            3,
+            5,
+            AttackSubState::FireWeapon.to_ordinal(),
+            90,
+            tgt.0,
+            true,
+            Some([1.0, 2.0, 3.0]),
+            7,
+            0.85,
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_combat_attack_events(&host_combat_attack_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.pre_attack_target_host, tgt.0);
+        assert!((e.pre_attack_ready_at - 12.5).abs() < 1e-5);
+        assert_eq!(e.consecutive_shots_at_target, 3);
+        assert_eq!(e.max_shots_to_fire, 5);
+        assert_eq!(e.attack_substate_ordinal, 1);
+        assert_eq!(e.approach_timestamp, 90);
+        assert_eq!(e.continuous_fire_victim, tgt.0);
+        assert!(e.maintain_pos_valid);
+        assert_eq!(e.maintain_pos, Some([1.0, 2.0, 3.0]));
+        assert_eq!(e.temporary_move_frames, 7);
+        assert!((e.group_speed_factor - 0.85).abs() < 1e-5);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.pre_attack_target = None;
+            o.attack_substate = AttackSubState::AimAtTarget;
+            o.consecutive_shots_at_target = 0;
+            o.maintain_pos = None;
+            o.maintain_pos_valid = false;
+        }
+        assert!(shadow.writeback_combat_attack_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.pre_attack_target, Some(tgt));
+        assert_eq!(o.attack_substate, AttackSubState::FireWeapon);
+        assert_eq!(o.consecutive_shots_at_target, 3);
+        assert_eq!(o.maintain_pos, Some(glam::Vec3::new(1.0, 2.0, 3.0)));
+        assert!((o.group_speed_factor - 0.85).abs() < 1e-5);
     }
 
     #[test]
