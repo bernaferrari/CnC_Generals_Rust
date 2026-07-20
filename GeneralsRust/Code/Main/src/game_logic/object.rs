@@ -5487,7 +5487,33 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_crush_vision(&self) {
+        pub fn record_host_building_type(&self) {
+        use crate::game_logic::BuildingType as B;
+        let (is_building, ordinal) = match self.building_data.as_ref() {
+            Some(bd) => {
+                let ord = match bd.building_type {
+                    B::CommandCenter => 0u8,
+                    B::Barracks => 1,
+                    B::WarFactory => 2,
+                    B::Airfield => 3,
+                    B::RepairPad => 4,
+                    B::HealPad => 5,
+                    B::SupplyCenter => 6,
+                    B::PowerPlant => 7,
+                    B::DefenseTurret => 8,
+                    B::SupplyDropZone => 9,
+                    B::Palace => 10,
+                    B::Propaganda => 11,
+                    B::Bunker => 12,
+                };
+                (true, ord)
+            }
+            None => (false, 255u8),
+        };
+        crate::game_logic::host_building_type_log::record(self.id, is_building, ordinal);
+    }
+
+    pub fn record_host_crush_vision(&self) {
         crate::game_logic::host_crush_vision_log::record(
             self.id,
             self.crusher_level,
@@ -7812,6 +7838,7 @@ impl Object {
             let mut bd = BuildingData::new(BuildingType::Bunker);
             bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
             self.building_data = Some(bd);
+            self.record_host_building_type();
         }
         self.record_host_contain_capacity();
         self.record_host_stealth_flags();
