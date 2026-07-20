@@ -4465,6 +4465,7 @@ impl GameWorldShadow {
 
     /// Write shadow Entity::experience_points back onto host Object::experience.current.
     pub fn writeback_experience_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::VeterancyLevel as V;
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
@@ -4474,14 +4475,89 @@ impl GameWorldShadow {
                 continue;
             };
             let pts = ent.experience_points.max(0.0);
-            if (obj.experience.current - pts).abs() <= 0.000_1 {
+            let want_level = match ent.veterancy_ordinal {
+                1 => V::Veteran,
+                2 => V::Elite,
+                3 => V::Heroic,
+                _ => V::Rookie,
+            };
+            let pts_changed = (obj.experience.current - pts).abs() > 0.000_1;
+            let level_changed = obj.experience.level != want_level;
+            if !pts_changed && !level_changed {
                 continue;
             }
-            obj.experience.current = pts;
+            if pts_changed {
+                obj.experience.current = pts;
+            }
+            if level_changed {
+                obj.experience.level = want_level;
+            }
             updated += 1;
         }
         updated
     }
+
+    pub fn writeback_combat_status_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let mut dirty = false;
+            macro_rules! set_flag {
+                ($host:expr, $ent:expr) => {
+                    if $host != $ent {
+                        $host = $ent;
+                        dirty = true;
+                    }
+                };
+            }
+            set_flag!(obj.status.stealthed, ent.stealthed);
+            set_flag!(obj.status.detected, ent.detected);
+            set_flag!(obj.status.moving, ent.moving);
+            set_flag!(obj.status.attacking, ent.attacking);
+            set_flag!(obj.status.is_firing_weapon, ent.is_firing_weapon);
+            set_flag!(obj.status.is_aiming_weapon, ent.is_aiming_weapon);
+            set_flag!(obj.status.selected, ent.selected);
+            set_flag!(obj.status.disabled_emp, ent.disabled_emp);
+            set_flag!(obj.status.weapons_jammed, ent.weapons_jammed);
+            set_flag!(obj.status.disabled_hacked, ent.disabled_hacked);
+            set_flag!(obj.status.disabled_unmanned, ent.disabled_unmanned);
+            set_flag!(obj.status.disabled_paralyzed, ent.disabled_paralyzed);
+            set_flag!(obj.status.disabled_subdued, ent.disabled_subdued);
+            set_flag!(obj.status.masked, ent.masked);
+            set_flag!(obj.status.disguised, ent.disguised);
+            set_flag!(obj.status.no_collisions, ent.no_collisions);
+            set_flag!(obj.status.private_captured, ent.private_captured);
+            set_flag!(obj.status.disguise_transitioning_to, ent.disguise_transitioning_to);
+            set_flag!(obj.status.disguise_halfpoint_reached, ent.disguise_halfpoint_reached);
+            set_flag!(obj.status.faerie_fire, ent.faerie_fire);
+            set_flag!(obj.status.booby_trapped, ent.booby_trapped);
+            set_flag!(obj.status.using_ability, ent.using_ability);
+            set_flag!(obj.status.deployed, ent.deployed);
+            set_flag!(obj.status.airborne_target, ent.airborne_target);
+            set_flag!(obj.status.disabled_underpowered, ent.disabled_underpowered);
+            set_flag!(obj.status.is_carbomb, ent.is_carbomb);
+            set_flag!(obj.status.hijacked, ent.hijacked);
+            set_flag!(obj.status.ignoring_stealth, ent.ignoring_stealth);
+            set_flag!(obj.status.repulsor, ent.repulsor);
+            set_flag!(obj.status.disabled_freefall, ent.disabled_freefall);
+            set_flag!(obj.status.eject_invulnerable, ent.eject_invulnerable);
+            set_flag!(obj.status.pilot_did_move_to_base, ent.pilot_did_move_to_base);
+            set_flag!(obj.status.parachuting, ent.parachuting);
+            set_flag!(obj.status.parachute_open, ent.parachute_open);
+            set_flag!(obj.status.parachute_landing_override_set, ent.parachute_landing_override_set);
+            set_flag!(obj.force_attack, ent.force_attack);
+            if dirty {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
 
 
 
@@ -4880,6 +4956,7 @@ pub fn shadow_session_after_host_tick(
     let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
     let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
+    let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
             events.len(),
@@ -6799,7 +6876,7 @@ mod tests {
             let o = logic.get_objects_mut().get_mut(&id).expect("o");
             o.special_power_ready = false;
         }
-        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
         assert!(logic.get_objects().get(&id).expect("o").special_power_ready);
     }
 
@@ -7110,7 +7187,7 @@ mod tests {
             let o = logic.get_objects_mut().get_mut(&id).expect("o");
             o.experience.level = VeterancyLevel::Rookie;
         }
-        let wb = shadow.writeback_construction_to_host(&mut logic);
+        let wb = shadow.writeback_experience_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&id).expect("o");
         assert!(matches!(
@@ -7176,7 +7253,7 @@ mod tests {
             o.status.using_ability = false;
             o.status.deployed = false;
         }
-        let wb = shadow.writeback_construction_to_host(&mut logic);
+        let wb = shadow.writeback_combat_status_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.force_attack);
@@ -7248,7 +7325,7 @@ mod tests {
             o.status.faerie_fire = false;
             o.status.parachuting = false;
         }
-        let wb = shadow.writeback_construction_to_host(&mut logic);
+        let wb = shadow.writeback_combat_status_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.status.no_collisions);
