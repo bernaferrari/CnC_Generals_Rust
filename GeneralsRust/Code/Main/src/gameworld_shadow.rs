@@ -11328,6 +11328,8 @@ mod tests {
         if crate::gameworld_shadow::engine_object_bridge_enabled() {
             return;
         }
+        // Host-only update_with_dt (no shadow session): keep host integrator on.
+        std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MoveBridge");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
