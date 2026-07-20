@@ -469,6 +469,7 @@ impl GameWorldShadow {
                         }
                         if let Some(head) = bd.production_queue.first() {
                             e.production_progress = head.progress;
+                            e.exit_delay_remaining = bd.exit_delay_remaining;
                             e.production_template = head.template_name.clone();
                         } else {
                             e.production_progress = 0.0;
@@ -1704,6 +1705,11 @@ impl GameWorldShadow {
                 bd.production_queue = new_q;
                 dirty = true;
             }
+            // Host factory exit delay residual last-writer.
+            if (bd.exit_delay_remaining - ent.exit_delay_remaining).abs() > 1e-5 {
+                bd.exit_delay_remaining = ent.exit_delay_remaining.max(0.0);
+                dirty = true;
+            }
             if dirty {
                 updated += 1;
             }
@@ -2198,6 +2204,11 @@ impl GameWorldShadow {
                 .queue_mutation(gamelogic::world::WorldMutation::SetProductionQueue {
                     target: eid,
                     items,
+                });
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetExitDelay {
+                    target: eid,
+                    exit_delay_remaining: ev.exit_delay_remaining,
                 });
             n += 1;
         }
@@ -11727,6 +11738,7 @@ mod tests {
                 cost_supplies: 150,
                 is_upgrade: false,
             }],
+            1.25,
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -11739,6 +11751,58 @@ mod tests {
         assert!((e.production_queue_items[0].progress - 3.5).abs() < 1e-5);
         assert_eq!(e.production_queue_items[0].template_name, "Ranger");
         assert!((e.production_progress - 3.5).abs() < 1e-5);
+        assert!((e.exit_delay_remaining - 1.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn exit_delay_remaining_channel_via_production_progress() {
+        use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_production_progress_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ExitDel");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("FactExit") {
+            let mut t = ThingTemplate::new("FactExit");
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::FSBarracks);
+            logic.templates.insert("FactExit".into(), t);
+        }
+        let oid = logic
+            .create_object("FactExit", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.exit_delay_remaining = 2.5;
+            }
+        }
+        host_production_progress_log::record(oid, vec![], 2.5);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(
+            shadow.apply_host_production_progress_events(&host_production_progress_log::drain())
+                >= 1
+        );
+        assert!((shadow.world().entity(eid).unwrap().exit_delay_remaining - 2.5).abs() < 1e-5);
+        // Host cleared; GameWorld residual writeback restores exit delay.
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.exit_delay_remaining = 0.0;
+            }
+        }
+        assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
+        let d = logic
+            .get_objects()
+            .get(&oid)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .map(|b| b.exit_delay_remaining)
+            .unwrap_or(-1.0);
+        assert!((d - 2.5).abs() < 1e-5, "exit delay wb got {d}");
     }
 
     #[test]

@@ -869,6 +869,11 @@ pub enum WorldMutation {
         target: EntityId,
         items: Vec<EntityProductionItem>,
     },
+    /// Host factory QueueProductionExitUpdate delay residual (seconds).
+    SetExitDelay {
+        target: EntityId,
+        exit_delay_remaining: f32,
+    },
     /// Set structure construction progress residual (0..1).
     SetConstruction {
         target: EntityId,
@@ -1711,6 +1716,15 @@ impl GameWorld {
                             e.production_template.clear();
                             e.production_progress = 0.0;
                         }
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetExitDelay {
+                    target,
+                    exit_delay_remaining,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.exit_delay_remaining = exit_delay_remaining.max(0.0);
                         applied += 1;
                     }
                 }
