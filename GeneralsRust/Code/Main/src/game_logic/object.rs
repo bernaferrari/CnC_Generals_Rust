@@ -2362,6 +2362,8 @@ impl Object {
                 battle_plan_bombardment: self.weapon_bonus_battle_plan_bombardment,
                 battle_plan_hold_the_line: self.weapon_bonus_battle_plan_hold_the_line,
                 battle_plan_search_and_destroy: self.weapon_bonus_battle_plan_search_and_destroy,
+                frenzy_until_frame: self.weapon_bonus_frenzy_until_frame,
+                battle_plan_sight_scalar_applied: self.battle_plan_sight_scalar_applied,
             },
         );
     }

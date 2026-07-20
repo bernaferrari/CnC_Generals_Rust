@@ -2960,6 +2960,8 @@ impl GameWorldShadow {
                     battle_plan_bombardment: ev.battle_plan_bombardment,
                     battle_plan_hold_the_line: ev.battle_plan_hold_the_line,
                     battle_plan_search_and_destroy: ev.battle_plan_search_and_destroy,
+                    frenzy_until_frame: ev.frenzy_until_frame,
+                    battle_plan_sight_scalar_applied: ev.battle_plan_sight_scalar_applied,
                 });
             n += 1;
         }
@@ -4409,7 +4411,11 @@ impl GameWorldShadow {
                 || obj.weapon_bonus_battle_plan_hold_the_line
                     != ent.weapon_bonus_battle_plan_hold_the_line
                 || obj.weapon_bonus_battle_plan_search_and_destroy
-                    != ent.weapon_bonus_battle_plan_search_and_destroy;
+                    != ent.weapon_bonus_battle_plan_search_and_destroy
+                || obj.weapon_bonus_frenzy_until_frame != ent.weapon_bonus_frenzy_until_frame
+                || (obj.battle_plan_sight_scalar_applied - ent.battle_plan_sight_scalar_applied)
+                    .abs()
+                    > f32::EPSILON;
             if !changed {
                 continue;
             }
@@ -4423,6 +4429,8 @@ impl GameWorldShadow {
             obj.weapon_bonus_battle_plan_hold_the_line = ent.weapon_bonus_battle_plan_hold_the_line;
             obj.weapon_bonus_battle_plan_search_and_destroy =
                 ent.weapon_bonus_battle_plan_search_and_destroy;
+            obj.weapon_bonus_frenzy_until_frame = ent.weapon_bonus_frenzy_until_frame;
+            obj.battle_plan_sight_scalar_applied = ent.battle_plan_sight_scalar_applied;
             updated += 1;
         }
         updated
@@ -9711,12 +9719,19 @@ mod tests {
             o.apply_weapon_bonus_frenzy(2, 999);
             o.weapon_bonus_horde = true;
             o.weapon_bonus_nationalism = true;
+            o.battle_plan_sight_scalar_applied = 1.25;
             o.record_host_weapon_bonus();
         }
         let events = host_weapon_bonus_log::drain();
         assert!(
             events.iter().any(|e| {
-                e.object == oid && e.frenzy && e.frenzy_level == 2 && e.horde && e.nationalism
+                e.object == oid
+                    && e.frenzy
+                    && e.frenzy_level == 2
+                    && e.horde
+                    && e.nationalism
+                    && e.frenzy_until_frame == 999
+                    && (e.battle_plan_sight_scalar_applied - 1.25).abs() < 1e-5
             }),
             "events {:?}",
             events
@@ -9733,12 +9748,16 @@ mod tests {
             e.weapon_bonus_frenzy_level = 0;
             e.weapon_bonus_horde = false;
             e.weapon_bonus_nationalism = false;
+            e.weapon_bonus_frenzy_until_frame = 0;
+            e.battle_plan_sight_scalar_applied = 1.0;
         }
         let n = shadow.apply_host_weapon_bonus_events(&host_weapon_bonus_log::drain());
         assert!(n >= 1);
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.weapon_bonus_frenzy && e.weapon_bonus_frenzy_level == 2);
         assert!(e.weapon_bonus_horde && e.weapon_bonus_nationalism);
+        assert_eq!(e.weapon_bonus_frenzy_until_frame, 999);
+        assert!((e.battle_plan_sight_scalar_applied - 1.25).abs() < 1e-5);
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.clear_weapon_bonus_frenzy();
@@ -9750,11 +9769,15 @@ mod tests {
             e.weapon_bonus_frenzy_level = 2;
             e.weapon_bonus_horde = true;
             e.weapon_bonus_nationalism = true;
+            e.weapon_bonus_frenzy_until_frame = 777;
+            e.battle_plan_sight_scalar_applied = 1.5;
         }
         assert!(shadow.writeback_weapon_bonus_to_host(&mut logic) >= 1);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.weapon_bonus_frenzy && o.weapon_bonus_frenzy_level == 2);
         assert!(o.weapon_bonus_horde && o.weapon_bonus_nationalism);
+        assert_eq!(o.weapon_bonus_frenzy_until_frame, 777);
+        assert!((o.battle_plan_sight_scalar_applied - 1.5).abs() < 1e-5);
     }
 
     #[test]
