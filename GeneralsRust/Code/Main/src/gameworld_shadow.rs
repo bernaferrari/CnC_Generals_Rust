@@ -398,6 +398,7 @@ impl GameWorldShadow {
                     e.hijacked = obj.status.hijacked;
                     e.ignoring_stealth = obj.status.ignoring_stealth;
                     e.repulsor = obj.status.repulsor;
+                    e.repulsor_until_frame = obj.repulsor_until_frame;
                     e.disabled_freefall = obj.status.disabled_freefall;
                     e.no_collisions = obj.status.no_collisions;
                     e.private_captured = obj.status.private_captured;
@@ -718,6 +719,7 @@ impl GameWorldShadow {
                 e.hijacked = obj.status.hijacked;
                 e.ignoring_stealth = obj.status.ignoring_stealth;
                 e.repulsor = obj.status.repulsor;
+                e.repulsor_until_frame = obj.repulsor_until_frame;
                 e.disabled_freefall = obj.status.disabled_freefall;
                 e.no_collisions = obj.status.no_collisions;
                 e.private_captured = obj.status.private_captured;
@@ -3748,6 +3750,50 @@ impl GameWorldShadow {
         updated
     }
 
+    pub fn apply_host_repulsor_events(
+        &mut self,
+        events: &[crate::game_logic::host_repulsor_log::HostRepulsorEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetRepulsor {
+                    target: eid,
+                    active: ev.active,
+                    until_frame: ev.until_frame,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_repulsor_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_active = obj.status.repulsor;
+            if host_active == ent.repulsor && obj.repulsor_until_frame == ent.repulsor_until_frame {
+                continue;
+            }
+            obj.repulsor_until_frame = ent.repulsor_until_frame;
+            // Avoid re-entrant host_repulsor_log from set_status_repulsor during writeback.
+            obj.status.repulsor = ent.repulsor;
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn writeback_ground_height_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4866,6 +4912,7 @@ pub fn shadow_session_after_host_tick(
     let fow_events = crate::game_logic::host_fow_log::drain();
     let kind_of_events = crate::game_logic::host_kind_of_log::drain();
     let faerie_events = crate::game_logic::host_faerie_fire_log::drain();
+    let repulsor_events = crate::game_logic::host_repulsor_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4939,6 +4986,7 @@ pub fn shadow_session_after_host_tick(
     let _fow_applied = shadow.apply_host_fow_events(&fow_events);
     let _ko_applied = shadow.apply_host_kind_of_events(&kind_of_events);
     let _ff_applied = shadow.apply_host_faerie_fire_events(&faerie_events);
+    let _rp_applied = shadow.apply_host_repulsor_events(&repulsor_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4978,6 +5026,7 @@ pub fn shadow_session_after_host_tick(
         let _xp_wb = shadow.writeback_experience_to_host(logic);
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
         let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
+        let _rp_wb = shadow.writeback_repulsor_to_host(logic);
         let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
@@ -9893,6 +9942,69 @@ mod tests {
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.is_faerie_fire());
         assert_eq!(o.faerie_fire_until_frame, 99);
+    }
+
+    #[test]
+    fn host_repulsor_log_drives_set_repulsor_channel() {
+        use crate::game_logic::{host_repulsor_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("RpCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerRp") {
+            let mut t = ThingTemplate::new("RangerRp");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("RangerRp".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerRp", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+
+        host_repulsor_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.arm_repulsor_countdown(60);
+        }
+        let events = host_repulsor_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.active && e.until_frame == 60),
+            "events {:?}",
+            events
+        );
+
+        host_repulsor_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.arm_repulsor_countdown(60);
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.repulsor = false;
+            e.repulsor_until_frame = 0;
+        }
+        let n = shadow.apply_host_repulsor_events(&host_repulsor_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.repulsor);
+        assert_eq!(e.repulsor_until_frame, 60);
+
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.repulsor_until_frame = 0;
+            o.status.repulsor = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.repulsor = true;
+            e.repulsor_until_frame = 12;
+        }
+        assert!(shadow.writeback_repulsor_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.status.repulsor);
+        assert_eq!(o.repulsor_until_frame, 12);
     }
 
     #[test]

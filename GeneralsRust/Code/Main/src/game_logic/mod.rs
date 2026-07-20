@@ -47,6 +47,7 @@ pub mod host_player_meta_log;
 pub mod host_player_progress_log;
 pub mod host_production_log;
 pub mod host_radar_log;
+pub mod host_repulsor_log;
 pub mod host_selection_radius_log;
 pub mod host_spawn_log;
 pub mod host_special_power_log;
