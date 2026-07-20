@@ -5877,14 +5877,25 @@ impl Object {
     }
 
     pub fn heal(&mut self, amount: f32) {
-        if !self.status.destroyed {
-            let before = self.health.current;
-            self.health.heal(amount);
-            if self.health.current > before {
-                crate::game_logic::host_heal_log::record(self.id, self.health.current);
-            }
-            self.refresh_model_condition_bits();
+        if self.status.destroyed {
+            return;
         }
+        let before = self.health.current;
+        if amount <= 0.0 || !amount.is_finite() {
+            return;
+        }
+        let projected = (before + amount).min(self.health.maximum);
+        if projected <= before {
+            return;
+        }
+        // GameWorld HP authority: log absolute health; defer host mutate to writeback.
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            crate::game_logic::host_heal_log::record(self.id, projected);
+        } else {
+            self.health.heal(amount);
+            crate::game_logic::host_heal_log::record(self.id, self.health.current);
+        }
+        self.refresh_model_condition_bits();
     }
 
     /// C++ residual: STEALTHED && !DETECTED && !DISGUISED.
