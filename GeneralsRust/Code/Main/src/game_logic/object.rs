@@ -5736,6 +5736,13 @@ impl Object {
             self.movement.current_path_index,
             &self.movement.path,
             self.waiting_for_path,
+            self.locomotor_surfaces,
+            self.is_attack_path,
+            self.is_blocked_and_stuck,
+            self.is_braking,
+            self.is_safe_path,
+            self.queue_for_path_frames,
+            self.path_timestamp,
         );
     }
 
