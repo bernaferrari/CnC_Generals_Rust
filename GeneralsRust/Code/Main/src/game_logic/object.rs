@@ -5516,6 +5516,25 @@ impl Object {
         self.record_host_ground_height();
     }
 
+    /// Presentation mesh identity residual (model_key + mesh_scale) → GameWorld SetModelMesh.
+    pub fn set_model_mesh_residual(&mut self, model_key: impl Into<String>, mesh_scale: f32) {
+        let key = model_key.into();
+        let scale = if mesh_scale.is_finite() && mesh_scale > 0.0 {
+            mesh_scale
+        } else {
+            1.0
+        };
+        crate::game_logic::host_model_mesh_log::record(self.id, key, scale);
+    }
+
+    /// Resolve and log mesh residual from the active (possibly disguised) template.
+    pub fn record_model_mesh_from_template(&mut self) {
+        let tpl = self.get_template();
+        let key = crate::assets::mesh_asset_resolve::model_key_from_template(tpl);
+        let scale = crate::assets::mesh_asset_resolve::mesh_scale_from_template(tpl);
+        self.set_model_mesh_residual(key, scale);
+    }
+
     pub fn record_host_identity(&self) {
         crate::game_logic::host_identity_log::record(self.id, self.name.clone(), self.team_color);
     }
@@ -5881,6 +5900,8 @@ impl Object {
                     self.disguise_as_team = Some(team);
                 }
                 self.set_status_disguised(true);
+
+                self.record_model_mesh_from_template();
                 self.set_status_stealthed(true);
                 self.set_status_detected(false);
             } else {
