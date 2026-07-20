@@ -5761,6 +5761,11 @@ impl Object {
             self.is_safe_path,
             self.queue_for_path_frames,
             self.path_timestamp,
+            self.cur_max_blocked_speed,
+            self.num_frames_blocked,
+            self.is_blocked,
+            self.move_away_from.map(|id| id.0),
+            self.requested_victim_id.map(|id| id.0),
         );
     }
 
