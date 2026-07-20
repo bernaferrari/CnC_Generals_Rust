@@ -6005,14 +6005,20 @@ impl GameLogic {
                     let power_factor = team_power_factor.get(&build_team).copied().unwrap_or(1.0);
                     let base_rate = 1.0 / obj.thing.template.build_time;
                     let effective_rate = base_rate * dozer_count as f32 * power_factor;
-                    obj.construction_percent += effective_rate * dt;
+                    let projected = (obj.construction_percent + effective_rate * dt).min(1.0);
+                    // Construction authority: host keeps pre-tick percent for dual-read
+                    // safety only when writeback will last-write; still use projected
+                    // for completion side effects and progress log.
+                    if !crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+                        obj.construction_percent = projected;
+                    }
                     crate::game_logic::host_construction_progress_log::record(
                         id,
-                        obj.construction_percent,
+                        projected,
                         obj.status.under_construction,
                     );
 
-                    if obj.construction_percent >= 1.0 {
+                    if projected >= 1.0 {
                         obj.construction_percent = 1.0;
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
@@ -6033,7 +6039,7 @@ impl GameLogic {
                         completed_superweapon_detects.push((obj.team, obj.template_name.clone()));
                         completed_structures.push(id);
                     } else {
-                        let build_hp = obj.health.maximum * (0.1 + 0.9 * obj.construction_percent);
+                        let build_hp = obj.health.maximum * (0.1 + 0.9 * projected);
                         if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
                             crate::game_logic::host_heal_log::record(id, build_hp);
                         } else {
