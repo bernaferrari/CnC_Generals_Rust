@@ -388,6 +388,36 @@ pub struct Entity {
     pub locomotor_surfaces: u32,
     /// Host Object::is_attack_path residual.
     pub is_attack_path: bool,
+    /// Host locomotor residual `is_approach_path`.
+    pub is_approach_path: bool,
+    /// Host locomotor residual `on_invalid_movement_terrain`.
+    pub on_invalid_movement_terrain: bool,
+    /// Host locomotor residual `was_airborne_last_frame`.
+    pub was_airborne_last_frame: bool,
+    /// Host locomotor residual `can_move_backward`.
+    pub can_move_backward: bool,
+    /// Host locomotor residual `moving_backwards`.
+    pub moving_backwards: bool,
+    /// Host locomotor residual `no_slow_down_as_approaching_dest`.
+    pub no_slow_down_as_approaching_dest: bool,
+    /// Host locomotor residual `turn_pivot_offset`.
+    pub turn_pivot_offset: f32,
+    /// Host locomotor residual `wander_width_factor`.
+    pub wander_width_factor: f32,
+    /// Host locomotor residual `loco_apply_2d_friction_airborne`.
+    pub loco_apply_2d_friction_airborne: bool,
+    /// Host locomotor residual `loco_extra_2d_friction`.
+    pub loco_extra_2d_friction: f32,
+    /// Host locomotor residual `loco_preferred_height`.
+    pub loco_preferred_height: f32,
+    /// Host locomotor residual `loco_preferred_height_damping`.
+    pub loco_preferred_height_damping: f32,
+    /// Host locomotor residual `loco_appearance_ordinal`.
+    pub loco_appearance_ordinal: u8,
+    /// Host locomotor residual `loco_behavior_z_ordinal`.
+    pub loco_behavior_z_ordinal: u8,
+    /// Host locomotor residual `min_turn_speed`.
+    pub min_turn_speed: f32,
     /// Host Object::is_blocked_and_stuck residual.
     pub is_blocked_and_stuck: bool,
     /// Host Object::is_braking residual.
@@ -873,6 +903,21 @@ impl EntityStore {
             physics_previous_overlap_id: None,
             locomotor_surfaces: 0,
             is_attack_path: false,
+            is_approach_path: false,
+            on_invalid_movement_terrain: false,
+            was_airborne_last_frame: false,
+            can_move_backward: false,
+            moving_backwards: false,
+            no_slow_down_as_approaching_dest: false,
+            turn_pivot_offset: 0.0,
+            wander_width_factor: 0.0,
+            loco_apply_2d_friction_airborne: false,
+            loco_extra_2d_friction: 0.0,
+            loco_preferred_height: 0.0,
+            loco_preferred_height_damping: 1.0,
+            loco_appearance_ordinal: 0,
+            loco_behavior_z_ordinal: 0,
+            min_turn_speed: 0.0,
             is_blocked_and_stuck: false,
             is_braking: false,
             is_safe_path: false,
