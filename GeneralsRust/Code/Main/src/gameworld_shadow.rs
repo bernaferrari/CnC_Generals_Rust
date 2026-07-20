@@ -2812,6 +2812,50 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn writeback_ai_state_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::AIState as A;
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_ord = Self::host_ai_state_ordinal(&obj.ai_state);
+            if host_ord == ent.ai_state_ordinal {
+                continue;
+            }
+            obj.ai_state = match ent.ai_state_ordinal {
+                0 => A::Idle,
+                1 => A::Moving,
+                2 => A::Attacking,
+                3 => A::AttackMoving,
+                4 => A::AttackingGround,
+                5 => A::Gathering,
+                6 => A::ReturningResources,
+                7 => A::Constructing,
+                8 => A::Repairing,
+                9 => A::GuardingArea,
+                10 => A::GuardingObject,
+                11 => A::Patrolling,
+                12 => A::Docked,
+                13 => A::Garrisoned,
+                14 => A::SpecialAbility,
+                15 => A::SeekingRepair,
+                16 => A::SeekingHealing,
+                17 => A::Entering,
+                18 => A::Docking,
+                19 => A::Capturing,
+                20 => A::GuardRetaliating,
+                _ => A::Idle,
+            };
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn queue_set_stored_supplies_for_host(&mut self, host: ObjectId, supplies: u32) -> bool {
         let Some(target) = self.entity_for_host(host) else {
             return false;
@@ -4747,6 +4791,7 @@ pub fn shadow_session_after_host_tick(
     let _det_wb = shadow.writeback_detector_to_host(logic);
     let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
     let _guard_wb = shadow.writeback_guard_to_host(logic);
+    let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
     let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
     let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
     let _oc_wb = shadow.writeback_overcharge_to_host(logic);
@@ -6553,7 +6598,10 @@ mod tests {
             let o = logic.get_objects_mut().get_mut(&id).expect("o");
             o.ai_state = AIState::Idle;
         }
-        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.ai_state_ordinal = 10; // GuardingObject
+        }
+        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
         assert_eq!(
             logic.get_objects().get(&id).expect("o").ai_state,
             AIState::GuardingObject
