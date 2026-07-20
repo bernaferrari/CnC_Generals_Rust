@@ -6220,6 +6220,15 @@ mod tests {
         assert!(n >= 1);
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.selected, "mutation channel must set selected");
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.status.selected = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.selected = true;
+        }
+        assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        assert!(logic.get_objects().get(&id).expect("o").status.selected);
     }
 
     #[test]
@@ -6270,6 +6279,18 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.attacking);
         assert!(e.is_firing_weapon);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.status.attacking = false;
+            o.status.is_firing_weapon = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.attacking = true;
+            e.is_firing_weapon = true;
+        }
+        assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!(o.status.attacking && o.status.is_firing_weapon);
     }
 
     #[test]
@@ -6319,6 +6340,18 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.stealthed);
         assert!(!e.detected);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.status.stealthed = false;
+            o.status.detected = true;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.stealthed = true;
+            e.detected = false;
+        }
+        assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&id).expect("o");
+        assert!(o.status.stealthed && !o.status.detected);
     }
 
     #[test]
@@ -6371,6 +6404,15 @@ mod tests {
         }
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.status.disabled_emp = false;
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.disabled_emp = true;
+        }
+        assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        assert!(logic.get_objects().get(&id).expect("o").status.disabled_emp);
     }
 
     
