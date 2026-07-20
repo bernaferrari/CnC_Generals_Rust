@@ -546,6 +546,9 @@ impl GameWorldShadow {
                         obj.get_template(),
                     );
                     e.model_condition_bits = obj.model_condition_bits;
+                    e.radar_extend_done_frame = obj.radar_extend_done_frame;
+                    e.radar_extend_complete = obj.radar_extend_complete;
+                    e.radar_active = obj.radar_active;
                     e.mesh_scale = crate::assets::mesh_asset_resolve::mesh_scale_from_template(
                         obj.get_template(),
                     );
@@ -1757,6 +1760,29 @@ impl GameWorldShadow {
                 obj.status.death_type = want;
                 updated += 1;
             }
+        }
+        updated
+    }
+
+    pub fn writeback_radar_extend_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.radar_extend_done_frame != ent.radar_extend_done_frame
+                || obj.radar_extend_complete != ent.radar_extend_complete
+                || obj.radar_active != ent.radar_active;
+            if !changed {
+                continue;
+            }
+            obj.radar_extend_done_frame = ent.radar_extend_done_frame;
+            obj.radar_extend_complete = ent.radar_extend_complete;
+            obj.radar_active = ent.radar_active;
+            updated += 1;
         }
         updated
     }
@@ -3608,6 +3634,30 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_radar_extend_events(
+        &mut self,
+        events: &[crate::game_logic::host_radar_extend_log::HostRadarExtendEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetRadarExtend {
+                    target: eid,
+                    radar_extend_done_frame: ev.radar_extend_done_frame,
+                    radar_extend_complete: ev.radar_extend_complete,
+                    radar_active: ev.radar_active,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_movement_events(
         &mut self,
         events: &[crate::game_logic::host_movement_log::HostMovementEvent],
@@ -5211,6 +5261,8 @@ pub fn shadow_session_after_host_tick(
     let _bd_applied = shadow.apply_host_body_damage_events(&body_damage_events);
     let death_type_events = crate::game_logic::host_death_type_log::drain();
     let _dt_applied = shadow.apply_host_death_type_events(&death_type_events);
+    let radar_extend_events = crate::game_logic::host_radar_extend_log::drain();
+    let _re_applied = shadow.apply_host_radar_extend_events(&radar_extend_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
 
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
@@ -5280,6 +5332,7 @@ pub fn shadow_session_after_host_tick(
     let _prod_wb = shadow.writeback_production_to_host(logic);
     let _ = shadow.writeback_body_damage_to_host(logic);
     let _ = shadow.writeback_death_type_to_host(logic);
+    let _ = shadow.writeback_radar_extend_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
@@ -6367,6 +6420,7 @@ mod tests {
         let n = shadow.writeback_production_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
         let obj = logic.get_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
@@ -7530,6 +7584,7 @@ mod tests {
         let wb = shadow.writeback_production_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
@@ -8948,6 +9003,7 @@ mod tests {
         host_weapon_stats_log::clear();
         crate::game_logic::host_body_damage_log::clear();
         crate::game_logic::host_death_type_log::clear();
+        crate::game_logic::host_radar_extend_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.weapon = Some(Weapon {
@@ -11896,6 +11952,7 @@ mod tests {
         assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
         shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let d = logic
             .get_objects()
             .get(&oid)
@@ -11944,6 +12001,7 @@ mod tests {
         }
         assert!(shadow.writeback_body_damage_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().body_damage_state,
             HostBodyDamageType::ReallyDamaged
@@ -12177,10 +12235,53 @@ mod tests {
             o.status.death_type = HostDeathType::Normal;
         }
         assert!(shadow.writeback_death_type_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().status.death_type,
             HostDeathType::Burned
         );
+    }
+
+    #[test]
+    fn radar_extend_channel_via_set_radar_extend() {
+        use crate::game_logic::host_radar_extend_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_radar_extend_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("RadarEx");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RadarB") {
+            let mut t = ThingTemplate::new("RadarB");
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("RadarB".into(), t);
+        }
+        let oid = logic
+            .create_object("RadarB", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.radar_extend_done_frame = 120;
+            o.radar_extend_complete = false;
+            o.radar_active = true;
+        }
+        host_radar_extend_log::record(oid, 120, false, true);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_radar_extend_events(&host_radar_extend_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.radar_extend_done_frame, 120);
+        assert!(e.radar_active);
+        assert!(!e.radar_extend_complete);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.radar_active = false;
+            o.radar_extend_done_frame = 0;
+        }
+        assert!(shadow.writeback_radar_extend_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!(o.radar_active);
+        assert_eq!(o.radar_extend_done_frame, 120);
     }
 
     #[test]

@@ -316,6 +316,12 @@ pub struct Entity {
     pub model_key: String,
     /// Host Object::model_condition_bits residual.
     pub model_condition_bits: u128,
+    /// C++ RadarUpdate m_extendDoneFrame residual (0 = inactive).
+    pub radar_extend_done_frame: u32,
+    /// C++ RadarUpdate m_extendComplete residual.
+    pub radar_extend_complete: bool,
+    /// C++ RadarUpdate m_radarActive residual.
+    pub radar_active: bool,
     /// Host ThingTemplate mesh scale residual (retail combat often 1.0).
     pub mesh_scale: f32,
     /// Host FOW visibility residual (alpha / explored / falloff).
@@ -625,6 +631,9 @@ impl EntityStore {
             display_name: String::new(),
             model_key: String::new(),
             model_condition_bits: 0,
+            radar_extend_done_frame: 0,
+            radar_extend_complete: false,
+            radar_active: false,
             mesh_scale: 1.0,
             fow_visibility_alpha: 1.0,
             fow_is_explored: 1.0,
