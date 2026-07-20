@@ -466,6 +466,11 @@ impl EntityStore {
         self.alive.values()
     }
 
+    /// Living entity ids (stable snapshot for mid-frame step loops).
+    pub fn ids(&self) -> Vec<EntityId> {
+        self.alive.keys().copied().collect()
+    }
+
     /// Get a specific entity.
     pub fn get(&self, id: EntityId) -> Option<&Entity> {
         self.alive.get(&id)
