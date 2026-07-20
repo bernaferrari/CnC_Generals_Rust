@@ -194,6 +194,28 @@ pub enum HostBodyDamageType {
     Rubble,
 }
 
+impl HostBodyDamageType {
+    #[inline]
+    pub fn ordinal(self) -> u8 {
+        match self {
+            HostBodyDamageType::Pristine => 0,
+            HostBodyDamageType::Damaged => 1,
+            HostBodyDamageType::ReallyDamaged => 2,
+            HostBodyDamageType::Rubble => 3,
+        }
+    }
+
+    #[inline]
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => HostBodyDamageType::Damaged,
+            2 => HostBodyDamageType::ReallyDamaged,
+            3 => HostBodyDamageType::Rubble,
+            _ => HostBodyDamageType::Pristine,
+        }
+    }
+}
+
 /// C++ GlobalData unitDamagedThresh / unitReallyDamagedThresh defaults.
 pub const HOST_UNIT_DAMAGED_THRESH: f32 = 0.5;
 pub const HOST_UNIT_REALLY_DAMAGED_THRESH: f32 = 0.25;

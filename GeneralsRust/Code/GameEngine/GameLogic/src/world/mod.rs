@@ -560,6 +560,11 @@ pub enum WorldMutation {
     SetHealth { target: EntityId, health: f32 },
     /// Host Object::max_health / health.maximum residual (armor / veterancy).
     SetMaxHealth { target: EntityId, max_health: f32 },
+    /// C++ BodyDamageType residual (0 pristine .. 3 rubble).
+    SetBodyDamage {
+        target: EntityId,
+        body_damage_state: u8,
+    },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -1046,6 +1051,15 @@ impl GameWorld {
                         if e.health > m {
                             e.health = m;
                         }
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetBodyDamage {
+                    target,
+                    body_damage_state,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.body_damage_state = body_damage_state.min(3);
                         applied += 1;
                     }
                 }

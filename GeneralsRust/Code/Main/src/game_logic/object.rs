@@ -3334,6 +3334,7 @@ impl Object {
             host_calc_body_damage_state(health, max_h)
         };
         self.body_damage_state = state;
+        crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
         let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, state);
         // Motion / combat residual bits from ObjectStatus.
         if self.status.moving {
