@@ -524,6 +524,16 @@ impl GameWorldShadow {
                     e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                     e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
                     e.waiting_for_path = obj.waiting_for_path;
+                    e.shock_stun_frames = obj.shock_stun_frames;
+                    e.shock_yaw_rate = obj.shock_yaw_rate;
+                    e.shock_pitch_rate = obj.shock_pitch_rate;
+                    e.shock_roll_rate = obj.shock_roll_rate;
+                    e.shock_up_z = obj.shock_up_z;
+                    e.shock_allow_bounce = obj.shock_allow_bounce;
+                    e.shock_grounded_once = obj.shock_grounded_once;
+                    e.shock_was_airborne = obj.shock_was_airborne;
+                    e.cell_is_cliff = obj.cell_is_cliff;
+                    e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
                     e.is_attack_path = obj.is_attack_path;
                     e.is_blocked_and_stuck = obj.is_blocked_and_stuck;
@@ -1789,6 +1799,43 @@ impl GameWorldShadow {
             obj.radar_extend_done_frame = ent.radar_extend_done_frame;
             obj.radar_extend_complete = ent.radar_extend_complete;
             obj.radar_active = ent.radar_active;
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn writeback_shock_stun_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.shock_stun_frames != ent.shock_stun_frames
+                || (obj.shock_yaw_rate - ent.shock_yaw_rate).abs() > f32::EPSILON
+                || (obj.shock_pitch_rate - ent.shock_pitch_rate).abs() > f32::EPSILON
+                || (obj.shock_roll_rate - ent.shock_roll_rate).abs() > f32::EPSILON
+                || (obj.shock_up_z - ent.shock_up_z).abs() > f32::EPSILON
+                || obj.shock_allow_bounce != ent.shock_allow_bounce
+                || obj.shock_grounded_once != ent.shock_grounded_once
+                || obj.shock_was_airborne != ent.shock_was_airborne
+                || obj.cell_is_cliff != ent.cell_is_cliff
+                || obj.cell_is_underwater != ent.cell_is_underwater;
+            if !changed {
+                continue;
+            }
+            obj.shock_stun_frames = ent.shock_stun_frames;
+            obj.shock_yaw_rate = ent.shock_yaw_rate;
+            obj.shock_pitch_rate = ent.shock_pitch_rate;
+            obj.shock_roll_rate = ent.shock_roll_rate;
+            obj.shock_up_z = ent.shock_up_z;
+            obj.shock_allow_bounce = ent.shock_allow_bounce;
+            obj.shock_grounded_once = ent.shock_grounded_once;
+            obj.shock_was_airborne = ent.shock_was_airborne;
+            obj.cell_is_cliff = ent.cell_is_cliff;
+            obj.cell_is_underwater = ent.cell_is_underwater;
             updated += 1;
         }
         updated
@@ -3665,6 +3712,37 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_shock_stun_events(
+        &mut self,
+        events: &[crate::game_logic::host_shock_stun_log::HostShockStunEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetShockStun {
+                    target: eid,
+                    shock_stun_frames: ev.shock_stun_frames,
+                    shock_yaw_rate: ev.shock_yaw_rate,
+                    shock_pitch_rate: ev.shock_pitch_rate,
+                    shock_roll_rate: ev.shock_roll_rate,
+                    shock_up_z: ev.shock_up_z,
+                    shock_allow_bounce: ev.shock_allow_bounce,
+                    shock_grounded_once: ev.shock_grounded_once,
+                    shock_was_airborne: ev.shock_was_airborne,
+                    cell_is_cliff: ev.cell_is_cliff,
+                    cell_is_underwater: ev.cell_is_underwater,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_movement_events(
         &mut self,
         events: &[crate::game_logic::host_movement_log::HostMovementEvent],
@@ -5306,6 +5384,8 @@ pub fn shadow_session_after_host_tick(
     let _dt_applied = shadow.apply_host_death_type_events(&death_type_events);
     let radar_extend_events = crate::game_logic::host_radar_extend_log::drain();
     let _re_applied = shadow.apply_host_radar_extend_events(&radar_extend_events);
+    let shock_stun_events = crate::game_logic::host_shock_stun_log::drain();
+    let _ss_applied = shadow.apply_host_shock_stun_events(&shock_stun_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
 
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
@@ -5376,6 +5456,7 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_body_damage_to_host(logic);
     let _ = shadow.writeback_death_type_to_host(logic);
     let _ = shadow.writeback_radar_extend_to_host(logic);
+    let _ = shadow.writeback_shock_stun_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
@@ -6464,6 +6545,7 @@ mod tests {
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
+        let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
         let obj = logic.get_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
@@ -7628,6 +7710,7 @@ mod tests {
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
+        let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
@@ -9047,6 +9130,7 @@ mod tests {
         crate::game_logic::host_body_damage_log::clear();
         crate::game_logic::host_death_type_log::clear();
         crate::game_logic::host_radar_extend_log::clear();
+        crate::game_logic::host_shock_stun_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.weapon = Some(Weapon {
@@ -11996,6 +12080,7 @@ mod tests {
         shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
+        let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let d = logic
             .get_objects()
             .get(&oid)
@@ -12045,6 +12130,7 @@ mod tests {
         assert!(shadow.writeback_body_damage_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
+        let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().body_damage_state,
             HostBodyDamageType::ReallyDamaged
@@ -12329,6 +12415,60 @@ mod tests {
     }
 
     #[test]
+    fn shock_stun_channel_via_set_shock_stun() {
+        use crate::game_logic::host_shock_stun_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_shock_stun_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ShockSt");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("ShockU") {
+            let mut t = ThingTemplate::new("ShockU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("ShockU".into(), t);
+        }
+        let oid = logic
+            .create_object("ShockU", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.shock_stun_frames = 30;
+            o.shock_yaw_rate = 0.5;
+            o.shock_pitch_rate = -0.25;
+            o.shock_roll_rate = 0.1;
+            o.shock_up_z = 0.9;
+            o.shock_allow_bounce = true;
+            o.shock_grounded_once = true;
+            o.shock_was_airborne = true;
+            o.cell_is_cliff = true;
+            o.cell_is_underwater = false;
+        }
+        host_shock_stun_log::record(oid, 30, 0.5, -0.25, 0.1, 0.9, true, true, true, true, false);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_shock_stun_events(&host_shock_stun_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.shock_stun_frames, 30);
+        assert!((e.shock_yaw_rate - 0.5).abs() < 1e-5);
+        assert!(e.shock_allow_bounce);
+        assert!(e.cell_is_cliff);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.shock_stun_frames = 0;
+            o.shock_yaw_rate = 0.0;
+            o.shock_allow_bounce = false;
+            o.cell_is_cliff = false;
+        }
+        assert!(shadow.writeback_shock_stun_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.shock_stun_frames, 30);
+        assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
+        assert!(o.shock_allow_bounce);
+        assert!(o.cell_is_cliff);
+    }
+
+    #[test]
     fn death_type_channel_via_set_death_type() {
         use crate::game_logic::host_death_type_log;
         use crate::game_logic::host_usa_pilot::HostDeathType;
@@ -12365,6 +12505,7 @@ mod tests {
         }
         assert!(shadow.writeback_death_type_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
+        let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().status.death_type,
             HostDeathType::Burned
@@ -12408,6 +12549,7 @@ mod tests {
             o.radar_extend_done_frame = 0;
         }
         assert!(shadow.writeback_radar_extend_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.radar_active);
         assert_eq!(o.radar_extend_done_frame, 120);
