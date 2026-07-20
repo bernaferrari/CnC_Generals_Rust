@@ -8616,19 +8616,22 @@ impl Object {
         } else {
             amount
         };
-        self.experience.current += amount;
+        if amount <= 0.0 || !amount.is_finite() {
+            return;
+        }
+        let projected = self.experience.current + amount;
 
         // C++ parity: veterancy thresholds are per-template (Object::ExperienceValues
         // in INI).  Use template-defined thresholds, falling back to defaults.
         let thresholds = self.thing.template.veterancy_xp_thresholds;
 
-        // Check for level up
+        // Check for level up against projected XP (even when HP/XP authority defers current).
         let previous_level = self.experience.level;
-        let new_level = if self.experience.current >= thresholds[2] {
+        let new_level = if projected >= thresholds[2] {
             VeterancyLevel::Heroic
-        } else if self.experience.current >= thresholds[1] {
+        } else if projected >= thresholds[1] {
             VeterancyLevel::Elite
-        } else if self.experience.current >= thresholds[0] {
+        } else if projected >= thresholds[0] {
             VeterancyLevel::Veteran
         } else {
             VeterancyLevel::Rookie
@@ -8640,7 +8643,14 @@ impl Object {
             self.apply_veterancy_bonuses(previous_level, new_level);
             self.record_host_veterancy_level();
         }
-        self.record_host_experience();
+
+        // GameWorld residual authority: log absolute XP; defer host current mutate.
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            crate::game_logic::host_experience_log::record(self.id, projected.max(0.0));
+        } else {
+            self.experience.current = projected;
+            self.record_host_experience();
+        }
     }
 
     /// C++ parity (GameData.ini veterancy bonuses):
