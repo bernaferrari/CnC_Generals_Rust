@@ -14,6 +14,13 @@ pub struct HostMovementEvent {
     /// Waypoints truncated for channel volume.
     pub path_waypoints: Vec<[f32; 3]>,
     pub waiting_for_path: bool,
+    pub locomotor_surfaces: u32,
+    pub is_attack_path: bool,
+    pub is_blocked_and_stuck: bool,
+    pub is_braking: bool,
+    pub is_safe_path: bool,
+    pub queue_for_path_frames: u32,
+    pub path_timestamp: u32,
 }
 
 thread_local! {
@@ -27,6 +34,13 @@ pub fn record(
     path_index: usize,
     path: &[Vec3],
     waiting_for_path: bool,
+    locomotor_surfaces: u32,
+    is_attack_path: bool,
+    is_blocked_and_stuck: bool,
+    is_braking: bool,
+    is_safe_path: bool,
+    queue_for_path_frames: u32,
+    path_timestamp: u32,
 ) {
     let path_waypoints: Vec<[f32; 3]> = path.iter().take(64).map(|p| [p.x, p.y, p.z]).collect();
     LOG.with(|log| {
@@ -38,6 +52,13 @@ pub fn record(
             path_len: path.len().min(u16::MAX as usize) as u16,
             path_waypoints,
             waiting_for_path,
+            locomotor_surfaces,
+            is_attack_path,
+            is_blocked_and_stuck,
+            is_braking,
+            is_safe_path,
+            queue_for_path_frames,
+            path_timestamp,
         });
     });
 }

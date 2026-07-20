@@ -822,6 +822,13 @@ pub enum WorldMutation {
         path_len: u16,
         path_waypoints: Vec<[f32; 3]>,
         waiting_for_path: bool,
+        locomotor_surfaces: u32,
+        is_attack_path: bool,
+        is_blocked_and_stuck: bool,
+        is_braking: bool,
+        is_safe_path: bool,
+        queue_for_path_frames: u32,
+        path_timestamp: u32,
     },
     /// Host Object::selection_radius residual.
     SetSelectionRadius {
@@ -1636,6 +1643,13 @@ impl GameWorld {
                     path_len,
                     path_waypoints,
                     waiting_for_path,
+                    locomotor_surfaces,
+                    is_attack_path,
+                    is_blocked_and_stuck,
+                    is_braking,
+                    is_safe_path,
+                    queue_for_path_frames,
+                    path_timestamp,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.velocity = velocity;
@@ -1644,6 +1658,13 @@ impl GameWorld {
                         e.path_len = path_len;
                         e.path_waypoints = path_waypoints;
                         e.waiting_for_path = waiting_for_path;
+                        e.locomotor_surfaces = locomotor_surfaces;
+                        e.is_attack_path = is_attack_path;
+                        e.is_blocked_and_stuck = is_blocked_and_stuck;
+                        e.is_braking = is_braking;
+                        e.is_safe_path = is_safe_path;
+                        e.queue_for_path_frames = queue_for_path_frames;
+                        e.path_timestamp = path_timestamp;
                         applied += 1;
                     }
                 }

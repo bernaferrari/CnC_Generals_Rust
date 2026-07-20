@@ -304,6 +304,20 @@ pub struct Entity {
     pub path_index: u16,
     /// Host Movement/Object::waiting_for_path residual.
     pub waiting_for_path: bool,
+    /// Host Object::locomotor_surfaces residual.
+    pub locomotor_surfaces: u32,
+    /// Host Object::is_attack_path residual.
+    pub is_attack_path: bool,
+    /// Host Object::is_blocked_and_stuck residual.
+    pub is_blocked_and_stuck: bool,
+    /// Host Object::is_braking residual.
+    pub is_braking: bool,
+    /// Host Object::is_safe_path residual.
+    pub is_safe_path: bool,
+    /// Host Object::queue_for_path_frames residual.
+    pub queue_for_path_frames: u32,
+    /// Host Object::path_timestamp residual.
+    pub path_timestamp: u32,
     /// Host Movement::path waypoints residual (capped for presentation line pack).
     pub path_waypoints: Vec<[f32; 3]>,
     /// Host secondary weapon range residual.
@@ -625,6 +639,13 @@ impl EntityStore {
             path_len: 0,
             path_index: 0,
             waiting_for_path: false,
+            locomotor_surfaces: 0,
+            is_attack_path: false,
+            is_blocked_and_stuck: false,
+            is_braking: false,
+            is_safe_path: false,
+            queue_for_path_frames: 0,
+            path_timestamp: 0,
             path_waypoints: Vec::new(),
             secondary_weapon_range: 0.0,
             secondary_weapon_damage: 0.0,
