@@ -118,6 +118,23 @@ pub fn gameworld_economy_authority_enabled() -> bool {
     }
 }
 
+/// When enabled, GameWorld integrates path/move targets after the host tick and
+/// writebacks pose/movement as last-writer. Host `update_movement` skips integrate.
+///
+/// Env: `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_movement_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
 /// Gates/smoke: no-op when production defaults are already on.
 /// Still forces `1` if env was never set (explicit documentation for gate binaries).
 pub fn ensure_gate_damage_authority() {
@@ -5029,6 +5046,7 @@ pub fn shadow_session_after_host_tick(
     let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
     let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
+
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
     let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
     let _dmc_applied = shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events);
@@ -5043,7 +5061,14 @@ pub fn shadow_session_after_host_tick(
     let _rp_applied = shadow.apply_host_repulsor_events(&repulsor_events);
     let _dt_applied = shadow.apply_host_disable_timers_events(&disable_timer_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
-    let _poses = shadow.apply_host_positions_as_transforms(logic);
+    // When GameWorld owns path integrate, do not clobber entity poses with host
+    // pre-integrate positions; still pull move targets / movement residuals above.
+    if !gameworld_movement_authority_enabled() {
+        let _poses = shadow.apply_host_positions_as_transforms(logic);
+    } else {
+        // Ensure move destinations from host are present before step.
+        let _move_tgts = shadow.apply_host_move_targets(logic);
+    }
     for ev in &attack_events {
         let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
     }
@@ -5070,7 +5095,22 @@ pub fn shadow_session_after_host_tick(
     let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
     // Pose last-writer after all SetTransform mutations this session.
+    // Mid-frame movement authority: integrate AFTER command channels, BEFORE pose writeback.
+    if gameworld_movement_authority_enabled() {
+        let dt = 1.0_f32 / 30.0;
+        let stepped = shadow.world.step_movement(dt);
+        if stepped > 0 {
+            log::trace!("GameWorld step_movement stepped={stepped}");
+        }
+    }
     let _pose_wb = shadow.writeback_transforms_to_host(logic);
+    // Movement authority: always last-write velocity/path/move_target/moving after step
+    // (do not gate on damage-channel auth — path frames often have empty damage logs).
+    if gameworld_movement_authority_enabled() {
+        let _mv_wb = shadow.writeback_movement_to_host(logic);
+        let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
+        let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
+    }
     let _prod_wb = shadow.writeback_production_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
@@ -10061,6 +10101,95 @@ mod tests {
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.status.repulsor);
         assert_eq!(o.repulsor_until_frame, 12);
+    }
+
+    #[test]
+    fn gameworld_step_movement_advances_move_target() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        // Force movement authority path.
+        std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MvAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerMv") {
+            let mut t = ThingTemplate::new("RangerMv");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("RangerMv".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerMv", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.movement.max_speed = 60.0;
+            o.movement.velocity = glam::Vec3::ZERO;
+            o.move_to(glam::Vec3::new(100.0, 0.0, 0.0));
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        let before = shadow.world().entity(eid).expect("e").transform.position.x;
+        let stepped = shadow.world_mut().step_movement(1.0 / 30.0);
+        assert!(stepped >= 1, "stepped {stepped}");
+        let after = shadow.world().entity(eid).expect("e").transform.position.x;
+        assert!(
+            after > before + 0.1,
+            "expected +X march before={before} after={after}"
+        );
+        // Writeback pose to host as last-writer.
+        assert!(shadow.writeback_transforms_to_host(&mut logic) >= 1);
+        let host_x = logic.get_objects().get(&oid).expect("o").get_position().x;
+        assert!(
+            (host_x - after).abs() < 1e-3,
+            "host pose writeback host={host_x} gw={after}"
+        );
+    }
+
+    #[test]
+    fn host_update_movement_skips_when_gameworld_movement_authority() {
+        std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+        assert!(gameworld_movement_authority_enabled());
+        let src = include_str!("game_logic/game_logic.rs");
+        assert!(
+            src.contains("gameworld_movement_authority_enabled()")
+                && src.contains("return;")
+                && src.contains("fn update_movement"),
+            "host update_movement must early-return under GameWorld movement authority"
+        );
+        // Session integrates then writebacks.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MvSkip");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerSk") {
+            let mut t = crate::game_logic::ThingTemplate::new("RangerSk");
+            t.add_kind_of(crate::game_logic::KindOf::Infantry);
+            logic.templates.insert("RangerSk".into(), t);
+        }
+        let oid = logic
+            .create_object(
+                "RangerSk",
+                crate::game_logic::Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.movement.max_speed = 60.0;
+            o.move_to(glam::Vec3::new(50.0, 0.0, 0.0));
+            o.record_host_movement();
+        }
+        let before = logic.get_objects().get(&oid).expect("o").get_position().x;
+        let mut shadow = GameWorldShadow::new(64);
+        // Multiple authority frames (path integrate + pose writeback each session).
+        for _ in 0..10 {
+            let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        }
+        let after = logic.get_objects().get(&oid).expect("o").get_position().x;
+        assert!(
+            after > before + 1.0,
+            "shadow session movement authority must march host pose before={before} after={after}"
+        );
     }
 
     #[test]
