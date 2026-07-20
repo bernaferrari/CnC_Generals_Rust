@@ -837,6 +837,8 @@ pub enum WorldMutation {
         crushable_level: u8,
         vision_range: f32,
         shroud_clearing_range: f32,
+        front_crushed: bool,
+        back_crushed: bool,
     },
     /// Host Object building_data present + BuildingType ordinal residual.
     SetBuildingType {
@@ -1651,12 +1653,16 @@ impl GameWorld {
                     crushable_level,
                     vision_range,
                     shroud_clearing_range,
+                    front_crushed,
+                    back_crushed,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.crusher_level = crusher_level;
                         e.crushable_level = crushable_level;
                         e.vision_range = vision_range;
                         e.shroud_clearing_range = shroud_clearing_range;
+                        e.front_crushed = front_crushed;
+                        e.back_crushed = back_crushed;
                         applied += 1;
                     }
                 }
