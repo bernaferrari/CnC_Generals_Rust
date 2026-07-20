@@ -8268,6 +8268,7 @@ impl GameLogic {
         };
         if let Some(t) = self.objects.get_mut(&to_id) {
             t.name = n.clone();
+            t.record_host_identity();
         }
         if let Some(f) = self.objects.get_mut(&from_id) {
             f.name.clear();
@@ -83113,6 +83114,7 @@ mod tests {
         logic.objects.insert(hid, {
             let mut o = Object::new(ht, hid, Team::GLA);
             o.name = "Jack".into();
+            o.record_host_identity();
             o
         });
         let mut vt = ThingTemplate::new("AmericaTankCrusader");
@@ -90543,6 +90545,7 @@ mod tests {
         logic.objects.insert(hid, {
             let mut o = Object::new(ht, hid, Team::GLA);
             o.name = "NamedJacker".into();
+            o.record_host_identity();
             o.experience.level = VeterancyLevel::Elite;
             o.experience.current = 200.0;
             o
