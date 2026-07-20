@@ -381,6 +381,7 @@ impl GameWorldShadow {
                         .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
                     e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
                     e.max_health = obj.max_health.max(obj.health.current).max(1.0);
+                    e.body_damage_state = obj.body_damage_state.ordinal();
                     e.selected = obj.selected;
                     e.destroyed = obj.status.destroyed;
                     e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
@@ -1711,6 +1712,26 @@ impl GameWorldShadow {
                 dirty = true;
             }
             if dirty {
+                updated += 1;
+            }
+        }
+        updated
+    }
+
+    /// Write GameWorld BodyDamageType residual onto host objects.
+    pub fn writeback_body_damage_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let want = HostBodyDamageType::from_ordinal(ent.body_damage_state);
+            if obj.body_damage_state != want {
+                obj.body_damage_state = want;
                 updated += 1;
             }
         }
@@ -3517,6 +3538,29 @@ impl GameWorldShadow {
         n
     }
 
+    /// Queue SetBodyDamage from host BodyDamageType residual log.
+    pub fn apply_host_body_damage_events(
+        &mut self,
+        events: &[crate::game_logic::host_body_damage_log::HostBodyDamageEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetBodyDamage {
+                    target: eid,
+                    body_damage_state: ev.body_damage_state,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_movement_events(
         &mut self,
         events: &[crate::game_logic::host_movement_log::HostMovementEvent],
@@ -5121,6 +5165,8 @@ pub fn shadow_session_after_host_tick(
     let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
     let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
     let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
+    let body_damage_events = crate::game_logic::host_body_damage_log::drain();
+    let _bd_applied = shadow.apply_host_body_damage_events(&body_damage_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
 
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
@@ -5188,6 +5234,7 @@ pub fn shadow_session_after_host_tick(
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
+    let _ = shadow.writeback_body_damage_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
@@ -6273,6 +6320,7 @@ mod tests {
             }
         }
         let n = shadow.writeback_production_to_host(&mut logic);
+        let _ = shadow.writeback_body_damage_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
         let obj = logic.get_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
@@ -7434,6 +7482,7 @@ mod tests {
             }
         }
         let wb = shadow.writeback_production_to_host(&mut logic);
+        let _ = shadow.writeback_body_damage_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
@@ -8850,6 +8899,7 @@ mod tests {
             .create_object("WsU", Team::GLA, glam::Vec3::new(25.0, 0.0, 25.0))
             .expect("id");
         host_weapon_stats_log::clear();
+        crate::game_logic::host_body_damage_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.weapon = Some(Weapon {
@@ -11794,6 +11844,7 @@ mod tests {
             }
         }
         assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
+        shadow.writeback_body_damage_to_host(&mut logic);
         let d = logic
             .get_objects()
             .get(&oid)
@@ -11803,6 +11854,48 @@ mod tests {
             .map(|b| b.exit_delay_remaining)
             .unwrap_or(-1.0);
         assert!((d - 2.5).abs() < 1e-5, "exit delay wb got {d}");
+    }
+
+    #[test]
+    fn body_damage_state_channel_via_set_body_damage() {
+        use crate::game_logic::host_body_damage_log;
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_body_damage_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("BodyDmg");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("TankBd") {
+            let mut t = ThingTemplate::new("TankBd");
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("TankBd".into(), t);
+        }
+        let oid = logic
+            .create_object("TankBd", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.body_damage_state = HostBodyDamageType::ReallyDamaged;
+        }
+        host_body_damage_log::record(oid, HostBodyDamageType::ReallyDamaged.ordinal());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_body_damage_events(&host_body_damage_log::drain()) >= 1);
+        assert_eq!(
+            shadow.world().entity(eid).unwrap().body_damage_state,
+            2,
+            "really damaged ordinal"
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.body_damage_state = HostBodyDamageType::Pristine;
+        }
+        assert!(shadow.writeback_body_damage_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().body_damage_state,
+            HostBodyDamageType::ReallyDamaged
+        );
     }
 
     #[test]

@@ -107,6 +107,8 @@ pub struct Entity {
     pub move_target: Option<[f32; 3]>,
     /// Host Object::max_health residual.
     pub max_health: f32,
+    /// C++ BodyDamageType residual (0 pristine .. 3 rubble).
+    pub body_damage_state: u8,
     /// Host Object::selected residual (UI selection).
     pub selected: bool,
     /// Host Object::status.destroyed residual.
@@ -504,7 +506,9 @@ impl EntityStore {
             health,
             attack_target: None,
             move_target: None,
+
             max_health: health.max(1.0),
+            body_damage_state: 0,
             selected: false,
             destroyed: false,
             construction_percent: 1.0,
