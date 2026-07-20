@@ -517,6 +517,10 @@ pub enum WorldMutation {
         battle_plan_bombardment: bool,
         battle_plan_hold_the_line: bool,
         battle_plan_search_and_destroy: bool,
+        /// Host weapon_bonus_frenzy_until_frame residual (0 = none).
+        frenzy_until_frame: u32,
+        /// Host battle_plan_sight_scalar_applied residual.
+        battle_plan_sight_scalar_applied: f32,
     },
     /// Host Object::active_weapon_slot residual (0 primary, 1 secondary, …).
     SetActiveWeaponSlot { target: EntityId, slot: u8 },
@@ -1129,6 +1133,8 @@ impl GameWorld {
                     battle_plan_bombardment,
                     battle_plan_hold_the_line,
                     battle_plan_search_and_destroy,
+                    frenzy_until_frame,
+                    battle_plan_sight_scalar_applied,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.weapon_bonus_enthusiastic = enthusiastic;
@@ -1141,6 +1147,8 @@ impl GameWorld {
                         e.weapon_bonus_battle_plan_hold_the_line = battle_plan_hold_the_line;
                         e.weapon_bonus_battle_plan_search_and_destroy =
                             battle_plan_search_and_destroy;
+                        e.weapon_bonus_frenzy_until_frame = frenzy_until_frame;
+                        e.battle_plan_sight_scalar_applied = battle_plan_sight_scalar_applied;
                         applied += 1;
                     }
                 }

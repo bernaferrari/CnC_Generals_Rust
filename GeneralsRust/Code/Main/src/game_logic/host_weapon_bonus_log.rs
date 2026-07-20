@@ -3,7 +3,7 @@
 use super::ObjectId;
 use std::cell::RefCell;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostWeaponBonusEvent {
     pub object: ObjectId,
     pub enthusiastic: bool,
@@ -15,6 +15,8 @@ pub struct HostWeaponBonusEvent {
     pub battle_plan_bombardment: bool,
     pub battle_plan_hold_the_line: bool,
     pub battle_plan_search_and_destroy: bool,
+    pub frenzy_until_frame: u32,
+    pub battle_plan_sight_scalar_applied: f32,
 }
 
 thread_local! {
