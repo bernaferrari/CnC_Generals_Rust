@@ -776,6 +776,21 @@ pub enum WorldMutation {
         consecutive: u16,
         coast_until_frame: u32,
     },
+    /// Host combat pre-attack / AttackStateMachine residual.
+    SetCombatAttack {
+        target: EntityId,
+        pre_attack_target_host: u32,
+        pre_attack_ready_at: f32,
+        consecutive_shots_at_target: u32,
+        max_shots_to_fire: i32,
+        attack_substate_ordinal: u8,
+        approach_timestamp: u32,
+        continuous_fire_victim: u32,
+        maintain_pos_valid: bool,
+        maintain_pos: Option<[f32; 3]>,
+        temporary_move_frames: u32,
+        group_speed_factor: f32,
+    },
     /// Host faerie_fire status + until_frame residual (Avenger paint).
     SetFaerieFire {
         target: EntityId,
@@ -1721,6 +1736,35 @@ impl GameWorld {
                         e.continuous_fire_consecutive = consecutive;
 
                         e.continuous_fire_coast_until_frame = coast_until_frame;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetCombatAttack {
+                    target,
+                    pre_attack_target_host,
+                    pre_attack_ready_at,
+                    consecutive_shots_at_target,
+                    max_shots_to_fire,
+                    attack_substate_ordinal,
+                    approach_timestamp,
+                    continuous_fire_victim,
+                    maintain_pos_valid,
+                    maintain_pos,
+                    temporary_move_frames,
+                    group_speed_factor,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.pre_attack_target_host = pre_attack_target_host;
+                        e.pre_attack_ready_at = pre_attack_ready_at;
+                        e.consecutive_shots_at_target = consecutive_shots_at_target;
+                        e.max_shots_to_fire = max_shots_to_fire;
+                        e.attack_substate_ordinal = attack_substate_ordinal;
+                        e.approach_timestamp = approach_timestamp;
+                        e.continuous_fire_victim = continuous_fire_victim;
+                        e.maintain_pos_valid = maintain_pos_valid;
+                        e.maintain_pos = maintain_pos;
+                        e.temporary_move_frames = temporary_move_frames;
+                        e.group_speed_factor = group_speed_factor;
                         applied += 1;
                     }
                 }
