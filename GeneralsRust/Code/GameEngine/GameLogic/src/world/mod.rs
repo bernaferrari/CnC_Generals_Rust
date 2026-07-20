@@ -928,6 +928,13 @@ pub enum WorldMutation {
         target: EntityId,
         exit_delay_remaining: f32,
     },
+    /// Host ProductionUpdate door open/wait/close residual.
+    SetProductionDoor {
+        target: EntityId,
+        production_door_phase: u8,
+        production_door_phase_end_frame: u32,
+        production_door_hold_open: bool,
+    },
     /// Set structure construction progress residual (0..1).
     SetConstruction {
         target: EntityId,
@@ -1932,6 +1939,19 @@ impl GameWorld {
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.exit_delay_remaining = exit_delay_remaining.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetProductionDoor {
+                    target,
+                    production_door_phase,
+                    production_door_phase_end_frame,
+                    production_door_hold_open,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.production_door_phase = production_door_phase;
+                        e.production_door_phase_end_frame = production_door_phase_end_frame;
+                        e.production_door_hold_open = production_door_hold_open;
                         applied += 1;
                     }
                 }
