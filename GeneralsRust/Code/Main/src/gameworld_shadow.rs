@@ -10147,6 +10147,60 @@ mod tests {
     }
 
     #[test]
+    fn damage_authority_defers_host_hp_until_writeback() {
+        use crate::game_logic::{host_damage_log, KindOf, Team, ThingTemplate};
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        assert!(gameworld_damage_authority_enabled());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DmgAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerDmg") {
+            let mut t = ThingTemplate::new("RangerDmg");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("RangerDmg".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerDmg", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let before = logic.get_objects().get(&oid).expect("o").health.current;
+        host_damage_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let _ = o.take_damage(25.0);
+        }
+        // Host HP must not mid-frame mutate under damage authority.
+        let mid = logic.get_objects().get(&oid).expect("o").health.current;
+        assert!(
+            (mid - before).abs() < 1e-5,
+            "host HP deferred before={before} mid={mid}"
+        );
+        let events = host_damage_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.target == oid && (e.amount - 25.0).abs() < 1e-5),
+            "events {:?}",
+            events
+        );
+        // Re-record for session (drained above).
+        host_damage_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let _ = o.take_damage(25.0);
+        }
+        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        let after = logic.get_objects().get(&oid).expect("o").health.current;
+        assert!(
+            after < before - 20.0,
+            "writeback must apply damage before={before} after={after}"
+        );
+    }
+
+    #[test]
     fn host_update_movement_skips_when_gameworld_movement_authority() {
         std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
         assert!(gameworld_movement_authority_enabled());
