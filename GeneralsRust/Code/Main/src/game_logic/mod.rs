@@ -12,6 +12,7 @@ pub mod host_guard_log;
 pub mod host_heal_log;
 pub mod host_hive_log;
 pub mod host_max_health_log;
+pub mod host_rebuild_producer_log;
 pub mod host_repulsor_gate;
 pub mod host_shock_stun_log;
 pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
