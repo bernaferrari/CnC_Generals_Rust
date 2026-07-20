@@ -565,6 +565,8 @@ pub enum WorldMutation {
         target: EntityId,
         body_damage_state: u8,
     },
+    /// C++ DeathType residual ordinal.
+    SetDeathType { target: EntityId, death_type: u8 },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -1065,6 +1067,12 @@ impl GameWorld {
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.body_damage_state = body_damage_state.min(3);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetDeathType { target, death_type } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.death_type = death_type;
                         applied += 1;
                     }
                 }

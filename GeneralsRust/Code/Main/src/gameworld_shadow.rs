@@ -384,6 +384,7 @@ impl GameWorldShadow {
                     e.body_damage_state = obj.body_damage_state.ordinal();
                     e.selected = obj.selected;
                     e.destroyed = obj.status.destroyed;
+                    e.death_type = obj.status.death_type.ordinal();
                     e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
                     e.team_ordinal = Self::host_team_ordinal(obj.team);
                     e.selection_radius = obj.selection_radius.max(5.0);
@@ -1735,6 +1736,25 @@ impl GameWorldShadow {
             let want = HostBodyDamageType::from_ordinal(ent.body_damage_state);
             if obj.body_damage_state != want {
                 obj.body_damage_state = want;
+                updated += 1;
+            }
+        }
+        updated
+    }
+
+    pub fn writeback_death_type_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let want = HostDeathType::from_ordinal(ent.death_type);
+            if obj.status.death_type != want {
+                obj.status.death_type = want;
                 updated += 1;
             }
         }
@@ -3566,6 +3586,28 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_death_type_events(
+        &mut self,
+        events: &[crate::game_logic::host_death_type_log::HostDeathTypeEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetDeathType {
+                    target: eid,
+                    death_type: ev.death_type,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_movement_events(
         &mut self,
         events: &[crate::game_logic::host_movement_log::HostMovementEvent],
@@ -5167,6 +5209,8 @@ pub fn shadow_session_after_host_tick(
     let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
     let body_damage_events = crate::game_logic::host_body_damage_log::drain();
     let _bd_applied = shadow.apply_host_body_damage_events(&body_damage_events);
+    let death_type_events = crate::game_logic::host_death_type_log::drain();
+    let _dt_applied = shadow.apply_host_death_type_events(&death_type_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
 
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
@@ -5235,6 +5279,7 @@ pub fn shadow_session_after_host_tick(
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
     let _ = shadow.writeback_body_damage_to_host(logic);
+    let _ = shadow.writeback_death_type_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
@@ -6321,6 +6366,7 @@ mod tests {
         }
         let n = shadow.writeback_production_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
+        let _ = shadow.writeback_death_type_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
         let obj = logic.get_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
@@ -7483,6 +7529,7 @@ mod tests {
         }
         let wb = shadow.writeback_production_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
+        let _ = shadow.writeback_death_type_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
@@ -8900,6 +8947,7 @@ mod tests {
             .expect("id");
         host_weapon_stats_log::clear();
         crate::game_logic::host_body_damage_log::clear();
+        crate::game_logic::host_death_type_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.weapon = Some(Weapon {
@@ -11847,6 +11895,7 @@ mod tests {
         }
         assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
         shadow.writeback_body_damage_to_host(&mut logic);
+        let _ = shadow.writeback_death_type_to_host(&mut logic);
         let d = logic
             .get_objects()
             .get(&oid)
@@ -11894,6 +11943,7 @@ mod tests {
             o.body_damage_state = HostBodyDamageType::Pristine;
         }
         assert!(shadow.writeback_body_damage_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_death_type_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().body_damage_state,
             HostBodyDamageType::ReallyDamaged
@@ -12088,6 +12138,48 @@ mod tests {
         assert!(
             logic.get_objects().get(&oid).unwrap().waiting_for_path,
             "waiting_for_path writeback"
+        );
+    }
+
+    #[test]
+    fn death_type_channel_via_set_death_type() {
+        use crate::game_logic::host_death_type_log;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_death_type_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DeathTy");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("DieUnit") {
+            let mut t = ThingTemplate::new("DieUnit");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("DieUnit".into(), t);
+        }
+        let oid = logic
+            .create_object("DieUnit", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.status.destroyed = true;
+            o.status.death_type = HostDeathType::Burned;
+        }
+        host_death_type_log::record(oid, HostDeathType::Burned.ordinal());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_death_type_events(&host_death_type_log::drain()) >= 1);
+        assert_eq!(
+            shadow.world().entity(eid).unwrap().death_type,
+            HostDeathType::Burned.ordinal()
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.status.death_type = HostDeathType::Normal;
+        }
+        assert!(shadow.writeback_death_type_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().status.death_type,
+            HostDeathType::Burned
         );
     }
 
