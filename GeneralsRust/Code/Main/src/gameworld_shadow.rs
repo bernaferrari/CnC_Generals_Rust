@@ -11512,6 +11512,31 @@ mod tests {
     }
 
     #[test]
+    fn credit_supplies_defers_under_economy_authority() {
+        std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        assert!(gameworld_economy_authority_enabled());
+        crate::game_logic::host_economy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EconCredit");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
+        ids.sort_unstable();
+        let hid = ids[0];
+        {
+            let p = logic.get_player_mut(hid).unwrap();
+            p.resources.supplies = 1000;
+            p.pending_supply_delta = 0;
+        }
+        logic.get_player_mut(hid).unwrap().credit_supplies(250);
+        assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1000);
+        assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 1250);
+        let mut shadow = GameWorldShadow::new(64);
+        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
+        assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
+    }
+
+    #[test]
     fn damage_authority_writeback_is_last_writer() {
         crate::game_logic::host_damage_log::clear();
         let mut logic = GameLogic::new();
