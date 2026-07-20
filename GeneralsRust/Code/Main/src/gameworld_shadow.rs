@@ -135,6 +135,22 @@ pub fn gameworld_movement_authority_enabled() -> bool {
     }
 }
 
+/// When enabled, host construction percent is last-written from GameWorld after
+/// progress logs (host still computes projected percent for completion side effects).
+/// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_construction_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
 /// Gates/smoke: no-op when production defaults are already on.
 /// Still forces `1` if env was never set (explicit documentation for gate binaries).
 pub fn ensure_gate_damage_authority() {
@@ -11584,6 +11600,94 @@ mod tests {
         );
         assert!((o.construction_percent - 1.0).abs() < 1e-5);
         assert!(!o.status.under_construction);
+    }
+
+    #[test]
+    fn construction_authority_last_writes_percent() {
+        use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
+        std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+        assert!(gameworld_construction_authority_enabled());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ConstAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PadAuth") {
+            let mut t = ThingTemplate::new("PadAuth");
+            t.set_health(400.0);
+            t.build_time = 10.0;
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("PadAuth".into(), t);
+        }
+        let oid = logic
+            .create_object("PadAuth", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.status.under_construction = true;
+            o.construction_percent = 0.5;
+        }
+        host_construction_progress_log::clear();
+        // One progress log as host construction tick would emit under authority.
+        host_construction_progress_log::record(oid, 0.6, true);
+        assert!(
+            (logic
+                .get_objects()
+                .get(&oid)
+                .expect("o")
+                .construction_percent
+                - 0.5)
+                .abs()
+                < 1e-5
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Apply progress events as session does, then writeback.
+        let events = host_construction_progress_log::drain();
+        let n = shadow.apply_host_construction_progress_events(&events);
+        assert!(n >= 1);
+        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        assert!(
+            (logic
+                .get_objects()
+                .get(&oid)
+                .expect("o")
+                .construction_percent
+                - 0.6)
+                .abs()
+                < 1e-5
+        );
+    }
+
+    #[test]
+    fn special_power_tick_records_host_special_power_log() {
+        use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+        host_special_power_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SpTick");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SpUnit") {
+            let mut t = ThingTemplate::new("SpUnit");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("SpUnit".into(), t);
+        }
+        let oid = logic
+            .create_object("SpUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.special_power_cooldown = 10.0;
+            o.special_power_cooldown_remaining = 5.0;
+            o.set_special_power_ready(false);
+            let became = o.tick_timers(1.0);
+            let _ = became;
+        }
+        let events = host_special_power_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| { e.object == oid && (e.cooldown_remaining - 4.0).abs() < 1e-3 }),
+            "events {:?}",
+            events
+        );
     }
 
     #[test]

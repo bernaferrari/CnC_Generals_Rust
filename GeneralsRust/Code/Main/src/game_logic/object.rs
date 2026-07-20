@@ -8293,6 +8293,15 @@ impl Object {
         }
         self.refresh_special_power_aggregate_cooldown();
         let became_ready = !was_ready && self.special_power_ready;
+        // GameWorld last-writer residual: publish SP timer after every tick that
+        // may have advanced/frozen countdown or flipped ready.
+        if became_ready
+            || self.special_power_cooldown_remaining > 0.0
+            || !self.special_power_cooldowns.is_empty()
+            || was_ready != self.special_power_ready
+        {
+            self.record_host_special_power();
+        }
         became_ready
     }
 
