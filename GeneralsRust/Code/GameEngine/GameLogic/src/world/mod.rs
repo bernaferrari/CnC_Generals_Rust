@@ -748,6 +748,7 @@ pub enum WorldMutation {
         unit: EntityId,
         position: Option<[f32; 3]>,
         target_host: u32,
+        radius: f32,
     },
     /// Host Object::ai_attitude residual (-2 Sleep .. +2 Aggressive).
     SetAiAttitude { target: EntityId, attitude: i8 },
@@ -1582,10 +1583,12 @@ impl GameWorld {
                     unit,
                     position,
                     target_host,
+                    radius,
                 } => {
                     if let Some(e) = self.inner.entity_mut(unit) {
                         e.guard_position = position;
                         e.guard_target_host = target_host;
+                        e.guard_radius = radius.max(0.0);
                         applied += 1;
                     }
                 }
