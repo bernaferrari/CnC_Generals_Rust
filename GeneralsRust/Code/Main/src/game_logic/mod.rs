@@ -30,6 +30,7 @@ pub mod host_disguise_log;
 pub mod host_economy_log;
 pub mod host_entity_power_log;
 pub mod host_experience_log;
+pub mod host_faerie_fire_log;
 pub mod host_fow_log;
 pub mod host_ground_height_log;
 pub mod host_identity_log;
