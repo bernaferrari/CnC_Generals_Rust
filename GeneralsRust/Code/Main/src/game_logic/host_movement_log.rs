@@ -21,6 +21,13 @@ pub struct HostMovementEvent {
     pub is_safe_path: bool,
     pub queue_for_path_frames: u32,
     pub path_timestamp: u32,
+    pub cur_max_blocked_speed: f32,
+    pub num_frames_blocked: u32,
+    pub is_blocked: bool,
+    /// Host ObjectId.0 for move-away-from target.
+    pub move_away_from_id: Option<u32>,
+    /// Host ObjectId.0 for requested victim.
+    pub requested_victim_id: Option<u32>,
 }
 
 thread_local! {
@@ -41,6 +48,11 @@ pub fn record(
     is_safe_path: bool,
     queue_for_path_frames: u32,
     path_timestamp: u32,
+    cur_max_blocked_speed: f32,
+    num_frames_blocked: u32,
+    is_blocked: bool,
+    move_away_from_id: Option<u32>,
+    requested_victim_id: Option<u32>,
 ) {
     let path_waypoints: Vec<[f32; 3]> = path.iter().take(64).map(|p| [p.x, p.y, p.z]).collect();
     LOG.with(|log| {
@@ -59,6 +71,11 @@ pub fn record(
             is_safe_path,
             queue_for_path_frames,
             path_timestamp,
+            cur_max_blocked_speed,
+            num_frames_blocked,
+            is_blocked,
+            move_away_from_id,
+            requested_victim_id,
         });
     });
 }

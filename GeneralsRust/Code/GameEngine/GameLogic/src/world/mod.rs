@@ -843,6 +843,11 @@ pub enum WorldMutation {
         is_safe_path: bool,
         queue_for_path_frames: u32,
         path_timestamp: u32,
+        cur_max_blocked_speed: f32,
+        num_frames_blocked: u32,
+        is_blocked: bool,
+        move_away_from_id: Option<u32>,
+        requested_victim_id: Option<u32>,
     },
     /// Host Object::selection_radius residual.
     SetSelectionRadius {
@@ -1691,6 +1696,11 @@ impl GameWorld {
                     is_safe_path,
                     queue_for_path_frames,
                     path_timestamp,
+                    cur_max_blocked_speed,
+                    num_frames_blocked,
+                    is_blocked,
+                    move_away_from_id,
+                    requested_victim_id,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.velocity = velocity;
@@ -1706,6 +1716,11 @@ impl GameWorld {
                         e.is_safe_path = is_safe_path;
                         e.queue_for_path_frames = queue_for_path_frames;
                         e.path_timestamp = path_timestamp;
+                        e.cur_max_blocked_speed = cur_max_blocked_speed;
+                        e.num_frames_blocked = num_frames_blocked;
+                        e.is_blocked = is_blocked;
+                        e.move_away_from_id = move_away_from_id;
+                        e.requested_victim_id = requested_victim_id;
                         applied += 1;
                     }
                 }
