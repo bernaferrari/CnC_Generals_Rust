@@ -3014,7 +3014,6 @@ impl Object {
     pub fn tick_production_door(&mut self, now: u32) -> bool {
         if self.production_door_phase == 0 {
             return false;
-            self.record_host_production_door();
         }
         if now < self.production_door_phase_end_frame {
             return false;
@@ -3326,7 +3325,6 @@ impl Object {
     pub fn tick_construction_complete_clear(&mut self, now: u32) -> bool {
         if self.construction_complete_clear_frame == 0 {
             return false;
-            self.record_host_rebuild_producer();
         }
         if now < self.construction_complete_clear_frame {
             return false;
@@ -5005,6 +5003,7 @@ impl Object {
         if self.bounce_sound_name.is_empty() {
             self.bounce_sound_name = BOUNCE_SOUND_DEFAULT.to_string();
         }
+        self.record_host_bounce_land();
     }
 
     /// Drain one pending bounce audio emit for GameLogic → TheAudio queue.
@@ -5013,6 +5012,7 @@ impl Object {
             return None;
         }
         self.bounce_audio_pending = self.bounce_audio_pending.saturating_sub(1);
+        self.record_host_bounce_land();
         Some((self.bounce_sound_name.clone(), self.last_bounce_volume))
     }
 
@@ -5258,6 +5258,7 @@ impl Object {
         }
         // Bounce complete — restore original allow (host: off).
         self.shock_allow_bounce = false;
+        self.record_host_bounce_land();
         0.0
     }
 
@@ -5804,6 +5805,21 @@ impl Object {
             self.rebuild_reconstructing_id.map(|id| id.0),
             self.producer_id.map(|id| id.0),
             self.construction_complete_clear_frame,
+        );
+    }
+
+    pub fn record_host_bounce_land(&self) {
+        crate::game_logic::host_bounce_land_log::record(
+            self.id,
+            self.kill_when_resting_on_ground,
+            self.bounce_land_events,
+            self.last_bounce_fall_dy,
+            self.bounce_sound_name.clone(),
+            self.last_bounce_volume,
+            self.bounce_audio_pending,
+            self.allow_collide_force,
+            self.last_collidee.map(|id| id.0),
+            self.ignore_collisions_with.map(|id| id.0),
         );
     }
 

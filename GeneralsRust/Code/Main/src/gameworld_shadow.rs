@@ -536,6 +536,15 @@ impl GameWorldShadow {
                     e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
                     e.waiting_for_path = obj.waiting_for_path;
                     e.motive_frames_remaining = obj.motive_frames_remaining;
+                    e.kill_when_resting_on_ground = obj.kill_when_resting_on_ground;
+                    e.bounce_land_events = obj.bounce_land_events;
+                    e.last_bounce_fall_dy = obj.last_bounce_fall_dy;
+                    e.bounce_sound_name = obj.bounce_sound_name.clone();
+                    e.last_bounce_volume = obj.last_bounce_volume;
+                    e.bounce_audio_pending = obj.bounce_audio_pending;
+                    e.allow_collide_force = obj.allow_collide_force;
+                    e.last_collidee_id = obj.last_collidee.map(|id| id.0);
+                    e.ignore_collisions_with_id = obj.ignore_collisions_with.map(|id| id.0);
                     e.physics_mass = obj.physics_mass;
                     e.physics_accel = [
                         obj.physics_accel.x,
@@ -4068,6 +4077,36 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_bounce_land_events(
+        &mut self,
+        events: &[crate::game_logic::host_bounce_land_log::HostBounceLandEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetBounceLand {
+                    target: eid,
+                    kill_when_resting_on_ground: ev.kill_when_resting_on_ground,
+                    bounce_land_events: ev.bounce_land_events,
+                    last_bounce_fall_dy: ev.last_bounce_fall_dy,
+                    bounce_sound_name: ev.bounce_sound_name.clone(),
+                    last_bounce_volume: ev.last_bounce_volume,
+                    bounce_audio_pending: ev.bounce_audio_pending,
+                    allow_collide_force: ev.allow_collide_force,
+                    last_collidee_id: ev.last_collidee_id,
+                    ignore_collisions_with_id: ev.ignore_collisions_with_id,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_selection_radius_events(
         &mut self,
         events: &[crate::game_logic::host_selection_radius_log::HostSelectionRadiusEvent],
@@ -4759,6 +4798,41 @@ impl GameWorldShadow {
             obj.ignore_collisions_until_frame = ent.ignore_collisions_until_frame;
             obj.is_panicking = ent.is_panicking;
             obj.move_away_frames = ent.move_away_frames;
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn writeback_bounce_land_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.kill_when_resting_on_ground != ent.kill_when_resting_on_ground
+                || obj.bounce_land_events != ent.bounce_land_events
+                || (obj.last_bounce_fall_dy - ent.last_bounce_fall_dy).abs() > f32::EPSILON
+                || obj.bounce_sound_name != ent.bounce_sound_name
+                || (obj.last_bounce_volume - ent.last_bounce_volume).abs() > f32::EPSILON
+                || obj.bounce_audio_pending != ent.bounce_audio_pending
+                || obj.allow_collide_force != ent.allow_collide_force
+                || obj.last_collidee.map(|id| id.0) != ent.last_collidee_id
+                || obj.ignore_collisions_with.map(|id| id.0) != ent.ignore_collisions_with_id;
+            if !changed {
+                continue;
+            }
+            obj.kill_when_resting_on_ground = ent.kill_when_resting_on_ground;
+            obj.bounce_land_events = ent.bounce_land_events;
+            obj.last_bounce_fall_dy = ent.last_bounce_fall_dy;
+            obj.bounce_sound_name = ent.bounce_sound_name.clone();
+            obj.last_bounce_volume = ent.last_bounce_volume;
+            obj.bounce_audio_pending = ent.bounce_audio_pending;
+            obj.allow_collide_force = ent.allow_collide_force;
+            obj.last_collidee = ent.last_collidee_id.map(ObjectId);
+            obj.ignore_collisions_with = ent.ignore_collisions_with_id.map(ObjectId);
             updated += 1;
         }
         updated
@@ -5736,6 +5810,8 @@ pub fn shadow_session_after_host_tick(
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
     let physics_motive_events = crate::game_logic::host_physics_motive_log::drain();
     let _pm_applied = shadow.apply_host_physics_motive_events(&physics_motive_events);
+    let bounce_land_events = crate::game_logic::host_bounce_land_log::drain();
+    let _bl_applied = shadow.apply_host_bounce_land_events(&bounce_land_events);
 
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
     let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
@@ -5799,6 +5875,7 @@ pub fn shadow_session_after_host_tick(
     if gameworld_movement_authority_enabled() {
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
+        let _ = shadow.writeback_bounce_land_to_host(logic);
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
     }
@@ -5851,6 +5928,7 @@ pub fn shadow_session_after_host_tick(
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
+        let _ = shadow.writeback_bounce_land_to_host(logic);
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
         let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
@@ -9408,6 +9486,7 @@ mod tests {
             .expect("id");
         host_movement_log::clear();
         crate::game_logic::host_physics_motive_log::clear();
+        crate::game_logic::host_bounce_land_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.movement.velocity = Vec3::new(3.0, 0.0, 4.0);
@@ -9468,6 +9547,7 @@ mod tests {
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
         assert!((o.movement.max_speed - 12.5).abs() < 1e-5);
@@ -12718,6 +12798,7 @@ mod tests {
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         assert!(
             logic.get_objects().get(&oid).unwrap().waiting_for_path,
             "waiting_for_path writeback"
@@ -12794,6 +12875,7 @@ mod tests {
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.locomotor_surfaces, 0b101);
         assert!(o.is_attack_path);
@@ -12927,6 +13009,7 @@ mod tests {
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
         assert_eq!(o.num_frames_blocked, 7);
@@ -13264,12 +13347,84 @@ mod tests {
             o.ignore_collisions_until_frame = 0;
         }
         assert!(shadow.writeback_physics_motive_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.motive_frames_remaining, 12);
         assert!((o.physics_mass - 2.5).abs() < 1e-5);
         assert!(o.can_path_through_units);
         assert!(o.is_panicking);
         assert_eq!(o.ignore_collisions_until_frame, 40);
+    }
+
+    #[test]
+    fn bounce_land_channel_via_set_bounce_land() {
+        use crate::game_logic::host_bounce_land_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_bounce_land_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("BounceL");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("BounceU") {
+            let mut t = ThingTemplate::new("BounceU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("BounceU".into(), t);
+        }
+        let oid = logic
+            .create_object("BounceU", Team::USA, glam::Vec3::new(80.0, 0.0, 80.0))
+            .expect("id");
+        let other = logic
+            .create_object("BounceU", Team::USA, glam::Vec3::new(82.0, 0.0, 80.0))
+            .expect("other");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.kill_when_resting_on_ground = true;
+            o.bounce_land_events = 3;
+            o.last_bounce_fall_dy = 12.0;
+            o.bounce_sound_name = "Module:Bounce".into();
+            o.last_bounce_volume = 0.75;
+            o.bounce_audio_pending = 2;
+            o.allow_collide_force = false;
+            o.last_collidee = Some(other);
+            o.ignore_collisions_with = Some(other);
+        }
+        host_bounce_land_log::record(
+            oid,
+            true,
+            3,
+            12.0,
+            "Module:Bounce".into(),
+            0.75,
+            2,
+            false,
+            Some(other.0),
+            Some(other.0),
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_bounce_land_events(&host_bounce_land_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert!(e.kill_when_resting_on_ground);
+        assert_eq!(e.bounce_land_events, 3);
+        assert!((e.last_bounce_fall_dy - 12.0).abs() < 1e-5);
+        assert_eq!(e.bounce_sound_name, "Module:Bounce");
+        assert!((e.last_bounce_volume - 0.75).abs() < 1e-5);
+        assert_eq!(e.bounce_audio_pending, 2);
+        assert!(!e.allow_collide_force);
+        assert_eq!(e.last_collidee_id, Some(other.0));
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.kill_when_resting_on_ground = false;
+            o.bounce_land_events = 0;
+            o.bounce_audio_pending = 0;
+            o.last_collidee = None;
+        }
+        assert!(shadow.writeback_bounce_land_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!(o.kill_when_resting_on_ground);
+        assert_eq!(o.bounce_land_events, 3);
+        assert_eq!(o.bounce_audio_pending, 2);
+        assert_eq!(o.last_collidee, Some(other));
     }
 
     #[test]

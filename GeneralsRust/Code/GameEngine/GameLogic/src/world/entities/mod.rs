@@ -328,6 +328,24 @@ pub struct Entity {
     pub waiting_for_path: bool,
     /// Host Object::motive_frames_remaining residual.
     pub motive_frames_remaining: u32,
+    /// Host Object::kill_when_resting_on_ground residual.
+    pub kill_when_resting_on_ground: bool,
+    /// Host Object::bounce_land_events residual.
+    pub bounce_land_events: u32,
+    /// Host Object::last_bounce_fall_dy residual.
+    pub last_bounce_fall_dy: f32,
+    /// Host Object::bounce_sound_name residual.
+    pub bounce_sound_name: String,
+    /// Host Object::last_bounce_volume residual.
+    pub last_bounce_volume: f32,
+    /// Host Object::bounce_audio_pending residual.
+    pub bounce_audio_pending: u32,
+    /// Host Object::allow_collide_force residual.
+    pub allow_collide_force: bool,
+    /// Host Object::last_collidee_id residual.
+    pub last_collidee_id: Option<u32>,
+    /// Host Object::ignore_collisions_with_id residual.
+    pub ignore_collisions_with_id: Option<u32>,
     /// Host Object::physics_mass residual.
     pub physics_mass: f32,
     /// Host Object::physics_accel residual.
@@ -735,6 +753,15 @@ impl EntityStore {
             path_index: 0,
             waiting_for_path: false,
             motive_frames_remaining: 0,
+            kill_when_resting_on_ground: false,
+            bounce_land_events: 0,
+            last_bounce_fall_dy: 0.0,
+            bounce_sound_name: String::new(),
+            last_bounce_volume: 0.0,
+            bounce_audio_pending: 0,
+            allow_collide_force: true,
+            last_collidee_id: None,
+            ignore_collisions_with_id: None,
             physics_mass: 1.0,
             physics_accel: [0.0; 3],
             forward_friction: 0.0,

@@ -602,6 +602,19 @@ pub enum WorldMutation {
         is_panicking: bool,
         move_away_frames: u32,
     },
+    /// Host bounce/land/collision residual pack.
+    SetBounceLand {
+        target: EntityId,
+        kill_when_resting_on_ground: bool,
+        bounce_land_events: u32,
+        last_bounce_fall_dy: f32,
+        bounce_sound_name: String,
+        last_bounce_volume: f32,
+        bounce_audio_pending: u32,
+        allow_collide_force: bool,
+        last_collidee_id: Option<u32>,
+        ignore_collisions_with_id: Option<u32>,
+    },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -1221,6 +1234,31 @@ impl GameWorld {
                         e.ignore_collisions_until_frame = ignore_collisions_until_frame;
                         e.is_panicking = is_panicking;
                         e.move_away_frames = move_away_frames;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetBounceLand {
+                    target,
+                    kill_when_resting_on_ground,
+                    bounce_land_events,
+                    last_bounce_fall_dy,
+                    bounce_sound_name,
+                    last_bounce_volume,
+                    bounce_audio_pending,
+                    allow_collide_force,
+                    last_collidee_id,
+                    ignore_collisions_with_id,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.kill_when_resting_on_ground = kill_when_resting_on_ground;
+                        e.bounce_land_events = bounce_land_events;
+                        e.last_bounce_fall_dy = last_bounce_fall_dy;
+                        e.bounce_sound_name = bounce_sound_name;
+                        e.last_bounce_volume = last_bounce_volume;
+                        e.bounce_audio_pending = bounce_audio_pending;
+                        e.allow_collide_force = allow_collide_force;
+                        e.last_collidee_id = last_collidee_id;
+                        e.ignore_collisions_with_id = ignore_collisions_with_id;
                         applied += 1;
                     }
                 }
