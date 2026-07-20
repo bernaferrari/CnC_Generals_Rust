@@ -5866,6 +5866,16 @@ impl Object {
             self.ignore_collisions_until_frame,
             self.is_panicking,
             self.move_away_frames,
+            self.aerodynamic_friction,
+            self.extra_friction,
+            self.apply_friction_2d_when_airborne,
+            self.center_of_mass_offset,
+            self.pitch_roll_yaw_factor,
+            self.move_away_destination.map(|p| [p.x, p.y, p.z]),
+            self.request_other_move_away.map(|id| id.0),
+            self.immune_to_falling_damage,
+            self.physics_current_overlap.map(|id| id.0),
+            self.physics_previous_overlap.map(|id| id.0),
         );
     }
 

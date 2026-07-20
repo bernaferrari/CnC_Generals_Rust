@@ -601,6 +601,16 @@ pub enum WorldMutation {
         ignore_collisions_until_frame: u32,
         is_panicking: bool,
         move_away_frames: u32,
+        aerodynamic_friction: f32,
+        extra_friction: f32,
+        apply_friction_2d_when_airborne: bool,
+        center_of_mass_offset: f32,
+        pitch_roll_yaw_factor: f32,
+        move_away_destination: Option<[f32; 3]>,
+        request_other_move_away_id: Option<u32>,
+        immune_to_falling_damage: bool,
+        physics_current_overlap_id: Option<u32>,
+        physics_previous_overlap_id: Option<u32>,
     },
     /// Host bounce/land/collision residual pack.
     SetBounceLand {
@@ -1237,6 +1247,16 @@ impl GameWorld {
                     ignore_collisions_until_frame,
                     is_panicking,
                     move_away_frames,
+                    aerodynamic_friction,
+                    extra_friction,
+                    apply_friction_2d_when_airborne,
+                    center_of_mass_offset,
+                    pitch_roll_yaw_factor,
+                    move_away_destination,
+                    request_other_move_away_id,
+                    immune_to_falling_damage,
+                    physics_current_overlap_id,
+                    physics_previous_overlap_id,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.motive_frames_remaining = motive_frames_remaining;
@@ -1249,6 +1269,16 @@ impl GameWorld {
                         e.ignore_collisions_until_frame = ignore_collisions_until_frame;
                         e.is_panicking = is_panicking;
                         e.move_away_frames = move_away_frames;
+                        e.aerodynamic_friction = aerodynamic_friction;
+                        e.extra_friction = extra_friction;
+                        e.apply_friction_2d_when_airborne = apply_friction_2d_when_airborne;
+                        e.center_of_mass_offset = center_of_mass_offset;
+                        e.pitch_roll_yaw_factor = pitch_roll_yaw_factor;
+                        e.move_away_destination = move_away_destination;
+                        e.request_other_move_away_id = request_other_move_away_id;
+                        e.immune_to_falling_damage = immune_to_falling_damage;
+                        e.physics_current_overlap_id = physics_current_overlap_id;
+                        e.physics_previous_overlap_id = physics_previous_overlap_id;
                         applied += 1;
                     }
                 }

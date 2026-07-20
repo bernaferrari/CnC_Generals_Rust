@@ -364,6 +364,26 @@ pub struct Entity {
     pub is_panicking: bool,
     /// Host Object::move_away_frames residual.
     pub move_away_frames: u32,
+    /// Host Object::aerodynamic_friction residual.
+    pub aerodynamic_friction: f32,
+    /// Host Object::extra_friction residual.
+    pub extra_friction: f32,
+    /// Host Object::apply_friction_2d_when_airborne residual.
+    pub apply_friction_2d_when_airborne: bool,
+    /// Host Object::center_of_mass_offset residual.
+    pub center_of_mass_offset: f32,
+    /// Host Object::pitch_roll_yaw_factor residual.
+    pub pitch_roll_yaw_factor: f32,
+    /// Host Object::move_away_destination residual.
+    pub move_away_destination: Option<[f32; 3]>,
+    /// Host Object::request_other_move_away_id residual.
+    pub request_other_move_away_id: Option<u32>,
+    /// Host Object::immune_to_falling_damage residual.
+    pub immune_to_falling_damage: bool,
+    /// Host Object::physics_current_overlap_id residual.
+    pub physics_current_overlap_id: Option<u32>,
+    /// Host Object::physics_previous_overlap_id residual.
+    pub physics_previous_overlap_id: Option<u32>,
     /// Host Object::locomotor_surfaces residual.
     pub locomotor_surfaces: u32,
     /// Host Object::is_attack_path residual.
@@ -801,6 +821,16 @@ impl EntityStore {
             ignore_collisions_until_frame: 0,
             is_panicking: false,
             move_away_frames: 0,
+            aerodynamic_friction: 0.0,
+            extra_friction: 0.0,
+            apply_friction_2d_when_airborne: false,
+            center_of_mass_offset: 0.0,
+            pitch_roll_yaw_factor: 1.0,
+            move_away_destination: None,
+            request_other_move_away_id: None,
+            immune_to_falling_damage: false,
+            physics_current_overlap_id: None,
+            physics_previous_overlap_id: None,
             locomotor_surfaces: 0,
             is_attack_path: false,
             is_blocked_and_stuck: false,
