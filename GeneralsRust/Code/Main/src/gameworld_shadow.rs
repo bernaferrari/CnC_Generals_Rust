@@ -3443,6 +3443,7 @@ impl GameWorldShadow {
                     unit: eid,
                     position: ev.position,
                     target_host: ev.target_host,
+                    radius: ev.radius,
                 });
             n += 1;
         }
@@ -4912,16 +4913,10 @@ impl GameWorldShadow {
             };
             let host_pos = obj.guard_position.map(|p| [p.x, p.y, p.z]);
             let host_tgt = obj.guard_target.map(|id| id.0).unwrap_or(0);
-            let pos_same = match (host_pos, ent.guard_position) {
-                (None, None) => true,
-                (Some(a), Some(b)) => {
-                    (a[0] - b[0]).abs() <= 1e-4
-                        && (a[1] - b[1]).abs() <= 1e-4
-                        && (a[2] - b[2]).abs() <= 1e-4
-                }
-                _ => false,
-            };
-            if pos_same && host_tgt == ent.guard_target_host {
+            let changed = host_pos != ent.guard_position
+                || host_tgt != ent.guard_target_host
+                || (obj.guard_radius - ent.guard_radius).abs() > f32::EPSILON;
+            if !changed {
                 continue;
             }
             obj.guard_position = ent
@@ -4932,6 +4927,7 @@ impl GameWorldShadow {
             } else {
                 Some(ObjectId(ent.guard_target_host))
             };
+            obj.guard_radius = ent.guard_radius;
             updated += 1;
         }
         updated
@@ -12940,6 +12936,48 @@ mod tests {
         assert_eq!(o.mood_attack_check_rate, 45);
         assert!(!o.auto_acquire_when_idle);
         assert_eq!(o.attack_priority_set.as_deref(), Some("Soldier"));
+    }
+
+    #[test]
+    fn guard_radius_channel_via_set_guard() {
+        use crate::game_logic::host_guard_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_guard_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("GuardR");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("GuardU") {
+            let mut t = ThingTemplate::new("GuardU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("GuardU".into(), t);
+        }
+        let oid = logic
+            .create_object("GuardU", Team::USA, glam::Vec3::new(50.0, 0.0, 50.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.guard_position = Some(glam::Vec3::new(55.0, 0.0, 55.0));
+            o.guard_target = None;
+            o.guard_radius = 175.0;
+        }
+        host_guard_log::record(oid, Some([55.0, 0.0, 55.0]), 0, 175.0);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_guard_events(&host_guard_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert!((e.guard_radius - 175.0).abs() < 1e-3);
+        let gp = e.guard_position.expect("pos");
+        assert!((gp[0] - 55.0).abs() < 1e-3);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.guard_radius = 0.0;
+            o.guard_position = None;
+        }
+        assert!(shadow.writeback_guard_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!((o.guard_radius - 175.0).abs() < 1e-3);
+        assert!(o.guard_position.is_some());
     }
 
     #[test]

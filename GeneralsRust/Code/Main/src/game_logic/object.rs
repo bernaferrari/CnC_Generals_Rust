@@ -9090,7 +9090,12 @@ impl Object {
     pub fn record_host_guard(&self) {
         let position = self.guard_position.map(|p| [p.x, p.y, p.z]);
         let target_host = self.guard_target.map(|id| id.0).unwrap_or(0);
-        crate::game_logic::host_guard_log::record(self.id, position, target_host);
+        crate::game_logic::host_guard_log::record(
+            self.id,
+            position,
+            target_host,
+            self.guard_radius,
+        );
     }
 
     pub fn record_host_continuous_fire(&self) {
