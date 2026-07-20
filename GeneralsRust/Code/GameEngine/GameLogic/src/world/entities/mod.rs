@@ -318,6 +318,16 @@ pub struct Entity {
     pub queue_for_path_frames: u32,
     /// Host Object::path_timestamp residual.
     pub path_timestamp: u32,
+    /// Host Object::cur_max_blocked_speed residual.
+    pub cur_max_blocked_speed: f32,
+    /// Host Object::num_frames_blocked residual.
+    pub num_frames_blocked: u32,
+    /// Host Object::is_blocked residual.
+    pub is_blocked: bool,
+    /// Host Object::move_away_from_id residual.
+    pub move_away_from_id: Option<u32>,
+    /// Host Object::requested_victim_id residual.
+    pub requested_victim_id: Option<u32>,
     /// Host Object::shock_stun_frames residual.
     pub shock_stun_frames: u32,
     /// Host Object::shock_yaw_rate residual.
@@ -666,6 +676,11 @@ impl EntityStore {
             is_safe_path: false,
             queue_for_path_frames: 0,
             path_timestamp: 0,
+            cur_max_blocked_speed: f32::MAX,
+            num_frames_blocked: 0,
+            is_blocked: false,
+            move_away_from_id: None,
+            requested_victim_id: None,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,

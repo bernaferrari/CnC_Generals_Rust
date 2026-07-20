@@ -541,6 +541,11 @@ impl GameWorldShadow {
                     e.is_safe_path = obj.is_safe_path;
                     e.queue_for_path_frames = obj.queue_for_path_frames;
                     e.path_timestamp = obj.path_timestamp;
+                    e.cur_max_blocked_speed = obj.cur_max_blocked_speed;
+                    e.num_frames_blocked = obj.num_frames_blocked;
+                    e.is_blocked = obj.is_blocked;
+                    e.move_away_from_id = obj.move_away_from.map(|id| id.0);
+                    e.requested_victim_id = obj.requested_victim_id.map(|id| id.0);
                     e.path_waypoints = obj
                         .movement
                         .path
@@ -3768,6 +3773,11 @@ impl GameWorldShadow {
                     is_safe_path: ev.is_safe_path,
                     queue_for_path_frames: ev.queue_for_path_frames,
                     path_timestamp: ev.path_timestamp,
+                    cur_max_blocked_speed: ev.cur_max_blocked_speed,
+                    num_frames_blocked: ev.num_frames_blocked,
+                    is_blocked: ev.is_blocked,
+                    move_away_from_id: ev.move_away_from_id,
+                    requested_victim_id: ev.requested_victim_id,
                 });
             n += 1;
         }
@@ -4385,7 +4395,12 @@ impl GameWorldShadow {
                 || obj.is_braking != ent.is_braking
                 || obj.is_safe_path != ent.is_safe_path
                 || obj.queue_for_path_frames != ent.queue_for_path_frames
-                || obj.path_timestamp != ent.path_timestamp;
+                || obj.path_timestamp != ent.path_timestamp
+                || (obj.cur_max_blocked_speed - ent.cur_max_blocked_speed).abs() > f32::EPSILON
+                || obj.num_frames_blocked != ent.num_frames_blocked
+                || obj.is_blocked != ent.is_blocked
+                || obj.move_away_from.map(|id| id.0) != ent.move_away_from_id
+                || obj.requested_victim_id.map(|id| id.0) != ent.requested_victim_id;
             let changed = vel_changed
                 || (obj.movement.max_speed - ent.move_max_speed).abs() > f32::EPSILON
                 || host_idx != ent.path_index
@@ -4415,6 +4430,11 @@ impl GameWorldShadow {
             obj.is_safe_path = ent.is_safe_path;
             obj.queue_for_path_frames = ent.queue_for_path_frames;
             obj.path_timestamp = ent.path_timestamp;
+            obj.cur_max_blocked_speed = ent.cur_max_blocked_speed;
+            obj.num_frames_blocked = ent.num_frames_blocked;
+            obj.is_blocked = ent.is_blocked;
+            obj.move_away_from = ent.move_away_from_id.map(ObjectId);
+            obj.requested_victim_id = ent.requested_victim_id.map(ObjectId);
             updated += 1;
         }
         updated
@@ -12325,6 +12345,11 @@ mod tests {
             false,
             0,
             0,
+            f32::MAX,
+            0,
+            false,
+            None,
+            None,
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -12384,6 +12409,11 @@ mod tests {
             true,
             3,
             42,
+            f32::MAX,
+            0,
+            false,
+            None,
+            None,
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -12466,6 +12496,81 @@ mod tests {
         assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
         assert!(o.shock_allow_bounce);
         assert!(o.cell_is_cliff);
+    }
+
+    #[test]
+    fn blocked_path_channel_via_set_movement() {
+        use crate::game_logic::host_movement_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_movement_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("BlockP");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("BlockU") {
+            let mut t = ThingTemplate::new("BlockU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("BlockU".into(), t);
+        }
+        let oid = logic
+            .create_object("BlockU", Team::USA, glam::Vec3::new(12.0, 0.0, 12.0))
+            .expect("id");
+        let other = logic
+            .create_object("BlockU", Team::USA, glam::Vec3::new(14.0, 0.0, 12.0))
+            .expect("other");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.cur_max_blocked_speed = 3.5;
+            o.num_frames_blocked = 7;
+            o.is_blocked = true;
+            o.move_away_from = Some(other);
+            o.requested_victim_id = Some(other);
+            o.movement.max_speed = 10.0;
+        }
+        host_movement_log::record(
+            oid,
+            glam::Vec3::ZERO,
+            10.0,
+            0,
+            &[],
+            false,
+            0,
+            false,
+            false,
+            false,
+            false,
+            0,
+            0,
+            3.5,
+            7,
+            true,
+            Some(other.0),
+            Some(other.0),
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_movement_events(&host_movement_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert!((e.cur_max_blocked_speed - 3.5).abs() < 1e-5);
+        assert_eq!(e.num_frames_blocked, 7);
+        assert!(e.is_blocked);
+        assert_eq!(e.move_away_from_id, Some(other.0));
+        assert_eq!(e.requested_victim_id, Some(other.0));
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.cur_max_blocked_speed = f32::MAX;
+            o.num_frames_blocked = 0;
+            o.is_blocked = false;
+            o.move_away_from = None;
+            o.requested_victim_id = None;
+        }
+        assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
+        assert_eq!(o.num_frames_blocked, 7);
+        assert!(o.is_blocked);
+        assert_eq!(o.move_away_from, Some(other));
+        assert_eq!(o.requested_victim_id, Some(other));
     }
 
     #[test]
