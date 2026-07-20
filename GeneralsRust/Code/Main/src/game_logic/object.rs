@@ -608,7 +608,13 @@ pub struct Object {
 
     /// Visual properties for rendering
     pub show_health_bar: bool,
-    pub selection_radius: f32,
+        pub selection_radius: f32,
+    /// Terrain ground height residual at object XY (presentation / FOW residual).
+    #[serde(default)]
+    pub ground_height: f32,
+    /// True when ground_height came from terrain sample (not default 0).
+    #[serde(default)]
+    pub ground_height_from_terrain: bool,
     pub team_color: [f32; 4],
 
     /// Tracked occupants for transports/garrisons
@@ -1377,6 +1383,8 @@ impl Object {
             force_attack: false,
             show_health_bar: true, // Show health bars by default
             selection_radius,
+            ground_height: 0.0,
+            ground_height_from_terrain: false,
             team_color: team.get_color(),
             occupants: Vec::new(),
             max_transport: 0,
@@ -1662,6 +1670,8 @@ impl Object {
             force_attack: false,
             show_health_bar: true,
             selection_radius,
+            ground_height: 0.0,
+            ground_height_from_terrain: false,
             team_color: team.get_color(),
             occupants: Vec::new(),
             max_transport: 0,
@@ -5487,7 +5497,26 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_identity(&self) {
+        pub fn record_host_ground_height(&self) {
+        crate::game_logic::host_ground_height_log::record(
+            self.id,
+            self.ground_height,
+            self.ground_height_from_terrain,
+        );
+    }
+
+    pub fn set_ground_height_residual(&mut self, height: f32, from_terrain: bool) {
+        let changed = (self.ground_height - height).abs() > f32::EPSILON
+            || self.ground_height_from_terrain != from_terrain;
+        if !changed {
+            return;
+        }
+        self.ground_height = height;
+        self.ground_height_from_terrain = from_terrain;
+        self.record_host_ground_height();
+    }
+
+    pub fn record_host_identity(&self) {
         crate::game_logic::host_identity_log::record(
             self.id,
             self.name.clone(),
@@ -8926,6 +8955,8 @@ impl Object {
             orientation: self.get_orientation(),
             team_color: self.team_color,
             selection_radius: self.selection_radius,
+            ground_height: 0.0,
+            ground_height_from_terrain: false,
             is_selected: self.selected,
             show_health_bar: self.show_health_bar && self.is_alive(),
             health_percentage: self.get_health_percentage(),
@@ -8984,6 +9015,12 @@ pub struct ObjectVisualInfo {
     pub orientation: f32,
     pub team_color: [f32; 4],
     pub selection_radius: f32,
+    /// Terrain ground height residual at object XY (presentation / FOW residual).
+    #[serde(default)]
+    pub ground_height: f32,
+    /// True when ground_height came from terrain sample (not default 0).
+    #[serde(default)]
+    pub ground_height_from_terrain: bool,
     pub is_selected: bool,
     pub show_health_bar: bool,
     pub health_percentage: f32,
