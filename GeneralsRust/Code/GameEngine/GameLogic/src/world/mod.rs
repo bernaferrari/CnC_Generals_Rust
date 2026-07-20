@@ -925,6 +925,16 @@ pub enum WorldMutation {
         percent: f32,
         under_construction: bool,
     },
+    /// Host rebuild-hole / producer residual links.
+    SetRebuildProducer {
+        target: EntityId,
+        rebuild_ready_frame: u32,
+        rebuild_spawner_id: Option<u32>,
+        rebuild_worker_id: Option<u32>,
+        rebuild_reconstructing_id: Option<u32>,
+        producer_id: Option<u32>,
+        construction_complete_clear_frame: u32,
+    },
     /// Set special-power ready residual on an entity.
     SetSpecialPower {
         target: EntityId,
@@ -1146,6 +1156,25 @@ impl GameWorld {
                         e.shock_was_airborne = shock_was_airborne;
                         e.cell_is_cliff = cell_is_cliff;
                         e.cell_is_underwater = cell_is_underwater;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetRebuildProducer {
+                    target,
+                    rebuild_ready_frame,
+                    rebuild_spawner_id,
+                    rebuild_worker_id,
+                    rebuild_reconstructing_id,
+                    producer_id,
+                    construction_complete_clear_frame,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.rebuild_ready_frame = rebuild_ready_frame;
+                        e.rebuild_spawner_id = rebuild_spawner_id;
+                        e.rebuild_worker_id = rebuild_worker_id;
+                        e.rebuild_reconstructing_id = rebuild_reconstructing_id;
+                        e.producer_id = producer_id;
+                        e.construction_complete_clear_frame = construction_complete_clear_frame;
                         applied += 1;
                     }
                 }

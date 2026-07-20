@@ -3289,10 +3289,12 @@ impl Object {
         if now > 0 {
             self.construction_complete_clear_frame =
                 now.saturating_add(Self::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL);
+            self.record_host_rebuild_producer();
         } else {
             // Structure build-complete path: clear after residual duration from next tick
             // when caller supplies frame via arm helper.
             self.construction_complete_clear_frame = 0;
+            self.record_host_rebuild_producer();
         }
         self.refresh_model_condition_bits();
     }
@@ -3304,6 +3306,7 @@ impl Object {
         }
         self.construction_complete_clear_frame =
             now.saturating_add(Self::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL);
+        self.record_host_rebuild_producer();
     }
 
     /// C++ ProductionUpdate clear CONSTRUCTION_COMPLETE after duration.
@@ -3311,6 +3314,7 @@ impl Object {
     pub fn tick_construction_complete_clear(&mut self, now: u32) -> bool {
         if self.construction_complete_clear_frame == 0 {
             return false;
+            self.record_host_rebuild_producer();
         }
         if now < self.construction_complete_clear_frame {
             return false;
@@ -3319,6 +3323,7 @@ impl Object {
         let bit = construction_complete_model_bit();
         self.model_condition_bits &= !(1u128 << bit);
         self.construction_complete_clear_frame = 0;
+        self.record_host_rebuild_producer();
         self.refresh_model_condition_bits();
         true
     }
@@ -5743,6 +5748,18 @@ impl Object {
             self.shock_was_airborne,
             self.cell_is_cliff,
             self.cell_is_underwater,
+        );
+    }
+
+    pub fn record_host_rebuild_producer(&self) {
+        crate::game_logic::host_rebuild_producer_log::record(
+            self.id,
+            self.rebuild_ready_frame,
+            self.rebuild_spawner_id.map(|id| id.0),
+            self.rebuild_worker_id.map(|id| id.0),
+            self.rebuild_reconstructing_id.map(|id| id.0),
+            self.producer_id.map(|id| id.0),
+            self.construction_complete_clear_frame,
         );
     }
 

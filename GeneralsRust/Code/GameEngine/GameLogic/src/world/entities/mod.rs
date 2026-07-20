@@ -139,6 +139,18 @@ pub struct Entity {
     pub sold: bool,
     /// Host Object::status.reconstructing residual.
     pub reconstructing: bool,
+    /// Host Object::rebuild_ready_frame residual.
+    pub rebuild_ready_frame: u32,
+    /// Host Object::rebuild_spawner_id residual.
+    pub rebuild_spawner_id: Option<u32>,
+    /// Host Object::rebuild_worker_id residual.
+    pub rebuild_worker_id: Option<u32>,
+    /// Host Object::rebuild_reconstructing_id residual.
+    pub rebuild_reconstructing_id: Option<u32>,
+    /// Host Object::producer_id residual.
+    pub producer_id: Option<u32>,
+    /// Host Object::construction_complete_clear_frame residual.
+    pub construction_complete_clear_frame: u32,
     /// Host Object::status.unselectable residual.
     pub unselectable: bool,
     /// Host Object::status.deployed residual.
@@ -586,6 +598,12 @@ impl EntityStore {
             under_construction: false,
             sold: false,
             reconstructing: false,
+            rebuild_ready_frame: 0,
+            rebuild_spawner_id: None,
+            rebuild_worker_id: None,
+            rebuild_reconstructing_id: None,
+            producer_id: None,
+            construction_complete_clear_frame: 0,
             unselectable: false,
             deployed: false,
             moving: false,
