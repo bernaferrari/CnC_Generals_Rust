@@ -537,14 +537,23 @@ impl Player {
             self.cash_bounty_percent,
         );
         if bounty > 0 {
-            self.resources.supplies = self.resources.supplies.saturating_add(bounty);
             self.statistics.resources_collected =
                 self.statistics.resources_collected.saturating_add(bounty);
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.resources.supplies,
-                self.power_available,
-            );
+            if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+                self.pending_supply_delta += bounty as i64;
+                crate::game_logic::host_economy_log::record(
+                    self.id,
+                    self.effective_supplies(),
+                    self.power_available,
+                );
+            } else {
+                self.resources.supplies = self.resources.supplies.saturating_add(bounty);
+                crate::game_logic::host_economy_log::record(
+                    self.id,
+                    self.resources.supplies,
+                    self.power_available,
+                );
+            }
         }
         bounty
     }
@@ -691,18 +700,57 @@ impl Player {
         self.statistics.money_earned = self.statistics.money_earned.saturating_add(amount);
     }
 
+    /// Gain supplies under economy authority (pending delta) or direct mutate.
+    pub fn apply_supply_gain(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            self.pending_supply_delta += amount as i64;
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
+            self.resources.supplies = self.resources.supplies.saturating_add(amount);
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
+        }
+    }
+
+    /// Spend supplies already validated via can_afford / effective_supplies.
+    pub fn apply_supply_spend_unchecked(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            self.pending_supply_delta -= amount as i64;
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
+            self.resources.supplies = self.resources.supplies.saturating_sub(amount);
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
+        }
+    }
+
     pub fn credit_supplies(&mut self, amount: u32) {
         if amount == 0 {
             return;
         }
-        self.resources.supplies = self.resources.supplies.saturating_add(amount);
         self.statistics.resources_collected =
             self.statistics.resources_collected.saturating_add(amount);
-        crate::game_logic::host_economy_log::record(
-            self.id,
-            self.resources.supplies,
-            self.power_available,
-        );
+        self.apply_supply_gain(amount);
     }
 
     pub fn queue_upgrade(&mut self, upgrade_name: &str, cost: &Resources) -> bool {
@@ -722,7 +770,7 @@ impl Player {
             return false;
         };
         self.queued_upgrades.remove(&queued_name);
-        self.resources.supplies = self.resources.supplies.saturating_add(refund.supplies);
+        self.apply_supply_gain(refund.supplies);
         self.power_available -= refund.power;
         crate::game_logic::host_economy_log::record(
             self.id,
@@ -18113,10 +18161,24 @@ impl GameLogic {
                 let whole = player.income_accumulator.floor() as u32;
                 player.income_accumulator -= whole as f32;
                 if whole > 0 {
-                    player.resources.supplies = player.resources.supplies.saturating_add(whole);
+                    player.statistics.resources_collected =
+                        player.statistics.resources_collected.saturating_add(whole);
+                    if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+                        player.pending_supply_delta += whole as i64;
+                        crate::game_logic::host_economy_log::record(
+                            player.id,
+                            player.effective_supplies(),
+                            player.power_available,
+                        );
+                    } else {
+                        player.resources.supplies = player.resources.supplies.saturating_add(whole);
+                        crate::game_logic::host_economy_log::record(
+                            player.id,
+                            player.resources.supplies,
+                            player.power_available,
+                        );
+                    }
                 }
-                player.statistics.resources_collected =
-                    player.statistics.resources_collected.saturating_add(whole);
             }
             // Shadow economy channel: absolute supplies + power after host tick residual.
             crate::game_logic::host_economy_log::record(
@@ -38302,7 +38364,7 @@ impl GameLogic {
             return 0;
         }
         if let Some(src) = self.get_player_mut_by_team(from_team) {
-            src.resources.supplies = src.resources.supplies.saturating_sub(stolen);
+            src.apply_supply_spend_unchecked(stolen);
             crate::game_logic::host_economy_log::record(
                 src.id,
                 src.resources.supplies,
@@ -47428,9 +47490,9 @@ impl GameLogic {
             };
             if refund > 0 {
                 if let Some(player) = self.get_player_mut_by_team(team) {
-                    player.resources.supplies = player.resources.supplies.saturating_add(refund);
+                    player.apply_supply_gain(refund);
                 } else if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
-                    player.resources.supplies = player.resources.supplies.saturating_add(refund);
+                    player.apply_supply_gain(refund);
                 }
             }
             // Cancel any leftover production (C++ cancel again at finish).
