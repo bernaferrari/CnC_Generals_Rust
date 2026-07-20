@@ -712,10 +712,10 @@ impl GameWorldShadow {
                 e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
                 e.team_ordinal = Self::host_team_ordinal(obj.team);
                 e.selection_radius = obj.selection_radius.max(5.0);
-                    e.crusher_level = obj.crusher_level;
-                    e.crushable_level = obj.crushable_level;
-                    e.vision_range = obj.vision_range;
-                    e.shroud_clearing_range = obj.shroud_clearing_range;
+                e.crusher_level = obj.crusher_level;
+                e.crushable_level = obj.crushable_level;
+                e.vision_range = obj.vision_range;
+                e.shroud_clearing_range = obj.shroud_clearing_range;
                 e.under_construction = obj.status.under_construction;
                 e.sold = obj.status.sold;
                 e.reconstructing = obj.status.reconstructing;
@@ -857,7 +857,7 @@ impl GameWorldShadow {
                 e.display_name = obj.name.clone();
                 e.model_key =
                     crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
-                    e.model_condition_bits = obj.model_condition_bits;
+                e.model_condition_bits = obj.model_condition_bits;
                 e.mesh_scale =
                     crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
                 {
@@ -1437,7 +1437,7 @@ impl GameWorldShadow {
                     dirty = true;
                 }
             }
-                        // Shared superweapon cooldown last-writer (Debug-name keys).
+            // Shared superweapon cooldown last-writer (Debug-name keys).
             {
                 use crate::command_system::SpecialPowerType;
                 let mut next = std::collections::HashMap::new();
@@ -1490,9 +1490,7 @@ impl GameWorldShadow {
     /// Write shadow PlayerData::completed_upgrades back onto host HostUpgradeRegistry.
     /// Completes the CompleteUpgrade channel as GameWorld last-writer residual.
     pub fn writeback_completed_upgrades_to_host(&self, logic: &mut GameLogic) -> usize {
-        use crate::game_logic::host_upgrades::{
-            normalize_upgrade_identity, HostUpgradePhase,
-        };
+        use crate::game_logic::host_upgrades::{normalize_upgrade_identity, HostUpgradePhase};
         let mut updated = 0usize;
         let frame = logic.get_frame();
         for (&host_id, &gw) in &self.host_player_to_gw {
@@ -1513,7 +1511,9 @@ impl GameWorldShadow {
                 if already {
                     continue;
                 }
-                let _ = logic.host_upgrades_mut().record_complete(name, host_id, frame, 0);
+                let _ = logic
+                    .host_upgrades_mut()
+                    .record_complete(name, host_id, frame, 0);
                 dirty = true;
             }
             if dirty {
@@ -1522,7 +1522,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     /// Write shadow Entity::attack_target back onto host Object::target (stable IDs).
     /// Completes the attack command channel: host log / set_target → shadow mutation → host writeback.
@@ -2566,7 +2565,6 @@ impl GameWorldShadow {
         n
     }
 
-
     pub fn apply_host_contain_events(
         &mut self,
         events: &[crate::game_logic::host_contain_log::HostContainEvent],
@@ -2587,7 +2585,6 @@ impl GameWorldShadow {
         }
         n
     }
-
 
     pub fn writeback_contain_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -2637,7 +2634,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn apply_host_ai_state_events(
         &mut self,
@@ -2698,7 +2694,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn queue_set_stored_supplies_for_host(&mut self, host: ObjectId, supplies: u32) -> bool {
         let Some(target) = self.entity_for_host(host) else {
             return false;
@@ -2742,7 +2737,8 @@ impl GameWorldShadow {
                 continue;
             };
             let changed = obj.special_power_ready != ent.special_power_ready
-                || (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining).abs()
+                || (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining)
+                    .abs()
                     > 1e-4
                 || (obj.special_power_cooldown - ent.special_power_cooldown).abs() > 1e-4;
             if !changed {
@@ -2755,7 +2751,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn apply_host_stored_supplies_events(
         &mut self,
@@ -2772,7 +2767,6 @@ impl GameWorldShadow {
         }
         n
     }
-
 
     pub fn writeback_stored_supplies_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -2791,7 +2785,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     /// Apply construction progress log as SetConstruction mutations.
     pub fn apply_host_construction_progress_events(
@@ -2950,10 +2943,11 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
                 continue;
             };
-            self.world.queue_mutation(gamelogic::world::WorldMutation::SetMaxHealth {
-                target: eid,
-                max_health: ev.max_health,
-            });
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetMaxHealth {
+                    target: eid,
+                    max_health: ev.max_health,
+                });
             n += 1;
         }
         if n > 0 {
@@ -3068,13 +3062,14 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
                 continue;
             };
-            self.world.queue_mutation(gamelogic::world::WorldMutation::SetTurret {
-                target: eid,
-                angle_deg: ev.angle_deg,
-                pitch_deg: ev.pitch_deg,
-                holding: ev.holding,
-                idle_scanning: ev.idle_scanning,
-            });
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetTurret {
+                    target: eid,
+                    angle_deg: ev.angle_deg,
+                    pitch_deg: ev.pitch_deg,
+                    holding: ev.holding,
+                    idle_scanning: ev.idle_scanning,
+                });
             n += 1;
         }
         if n > 0 {
@@ -3114,12 +3109,13 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
                 continue;
             };
-            self.world.queue_mutation(gamelogic::world::WorldMutation::SetDetector {
-                target: eid,
-                is_detector: ev.is_detector,
-                detection_range: ev.detection_range,
-                detection_rate_frames: ev.detection_rate_frames,
-            });
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetDetector {
+                    target: eid,
+                    is_detector: ev.is_detector,
+                    detection_range: ev.detection_range,
+                    detection_rate_frames: ev.detection_rate_frames,
+                });
             n += 1;
         }
         if n > 0 {
@@ -3161,11 +3157,12 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
                 continue;
             };
-            self.world.queue_mutation(gamelogic::world::WorldMutation::SetGuard {
-                unit: eid,
-                position: ev.position,
-                target_host: ev.target_host,
-            });
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetGuard {
+                    unit: eid,
+                    position: ev.position,
+                    target_host: ev.target_host,
+                });
             n += 1;
         }
         if n > 0 {
@@ -3273,11 +3270,12 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
                 continue;
             };
-            self.world.queue_mutation(gamelogic::world::WorldMutation::SetHiveSlaves {
-                target: eid,
-                slave_count: ev.slave_count,
-                slave_hp: ev.slave_hp,
-            });
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetHiveSlaves {
+                    target: eid,
+                    slave_count: ev.slave_count,
+                    slave_hp: ev.slave_hp,
+                });
             n += 1;
         }
         if n > 0 {
@@ -3689,7 +3687,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_identity_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3713,7 +3710,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_building_type_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::{BuildingData, BuildingType as B};
@@ -3769,7 +3765,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_crush_vision_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3794,7 +3789,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_demo_mine_cheer_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -3823,7 +3817,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_model_condition_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3841,7 +3834,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_movement_to_host(&self, logic: &mut GameLogic) -> usize {
         use glam::Vec3;
@@ -3904,7 +3896,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_weapon_stats_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3956,7 +3947,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_vision_camo_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -3979,7 +3969,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_disguise_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -4020,7 +4009,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_overlord_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4054,7 +4042,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_stealth_flags_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4082,7 +4069,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_hive_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4104,7 +4090,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_contain_capacity_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4119,8 +4104,8 @@ impl GameWorldShadow {
                 .as_ref()
                 .map(|bd| bd.max_garrison.min(u16::MAX as usize) as u16)
                 .unwrap_or(0);
-            let changed = obj.max_transport != ent.max_transport
-                || host_garrison != ent.max_garrison;
+            let changed =
+                obj.max_transport != ent.max_transport || host_garrison != ent.max_garrison;
             if !changed {
                 continue;
             }
@@ -4141,7 +4126,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_overcharge_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4159,7 +4143,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_weapon_set_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -4182,7 +4165,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_ai_attitude_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4200,7 +4182,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_guard_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -4238,7 +4219,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_continuous_fire_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4263,7 +4243,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_detector_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4286,7 +4265,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_target_location_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -4317,7 +4295,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_turret_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4343,7 +4320,6 @@ impl GameWorldShadow {
         updated
     }
 
-
     pub fn writeback_entity_power_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4353,8 +4329,7 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
-            if obj.power_provided == ent.power_provided
-                && obj.power_consumed == ent.power_consumed
+            if obj.power_provided == ent.power_provided && obj.power_consumed == ent.power_consumed
             {
                 continue;
             }
@@ -4364,7 +4339,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_weapon_slot_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -4383,7 +4357,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     /// Write shadow weapon-bonus pack back onto host Object residual flags.
     pub fn writeback_weapon_bonus_to_host(&self, logic: &mut GameLogic) -> usize {
@@ -4424,7 +4397,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     /// Write shadow Entity::experience_points back onto host Object::experience.current.
     pub fn writeback_experience_to_host(&self, logic: &mut GameLogic) -> usize {
@@ -4495,8 +4467,14 @@ impl GameWorldShadow {
             set_flag!(obj.status.disguised, ent.disguised);
             set_flag!(obj.status.no_collisions, ent.no_collisions);
             set_flag!(obj.status.private_captured, ent.private_captured);
-            set_flag!(obj.status.disguise_transitioning_to, ent.disguise_transitioning_to);
-            set_flag!(obj.status.disguise_halfpoint_reached, ent.disguise_halfpoint_reached);
+            set_flag!(
+                obj.status.disguise_transitioning_to,
+                ent.disguise_transitioning_to
+            );
+            set_flag!(
+                obj.status.disguise_halfpoint_reached,
+                ent.disguise_halfpoint_reached
+            );
             set_flag!(obj.status.faerie_fire, ent.faerie_fire);
             set_flag!(obj.status.booby_trapped, ent.booby_trapped);
             set_flag!(obj.status.using_ability, ent.using_ability);
@@ -4509,10 +4487,16 @@ impl GameWorldShadow {
             set_flag!(obj.status.repulsor, ent.repulsor);
             set_flag!(obj.status.disabled_freefall, ent.disabled_freefall);
             set_flag!(obj.status.eject_invulnerable, ent.eject_invulnerable);
-            set_flag!(obj.status.pilot_did_move_to_base, ent.pilot_did_move_to_base);
+            set_flag!(
+                obj.status.pilot_did_move_to_base,
+                ent.pilot_did_move_to_base
+            );
             set_flag!(obj.status.parachuting, ent.parachuting);
             set_flag!(obj.status.parachute_open, ent.parachute_open);
-            set_flag!(obj.status.parachute_landing_override_set, ent.parachute_landing_override_set);
+            set_flag!(
+                obj.status.parachute_landing_override_set,
+                ent.parachute_landing_override_set
+            );
             set_flag!(obj.force_attack, ent.force_attack);
             if dirty {
                 updated += 1;
@@ -4520,9 +4504,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
-
-
 
     pub fn apply_host_damage_events(
         &mut self,
@@ -4898,37 +4879,37 @@ pub fn shadow_session_after_host_tick(
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
         writebacks = shadow.writeback_health_to_host(logic);
-    let _xp_wb = shadow.writeback_experience_to_host(logic);
-    let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
-    let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
-    let _epow_wb = shadow.writeback_entity_power_to_host(logic);
-    let _tur_wb = shadow.writeback_turret_to_host(logic);
-    let _tloc_wb = shadow.writeback_target_location_to_host(logic);
-    let _det_wb = shadow.writeback_detector_to_host(logic);
-    let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
-    let _guard_wb = shadow.writeback_guard_to_host(logic);
-    let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
-    let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
-    let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
-    let _oc_wb = shadow.writeback_overcharge_to_host(logic);
-    let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
-    let _hive_wb = shadow.writeback_hive_to_host(logic);
-    let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
-    let _ol_wb = shadow.writeback_overlord_to_host(logic);
-    let _cs_wb = shadow.writeback_command_set_to_host(logic);
-    let _dg_wb = shadow.writeback_disguise_to_host(logic);
-    let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
-    let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
-    let _mv_wb = shadow.writeback_movement_to_host(logic);
-    let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
-    let _mc_wb = shadow.writeback_model_condition_to_host(logic);
-    let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
-    let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
-    let _bt_wb = shadow.writeback_building_type_to_host(logic);
-    let _id_wb = shadow.writeback_identity_to_host(logic);
-    let _gh_wb = shadow.writeback_ground_height_to_host(logic);
-    let _sp_wb = shadow.writeback_special_power_to_host(logic);
-    let _cst_wb = shadow.writeback_combat_status_to_host(logic);
+        let _xp_wb = shadow.writeback_experience_to_host(logic);
+        let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
+        let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
+        let _epow_wb = shadow.writeback_entity_power_to_host(logic);
+        let _tur_wb = shadow.writeback_turret_to_host(logic);
+        let _tloc_wb = shadow.writeback_target_location_to_host(logic);
+        let _det_wb = shadow.writeback_detector_to_host(logic);
+        let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
+        let _guard_wb = shadow.writeback_guard_to_host(logic);
+        let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
+        let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
+        let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
+        let _oc_wb = shadow.writeback_overcharge_to_host(logic);
+        let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
+        let _hive_wb = shadow.writeback_hive_to_host(logic);
+        let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
+        let _ol_wb = shadow.writeback_overlord_to_host(logic);
+        let _cs_wb = shadow.writeback_command_set_to_host(logic);
+        let _dg_wb = shadow.writeback_disguise_to_host(logic);
+        let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
+        let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
+        let _mv_wb = shadow.writeback_movement_to_host(logic);
+        let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
+        let _mc_wb = shadow.writeback_model_condition_to_host(logic);
+        let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
+        let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
+        let _bt_wb = shadow.writeback_building_type_to_host(logic);
+        let _id_wb = shadow.writeback_identity_to_host(logic);
+        let _gh_wb = shadow.writeback_ground_height_to_host(logic);
+        let _sp_wb = shadow.writeback_special_power_to_host(logic);
+        let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
             events.len(),
@@ -4953,7 +4934,7 @@ pub fn shadow_session_after_host_tick(
         }
         econ_wb = shadow.writeback_economy_to_host(logic);
         let _upg_wb = shadow.writeback_completed_upgrades_to_host(logic);
-    let _ss_wb = shadow.writeback_stored_supplies_to_host(logic);
+        let _ss_wb = shadow.writeback_stored_supplies_to_host(logic);
     } else {
         // Avoid unbounded growth when economy authority off.
         let _ = crate::game_logic::host_economy_log::drain();
@@ -6379,7 +6360,6 @@ mod tests {
         assert!(logic.get_objects().get(&id).expect("o").status.disabled_emp);
     }
 
-    
     #[test]
     fn host_player_cooldown_log_drives_set_player_cooldowns_channel() {
         use crate::command_system::SpecialPowerType;
@@ -6393,23 +6373,20 @@ mod tests {
             let p = logic.get_player_mut(pid).expect("p");
             // Use a concrete SP type if available; format Debug name into log.
             // ParticleUplink residual is common; fall back to first Debug variant via reset API.
-            p.reset_shared_special_power_timer(
-                &SpecialPowerType::Airstrike,
-                12.5,
-            );
+            p.reset_shared_special_power_timer(&SpecialPowerType::Airstrike, 12.5);
         }
         let events = host_player_cooldown_log::drain();
         assert!(
-            !events.is_empty() && events.iter().any(|e| e.player_id == pid && !e.cooldowns.is_empty()),
+            !events.is_empty()
+                && events
+                    .iter()
+                    .any(|e| e.player_id == pid && !e.cooldowns.is_empty()),
             "events {:?}",
             events
         );
         {
             let p = logic.get_player_mut(pid).expect("p");
-            p.reset_shared_special_power_timer(
-                &SpecialPowerType::Airstrike,
-                12.5,
-            );
+            p.reset_shared_special_power_timer(&SpecialPowerType::Airstrike, 12.5);
         }
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -6435,13 +6412,15 @@ mod tests {
         assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
         let p = logic.get_player(pid).expect("p");
         assert!(
-            p.shared_special_power_cooldowns.values().any(|rem| (*rem - 12.5).abs() < 1e-3),
+            p.shared_special_power_cooldowns
+                .values()
+                .any(|rem| (*rem - 12.5).abs() < 1e-3),
             "host cds {:?}",
             p.shared_special_power_cooldowns
         );
     }
 
-#[test]
+    #[test]
     fn host_player_meta_log_drives_sciences_and_alive_channel() {
         use crate::game_logic::host_player_meta_log;
         let mut logic = GameLogic::new();
@@ -6772,7 +6751,6 @@ mod tests {
         );
     }
 
-    
     #[test]
     fn host_special_power_cooldown_remaining_channel() {
         use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
@@ -6844,7 +6822,7 @@ mod tests {
         assert!((o.special_power_cooldown - 45.0).abs() < 1e-3);
     }
 
-#[test]
+    #[test]
     fn host_special_power_log_drives_set_special_power_channel() {
         use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -7790,24 +7768,6 @@ mod tests {
         );
     }
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     #[test]
     fn host_command_set_log_drives_set_command_set_channel() {
         use crate::game_logic::{host_command_set_log, KindOf, Team, ThingTemplate};
@@ -7831,7 +7791,9 @@ mod tests {
         }
         let events = host_command_set_log::drain();
         assert!(
-            events.iter().any(|e| e.object == oid && e.command_set == "Command_DemoSuicide"),
+            events
+                .iter()
+                .any(|e| e.object == oid && e.command_set == "Command_DemoSuicide"),
             "events {:?}",
             events
         );
@@ -7858,13 +7820,12 @@ mod tests {
         }
         assert!(shadow.writeback_command_set_to_host(&mut logic) >= 1);
         let o = logic.get_objects().get(&oid).expect("o");
-        assert_eq!(o.command_set_override.as_deref(), Some("Command_DemoSuicide"));
+        assert_eq!(
+            o.command_set_override.as_deref(),
+            Some("Command_DemoSuicide")
+        );
     }
 
-    
-    
-    
-    
     #[test]
     fn host_selection_radius_log_drives_set_selection_radius_channel() {
         use crate::game_logic::{host_selection_radius_log, KindOf, Team, ThingTemplate};
@@ -7920,11 +7881,6 @@ mod tests {
         assert!((o.selection_radius - 14.5).abs() < 1e-5);
     }
 
-    
-    
-    
-    
-    
     #[test]
     fn host_ground_height_log_drives_set_ground_height_channel() {
         use crate::game_logic::{host_ground_height_log, KindOf, Team, ThingTemplate};
@@ -7985,7 +7941,7 @@ mod tests {
         assert!(o.ground_height_from_terrain);
     }
 
-#[test]
+    #[test]
     fn host_identity_log_drives_set_identity_channel() {
         use crate::game_logic::{host_identity_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8050,7 +8006,7 @@ mod tests {
         assert!((o.team_color[0] - 0.1).abs() < 1e-5);
     }
 
-#[test]
+    #[test]
     fn host_building_type_log_drives_set_building_type_channel() {
         use crate::game_logic::{
             host_building_type_log, BuildingData, BuildingType, KindOf, Team, ThingTemplate,
@@ -8114,7 +8070,7 @@ mod tests {
         );
     }
 
-#[test]
+    #[test]
     fn host_crush_vision_log_drives_set_crush_vision_channel() {
         use crate::game_logic::{host_crush_vision_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8192,7 +8148,7 @@ mod tests {
         assert!((o.shroud_clearing_range - 200.0).abs() < 1e-5);
     }
 
-#[test]
+    #[test]
     fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
         use crate::game_logic::{
             host_demo_mine_cheer_log, host_mines::HostMineData, host_mines::HostMineKind, KindOf,
@@ -8264,7 +8220,7 @@ mod tests {
         assert!(o.mine_data.is_some());
     }
 
-#[test]
+    #[test]
     fn host_model_condition_log_drives_set_model_condition_channel() {
         use crate::game_logic::{host_model_condition_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8320,7 +8276,7 @@ mod tests {
         assert_eq!(o.model_condition_bits, 0b1011);
     }
 
-#[test]
+    #[test]
     fn host_movement_log_drives_set_movement_channel() {
         use crate::game_logic::{host_movement_log, KindOf, Team, ThingTemplate};
         use glam::Vec3;
@@ -8404,7 +8360,7 @@ mod tests {
         assert_eq!(o.movement.path.len(), 2);
     }
 
-#[test]
+    #[test]
     fn host_weapon_stats_log_drives_set_weapon_stats_channel() {
         use crate::game_logic::{host_weapon_stats_log, KindOf, Team, ThingTemplate, Weapon};
         let mut logic = GameLogic::new();
@@ -8524,7 +8480,7 @@ mod tests {
         assert!((s.range - 80.0).abs() < 1e-5);
     }
 
-#[test]
+    #[test]
     fn host_vision_camo_log_drives_set_vision_camo_channel() {
         use crate::game_logic::{host_vision_camo_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8595,7 +8551,7 @@ mod tests {
         assert_eq!(o.camo_stealth_look, 2);
     }
 
-#[test]
+    #[test]
     fn host_disguise_log_drives_set_disguise_channel() {
         use crate::game_logic::{host_disguise_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8621,9 +8577,7 @@ mod tests {
         let events = host_disguise_log::drain();
         assert!(
             events.iter().any(|e| {
-                e.object == oid
-                    && e.template == "AmericaVehicleHumvee"
-                    && e.team_ordinal == 0
+                e.object == oid && e.template == "AmericaVehicleHumvee" && e.team_ordinal == 0
             }),
             "events {:?}",
             events
@@ -8655,11 +8609,14 @@ mod tests {
         }
         assert!(shadow.writeback_disguise_to_host(&mut logic) >= 1);
         let o = logic.get_objects().get(&oid).expect("o");
-        assert_eq!(o.disguise_as_template.as_deref(), Some("AmericaVehicleHumvee"));
+        assert_eq!(
+            o.disguise_as_template.as_deref(),
+            Some("AmericaVehicleHumvee")
+        );
         assert_eq!(o.disguise_as_team, Some(Team::USA));
     }
 
-#[test]
+    #[test]
     fn host_overlord_log_drives_set_overlord_addon_channel() {
         use crate::game_logic::{host_overlord_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8735,7 +8692,7 @@ mod tests {
         assert!(o.is_helix_transport);
     }
 
-#[test]
+    #[test]
     fn host_stealth_flags_log_drives_set_stealth_flags_channel() {
         use crate::game_logic::{host_stealth_flags_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8813,7 +8770,7 @@ mod tests {
         assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
     }
 
-#[test]
+    #[test]
     fn host_hive_log_drives_set_hive_slaves_channel() {
         use crate::game_logic::{host_hive_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8875,7 +8832,7 @@ mod tests {
         assert!((o.hive_slave_hp - 55.0).abs() < 1e-3);
     }
 
-#[test]
+    #[test]
     fn host_contain_capacity_log_drives_set_contain_capacity_channel() {
         use crate::game_logic::buildings::{BuildingData, BuildingType};
         use crate::game_logic::{host_contain_capacity_log, KindOf, Team, ThingTemplate};
@@ -8938,13 +8895,10 @@ mod tests {
         assert!(shadow.writeback_contain_capacity_to_host(&mut logic) >= 1);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.max_transport, 5);
-        assert_eq!(
-            o.building_data.as_ref().map(|bd| bd.max_garrison),
-            Some(8)
-        );
+        assert_eq!(o.building_data.as_ref().map(|bd| bd.max_garrison), Some(8));
     }
 
-#[test]
+    #[test]
     fn host_overcharge_log_drives_set_overcharge_channel() {
         use crate::game_logic::{host_overcharge_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -8997,7 +8951,7 @@ mod tests {
         assert!(o.overcharge_enabled);
     }
 
-#[test]
+    #[test]
     fn host_weapon_set_log_drives_set_weapon_set_flags_channel() {
         use crate::game_logic::{host_weapon_set_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9056,7 +9010,7 @@ mod tests {
         assert!(o.weapon_set_player_upgrade && o.armed_riders_upgrade_weapon_set);
     }
 
-#[test]
+    #[test]
     fn host_ai_attitude_log_drives_set_ai_attitude_channel() {
         use crate::game_logic::{host_ai_attitude_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9108,7 +9062,7 @@ mod tests {
         assert_eq!(o.ai_attitude, 2);
     }
 
-#[test]
+    #[test]
     fn host_guard_log_drives_set_guard_channel() {
         use crate::game_logic::{host_guard_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9177,7 +9131,7 @@ mod tests {
         assert_eq!(o.guard_target, Some(tid));
     }
 
-#[test]
+    #[test]
     fn host_continuous_fire_log_drives_set_continuous_fire_channel() {
         use crate::game_logic::{host_continuous_fire_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9244,7 +9198,7 @@ mod tests {
         assert_eq!(o.continuous_fire_coast_until_frame, 44);
     }
 
-#[test]
+    #[test]
     fn host_detector_log_drives_set_detector_channel() {
         use crate::game_logic::{host_detector_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9311,7 +9265,7 @@ mod tests {
         assert_eq!(o.detection_rate_frames, 12);
     }
 
-#[test]
+    #[test]
     fn host_target_location_log_drives_set_target_location_channel() {
         use crate::game_logic::{host_target_location_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9370,7 +9324,7 @@ mod tests {
         assert!((p.x - 11.0).abs() < 1e-3 && (p.z - 13.0).abs() < 1e-3);
     }
 
-#[test]
+    #[test]
     fn host_turret_log_drives_set_turret_channel() {
         use crate::game_logic::{host_turret_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9441,7 +9395,7 @@ mod tests {
         assert!(o.turret_holding);
     }
 
-#[test]
+    #[test]
     fn host_entity_power_log_drives_set_entity_power_channel() {
         use crate::game_logic::{host_entity_power_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9501,7 +9455,7 @@ mod tests {
         assert_eq!(o.power_consumed, 5);
     }
 
-#[test]
+    #[test]
     fn host_weapon_slot_log_drives_set_active_weapon_slot_channel() {
         use crate::game_logic::{host_weapon_slot_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9553,7 +9507,7 @@ mod tests {
         assert_eq!(o.active_weapon_slot, 1);
     }
 
-#[test]
+    #[test]
     fn host_weapon_bonus_log_drives_set_weapon_bonus_channel() {
         use crate::game_logic::{host_weapon_bonus_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9620,7 +9574,7 @@ mod tests {
         assert!(o.weapon_bonus_horde && o.weapon_bonus_nationalism);
     }
 
-#[test]
+    #[test]
     fn host_experience_log_drives_set_experience_channel() {
         use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9662,7 +9616,11 @@ mod tests {
         let n = shadow.apply_host_experience_events(&host_experience_log::drain());
         assert!(n >= 1);
         let e = shadow.world().entity(eid).expect("e");
-        assert!((e.experience_points - 42.0).abs() < 1e-3, "xp {}", e.experience_points);
+        assert!(
+            (e.experience_points - 42.0).abs() < 1e-3,
+            "xp {}",
+            e.experience_points
+        );
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.experience.current = 1.0;
@@ -9675,7 +9633,7 @@ mod tests {
         assert!((o.experience.current - 42.0).abs() < 1e-3);
     }
 
-#[test]
+    #[test]
     fn host_max_health_log_drives_set_max_health_channel() {
         use crate::game_logic::{host_max_health_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9732,11 +9690,15 @@ mod tests {
         }
         assert!(shadow.writeback_health_to_host(&mut logic) >= 1);
         let obj = logic.get_objects().get(&oid).expect("o");
-        assert!((obj.max_health - 250.0).abs() < 1e-3, "host max {}", obj.max_health);
+        assert!(
+            (obj.max_health - 250.0).abs() < 1e-3,
+            "host max {}",
+            obj.max_health
+        );
         assert!((obj.health.maximum - 250.0).abs() < 1e-3);
     }
 
-#[test]
+    #[test]
     fn writeback_completed_upgrades_restores_host_registry() {
         use crate::game_logic::host_upgrades::{
             normalize_upgrade_identity, HostUpgradePhase, UPGRADE_AMERICA_FLASHBANG,
@@ -9746,12 +9708,9 @@ mod tests {
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
         let pid = logic.get_players().keys().copied().min().expect("player");
         let frame = logic.get_frame();
-        logic.host_upgrades_mut().record_complete(
-            UPGRADE_AMERICA_FLASHBANG,
-            pid,
-            frame,
-            1,
-        );
+        logic
+            .host_upgrades_mut()
+            .record_complete(UPGRADE_AMERICA_FLASHBANG, pid, frame, 1);
         let events = logic.host_upgrades().completed_this_frame_snapshot();
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -9763,9 +9722,11 @@ mod tests {
         assert!(
             logic
                 .host_upgrades()
-                .completed_of_kind(crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
-                    UPGRADE_AMERICA_FLASHBANG
-                ))
+                .completed_of_kind(
+                    crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
+                        UPGRADE_AMERICA_FLASHBANG
+                    )
+                )
                 .is_empty()
                 || !logic.host_upgrades().honesty_complete_ok(
                     crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
@@ -9796,9 +9757,11 @@ mod tests {
                 && normalize_upgrade_identity(&e.name)
                     == normalize_upgrade_identity(UPGRADE_AMERICA_FLASHBANG)
         });
-        assert!(restored, "host registry must restore flashbang from GameWorld");
+        assert!(
+            restored,
+            "host registry must restore flashbang from GameWorld"
+        );
     }
-
 
     #[test]
     fn sync_from_host_copies_host_orientation() {

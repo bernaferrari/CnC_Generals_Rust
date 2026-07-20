@@ -15,8 +15,10 @@ thread_local! {
 
 pub fn record(player_id: u32, cooldowns: Vec<(String, f32)>) {
     LOG.with(|log| {
-        log.borrow_mut()
-            .push(HostPlayerCooldownEvent { player_id, cooldowns });
+        log.borrow_mut().push(HostPlayerCooldownEvent {
+            player_id,
+            cooldowns,
+        });
     });
 }
 
