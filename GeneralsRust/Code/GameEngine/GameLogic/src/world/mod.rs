@@ -841,6 +841,19 @@ pub enum WorldMutation {
         is_tunnel_network: bool,
         passengers_allowed_to_fire: bool,
     },
+    /// Host StealthUpdate delay / camo pulse residual.
+    SetStealthDelay {
+        target: EntityId,
+        stealth_allowed_frame: u32,
+        stealth_delay_pending: bool,
+        stealth_delay_frames: u32,
+        stealth_breaks_on_damage: bool,
+        detection_expires_frame: u32,
+        camo_opacity_pulse_phase: f32,
+        camo_heat_vision_opacity: f32,
+        camo_net_sub_object_shown: bool,
+        camo_net_sub_object_observer_visible: bool,
+    },
     /// Host Object Overlord/Helix addon residual.
     SetOverlordAddon {
         target: EntityId,
@@ -1833,6 +1846,32 @@ impl GameWorld {
                         e.stealth_breaks_on_move = stealth_breaks_on_move;
                         e.is_tunnel_network = is_tunnel_network;
                         e.passengers_allowed_to_fire = passengers_allowed_to_fire;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetStealthDelay {
+                    target,
+                    stealth_allowed_frame,
+                    stealth_delay_pending,
+                    stealth_delay_frames,
+                    stealth_breaks_on_damage,
+                    detection_expires_frame,
+                    camo_opacity_pulse_phase,
+                    camo_heat_vision_opacity,
+                    camo_net_sub_object_shown,
+                    camo_net_sub_object_observer_visible,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.stealth_allowed_frame = stealth_allowed_frame;
+                        e.stealth_delay_pending = stealth_delay_pending;
+                        e.stealth_delay_frames = stealth_delay_frames;
+                        e.stealth_breaks_on_damage = stealth_breaks_on_damage;
+                        e.detection_expires_frame = detection_expires_frame;
+                        e.camo_opacity_pulse_phase = camo_opacity_pulse_phase;
+                        e.camo_heat_vision_opacity = camo_heat_vision_opacity;
+                        e.camo_net_sub_object_shown = camo_net_sub_object_shown;
+                        e.camo_net_sub_object_observer_visible =
+                            camo_net_sub_object_observer_visible;
                         applied += 1;
                     }
                 }

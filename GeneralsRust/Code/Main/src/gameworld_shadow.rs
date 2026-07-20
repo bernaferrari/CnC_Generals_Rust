@@ -703,6 +703,16 @@ impl GameWorldShadow {
                     e.stealth_breaks_on_attack = obj.stealth_breaks_on_attack;
                     e.stealth_breaks_on_move = obj.stealth_breaks_on_move;
                     e.innate_stealth = obj.innate_stealth;
+                    e.stealth_allowed_frame = obj.stealth_allowed_frame;
+                    e.stealth_delay_pending = obj.stealth_delay_pending;
+                    e.stealth_delay_frames = obj.stealth_delay_frames;
+                    e.stealth_breaks_on_damage = obj.stealth_breaks_on_damage;
+                    e.detection_expires_frame = obj.detection_expires_frame;
+                    e.camo_opacity_pulse_phase = obj.camo_opacity_pulse_phase;
+                    e.camo_heat_vision_opacity = obj.camo_heat_vision_opacity;
+                    e.camo_net_sub_object_shown = obj.camo_net_sub_object_shown;
+                    e.camo_net_sub_object_observer_visible =
+                        obj.camo_net_sub_object_observer_visible;
                     e.weapon_bonus_enthusiastic = obj.weapon_bonus_enthusiastic;
                     e.weapon_bonus_subliminal = obj.weapon_bonus_subliminal;
                     e.weapon_bonus_horde = obj.weapon_bonus_horde;
@@ -3741,6 +3751,36 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_stealth_delay_events(
+        &mut self,
+        events: &[crate::game_logic::host_stealth_delay_log::HostStealthDelayEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetStealthDelay {
+                    target: eid,
+                    stealth_allowed_frame: ev.stealth_allowed_frame,
+                    stealth_delay_pending: ev.stealth_delay_pending,
+                    stealth_delay_frames: ev.stealth_delay_frames,
+                    stealth_breaks_on_damage: ev.stealth_breaks_on_damage,
+                    detection_expires_frame: ev.detection_expires_frame,
+                    camo_opacity_pulse_phase: ev.camo_opacity_pulse_phase,
+                    camo_heat_vision_opacity: ev.camo_heat_vision_opacity,
+                    camo_net_sub_object_shown: ev.camo_net_sub_object_shown,
+                    camo_net_sub_object_observer_visible: ev.camo_net_sub_object_observer_visible,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_overlord_events(
         &mut self,
         events: &[crate::game_logic::host_overlord_log::HostOverlordEvent],
@@ -5086,6 +5126,44 @@ impl GameWorldShadow {
         updated
     }
 
+    pub fn writeback_stealth_delay_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.stealth_allowed_frame != ent.stealth_allowed_frame
+                || obj.stealth_delay_pending != ent.stealth_delay_pending
+                || obj.stealth_delay_frames != ent.stealth_delay_frames
+                || obj.stealth_breaks_on_damage != ent.stealth_breaks_on_damage
+                || obj.detection_expires_frame != ent.detection_expires_frame
+                || (obj.camo_opacity_pulse_phase - ent.camo_opacity_pulse_phase).abs()
+                    > f32::EPSILON
+                || (obj.camo_heat_vision_opacity - ent.camo_heat_vision_opacity).abs()
+                    > f32::EPSILON
+                || obj.camo_net_sub_object_shown != ent.camo_net_sub_object_shown
+                || obj.camo_net_sub_object_observer_visible
+                    != ent.camo_net_sub_object_observer_visible;
+            if !changed {
+                continue;
+            }
+            obj.stealth_allowed_frame = ent.stealth_allowed_frame;
+            obj.stealth_delay_pending = ent.stealth_delay_pending;
+            obj.stealth_delay_frames = ent.stealth_delay_frames;
+            obj.stealth_breaks_on_damage = ent.stealth_breaks_on_damage;
+            obj.detection_expires_frame = ent.detection_expires_frame;
+            obj.camo_opacity_pulse_phase = ent.camo_opacity_pulse_phase;
+            obj.camo_heat_vision_opacity = ent.camo_heat_vision_opacity;
+            obj.camo_net_sub_object_shown = ent.camo_net_sub_object_shown;
+            obj.camo_net_sub_object_observer_visible = ent.camo_net_sub_object_observer_visible;
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn writeback_hive_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -5904,6 +5982,8 @@ pub fn shadow_session_after_host_tick(
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
     let _hive_applied = shadow.apply_host_hive_events(&hive_events);
     let _stf_applied = shadow.apply_host_stealth_flags_events(&stealth_flags_events);
+    let stealth_delay_events = crate::game_logic::host_stealth_delay_log::drain();
+    let _sd_applied = shadow.apply_host_stealth_delay_events(&stealth_delay_events);
     let _ol_applied = shadow.apply_host_overlord_events(&overlord_events);
     let _cs_applied = shadow.apply_host_command_set_events(&command_set_events);
     let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
@@ -6024,6 +6104,7 @@ pub fn shadow_session_after_host_tick(
         let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
+        let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _tloc_wb = shadow.writeback_target_location_to_host(logic);
         let _det_wb = shadow.writeback_detector_to_host(logic);
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
@@ -6035,10 +6116,12 @@ pub fn shadow_session_after_host_tick(
         let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
         let _hive_wb = shadow.writeback_hive_to_host(logic);
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
+        let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
         let _cs_wb = shadow.writeback_command_set_to_host(logic);
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
+        let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
@@ -9860,6 +9943,7 @@ mod tests {
             e.camo_stealth_look = 2;
         }
         assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.vision_spied_mask, 0b101);
         assert!((o.camo_friendly_opacity - 0.35).abs() < 1e-5);
@@ -10023,6 +10107,7 @@ mod tests {
             .create_object("StfU", Team::GLA, glam::Vec3::new(20.0, 0.0, 20.0))
             .expect("id");
         host_stealth_flags_log::clear();
+        crate::game_logic::host_stealth_delay_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.innate_stealth = true;
@@ -10080,6 +10165,7 @@ mod tests {
             e.passengers_allowed_to_fire = true;
         }
         assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
         assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
@@ -10705,6 +10791,7 @@ mod tests {
             e.turret_holding = true;
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
         assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
@@ -13650,12 +13737,69 @@ mod tests {
             o.turret_substate = TurretSubState::Idle;
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
         assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
         assert!(o.turret_enabled);
         assert_eq!(o.turret_target_id, Some(tgt));
         assert_eq!(o.turret_substate, TurretSubState::Aim);
+    }
+
+    #[test]
+    fn stealth_delay_channel_via_set_stealth_delay() {
+        use crate::game_logic::host_stealth_delay_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_stealth_delay_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("StealthD");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("StlU") {
+            let mut t = ThingTemplate::new("StlU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("StlU".into(), t);
+        }
+        let oid = logic
+            .create_object("StlU", Team::USA, glam::Vec3::new(110.0, 0.0, 110.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.stealth_allowed_frame = 300;
+            o.stealth_delay_pending = true;
+            o.stealth_delay_frames = 75;
+            o.stealth_breaks_on_damage = true;
+            o.detection_expires_frame = 450;
+            o.camo_opacity_pulse_phase = 1.25;
+            o.camo_heat_vision_opacity = 1.0;
+            o.camo_net_sub_object_shown = true;
+            o.camo_net_sub_object_observer_visible = true;
+        }
+        host_stealth_delay_log::record(oid, 300, true, 75, true, 450, 1.25, 1.0, true, true);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_stealth_delay_events(&host_stealth_delay_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.stealth_allowed_frame, 300);
+        assert!(e.stealth_delay_pending);
+        assert_eq!(e.stealth_delay_frames, 75);
+        assert!(e.stealth_breaks_on_damage);
+        assert_eq!(e.detection_expires_frame, 450);
+        assert!((e.camo_opacity_pulse_phase - 1.25).abs() < 1e-5);
+        assert!(e.camo_net_sub_object_shown);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.stealth_delay_pending = false;
+            o.stealth_allowed_frame = 0;
+            o.stealth_delay_frames = 0;
+            o.camo_net_sub_object_shown = false;
+        }
+        assert!(shadow.writeback_stealth_delay_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!(o.stealth_delay_pending);
+        assert_eq!(o.stealth_allowed_frame, 300);
+        assert_eq!(o.stealth_delay_frames, 75);
+        assert!(o.camo_net_sub_object_shown);
     }
 
     #[test]

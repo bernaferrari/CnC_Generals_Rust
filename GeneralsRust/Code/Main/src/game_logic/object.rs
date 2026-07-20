@@ -6143,6 +6143,7 @@ impl Object {
         self.set_status_stealthed(true);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
+        self.record_host_stealth_delay();
         self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
         self.set_status_disguise_transitioning_to(true);
         self.set_status_disguise_halfpoint_reached(false);
@@ -6183,6 +6184,7 @@ impl Object {
         self.set_status_stealthed(false);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
+        self.record_host_stealth_delay();
         self.status.disguise_transition_frames = 0;
         self.set_status_disguise_transitioning_to(false);
         self.set_status_disguise_halfpoint_reached(false);
@@ -6247,6 +6249,7 @@ impl Object {
             self.set_status_stealthed(false);
             self.set_status_detected(false);
             self.detection_expires_frame = 0;
+            self.record_host_stealth_delay();
             self.status.disguise_transition_opacity = 1.0;
         }
         self.record_host_disguise();
@@ -6306,6 +6309,7 @@ impl Object {
         // Keep the later expiry if already detected by another scanner.
         if expires_frame > self.detection_expires_frame {
             self.detection_expires_frame = expires_frame;
+            self.record_host_stealth_delay();
         }
     }
 
@@ -6313,6 +6317,7 @@ impl Object {
     pub fn clear_detected(&mut self) {
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
+        self.record_host_stealth_delay();
     }
 
     /// Break stealth entirely (fire / script residual).
@@ -6326,14 +6331,17 @@ impl Object {
         self.set_status_stealthed(false);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
+        self.record_host_stealth_delay();
         // CamoNetting / StealthDelay residual: schedule re-cloak gate on reveal.
         if was_stealthed && self.stealth_delay_frames > 0 {
             self.stealth_delay_pending = true;
+            self.record_host_stealth_delay();
         }
         // CamoNetting FriendlyOpacity residual: revealed → max opacity.
         if was_stealthed && self.stealth_breaks_on_damage {
             self.camo_friendly_opacity = 1.0;
             self.camo_opacity_pulse_phase = 0.0;
+            self.record_host_stealth_delay();
         }
         self.record_host_vision_camo();
     }
@@ -6353,6 +6361,7 @@ impl Object {
         self.set_status_stealthed(true);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
+        self.record_host_stealth_delay();
     }
 
     /// C++ Object::setVisionSpied residual (refcounted mask simplified to bitmask).
@@ -9235,6 +9244,21 @@ impl Object {
     pub fn record_host_target_location(&self) {
         let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
         crate::game_logic::host_target_location_log::record(self.id, loc);
+    }
+
+    pub fn record_host_stealth_delay(&self) {
+        crate::game_logic::host_stealth_delay_log::record(
+            self.id,
+            self.stealth_allowed_frame,
+            self.stealth_delay_pending,
+            self.stealth_delay_frames,
+            self.stealth_breaks_on_damage,
+            self.detection_expires_frame,
+            self.camo_opacity_pulse_phase,
+            self.camo_heat_vision_opacity,
+            self.camo_net_sub_object_shown,
+            self.camo_net_sub_object_observer_visible,
+        );
     }
 
     pub fn record_host_turret(&self) {
