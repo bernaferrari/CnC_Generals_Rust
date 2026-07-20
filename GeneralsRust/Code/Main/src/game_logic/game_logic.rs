@@ -294,6 +294,8 @@ pub struct Player {
     pub team: Team,
     pub name: String,
     pub resources: Resources,
+    /// In-flight supply delta under GameWorld economy authority (cleared on writeback).
+    pub pending_supply_delta: i64,
     pub power_available: i32,
     /// Total power produced by this player's power plants (for energy ratio).
     pub power_produced: i32,
@@ -351,6 +353,7 @@ impl Player {
                 supplies: Self::DEFAULT_STARTING_MONEY,
                 power: 0,
             },
+            pending_supply_delta: 0,
             power_available: 0,
             power_produced: 0,
             power_consumed: 0,
@@ -579,6 +582,23 @@ impl Player {
         true
     }
 
+    /// Supplies visible to purchase gates (includes in-flight economy-authority delta).
+    pub fn effective_supplies(&self) -> u32 {
+        let v = self.resources.supplies as i64 + self.pending_supply_delta;
+        if v <= 0 {
+            0
+        } else if v >= u32::MAX as i64 {
+            u32::MAX
+        } else {
+            v as u32
+        }
+    }
+
+    /// Clear in-flight economy delta after GameWorld writeback.
+    pub fn clear_pending_supply_delta(&mut self) {
+        self.pending_supply_delta = 0;
+    }
+
     pub fn can_afford(&self, cost: &Resources) -> bool {
         // Money is the hard construction / purchase gate. Power is separate (slows
         // production / disables powered buildings). Do not block structure starts when
@@ -587,13 +607,28 @@ impl Player {
         //
         // Template `build_cost.power` is the post-build power draw residual (often
         // negative). It is applied in spend_resources, not as an affordability gate.
-        self.resources.supplies >= cost.supplies
+        self.effective_supplies() >= cost.supplies
     }
 
     pub fn spend_resources(&mut self, cost: &Resources) -> bool {
-        if self.can_afford(cost) {
+        if !self.can_afford(cost) {
+            return false;
+        }
+        let power_after = self.power_available + cost.power; // Negative for consumption
+        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            self.pending_supply_delta -= cost.supplies as i64;
+            self.power_available = power_after;
+            if cost.supplies > 0 {
+                self.record_resources_spent(cost.supplies);
+            }
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
             self.resources.supplies -= cost.supplies;
-            self.power_available += cost.power; // Negative for consumption
+            self.power_available = power_after;
             if cost.supplies > 0 {
                 self.record_resources_spent(cost.supplies);
             }
@@ -602,22 +637,29 @@ impl Player {
                 self.resources.supplies,
                 self.power_available,
             );
-            true
-        } else {
-            false
         }
+        true
     }
 
     pub fn add_resources(&mut self, amount: &Resources) {
-        self.resources.supplies += amount.supplies;
-        // Power is calculated from buildings, not directly added
+        if amount.supplies == 0 {
+            return;
+        }
         if amount.supplies > 0 {
             self.statistics.resources_collected = self
                 .statistics
                 .resources_collected
                 .saturating_add(amount.supplies);
         }
-        if amount.supplies > 0 {
+        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            self.pending_supply_delta += amount.supplies as i64;
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
+            self.resources.supplies = self.resources.supplies.saturating_add(amount.supplies);
             crate::game_logic::host_economy_log::record(
                 self.id,
                 self.resources.supplies,
