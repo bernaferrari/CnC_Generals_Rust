@@ -731,6 +731,21 @@ pub enum WorldMutation {
         pitch_deg: f32,
         holding: bool,
         idle_scanning: bool,
+        turret_turn_rate_rad: f32,
+        turret_recenter_frames: u32,
+        turret_hold_until_frame: u32,
+        turret_idle_recentering: bool,
+        turret_enabled: bool,
+        turret_rotating: bool,
+        turret_natural_angle_deg: f32,
+        turret_natural_pitch_deg: f32,
+        turret_target_host: u32,
+        turret_force_attacking: bool,
+        turret_mood_target: bool,
+        turret_idle_scan_next_frame: u32,
+        turret_idle_scan_desired_angle_deg: f32,
+        turret_idle_scan_index: u32,
+        turret_substate: u8,
     },
     /// Host Object::target_location residual (ground attack aim point).
     SetTargetLocation {
@@ -1594,12 +1609,42 @@ impl GameWorld {
                     pitch_deg,
                     holding,
                     idle_scanning,
+                    turret_turn_rate_rad,
+                    turret_recenter_frames,
+                    turret_hold_until_frame,
+                    turret_idle_recentering,
+                    turret_enabled,
+                    turret_rotating,
+                    turret_natural_angle_deg,
+                    turret_natural_pitch_deg,
+                    turret_target_host,
+                    turret_force_attacking,
+                    turret_mood_target,
+                    turret_idle_scan_next_frame,
+                    turret_idle_scan_desired_angle_deg,
+                    turret_idle_scan_index,
+                    turret_substate,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.turret_angle_deg = angle_deg;
                         e.turret_pitch_deg = pitch_deg;
                         e.turret_holding = holding;
                         e.turret_idle_scanning = idle_scanning;
+                        e.turret_turn_rate_rad = turret_turn_rate_rad;
+                        e.turret_recenter_frames = turret_recenter_frames;
+                        e.turret_hold_until_frame = turret_hold_until_frame;
+                        e.turret_idle_recentering = turret_idle_recentering;
+                        e.turret_enabled = turret_enabled;
+                        e.turret_rotating = turret_rotating;
+                        e.turret_natural_angle_deg = turret_natural_angle_deg;
+                        e.turret_natural_pitch_deg = turret_natural_pitch_deg;
+                        e.turret_target_host = turret_target_host;
+                        e.turret_force_attacking = turret_force_attacking;
+                        e.turret_mood_target = turret_mood_target;
+                        e.turret_idle_scan_next_frame = turret_idle_scan_next_frame;
+                        e.turret_idle_scan_desired_angle_deg = turret_idle_scan_desired_angle_deg;
+                        e.turret_idle_scan_index = turret_idle_scan_index;
+                        e.turret_substate = turret_substate;
                         applied += 1;
                     }
                 }

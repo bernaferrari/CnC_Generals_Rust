@@ -722,6 +722,21 @@ impl GameWorldShadow {
                     e.turret_pitch_deg = obj.turret_pitch_deg;
                     e.turret_idle_scanning = obj.turret_idle_scanning;
                     e.turret_holding = obj.turret_holding;
+                    e.turret_turn_rate_rad = obj.turret_turn_rate_rad;
+                    e.turret_recenter_frames = obj.turret_recenter_frames;
+                    e.turret_hold_until_frame = obj.turret_hold_until_frame;
+                    e.turret_idle_recentering = obj.turret_idle_recentering;
+                    e.turret_enabled = obj.turret_enabled;
+                    e.turret_rotating = obj.turret_rotating;
+                    e.turret_natural_angle_deg = obj.turret_natural_angle_deg;
+                    e.turret_natural_pitch_deg = obj.turret_natural_pitch_deg;
+                    e.turret_target_host = obj.turret_target_id.map(|id| id.0).unwrap_or(0);
+                    e.turret_force_attacking = obj.turret_force_attacking;
+                    e.turret_mood_target = obj.turret_mood_target;
+                    e.turret_idle_scan_next_frame = obj.turret_idle_scan_next_frame;
+                    e.turret_idle_scan_desired_angle_deg = obj.turret_idle_scan_desired_angle_deg;
+                    e.turret_idle_scan_index = obj.turret_idle_scan_index;
+                    e.turret_substate = obj.turret_substate.ordinal();
                     e.ai_attitude = obj.ai_attitude;
                     e.idle_since_frame = obj.idle_since_frame;
                     e.mood_attack_check_rate = obj.mood_attack_check_rate;
@@ -3434,6 +3449,21 @@ impl GameWorldShadow {
                     pitch_deg: ev.pitch_deg,
                     holding: ev.holding,
                     idle_scanning: ev.idle_scanning,
+                    turret_turn_rate_rad: ev.turret_turn_rate_rad,
+                    turret_recenter_frames: ev.turret_recenter_frames,
+                    turret_hold_until_frame: ev.turret_hold_until_frame,
+                    turret_idle_recentering: ev.turret_idle_recentering,
+                    turret_enabled: ev.turret_enabled,
+                    turret_rotating: ev.turret_rotating,
+                    turret_natural_angle_deg: ev.turret_natural_angle_deg,
+                    turret_natural_pitch_deg: ev.turret_natural_pitch_deg,
+                    turret_target_host: ev.turret_target_host,
+                    turret_force_attacking: ev.turret_force_attacking,
+                    turret_mood_target: ev.turret_mood_target,
+                    turret_idle_scan_next_frame: ev.turret_idle_scan_next_frame,
+                    turret_idle_scan_desired_angle_deg: ev.turret_idle_scan_desired_angle_deg,
+                    turret_idle_scan_index: ev.turret_idle_scan_index,
+                    turret_substate: ev.turret_substate,
                 });
             n += 1;
         }
@@ -5235,6 +5265,7 @@ impl GameWorldShadow {
     }
 
     pub fn writeback_turret_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::object::TurretSubState;
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
@@ -5243,10 +5274,31 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
-            let changed = (obj.turret_angle_deg - ent.turret_angle_deg).abs() > 1e-4
-                || (obj.turret_pitch_deg - ent.turret_pitch_deg).abs() > 1e-4
+            let host_tgt = obj.turret_target_id.map(|id| id.0).unwrap_or(0);
+            let changed = (obj.turret_angle_deg - ent.turret_angle_deg).abs() > f32::EPSILON
+                || (obj.turret_pitch_deg - ent.turret_pitch_deg).abs() > f32::EPSILON
                 || obj.turret_holding != ent.turret_holding
-                || obj.turret_idle_scanning != ent.turret_idle_scanning;
+                || obj.turret_idle_scanning != ent.turret_idle_scanning
+                || (obj.turret_turn_rate_rad - ent.turret_turn_rate_rad).abs() > f32::EPSILON
+                || obj.turret_recenter_frames != ent.turret_recenter_frames
+                || obj.turret_hold_until_frame != ent.turret_hold_until_frame
+                || obj.turret_idle_recentering != ent.turret_idle_recentering
+                || obj.turret_enabled != ent.turret_enabled
+                || obj.turret_rotating != ent.turret_rotating
+                || (obj.turret_natural_angle_deg - ent.turret_natural_angle_deg).abs()
+                    > f32::EPSILON
+                || (obj.turret_natural_pitch_deg - ent.turret_natural_pitch_deg).abs()
+                    > f32::EPSILON
+                || host_tgt != ent.turret_target_host
+                || obj.turret_force_attacking != ent.turret_force_attacking
+                || obj.turret_mood_target != ent.turret_mood_target
+                || obj.turret_idle_scan_next_frame != ent.turret_idle_scan_next_frame
+                || (obj.turret_idle_scan_desired_angle_deg
+                    - ent.turret_idle_scan_desired_angle_deg)
+                    .abs()
+                    > f32::EPSILON
+                || obj.turret_idle_scan_index != ent.turret_idle_scan_index
+                || obj.turret_substate.ordinal() != ent.turret_substate;
             if !changed {
                 continue;
             }
@@ -5254,6 +5306,25 @@ impl GameWorldShadow {
             obj.turret_pitch_deg = ent.turret_pitch_deg;
             obj.turret_holding = ent.turret_holding;
             obj.turret_idle_scanning = ent.turret_idle_scanning;
+            obj.turret_turn_rate_rad = ent.turret_turn_rate_rad;
+            obj.turret_recenter_frames = ent.turret_recenter_frames;
+            obj.turret_hold_until_frame = ent.turret_hold_until_frame;
+            obj.turret_idle_recentering = ent.turret_idle_recentering;
+            obj.turret_enabled = ent.turret_enabled;
+            obj.turret_rotating = ent.turret_rotating;
+            obj.turret_natural_angle_deg = ent.turret_natural_angle_deg;
+            obj.turret_natural_pitch_deg = ent.turret_natural_pitch_deg;
+            obj.turret_target_id = if ent.turret_target_host == 0 {
+                None
+            } else {
+                Some(ObjectId(ent.turret_target_host))
+            };
+            obj.turret_force_attacking = ent.turret_force_attacking;
+            obj.turret_mood_target = ent.turret_mood_target;
+            obj.turret_idle_scan_next_frame = ent.turret_idle_scan_next_frame;
+            obj.turret_idle_scan_desired_angle_deg = ent.turret_idle_scan_desired_angle_deg;
+            obj.turret_idle_scan_index = ent.turret_idle_scan_index;
+            obj.turret_substate = TurretSubState::from_ordinal(ent.turret_substate);
             updated += 1;
         }
         updated
@@ -13425,6 +13496,99 @@ mod tests {
         assert_eq!(o.bounce_land_events, 3);
         assert_eq!(o.bounce_audio_pending, 2);
         assert_eq!(o.last_collidee, Some(other));
+    }
+
+    #[test]
+    fn turret_extended_channel_via_set_turret() {
+        use crate::game_logic::host_turret_log;
+        use crate::game_logic::object::TurretSubState;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_turret_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("TurretX");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("TurU") {
+            let mut t = ThingTemplate::new("TurU");
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("TurU".into(), t);
+        }
+        let oid = logic
+            .create_object("TurU", Team::USA, glam::Vec3::new(90.0, 0.0, 90.0))
+            .expect("id");
+        let tgt = logic
+            .create_object("TurU", Team::China, glam::Vec3::new(100.0, 0.0, 90.0))
+            .expect("tgt");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.turret_angle_deg = 45.0;
+            o.turret_pitch_deg = 10.0;
+            o.turret_holding = true;
+            o.turret_idle_scanning = false;
+            o.turret_turn_rate_rad = 0.05;
+            o.turret_recenter_frames = 60;
+            o.turret_hold_until_frame = 200;
+            o.turret_idle_recentering = true;
+            o.turret_enabled = true;
+            o.turret_rotating = true;
+            o.turret_natural_angle_deg = 0.0;
+            o.turret_natural_pitch_deg = 5.0;
+            o.turret_target_id = Some(tgt);
+            o.turret_force_attacking = true;
+            o.turret_mood_target = false;
+            o.turret_idle_scan_next_frame = 30;
+            o.turret_idle_scan_desired_angle_deg = 90.0;
+            o.turret_idle_scan_index = 2;
+            o.turret_substate = TurretSubState::Aim;
+        }
+        host_turret_log::record(
+            oid,
+            45.0,
+            10.0,
+            true,
+            false,
+            0.05,
+            60,
+            200,
+            true,
+            true,
+            true,
+            0.0,
+            5.0,
+            tgt.0,
+            true,
+            false,
+            30,
+            90.0,
+            2,
+            TurretSubState::Aim.ordinal(),
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_turret_events(&host_turret_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert!((e.turret_angle_deg - 45.0).abs() < 1e-5);
+        assert!((e.turret_turn_rate_rad - 0.05).abs() < 1e-5);
+        assert_eq!(e.turret_recenter_frames, 60);
+        assert!(e.turret_enabled);
+        assert!(e.turret_rotating);
+        assert_eq!(e.turret_target_host, tgt.0);
+        assert_eq!(e.turret_substate, TurretSubState::Aim.ordinal());
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.turret_angle_deg = 0.0;
+            o.turret_turn_rate_rad = 0.0;
+            o.turret_enabled = false;
+            o.turret_target_id = None;
+            o.turret_substate = TurretSubState::Idle;
+        }
+        assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
+        assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
+        assert!(o.turret_enabled);
+        assert_eq!(o.turret_target_id, Some(tgt));
+        assert_eq!(o.turret_substate, TurretSubState::Aim);
     }
 
     #[test]
