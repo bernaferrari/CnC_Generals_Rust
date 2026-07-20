@@ -2987,6 +2987,7 @@ impl Object {
         self.production_door_phase_end_frame = now.saturating_add(15);
         self.refresh_model_condition_bits();
         self.record_host_model_condition();
+        self.record_host_production_door();
     }
 
     /// C++ ProductionUpdate::setHoldDoorOpen residual.
@@ -3006,12 +3007,14 @@ impl Object {
                 self.production_door_phase_end_frame = now;
             }
         }
+        self.record_host_production_door();
     }
 
     /// Advance production door residual; returns true when cycle fully closed.
     pub fn tick_production_door(&mut self, now: u32) -> bool {
         if self.production_door_phase == 0 {
             return false;
+            self.record_host_production_door();
         }
         if now < self.production_door_phase_end_frame {
             return false;
@@ -3030,6 +3033,7 @@ impl Object {
                 self.model_condition_bits &= !(1u128 << open_b);
                 self.model_condition_bits |= 1u128 << wait_b;
                 self.production_door_phase = 2;
+                self.record_host_production_door();
                 self.production_door_phase_end_frame = now.saturating_add(30);
                 self.refresh_model_condition_bits();
                 false
@@ -3045,6 +3049,7 @@ impl Object {
                 self.model_condition_bits &= !(1u128 << wait_b);
                 self.model_condition_bits |= 1u128 << wait_close_b;
                 self.production_door_phase = 3;
+                self.record_host_production_door();
                 // Minimal hold before CLOSING residual (INI DoorCloseTime path).
                 self.production_door_phase_end_frame = now.saturating_add(1);
                 self.refresh_model_condition_bits();
@@ -3060,6 +3065,7 @@ impl Object {
                 self.model_condition_bits &= !(1u128 << wait_close_b);
                 self.model_condition_bits |= 1u128 << close_b;
                 self.production_door_phase = 4;
+                self.record_host_production_door();
                 self.production_door_phase_end_frame = now.saturating_add(15);
                 self.refresh_model_condition_bits();
                 false
@@ -3071,6 +3077,7 @@ impl Object {
                     self.model_condition_bits &= !(1u128 << close_b);
                     self.model_condition_bits |= 1u128 << wait_b;
                     self.production_door_phase = 2;
+                    self.record_host_production_door();
                     self.production_door_phase_end_frame = now.saturating_add(30);
                     self.refresh_model_condition_bits();
                     return false;
@@ -3078,12 +3085,14 @@ impl Object {
                 // CLOSING → idle
                 self.model_condition_bits &= !(1u128 << close_b);
                 self.production_door_phase = 0;
+                self.record_host_production_door();
                 self.production_door_phase_end_frame = 0;
                 self.refresh_model_condition_bits();
                 true
             }
             _ => {
                 self.production_door_phase = 0;
+                self.record_host_production_door();
                 false
             }
         };
@@ -5751,6 +5760,15 @@ impl Object {
             self.shock_was_airborne,
             self.cell_is_cliff,
             self.cell_is_underwater,
+        );
+    }
+
+    pub fn record_host_production_door(&self) {
+        crate::game_logic::host_production_door_log::record(
+            self.id,
+            self.production_door_phase,
+            self.production_door_phase_end_frame,
+            self.production_door_hold_open,
         );
     }
 

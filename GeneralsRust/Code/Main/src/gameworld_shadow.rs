@@ -480,6 +480,9 @@ impl GameWorldShadow {
                         if let Some(head) = bd.production_queue.first() {
                             e.production_progress = head.progress;
                             e.exit_delay_remaining = bd.exit_delay_remaining;
+                            e.production_door_phase = obj.production_door_phase;
+                            e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
+                            e.production_door_hold_open = obj.production_door_hold_open;
                             e.production_template = head.template_name.clone();
                         } else {
                             e.production_progress = 0.0;
@@ -1760,6 +1763,29 @@ impl GameWorldShadow {
         updated
     }
 
+    pub fn writeback_production_door_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.production_door_phase != ent.production_door_phase
+                || obj.production_door_phase_end_frame != ent.production_door_phase_end_frame
+                || obj.production_door_hold_open != ent.production_door_hold_open;
+            if !changed {
+                continue;
+            }
+            obj.production_door_phase = ent.production_door_phase;
+            obj.production_door_phase_end_frame = ent.production_door_phase_end_frame;
+            obj.production_door_hold_open = ent.production_door_hold_open;
+            updated += 1;
+        }
+        updated
+    }
+
     /// Write GameWorld BodyDamageType residual onto host objects.
     pub fn writeback_body_damage_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
@@ -2434,6 +2460,30 @@ impl GameWorldShadow {
                 .queue_mutation(gamelogic::world::WorldMutation::SetExitDelay {
                     target: eid,
                     exit_delay_remaining: ev.exit_delay_remaining,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn apply_host_production_door_events(
+        &mut self,
+        events: &[crate::game_logic::host_production_door_log::HostProductionDoorEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.producer.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetProductionDoor {
+                    target: eid,
+                    production_door_phase: ev.production_door_phase,
+                    production_door_phase_end_frame: ev.production_door_phase_end_frame,
+                    production_door_hold_open: ev.production_door_hold_open,
                 });
             n += 1;
         }
@@ -5528,6 +5578,8 @@ pub fn shadow_session_after_host_tick(
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
     let _pp_applied = shadow.apply_host_production_progress_events(&production_progress_events);
+    let production_door_events = crate::game_logic::host_production_door_log::drain();
+    let _pd_applied = shadow.apply_host_production_door_events(&production_door_events);
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
     let _construction_progress_applied =
         shadow.apply_host_construction_progress_events(&construction_progress_events);
@@ -5647,6 +5699,7 @@ pub fn shadow_session_after_host_tick(
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
+    let _ = shadow.writeback_production_door_to_host(logic);
     let _ = shadow.writeback_body_damage_to_host(logic);
     let _ = shadow.writeback_death_type_to_host(logic);
     let _ = shadow.writeback_radar_extend_to_host(logic);
@@ -6739,6 +6792,7 @@ mod tests {
             }
         }
         let n = shadow.writeback_production_to_host(&mut logic);
+        let _ = shadow.writeback_production_door_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
@@ -7907,6 +7961,7 @@ mod tests {
             }
         }
         let wb = shadow.writeback_production_to_host(&mut logic);
+        let _ = shadow.writeback_production_door_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
@@ -12206,6 +12261,7 @@ mod tests {
         use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         host_production_progress_log::clear();
+        crate::game_logic::host_production_door_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("ProdProg");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -12283,6 +12339,7 @@ mod tests {
             }
         }
         assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_production_door_to_host(&mut logic);
         shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
@@ -12978,6 +13035,51 @@ mod tests {
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.guard_radius - 175.0).abs() < 1e-3);
         assert!(o.guard_position.is_some());
+    }
+
+    #[test]
+    fn production_door_channel_via_set_production_door() {
+        use crate::game_logic::host_production_door_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_production_door_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdDoor");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("DoorFact") {
+            let mut t = ThingTemplate::new("DoorFact");
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::FSBarracks);
+            logic.templates.insert("DoorFact".into(), t);
+        }
+        let oid = logic
+            .create_object("DoorFact", Team::USA, glam::Vec3::new(60.0, 0.0, 60.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.production_door_phase = 2;
+            o.production_door_phase_end_frame = 500;
+            o.production_door_hold_open = true;
+        }
+        host_production_door_log::record(oid, 2, 500, true);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_production_door_events(&host_production_door_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.production_door_phase, 2);
+        assert_eq!(e.production_door_phase_end_frame, 500);
+        assert!(e.production_door_hold_open);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.production_door_phase = 0;
+            o.production_door_phase_end_frame = 0;
+            o.production_door_hold_open = false;
+        }
+        assert!(shadow.writeback_production_door_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.production_door_phase, 2);
+        assert_eq!(o.production_door_phase_end_frame, 500);
+        assert!(o.production_door_hold_open);
     }
 
     #[test]
