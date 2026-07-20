@@ -3807,6 +3807,84 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_building_type_events(
+        &mut self,
+        events: &[crate::game_logic::host_building_type_log::HostBuildingTypeEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetBuildingType {
+                    target: eid,
+                    is_building: ev.is_building,
+                    building_type_ordinal: ev.building_type_ordinal,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_building_type_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::{BuildingData, BuildingType as B};
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_is = obj.building_data.is_some();
+            let host_ord = obj
+                .building_data
+                .as_ref()
+                .map(|bd| Self::host_building_type_ordinal(bd.building_type))
+                .unwrap_or(255);
+            if host_is == ent.is_building && host_ord == ent.building_type_ordinal {
+                continue;
+            }
+            if !ent.is_building || ent.building_type_ordinal == 255 {
+                if obj.building_data.is_some() {
+                    // Do not destroy building_data payload on flag-only clear; leave host ownership.
+                }
+            } else {
+                let bt = match ent.building_type_ordinal {
+                    0 => B::CommandCenter,
+                    1 => B::Barracks,
+                    2 => B::WarFactory,
+                    3 => B::Airfield,
+                    4 => B::RepairPad,
+                    5 => B::HealPad,
+                    6 => B::SupplyCenter,
+                    7 => B::PowerPlant,
+                    8 => B::DefenseTurret,
+                    9 => B::SupplyDropZone,
+                    10 => B::Palace,
+                    11 => B::Propaganda,
+                    12 => B::Bunker,
+                    _ => B::CommandCenter,
+                };
+                if let Some(bd) = obj.building_data.as_mut() {
+                    if bd.building_type != bt {
+                        bd.building_type = bt;
+                        updated += 1;
+                    }
+                } else {
+                    obj.building_data = Some(BuildingData::new(bt));
+                    updated += 1;
+                }
+            }
+        }
+        updated
+    }
+
+
     pub fn writeback_crush_vision_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4827,6 +4905,7 @@ pub fn shadow_session_after_host_tick(
     let model_condition_events = crate::game_logic::host_model_condition_log::drain();
     let demo_mine_cheer_events = crate::game_logic::host_demo_mine_cheer_log::drain();
     let crush_vision_events = crate::game_logic::host_crush_vision_log::drain();
+    let building_type_events = crate::game_logic::host_building_type_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4893,6 +4972,7 @@ pub fn shadow_session_after_host_tick(
     let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
     let _dmc_applied = shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events);
     let _cv_applied = shadow.apply_host_crush_vision_events(&crush_vision_events);
+    let _bt_applied = shadow.apply_host_building_type_events(&building_type_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4955,6 +5035,7 @@ pub fn shadow_session_after_host_tick(
     let _mc_wb = shadow.writeback_model_condition_to_host(logic);
     let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
     let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
+    let _bt_wb = shadow.writeback_building_type_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
     let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         log::trace!(
@@ -7967,7 +8048,72 @@ mod tests {
 
     
     
+    
     #[test]
+    fn host_building_type_log_drives_set_building_type_channel() {
+        use crate::game_logic::{
+            host_building_type_log, BuildingData, BuildingType, KindOf, Team, ThingTemplate,
+        };
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("BtCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("BtU") {
+            let mut t = ThingTemplate::new("BtU");
+            t.set_health(400.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("BtU".into(), t);
+        }
+        let oid = logic
+            .create_object("BtU", Team::USA, glam::Vec3::new(32.0, 0.0, 32.0))
+            .expect("id");
+        host_building_type_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.building_data = Some(BuildingData::new(BuildingType::Barracks));
+            o.record_host_building_type();
+        }
+        let events = host_building_type_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.is_building && e.building_type_ordinal == 1),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_building_type();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.is_building = false;
+            e.building_type_ordinal = 255;
+        }
+        let n = shadow.apply_host_building_type_events(&host_building_type_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.is_building);
+        assert_eq!(e.building_type_ordinal, 1);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.is_building = true;
+            e.building_type_ordinal = 1;
+        }
+        assert!(shadow.writeback_building_type_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(
+            o.building_data.as_ref().map(|b| b.building_type),
+            Some(BuildingType::Barracks)
+        );
+    }
+
+#[test]
     fn host_crush_vision_log_drives_set_crush_vision_channel() {
         use crate::game_logic::{host_crush_vision_log, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
