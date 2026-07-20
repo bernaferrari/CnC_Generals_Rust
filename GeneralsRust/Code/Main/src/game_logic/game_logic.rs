@@ -4801,6 +4801,8 @@ impl GameLogic {
         {
             if let Some(object) = self.objects.get_mut(&object_id) {
                 object.set_position(Vec3::new(x, y, z));
+                // y is world height after grounding; residual height sample = y when terrain present.
+                object.set_ground_height_residual(y, true);
             }
         }
 

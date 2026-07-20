@@ -694,6 +694,12 @@ pub enum WorldMutation {
         name: String,
         team_color: [f32; 4],
     },
+    /// Host/terrain ground height residual at object XY.
+    SetGroundHeight {
+        target: EntityId,
+        ground_height: f32,
+        from_terrain: bool,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1434,6 +1440,17 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.display_name = name;
                         e.team_color = team_color;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetGroundHeight {
+                    target,
+                    ground_height,
+                    from_terrain,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.ground_height = ground_height;
+                        e.ground_height_from_terrain = from_terrain;
                         applied += 1;
                     }
                 }

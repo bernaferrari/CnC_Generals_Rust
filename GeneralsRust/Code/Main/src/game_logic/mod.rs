@@ -26,6 +26,7 @@ pub mod host_demo_mine_cheer_log;
 pub mod host_crush_vision_log;
 pub mod host_building_type_log;
 pub mod host_identity_log;
+pub mod host_ground_height_log;
 pub mod host_disguise_log;
 pub mod host_detector_log;
 pub mod host_economy_log;
