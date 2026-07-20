@@ -6161,8 +6161,18 @@ mod tests {
         assert!(e.disabled_emp);
         assert!(e.masked);
         assert!(e.disguised);
-        // writeback to host
-        let wb = shadow.writeback_construction_to_host(&mut logic);
+        // writeback to host via combat-status last-writer residual
+        {
+            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            o.status.stealthed = false;
+            o.status.attacking = false;
+            o.status.is_firing_weapon = false;
+            o.status.selected = false;
+            o.status.disabled_emp = false;
+            o.status.masked = false;
+            o.status.disguised = false;
+        }
+        let wb = shadow.writeback_combat_status_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.status.stealthed);
