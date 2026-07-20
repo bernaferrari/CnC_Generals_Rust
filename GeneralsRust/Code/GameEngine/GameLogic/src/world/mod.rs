@@ -420,10 +420,7 @@ pub enum WorldMutation {
     /// Set absolute health.
     SetHealth { target: EntityId, health: f32 },
     /// Host Object::max_health / health.maximum residual (armor / veterancy).
-    SetMaxHealth {
-        target: EntityId,
-        max_health: f32,
-    },
+    SetMaxHealth { target: EntityId, max_health: f32 },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -507,10 +504,7 @@ pub enum WorldMutation {
     /// Set veterancy ordinal residual (0 Rookie .. 3 Heroic).
     SetVeterancy { target: EntityId, ordinal: u8 },
     /// Host Object::experience.current residual.
-    SetExperience {
-        target: EntityId,
-        points: f32,
-    },
+    SetExperience { target: EntityId, points: f32 },
     /// Host Object weapon-bonus residual pack (propaganda/horde/nationalism/frenzy/battle plan).
     SetWeaponBonus {
         target: EntityId,
@@ -525,10 +519,7 @@ pub enum WorldMutation {
         battle_plan_search_and_destroy: bool,
     },
     /// Host Object::active_weapon_slot residual (0 primary, 1 secondary, …).
-    SetActiveWeaponSlot {
-        target: EntityId,
-        slot: u8,
-    },
+    SetActiveWeaponSlot { target: EntityId, slot: u8 },
     /// Host Object::power_provided / power_consumed residual (plant overcharge / rods).
     SetEntityPower {
         target: EntityId,
@@ -569,10 +560,7 @@ pub enum WorldMutation {
         target_host: u32,
     },
     /// Host Object::ai_attitude residual (-2 Sleep .. +2 Aggressive).
-    SetAiAttitude {
-        target: EntityId,
-        attitude: i8,
-    },
+    SetAiAttitude { target: EntityId, attitude: i8 },
     /// Host Object weapon-set residual flags (player upgrade / armed riders).
     SetWeaponSetFlags {
         target: EntityId,
@@ -580,10 +568,7 @@ pub enum WorldMutation {
         armed_riders: bool,
     },
     /// Host Object::overcharge_enabled residual (China power plant).
-    SetOvercharge {
-        target: EntityId,
-        enabled: bool,
-    },
+    SetOvercharge { target: EntityId, enabled: bool },
     /// Host Object contain capacity residual (transport slots / garrison max).
     SetContainCapacity {
         target: EntityId,
@@ -1297,7 +1282,10 @@ impl GameWorld {
                         applied += 1;
                     }
                 }
-                WorldMutation::SetCommandSet { target, command_set } => {
+                WorldMutation::SetCommandSet {
+                    target,
+                    command_set,
+                } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.command_set_override = command_set;
                         applied += 1;

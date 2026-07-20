@@ -5497,7 +5497,7 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_ground_height(&self) {
+    pub fn record_host_ground_height(&self) {
         crate::game_logic::host_ground_height_log::record(
             self.id,
             self.ground_height,
@@ -5517,11 +5517,7 @@ impl Object {
     }
 
     pub fn record_host_identity(&self) {
-        crate::game_logic::host_identity_log::record(
-            self.id,
-            self.name.clone(),
-            self.team_color,
-        );
+        crate::game_logic::host_identity_log::record(self.id, self.name.clone(), self.team_color);
     }
 
     pub fn record_host_building_type(&self) {
@@ -5655,10 +5651,7 @@ impl Object {
     }
 
     pub fn record_host_command_set(&self) {
-        crate::game_logic::host_command_set_log::record(
-            self.id,
-            self.command_set_override.clone(),
-        );
+        crate::game_logic::host_command_set_log::record(self.id, self.command_set_override.clone());
     }
 
     pub fn set_command_set_override(&mut self, command_set: Option<String>) {
@@ -6633,8 +6626,7 @@ impl Object {
             self.turret_rotating = true;
         }
         self.turret_angle_deg = actual.to_degrees();
-        let aligned =
-            Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0);
+        let aligned = Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0);
         self.record_host_turret();
         aligned
     }
@@ -8541,7 +8533,10 @@ impl Object {
     }
 
     pub fn record_host_max_health(&self) {
-        crate::game_logic::host_max_health_log::record(self.id, self.max_health.max(self.health.maximum).max(1.0));
+        crate::game_logic::host_max_health_log::record(
+            self.id,
+            self.max_health.max(self.health.maximum).max(1.0),
+        );
     }
 
     pub(crate) fn apply_veterancy_bonuses(

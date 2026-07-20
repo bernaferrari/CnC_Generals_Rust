@@ -19,18 +19,8 @@ thread_local! {
     static LOG: RefCell<Vec<HostMovementEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record(
-    object: ObjectId,
-    velocity: Vec3,
-    max_speed: f32,
-    path_index: usize,
-    path: &[Vec3],
-) {
-    let path_waypoints: Vec<[f32; 3]> = path
-        .iter()
-        .take(64)
-        .map(|p| [p.x, p.y, p.z])
-        .collect();
+pub fn record(object: ObjectId, velocity: Vec3, max_speed: f32, path_index: usize, path: &[Vec3]) {
+    let path_waypoints: Vec<[f32; 3]> = path.iter().take(64).map(|p| [p.x, p.y, p.z]).collect();
     LOG.with(|log| {
         log.borrow_mut().push(HostMovementEvent {
             object,
