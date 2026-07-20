@@ -1371,6 +1371,11 @@ impl GameWorldShadow {
                 player.resources.supplies = pd.supplies;
                 dirty = true;
             }
+            // Economy authority: host pending delta is consumed by absolute writeback.
+            if player.pending_supply_delta != 0 {
+                player.pending_supply_delta = 0;
+                dirty = true;
+            }
             if player.power_available != pd.power_available {
                 player.power_available = pd.power_available;
                 dirty = true;
@@ -11406,8 +11411,15 @@ mod tests {
             power: 0,
         };
         assert!(logic.get_player_mut(hid).unwrap().spend_resources(&cost));
+        // Under economy authority host.resources is deferred; effective reflects spend.
         let after_host = logic.get_player(hid).unwrap().resources.supplies;
-        assert_eq!(after_host, before.saturating_sub(100));
+        let after_eff = logic.get_player(hid).unwrap().effective_supplies();
+        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            assert_eq!(after_host, before, "host absolute deferred");
+            assert_eq!(after_eff, before.saturating_sub(100), "effective supplies");
+        } else {
+            assert_eq!(after_host, before.saturating_sub(100));
+        }
         let events = crate::game_logic::host_economy_log::drain();
         assert!(!events.is_empty());
 
@@ -11457,6 +11469,39 @@ mod tests {
             logic.get_player(hid).unwrap().resources.supplies,
             shadow_supplies
         );
+    }
+
+    #[test]
+    fn economy_authority_pending_blocks_double_spend() {
+        std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        assert!(gameworld_economy_authority_enabled());
+        crate::game_logic::host_economy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EconDbl");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
+        ids.sort_unstable();
+        let hid = ids[0];
+        {
+            let p = logic.get_player_mut(hid).unwrap();
+            p.resources.supplies = 150;
+            p.pending_supply_delta = 0;
+        }
+        let cost = crate::game_logic::Resources {
+            supplies: 100,
+            power: 0,
+        };
+        assert!(logic.get_player_mut(hid).unwrap().spend_resources(&cost));
+        assert!(
+            !logic.get_player_mut(hid).unwrap().spend_resources(&cost),
+            "second spend must fail against pending delta"
+        );
+        assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 150);
+        assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 50);
+        let mut shadow = GameWorldShadow::new(64);
+        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
+        assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
     }
 
     #[test]
