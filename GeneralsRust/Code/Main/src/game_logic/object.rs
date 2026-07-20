@@ -5718,6 +5718,8 @@ impl Object {
             weapon_min_range,
             weapon_reload_time,
             weapon_last_fire_time,
+            weapon_clip_size,
+            weapon_clip_reload_time,
             weapon_ammo,
             weapon_can_target_air,
             weapon_can_target_ground,
@@ -5730,13 +5732,28 @@ impl Object {
                 w.min_range,
                 w.reload_time,
                 w.last_fire_time,
+                w.clip_size,
+                w.clip_reload_time,
                 w.ammo.unwrap_or(u32::MAX),
                 w.can_target_air,
                 w.can_target_ground,
                 w.projectile_speed,
             )
         } else {
-            (false, 0.0, 0.0, 0.0, 0.0, 0.0, u32::MAX, false, true, 0.0)
+            (
+                false,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0,
+                0.0,
+                u32::MAX,
+                false,
+                true,
+                0.0,
+            )
         };
         let (has_secondary_weapon, secondary_weapon_damage, secondary_weapon_range) =
             if let Some(w) = self.secondary_weapon.as_ref() {
@@ -5753,6 +5770,8 @@ impl Object {
                 weapon_min_range,
                 weapon_reload_time,
                 weapon_last_fire_time,
+                weapon_clip_size,
+                weapon_clip_reload_time,
                 weapon_ammo,
                 weapon_can_target_air,
                 weapon_can_target_ground,

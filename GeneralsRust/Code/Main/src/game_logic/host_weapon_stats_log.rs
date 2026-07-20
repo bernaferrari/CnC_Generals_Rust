@@ -13,6 +13,8 @@ pub struct HostWeaponStatsEvent {
     pub weapon_reload_time: f32,
     /// Host Weapon::last_fire_time residual (sim seconds).
     pub weapon_last_fire_time: f32,
+    pub weapon_clip_size: u32,
+    pub weapon_clip_reload_time: f32,
     /// `u32::MAX` = unlimited/None ammo.
     pub weapon_ammo: u32,
     pub weapon_can_target_air: bool,
