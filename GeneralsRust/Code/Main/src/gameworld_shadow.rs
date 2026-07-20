@@ -386,6 +386,8 @@ impl GameWorldShadow {
                     e.destroyed = obj.status.destroyed;
                     e.death_type = obj.status.death_type.ordinal();
                     e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
+                    e.is_rebuild_hole = obj.is_rebuild_hole;
+                    e.rebuild_template_name = obj.rebuild_template_name.clone().unwrap_or_default();
                     e.rebuild_ready_frame = obj.rebuild_ready_frame;
                     e.rebuild_spawner_id = obj.rebuild_spawner_id.map(|id| id.0);
                     e.rebuild_worker_id = obj.rebuild_worker_id.map(|id| id.0);
@@ -1894,7 +1896,10 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
-            let changed = obj.rebuild_ready_frame != ent.rebuild_ready_frame
+            let host_tpl = obj.rebuild_template_name.clone().unwrap_or_default();
+            let changed = obj.is_rebuild_hole != ent.is_rebuild_hole
+                || host_tpl != ent.rebuild_template_name
+                || obj.rebuild_ready_frame != ent.rebuild_ready_frame
                 || obj.rebuild_spawner_id.map(|id| id.0) != ent.rebuild_spawner_id
                 || obj.rebuild_worker_id.map(|id| id.0) != ent.rebuild_worker_id
                 || obj.rebuild_reconstructing_id.map(|id| id.0) != ent.rebuild_reconstructing_id
@@ -1903,6 +1908,12 @@ impl GameWorldShadow {
             if !changed {
                 continue;
             }
+            obj.is_rebuild_hole = ent.is_rebuild_hole;
+            obj.rebuild_template_name = if ent.rebuild_template_name.is_empty() {
+                None
+            } else {
+                Some(ent.rebuild_template_name.clone())
+            };
             obj.rebuild_ready_frame = ent.rebuild_ready_frame;
             obj.rebuild_spawner_id = ent.rebuild_spawner_id.map(ObjectId);
             obj.rebuild_worker_id = ent.rebuild_worker_id.map(ObjectId);
@@ -3932,6 +3943,8 @@ impl GameWorldShadow {
             self.world
                 .queue_mutation(gamelogic::world::WorldMutation::SetRebuildProducer {
                     target: eid,
+                    is_rebuild_hole: ev.is_rebuild_hole,
+                    rebuild_template_name: ev.rebuild_template_name.clone(),
                     rebuild_ready_frame: ev.rebuild_ready_frame,
                     rebuild_spawner_id: ev.rebuild_spawner_id,
                     rebuild_worker_id: ev.rebuild_worker_id,
@@ -12851,6 +12864,8 @@ mod tests {
             .expect("worker");
         {
             let o = logic.get_objects_mut().get_mut(&hole).expect("o");
+            o.is_rebuild_hole = true;
+            o.rebuild_template_name = Some("BldA".into());
             o.rebuild_ready_frame = 100;
             o.rebuild_spawner_id = Some(bld);
             o.rebuild_worker_id = Some(worker);
@@ -12860,6 +12875,8 @@ mod tests {
         }
         host_rebuild_producer_log::record(
             hole,
+            true,
+            "BldA".into(),
             100,
             Some(bld.0),
             Some(worker.0),
@@ -12874,6 +12891,8 @@ mod tests {
             shadow.apply_host_rebuild_producer_events(&host_rebuild_producer_log::drain()) >= 1
         );
         let e = shadow.world().entity(eid).unwrap();
+        assert!(e.is_rebuild_hole);
+        assert_eq!(e.rebuild_template_name, "BldA");
         assert_eq!(e.rebuild_ready_frame, 100);
         assert_eq!(e.rebuild_spawner_id, Some(bld.0));
         assert_eq!(e.rebuild_worker_id, Some(worker.0));
@@ -12882,6 +12901,8 @@ mod tests {
         assert_eq!(e.construction_complete_clear_frame, 250);
         {
             let o = logic.get_objects_mut().get_mut(&hole).expect("o");
+            o.is_rebuild_hole = false;
+            o.rebuild_template_name = None;
             o.rebuild_ready_frame = 0;
             o.rebuild_spawner_id = None;
             o.rebuild_worker_id = None;
@@ -12893,6 +12914,8 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let o = logic.get_objects().get(&hole).unwrap();
+        assert!(o.is_rebuild_hole);
+        assert_eq!(o.rebuild_template_name.as_deref(), Some("BldA"));
         assert_eq!(o.rebuild_ready_frame, 100);
         assert_eq!(o.rebuild_spawner_id, Some(bld));
         assert_eq!(o.rebuild_worker_id, Some(worker));

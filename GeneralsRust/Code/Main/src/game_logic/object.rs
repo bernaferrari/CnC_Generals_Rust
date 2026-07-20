@@ -5793,6 +5793,8 @@ impl Object {
     pub fn record_host_rebuild_producer(&self) {
         crate::game_logic::host_rebuild_producer_log::record(
             self.id,
+            self.is_rebuild_hole,
+            self.rebuild_template_name.clone().unwrap_or_default(),
             self.rebuild_ready_frame,
             self.rebuild_spawner_id.map(|id| id.0),
             self.rebuild_worker_id.map(|id| id.0),

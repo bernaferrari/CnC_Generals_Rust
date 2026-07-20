@@ -944,6 +944,8 @@ pub enum WorldMutation {
     /// Host rebuild-hole / producer residual links.
     SetRebuildProducer {
         target: EntityId,
+        is_rebuild_hole: bool,
+        rebuild_template_name: String,
         rebuild_ready_frame: u32,
         rebuild_spawner_id: Option<u32>,
         rebuild_worker_id: Option<u32>,
@@ -1183,6 +1185,8 @@ impl GameWorld {
                 }
                 WorldMutation::SetRebuildProducer {
                     target,
+                    is_rebuild_hole,
+                    rebuild_template_name,
                     rebuild_ready_frame,
                     rebuild_spawner_id,
                     rebuild_worker_id,
@@ -1191,6 +1195,8 @@ impl GameWorld {
                     construction_complete_clear_frame,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
+                        e.is_rebuild_hole = is_rebuild_hole;
+                        e.rebuild_template_name = rebuild_template_name;
                         e.rebuild_ready_frame = rebuild_ready_frame;
                         e.rebuild_spawner_id = rebuild_spawner_id;
                         e.rebuild_worker_id = rebuild_worker_id;
