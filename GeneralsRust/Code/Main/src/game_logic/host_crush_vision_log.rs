@@ -10,6 +10,8 @@ pub struct HostCrushVisionEvent {
     pub crushable_level: u8,
     pub vision_range: f32,
     pub shroud_clearing_range: f32,
+    pub front_crushed: bool,
+    pub back_crushed: bool,
 }
 
 thread_local! {
@@ -22,6 +24,8 @@ pub fn record(
     crushable_level: u8,
     vision_range: f32,
     shroud_clearing_range: f32,
+    front_crushed: bool,
+    back_crushed: bool,
 ) {
     LOG.with(|log| {
         log.borrow_mut().push(HostCrushVisionEvent {
@@ -30,6 +34,8 @@ pub fn record(
             crushable_level,
             vision_range,
             shroud_clearing_range,
+            front_crushed,
+            back_crushed,
         });
     });
 }

@@ -4826,8 +4826,14 @@ impl Object {
         };
         if past_crush_point_residual((us.x, us.z), point, (dx_f, dz_f), offset) {
             match target {
-                CrushTarget::FrontEndCrush => other.front_crushed = true,
-                CrushTarget::BackEndCrush => other.back_crushed = true,
+                CrushTarget::FrontEndCrush => {
+                    other.front_crushed = true;
+                    other.record_host_crush_vision();
+                }
+                CrushTarget::BackEndCrush => {
+                    other.back_crushed = true;
+                    other.record_host_crush_vision();
+                }
                 CrushTarget::TotalCrush => {
                     other.front_crushed = true;
                     other.back_crushed = true;
@@ -5673,6 +5679,8 @@ impl Object {
             self.crushable_level,
             self.vision_range,
             self.shroud_clearing_range,
+            self.front_crushed,
+            self.back_crushed,
         );
     }
 

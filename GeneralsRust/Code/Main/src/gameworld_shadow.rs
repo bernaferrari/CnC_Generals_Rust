@@ -389,6 +389,8 @@ impl GameWorldShadow {
                     e.selection_radius = obj.selection_radius.max(5.0);
                     e.crusher_level = obj.crusher_level;
                     e.crushable_level = obj.crushable_level;
+                    e.front_crushed = obj.front_crushed;
+                    e.back_crushed = obj.back_crushed;
                     e.vision_range = obj.vision_range;
                     e.shroud_clearing_range = obj.shroud_clearing_range;
                     e.under_construction = obj.status.under_construction;
@@ -3691,6 +3693,8 @@ impl GameWorldShadow {
                     crushable_level: ev.crushable_level,
                     vision_range: ev.vision_range,
                     shroud_clearing_range: ev.shroud_clearing_range,
+                    front_crushed: ev.front_crushed,
+                    back_crushed: ev.back_crushed,
                 });
             n += 1;
         }
@@ -4090,7 +4094,9 @@ impl GameWorldShadow {
             let changed = obj.crusher_level != ent.crusher_level
                 || obj.crushable_level != ent.crushable_level
                 || (obj.vision_range - ent.vision_range).abs() > f32::EPSILON
-                || (obj.shroud_clearing_range - ent.shroud_clearing_range).abs() > f32::EPSILON;
+                || (obj.shroud_clearing_range - ent.shroud_clearing_range).abs() > f32::EPSILON
+                || obj.front_crushed != ent.front_crushed
+                || obj.back_crushed != ent.back_crushed;
             if !changed {
                 continue;
             }
@@ -4098,6 +4104,8 @@ impl GameWorldShadow {
             obj.crushable_level = ent.crushable_level;
             obj.vision_range = ent.vision_range;
             obj.shroud_clearing_range = ent.shroud_clearing_range;
+            obj.front_crushed = ent.front_crushed;
+            obj.back_crushed = ent.back_crushed;
             updated += 1;
         }
         updated
@@ -12009,6 +12017,48 @@ mod tests {
         assert_eq!(e.weapon_clip_size, 5);
         assert!((e.weapon_clip_reload_time - 2.5).abs() < 1e-5);
         assert_eq!(e.weapon_ammo, 3);
+    }
+
+    #[test]
+    fn front_crushed_channel_via_set_crush_vision() {
+        use crate::game_logic::host_crush_vision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_crush_vision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CrushFl");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("CrushMe") {
+            let mut t = ThingTemplate::new("CrushMe");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("CrushMe".into(), t);
+        }
+        let oid = logic
+            .create_object("CrushMe", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.front_crushed = true;
+            o.back_crushed = false;
+            o.crusher_level = 1;
+            o.crushable_level = 1;
+        }
+        host_crush_vision_log::record(oid, 1, 1, 100.0, 100.0, true, false);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_crush_vision_events(&host_crush_vision_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert!(e.front_crushed);
+        assert!(!e.back_crushed);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.front_crushed = false;
+        }
+        assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
+        assert!(
+            logic.get_objects().get(&oid).unwrap().front_crushed,
+            "front crushed writeback"
+        );
     }
 
     #[test]
