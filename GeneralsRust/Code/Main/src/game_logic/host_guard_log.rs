@@ -10,18 +10,21 @@ pub struct HostGuardEvent {
     pub position: Option<[f32; 3]>,
     /// Guard object target as host object id (0 = none).
     pub target_host: u32,
+    /// C++ GuardArea radius residual (world units).
+    pub radius: f32,
 }
 
 thread_local! {
     static LOG: RefCell<Vec<HostGuardEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record(object: ObjectId, position: Option<[f32; 3]>, target_host: u32) {
+pub fn record(object: ObjectId, position: Option<[f32; 3]>, target_host: u32, radius: f32) {
     LOG.with(|log| {
         log.borrow_mut().push(HostGuardEvent {
             object,
             position,
             target_host,
+            radius: radius.max(0.0),
         });
     });
 }
