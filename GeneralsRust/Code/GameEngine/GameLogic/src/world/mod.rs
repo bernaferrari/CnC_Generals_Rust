@@ -682,6 +682,12 @@ pub enum WorldMutation {
         vision_range: f32,
         shroud_clearing_range: f32,
     },
+    /// Host Object building_data present + BuildingType ordinal residual.
+    SetBuildingType {
+        target: EntityId,
+        is_building: bool,
+        building_type_ordinal: u8,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1400,6 +1406,17 @@ impl GameWorld {
                         e.crushable_level = crushable_level;
                         e.vision_range = vision_range;
                         e.shroud_clearing_range = shroud_clearing_range;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetBuildingType {
+                    target,
+                    is_building,
+                    building_type_ordinal,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.is_building = is_building;
+                        e.building_type_ordinal = building_type_ordinal;
                         applied += 1;
                     }
                 }
