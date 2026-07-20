@@ -482,6 +482,10 @@ pub struct Entity {
     pub ai_attitude: i8,
     /// Host last_damage_source as host object id (0 = none).
     pub last_damage_source_host: u32,
+    /// Host Object::sole_healing_benefactor_id residual.
+    pub sole_healing_benefactor_id: Option<u32>,
+    /// Host Object::sole_healing_benefactor_expiration_frame residual.
+    pub sole_healing_benefactor_expiration_frame: u32,
     /// Host command_set_override residual (empty = none).
     pub command_set_override: String,
     /// Host disguise residual (empty template = none).
@@ -780,6 +784,8 @@ impl EntityStore {
             turret_holding: false,
             ai_attitude: 0,
             last_damage_source_host: 0,
+            sole_healing_benefactor_id: None,
+            sole_healing_benefactor_expiration_frame: 0,
             command_set_override: String::new(),
             disguise_as_template: String::new(),
             disguise_as_team_ordinal: 255,
