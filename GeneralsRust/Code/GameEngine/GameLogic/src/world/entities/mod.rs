@@ -113,6 +113,8 @@ pub struct Entity {
     pub selected: bool,
     /// Host Object::status.destroyed residual.
     pub destroyed: bool,
+    /// C++ DeathType residual ordinal (HostDeathType).
+    pub death_type: u8,
     /// Host Object::construction_percent residual (0..1).
     pub construction_percent: f32,
     /// Host Object::team residual as ordinal: 0 USA, 1 China, 2 GLA, 255 Neutral.
@@ -521,6 +523,7 @@ impl EntityStore {
             body_damage_state: 0,
             selected: false,
             destroyed: false,
+            death_type: 0,
             construction_percent: 1.0,
             team_ordinal: 255,
             selection_radius: 5.0,
