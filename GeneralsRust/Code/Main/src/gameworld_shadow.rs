@@ -695,6 +695,10 @@ impl GameWorldShadow {
                     e.turret_idle_scanning = obj.turret_idle_scanning;
                     e.turret_holding = obj.turret_holding;
                     e.ai_attitude = obj.ai_attitude;
+                    e.idle_since_frame = obj.idle_since_frame;
+                    e.mood_attack_check_rate = obj.mood_attack_check_rate;
+                    e.auto_acquire_when_idle = obj.auto_acquire_when_idle;
+                    e.attack_priority_set = obj.attack_priority_set.clone().unwrap_or_default();
                     e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
                     e.sole_healing_benefactor_id = obj.sole_healing_benefactor.map(|id| id.0);
                     e.sole_healing_benefactor_expiration_frame =
@@ -1903,6 +1907,36 @@ impl GameWorldShadow {
             obj.sole_healing_benefactor = ent.sole_healing_benefactor_id.map(ObjectId);
             obj.sole_healing_benefactor_expiration_frame =
                 ent.sole_healing_benefactor_expiration_frame;
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn writeback_ai_mood_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_prio = obj.attack_priority_set.clone().unwrap_or_default();
+            let changed = obj.idle_since_frame != ent.idle_since_frame
+                || obj.mood_attack_check_rate != ent.mood_attack_check_rate
+                || obj.auto_acquire_when_idle != ent.auto_acquire_when_idle
+                || host_prio != ent.attack_priority_set;
+            if !changed {
+                continue;
+            }
+            obj.idle_since_frame = ent.idle_since_frame;
+            obj.mood_attack_check_rate = ent.mood_attack_check_rate;
+            obj.auto_acquire_when_idle = ent.auto_acquire_when_idle;
+            obj.attack_priority_set = if ent.attack_priority_set.is_empty() {
+                None
+            } else {
+                Some(ent.attack_priority_set.clone())
+            };
             updated += 1;
         }
         updated
@@ -3431,6 +3465,31 @@ impl GameWorldShadow {
                 .queue_mutation(gamelogic::world::WorldMutation::SetAiAttitude {
                     target: eid,
                     attitude: ev.attitude,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn apply_host_ai_mood_events(
+        &mut self,
+        events: &[crate::game_logic::host_ai_mood_log::HostAiMoodEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetAiMood {
+                    target: eid,
+                    idle_since_frame: ev.idle_since_frame,
+                    mood_attack_check_rate: ev.mood_attack_check_rate,
+                    auto_acquire_when_idle: ev.auto_acquire_when_idle,
+                    attack_priority_set: ev.attack_priority_set.clone(),
                 });
             n += 1;
         }
@@ -5501,6 +5560,8 @@ pub fn shadow_session_after_host_tick(
     let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
+    let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
+    let _mood_applied = shadow.apply_host_ai_mood_events(&ai_mood_events);
     let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
@@ -5596,6 +5657,7 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_shock_stun_to_host(logic);
     let _ = shadow.writeback_rebuild_producer_to_host(logic);
     let _ = shadow.writeback_sole_healing_to_host(logic);
+    let _ = shadow.writeback_ai_mood_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
@@ -6687,6 +6749,7 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
         let obj = logic.get_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
@@ -7854,6 +7917,7 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
@@ -9925,6 +9989,7 @@ mod tests {
             .create_object("AU", Team::USA, glam::Vec3::new(15.0, 0.0, 15.0))
             .expect("id");
         host_ai_attitude_log::clear();
+        crate::game_logic::host_ai_mood_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.set_ai_attitude_i8(2);
@@ -12228,6 +12293,7 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let d = logic
             .get_objects()
             .get(&oid)
@@ -12280,6 +12346,7 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().body_damage_state,
             HostBodyDamageType::ReallyDamaged
@@ -12622,6 +12689,7 @@ mod tests {
         assert!(shadow.writeback_shock_stun_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.shock_stun_frames, 30);
         assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
@@ -12770,6 +12838,7 @@ mod tests {
         }
         assert!(shadow.writeback_rebuild_producer_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let o = logic.get_objects().get(&hole).unwrap();
         assert_eq!(o.rebuild_ready_frame, 100);
         assert_eq!(o.rebuild_spawner_id, Some(bld));
@@ -12819,9 +12888,58 @@ mod tests {
             o.sole_healing_benefactor_expiration_frame = 0;
         }
         assert!(shadow.writeback_sole_healing_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let o = logic.get_objects().get(&tgt).unwrap();
         assert_eq!(o.sole_healing_benefactor, Some(dozer));
         assert_eq!(o.sole_healing_benefactor_expiration_frame, 900);
+    }
+
+    #[test]
+    fn ai_mood_channel_via_set_ai_mood() {
+        use crate::game_logic::host_ai_mood_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_ai_mood_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiMood");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("MoodU") {
+            let mut t = ThingTemplate::new("MoodU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("MoodU".into(), t);
+        }
+        let oid = logic
+            .create_object("MoodU", Team::USA, glam::Vec3::new(40.0, 0.0, 40.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.idle_since_frame = 120;
+            o.mood_attack_check_rate = 45;
+            o.auto_acquire_when_idle = false;
+            o.attack_priority_set = Some("Soldier".into());
+        }
+        host_ai_mood_log::record(oid, 120, 45, false, "Soldier".into());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_ai_mood_events(&host_ai_mood_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.idle_since_frame, 120);
+        assert_eq!(e.mood_attack_check_rate, 45);
+        assert!(!e.auto_acquire_when_idle);
+        assert_eq!(e.attack_priority_set, "Soldier");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.idle_since_frame = 0;
+            o.mood_attack_check_rate = 30;
+            o.auto_acquire_when_idle = true;
+            o.attack_priority_set = None;
+        }
+        assert!(shadow.writeback_ai_mood_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.idle_since_frame, 120);
+        assert_eq!(o.mood_attack_check_rate, 45);
+        assert!(!o.auto_acquire_when_idle);
+        assert_eq!(o.attack_priority_set.as_deref(), Some("Soldier"));
     }
 
     #[test]
@@ -12864,6 +12982,7 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().status.death_type,
             HostDeathType::Burned
@@ -12910,6 +13029,7 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.radar_active);
         assert_eq!(o.radar_extend_done_frame, 120);

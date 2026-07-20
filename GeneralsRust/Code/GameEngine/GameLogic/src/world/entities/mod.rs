@@ -480,6 +480,14 @@ pub struct Entity {
     pub turret_holding: bool,
     /// Host AI attitude residual (-1..n as host i8).
     pub ai_attitude: i8,
+    /// Host Object::idle_since_frame residual.
+    pub idle_since_frame: u32,
+    /// Host Object::mood_attack_check_rate residual.
+    pub mood_attack_check_rate: u32,
+    /// Host Object::auto_acquire_when_idle residual.
+    pub auto_acquire_when_idle: bool,
+    /// Host Object::attack_priority_set residual.
+    pub attack_priority_set: String,
     /// Host last_damage_source as host object id (0 = none).
     pub last_damage_source_host: u32,
     /// Host Object::sole_healing_benefactor_id residual.
@@ -783,6 +791,10 @@ impl EntityStore {
             turret_idle_scanning: false,
             turret_holding: false,
             ai_attitude: 0,
+            idle_since_frame: 0,
+            mood_attack_check_rate: 30,
+            auto_acquire_when_idle: true,
+            attack_priority_set: String::new(),
             last_damage_source_host: 0,
             sole_healing_benefactor_id: None,
             sole_healing_benefactor_expiration_frame: 0,

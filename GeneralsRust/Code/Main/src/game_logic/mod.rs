@@ -4,6 +4,7 @@ pub mod combat;
 pub mod combat_particles;
 pub mod game_logic;
 pub mod host_ai_ability_upgrade_residual;
+pub mod host_ai_mood_log;
 pub mod host_body_damage_log;
 pub mod host_create_crate_die;
 pub mod host_damage_log;
