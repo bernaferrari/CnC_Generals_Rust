@@ -6133,7 +6133,27 @@ impl GameLogic {
             }
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
-                if let Some((completed, kind)) = building.update_production(dt, pf) {
+                let completed_prod = building.update_production(dt, pf);
+                // GameWorld production residual: snapshot queue progress each tick.
+                if !building.production_queue.is_empty() {
+                    let items: Vec<crate::game_logic::host_production_progress_log::HostProductionQueueItem> =
+                        building
+                            .production_queue
+                            .iter()
+                            .take(16)
+                            .map(|it| {
+                                crate::game_logic::host_production_progress_log::HostProductionQueueItem {
+                                    template_name: it.template_name.clone(),
+                                    progress: it.progress,
+                                    total_time: it.total_time,
+                                    cost_supplies: it.cost.supplies,
+                                    is_upgrade: it.is_upgrade(),
+                                }
+                            })
+                            .collect();
+                    crate::game_logic::host_production_progress_log::record(id, items);
+                }
+                if let Some((completed, kind)) = completed_prod {
                     match kind {
                         ProductionKind::Upgrade => {
                             upgrade_completions.push((obj.team, completed, id));
@@ -69923,6 +69943,14 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_structure_template(&mut game_logic);
+
+        // Ensure controlling player + science residual (SCIENCE_ClusterMines gate).
+        if game_logic.get_player(0).is_none() {
+            game_logic.add_player(Player::new(0, Team::USA, "USA", true));
+        }
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_ClusterMines");
+        }
 
         // Caster that can fire special powers (player_id 0 → Team::USA ownership).
         let caster_id = game_logic

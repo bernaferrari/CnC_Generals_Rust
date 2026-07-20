@@ -2171,6 +2171,40 @@ impl GameWorldShadow {
         n + self.apply_host_spawn_events(&spawn_like, logic)
     }
 
+    pub fn apply_host_production_progress_events(
+        &mut self,
+        events: &[crate::game_logic::host_production_progress_log::HostProductionProgressEvent],
+    ) -> usize {
+        use gamelogic::world::entities::EntityProductionItem;
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.producer.0) else {
+                continue;
+            };
+            let items: Vec<EntityProductionItem> = ev
+                .items
+                .iter()
+                .map(|it| EntityProductionItem {
+                    template_name: it.template_name.clone(),
+                    progress: it.progress,
+                    total_time: it.total_time,
+                    cost_supplies: it.cost_supplies,
+                    is_upgrade: it.is_upgrade,
+                })
+                .collect();
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetProductionQueue {
+                    target: eid,
+                    items,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     /// Host structure construction-complete residual: ensure completed buildings are
     /// mapped in the shadow (usually already present via sync; counts for probe honesty).
     /// Fail-closed: does not invent GameWorld construction modules.
@@ -5013,6 +5047,7 @@ pub fn shadow_session_after_host_tick(
     let veterancy_events = crate::game_logic::host_veterancy_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
+    let production_progress_events = crate::game_logic::host_production_progress_log::drain();
     let construction_events = crate::game_logic::host_construction_log::drain();
     let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
     let special_power_events = crate::game_logic::host_special_power_log::drain();
@@ -5031,6 +5066,7 @@ pub fn shadow_session_after_host_tick(
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
+    let _pp_applied = shadow.apply_host_production_progress_events(&production_progress_events);
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
     let _construction_progress_applied =
         shadow.apply_host_construction_progress_events(&construction_progress_events);
@@ -11658,6 +11694,46 @@ mod tests {
                 .abs()
                 < 1e-5
         );
+    }
+
+    #[test]
+    fn production_progress_log_drives_set_production_queue() {
+        use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_production_progress_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdProg");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("FactProg") {
+            let mut t = ThingTemplate::new("FactProg");
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::FSBarracks);
+            logic.templates.insert("FactProg".into(), t);
+        }
+        let oid = logic
+            .create_object("FactProg", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("id");
+        host_production_progress_log::record(
+            oid,
+            vec![HostProductionQueueItem {
+                template_name: "Ranger".into(),
+                progress: 3.5,
+                total_time: 10.0,
+                cost_supplies: 150,
+                is_upgrade: false,
+            }],
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        let n =
+            shadow.apply_host_production_progress_events(&host_production_progress_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.production_queue_items.len(), 1);
+        assert!((e.production_queue_items[0].progress - 3.5).abs() < 1e-5);
+        assert_eq!(e.production_queue_items[0].template_name, "Ranger");
+        assert!((e.production_progress - 3.5).abs() < 1e-5);
     }
 
     #[test]
