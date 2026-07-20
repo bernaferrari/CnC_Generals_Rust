@@ -5026,6 +5026,7 @@ impl SnapshotBuilder {
                 team: snap.team,
                 name: snap.name.clone(),
                 resources: snap.resources,
+                pending_supply_delta: 0,
                 power_available: snap.resources.power,
                 power_produced: 0,
                 power_consumed: 0,
