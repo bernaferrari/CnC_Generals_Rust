@@ -16,6 +16,32 @@ pub enum TurretSubState {
     Recenter,
 }
 
+impl TurretSubState {
+    #[inline]
+    pub fn ordinal(self) -> u8 {
+        match self {
+            TurretSubState::Idle => 0,
+            TurretSubState::IdleScan => 1,
+            TurretSubState::Aim => 2,
+            TurretSubState::Fire => 3,
+            TurretSubState::Hold => 4,
+            TurretSubState::Recenter => 5,
+        }
+    }
+
+    #[inline]
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => TurretSubState::IdleScan,
+            2 => TurretSubState::Aim,
+            3 => TurretSubState::Fire,
+            4 => TurretSubState::Hold,
+            5 => TurretSubState::Recenter,
+            _ => TurretSubState::Idle,
+        }
+    }
+}
+
 /// C++ AttackStateMachine substate residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum AttackSubState {
@@ -9208,6 +9234,21 @@ impl Object {
             self.turret_pitch_deg,
             self.turret_holding,
             self.turret_idle_scanning,
+            self.turret_turn_rate_rad,
+            self.turret_recenter_frames,
+            self.turret_hold_until_frame,
+            self.turret_idle_recentering,
+            self.turret_enabled,
+            self.turret_rotating,
+            self.turret_natural_angle_deg,
+            self.turret_natural_pitch_deg,
+            self.turret_target_id.map(|id| id.0).unwrap_or(0),
+            self.turret_force_attacking,
+            self.turret_mood_target,
+            self.turret_idle_scan_next_frame,
+            self.turret_idle_scan_desired_angle_deg,
+            self.turret_idle_scan_index,
+            self.turret_substate.ordinal(),
         );
     }
 

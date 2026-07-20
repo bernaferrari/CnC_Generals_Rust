@@ -526,6 +526,36 @@ pub struct Entity {
     pub turret_pitch_deg: f32,
     pub turret_idle_scanning: bool,
     pub turret_holding: bool,
+    /// Host Object::turret_turn_rate_rad residual.
+    pub turret_turn_rate_rad: f32,
+    /// Host Object::turret_recenter_frames residual.
+    pub turret_recenter_frames: u32,
+    /// Host Object::turret_hold_until_frame residual.
+    pub turret_hold_until_frame: u32,
+    /// Host Object::turret_idle_recentering residual.
+    pub turret_idle_recentering: bool,
+    /// Host Object::turret_enabled residual.
+    pub turret_enabled: bool,
+    /// Host Object::turret_rotating residual.
+    pub turret_rotating: bool,
+    /// Host Object::turret_natural_angle_deg residual.
+    pub turret_natural_angle_deg: f32,
+    /// Host Object::turret_natural_pitch_deg residual.
+    pub turret_natural_pitch_deg: f32,
+    /// Host Object::turret_target_host residual.
+    pub turret_target_host: u32,
+    /// Host Object::turret_force_attacking residual.
+    pub turret_force_attacking: bool,
+    /// Host Object::turret_mood_target residual.
+    pub turret_mood_target: bool,
+    /// Host Object::turret_idle_scan_next_frame residual.
+    pub turret_idle_scan_next_frame: u32,
+    /// Host Object::turret_idle_scan_desired_angle_deg residual.
+    pub turret_idle_scan_desired_angle_deg: f32,
+    /// Host Object::turret_idle_scan_index residual.
+    pub turret_idle_scan_index: u32,
+    /// Host Object::turret_substate residual.
+    pub turret_substate: u8,
     /// Host AI attitude residual (-1..n as host i8).
     pub ai_attitude: i8,
     /// Host Object::idle_since_frame residual.
@@ -862,6 +892,21 @@ impl EntityStore {
             turret_pitch_deg: 0.0,
             turret_idle_scanning: false,
             turret_holding: false,
+            turret_turn_rate_rad: 0.0,
+            turret_recenter_frames: 0,
+            turret_hold_until_frame: 0,
+            turret_idle_recentering: false,
+            turret_enabled: false,
+            turret_rotating: false,
+            turret_natural_angle_deg: 0.0,
+            turret_natural_pitch_deg: 0.0,
+            turret_target_host: 0,
+            turret_force_attacking: false,
+            turret_mood_target: false,
+            turret_idle_scan_next_frame: 0,
+            turret_idle_scan_desired_angle_deg: 0.0,
+            turret_idle_scan_index: 0,
+            turret_substate: 0,
             ai_attitude: 0,
             idle_since_frame: 0,
             mood_attack_check_rate: 30,
