@@ -522,6 +522,7 @@ impl GameWorldShadow {
                     ];
                     e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
                     e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
+                    e.waiting_for_path = obj.waiting_for_path;
                     e.path_waypoints = obj
                         .movement
                         .path
@@ -3582,6 +3583,7 @@ impl GameWorldShadow {
                     path_index: ev.path_index,
                     path_len: ev.path_len,
                     path_waypoints: ev.path_waypoints.clone(),
+                    waiting_for_path: ev.waiting_for_path,
                 });
             n += 1;
         }
@@ -4177,41 +4179,29 @@ impl GameWorldShadow {
                 .iter()
                 .zip(ent.velocity.iter())
                 .any(|(a, b)| (*a - *b).abs() > f32::EPSILON);
-            let path_changed = if ent.path_waypoints.is_empty() {
-                ent.path_len == 0 && !obj.movement.path.is_empty()
-            } else {
-                obj.movement.path.len() != ent.path_waypoints.len()
-                    || obj
-                        .movement
-                        .path
-                        .iter()
-                        .zip(ent.path_waypoints.iter())
-                        .any(|(p, e)| {
-                            (p.x - e[0]).abs() > f32::EPSILON
-                                || (p.y - e[1]).abs() > f32::EPSILON
-                                || (p.z - e[2]).abs() > f32::EPSILON
-                        })
-            };
             let changed = vel_changed
                 || (obj.movement.max_speed - ent.move_max_speed).abs() > f32::EPSILON
                 || host_idx != ent.path_index
                 || host_len != ent.path_len
-                || path_changed;
+                || obj.waiting_for_path != ent.waiting_for_path;
             if !changed {
                 continue;
             }
             obj.movement.velocity = Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
             obj.movement.max_speed = ent.move_max_speed;
             obj.movement.current_path_index = ent.path_index as usize;
-            if !ent.path_waypoints.is_empty() {
+            // Prefer entity residual path when lengths match channel snapshot; else keep host path.
+            if ent.path_len as usize == ent.path_waypoints.len()
+                && !ent.path_waypoints.is_empty()
+                && obj.movement.path.len() != ent.path_waypoints.len()
+            {
                 obj.movement.path = ent
                     .path_waypoints
                     .iter()
                     .map(|p| Vec3::new(p[0], p[1], p[2]))
                     .collect();
-            } else if ent.path_len == 0 {
-                obj.movement.path.clear();
             }
+            obj.waiting_for_path = ent.waiting_for_path;
             updated += 1;
         }
         updated
@@ -12058,6 +12048,44 @@ mod tests {
         assert!(
             logic.get_objects().get(&oid).unwrap().front_crushed,
             "front crushed writeback"
+        );
+    }
+
+    #[test]
+    fn waiting_for_path_channel_via_set_movement() {
+        use crate::game_logic::host_movement_log::{self, HostMovementEvent};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_movement_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WaitPath");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WaitUnit") {
+            let mut t = ThingTemplate::new("WaitUnit");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("WaitUnit".into(), t);
+        }
+        let oid = logic
+            .create_object("WaitUnit", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.waiting_for_path = true;
+            o.movement.max_speed = 12.0;
+        }
+        host_movement_log::record(oid, glam::Vec3::ZERO, 12.0, 0, &[], true);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_movement_events(&host_movement_log::drain()) >= 1);
+        assert!(shadow.world().entity(eid).unwrap().waiting_for_path);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.waiting_for_path = false;
+        }
+        assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        assert!(
+            logic.get_objects().get(&oid).unwrap().waiting_for_path,
+            "waiting_for_path writeback"
         );
     }
 

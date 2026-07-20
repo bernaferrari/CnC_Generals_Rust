@@ -300,6 +300,8 @@ pub struct Entity {
     pub path_len: u16,
     /// Host Movement::current_path_index residual.
     pub path_index: u16,
+    /// Host Movement/Object::waiting_for_path residual.
+    pub waiting_for_path: bool,
     /// Host Movement::path waypoints residual (capped for presentation line pack).
     pub path_waypoints: Vec<[f32; 3]>,
     /// Host secondary weapon range residual.
@@ -613,6 +615,7 @@ impl EntityStore {
             velocity: [0.0; 3],
             path_len: 0,
             path_index: 0,
+            waiting_for_path: false,
             path_waypoints: Vec::new(),
             secondary_weapon_range: 0.0,
             secondary_weapon_damage: 0.0,

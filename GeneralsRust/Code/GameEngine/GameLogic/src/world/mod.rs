@@ -812,6 +812,7 @@ pub enum WorldMutation {
         path_index: u16,
         path_len: u16,
         path_waypoints: Vec<[f32; 3]>,
+        waiting_for_path: bool,
     },
     /// Host Object::selection_radius residual.
     SetSelectionRadius {
@@ -1606,6 +1607,7 @@ impl GameWorld {
                     path_index,
                     path_len,
                     path_waypoints,
+                    waiting_for_path,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.velocity = velocity;
@@ -1613,6 +1615,7 @@ impl GameWorld {
                         e.path_index = path_index;
                         e.path_len = path_len;
                         e.path_waypoints = path_waypoints;
+                        e.waiting_for_path = waiting_for_path;
                         applied += 1;
                     }
                 }

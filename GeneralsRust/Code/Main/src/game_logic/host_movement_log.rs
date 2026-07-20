@@ -13,13 +13,21 @@ pub struct HostMovementEvent {
     pub path_len: u16,
     /// Waypoints truncated for channel volume.
     pub path_waypoints: Vec<[f32; 3]>,
+    pub waiting_for_path: bool,
 }
 
 thread_local! {
     static LOG: RefCell<Vec<HostMovementEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record(object: ObjectId, velocity: Vec3, max_speed: f32, path_index: usize, path: &[Vec3]) {
+pub fn record(
+    object: ObjectId,
+    velocity: Vec3,
+    max_speed: f32,
+    path_index: usize,
+    path: &[Vec3],
+    waiting_for_path: bool,
+) {
     let path_waypoints: Vec<[f32; 3]> = path.iter().take(64).map(|p| [p.x, p.y, p.z]).collect();
     LOG.with(|log| {
         log.borrow_mut().push(HostMovementEvent {
@@ -29,6 +37,7 @@ pub fn record(object: ObjectId, velocity: Vec3, max_speed: f32, path_index: usiz
             path_index: path_index.min(u16::MAX as usize) as u16,
             path_len: path.len().min(u16::MAX as usize) as u16,
             path_waypoints,
+            waiting_for_path,
         });
     });
 }

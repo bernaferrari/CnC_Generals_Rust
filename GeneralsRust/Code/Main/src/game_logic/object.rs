@@ -5715,6 +5715,7 @@ impl Object {
             self.movement.max_speed,
             self.movement.current_path_index,
             &self.movement.path,
+            self.waiting_for_path,
         );
     }
 
