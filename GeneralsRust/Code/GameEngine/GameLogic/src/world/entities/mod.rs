@@ -627,6 +627,28 @@ pub struct Entity {
     pub weapon_bonus_frenzy_until_frame: u32,
     /// Host continuous_fire_coast_until_frame residual.
     pub continuous_fire_coast_until_frame: u32,
+    /// Host combat attack residual `pre_attack_target_host`.
+    pub pre_attack_target_host: u32,
+    /// Host combat attack residual `pre_attack_ready_at`.
+    pub pre_attack_ready_at: f32,
+    /// Host combat attack residual `consecutive_shots_at_target`.
+    pub consecutive_shots_at_target: u32,
+    /// Host combat attack residual `max_shots_to_fire`.
+    pub max_shots_to_fire: i32,
+    /// Host combat attack residual `attack_substate_ordinal`.
+    pub attack_substate_ordinal: u8,
+    /// Host combat attack residual `approach_timestamp`.
+    pub approach_timestamp: u32,
+    /// Host combat attack residual `continuous_fire_victim`.
+    pub continuous_fire_victim: u32,
+    /// Host combat attack residual `maintain_pos_valid`.
+    pub maintain_pos_valid: bool,
+    /// Host combat attack residual `maintain_pos`.
+    pub maintain_pos: Option<[f32; 3]>,
+    /// Host combat attack residual `temporary_move_frames`.
+    pub temporary_move_frames: u32,
+    /// Host combat attack residual `group_speed_factor`.
+    pub group_speed_factor: f32,
     /// Host battle_plan_sight_scalar_applied residual (1.0 = none).
     pub battle_plan_sight_scalar_applied: f32,
 }
@@ -981,6 +1003,17 @@ impl EntityStore {
             has_mine_data: false,
             weapon_bonus_frenzy_until_frame: 0,
             continuous_fire_coast_until_frame: 0,
+            pre_attack_target_host: 0,
+            pre_attack_ready_at: 0.0,
+            consecutive_shots_at_target: 0,
+            max_shots_to_fire: -1,
+            attack_substate_ordinal: 0,
+            approach_timestamp: 0,
+            continuous_fire_victim: 0,
+            maintain_pos_valid: false,
+            maintain_pos: None,
+            temporary_move_frames: 0,
+            group_speed_factor: 1.0,
             battle_plan_sight_scalar_applied: 1.0,
         };
 
