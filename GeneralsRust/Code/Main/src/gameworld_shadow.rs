@@ -580,6 +580,21 @@ impl GameWorldShadow {
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
                     e.is_attack_path = obj.is_attack_path;
+                    e.is_approach_path = obj.is_approach_path;
+                    e.on_invalid_movement_terrain = obj.on_invalid_movement_terrain;
+                    e.was_airborne_last_frame = obj.was_airborne_last_frame;
+                    e.can_move_backward = obj.can_move_backward;
+                    e.moving_backwards = obj.moving_backwards;
+                    e.no_slow_down_as_approaching_dest = obj.no_slow_down_as_approaching_dest;
+                    e.turn_pivot_offset = obj.turn_pivot_offset;
+                    e.wander_width_factor = obj.wander_width_factor;
+                    e.loco_apply_2d_friction_airborne = obj.loco_apply_2d_friction_airborne;
+                    e.loco_extra_2d_friction = obj.loco_extra_2d_friction;
+                    e.loco_preferred_height = obj.loco_preferred_height;
+                    e.loco_preferred_height_damping = obj.loco_preferred_height_damping;
+                    e.loco_appearance_ordinal = obj.loco_appearance.to_ordinal();
+                    e.loco_behavior_z_ordinal = obj.loco_behavior_z.to_ordinal();
+                    e.min_turn_speed = obj.min_turn_speed;
                     e.is_blocked_and_stuck = obj.is_blocked_and_stuck;
                     e.is_braking = obj.is_braking;
                     e.is_safe_path = obj.is_safe_path;
@@ -4210,6 +4225,42 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_locomotor_events(
+        &mut self,
+        events: &[crate::game_logic::host_locomotor_log::HostLocomotorEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetLocomotor {
+                    target: eid,
+                    is_approach_path: ev.is_approach_path,
+                    on_invalid_movement_terrain: ev.on_invalid_movement_terrain,
+                    was_airborne_last_frame: ev.was_airborne_last_frame,
+                    can_move_backward: ev.can_move_backward,
+                    moving_backwards: ev.moving_backwards,
+                    no_slow_down_as_approaching_dest: ev.no_slow_down_as_approaching_dest,
+                    turn_pivot_offset: ev.turn_pivot_offset,
+                    wander_width_factor: ev.wander_width_factor,
+                    loco_apply_2d_friction_airborne: ev.loco_apply_2d_friction_airborne,
+                    loco_extra_2d_friction: ev.loco_extra_2d_friction,
+                    loco_preferred_height: ev.loco_preferred_height,
+                    loco_preferred_height_damping: ev.loco_preferred_height_damping,
+                    loco_appearance_ordinal: ev.loco_appearance_ordinal,
+                    loco_behavior_z_ordinal: ev.loco_behavior_z_ordinal,
+                    min_turn_speed: ev.min_turn_speed,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_bounce_land_events(
         &mut self,
         events: &[crate::game_logic::host_bounce_land_log::HostBounceLandEvent],
@@ -4954,6 +5005,56 @@ impl GameWorldShadow {
             obj.immune_to_falling_damage = ent.immune_to_falling_damage;
             obj.physics_current_overlap = ent.physics_current_overlap_id.map(ObjectId);
             obj.physics_previous_overlap = ent.physics_previous_overlap_id.map(ObjectId);
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn writeback_locomotor_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.is_approach_path != ent.is_approach_path
+                || obj.on_invalid_movement_terrain != ent.on_invalid_movement_terrain
+                || obj.was_airborne_last_frame != ent.was_airborne_last_frame
+                || obj.can_move_backward != ent.can_move_backward
+                || obj.moving_backwards != ent.moving_backwards
+                || obj.no_slow_down_as_approaching_dest != ent.no_slow_down_as_approaching_dest
+                || (obj.turn_pivot_offset - ent.turn_pivot_offset).abs() > f32::EPSILON
+                || (obj.wander_width_factor - ent.wander_width_factor).abs() > f32::EPSILON
+                || obj.loco_apply_2d_friction_airborne != ent.loco_apply_2d_friction_airborne
+                || (obj.loco_extra_2d_friction - ent.loco_extra_2d_friction).abs() > f32::EPSILON
+                || (obj.loco_preferred_height - ent.loco_preferred_height).abs() > f32::EPSILON
+                || (obj.loco_preferred_height_damping - ent.loco_preferred_height_damping).abs()
+                    > f32::EPSILON
+                || obj.loco_appearance.to_ordinal() != ent.loco_appearance_ordinal
+                || obj.loco_behavior_z.to_ordinal() != ent.loco_behavior_z_ordinal
+                || (obj.min_turn_speed - ent.min_turn_speed).abs() > f32::EPSILON;
+            if !changed {
+                continue;
+            }
+            obj.is_approach_path = ent.is_approach_path;
+            obj.on_invalid_movement_terrain = ent.on_invalid_movement_terrain;
+            obj.was_airborne_last_frame = ent.was_airborne_last_frame;
+            obj.can_move_backward = ent.can_move_backward;
+            obj.moving_backwards = ent.moving_backwards;
+            obj.no_slow_down_as_approaching_dest = ent.no_slow_down_as_approaching_dest;
+            obj.turn_pivot_offset = ent.turn_pivot_offset;
+            obj.wander_width_factor = ent.wander_width_factor;
+            obj.loco_apply_2d_friction_airborne = ent.loco_apply_2d_friction_airborne;
+            obj.loco_extra_2d_friction = ent.loco_extra_2d_friction;
+            obj.loco_preferred_height = ent.loco_preferred_height;
+            obj.loco_preferred_height_damping = ent.loco_preferred_height_damping;
+            obj.loco_appearance =
+                crate::game_logic::LocomotorAppearance::from_ordinal(ent.loco_appearance_ordinal);
+            obj.loco_behavior_z =
+                crate::game_logic::LocomotorBehaviorZ::from_ordinal(ent.loco_behavior_z_ordinal);
+            obj.min_turn_speed = ent.min_turn_speed;
             updated += 1;
         }
         updated
@@ -6094,6 +6195,8 @@ pub fn shadow_session_after_host_tick(
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
     let physics_motive_events = crate::game_logic::host_physics_motive_log::drain();
     let _pm_applied = shadow.apply_host_physics_motive_events(&physics_motive_events);
+    let loco_events = crate::game_logic::host_locomotor_log::drain();
+    let _loco_applied = shadow.apply_host_locomotor_events(&loco_events);
     let bounce_land_events = crate::game_logic::host_bounce_land_log::drain();
     let _bl_applied = shadow.apply_host_bounce_land_events(&bounce_land_events);
 
@@ -6158,7 +6261,9 @@ pub fn shadow_session_after_host_tick(
     // (do not gate on damage-channel auth — path frames often have empty damage logs).
     if gameworld_movement_authority_enabled() {
         let _mv_wb = shadow.writeback_movement_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_bounce_land_to_host(logic);
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
@@ -6196,10 +6301,12 @@ pub fn shadow_session_after_host_tick(
         let _tur_wb = shadow.writeback_turret_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _tloc_wb = shadow.writeback_target_location_to_host(logic);
         let _det_wb = shadow.writeback_detector_to_host(logic);
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _guard_wb = shadow.writeback_guard_to_host(logic);
         let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
@@ -6210,15 +6317,19 @@ pub fn shadow_session_after_host_tick(
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
         let _cs_wb = shadow.writeback_command_set_to_host(logic);
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
+        let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_bounce_land_to_host(logic);
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
@@ -9777,6 +9888,7 @@ mod tests {
             .expect("id");
         host_movement_log::clear();
         crate::game_logic::host_physics_motive_log::clear();
+        crate::game_logic::host_locomotor_log::clear();
         crate::game_logic::host_bounce_land_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
@@ -9837,7 +9949,9 @@ mod tests {
             e.path_waypoints = vec![[1.0, 0.0, 1.0], [2.0, 0.0, 2.0]];
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
@@ -10039,6 +10153,7 @@ mod tests {
         assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.vision_spied_mask, 0b101);
         assert!((o.camo_friendly_opacity - 0.35).abs() < 1e-5);
@@ -10262,6 +10377,7 @@ mod tests {
         assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
         assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
@@ -10692,6 +10808,7 @@ mod tests {
         }
         assert!(shadow.writeback_continuous_fire_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.continuous_fire_level, 2);
         assert_eq!(o.continuous_fire_consecutive, 9);
@@ -10891,6 +11008,7 @@ mod tests {
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
         assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
@@ -13097,7 +13215,9 @@ mod tests {
             o.waiting_for_path = false;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         assert!(
             logic.get_objects().get(&oid).unwrap().waiting_for_path,
@@ -13174,7 +13294,9 @@ mod tests {
             o.waiting_for_path = false;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.locomotor_surfaces, 0b101);
@@ -13308,7 +13430,9 @@ mod tests {
             o.requested_victim_id = None;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
@@ -13667,6 +13791,7 @@ mod tests {
             o.ignore_collisions_until_frame = 0;
         }
         assert!(shadow.writeback_physics_motive_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.motive_frames_remaining, 12);
@@ -13838,6 +13963,7 @@ mod tests {
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
         assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
@@ -13896,6 +14022,7 @@ mod tests {
         }
         assert!(shadow.writeback_stealth_delay_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.stealth_delay_pending);
         assert_eq!(o.stealth_allowed_frame, 300);
@@ -13975,12 +14102,102 @@ mod tests {
             o.maintain_pos_valid = false;
         }
         assert!(shadow.writeback_combat_attack_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.pre_attack_target, Some(tgt));
         assert_eq!(o.attack_substate, AttackSubState::FireWeapon);
         assert_eq!(o.consecutive_shots_at_target, 3);
         assert_eq!(o.maintain_pos, Some(glam::Vec3::new(1.0, 2.0, 3.0)));
         assert!((o.group_speed_factor - 0.85).abs() < 1e-5);
+    }
+
+    #[test]
+    fn locomotor_channel_via_set_locomotor() {
+        use crate::game_logic::host_locomotor_log;
+        use crate::game_logic::{
+            KindOf, LocomotorAppearance, LocomotorBehaviorZ, Team, ThingTemplate,
+        };
+        host_locomotor_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("Loco");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("LocoU") {
+            let mut t = ThingTemplate::new("LocoU");
+            t.add_kind_of(KindOf::Vehicle);
+            logic.templates.insert("LocoU".into(), t);
+        }
+        let oid = logic
+            .create_object("LocoU", Team::USA, glam::Vec3::new(150.0, 0.0, 150.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.is_approach_path = true;
+            o.on_invalid_movement_terrain = true;
+            o.was_airborne_last_frame = true;
+            o.can_move_backward = true;
+            o.moving_backwards = true;
+            o.no_slow_down_as_approaching_dest = true;
+            o.turn_pivot_offset = -0.5;
+            o.wander_width_factor = 0.2;
+            o.loco_apply_2d_friction_airborne = true;
+            o.loco_extra_2d_friction = 0.03;
+            o.loco_preferred_height = 40.0;
+            o.loco_preferred_height_damping = 0.7;
+            o.loco_appearance = LocomotorAppearance::Wings;
+            o.loco_behavior_z = LocomotorBehaviorZ::AbsoluteHeight;
+            o.min_turn_speed = 5.5;
+        }
+        host_locomotor_log::record(
+            oid,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            -0.5,
+            0.2,
+            true,
+            0.03,
+            40.0,
+            0.7,
+            LocomotorAppearance::Wings.to_ordinal(),
+            LocomotorBehaviorZ::AbsoluteHeight.to_ordinal(),
+            5.5,
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_locomotor_events(&host_locomotor_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert!(e.is_approach_path);
+        assert!(e.was_airborne_last_frame);
+        assert!(e.moving_backwards);
+        assert!((e.turn_pivot_offset + 0.5).abs() < 1e-5);
+        assert!((e.loco_preferred_height - 40.0).abs() < 1e-5);
+        assert_eq!(
+            e.loco_appearance_ordinal,
+            LocomotorAppearance::Wings.to_ordinal()
+        );
+        assert_eq!(
+            e.loco_behavior_z_ordinal,
+            LocomotorBehaviorZ::AbsoluteHeight.to_ordinal()
+        );
+        assert!((e.min_turn_speed - 5.5).abs() < 1e-5);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.is_approach_path = false;
+            o.moving_backwards = false;
+            o.loco_appearance = LocomotorAppearance::Other;
+            o.loco_preferred_height = 0.0;
+        }
+        assert!(shadow.writeback_locomotor_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!(o.is_approach_path);
+        assert!(o.moving_backwards);
+        assert_eq!(o.loco_appearance, LocomotorAppearance::Wings);
+        assert!((o.loco_preferred_height - 40.0).abs() < 1e-5);
+        assert!((o.min_turn_speed - 5.5).abs() < 1e-5);
     }
 
     #[test]

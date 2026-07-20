@@ -184,6 +184,27 @@ pub enum LocomotorBehaviorZ {
     SmoothRelativeToHighestLayer = 4,
 }
 
+impl LocomotorBehaviorZ {
+    pub fn to_ordinal(self) -> u8 {
+        match self {
+            LocomotorBehaviorZ::NoZMotiveForce => 0,
+            LocomotorBehaviorZ::SeaLevel => 1,
+            LocomotorBehaviorZ::SurfaceRelativeHeight => 2,
+            LocomotorBehaviorZ::AbsoluteHeight => 3,
+            LocomotorBehaviorZ::SmoothRelativeToHighestLayer => 4,
+        }
+    }
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => LocomotorBehaviorZ::SeaLevel,
+            2 => LocomotorBehaviorZ::SurfaceRelativeHeight,
+            3 => LocomotorBehaviorZ::AbsoluteHeight,
+            4 => LocomotorBehaviorZ::SmoothRelativeToHighestLayer,
+            _ => LocomotorBehaviorZ::NoZMotiveForce,
+        }
+    }
+}
+
 /// C++ LocomotorAppearance residual (subset used by host update_movement).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(u8)]
@@ -198,6 +219,35 @@ pub enum LocomotorAppearance {
     Thrust = 6,
     Motorcycle = 7,
     Climber = 8,
+}
+
+impl LocomotorAppearance {
+    pub fn to_ordinal(self) -> u8 {
+        match self {
+            LocomotorAppearance::Other => 0,
+            LocomotorAppearance::LegsTwo => 1,
+            LocomotorAppearance::WheelsFour => 2,
+            LocomotorAppearance::Treads => 3,
+            LocomotorAppearance::Hover => 4,
+            LocomotorAppearance::Wings => 5,
+            LocomotorAppearance::Thrust => 6,
+            LocomotorAppearance::Motorcycle => 7,
+            LocomotorAppearance::Climber => 8,
+        }
+    }
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => LocomotorAppearance::LegsTwo,
+            2 => LocomotorAppearance::WheelsFour,
+            3 => LocomotorAppearance::Treads,
+            4 => LocomotorAppearance::Hover,
+            5 => LocomotorAppearance::Wings,
+            6 => LocomotorAppearance::Thrust,
+            7 => LocomotorAppearance::Motorcycle,
+            8 => LocomotorAppearance::Climber,
+            _ => LocomotorAppearance::Other,
+        }
+    }
 }
 
 /// Game Object - the main entity class for all game units, buildings, etc.
@@ -4144,15 +4194,18 @@ impl Object {
             self.stick_to_ground = true;
             if matches!(self.loco_appearance, LocomotorAppearance::Other) {
                 self.loco_appearance = LocomotorAppearance::LegsTwo;
+                self.record_host_locomotor();
             }
         } else if self.is_kind_of(crate::game_logic::KindOf::Aircraft) {
             if matches!(self.loco_appearance, LocomotorAppearance::Other) {
                 self.loco_appearance = LocomotorAppearance::Wings;
+                self.record_host_locomotor();
             }
         } else if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
             if matches!(self.loco_appearance, LocomotorAppearance::Other) {
                 // Fail-closed: vehicles default treads-like (tanks common in host).
                 self.loco_appearance = LocomotorAppearance::Treads;
+                self.record_host_locomotor();
             }
         }
     }
@@ -4226,6 +4279,7 @@ impl Object {
         self.requested_victim_id = victim_id;
         self.is_attack_path = true;
         self.is_approach_path = false;
+        self.record_host_locomotor();
         self.is_safe_path = false;
         self.waiting_for_path = true;
         if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
@@ -4243,6 +4297,7 @@ impl Object {
         self.requested_victim_id = None;
         self.is_attack_path = false;
         self.is_approach_path = false;
+        self.record_host_locomotor();
         self.is_safe_path = false;
         self.waiting_for_path = true;
         if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
@@ -4261,6 +4316,7 @@ impl Object {
     ) -> bool {
         let ok = self.begin_request_move_path(destination, current_frame);
         self.is_approach_path = true;
+        self.record_host_locomotor();
         ok
     }
 
@@ -5261,6 +5317,7 @@ impl Object {
             let _ = self.apply_shock_fall_damage(impact_vy);
         }
         self.was_airborne_last_frame = airborne_end;
+        self.record_host_locomotor();
         self.status.airborne_target = airborne_end;
         let _ = airborne_start; // reserved for future free-fall start residual
                                 // C++ killWhenRestingOnGround residual after landing.
@@ -7688,6 +7745,7 @@ impl Object {
         self.waiting_for_path = false;
         self.is_attack_path = false;
         self.is_approach_path = false;
+        self.record_host_locomotor();
         self.is_safe_path = false;
         self.temporary_move_frames = 0;
         self.record_host_combat_attack();
@@ -8702,9 +8760,11 @@ impl Object {
                     && angle_diff.abs() > std::f32::consts::FRAC_PI_2
                 {
                     self.moving_backwards = true;
+                    self.record_host_locomotor();
                 }
                 if self.moving_backwards && angle_diff.abs() < std::f32::consts::FRAC_PI_2 {
                     self.moving_backwards = false;
+                    self.record_host_locomotor();
                 }
             }
 
@@ -9281,6 +9341,27 @@ impl Object {
     pub fn record_host_target_location(&self) {
         let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
         crate::game_logic::host_target_location_log::record(self.id, loc);
+    }
+
+    pub fn record_host_locomotor(&self) {
+        crate::game_logic::host_locomotor_log::record(
+            self.id,
+            self.is_approach_path,
+            self.on_invalid_movement_terrain,
+            self.was_airborne_last_frame,
+            self.can_move_backward,
+            self.moving_backwards,
+            self.no_slow_down_as_approaching_dest,
+            self.turn_pivot_offset,
+            self.wander_width_factor,
+            self.loco_apply_2d_friction_airborne,
+            self.loco_extra_2d_friction,
+            self.loco_preferred_height,
+            self.loco_preferred_height_damping,
+            self.loco_appearance.to_ordinal(),
+            self.loco_behavior_z.to_ordinal(),
+            self.min_turn_speed,
+        );
     }
 
     pub fn record_host_combat_attack(&self) {
