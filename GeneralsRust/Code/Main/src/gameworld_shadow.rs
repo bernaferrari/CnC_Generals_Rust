@@ -3698,6 +3698,56 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_faerie_fire_events(
+        &mut self,
+        events: &[crate::game_logic::host_faerie_fire_log::HostFaerieFireEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetFaerieFire {
+                    target: eid,
+                    active: ev.active,
+                    until_frame: ev.until_frame,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_faerie_fire_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_active = obj.is_faerie_fire();
+            if host_active == ent.faerie_fire
+                && obj.faerie_fire_until_frame == ent.faerie_fire_until_frame
+            {
+                continue;
+            }
+            if ent.faerie_fire {
+                obj.set_status_faerie_fire(true);
+                obj.faerie_fire_until_frame = ent.faerie_fire_until_frame;
+            } else {
+                obj.set_status_faerie_fire(false);
+                obj.faerie_fire_until_frame = 0;
+            }
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn writeback_ground_height_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4815,6 +4865,7 @@ pub fn shadow_session_after_host_tick(
     let model_mesh_events = crate::game_logic::host_model_mesh_log::drain();
     let fow_events = crate::game_logic::host_fow_log::drain();
     let kind_of_events = crate::game_logic::host_kind_of_log::drain();
+    let faerie_events = crate::game_logic::host_faerie_fire_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4887,6 +4938,7 @@ pub fn shadow_session_after_host_tick(
     let _mm_applied = shadow.apply_host_model_mesh_events(&model_mesh_events);
     let _fow_applied = shadow.apply_host_fow_events(&fow_events);
     let _ko_applied = shadow.apply_host_kind_of_events(&kind_of_events);
+    let _ff_applied = shadow.apply_host_faerie_fire_events(&faerie_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -4925,6 +4977,7 @@ pub fn shadow_session_after_host_tick(
         writebacks = shadow.writeback_health_to_host(logic);
         let _xp_wb = shadow.writeback_experience_to_host(logic);
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
+        let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
         let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
@@ -9778,6 +9831,68 @@ mod tests {
         assert!(o.weapon_bonus_horde && o.weapon_bonus_nationalism);
         assert_eq!(o.weapon_bonus_frenzy_until_frame, 777);
         assert!((o.battle_plan_sight_scalar_applied - 1.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn host_faerie_fire_log_drives_set_faerie_fire_channel() {
+        use crate::game_logic::{host_faerie_fire_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FfCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerFf") {
+            let mut t = ThingTemplate::new("RangerFf");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("RangerFf".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerFf", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+
+        host_faerie_fire_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.apply_faerie_fire(1234);
+        }
+        let events = host_faerie_fire_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && e.active && e.until_frame == 1234),
+            "events {:?}",
+            events
+        );
+
+        host_faerie_fire_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.apply_faerie_fire(1234);
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.faerie_fire = false;
+            e.faerie_fire_until_frame = 0;
+        }
+        let n = shadow.apply_host_faerie_fire_events(&host_faerie_fire_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(e.faerie_fire);
+        assert_eq!(e.faerie_fire_until_frame, 1234);
+
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.clear_faerie_fire();
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.faerie_fire = true;
+            e.faerie_fire_until_frame = 99;
+        }
+        assert!(shadow.writeback_faerie_fire_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert!(o.is_faerie_fire());
+        assert_eq!(o.faerie_fire_until_frame, 99);
     }
 
     #[test]

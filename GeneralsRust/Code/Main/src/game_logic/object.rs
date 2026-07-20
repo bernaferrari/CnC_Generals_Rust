@@ -2507,12 +2507,18 @@ impl Object {
         if until_frame > self.faerie_fire_until_frame {
             self.faerie_fire_until_frame = until_frame;
         }
+        crate::game_logic::host_faerie_fire_log::record(
+            self.id,
+            true,
+            self.faerie_fire_until_frame,
+        );
     }
 
     /// Clear FAERIE_FIRE residual status.
     pub fn clear_faerie_fire(&mut self) {
         self.set_status_faerie_fire(false);
         self.faerie_fire_until_frame = 0;
+        crate::game_logic::host_faerie_fire_log::record(self.id, false, 0);
     }
 
     /// Expire FAERIE_FIRE residual when host frame passes the residual timer.
