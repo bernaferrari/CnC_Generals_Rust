@@ -557,6 +557,12 @@ pub enum WorldMutation {
         consecutive: u16,
         coast_until_frame: u32,
     },
+    /// Host faerie_fire status + until_frame residual (Avenger paint).
+    SetFaerieFire {
+        target: EntityId,
+        active: bool,
+        until_frame: u32,
+    },
     /// Host Object guard residual (area position + guarded object id).
     SetGuard {
         unit: EntityId,
@@ -1214,6 +1220,17 @@ impl GameWorld {
                         e.continuous_fire_consecutive = consecutive;
 
                         e.continuous_fire_coast_until_frame = coast_until_frame;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetFaerieFire {
+                    target,
+                    active,
+                    until_frame,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.faerie_fire = active;
+                        e.faerie_fire_until_frame = until_frame;
                         applied += 1;
                     }
                 }
