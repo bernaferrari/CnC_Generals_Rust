@@ -5487,7 +5487,15 @@ impl Object {
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
-        pub fn record_host_building_type(&self) {
+        pub fn record_host_identity(&self) {
+        crate::game_logic::host_identity_log::record(
+            self.id,
+            self.name.clone(),
+            self.team_color,
+        );
+    }
+
+    pub fn record_host_building_type(&self) {
         use crate::game_logic::BuildingType as B;
         let (is_building, ordinal) = match self.building_data.as_ref() {
             Some(bd) => {
@@ -8939,6 +8947,7 @@ impl Object {
             self.team = team;
             self.team_color = team.get_color();
         }
+        self.record_host_identity();
     }
 
     /// Check if this object is visible to a team (for fog of war / targeting UI).

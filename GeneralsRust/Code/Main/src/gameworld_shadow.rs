@@ -3830,6 +3830,54 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_identity_events(
+        &mut self,
+        events: &[crate::game_logic::host_identity_log::HostIdentityEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetIdentity {
+                    target: eid,
+                    name: ev.name.clone(),
+                    team_color: ev.team_color,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    pub fn writeback_identity_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let color_changed = obj
+                .team_color
+                .iter()
+                .zip(ent.team_color.iter())
+                .any(|(a, b)| (*a - *b).abs() > f32::EPSILON);
+            if obj.name == ent.display_name && !color_changed {
+                continue;
+            }
+            obj.name = ent.display_name.clone();
+            obj.team_color = ent.team_color;
+            updated += 1;
+        }
+        updated
+    }
+
+
     pub fn writeback_building_type_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::{BuildingData, BuildingType as B};
         let mut updated = 0usize;
@@ -4906,6 +4954,7 @@ pub fn shadow_session_after_host_tick(
     let demo_mine_cheer_events = crate::game_logic::host_demo_mine_cheer_log::drain();
     let crush_vision_events = crate::game_logic::host_crush_vision_log::drain();
     let building_type_events = crate::game_logic::host_building_type_log::drain();
+    let identity_events = crate::game_logic::host_identity_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4973,6 +5022,7 @@ pub fn shadow_session_after_host_tick(
     let _dmc_applied = shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events);
     let _cv_applied = shadow.apply_host_crush_vision_events(&crush_vision_events);
     let _bt_applied = shadow.apply_host_building_type_events(&building_type_events);
+    let _id_applied = shadow.apply_host_identity_events(&identity_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -5036,6 +5086,7 @@ pub fn shadow_session_after_host_tick(
     let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
     let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
     let _bt_wb = shadow.writeback_building_type_to_host(logic);
+    let _id_wb = shadow.writeback_identity_to_host(logic);
     let _sp_wb = shadow.writeback_special_power_to_host(logic);
     let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         log::trace!(
@@ -8049,7 +8100,73 @@ mod tests {
     
     
     
+    
     #[test]
+    fn host_identity_log_drives_set_identity_channel() {
+        use crate::game_logic::{host_identity_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("IdCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("IdU") {
+            let mut t = ThingTemplate::new("IdU");
+            t.set_health(200.0);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("IdU".into(), t);
+        }
+        let oid = logic
+            .create_object("IdU", Team::USA, glam::Vec3::new(33.0, 0.0, 33.0))
+            .expect("id");
+        host_identity_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.name = "ScriptRanger".into();
+            o.team_color = [0.1, 0.2, 0.3, 1.0];
+            o.record_host_identity();
+        }
+        let events = host_identity_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && e.name == "ScriptRanger"
+                    && (e.team_color[0] - 0.1).abs() < 1e-5
+                    && (e.team_color[2] - 0.3).abs() < 1e-5
+            }),
+            "events {:?}",
+            events
+        );
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.record_host_identity();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.display_name.clear();
+            e.team_color = [1.0, 1.0, 1.0, 1.0];
+        }
+        let n = shadow.apply_host_identity_events(&host_identity_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert_eq!(e.display_name, "ScriptRanger");
+        assert!((e.team_color[0] - 0.1).abs() < 1e-5);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.name.clear();
+            o.team_color = [0.0, 0.0, 0.0, 1.0];
+        }
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
+            e.display_name = "ScriptRanger".into();
+            e.team_color = [0.1, 0.2, 0.3, 1.0];
+        }
+        assert!(shadow.writeback_identity_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).expect("o");
+        assert_eq!(o.name, "ScriptRanger");
+        assert!((o.team_color[0] - 0.1).abs() < 1e-5);
+    }
+
+#[test]
     fn host_building_type_log_drives_set_building_type_channel() {
         use crate::game_logic::{
             host_building_type_log, BuildingData, BuildingType, KindOf, Team, ThingTemplate,
