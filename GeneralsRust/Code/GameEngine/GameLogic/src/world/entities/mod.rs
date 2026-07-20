@@ -326,6 +326,26 @@ pub struct Entity {
     pub path_index: u16,
     /// Host Movement/Object::waiting_for_path residual.
     pub waiting_for_path: bool,
+    /// Host Object::motive_frames_remaining residual.
+    pub motive_frames_remaining: u32,
+    /// Host Object::physics_mass residual.
+    pub physics_mass: f32,
+    /// Host Object::physics_accel residual.
+    pub physics_accel: [f32; 3],
+    /// Host Object::forward_friction residual.
+    pub forward_friction: f32,
+    /// Host Object::lateral_friction residual.
+    pub lateral_friction: f32,
+    /// Host Object::z_friction residual.
+    pub z_friction: f32,
+    /// Host Object::can_path_through_units residual.
+    pub can_path_through_units: bool,
+    /// Host Object::ignore_collisions_until_frame residual.
+    pub ignore_collisions_until_frame: u32,
+    /// Host Object::is_panicking residual.
+    pub is_panicking: bool,
+    /// Host Object::move_away_frames residual.
+    pub move_away_frames: u32,
     /// Host Object::locomotor_surfaces residual.
     pub locomotor_surfaces: u32,
     /// Host Object::is_attack_path residual.
@@ -714,6 +734,16 @@ impl EntityStore {
             path_len: 0,
             path_index: 0,
             waiting_for_path: false,
+            motive_frames_remaining: 0,
+            physics_mass: 1.0,
+            physics_accel: [0.0; 3],
+            forward_friction: 0.0,
+            lateral_friction: 0.0,
+            z_friction: 0.0,
+            can_path_through_units: false,
+            ignore_collisions_until_frame: 0,
+            is_panicking: false,
+            move_away_frames: 0,
             locomotor_surfaces: 0,
             is_attack_path: false,
             is_blocked_and_stuck: false,

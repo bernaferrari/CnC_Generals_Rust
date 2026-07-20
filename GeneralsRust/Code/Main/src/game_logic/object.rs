@@ -4501,8 +4501,10 @@ impl Object {
     pub fn apply_motive_force(&mut self, force: glam::Vec3) {
         let prev = self.motive_frames_remaining;
         self.motive_frames_remaining = 0;
+        self.record_host_physics_motive();
         self.apply_physics_force(force);
         self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(prev);
+        self.record_host_physics_motive();
     }
 
     /// C++ PhysicsBehavior::resetDynamicPhysics residual.
@@ -4514,6 +4516,7 @@ impl Object {
         self.shock_pitch_rate = 0.0;
         self.shock_roll_rate = 0.0;
         self.motive_frames_remaining = 0;
+        self.record_host_physics_motive();
         self.record_host_movement();
     }
 
@@ -5804,6 +5807,26 @@ impl Object {
         );
     }
 
+    pub fn record_host_physics_motive(&self) {
+        crate::game_logic::host_physics_motive_log::record(
+            self.id,
+            self.motive_frames_remaining,
+            self.physics_mass,
+            [
+                self.physics_accel.x,
+                self.physics_accel.y,
+                self.physics_accel.z,
+            ],
+            self.forward_friction,
+            self.lateral_friction,
+            self.z_friction,
+            self.can_path_through_units,
+            self.ignore_collisions_until_frame,
+            self.is_panicking,
+            self.move_away_frames,
+        );
+    }
+
     pub fn record_host_movement(&self) {
         crate::game_logic::host_movement_log::record(
             self.id,
@@ -5825,6 +5848,7 @@ impl Object {
             self.move_away_from.map(|id| id.0),
             self.requested_victim_id.map(|id| id.0),
         );
+        self.record_host_physics_motive();
     }
 
     pub fn record_host_weapon_stats(&self) {
@@ -8651,6 +8675,7 @@ impl Object {
                 // Arm motive window so collide forces stay lateral while driving.
                 if goal_speed.abs() > 0.1 {
                     self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
+                    self.record_host_physics_motive();
                 }
 
                 // Position integrate (host dt seconds).
