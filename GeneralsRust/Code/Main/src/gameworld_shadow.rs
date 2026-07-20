@@ -5116,14 +5116,16 @@ pub fn shadow_session_after_host_tick(
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
     // HP last-writer: damage mutations and/or absolute heal SetHealth events.
-    if auth && (!events.is_empty() || !heal_events.is_empty()) {
+    if auth && (!events.is_empty() || !heal_events.is_empty() || !experience_events.is_empty()) {
         let (mut queued, mut applied) = (0usize, 0usize);
         if !events.is_empty() {
             let pair = shadow.apply_host_damage_events(&events);
             queued = pair.0;
             applied = pair.1;
         }
-        writebacks = shadow.writeback_health_to_host(logic);
+        if !events.is_empty() || !heal_events.is_empty() {
+            writebacks = shadow.writeback_health_to_host(logic);
+        }
         let _xp_wb = shadow.writeback_experience_to_host(logic);
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
         let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
@@ -10253,6 +10255,57 @@ mod tests {
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
         let after = logic.get_objects().get(&oid).expect("o").health.current;
         assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
+    }
+
+    #[test]
+    fn experience_authority_defers_host_xp_until_writeback() {
+        use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        assert!(gameworld_damage_authority_enabled());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("XpAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerXp") {
+            let mut t = ThingTemplate::new("RangerXp");
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("RangerXp".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerXp", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let before = logic.get_objects().get(&oid).expect("o").experience.current;
+        host_experience_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.gain_experience(50.0);
+        }
+        let mid = logic.get_objects().get(&oid).expect("o").experience.current;
+        assert!(
+            (mid - before).abs() < 1e-5,
+            "host XP deferred before={before} mid={mid}"
+        );
+        let events = host_experience_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.object == oid && (e.points - (before + 50.0)).abs() < 1e-5),
+            "events {:?}",
+            events
+        );
+        host_experience_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.gain_experience(50.0);
+        }
+        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        let after = logic.get_objects().get(&oid).expect("o").experience.current;
+        assert!(
+            (after - (before + 50.0)).abs() < 1e-3,
+            "writeback XP before={before} after={after}"
+        );
     }
 
     #[test]
