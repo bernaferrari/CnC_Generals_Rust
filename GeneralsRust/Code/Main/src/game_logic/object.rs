@@ -3211,11 +3211,14 @@ impl Object {
         }
         let claim_open = now > self.sole_healing_benefactor_expiration_frame
             || self.sole_healing_benefactor == Some(source_id);
+        self.record_host_sole_healing();
         if !claim_open {
             return false;
         }
         self.sole_healing_benefactor = Some(source_id);
+        self.record_host_sole_healing();
         self.sole_healing_benefactor_expiration_frame = now.saturating_add(duration_frames);
+        self.record_host_sole_healing();
         let before = self.health.current;
         self.heal(amount);
         self.health.current > before + 0.0001 || self.health.current >= self.health.maximum - 0.01
@@ -5748,6 +5751,14 @@ impl Object {
             self.shock_was_airborne,
             self.cell_is_cliff,
             self.cell_is_underwater,
+        );
+    }
+
+    pub fn record_host_sole_healing(&self) {
+        crate::game_logic::host_sole_healing_log::record(
+            self.id,
+            self.sole_healing_benefactor.map(|id| id.0),
+            self.sole_healing_benefactor_expiration_frame,
         );
     }
 
