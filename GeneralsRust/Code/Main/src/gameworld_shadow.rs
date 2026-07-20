@@ -696,6 +696,9 @@ impl GameWorldShadow {
                     e.turret_holding = obj.turret_holding;
                     e.ai_attitude = obj.ai_attitude;
                     e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
+                    e.sole_healing_benefactor_id = obj.sole_healing_benefactor.map(|id| id.0);
+                    e.sole_healing_benefactor_expiration_frame =
+                        obj.sole_healing_benefactor_expiration_frame;
                     e.command_set_override = obj.command_set_override.clone().unwrap_or_default();
                     e.disguise_as_template = obj.disguise_as_template.clone().unwrap_or_default();
                     e.disguise_as_team_ordinal = obj
@@ -1876,6 +1879,30 @@ impl GameWorldShadow {
             obj.rebuild_reconstructing_id = ent.rebuild_reconstructing_id.map(ObjectId);
             obj.producer_id = ent.producer_id.map(ObjectId);
             obj.construction_complete_clear_frame = ent.construction_complete_clear_frame;
+            updated += 1;
+        }
+        updated
+    }
+
+    pub fn writeback_sole_healing_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.sole_healing_benefactor.map(|id| id.0)
+                != ent.sole_healing_benefactor_id
+                || obj.sole_healing_benefactor_expiration_frame
+                    != ent.sole_healing_benefactor_expiration_frame;
+            if !changed {
+                continue;
+            }
+            obj.sole_healing_benefactor = ent.sole_healing_benefactor_id.map(ObjectId);
+            obj.sole_healing_benefactor_expiration_frame =
+                ent.sole_healing_benefactor_expiration_frame;
             updated += 1;
         }
         updated
@@ -3810,6 +3837,30 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_sole_healing_events(
+        &mut self,
+        events: &[crate::game_logic::host_sole_healing_log::HostSoleHealingEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetSoleHealing {
+                    target: eid,
+                    sole_healing_benefactor_id: ev.sole_healing_benefactor_id,
+                    sole_healing_benefactor_expiration_frame: ev
+                        .sole_healing_benefactor_expiration_frame,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_movement_events(
         &mut self,
         events: &[crate::game_logic::host_movement_log::HostMovementEvent],
@@ -5470,6 +5521,8 @@ pub fn shadow_session_after_host_tick(
     let _ss_applied = shadow.apply_host_shock_stun_events(&shock_stun_events);
     let rebuild_producer_events = crate::game_logic::host_rebuild_producer_log::drain();
     let _rp_applied = shadow.apply_host_rebuild_producer_events(&rebuild_producer_events);
+    let sole_healing_events = crate::game_logic::host_sole_healing_log::drain();
+    let _sh_applied = shadow.apply_host_sole_healing_events(&sole_healing_events);
     let _mv_applied = shadow.apply_host_movement_events(&movement_events);
 
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
@@ -5542,6 +5595,7 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_radar_extend_to_host(logic);
     let _ = shadow.writeback_shock_stun_to_host(logic);
     let _ = shadow.writeback_rebuild_producer_to_host(logic);
+    let _ = shadow.writeback_sole_healing_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
@@ -6632,6 +6686,7 @@ mod tests {
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
         let obj = logic.get_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
@@ -7798,6 +7853,7 @@ mod tests {
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
@@ -9219,6 +9275,7 @@ mod tests {
         crate::game_logic::host_radar_extend_log::clear();
         crate::game_logic::host_shock_stun_log::clear();
         crate::game_logic::host_rebuild_producer_log::clear();
+        crate::game_logic::host_sole_healing_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.weapon = Some(Weapon {
@@ -12170,6 +12227,7 @@ mod tests {
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let d = logic
             .get_objects()
             .get(&oid)
@@ -12221,6 +12279,7 @@ mod tests {
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().body_damage_state,
             HostBodyDamageType::ReallyDamaged
@@ -12562,6 +12621,7 @@ mod tests {
         }
         assert!(shadow.writeback_shock_stun_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.shock_stun_frames, 30);
         assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
@@ -12709,6 +12769,7 @@ mod tests {
             o.construction_complete_clear_frame = 0;
         }
         assert!(shadow.writeback_rebuild_producer_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let o = logic.get_objects().get(&hole).unwrap();
         assert_eq!(o.rebuild_ready_frame, 100);
         assert_eq!(o.rebuild_spawner_id, Some(bld));
@@ -12716,6 +12777,51 @@ mod tests {
         assert_eq!(o.rebuild_reconstructing_id, Some(bld));
         assert_eq!(o.producer_id, Some(hole));
         assert_eq!(o.construction_complete_clear_frame, 250);
+    }
+
+    #[test]
+    fn sole_healing_channel_via_set_sole_healing() {
+        use crate::game_logic::host_sole_healing_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_sole_healing_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SoleHeal");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["HealTgt", "DozerA"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Vehicle);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let tgt = logic
+            .create_object("HealTgt", Team::USA, glam::Vec3::new(30.0, 0.0, 30.0))
+            .expect("tgt");
+        let dozer = logic
+            .create_object("DozerA", Team::USA, glam::Vec3::new(32.0, 0.0, 30.0))
+            .expect("dozer");
+        {
+            let o = logic.get_objects_mut().get_mut(&tgt).expect("o");
+            o.sole_healing_benefactor = Some(dozer);
+            o.sole_healing_benefactor_expiration_frame = 900;
+        }
+        host_sole_healing_log::record(tgt, Some(dozer.0), 900);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&tgt.0).expect("map");
+        assert!(shadow.apply_host_sole_healing_events(&host_sole_healing_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.sole_healing_benefactor_id, Some(dozer.0));
+        assert_eq!(e.sole_healing_benefactor_expiration_frame, 900);
+        {
+            let o = logic.get_objects_mut().get_mut(&tgt).expect("o");
+            o.sole_healing_benefactor = None;
+            o.sole_healing_benefactor_expiration_frame = 0;
+        }
+        assert!(shadow.writeback_sole_healing_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&tgt).unwrap();
+        assert_eq!(o.sole_healing_benefactor, Some(dozer));
+        assert_eq!(o.sole_healing_benefactor_expiration_frame, 900);
     }
 
     #[test]
@@ -12757,6 +12863,7 @@ mod tests {
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().status.death_type,
             HostDeathType::Burned
@@ -12802,6 +12909,7 @@ mod tests {
         assert!(shadow.writeback_radar_extend_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+        let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.radar_active);
         assert_eq!(o.radar_extend_done_frame, 120);

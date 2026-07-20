@@ -935,6 +935,12 @@ pub enum WorldMutation {
         producer_id: Option<u32>,
         construction_complete_clear_frame: u32,
     },
+    /// Host sole-healing benefactor residual (dozer exclusive heal).
+    SetSoleHealing {
+        target: EntityId,
+        sole_healing_benefactor_id: Option<u32>,
+        sole_healing_benefactor_expiration_frame: u32,
+    },
     /// Set special-power ready residual on an entity.
     SetSpecialPower {
         target: EntityId,
@@ -1175,6 +1181,18 @@ impl GameWorld {
                         e.rebuild_reconstructing_id = rebuild_reconstructing_id;
                         e.producer_id = producer_id;
                         e.construction_complete_clear_frame = construction_complete_clear_frame;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetSoleHealing {
+                    target,
+                    sole_healing_benefactor_id,
+                    sole_healing_benefactor_expiration_frame,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.sole_healing_benefactor_id = sole_healing_benefactor_id;
+                        e.sole_healing_benefactor_expiration_frame =
+                            sole_healing_benefactor_expiration_frame;
                         applied += 1;
                     }
                 }
