@@ -140,6 +140,10 @@ pub struct Entity {
     /// Host Object::status.reconstructing residual.
     pub reconstructing: bool,
     /// Host Object::rebuild_ready_frame residual.
+    /// Host Object::is_rebuild_hole residual.
+    pub is_rebuild_hole: bool,
+    /// Host Object::rebuild_template_name residual.
+    pub rebuild_template_name: String,
     pub rebuild_ready_frame: u32,
     /// Host Object::rebuild_spawner_id residual.
     pub rebuild_spawner_id: Option<u32>,
@@ -616,6 +620,8 @@ impl EntityStore {
             under_construction: false,
             sold: false,
             reconstructing: false,
+            is_rebuild_hole: false,
+            rebuild_template_name: String::new(),
             rebuild_ready_frame: 0,
             rebuild_spawner_id: None,
             rebuild_worker_id: None,
