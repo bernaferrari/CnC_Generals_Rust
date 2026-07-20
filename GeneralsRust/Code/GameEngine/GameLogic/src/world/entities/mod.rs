@@ -274,6 +274,12 @@ pub struct Entity {
     pub production_queue_items: Vec<EntityProductionItem>,
     /// Host BuildingData::exit_delay_remaining residual (seconds).
     pub exit_delay_remaining: f32,
+    /// Host Object::production_door_phase residual.
+    pub production_door_phase: u8,
+    /// Host Object::production_door_phase_end_frame residual.
+    pub production_door_phase_end_frame: u32,
+    /// Host Object::production_door_hold_open residual.
+    pub production_door_hold_open: bool,
     /// Host BuildingData::rally_point residual.
     pub rally_point: Option<[f32; 3]>,
     /// Host BuildingData::garrisoned_units.len residual.
@@ -677,6 +683,9 @@ impl EntityStore {
             production_template: String::new(),
             production_queue_items: Vec::new(),
             exit_delay_remaining: 0.0,
+            production_door_phase: 0,
+            production_door_phase_end_frame: 0,
+            production_door_hold_open: false,
             rally_point: None,
             garrison_count: 0,
             max_garrison: 0,
