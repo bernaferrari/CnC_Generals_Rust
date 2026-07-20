@@ -5535,6 +5535,21 @@ impl Object {
         self.set_model_mesh_residual(key, scale);
     }
 
+    /// FOW visibility residual → GameWorld SetFow (presentation last-writer channel).
+    pub fn set_fow_residual(
+        &mut self,
+        visibility_alpha: f32,
+        is_explored: f32,
+        visibility_falloff: f32,
+    ) {
+        crate::game_logic::host_fow_log::record(
+            self.id,
+            visibility_alpha,
+            is_explored,
+            visibility_falloff,
+        );
+    }
+
     pub fn record_host_identity(&self) {
         crate::game_logic::host_identity_log::record(self.id, self.name.clone(), self.team_color);
     }
