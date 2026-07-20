@@ -16,6 +16,16 @@ pub struct HostPhysicsMotiveEvent {
     pub ignore_collisions_until_frame: u32,
     pub is_panicking: bool,
     pub move_away_frames: u32,
+    pub aerodynamic_friction: f32,
+    pub extra_friction: f32,
+    pub apply_friction_2d_when_airborne: bool,
+    pub center_of_mass_offset: f32,
+    pub pitch_roll_yaw_factor: f32,
+    pub move_away_destination: Option<[f32; 3]>,
+    pub request_other_move_away_id: Option<u32>,
+    pub immune_to_falling_damage: bool,
+    pub physics_current_overlap_id: Option<u32>,
+    pub physics_previous_overlap_id: Option<u32>,
 }
 
 thread_local! {
@@ -34,6 +44,16 @@ pub fn record(
     ignore_collisions_until_frame: u32,
     is_panicking: bool,
     move_away_frames: u32,
+    aerodynamic_friction: f32,
+    extra_friction: f32,
+    apply_friction_2d_when_airborne: bool,
+    center_of_mass_offset: f32,
+    pitch_roll_yaw_factor: f32,
+    move_away_destination: Option<[f32; 3]>,
+    request_other_move_away_id: Option<u32>,
+    immune_to_falling_damage: bool,
+    physics_current_overlap_id: Option<u32>,
+    physics_previous_overlap_id: Option<u32>,
 ) {
     LOG.with(|log| {
         log.borrow_mut().push(HostPhysicsMotiveEvent {
@@ -48,6 +68,16 @@ pub fn record(
             ignore_collisions_until_frame,
             is_panicking,
             move_away_frames,
+            aerodynamic_friction,
+            extra_friction,
+            apply_friction_2d_when_airborne,
+            center_of_mass_offset,
+            pitch_roll_yaw_factor,
+            move_away_destination,
+            request_other_move_away_id,
+            immune_to_falling_damage,
+            physics_current_overlap_id,
+            physics_previous_overlap_id,
         });
     });
 }
