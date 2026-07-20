@@ -1723,6 +1723,9 @@ impl GameWorldShadow {
 
     /// Write shadow construction/status residual last-writer onto host objects.
     pub fn writeback_construction_to_host(&self, logic: &mut GameLogic) -> usize {
+        // Construction/sell/rebuild residual only.
+        // Combat status, AI state, contain, supplies, veterancy, and special-power
+        // last-writer residuals use dedicated writebacks in the shadow session.
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
@@ -1751,222 +1754,6 @@ impl GameWorldShadow {
             }
             if obj.status.unselectable != ent.unselectable {
                 obj.status.unselectable = ent.unselectable;
-                dirty = true;
-            }
-            if obj.status.deployed != ent.deployed {
-                obj.status.deployed = ent.deployed;
-                dirty = true;
-            }
-            // Combat / stealth / disable residual last-writer.
-            if obj.status.stealthed != ent.stealthed {
-                obj.status.stealthed = ent.stealthed;
-                dirty = true;
-            }
-            if obj.status.detected != ent.detected {
-                obj.status.detected = ent.detected;
-                dirty = true;
-            }
-            if obj.status.using_ability != ent.using_ability {
-                obj.status.using_ability = ent.using_ability;
-                dirty = true;
-            }
-            if obj.force_attack != ent.force_attack {
-                obj.force_attack = ent.force_attack;
-                dirty = true;
-            }
-            if obj.special_power_ready != ent.special_power_ready {
-                obj.special_power_ready = ent.special_power_ready;
-                dirty = true;
-            }
-            {
-                let want = Self::ai_state_from_ordinal(ent.ai_state_ordinal);
-                if obj.ai_state != want {
-                    // Direct assign — avoid re-logging host_ai_state_log on writeback.
-                    obj.ai_state = want;
-                    dirty = true;
-                }
-            }
-            if obj.stored_resources.supplies != ent.stored_supplies {
-                obj.stored_resources.supplies = ent.stored_supplies;
-                dirty = true;
-            }
-            {
-                let want = if ent.contained_by_host == 0 {
-                    None
-                } else {
-                    Some(ObjectId(ent.contained_by_host))
-                };
-                if obj.contained_by != want {
-                    obj.contained_by = want;
-                    dirty = true;
-                }
-            }
-            if let Some(bd) = obj.building_data.as_mut() {
-                if !ent.garrisoned_host_ids.is_empty() || ent.garrison_count > 0 {
-                    let ids: Vec<ObjectId> = ent
-                        .garrisoned_host_ids
-                        .iter()
-                        .copied()
-                        .map(ObjectId)
-                        .collect();
-                    if bd.garrisoned_units != ids {
-                        bd.garrisoned_units = ids;
-                        dirty = true;
-                    }
-                }
-            }
-
-            {
-                use crate::game_logic::VeterancyLevel as V;
-                let want = match ent.veterancy_ordinal.min(3) {
-                    0 => V::Rookie,
-                    1 => V::Veteran,
-                    2 => V::Elite,
-                    _ => V::Heroic,
-                };
-                if obj.experience.level != want {
-                    let prev = obj.experience.level;
-                    obj.experience.level = want;
-                    // Keep XP seed coherent with level for host residual.
-                    let thr = obj.thing.template.veterancy_xp_thresholds;
-                    let seed = match want {
-                        V::Rookie => 0.0,
-                        V::Veteran => thr[0],
-                        V::Elite => thr[1],
-                        V::Heroic => thr[2],
-                    };
-                    if obj.experience.current < seed {
-                        obj.experience.current = seed;
-                    }
-                    // Avoid re-log during writeback: set level without host_veterancy_log.
-                    // Bonuses already applied on host when level first changed; only repair
-                    // level label here if shadow last-writer diverged.
-                    let _ = prev;
-                    dirty = true;
-                }
-            }
-            if obj.status.airborne_target != ent.airborne_target {
-                obj.status.airborne_target = ent.airborne_target;
-                dirty = true;
-            }
-            if obj.status.disabled_underpowered != ent.disabled_underpowered {
-                obj.status.disabled_underpowered = ent.disabled_underpowered;
-                dirty = true;
-            }
-            if obj.status.disabled_unmanned != ent.disabled_unmanned {
-                obj.status.disabled_unmanned = ent.disabled_unmanned;
-                dirty = true;
-            }
-            if obj.status.disabled_hacked != ent.disabled_hacked {
-                obj.status.disabled_hacked = ent.disabled_hacked;
-                dirty = true;
-            }
-            if obj.status.moving != ent.moving {
-                obj.status.moving = ent.moving;
-                dirty = true;
-            }
-            if obj.status.attacking != ent.attacking {
-                obj.status.attacking = ent.attacking;
-                dirty = true;
-            }
-            if obj.status.is_firing_weapon != ent.is_firing_weapon {
-                obj.status.is_firing_weapon = ent.is_firing_weapon;
-                dirty = true;
-            }
-            if obj.status.is_aiming_weapon != ent.is_aiming_weapon {
-                obj.status.is_aiming_weapon = ent.is_aiming_weapon;
-                dirty = true;
-            }
-            if obj.status.disabled_emp != ent.disabled_emp {
-                obj.status.disabled_emp = ent.disabled_emp;
-                dirty = true;
-            }
-            if obj.status.disabled_paralyzed != ent.disabled_paralyzed {
-                obj.status.disabled_paralyzed = ent.disabled_paralyzed;
-                dirty = true;
-            }
-            if obj.status.weapons_jammed != ent.weapons_jammed {
-                obj.status.weapons_jammed = ent.weapons_jammed;
-                dirty = true;
-            }
-            if obj.status.masked != ent.masked {
-                obj.status.masked = ent.masked;
-                dirty = true;
-            }
-            if obj.status.disguised != ent.disguised {
-                obj.status.disguised = ent.disguised;
-                dirty = true;
-            }
-            if obj.status.disabled_subdued != ent.disabled_subdued {
-                obj.status.disabled_subdued = ent.disabled_subdued;
-                dirty = true;
-            }
-            if obj.status.is_carbomb != ent.is_carbomb {
-                obj.status.is_carbomb = ent.is_carbomb;
-                dirty = true;
-            }
-            if obj.status.hijacked != ent.hijacked {
-                obj.status.hijacked = ent.hijacked;
-                dirty = true;
-            }
-            if obj.status.ignoring_stealth != ent.ignoring_stealth {
-                obj.status.ignoring_stealth = ent.ignoring_stealth;
-                dirty = true;
-            }
-            if obj.status.repulsor != ent.repulsor {
-                obj.status.repulsor = ent.repulsor;
-                dirty = true;
-            }
-            if obj.status.disabled_freefall != ent.disabled_freefall {
-                obj.status.disabled_freefall = ent.disabled_freefall;
-                dirty = true;
-            }
-            if obj.status.no_collisions != ent.no_collisions {
-                obj.status.no_collisions = ent.no_collisions;
-                dirty = true;
-            }
-            if obj.status.private_captured != ent.private_captured {
-                obj.status.private_captured = ent.private_captured;
-                dirty = true;
-            }
-            if obj.status.disguise_transitioning_to != ent.disguise_transitioning_to {
-                obj.status.disguise_transitioning_to = ent.disguise_transitioning_to;
-                dirty = true;
-            }
-            if obj.status.disguise_halfpoint_reached != ent.disguise_halfpoint_reached {
-                obj.status.disguise_halfpoint_reached = ent.disguise_halfpoint_reached;
-                dirty = true;
-            }
-            if obj.status.faerie_fire != ent.faerie_fire {
-                obj.status.faerie_fire = ent.faerie_fire;
-                dirty = true;
-            }
-            if obj.status.booby_trapped != ent.booby_trapped {
-                obj.status.booby_trapped = ent.booby_trapped;
-                dirty = true;
-            }
-            if obj.status.eject_invulnerable != ent.eject_invulnerable {
-                obj.status.eject_invulnerable = ent.eject_invulnerable;
-                dirty = true;
-            }
-            if obj.status.pilot_did_move_to_base != ent.pilot_did_move_to_base {
-                obj.status.pilot_did_move_to_base = ent.pilot_did_move_to_base;
-                dirty = true;
-            }
-            if obj.status.parachuting != ent.parachuting {
-                obj.status.parachuting = ent.parachuting;
-                dirty = true;
-            }
-            if obj.status.parachute_open != ent.parachute_open {
-                obj.status.parachute_open = ent.parachute_open;
-                dirty = true;
-            }
-            if obj.status.parachute_landing_override_set != ent.parachute_landing_override_set {
-                obj.status.parachute_landing_override_set = ent.parachute_landing_override_set;
-                dirty = true;
-            }
-            if obj.status.selected != ent.selected {
-                obj.status.selected = ent.selected;
                 dirty = true;
             }
             if dirty {
@@ -6163,22 +5950,8 @@ mod tests {
             e.sold = true;
             e.reconstructing = true;
             e.unselectable = true;
-            e.deployed = true;
+            // Combat/status flags are NOT owned by construction writeback.
             e.stealthed = true;
-            e.detected = false;
-            e.using_ability = true;
-            e.disabled_underpowered = true;
-            e.moving = true;
-            e.attacking = true;
-            e.is_firing_weapon = true;
-            e.is_aiming_weapon = true;
-            e.disabled_emp = true;
-            e.weapons_jammed = true;
-            e.masked = true;
-            e.disguised = true;
-            e.disabled_subdued = true;
-            e.is_carbomb = true;
-            e.hijacked = true;
             e.selected = true;
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
@@ -6189,22 +5962,18 @@ mod tests {
         assert!(obj.status.sold);
         assert!(obj.status.reconstructing);
         assert!(obj.status.unselectable);
-        assert!(obj.status.deployed);
+        // Construction writeback must not touch combat-status residual.
+        assert!(!obj.status.stealthed);
+        assert!(!obj.status.selected);
+        // Dedicated combat-status writeback restores those flags.
+        {
+            let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
+            e.stealthed = true;
+            e.selected = true;
+        }
+        assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let obj = logic.get_objects().get(&id).expect("o");
         assert!(obj.status.stealthed);
-        assert!(!obj.status.detected);
-        assert!(obj.status.using_ability);
-        assert!(obj.status.disabled_underpowered);
-        assert!(obj.status.moving);
-        assert!(obj.status.attacking);
-        assert!(obj.status.is_firing_weapon);
-        assert!(obj.status.is_aiming_weapon);
-        assert!(obj.status.disabled_emp);
-        assert!(obj.status.weapons_jammed);
-        assert!(obj.status.masked);
-        assert!(obj.status.disguised);
-        assert!(obj.status.disabled_subdued);
-        assert!(obj.status.is_carbomb);
-        assert!(obj.status.hijacked);
         assert!(obj.status.selected);
         // Complete residual
         {
