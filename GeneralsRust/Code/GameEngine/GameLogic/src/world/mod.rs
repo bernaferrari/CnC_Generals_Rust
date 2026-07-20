@@ -588,6 +588,20 @@ pub enum WorldMutation {
         cell_is_cliff: bool,
         cell_is_underwater: bool,
     },
+    /// Host PhysicsBehavior / AI motive residual pack.
+    SetPhysicsMotive {
+        target: EntityId,
+        motive_frames_remaining: u32,
+        physics_mass: f32,
+        physics_accel: [f32; 3],
+        forward_friction: f32,
+        lateral_friction: f32,
+        z_friction: f32,
+        can_path_through_units: bool,
+        ignore_collisions_until_frame: u32,
+        is_panicking: bool,
+        move_away_frames: u32,
+    },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -1180,6 +1194,33 @@ impl GameWorld {
                         e.shock_was_airborne = shock_was_airborne;
                         e.cell_is_cliff = cell_is_cliff;
                         e.cell_is_underwater = cell_is_underwater;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetPhysicsMotive {
+                    target,
+                    motive_frames_remaining,
+                    physics_mass,
+                    physics_accel,
+                    forward_friction,
+                    lateral_friction,
+                    z_friction,
+                    can_path_through_units,
+                    ignore_collisions_until_frame,
+                    is_panicking,
+                    move_away_frames,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.motive_frames_remaining = motive_frames_remaining;
+                        e.physics_mass = physics_mass;
+                        e.physics_accel = physics_accel;
+                        e.forward_friction = forward_friction;
+                        e.lateral_friction = lateral_friction;
+                        e.z_friction = z_friction;
+                        e.can_path_through_units = can_path_through_units;
+                        e.ignore_collisions_until_frame = ignore_collisions_until_frame;
+                        e.is_panicking = is_panicking;
+                        e.move_away_frames = move_away_frames;
                         applied += 1;
                     }
                 }
