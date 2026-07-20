@@ -691,6 +691,13 @@ pub enum WorldMutation {
         model_key: String,
         mesh_scale: f32,
     },
+    /// Host FOW visibility residual (alpha / explored / falloff).
+    SetFow {
+        target: EntityId,
+        visibility_alpha: f32,
+        is_explored: f32,
+        visibility_falloff: f32,
+    },
     /// Replace entity production queue residual (borrow-first production channel).
     SetProductionQueue {
         target: EntityId,
@@ -1456,6 +1463,19 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.model_key = model_key;
                         e.mesh_scale = mesh_scale;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetFow {
+                    target,
+                    visibility_alpha,
+                    is_explored,
+                    visibility_falloff,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.fow_visibility_alpha = visibility_alpha;
+                        e.fow_is_explored = is_explored;
+                        e.fow_visibility_falloff = visibility_falloff;
                         applied += 1;
                     }
                 }

@@ -3689,6 +3689,30 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_fow_events(
+        &mut self,
+        events: &[crate::game_logic::host_fow_log::HostFowEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetFow {
+                    target: eid,
+                    visibility_alpha: ev.visibility_alpha,
+                    is_explored: ev.is_explored,
+                    visibility_falloff: ev.visibility_falloff,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn writeback_ground_height_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -4798,6 +4822,7 @@ pub fn shadow_session_after_host_tick(
     let identity_events = crate::game_logic::host_identity_log::drain();
     let ground_height_events = crate::game_logic::host_ground_height_log::drain();
     let model_mesh_events = crate::game_logic::host_model_mesh_log::drain();
+    let fow_events = crate::game_logic::host_fow_log::drain();
     let owner_events = crate::game_logic::host_owner_log::drain();
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
@@ -4868,6 +4893,7 @@ pub fn shadow_session_after_host_tick(
     let _id_applied = shadow.apply_host_identity_events(&identity_events);
     let _gh_applied = shadow.apply_host_ground_height_events(&ground_height_events);
     let _mm_applied = shadow.apply_host_model_mesh_events(&model_mesh_events);
+    let _fow_applied = shadow.apply_host_fow_events(&fow_events);
     let _owners = shadow.apply_host_owner_events(logic, &owner_events);
     let _poses = shadow.apply_host_positions_as_transforms(logic);
     for ev in &attack_events {
@@ -8011,6 +8037,55 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert_eq!(e.model_key, "avtank");
         assert!((e.mesh_scale - 1.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn host_fow_log_drives_set_fow_channel() {
+        use crate::game_logic::{host_fow_log, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FowCh");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("RangerFow") {
+            let mut t = ThingTemplate::new("RangerFow");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("RangerFow".into(), t);
+        }
+        let oid = logic
+            .create_object("RangerFow", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("id");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+
+        host_fow_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_fow_residual(0.35, 1.0, 0.5);
+        }
+        let events = host_fow_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.object == oid
+                    && (e.visibility_alpha - 0.35).abs() < 1e-5
+                    && (e.is_explored - 1.0).abs() < 1e-5
+                    && (e.visibility_falloff - 0.5).abs() < 1e-5
+            }),
+            "events {:?}",
+            events
+        );
+
+        host_fow_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.set_fow_residual(0.35, 1.0, 0.5);
+        }
+        let n = shadow.apply_host_fow_events(&host_fow_log::drain());
+        assert!(n >= 1);
+        let e = shadow.world().entity(eid).expect("e");
+        assert!((e.fow_visibility_alpha - 0.35).abs() < 1e-5);
+        assert!((e.fow_is_explored - 1.0).abs() < 1e-5);
+        assert!((e.fow_visibility_falloff - 0.5).abs() < 1e-5);
     }
 
     #[test]
