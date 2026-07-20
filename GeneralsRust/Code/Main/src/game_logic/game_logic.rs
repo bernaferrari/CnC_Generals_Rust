@@ -20512,6 +20512,23 @@ impl GameLogic {
             self.objects.insert(id, object);
             self.inherit_team_ai_defaults(id);
 
+            let team_ord = match team {
+                Team::USA => 0u8,
+                Team::China => 1,
+                Team::GLA => 2,
+                Team::Neutral => 255,
+            };
+            crate::game_logic::host_spawn_log::record(
+                id,
+                template_name.to_string(),
+                team_ord,
+                [position.x, position.y, position.z],
+            );
+            if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                obj.record_model_mesh_from_template();
+                obj.record_kind_of_bits_from_template();
+            }
+
             log::debug!(
                 "Started construction of {} ({}) at {:?}",
                 id,
