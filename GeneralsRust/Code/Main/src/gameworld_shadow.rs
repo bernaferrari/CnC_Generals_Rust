@@ -3522,6 +3522,8 @@ impl GameWorldShadow {
                     weapon_min_range: ev.weapon_min_range,
                     weapon_reload_time: ev.weapon_reload_time,
                     weapon_last_fire_time: ev.weapon_last_fire_time,
+                    weapon_clip_size: ev.weapon_clip_size,
+                    weapon_clip_reload_time: ev.weapon_clip_reload_time,
                     weapon_ammo: ev.weapon_ammo,
                     weapon_can_target_air: ev.weapon_can_target_air,
                     weapon_can_target_ground: ev.weapon_can_target_ground,
@@ -11925,6 +11927,8 @@ mod tests {
             weapon_min_range: 0.0,
             weapon_reload_time: 1.0,
             weapon_last_fire_time: 12.5,
+            weapon_clip_size: 0,
+            weapon_clip_reload_time: 0.0,
             weapon_ammo: u32::MAX,
             weapon_can_target_air: false,
             weapon_can_target_ground: true,
@@ -11961,6 +11965,50 @@ mod tests {
                 .last_fire_time;
             assert!((t - 12.5).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn weapon_clip_size_channel_via_set_weapon_stats() {
+        use crate::game_logic::host_weapon_stats_log::{self, HostWeaponStatsEvent};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_weapon_stats_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WpnClip");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("ClipUnit") {
+            let mut t = ThingTemplate::new("ClipUnit");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("ClipUnit".into(), t);
+        }
+        let oid = logic
+            .create_object("ClipUnit", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        host_weapon_stats_log::record(HostWeaponStatsEvent {
+            object: oid,
+            has_weapon: true,
+            weapon_damage: 10.0,
+            weapon_range: 100.0,
+            weapon_min_range: 0.0,
+            weapon_reload_time: 1.0,
+            weapon_last_fire_time: 5.0,
+            weapon_clip_size: 5,
+            weapon_clip_reload_time: 2.5,
+            weapon_ammo: 3,
+            weapon_can_target_air: false,
+            weapon_can_target_ground: true,
+            weapon_projectile_speed: 0.0,
+            has_secondary_weapon: false,
+            secondary_weapon_damage: 0.0,
+            secondary_weapon_range: 0.0,
+        });
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_weapon_stats_events(&host_weapon_stats_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.weapon_clip_size, 5);
+        assert!((e.weapon_clip_reload_time - 2.5).abs() < 1e-5);
+        assert_eq!(e.weapon_ammo, 3);
     }
 
     #[test]
