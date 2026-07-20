@@ -3101,6 +3101,7 @@ impl Object {
         self.radar_extend_done_frame = done_frame;
         self.radar_extend_complete = false;
         self.radar_active = true;
+        self.record_host_radar_extend();
         self.refresh_model_condition_bits();
         self.record_host_model_condition();
     }
@@ -3122,6 +3123,7 @@ impl Object {
         self.model_condition_bits &= !(1u128 << radar_extending_model_bit());
         self.model_condition_bits |= 1u128 << radar_upgraded_model_bit();
         self.refresh_model_condition_bits();
+        self.record_host_radar_extend();
         self.record_host_model_condition();
         true
     }
@@ -5715,6 +5717,15 @@ impl Object {
 
     pub fn record_host_model_condition(&self) {
         crate::game_logic::host_model_condition_log::record(self.id, self.model_condition_bits);
+    }
+
+    pub fn record_host_radar_extend(&self) {
+        crate::game_logic::host_radar_extend_log::record(
+            self.id,
+            self.radar_extend_done_frame,
+            self.radar_extend_complete,
+            self.radar_active,
+        );
     }
 
     pub fn record_host_movement(&self) {
