@@ -567,6 +567,13 @@ pub enum WorldMutation {
     },
     /// C++ DeathType residual ordinal.
     SetDeathType { target: EntityId, death_type: u8 },
+    /// Host Object radar extend residual (RadarUpdate).
+    SetRadarExtend {
+        target: EntityId,
+        radar_extend_done_frame: u32,
+        radar_extend_complete: bool,
+        radar_active: bool,
+    },
     /// Transfer ownership.
     TransferOwner {
         object: EntityId,
@@ -1073,6 +1080,19 @@ impl GameWorld {
                 WorldMutation::SetDeathType { target, death_type } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.death_type = death_type;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetRadarExtend {
+                    target,
+                    radar_extend_done_frame,
+                    radar_extend_complete,
+                    radar_active,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.radar_extend_done_frame = radar_extend_done_frame;
+                        e.radar_extend_complete = radar_extend_complete;
+                        e.radar_active = radar_active;
                         applied += 1;
                     }
                 }
