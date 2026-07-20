@@ -558,6 +558,16 @@ impl GameWorldShadow {
                     e.ignore_collisions_until_frame = obj.ignore_collisions_until_frame;
                     e.is_panicking = obj.is_panicking;
                     e.move_away_frames = obj.move_away_frames;
+                    e.aerodynamic_friction = obj.aerodynamic_friction;
+                    e.extra_friction = obj.extra_friction;
+                    e.apply_friction_2d_when_airborne = obj.apply_friction_2d_when_airborne;
+                    e.center_of_mass_offset = obj.center_of_mass_offset;
+                    e.pitch_roll_yaw_factor = obj.pitch_roll_yaw_factor;
+                    e.move_away_destination = obj.move_away_destination.map(|p| [p.x, p.y, p.z]);
+                    e.request_other_move_away_id = obj.request_other_move_away.map(|id| id.0);
+                    e.immune_to_falling_damage = obj.immune_to_falling_damage;
+                    e.physics_current_overlap_id = obj.physics_current_overlap.map(|id| id.0);
+                    e.physics_previous_overlap_id = obj.physics_previous_overlap.map(|id| id.0);
                     e.shock_stun_frames = obj.shock_stun_frames;
                     e.shock_yaw_rate = obj.shock_yaw_rate;
                     e.shock_pitch_rate = obj.shock_pitch_rate;
@@ -4098,6 +4108,16 @@ impl GameWorldShadow {
                     ignore_collisions_until_frame: ev.ignore_collisions_until_frame,
                     is_panicking: ev.is_panicking,
                     move_away_frames: ev.move_away_frames,
+                    aerodynamic_friction: ev.aerodynamic_friction,
+                    extra_friction: ev.extra_friction,
+                    apply_friction_2d_when_airborne: ev.apply_friction_2d_when_airborne,
+                    center_of_mass_offset: ev.center_of_mass_offset,
+                    pitch_roll_yaw_factor: ev.pitch_roll_yaw_factor,
+                    move_away_destination: ev.move_away_destination,
+                    request_other_move_away_id: ev.request_other_move_away_id,
+                    immune_to_falling_damage: ev.immune_to_falling_damage,
+                    physics_current_overlap_id: ev.physics_current_overlap_id,
+                    physics_previous_overlap_id: ev.physics_previous_overlap_id,
                 });
             n += 1;
         }
@@ -4799,6 +4819,7 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            let host_dest = obj.move_away_destination.map(|p| [p.x, p.y, p.z]);
             let changed = obj.motive_frames_remaining != ent.motive_frames_remaining
                 || (obj.physics_mass - ent.physics_mass).abs() > f32::EPSILON
                 || (obj.physics_accel.x - ent.physics_accel[0]).abs() > f32::EPSILON
@@ -4810,7 +4831,17 @@ impl GameWorldShadow {
                 || obj.can_path_through_units != ent.can_path_through_units
                 || obj.ignore_collisions_until_frame != ent.ignore_collisions_until_frame
                 || obj.is_panicking != ent.is_panicking
-                || obj.move_away_frames != ent.move_away_frames;
+                || obj.move_away_frames != ent.move_away_frames
+                || (obj.aerodynamic_friction - ent.aerodynamic_friction).abs() > f32::EPSILON
+                || (obj.extra_friction - ent.extra_friction).abs() > f32::EPSILON
+                || obj.apply_friction_2d_when_airborne != ent.apply_friction_2d_when_airborne
+                || (obj.center_of_mass_offset - ent.center_of_mass_offset).abs() > f32::EPSILON
+                || (obj.pitch_roll_yaw_factor - ent.pitch_roll_yaw_factor).abs() > f32::EPSILON
+                || host_dest != ent.move_away_destination
+                || obj.request_other_move_away.map(|id| id.0) != ent.request_other_move_away_id
+                || obj.immune_to_falling_damage != ent.immune_to_falling_damage
+                || obj.physics_current_overlap.map(|id| id.0) != ent.physics_current_overlap_id
+                || obj.physics_previous_overlap.map(|id| id.0) != ent.physics_previous_overlap_id;
             if !changed {
                 continue;
             }
@@ -4828,6 +4859,18 @@ impl GameWorldShadow {
             obj.ignore_collisions_until_frame = ent.ignore_collisions_until_frame;
             obj.is_panicking = ent.is_panicking;
             obj.move_away_frames = ent.move_away_frames;
+            obj.aerodynamic_friction = ent.aerodynamic_friction;
+            obj.extra_friction = ent.extra_friction;
+            obj.apply_friction_2d_when_airborne = ent.apply_friction_2d_when_airborne;
+            obj.center_of_mass_offset = ent.center_of_mass_offset;
+            obj.pitch_roll_yaw_factor = ent.pitch_roll_yaw_factor;
+            obj.move_away_destination = ent
+                .move_away_destination
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            obj.request_other_move_away = ent.request_other_move_away_id.map(ObjectId);
+            obj.immune_to_falling_damage = ent.immune_to_falling_damage;
+            obj.physics_current_overlap = ent.physics_current_overlap_id.map(ObjectId);
+            obj.physics_previous_overlap = ent.physics_previous_overlap_id.map(ObjectId);
             updated += 1;
         }
         updated
@@ -13384,6 +13427,12 @@ mod tests {
             o.ignore_collisions_until_frame = 40;
             o.is_panicking = true;
             o.move_away_frames = 5;
+            o.aerodynamic_friction = 0.05;
+            o.extra_friction = 0.02;
+            o.apply_friction_2d_when_airborne = true;
+            o.center_of_mass_offset = -0.5;
+            o.pitch_roll_yaw_factor = 1.2;
+            o.immune_to_falling_damage = true;
         }
         host_physics_motive_log::record(
             oid,
@@ -13397,6 +13446,16 @@ mod tests {
             40,
             true,
             5,
+            0.05,
+            0.02,
+            true,
+            -0.5,
+            1.2,
+            None,
+            None,
+            true,
+            None,
+            None,
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -13409,6 +13468,10 @@ mod tests {
         assert!(e.can_path_through_units);
         assert!(e.is_panicking);
         assert_eq!(e.ignore_collisions_until_frame, 40);
+        assert!((e.aerodynamic_friction - 0.05).abs() < 1e-5);
+        assert!(e.immune_to_falling_damage);
+        assert!((e.aerodynamic_friction - 0.05).abs() < 1e-5);
+        assert!(e.immune_to_falling_damage);
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.motive_frames_remaining = 0;
@@ -13425,6 +13488,10 @@ mod tests {
         assert!(o.can_path_through_units);
         assert!(o.is_panicking);
         assert_eq!(o.ignore_collisions_until_frame, 40);
+        assert!((o.aerodynamic_friction - 0.05).abs() < 1e-5);
+        assert!(o.immune_to_falling_damage);
+        assert!((o.aerodynamic_friction - 0.05).abs() < 1e-5);
+        assert!(o.immune_to_falling_damage);
     }
 
     #[test]
