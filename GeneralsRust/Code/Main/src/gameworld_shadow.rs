@@ -12837,9 +12837,12 @@ mod tests {
 
     #[test]
     fn gameworld_step_movement_advances_move_target() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         // Force movement authority path.
         std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -13036,15 +13039,20 @@ mod tests {
 
     #[test]
     fn host_update_movement_skips_when_gameworld_movement_authority() {
+        let _env_guard = authority_env_lock();
+
         std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(gameworld_movement_authority_enabled());
         let src = include_str!("game_logic/game_logic.rs");
         assert!(
-            src.contains("gameworld_movement_authority_enabled()")
+            (src.contains("gameworld_movement_authority_live()")
+                || src.contains("gameworld_movement_authority_enabled()"))
                 && src.contains("return;")
                 && src.contains("fn update_movement"),
-            "host update_movement must early-return under GameWorld movement authority"
+            "host update_movement must early-return under GameWorld movement authority (live)"
         );
+        assert!(gameworld_movement_authority_live());
         // Session integrates then writebacks.
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvSkip");
@@ -13933,11 +13941,14 @@ mod tests {
 
     #[test]
     fn stale_engine_id_does_not_skip_host_movement() {
+        let _env_guard = authority_env_lock();
+
         if crate::gameworld_shadow::engine_object_bridge_enabled() {
             return;
         }
         // Host-only update_with_dt (no shadow session): keep host integrator on.
         std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MoveBridge");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17475,6 +17486,49 @@ mod tests {
     }
 
     #[test]
+    fn movement_authority_integrates_host_when_shadow_disabled() {
+        let _env_guard = authority_env_lock();
+        let prev_m = std::env::var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+        assert!(gameworld_movement_authority_enabled());
+        assert!(!gameworld_movement_authority_live());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MoveNoShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "MvU", 100.0);
+        if let Some(t) = logic.templates.get_mut("MvU") {
+            t.add_kind_of(KindOf::Infantry);
+        }
+        let id = logic
+            .create_object("MvU", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("unit");
+        if let Some(o) = logic.get_objects_mut().get_mut(&id) {
+            o.thing.template.add_kind_of(KindOf::Infantry);
+            o.movement.max_speed = 60.0;
+        }
+        assert!(logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
+        let pre = logic.get_objects().get(&id).unwrap().get_position();
+        // One host movement tick must advance pose when shadow is off.
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let post = logic.get_objects().get(&id).unwrap().get_position();
+        let dist = (post - pre).length();
+        assert!(
+            dist > 0.01,
+            "host-only movement must integrate path; pre={pre:?} post={post:?} dist={dist}"
+        );
+        match prev_m {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
     fn ai_attack_authority_gates_fire_intent_writeback() {
         let _env_guard = authority_env_lock();
 
@@ -19459,7 +19513,7 @@ mod tests {
             };
             let w = &src[i..=end];
             assert!(
-                w.contains("gameworld_movement_authority_enabled"),
+                w.contains("gameworld_movement_authority"),
                 "{fn_name} must gate pose snaps under movement authority"
             );
         }
@@ -19500,8 +19554,7 @@ mod tests {
         let i = src.find("fn update_production").expect("update_production");
         let w = &src[i..src.len().min(i + 25000)];
         assert!(
-            w.contains("gameworld_movement_authority_enabled")
-                && w.contains("host_move_log::record"),
+            w.contains("gameworld_movement_authority") && w.contains("host_move_log::record"),
             "factory exit spawn pose must honor movement authority logging"
         );
     }
@@ -19515,7 +19568,7 @@ mod tests {
         let eject_body = &src[eject..src.len().min(eject + 12000)];
         assert!(
             eject_body.contains("host_ground_height_log::record")
-                && eject_body.contains("gameworld_movement_authority_enabled")
+                && eject_body.contains("gameworld_movement_authority")
                 && eject_body.contains("host_move_log::record"),
             "eject freefall must log ground height + landing move under movement authority"
         );
@@ -19525,7 +19578,7 @@ mod tests {
         let crate_body = &src[crate_i..src.len().min(crate_i + 5000)];
         assert!(
             crate_body.contains("host_ground_height_log::record")
-                && crate_body.contains("gameworld_movement_authority_enabled"),
+                && crate_body.contains("gameworld_movement_authority"),
             "crate freefall must log ground height under movement authority"
         );
         let sell = src
@@ -19534,7 +19587,7 @@ mod tests {
         let sell_body = &src[sell..src.len().min(sell + 6000)];
         assert!(
             sell_body.contains("host_move_log::record")
-                && sell_body.contains("gameworld_movement_authority_enabled"),
+                && sell_body.contains("gameworld_movement_authority"),
             "sell eject dump must log move dest under movement authority"
         );
         let hijack = src
@@ -19574,7 +19627,7 @@ mod tests {
         let ground_body = &src[ground..src.len().min(ground + 2500)];
         assert!(
             ground_body.contains("host_ground_height_log::record")
-                && ground_body.contains("gameworld_movement_authority_enabled")
+                && ground_body.contains("gameworld_movement_authority")
                 && ground_body.contains("host_move_log::record"),
             "map object terrain grounding must log ground height + move under movement authority"
         );
@@ -19594,7 +19647,7 @@ mod tests {
             support_body.contains("set_position(container_pos)")
                 && support_body.contains("host_move_log::record")
                 && support_body.contains("host_ground_height_log::record")
-                && support_body.contains("gameworld_movement_authority_enabled"),
+                && support_body.contains("gameworld_movement_authority"),
             "contained support pose sync must log ground/move under authority"
         );
         let bldg = src
@@ -19603,7 +19656,7 @@ mod tests {
         let bldg_body = &src[bldg..src.len().min(bldg + 8000)];
         assert!(
             bldg_body.contains("building_pos + offset")
-                && bldg_body.contains("gameworld_movement_authority_enabled")
+                && bldg_body.contains("gameworld_movement_authority")
                 && bldg_body.contains("host_move_log::record"),
             "building rubble/eject dump must log move under movement authority"
         );
@@ -19682,7 +19735,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing {name}"));
             let body = &src[at..src.len().min(at + 5000)];
             assert!(
-                body.contains("gameworld_movement_authority_enabled")
+                body.contains("gameworld_movement_authority")
                     && body.contains("host_move_log::record"),
                 "{name} must log move dest under movement authority"
             );
@@ -19712,7 +19765,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing {name}"));
             let body = &src[at..src.len().min(at + window)];
             assert!(
-                body.contains("gameworld_movement_authority_enabled")
+                body.contains("gameworld_movement_authority")
                     && body.contains("host_move_log::record"),
                 "{name} must log move dest under movement authority"
             );

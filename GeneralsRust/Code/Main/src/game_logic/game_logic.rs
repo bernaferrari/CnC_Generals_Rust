@@ -4964,7 +4964,7 @@ impl GameLogic {
                 // y is world height after grounding; residual height sample = y when terrain present.
                 object.set_ground_height_residual(y, true);
                 crate::game_logic::host_ground_height_log::record(object_id, y, true);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(object_id, Some([x, y, z]));
                     object.record_host_movement();
                 }
@@ -6382,7 +6382,7 @@ impl GameLogic {
                     spawn_pos += jitter_dir * selection_radius;
                 }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
-                    if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
                         crate::game_logic::host_move_log::record(
                             new_id,
                             Some([spawn_pos.x, spawn_pos.y, spawn_pos.z]),
@@ -6844,7 +6844,7 @@ impl GameLogic {
         // GameWorld movement authority: path integrate + pose last-write runs in
         // shadow_session_after_host_tick via GameWorld::step_movement. Host still
         // owns path *commands* (move_to / attack-move logs) earlier in the frame.
-        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_movement_authority_live() {
             let _ = (object_ids, dt);
             return;
         }
@@ -6942,6 +6942,11 @@ impl GameLogic {
                 }
             }
         }
+    }
+
+    #[cfg(test)]
+    pub fn update_movement_for_test(&mut self, object_ids: &[ObjectId], dt: f32) {
+        self.update_movement(object_ids, dt);
     }
 
     /// Update AI behavior for all objects
@@ -8530,7 +8535,7 @@ impl GameLogic {
             if let Some(r) = self.objects.get_mut(&rider_id) {
                 r.set_position(pos);
                 crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(rider_id, Some([pos.x, pos.y, pos.z]));
                     r.record_host_movement();
                 }
@@ -8569,7 +8574,7 @@ impl GameLogic {
             }
             r.set_position(pos);
             crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(rider_id, Some([pos.x, pos.y, pos.z]));
                 r.record_host_movement();
             }
@@ -11514,7 +11519,7 @@ impl GameLogic {
                 // Simplified two-runway layout along X.
                 prep.x += (runway_idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
                 prep.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(
                         jet_id,
                         Some([prep.x, prep.y, prep.z]),
@@ -11735,7 +11740,7 @@ impl GameLogic {
                     pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
                 }
                 pad.y = af_pos.y;
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
                     // Keep path destination; GameWorld integrates. Instant dock snap only host-only.
                     jet.movement.target_position = Some(pad);
@@ -15606,7 +15611,7 @@ impl GameLogic {
                             container_pos.y,
                             false,
                         );
-                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
                             crate::game_logic::host_move_log::record(
                                 obj.id,
                                 Some([container_pos.x, container_pos.y, container_pos.z]),
@@ -16995,7 +17000,7 @@ impl GameLogic {
                             container_pos.y,
                             false,
                         );
-                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
                             crate::game_logic::host_move_log::record(
                                 obj.id,
                                 Some([container_pos.x, container_pos.y, container_pos.z]),
@@ -20328,7 +20333,7 @@ impl GameLogic {
             p.y = new_y;
             obj.set_position(p);
             crate::game_logic::host_ground_height_log::record(crate_id, ground, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 if landed {
                     crate::game_logic::host_move_log::record(crate_id, Some([p.x, p.y, p.z]));
                 }
@@ -20527,7 +20532,7 @@ impl GameLogic {
                 let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
                 unit.stop_moving();
                 unit.set_position(building_pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     let p = building_pos + offset;
                     crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
@@ -20693,7 +20698,7 @@ impl GameLogic {
                 template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
             let mut object = Object::new(template, id, team);
             object.set_position(position);
-            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
                     id,
                     Some([position.x, position.y, position.z]),
@@ -21571,7 +21576,7 @@ impl GameLogic {
             let id = self.allocate_object_id();
             let mut object = Object::new_under_construction(template, id, team);
             object.set_position(position);
-            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
                     id,
                     Some([position.x, position.y, position.z]),
@@ -22329,8 +22334,7 @@ impl GameLogic {
                                 // already issued via assign_unit_attack_path; GameWorld
                                 // integrates the march. Host-only residual may still snap
                                 // for short smoke waits when authority is off.
-                                if !crate::gameworld_shadow::gameworld_movement_authority_enabled()
-                                {
+                                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                                     let dir = if dist > 1.0 {
                                         dir / dist
                                     } else {
@@ -22611,7 +22615,7 @@ impl GameLogic {
                             let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
                             unit.stop_moving();
                             unit.set_position(eject_origin + offset);
-                            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                                 let p = eject_origin + offset;
                                 crate::game_logic::host_move_log::record(
                                     unit.id,
@@ -25543,7 +25547,7 @@ impl GameLogic {
                 hunter.set_status_attacking(false);
                 hunter.set_target(None);
                 hunter.set_position(position);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(
                         hunter_id,
                         Some([position.x, position.y, position.z]),
@@ -25635,7 +25639,7 @@ impl GameLogic {
                 guard.set_status_attacking(false);
                 guard.set_target(None);
                 guard.set_position(position);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(
                         guard_id,
                         Some([position.x, position.y, position.z]),
@@ -25690,7 +25694,7 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&occ_id) {
                 unit.stop_moving();
                 unit.set_position(crawler_pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     let p = crawler_pos + offset;
                     crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
@@ -36167,7 +36171,7 @@ impl GameLogic {
             }
             r.set_position(eject_pos);
             crate::game_logic::host_ground_height_log::record(rider_id, eject_pos.y, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
                     rider_id,
                     Some([eject_pos.x, eject_pos.y, eject_pos.z]),
@@ -38413,7 +38417,7 @@ impl GameLogic {
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
                         r.set_position(cp);
                         crate::game_logic::host_ground_height_log::record(pilot_id, cp.y, false);
-                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
                             r.record_host_movement();
                         }
                         if open && !r.is_parachute_open() {
@@ -38503,7 +38507,7 @@ impl GameLogic {
             }
             obj.set_position(p);
             crate::game_logic::host_ground_height_log::record(pilot_id, ground, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 // Freefall residual is not path-integrate; host pose stays residual,
                 // but landing destination is logged for GameWorld move channel.
                 if landed {
@@ -38533,7 +38537,7 @@ impl GameLogic {
                 if let Some(r) = self.objects.get_mut(&rid) {
                     r.set_position(land_pos);
                     crate::game_logic::host_ground_height_log::record(rid, ground, false);
-                    if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
                         r.record_host_movement();
                     }
                     if open && !r.is_parachute_open() {
@@ -38558,7 +38562,7 @@ impl GameLogic {
                     }
                     r.set_position(land_pos);
                     crate::game_logic::host_ground_height_log::record(*rid, ground, false);
-                    if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
                         crate::game_logic::host_move_log::record(
                             *rid,
                             Some([land_pos.x, land_pos.y, land_pos.z]),
@@ -43513,7 +43517,7 @@ impl GameLogic {
                             p.y = 120.0;
                             obj.set_position(p);
                             crate::game_logic::host_ground_height_log::record(id, p.y, false);
-                            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                                 crate::game_logic::host_move_log::record(id, Some([p.x, p.y, p.z]));
                                 obj.record_host_movement();
                             }
@@ -48859,7 +48863,7 @@ impl GameLogic {
                         let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 12.0;
                         unit.stop_moving();
                         unit.set_position(pos + offset);
-                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
                             let p = pos + offset;
                             crate::game_logic::host_move_log::record(
                                 unit.id,
@@ -49030,7 +49034,7 @@ impl GameLogic {
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
                 unit.set_position(pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     let p = pos + offset;
                     crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
@@ -49108,7 +49112,7 @@ impl GameLogic {
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
                 unit.set_position(pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     let p = pos + offset;
                     crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
@@ -49168,7 +49172,7 @@ impl GameLogic {
                             let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                             unit.stop_moving();
                             unit.set_position(pos + offset);
-                            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
                                 let p = pos + offset;
                                 crate::game_logic::host_move_log::record(
                                     unit.id,

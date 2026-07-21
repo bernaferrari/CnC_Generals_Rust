@@ -20,6 +20,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | Dual `gamelogic` crate tick | **off** (`AuthorityOnly`) | `GENERALS_ALLOW_DUAL_TICK` |
 | Shadow session | **on** | `GENERALS_GAMEWORLD_SHADOW=0` |
 | HP last-writer (damage auth) | **on** (defers host HP only while shadow live; host-only applies immediately; unmapped shadow fallback) | `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0` |
+| Movement integrate (path follow) | **on** (host skips integrate only while shadow live; host-only steps paths) | `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=0` |
 | Cash last-writer (economy auth) | **on** | `GENERALS_GAMEWORLD_ECONOMY_AUTHORITY=0` |
 | Attack target channel (shadow↔host) | **on** with shadow session | — |
 | Move destination channel (shadow↔host) | **on** with shadow session | — |
