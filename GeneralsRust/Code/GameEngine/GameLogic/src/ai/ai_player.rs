@@ -2407,28 +2407,33 @@ impl AIPlayer {
                     + obj_guard.get_geometry_info().get_bounding_circle_radius();
 
                 // Skip if we already own a cash generator near this warehouse.
+                // Host path: dual-world registry empty → no factory-side cash gens.
                 let mut already_have = false;
-                for cand in OBJECT_REGISTRY.get_all_objects() {
-                    let Ok(cg) = cand.read() else {
-                        continue;
-                    };
-                    if !cg.is_kind_of(KindOf::CashGenerator) {
-                        continue;
+                if OBJECT_REGISTRY.is_empty() {
+                    // fall through with already_have=false
+                } else {
+                    for cand in OBJECT_REGISTRY.get_all_objects() {
+                        let Ok(cg) = cand.read() else {
+                            continue;
+                        };
+                        if !cg.is_kind_of(KindOf::CashGenerator) {
+                            continue;
+                        }
+                        let Some(pid) = cg.get_controlling_player_id() else {
+                            continue;
+                        };
+                        if pid as u32 != self.player_id {
+                            continue;
+                        }
+                        let p = cg.get_position();
+                        let dx = p.x - center.x;
+                        let dy = p.y - center.y;
+                        if dx * dx + dy * dy <= radius * radius {
+                            already_have = true;
+                            break;
+                        }
                     }
-                    let Some(pid) = cg.get_controlling_player_id() else {
-                        continue;
-                    };
-                    if pid as u32 != self.player_id {
-                        continue;
-                    }
-                    let p = cg.get_position();
-                    let dx = p.x - center.x;
-                    let dy = p.y - center.y;
-                    if dx * dx + dy * dy <= radius * radius {
-                        already_have = true;
-                        break;
-                    }
-                }
+                } // dual-world registry non-empty
                 if already_have {
                     continue;
                 }
