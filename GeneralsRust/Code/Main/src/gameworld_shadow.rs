@@ -19189,6 +19189,19 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Jet return-to-base rearm airfield residual.
+        {
+            let name = "try_return_to_base_rearm";
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 4000)];
+            assert!(
+                body.contains("pick_nearest_residual_target")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual acquire for airfield pick"
+            );
+        }
         // Money crate nearest picker residual.
         {
             let name = "update_money_crate_collides";
