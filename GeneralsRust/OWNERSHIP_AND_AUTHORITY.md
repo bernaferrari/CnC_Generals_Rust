@@ -224,7 +224,9 @@ Executable smoke (`executable_smoke_gate` / behavior_gate step 8) boots the real
 `generals` binary via runtime host and proves Menu→InGame. `playable_claim`
 remains false (not full WND widget click / retail GPU match playthrough).
 
-### Presentation-first UI command identity
+### InGame render builds `GameUIState` from `PresentationFrame` (default+apply); live `GameLogic::update_ui_state` is boot residual only when no frame is installed.
+
+Presentation-first UI command identity
 
 InGame dozer/producer/selection/production-queue head checks on the engine UI
 path prefer `last_presentation_frame` (`presentation_ro` / `ui_object_*`
