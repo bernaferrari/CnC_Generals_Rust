@@ -1447,3 +1447,6 @@ Production sole-tick applies host `power_factor` residual (energy shortfall clam
 Host skips production progress advance only when `gameworld_production_sole_tick_enabled()` (authority + shadow session); shadow-off falls back to host `update_production`.
 
 Under CONSTRUCTION_AUTHORITY+shadow, GameWorld sole-ticks construction_percent via logged effective_rate (dozers×power×1/build_time); host completes at 1.0 after writeback. Sell deconstruction remains host-advanced.
+
+`executable_smoke.host_vertical_slice_ok`: WND start + InGame + select/move + construct + train + host_ok. Still not `playable_claim` (full retail WND tree).
+Team/Player dual-world bulk walks early-out when OBJECT_REGISTRY is empty (host path).

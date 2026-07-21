@@ -359,6 +359,9 @@ impl Team {
 
     /// Get count of targetable (alive or building) objects
     pub fn get_targetable_count(&self) -> Int {
+        if OBJECT_REGISTRY.is_empty() {
+            return 0;
+        }
         let mut count: Int = 0;
 
         // C++ parity (Team::getTargetableCount):
@@ -849,6 +852,9 @@ impl Team {
 
     /// Count buildings in team
     pub fn count_buildings(&self) -> Int {
+        if OBJECT_REGISTRY.is_empty() {
+            return 0;
+        }
         let mut count = 0;
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
@@ -873,6 +879,10 @@ impl Team {
         ignore_under_construction: Bool,
         counts: &mut [Int],
     ) {
+        if OBJECT_REGISTRY.is_empty() {
+            counts.fill(0);
+            return;
+        }
         counts.fill(0);
         let max_templates = templates.len().min(counts.len());
         if max_templates == 0 {
@@ -910,6 +920,9 @@ impl Team {
     /// Heal all team members completely.
     /// Matches C++ Team::healAllObjects.
     pub fn heal_all_objects(&mut self) {
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -923,16 +936,27 @@ impl Team {
 
     /// Iterate all live team member objects and invoke callback for each.
     /// Matches C++ Team::iterateObjects.
-    pub fn iterate_objects<F>(&self, mut func: F)
+    /// Host/presentation path: OBJECT_REGISTRY empty → no dual-world members to visit.
+    fn for_each_live_member<F>(&self, mut func: F)
     where
         F: FnMut(Arc<RwLock<crate::object::Object>>),
     {
+        if OBJECT_REGISTRY.is_empty() || self.members.is_empty() {
+            return;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
             };
             func(object_arc);
         }
+    }
+
+    pub fn iterate_objects<F>(&self, mut func: F)
+    where
+        F: FnMut(Arc<RwLock<crate::object::Object>>),
+    {
+        self.for_each_live_member(func);
     }
 
     /// Add this team's members to an AIGroup.
@@ -1070,6 +1094,9 @@ impl Team {
 
     /// Count objects with specific kind flags
     pub fn count_objects(&self, set_mask: u32, clear_mask: u32) -> Int {
+        if OBJECT_REGISTRY.is_empty() {
+            return 0;
+        }
         let required = set_mask as KindOfMaskType;
         let forbidden = clear_mask as KindOfMaskType;
         let mut count = 0;
@@ -1091,6 +1118,9 @@ impl Team {
 
     /// Check if team has any buildings
     pub fn has_any_buildings(&self) -> Bool {
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -1110,6 +1140,9 @@ impl Team {
 
     /// Check if team has buildings of specific kind
     pub fn has_any_buildings_of_kind(&self, kind_of: u32) -> Bool {
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         let mask = (kind_of as KindOfMaskType) | (1u64 << (KindOf::Structure as u32));
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
@@ -1130,6 +1163,9 @@ impl Team {
 
     /// Check if team has any units
     pub fn has_any_units(&self) -> Bool {
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -1153,6 +1189,9 @@ impl Team {
 
     /// Check if team has any objects
     pub fn has_any_objects(&self) -> Bool {
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -1175,6 +1214,9 @@ impl Team {
 
     /// Check if all team units are idle
     pub fn is_idle(&self) -> Bool {
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -1221,6 +1263,9 @@ impl Team {
 
     /// Check if team has any build facilities
     pub fn has_any_build_facility(&self) -> Bool {
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -1237,6 +1282,9 @@ impl Team {
 
     /// Move team to destination
     pub fn move_team_to(&mut self, _destination: Coord3D) {
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         // C++ Team::moveTeamTo currently performs no command issue.
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
@@ -1253,6 +1301,9 @@ impl Team {
 
     /// Damage all team members
     pub fn damage_team_members(&mut self, amount: Real) -> Bool {
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -1759,6 +1810,9 @@ impl Team {
     }
 
     fn evacuate_team_containers(&self) {
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         let members = self.members.clone();
         for object_id in members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
