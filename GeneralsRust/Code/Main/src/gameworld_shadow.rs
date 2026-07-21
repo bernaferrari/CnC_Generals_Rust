@@ -17625,4 +17625,106 @@ mod tests {
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
         }
     }
+
+    #[test]
+    fn angry_mob_pdl_damage_source_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for (fn_name, token) in [
+            (
+                "fn update_angry_mobs",
+                "take_damage_from(hit.damage, Some(plan.mob_id))",
+            ),
+            (
+                "fn update_point_defense_intercept",
+                "take_damage_from(damage, Some(carrier_id))",
+            ),
+            (
+                "fn update_scud_poison_zones",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+            (
+                "fn update_bomb_truck_poison_zones",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+            (
+                "fn update_inferno_fire_zones",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+            (
+                "fn update_firewalls",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+            (
+                "fn update_helix_napalm_firestorms",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+            (
+                "fn update_nuclear_tanks_radiation_zones",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+            (
+                "fn update_nuke_cannon_radiation_zones",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+            (
+                "fn update_toxin_tractor_poison_zones",
+                "take_damage_from(hit.damage, Some(plan.source_object))",
+            ),
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains(token),
+                "{fn_name} must source-attribute residual damage via {token}"
+            );
+        }
+        let pdl_i = src.find("fn update_point_defense_intercept").expect("pdl");
+        let bytes = src.as_bytes();
+        let mut j = src[pdl_i..].find('{').map(|o| pdl_i + o).expect("pdl body");
+        let mut depth = 0i32;
+        let pdl_end = loop {
+            match bytes.get(j) {
+                Some(b'{') => depth += 1,
+                Some(b'}') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break j;
+                    }
+                }
+                Some(_) => {}
+                None => panic!("unclosed pdl"),
+            }
+            j += 1;
+        };
+        let pdl = &src[pdl_i..=pdl_end];
+        assert!(
+            pdl.contains("host_fire_intent_log::record")
+                && pdl.contains("gameworld_ai_attack_authority_enabled"),
+            "PDL must record fire-intent under AI attack authority"
+        );
+        assert!(
+            pdl.contains("record_attack")
+                && pdl.contains("gameworld_ai_decision_authority_enabled"),
+            "PDL must log Attack under AI decision authority"
+        );
+    }
 }
