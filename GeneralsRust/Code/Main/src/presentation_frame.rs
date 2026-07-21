@@ -10889,8 +10889,15 @@ mod tests {
         let sw = include_str!("gameworld_shadow.rs");
         assert!(
             sw.contains("fn tick_special_power_cooldowns")
+                && sw.contains("fn tick_player_shared_special_power_cooldowns")
                 && sw.contains("writeback_special_power_to_host(logic)"),
-            "shadow session must sole-tick and writeback SP under authority"
+            "shadow session must sole-tick object+player SP and writeback under authority"
+        );
+        let gl = include_str!("game_logic/game_logic.rs");
+        assert!(
+            gl.contains("gameworld_special_power_sole_tick_enabled()")
+                && gl.contains("record_host_cooldowns"),
+            "host shared SP tick must defer under sole-tick and still snapshot cds"
         );
     }
 
