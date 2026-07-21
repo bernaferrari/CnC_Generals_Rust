@@ -17275,11 +17275,18 @@ mod tests {
             }),
             "stop must log decision; got {events:?}"
         );
-        // Host still has target until writeback.
-        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        // Host engagement clears same-frame so combat cannot keep firing.
+        assert!(
+            logic.get_objects().get(&oid).unwrap().target.is_none(),
+            "host target must clear immediately on stop"
+        );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
+        // Seed world attack then apply stop decision so writeback path still exercises.
+        assert!(shadow.queue_set_attack_target_for_host(oid, Some(vid)));
+        let _ = shadow.apply_pending();
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        let _ = shadow.apply_pending();
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
         match prev {
@@ -18876,11 +18883,10 @@ mod tests {
             o.status.attacking = true;
         }
         assert!(logic.private_stop(oid));
-        // Host target deferred under decision authority.
-        assert_eq!(
-            logic.get_objects().get(&oid).unwrap().target,
-            Some(vid),
-            "host target must remain until GameWorld writeback"
+        // Host target clears same-frame; decision log still drives GameWorld.
+        assert!(
+            logic.get_objects().get(&oid).unwrap().target.is_none(),
+            "private_stop must clear host target immediately"
         );
         let events = host_ai_decision_log::drain();
         assert!(
