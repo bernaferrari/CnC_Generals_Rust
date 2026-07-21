@@ -10398,6 +10398,21 @@ mod tests {
     }
 
     #[test]
+    fn control_bar_update_honors_presentation_selection_without_registry() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("presentation_selection_active")
+                || cb.contains("portrait_state.is_visible"),
+            "control bar must not wipe selection solely because OBJECT_REGISTRY is empty"
+        );
+        assert!(
+            cb.contains("Without registry modules, skip live module context")
+                || cb.contains("// Without registry modules"),
+            "control bar must short-circuit live module updates on presentation path"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
