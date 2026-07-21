@@ -14190,18 +14190,24 @@ impl GameLogic {
     }
 
     fn apply_ai_command(&mut self, command: AICommand) {
+        // Always record into the frame decision log. When AI decision authority is on,
+        // GameWorld apply/writeback is last-writer — do not mutate host engagement/state
+        // here (MoveTo still pathfinds on host; destination is mirrored via decision log).
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
         match command {
             AICommand::AttackTarget {
                 object_id,
                 target_id,
             } => {
                 crate::game_logic::host_ai_decision_log::record_attack(object_id, target_id);
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.attack_target(target_id);
+                if !decision_auth {
+                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                        obj.attack_target(target_id);
+                    }
                 }
             }
             AICommand::StopAttack { object_id } => {
-                crate::game_logic::host_ai_decision_log::record_stop_attack(object_id);
+                // stop_attack_decision_aware records + gates host clear.
                 self.stop_attack_decision_aware(object_id);
             }
             AICommand::MoveTo {
@@ -14209,6 +14215,7 @@ impl GameLogic {
                 position,
             } => {
                 crate::game_logic::host_ai_decision_log::record_move_to(object_id, position);
+                // Pathfinding stays host-side (movement authority peels integrate separately).
                 self.move_object_with_pathfinding(object_id, position, None);
             }
             AICommand::SetAIState { object_id, state } => {
@@ -14236,8 +14243,10 @@ impl GameLogic {
                     AIState::GuardRetaliating => 20,
                 };
                 crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.set_ai_state(state);
+                if !decision_auth {
+                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                        obj.set_ai_state(state);
+                    }
                 }
             }
         }
