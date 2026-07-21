@@ -7801,7 +7801,7 @@ impl Object {
                 self.last_fire_damage = dmg;
                 self.last_fire_range = rng;
                 self.last_fire_sim_time = current_time;
-                // frame filled by GameLogic caller when available; keep prior if 0.
+                self.last_fire_frame = crate::game_logic::host_historic_bonus::logic_frame();
                 self.fire_intent_count = self.fire_intent_count.saturating_add(1);
                 self.record_host_fire_intent();
             }
