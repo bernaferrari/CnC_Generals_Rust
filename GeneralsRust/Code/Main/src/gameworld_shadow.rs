@@ -19189,6 +19189,20 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Money crate nearest picker residual.
+        {
+            let name = "update_money_crate_collides";
+            let i = src
+                .find(&format!("fn {name}"))
+                .or_else(|| src.find(&format!("pub fn {name}")))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 9000)];
+            assert!(
+                body.contains("pick_nearest_residual_target_xz")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual XZ acquire for picker selection"
+            );
+        }
         // Mine clearer nearest residual inside update_mines_and_demo_traps.
         {
             let name = "update_mines_and_demo_traps";

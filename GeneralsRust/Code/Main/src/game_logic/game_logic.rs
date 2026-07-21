@@ -19934,7 +19934,14 @@ impl GameLogic {
         let mut above_rejects = 0_u32;
         let mut forbidden_rejects = 0_u32;
         for (crate_id, crate_pos, building_pickup, _paid, above_terrain, is_salvage) in &crates {
-            let mut best: Option<(ObjectId, Team, bool, f32)> = None;
+            // Pure residual acquire: nearest legal picker in unit/building pickup radius (XZ).
+            // Reject counters still run in the candidate filter phase.
+            let mut structure_by_id: std::collections::HashMap<ObjectId, bool> =
+                std::collections::HashMap::new();
+            let mut team_by_id: std::collections::HashMap<ObjectId, Team> =
+                std::collections::HashMap::new();
+            let mut cands: Vec<crate::game_logic::host_residual_acquire::ResidualAcquireCandidate> =
+                Vec::new();
             for (
                 picker_id,
                 team,
@@ -19998,11 +20005,35 @@ impl GameLogic {
                         continue;
                     }
                 }
-                if best.as_ref().map(|b| dist < b.3).unwrap_or(true) {
-                    best = Some((*picker_id, *team, *is_structure, dist));
-                }
+                structure_by_id.insert(*picker_id, *is_structure);
+                team_by_id.insert(*picker_id, *team);
+                cands.push(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: *picker_id,
+                        team: *team,
+                        position: *picker_pos,
+                        is_alive: true,
+                        is_neutral: *team == Team::Neutral,
+                        under_construction: false,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                );
             }
-            if let Some((picker_id, team, is_structure, _)) = best {
+            let max_r = MONEY_CRATE_BUILDING_PICKUP_RADIUS.max(MONEY_CRATE_UNIT_PICKUP_RADIUS);
+            if let Some((picker_id, _, _)) =
+                crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                    Some(*crate_id),
+                    (crate_pos.x, crate_pos.z),
+                    cands,
+                    max_r,
+                    |_| true,
+                )
+            {
+                let is_structure = structure_by_id.get(&picker_id).copied().unwrap_or(false);
+                let team = team_by_id.get(&picker_id).copied().unwrap_or(Team::Neutral);
                 pickups.push((*crate_id, picker_id, team, is_structure));
             }
         }
@@ -55881,15 +55912,15 @@ mod tests {
 
         let cash_before = game_logic
             .get_player_mut_by_team(Team::USA)
-            .map(|p| p.resources.supplies)
+            .map(|p| test_observed_supplies(p))
             .unwrap_or(0);
 
         game_logic.update_money_crate_collides();
         // Destroy list processes on full update; destroy_object queues destruction.
-        // Cash should already be credited.
+        // Cash should already be credited (effective supplies under ECONOMY_AUTHORITY).
         let cash_after = game_logic
             .get_player_mut_by_team(Team::USA)
-            .map(|p| p.resources.supplies)
+            .map(|p| test_observed_supplies(p))
             .unwrap_or(0);
         assert_eq!(
             cash_after,
@@ -55956,12 +55987,12 @@ mod tests {
         }
         let cash_mid = game_logic
             .get_player_mut_by_team(Team::USA)
-            .map(|p| p.resources.supplies)
+            .map(|p| test_observed_supplies(p))
             .unwrap_or(0);
         game_logic.update_money_crate_collides();
         let cash_sl = game_logic
             .get_player_mut_by_team(Team::USA)
-            .map(|p| p.resources.supplies)
+            .map(|p| test_observed_supplies(p))
             .unwrap_or(0);
         assert_eq!(
             cash_sl,
@@ -56026,7 +56057,7 @@ mod tests {
             .expect("ranger");
         let cash_before = game_logic
             .get_player_mut_by_team(Team::USA)
-            .map(|p| p.resources.supplies)
+            .map(|p| test_observed_supplies(p))
             .unwrap_or(0);
         game_logic.update_money_crate_collides();
         let cash_air = game_logic
@@ -56069,7 +56100,7 @@ mod tests {
         game_logic.update_money_crate_collides();
         let cash_land = game_logic
             .get_player_mut_by_team(Team::USA)
-            .map(|p| p.resources.supplies)
+            .map(|p| test_observed_supplies(p))
             .unwrap_or(0);
         assert!(cash_land > cash_before, "landed crate unit pickup residual");
         assert!(game_logic.honesty_money_pickup_anim_ok());
@@ -57482,6 +57513,12 @@ mod tests {
     /// Fail-closed: not full turret pitch matrix / vision-object residual.
 
     /// Observed residual damage under default DAMAGE_AUTHORITY (HP log) or host HP delta.
+
+    /// Observed supplies under ECONOMY_AUTHORITY (effective includes pending delta).
+    fn test_observed_supplies(player: &crate::game_logic::Player) -> u32 {
+        player.effective_supplies()
+    }
+
     fn test_observed_damage_to(target: ObjectId, hp_before: f32, hp_after: f32) -> f32 {
         if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
             crate::game_logic::host_damage_log::snapshot()
