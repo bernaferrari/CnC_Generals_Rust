@@ -70,6 +70,35 @@ pub fn residual_combat_kind(
     attackable || structure || infantry || vehicle || aircraft
 }
 
+/// Nearest legal service target (heal pad / repair pad / unfinished structure).
+/// Unlike combat acquire, does **not** auto-skip stealthed candidates — callers
+/// encode pad/structure legality only.
+pub fn pick_nearest_residual_service_target(
+    self_id: ObjectId,
+    origin: Vec3,
+    candidates: impl IntoIterator<Item = ResidualAcquireCandidate>,
+    max_range: f32,
+    mut is_legal: impl FnMut(&ResidualAcquireCandidate) -> bool,
+) -> Option<(ObjectId, f32, Vec3)> {
+    if max_range <= 0.0 {
+        return None;
+    }
+    let mut best: Option<(ObjectId, f32, Vec3)> = None;
+    for c in candidates {
+        if c.id == self_id {
+            continue;
+        }
+        if !is_legal(&c) {
+            continue;
+        }
+        let dist = origin.distance(c.position);
+        if dist <= max_range && best.map(|(_, d, _)| dist < d).unwrap_or(true) {
+            best = Some((c.id, dist, c.position));
+        }
+    }
+    best
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +168,38 @@ mod tests {
             best.map(|(id, _, air)| (id, air)),
             Some((ObjectId(9), true))
         );
+    }
+
+    #[test]
+    fn service_target_picks_nearest_pad() {
+        let origin = Vec3::ZERO;
+        let list = [
+            ResidualAcquireCandidate {
+                id: ObjectId(2),
+                team: Team::USA,
+                position: Vec3::new(100.0, 0.0, 0.0),
+                is_alive: true,
+                is_neutral: false,
+                under_construction: false,
+                combat_kind: false,
+                effectively_stealthed: false,
+                is_air: false,
+            },
+            ResidualAcquireCandidate {
+                id: ObjectId(3),
+                team: Team::USA,
+                position: Vec3::new(30.0, 0.0, 0.0),
+                is_alive: true,
+                is_neutral: false,
+                under_construction: false,
+                combat_kind: false,
+                effectively_stealthed: false,
+                is_air: false,
+            },
+        ];
+        let best = pick_nearest_residual_service_target(ObjectId(1), origin, list, 200.0, |c| {
+            c.is_alive && !c.under_construction
+        });
+        assert_eq!(best.map(|(id, _, _)| id), Some(ObjectId(3)));
     }
 }
