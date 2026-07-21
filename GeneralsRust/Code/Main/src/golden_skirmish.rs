@@ -1799,10 +1799,22 @@ fn run_map_world_skirmish(
     // Bounded rounds: uncapped 4k hung Lone Eagle (mini-march thrash).
     // Bound for gate soak (dual RC runs): rangers are setup-warped near the primary
     // enemy so 120 in-range AttackObject rounds suffice for store-damage kills.
-    let fight_rounds = if is_retail_ranger_name(&ranger_name_used) {
+    // Full gate golden uses frames≈30+. RC dual-soak passes frames=4–8 — scale
+    // combat so dual Lone Eagle fights cannot dominate wall time.
+    let base_fight_rounds: u32 = if is_retail_ranger_name(&ranger_name_used) {
         120
     } else {
         90
+    };
+    let fight_rounds: u32 = if frames <= 5 {
+        ((base_fight_rounds * frames.max(1)) / 30).max(12)
+    } else {
+        base_fight_rounds
+    };
+    let cleanup_fight_rounds: u32 = if frames <= 5 {
+        (fight_rounds * 2).min(40)
+    } else {
+        500
     };
     // Pause AI rebuild + clear enemy combat targets so pure-march rangers are
     // not racing production queues or structure auto-counterfire. set_ai_active
@@ -1941,7 +1953,8 @@ fn run_map_world_skirmish(
                     logic.update();
                 }
             }
-            let (f, c, nt, rs, sd) = fight_enemies_with_rangers(logic, &live, Some(focus), 500);
+            let (f, c, nt, rs, sd) =
+                fight_enemies_with_rangers(logic, &live, Some(focus), cleanup_fight_rounds);
             fought |= f;
             combat_no_teleport_ok &= nt;
             combat_realistic_speed_ok &= rs;
@@ -2522,7 +2535,7 @@ mod tests {
             eprintln!("retail map absent — skipping map-loaded golden assertion");
             return;
         };
-        let result = run_golden_skirmish(Some(map), 8);
+        let result = run_golden_skirmish(Some(map), 30);
         assert!(
             result.map_loaded,
             "retail map must load on main logic: {}",
