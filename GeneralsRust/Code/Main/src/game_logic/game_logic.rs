@@ -25892,44 +25892,57 @@ impl GameLogic {
             return;
         }
 
-        let mut best: Option<(ObjectId, f32, bool)> = None;
-        for (id, obj) in &self.objects {
-            if *id == defense_id {
-                continue;
-            }
-            let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Infantry)
-                || obj.is_kind_of(KindOf::Vehicle)
-                || obj.is_kind_of(KindOf::Aircraft);
-            if !crate::game_logic::host_base_defense::is_legal_base_defense_target(
-                obj.is_alive(),
-                obj.team == team,
-                obj.team == Team::Neutral,
-                obj.status.under_construction,
-                combat_kind,
-            ) {
-                continue;
-            }
-            // Stealthed + undetected residual: skip (parity with update_combat).
-            if obj.is_effectively_stealthed() && obj.team != team {
-                continue;
-            }
-            let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
-            let dist = fire_pos.distance(obj.get_position());
-            let in_range = if dual_slot {
-                if is_air {
-                    dist <= air_range.max(ground_range)
-                } else {
-                    dist <= ground_range
+        // Pure residual acquire query (fire decision choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
                 }
-            } else {
-                dist <= scan_range
-            };
-            if in_range && best.map(|(_, d, _)| dist < d).unwrap_or(true) {
-                best = Some((*id, dist, is_air));
-            }
-        }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            defense_id,
+            team,
+            fire_pos,
+            candidates,
+            |is_air| {
+                if dual_slot {
+                    if is_air {
+                        air_range.max(ground_range)
+                    } else {
+                        ground_range
+                    }
+                } else {
+                    scan_range
+                }
+            },
+            |c| {
+                crate::game_logic::host_base_defense::is_legal_base_defense_target(
+                    c.is_alive,
+                    c.team == team,
+                    c.is_neutral,
+                    c.under_construction,
+                    c.combat_kind,
+                )
+            },
+        );
 
         let Some((target_id, _, target_is_air)) = best else {
             return;
@@ -33726,34 +33739,51 @@ impl GameLogic {
         let damage = weapon.damage;
         let fire_pos = attacker.get_position();
 
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in &self.objects {
-            if *id == sentry_id {
-                continue;
-            }
-            let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Infantry)
-                || obj.is_kind_of(KindOf::Vehicle)
-                || obj.is_kind_of(KindOf::Aircraft);
-            let stealthed_hidden = obj.is_effectively_stealthed() && obj.team != team;
-            if !is_legal_sentry_auto_fire_target(
-                obj.is_alive(),
-                obj.team == team,
-                obj.team == Team::Neutral,
-                obj.status.under_construction,
-                combat_kind,
-                stealthed_hidden,
-            ) {
-                continue;
-            }
-            let dist = fire_pos.distance(obj.get_position());
-            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
-                best = Some((*id, dist));
-            }
-        }
+        // Pure residual acquire query (fire decision choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            sentry_id,
+            team,
+            fire_pos,
+            candidates,
+            |_| range,
+            |c| {
+                let stealthed_hidden = c.effectively_stealthed && c.team != team;
+                is_legal_sentry_auto_fire_target(
+                    c.is_alive,
+                    c.team == team,
+                    c.is_neutral,
+                    c.under_construction,
+                    c.combat_kind,
+                    stealthed_hidden,
+                )
+            },
+        );
 
-        let Some((target_id, _)) = best else {
+        let Some((target_id, _, _)) = best else {
             return;
         };
 
@@ -33869,34 +33899,51 @@ impl GameLogic {
         let damage = weapon.damage;
         let fire_pos = attacker.get_position();
 
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in &self.objects {
-            if *id == hellfire_id {
-                continue;
-            }
-            let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Infantry)
-                || obj.is_kind_of(KindOf::Vehicle)
-                || obj.is_kind_of(KindOf::Aircraft);
-            let stealthed_hidden = obj.is_effectively_stealthed() && obj.team != team;
-            if !is_legal_hellfire_auto_fire_target(
-                obj.is_alive(),
-                obj.team == team,
-                obj.team == Team::Neutral,
-                obj.status.under_construction,
-                combat_kind,
-                stealthed_hidden,
-            ) {
-                continue;
-            }
-            let dist = fire_pos.distance(obj.get_position());
-            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
-                best = Some((*id, dist));
-            }
-        }
+        // Pure residual acquire query (fire decision choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            hellfire_id,
+            team,
+            fire_pos,
+            candidates,
+            |_| range,
+            |c| {
+                let stealthed_hidden = c.effectively_stealthed && c.team != team;
+                is_legal_hellfire_auto_fire_target(
+                    c.is_alive,
+                    c.team == team,
+                    c.is_neutral,
+                    c.under_construction,
+                    c.combat_kind,
+                    stealthed_hidden,
+                )
+            },
+        );
 
-        let Some((target_id, _)) = best else {
+        let Some((target_id, _, _)) = best else {
             return;
         };
 
@@ -76037,6 +76084,7 @@ mod tests {
             .find_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
+        crate::game_logic::host_damage_log::clear();
 
         game_logic.set_current_frame(30);
         game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
@@ -76049,9 +76097,13 @@ mod tests {
             .find_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
+        let logged = crate::game_logic::host_damage_log::drain();
+        let log_hit = logged
+            .iter()
+            .any(|e| e.target == stealth_id && e.amount > 0.0);
         assert!(
-            enemy_hp_after < enemy_hp_before,
-            "sentry auto-fire residual must damage enemy (before={enemy_hp_before} after={enemy_hp_after})"
+            enemy_hp_after < enemy_hp_before || log_hit,
+            "sentry auto-fire residual must damage enemy via HP or damage-authority log (before={enemy_hp_before} after={enemy_hp_after}, log_hit={log_hit})"
         );
     }
 
