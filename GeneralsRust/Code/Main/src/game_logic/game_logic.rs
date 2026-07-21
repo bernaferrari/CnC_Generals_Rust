@@ -21854,7 +21854,13 @@ impl GameLogic {
                                 if let Some(a) = self.objects.get_mut(&object_id) {
                                     a.set_position(stand);
                                     a.attack_target(target_id);
-                                    a.set_ai_state(AIState::Attacking);
+                                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                        crate::game_logic::host_ai_decision_log::record_set_state(
+                                            object_id, 2,
+                                        );
+                                    } else {
+                                        a.set_ai_state(AIState::Attacking);
+                                    }
                                     a.set_status_attacking(true);
                                     a.set_status_moving(false);
                                     a.movement.velocity = glam::Vec3::ZERO;
@@ -25024,7 +25030,11 @@ impl GameLogic {
                     hunter.weapon = Some(tank_hunter_missile_weapon());
                 }
                 hunter.set_contained_by(Some(outpost_id));
-                hunter.set_ai_state(AIState::Docked);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(hunter_id, 12);
+                } else {
+                    hunter.set_ai_state(AIState::Docked);
+                }
                 hunter.stop_moving();
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
@@ -25105,7 +25115,11 @@ impl GameLogic {
                     });
                 }
                 guard.set_contained_by(Some(crawler_id));
-                guard.set_ai_state(AIState::Docked);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(guard_id, 12);
+                } else {
+                    guard.set_ai_state(AIState::Docked);
+                }
                 guard.stop_moving();
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
@@ -33623,7 +33637,11 @@ impl GameLogic {
                 continue;
             }
             occ.set_contained_by(None);
-            occ.set_ai_state(AIState::Idle);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
+            } else {
+                occ.set_ai_state(AIState::Idle);
+            }
             // Residual occupant damage (BunkerBusterAntiTunnel ~400) — lethal for infantry.
             let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
             if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
@@ -33704,7 +33722,11 @@ impl GameLogic {
                 continue;
             }
             occ.set_contained_by(None);
-            occ.set_ai_state(AIState::Idle);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
+            } else {
+                occ.set_ai_state(AIState::Idle);
+            }
             let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
             if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);
@@ -35162,7 +35184,11 @@ impl GameLogic {
 
         let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
             r.set_contained_by(None);
-            r.set_ai_state(AIState::Idle);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 0);
+            } else {
+                r.set_ai_state(AIState::Idle);
+            }
             r.set_position(eject_pos);
             // Chute destroyed → freefall residual (chute closed, still parachuting sink).
             r.set_status_parachute_open(false);
@@ -37536,7 +37562,11 @@ impl GameLogic {
                 }
                 if let Some(r) = self.objects.get_mut(rid) {
                     r.set_contained_by(None);
-                    r.set_ai_state(AIState::Idle);
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        crate::game_logic::host_ai_decision_log::record_set_state(*rid, 0);
+                    } else {
+                        r.set_ai_state(AIState::Idle);
+                    }
                     r.set_position(land_pos);
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
@@ -37819,7 +37849,12 @@ impl GameLogic {
                     if new_struct_hp <= 0.0 {
                         obj.health.current = 0.0;
                         obj.status.destroyed = true;
-                        obj.set_ai_state(AIState::Idle);
+                        let hid = obj.id;
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            crate::game_logic::host_ai_decision_log::record_set_state(hid, 0);
+                        } else {
+                            obj.set_ai_state(AIState::Idle);
+                        }
                         obj.target = None;
                         destroyed = true;
                     }
@@ -40226,7 +40261,11 @@ impl GameLogic {
             if had_hits {
                 if let Some(mob) = self.objects.get_mut(&plan.mob_id) {
                     mob.set_status_attacking(true);
-                    mob.set_ai_state(AIState::Attacking);
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        crate::game_logic::host_ai_decision_log::record_set_state(plan.mob_id, 2);
+                    } else {
+                        mob.set_ai_state(AIState::Attacking);
+                    }
                 }
                 let muzzle = self
                     .objects
@@ -41453,7 +41492,11 @@ impl GameLogic {
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
-                    obj.set_ai_state(AIState::Moving);
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, 1);
+                    } else {
+                        obj.set_ai_state(AIState::Moving);
+                    }
                     obj.movement.target_position = Some(mine_pos);
                     crate::game_logic::host_move_log::record(
                         clearer_id,
@@ -41520,7 +41563,11 @@ impl GameLogic {
                 clearer.target = None;
             }
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
-                clearer.set_ai_state(AIState::Idle);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, 0);
+                } else {
+                    clearer.set_ai_state(AIState::Idle);
+                }
                 clearer.movement.target_position = None;
                 clearer.set_status_moving(false);
                 clearer.set_status_attacking(false);
@@ -43172,7 +43219,11 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_moving();
                     obj.stop_attack();
-                    obj.set_ai_state(AIState::Idle);
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
+                    } else {
+                        obj.set_ai_state(AIState::Idle);
+                    }
                 }
             }
             log::trace!("{} commanded {} units to stop", player_id, selected.len());
@@ -48045,7 +48096,11 @@ impl GameLogic {
             obj.set_status_unselectable(true);
             obj.set_status_under_construction(false);
             obj.status.selected = false;
-            obj.set_ai_state(AIState::Idle);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
+            } else {
+                obj.set_ai_state(AIState::Idle);
+            }
             obj.apply_sell_scaffold_model_conditions();
         }
         // Deselect from all players.
@@ -48177,7 +48232,11 @@ impl GameLogic {
             };
             if targeting || (constructing && nearby) {
                 obj.target = None;
-                obj.set_ai_state(AIState::Idle);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(id, 0);
+                } else {
+                    obj.set_ai_state(AIState::Idle);
+                }
                 obj.set_actively_constructing(false);
                 cancelled = cancelled.saturating_add(1);
             }
@@ -48233,8 +48292,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(dozer) = self.objects.get_mut(&dozer_id) {
-                dozer.target = Some(structure_id);
-                dozer.set_ai_state(AIState::Constructing);
+                dozer.target = Some(structure_id); // non-combat build association stays host
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(dozer_id, 7);
+                } else {
+                    dozer.set_ai_state(AIState::Constructing);
+                }
                 dozer.set_actively_constructing(true);
             }
             // Structure awaiting → actively being constructed residual when dozer assigned.
