@@ -1407,8 +1407,13 @@ pub fn particle_width_scalar(spawn_frame: u32, current_frame: u32) -> f32 {
     if PARTICLE_WIDTH_GROW_FRAMES == 0 {
         return 1.0;
     }
-    if current_frame <= spawn_frame {
+    if current_frame < spawn_frame {
         return 0.0;
+    }
+    // Beam-start frame residual: first grow step so spawn-frame damage pulse has
+    // non-zero radius (next_tick_frame == spawn_frame; zero width would no-op).
+    if current_frame == spawn_frame {
+        return (1.0 / (PARTICLE_WIDTH_GROW_FRAMES as f32)).clamp(0.0, 1.0);
     }
     let grow_end = spawn_frame.saturating_add(PARTICLE_WIDTH_GROW_FRAMES);
     let decay_start = particle_decay_start_frame(spawn_frame);
