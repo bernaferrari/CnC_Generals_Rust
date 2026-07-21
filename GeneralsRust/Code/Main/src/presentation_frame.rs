@@ -10931,6 +10931,42 @@ mod tests {
     }
 
     #[test]
+    fn team_player_registry_empty_early_out() {
+        let team = include_str!("../../GameEngine/GameLogic/src/team.rs");
+        assert!(
+            team.contains("fn for_each_live_member") && team.contains("OBJECT_REGISTRY.is_empty()"),
+            "Team bulk member walks must early-out when dual-world registry empty"
+        );
+        let h = team
+            .find("pub fn has_any_objects")
+            .expect("has_any_objects");
+        assert!(
+            team[h..team.len().min(h + 240)].contains("OBJECT_REGISTRY.is_empty()"),
+            "has_any_objects must gate on empty registry"
+        );
+        let player = include_str!("../../GameEngine/GameLogic/src/player.rs");
+        assert!(
+            player.contains("crate::object::registry::OBJECT_REGISTRY.is_empty()"),
+            "Player bulk object counts must early-out when registry empty"
+        );
+    }
+
+    #[test]
+    fn host_vertical_slice_honesty() {
+        let es = include_str!("executable_smoke.rs");
+        assert!(
+            es.contains("host_vertical_slice_ok")
+                && es.contains("skirmish_start_wnd_ok")
+                && es.contains("Never flip retail claim"),
+            "executable smoke must expose host_vertical_slice_ok without flipping playable_claim"
+        );
+        assert!(
+            es.contains("result.playable_claim = false"),
+            "playable_claim must remain forced false"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(
