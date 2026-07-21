@@ -18676,6 +18676,7 @@ mod tests {
         for name in [
             "try_garrison_residual_fire",
             "try_transport_passenger_residual_fire",
+            "try_strategy_center_bombardment_turret_fire",
         ] {
             let at = src.find(&format!("fn {name}")).expect(name);
             let b = &src[at..src.len().min(at + 9000)];
@@ -19176,6 +19177,7 @@ mod tests {
             "try_hellfire_drone_residual_fire",
             "try_garrison_residual_fire",
             "try_transport_passenger_residual_fire",
+            "try_strategy_center_bombardment_turret_fire",
         ] {
             let i = src
                 .find(&format!("fn {name}"))

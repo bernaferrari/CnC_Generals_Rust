@@ -23,6 +23,8 @@ pub struct ResidualAcquireCandidate {
     pub combat_kind: bool,
     pub effectively_stealthed: bool,
     pub is_air: bool,
+    /// C++ InvulnerableTime eject residual (enemies treat as allies).
+    pub eject_invulnerable: bool,
 }
 
 /// Nearest legal candidate in range. `range_for_air` returns max engagement range
@@ -167,6 +169,7 @@ mod tests {
             combat_kind: true,
             effectively_stealthed: false,
             is_air: air,
+            eject_invulnerable: false,
         }
     }
 
@@ -236,6 +239,7 @@ mod tests {
                 combat_kind: false,
                 effectively_stealthed: false,
                 is_air: false,
+                eject_invulnerable: false,
             },
             ResidualAcquireCandidate {
                 id: ObjectId(3),
@@ -247,6 +251,7 @@ mod tests {
                 combat_kind: false,
                 effectively_stealthed: false,
                 is_air: false,
+                eject_invulnerable: false,
             },
         ];
         let best = pick_nearest_residual_service_target(ObjectId(1), origin, list, 200.0, |c| {
