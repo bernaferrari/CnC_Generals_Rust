@@ -10627,6 +10627,26 @@ mod tests {
     }
 
     #[test]
+    fn evaluate_context_uses_presentation_structure_states() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("presentation_under_construction")
+                && cb.contains("ControlBarState::UnderConstruction"),
+            "evaluate_context_ui must set UnderConstruction from presentation residual"
+        );
+        assert!(
+            cb.contains("presentation_max_garrison > 0")
+                && cb.contains("ControlBarState::StructureInventory"),
+            "evaluate_context_ui must set StructureInventory from presentation residual"
+        );
+        assert!(
+            cb.contains("rebuild_command_buttons(&mut context)?")
+                && cb.contains("no dual-world registry"),
+            "presentation-only evaluate must rebuild commands without registry"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
