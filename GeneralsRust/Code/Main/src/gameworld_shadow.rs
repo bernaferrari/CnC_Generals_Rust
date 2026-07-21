@@ -18550,4 +18550,34 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn game_client_mouse_inject_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("fn inject_game_client_mouse_move")
+                && eng.contains("fn inject_game_client_mouse_button")
+                && eng.contains("fn inject_game_client_mouse_scroll"),
+            "Main must expose GameClient mouse inject helpers"
+        );
+        assert!(
+            eng.contains("inject_game_client_mouse_move(position.x as f32, position.y as f32)")
+                || eng.contains("inject_game_client_mouse_move(position.x as f32"),
+            "CursorMoved must inject into GameClient mouse"
+        );
+        assert!(
+            eng.contains("inject_game_client_mouse_button(*button, pressed)"),
+            "MouseInput must inject into GameClient mouse"
+        );
+        assert!(
+            eng.contains("inject_game_client_mouse_scroll(delta_y)"),
+            "mouse wheel must inject into GameClient mouse"
+        );
+        // Main still owns command translation residual.
+        assert!(
+            eng.contains("Main still owns command translation")
+                || eng.contains("without dual OS event ownership"),
+            "inject path must document Main command ownership"
+        );
+    }
 }
