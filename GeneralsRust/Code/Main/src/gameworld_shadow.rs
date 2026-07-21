@@ -18318,7 +18318,7 @@ mod tests {
         );
     }
 
-    #[test]
+        #[test]
     fn residual_auto_fire_queues_fire_spawn_channel_source() {
         let src = include_str!("game_logic/game_logic.rs");
         assert!(
@@ -18354,7 +18354,7 @@ mod tests {
         );
         // Spawn residual carries live primary `damage` (field from residual shot).
         assert!(
-            "damage,".split_once(",").is_some() && helper.contains("damage,"),
+            helper.contains("damage,"),
             "fire-spawn residual must carry live damage field from residual shot"
         );
         let primary_zero = helper
@@ -18366,7 +18366,8 @@ mod tests {
         );
         let apply_src = include_str!("gameworld_shadow.rs");
         assert!(
-            apply_src.contains("drain_residual_hitscans") && apply_src.contains("ev.damage = 0.0"),
+            apply_src.contains("drain_residual_hitscans")
+                && apply_src.contains("ev.damage = 0.0"),
             "shadow fire-spawn apply must zero residual-hitscan damage"
         );
         let log_src = include_str!("game_logic/host_fire_spawn_log.rs");
@@ -18376,6 +18377,7 @@ mod tests {
             "fire-spawn log must track residual hitscan pairs"
         );
     }
+
 
     #[test]
     fn payload_pose_movement_authority_source() {
@@ -19033,10 +19035,10 @@ mod tests {
                 && body.contains("Boot residual only"),
             "train unfinished barracks discovery must prefer presentation"
         );
-        // Producer pick after force-complete stays live intentionally.
         assert!(
-            body.contains("Prefer live barracks"),
-            "train producer pick must remain live after force-complete residual"
+            body.contains("force_completed")
+                && body.contains("Prefer force-completed + presentation"),
+            "train producer must prefer force-completed + presentation barracks"
         );
         let pf = include_str!("presentation_frame.rs");
         assert!(
