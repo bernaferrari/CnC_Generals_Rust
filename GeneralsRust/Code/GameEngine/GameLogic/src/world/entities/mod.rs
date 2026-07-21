@@ -565,6 +565,20 @@ pub struct Entity {
     pub stealth_breaks_on_move: bool,
     /// Host Object::innate_stealth residual.
     pub innate_stealth: bool,
+    /// Host hijacker residual `hijack_vehicle_host`.
+    pub hijack_vehicle_host: u32,
+    /// Host hijacker residual `hijacker_in_vehicle`.
+    pub hijacker_in_vehicle: bool,
+    /// Host hijacker residual `hijacker_update_active`.
+    pub hijacker_update_active: bool,
+    /// Host hijacker residual `hijacker_was_airborne`.
+    pub hijacker_was_airborne: bool,
+    /// Host hijacker residual `hijacker_eject_pos`.
+    pub hijacker_eject_pos: Option<[f32; 3]>,
+    /// Host hijacker residual `hive_slave_respawn_frame`.
+    pub hive_slave_respawn_frame: u32,
+    /// Host hijacker residual `next_detection_scan_frame`.
+    pub next_detection_scan_frame: u32,
     /// Host Object::stealth_allowed_frame residual.
     pub stealth_allowed_frame: u32,
     /// Host Object::stealth_delay_pending residual.
@@ -1042,6 +1056,13 @@ impl EntityStore {
             demo_suicided_detonating: false,
             hive_slave_count: 0,
             hive_slave_hp: 0.0,
+            hijack_vehicle_host: 0,
+            hijacker_in_vehicle: false,
+            hijacker_update_active: false,
+            hijacker_was_airborne: false,
+            hijacker_eject_pos: None,
+            hive_slave_respawn_frame: 0,
+            next_detection_scan_frame: 0,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,
             turret_idle_scanning: false,

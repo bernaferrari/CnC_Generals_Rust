@@ -14,6 +14,7 @@ pub mod host_damage_log;
 pub mod host_death_type_log;
 pub mod host_guard_log;
 pub mod host_heal_log;
+pub mod host_hijacker_log;
 pub mod host_hive_log;
 pub mod host_locomotor_log;
 pub mod host_max_health_log;
