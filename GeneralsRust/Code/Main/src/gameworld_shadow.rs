@@ -18602,4 +18602,30 @@ mod tests {
             "GameClient keyboard must expose the_keyboard/with_keyboard/handle_key_simple"
         );
     }
+
+    #[test]
+    fn game_client_shared_input_devices_source() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/subsystems.rs"
+        );
+        let sub = std::fs::read_to_string(path).expect("subsystems.rs");
+        assert!(
+            sub.contains("the_keyboard().clone()") && sub.contains("the_mouse().clone()"),
+            "create_keyboard/mouse must share THE_* singletons with Main inject"
+        );
+        let gc_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        );
+        let gc = std::fs::read_to_string(gc_path).expect("game_client.rs");
+        let i = gc
+            .find("fn update_presentation_shell")
+            .expect("presentation shell");
+        let body = &gc[i..gc.len().min(i + 3000)];
+        assert!(
+            body.contains("self.update_input()?") || body.contains("self.update_input()"),
+            "presentation shell must tick update_input on shared device handles"
+        );
+    }
 }

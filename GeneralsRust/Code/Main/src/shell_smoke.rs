@@ -1869,7 +1869,7 @@ mod tests {
                 && window.contains("without Main-owned input/audio or Display DRAW dual-ownership")
                 && window.contains("update_drawables_local")
                 && !window.contains("self.draw_display()?")
-                && !window.contains("self.update_input()?")
+                && window.contains("update_input")
                 && window.contains("update_audio"),
             "presentation shell ticks drawables/UI without dual-owning Main OS input/3D draw; client audio queue drains"
         );

@@ -2453,11 +2453,13 @@ pub type KeyboardHandle = Arc<Mutex<crate::input::Keyboard>>;
 pub type MouseHandle = Arc<Mutex<crate::input::Mouse>>;
 
 pub fn create_keyboard() -> KeyboardHandle {
-    Arc::new(Mutex::new(crate::input::Keyboard::new()))
+    // Share THE_KEYBOARD so Main OS inject and GameClient::update_input tick the same device.
+    crate::input::keyboard::the_keyboard().clone()
 }
 
 pub fn create_mouse() -> MouseHandle {
-    Arc::new(Mutex::new(crate::input::Mouse::new()))
+    // Share THE_MOUSE so Main OS inject and GameClient::update_input tick the same device.
+    crate::input::mouse::the_mouse().clone()
 }
 
 #[cfg(test)]
