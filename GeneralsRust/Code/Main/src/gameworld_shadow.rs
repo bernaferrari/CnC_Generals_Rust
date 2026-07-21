@@ -19189,6 +19189,19 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Point-defense laser intercept residual (priority bands).
+        {
+            let name = "update_point_defense_intercept";
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 6000)];
+            assert!(
+                body.contains("pick_best_priority_residual_target")
+                    && body.contains("PriorityAcquireCandidate"),
+                "{name} must use pure residual priority acquire query"
+            );
+        }
         // Impact/splash residual (XZ nearest-in-radius).
         for name in [
             "apply_overlord_gattling_residual_at",
