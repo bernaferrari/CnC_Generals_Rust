@@ -2831,6 +2831,7 @@ impl CnCGameEngine {
                         }
                         // Fail-open live residual when presentation roster empty.
                         if barracks.is_empty() && any.is_empty() {
+                            // Fail-open live residual when presentation roster empty.
                             for &id in self.game_logic.get_objects().keys() {
                                 if let Some((is_b, id)) = classify_live(id, &self.game_logic, team)
                                 {
@@ -4042,6 +4043,7 @@ impl CnCGameEngine {
                                         && !o.is_kind_of(crate::game_logic::KindOf::Structure)
                                 })
                                 .or_else(|| {
+                                    // Boot residual only (any alive enemy).
                                     self.game_logic
                                         .get_objects()
                                         .iter()
@@ -4275,6 +4277,7 @@ impl CnCGameEngine {
                     {
                         frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z)
                     } else {
+                        // Boot residual only.
                         let mut live = Vec::new();
                         for (&id, obj) in self.game_logic.get_objects() {
                             if obj.team != player_team || !obj.is_selectable() {
@@ -10179,6 +10182,7 @@ impl CnCGameEngine {
                 let d = (o.position.x - location.x).hypot(o.position.z - location.z);
                 if best.map(|(_, bd)| d < bd).unwrap_or(true) {
                     best = Some((o.id, d));
+                    // Boot residual only.
                 }
             }
         } else {
@@ -13797,6 +13801,7 @@ impl CnCGameEngine {
         let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.centroid_of_ids(&ids)
         } else {
+            // Boot residual only.
             let mut sum = Vec3::ZERO;
             let mut n = 0u32;
             for id in &ids {
@@ -13971,6 +13976,7 @@ impl CnCGameEngine {
         let all: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.alive_selectable_friendly_ids(team)
         } else {
+            // Boot residual only.
             let mut live: Vec<ObjectId> = self
                 .game_logic
                 .get_objects()
@@ -14110,6 +14116,7 @@ impl CnCGameEngine {
                             && o.team == team
                             && o.is_structure
                             && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+                        // Boot residual only.
                     })
                     .map(|o| o.id)
                     .collect()
@@ -14860,6 +14867,7 @@ impl CnCGameEngine {
                 }
             }
         } else {
+            // Boot residual only.
             for (&id, obj) in self.game_logic.get_objects() {
                 if obj.team == team
                     && obj.is_alive()
@@ -15118,6 +15126,7 @@ impl CnCGameEngine {
                 .into_iter()
                 .next()
         } else {
+            // Boot residual only.
             self.game_logic
                 .get_objects()
                 .iter()
@@ -15333,6 +15342,7 @@ impl CnCGameEngine {
                 }
             }
         } else {
+            // Boot residual only.
             for (&id, obj) in self.game_logic.get_objects() {
                 if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
                     continue;
@@ -15964,6 +15974,7 @@ impl CnCGameEngine {
         let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.alive_selectable_friendly_near(team, center, radius)
         } else {
+            // Boot residual only.
             let mut live = Vec::new();
             let r2 = radius * radius;
             for (&id, obj) in self.game_logic.get_objects() {
@@ -16127,6 +16138,7 @@ impl CnCGameEngine {
         let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.alive_selectable_friendly_ids(team)
         } else {
+            // Boot residual only.
             let mut live = Vec::new();
             for (&id, obj) in self.game_logic.get_objects() {
                 if obj.team == team && obj.is_selectable() && obj.is_alive() {
@@ -16156,6 +16168,7 @@ impl CnCGameEngine {
         let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.alive_selectable_friendly_aircraft_ids(team)
         } else {
+            // Boot residual only.
             let mut live = Vec::new();
             for (&id, obj) in self.game_logic.get_objects() {
                 if obj.team == team
@@ -16410,6 +16423,7 @@ impl CnCGameEngine {
                 return;
             }
             let template = clicked_obj.template_name.clone();
+            // Boot residual only — presentation similar_unit_ids owns InGame path.
             let ids: Vec<ObjectId> = self
                 .game_logic
                 .get_objects()
@@ -16807,6 +16821,7 @@ impl CnCGameEngine {
             let target = if let Some(frame) = self.last_presentation_frame.as_ref() {
                 frame.first_alive_position_for_template(&mode.thing_template_name)
             } else {
+                // Boot residual only — presentation pose owns InGame camera slave follow.
                 self.game_logic
                     .get_objects()
                     .values()
@@ -17285,6 +17300,7 @@ impl CnCGameEngine {
             );
         }
 
+        // Boot residual only — presentation pick owns InGame identity.
         for (&id, obj) in game_logic.get_objects() {
             if !obj.is_alive() {
                 continue;
@@ -19043,6 +19059,7 @@ impl CnCGameEngine {
             unique_models.insert(key);
         }
         if unique_models.is_empty() {
+            // Boot residual only — presentation unique_model_keys empty.
             for object in game_logic.get_objects().values() {
                 if !object.is_alive() {
                     continue;
