@@ -3871,6 +3871,23 @@ impl PresentationFrame {
             .map(|o| o.id)
     }
 
+    /// Runtime-host residual: first friendly Command Center pose.
+    pub fn first_friendly_command_center_position(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Option<Vec3> {
+        use crate::game_logic::KindOf;
+        self.objects
+            .iter()
+            .find(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && (o.building_type == Some(PresentationBuildingType::CommandCenter)
+                        || Self::object_has_kind(o, KindOf::CommandCenter))
+            })
+            .map(|o| o.position)
+    }
+
     /// Runtime-host residual: count of alive mobile friendlies.
     pub fn count_mobile_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
         self.objects

@@ -2652,22 +2652,50 @@ impl CnCGameEngine {
                     // Host residual: complete nearest under-construction barracks so a
                     // just-placed construct can produce without waiting full build time.
                     {
-                        let mut unfinished: Vec<crate::game_logic::ObjectId> = self
-                            .game_logic
-                            .get_objects()
-                            .iter()
-                            .filter(|(_, o)| {
-                                o.team == team
-                                    && o.is_alive()
-                                    && o.status.under_construction
-                                    && (o.is_kind_of(crate::game_logic::KindOf::FSBarracks)
-                                        || o.template_name
-                                            .to_ascii_lowercase()
-                                            .contains("barracks")
-                                        || o.building_data.is_some())
-                            })
-                            .map(|(id, _)| *id)
-                            .collect();
+                        let mut unfinished: Vec<crate::game_logic::ObjectId> = if let Some(frame) =
+                            self.last_presentation_frame.as_ref()
+                        {
+                            frame
+                                .objects
+                                .iter()
+                                .filter(|o| {
+                                    o.team == team
+                                        && !o.destroyed
+                                        && o.under_construction
+                                        && (o.building_type
+                                            == Some(
+                                                crate::presentation_frame::PresentationBuildingType::Barracks,
+                                            )
+                                            || o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("barracks")
+                                            || o.can_produce
+                                            || o.building_type.is_some()
+                                            || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                                o,
+                                                crate::game_logic::KindOf::FSBarracks,
+                                            ))
+                                })
+                                .map(|o| o.id)
+                                .collect()
+                        } else {
+                            // Boot residual only.
+                            self.game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.status.under_construction
+                                        && (o.is_kind_of(crate::game_logic::KindOf::FSBarracks)
+                                            || o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("barracks")
+                                            || o.building_data.is_some())
+                                })
+                                .map(|(id, _)| *id)
+                                .collect()
+                        };
                         unfinished.sort_by_key(|id| id.0);
                         for id in unfinished.into_iter().take(2) {
                             if let Some(obj) = self.game_logic.get_object_mut(id) {
@@ -3216,6 +3244,7 @@ impl CnCGameEngine {
                                     .into_iter()
                                     .next()
                             } else {
+                                // Boot residual only.
                                 self.game_logic
                                     .get_objects()
                                     .iter()
@@ -4515,18 +4544,26 @@ impl CnCGameEngine {
                     }
                     // Host residual: if map has no dozer yet, spawn USA_Dozer/GoldenDozer at CC.
                     if builders.is_empty() {
-                        let spawn_at = self
-                            .game_logic
-                            .get_objects()
-                            .values()
-                            .find(|o| {
-                                o.team == team
-                                    && o.is_alive()
-                                    && o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
-                            })
-                            .map(|o| o.get_position())
-                            .unwrap_or(glam::Vec3::new(100.0, 0.0, 100.0))
-                            + glam::Vec3::new(25.0, 0.0, 0.0);
+                        let spawn_at = {
+                            let cc = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame.first_friendly_command_center_position(team)
+                            } else {
+                                // Boot residual only.
+                                self.game_logic
+                                    .get_objects()
+                                    .values()
+                                    .find(|o| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.is_kind_of(
+                                                crate::game_logic::KindOf::CommandCenter,
+                                            )
+                                    })
+                                    .map(|o| o.get_position())
+                            };
+                            cc.unwrap_or(glam::Vec3::new(100.0, 0.0, 100.0))
+                                + glam::Vec3::new(25.0, 0.0, 0.0)
+                        };
                         for name in ["USA_Dozer", "AmericaVehicleDozer", "GoldenDozer"] {
                             if !self.game_logic.templates.contains_key(name) {
                                 continue;
@@ -4556,22 +4593,40 @@ impl CnCGameEngine {
                             .unwrap_or(0.0);
                         glam::Vec3::new(x, y, z)
                     } else {
-                        let base = self
-                            .game_logic
-                            .get_objects()
-                            .values()
-                            .find(|o| {
-                                o.team == team
-                                    && o.is_alive()
-                                    && o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
-                            })
-                            .map(|o| o.get_position())
-                            .or_else(|| {
-                                self.game_logic
-                                    .get_object(builder)
-                                    .map(|o| o.get_position())
-                            })
-                            .unwrap_or(glam::Vec3::ZERO);
+                        let base = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame
+                                .first_friendly_command_center_position(team)
+                                .or_else(|| {
+                                    frame
+                                        .objects
+                                        .iter()
+                                        .find(|o| o.id == builder && !o.destroyed)
+                                        .map(|o| o.position)
+                                })
+                        } else {
+                            // Boot residual only.
+                            self.game_logic
+                                .get_objects()
+                                .values()
+                                .find(|o| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
+                                })
+                                .map(|o| o.get_position())
+                                .or_else(|| {
+                                    self.game_logic
+                                        .get_object(builder)
+                                        .map(|o| o.get_position())
+                                })
+                        }
+                        .or_else(|| {
+                            // Newly spawned dozer may not be on last presentation frame.
+                            self.game_logic
+                                .get_object(builder)
+                                .map(|o| o.get_position())
+                        })
+                        .unwrap_or(glam::Vec3::ZERO);
                         base + glam::Vec3::new(40.0, 0.0, 0.0)
                     };
 
