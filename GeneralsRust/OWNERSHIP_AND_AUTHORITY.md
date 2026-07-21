@@ -121,7 +121,7 @@ The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for leg
 Host `GameLogic::update_simulation` now owns path follow, projectile drain/step, combat fire, and AI (`update_ai` + `THE_AI` / skirmish AI manager). Engine no longer mid-frame double-steps path or a dual `CombatSystem`.
 
 Remaining engine residual after host update:
-- GameWorld shadow session (last-writer HP/cash/pose/targets/move; not production sole authority)
+- GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host completes/spawns))
 - Presentation build + client/render orchestration
 - Input translation and audio device ownership
 
@@ -1439,3 +1439,5 @@ ControlBar structure inventory prefers presentation_max_garrison residual when O
 GameClient drawable xfer load does not require OBJECT_REGISTRY; dual-world bind is residual only.
 
 GameClient host render update ticks local drawable_map only when OBJECT_REGISTRY is empty.
+
+Under GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY (default on), GameWorld ticks production queue progress; host only exit-delay + complete/spawn after writeback.

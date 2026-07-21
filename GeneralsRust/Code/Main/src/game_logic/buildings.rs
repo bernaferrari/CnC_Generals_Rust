@@ -240,17 +240,36 @@ impl BuildingData {
         dt: f32,
         power_factor: f32,
     ) -> Option<(String, ProductionKind)> {
-        // C++ QueueProductionExitUpdate: while exit delay busy, hold next release.
+        self.tick_exit_delay(dt);
+        self.advance_production_progress(dt, power_factor);
+        self.try_complete_production()
+    }
+
+    /// C++ QueueProductionExitUpdate door/exit residual.
+    pub fn tick_exit_delay(&mut self, dt: f32) {
         if self.exit_delay_remaining > 0.0 {
             self.exit_delay_remaining = (self.exit_delay_remaining - dt).max(0.0);
-            // Still advance progress residual while door/exit holds release.
         }
+    }
+
+    /// Advance head-of-queue build timer only (no completion/spawn).
+    /// Under GameWorld production authority, shadow owns this advance.
+    pub fn advance_production_progress(&mut self, dt: f32, power_factor: f32) {
         let effective_dt = dt * power_factor.max(0.01);
         if let Some(item) = self.production_queue.first_mut() {
             // Only advance build timer until the batch is fully produced residual.
             if item.quantity_produced == 0 {
                 item.progress += effective_dt;
             }
+            if item.progress > item.total_time {
+                item.progress = item.total_time;
+            }
+        }
+    }
+
+    /// Complete/release head-of-queue when progress is done and exit delay clear.
+    pub fn try_complete_production(&mut self) -> Option<(String, ProductionKind)> {
+        if let Some(item) = self.production_queue.first_mut() {
             if item.progress >= item.total_time {
                 // Hold each unit release until exit delay residual clears.
                 if self.exit_delay_remaining > 0.0 {
