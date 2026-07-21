@@ -4208,6 +4208,95 @@ impl PresentationFrame {
         self.alive_selectable_friendly_filtered_ids(player_team, |o| o.is_mobile)
     }
 
+    /// Damaged mobile units residual (health < max).
+    pub fn alive_selectable_friendly_damaged_unit_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let mut pairs: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && !o.is_structure
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && o.is_mobile
+                    && o.health_max > 0.0
+                    && o.health_current + 1e-3 < o.health_max
+            })
+            .map(|o| (o.id, o.health_current / o.health_max.max(1e-3)))
+            .collect();
+        pairs.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0 .0.cmp(&b.0 .0))
+        });
+        pairs.into_iter().map(|(id, _)| id).collect()
+    }
+
+    pub fn alive_selectable_friendly_damaged_structure_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let mut pairs: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && o.is_structure
+                    && !o.under_construction
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && o.health_max > 0.0
+                    && o.health_current + 1e-3 < o.health_max
+            })
+            .map(|o| (o.id, o.health_current / o.health_max.max(1e-3)))
+            .collect();
+        pairs.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0 .0.cmp(&b.0 .0))
+        });
+        pairs.into_iter().map(|(id, _)| id).collect()
+    }
+
+    pub fn alive_selectable_friendly_busy_producer_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            o.is_structure && !o.production_queue.is_empty()
+        })
+    }
+
+    pub fn alive_selectable_friendly_ready_special_power_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            o.is_structure && o.special_power_ready
+        })
+    }
+
+    /// Stop-all residual: friendly mobile (non-structure) units.
+    pub fn alive_friendly_stoppable_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| o.team == player_team && !o.destroyed && !o.is_structure && o.is_mobile)
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
     pub fn alive_selectable_friendly_aircraft_ids(
         &self,
         player_team: crate::game_logic::Team,

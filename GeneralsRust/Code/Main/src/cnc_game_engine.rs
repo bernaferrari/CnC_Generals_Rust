@@ -13870,36 +13870,38 @@ impl CnCGameEngine {
             player.team
         };
 
-        let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            if obj.status.under_construction || obj.status.sold {
-                continue;
-            }
-            let max_h = obj.health.maximum.max(1.0);
-            let ratio = obj.health.current / max_h;
-            if ratio < 0.999 {
-                damaged.push((id, ratio));
-            }
-        }
-        if damaged.is_empty() {
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_damaged_structure_ids(team)
+            } else {
+                // Boot residual only.
+                let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    if obj.status.under_construction || obj.status.sold {
+                        continue;
+                    }
+                    let max_h = obj.health.maximum.max(1.0);
+                    let ratio = obj.health.current / max_h;
+                    if ratio < 0.999 {
+                        damaged.push((id, ratio));
+                    }
+                }
+
+                damaged.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                damaged.into_iter().map(|(id, _)| id).collect()
+            };
+        if ids.is_empty() {
             let msg = "No damaged structures";
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        // Most damaged first, stable by id.
-        damaged.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0 .0.cmp(&b.0 .0))
-        });
-        let ids: Vec<_> = damaged.into_iter().map(|(id, _)| id).collect();
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -14439,35 +14441,38 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            if !obj.can_move() {
-                continue;
-            }
-            let max_h = obj.health.maximum.max(1.0);
-            let ratio = obj.health.current / max_h;
-            if ratio < 0.999 {
-                damaged.push((id, ratio));
-            }
-        }
-        if damaged.is_empty() {
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_damaged_unit_ids(team)
+            } else {
+                // Boot residual only.
+                let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    if !obj.can_move() {
+                        continue;
+                    }
+                    let max_h = obj.health.maximum.max(1.0);
+                    let ratio = obj.health.current / max_h;
+                    if ratio < 0.999 {
+                        damaged.push((id, ratio));
+                    }
+                }
+
+                damaged.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                damaged.into_iter().map(|(id, _)| id).collect()
+            };
+        if ids.is_empty() {
             let msg = "No damaged units";
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        damaged.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0 .0.cmp(&b.0 .0))
-        });
-        let ids: Vec<_> = damaged.into_iter().map(|(id, _)| id).collect();
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -14638,16 +14643,24 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.can_move() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            ids.push(id);
-        }
+        let mut ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_friendly_stoppable_ids(team)
+            } else {
+                // Boot residual only — presentation path owns InGame.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.can_move() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    ids.push(id);
+                }
+
+                ids
+            };
         if ids.is_empty() {
             let msg = "No units to stop";
             self.game_hud.push_info_message(msg);
@@ -15106,21 +15119,29 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            let busy = obj
-                .building_data
-                .as_ref()
-                .map(|b| !b.production_queue.is_empty())
-                .unwrap_or(false);
-            if busy {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let mut ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_busy_producer_ids(team)
+            } else {
+                // Boot residual only — presentation path owns InGame.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    let busy = obj
+                        .building_data
+                        .as_ref()
+                        .map(|b| !b.production_queue.is_empty())
+                        .unwrap_or(false);
+                    if busy {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+
+                ids
+            };
         if ids.is_empty() {
             let msg = "No busy producers";
             self.game_hud.push_info_message(msg);
@@ -15254,20 +15275,25 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            if obj.special_power_ready {
-                ids.push(id);
-                continue;
-            }
-            // Also check per-power ready residual.
-            if let Some(p) =
+        let mut ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_ready_special_power_ids(team)
+            } else {
+                // Boot residual only — presentation path owns InGame.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    if obj.special_power_ready {
+                        ids.push(id);
+                        continue;
+                    }
+                    // Also check per-power ready residual.
+                    if let Some(p) =
                 crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
                     &obj.template_name,
                 )
@@ -15276,8 +15302,11 @@ impl CnCGameEngine {
                     ids.push(id);
                 }
             }
-        }
-        ids.sort_by_key(|id| id.0);
+                }
+                ids.sort_by_key(|id| id.0);
+
+                ids
+            };
         if ids.is_empty() {
             let msg = "No ready special powers";
             self.game_hud.push_info_message(msg);
