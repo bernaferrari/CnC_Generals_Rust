@@ -18468,4 +18468,39 @@ mod tests {
             "presentation shell must not claim OS input device poll"
         );
     }
+
+    #[test]
+    fn presentation_eva_counters_source() {
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("pub eva_low_power_count: u32")
+                && pf.contains("pub eva_insufficient_funds_count: u32")
+                && pf.contains("pub eva_base_under_attack_count: u32")
+                && pf.contains("pub eva_ally_under_attack_count: u32"),
+            "PresentationFrame must freeze EVA residual counters"
+        );
+        assert!(
+            pf.contains("eva_low_power_count: logic.eva_low_power_count()"),
+            "build_from_logic must snapshot EVA counters"
+        );
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("fn sync_eva_messages_from_presentation")
+                && eng.contains("fn sync_eva_messages_from_host_counts"),
+            "engine must sync EVA from presentation snapshot"
+        );
+        // InGame path with presentation uses snapshot sync.
+        let i = eng
+            .find("self.apply_presentation_to_huds(&pres);")
+            .expect("hud apply");
+        let w = &eng[i..eng.len().min(i + 450)];
+        assert!(
+            w.contains("sync_eva_messages_from_presentation"),
+            "InGame presentation path must sync EVA from snapshot: {w}"
+        );
+        assert!(
+            !w.contains("play_presentation_event_sfx"),
+            "InGame presentation path must not dual-call SFX"
+        );
+    }
 }
