@@ -1013,18 +1013,20 @@ fn last_plane_lock_object_id_state() -> &'static RwLock<Option<u32>> {
 
 fn next_plane_camera_lock_object_id() -> Option<u32> {
     let mut candidates: Vec<u32> = Vec::new();
-    // Dual-world residual: scan OBJECT_REGISTRY when populated.
-    for object in OBJECT_REGISTRY.get_all_objects() {
-        let Ok(object_guard) = object.read() else {
-            continue;
-        };
-        if !object_guard.is_above_terrain() {
-            continue;
+    // Dual-world residual: scan OBJECT_REGISTRY when populated (host path empty).
+    if !OBJECT_REGISTRY.is_empty() {
+        for object in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(object_guard) = object.read() else {
+                continue;
+            };
+            if !object_guard.is_above_terrain() {
+                continue;
+            }
+            if object_guard.is_kind_of(KindOf::Projectile) {
+                continue;
+            }
+            candidates.push(object_guard.get_id());
         }
-        if object_guard.is_kind_of(KindOf::Projectile) {
-            continue;
-        }
-        candidates.push(object_guard.get_id());
     }
     // Host residual: when registry empty, cycle airborne units from local selection.
     if candidates.is_empty() {
@@ -1314,6 +1316,9 @@ fn kill_all_enemy_objects_for_local_player() {
     };
 
     // Dual-world cheat residual. Host path has no OBJECT_REGISTRY world to kill.
+    if OBJECT_REGISTRY.is_empty() {
+        return;
+    }
     for object in OBJECT_REGISTRY.get_all_objects() {
         let Ok(mut object_guard) = object.write() else {
             continue;
@@ -1595,6 +1600,11 @@ fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
     let mapped = map_meta_time_of_day_to_logic_time_of_day(time_of_day);
     let mut applied = 0usize;
     // Dual-world residual: drawables bound through OBJECT_REGISTRY.
+    // Host residual: registry empty is fine — Main presentation shell owns drawable TOD.
+    if OBJECT_REGISTRY.is_empty() {
+        let _ = (mapped, applied);
+        return;
+    }
     for object in OBJECT_REGISTRY.get_all_objects() {
         let drawable = object.read().ok().and_then(|guard| guard.get_drawable());
         let Some(drawable) = drawable else {
@@ -1616,6 +1626,10 @@ fn refresh_drawable_model_conditions() {
     let set = ModelConditionFlags::empty();
     // Dual-world residual only. Host presentation path refreshes model conditions
     // via PresentationFrame / drawable shell tick — no OBJECT_REGISTRY required.
+    if OBJECT_REGISTRY.is_empty() {
+        let _ = (clear, set);
+        return;
+    }
     for object in OBJECT_REGISTRY.get_all_objects() {
         if let Ok(mut object_guard) = object.write() {
             let _ = object_guard.clear_and_set_model_condition_flags(clear, set);

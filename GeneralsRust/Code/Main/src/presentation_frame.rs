@@ -10876,6 +10876,21 @@ mod tests {
     }
 
     #[test]
+    fn object_registry_is_empty_host_path() {
+        let reg = include_str!("../../GameEngine/GameLogic/src/object/registry.rs");
+        assert!(
+            reg.contains("pub fn is_empty") && reg.contains("Host/presentation path"),
+            "OBJECT_REGISTRY must expose is_empty for host dual-world peels"
+        );
+        let meta = include_str!("../../GameEngine/GameClient/src/message_stream/meta_event.rs");
+        assert!(
+            meta.contains("OBJECT_REGISTRY.is_empty()")
+                && meta.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+            "meta_event dual-world residuals must early-out when registry empty"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(
