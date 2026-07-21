@@ -164,6 +164,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn render_ui_state_prefers_presentation_without_live_update() {
+        let src = include_str!("cnc_game_engine.rs");
+        let i = src
+            .find("Production presentation consumer: when a post-logic snapshot exists")
+            .expect("render presentation UI consumer");
+        let window = &src[i..i + 900];
+        assert!(
+            window.contains("GameUIState::default()") && window.contains("pres.apply_to_ui_state"),
+            "InGame render must build UI state from PresentationFrame default+apply"
+        );
+        assert!(
+            !window.contains("let mut ui_state = self.game_logic.update_ui_state"),
+            "must not always dual-read live update_ui_state when presentation exists"
+        );
+        assert!(
+            window.contains("Boot/loading residual")
+                || window.contains("update_ui_state(self.current_player_id)"),
+            "boot residual may still call update_ui_state without presentation"
+        );
+    }
+
     fn presentation_path_ticks_drawables_like_cpp() {
         let src = include_str!("cnc_game_engine.rs");
         // Build token from pieces so this test source does not self-match.
@@ -9528,13 +9550,12 @@ impl CnCGameEngine {
 
         if !matches!(self.current_state, GameState::Loading | GameState::Menu) {
             // Production presentation consumer: when a post-logic snapshot exists,
-            // selection health + minimap unit identity come from that owned feed.
-            // Live update_ui_state still supplies radar/build-queue residuals; identity
-            // fields are overwritten by apply_to_ui_state. ControlBar selection panel
-            // health is also presentation-owned (not live OBJECT_REGISTRY).
-            let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
-            if let Some(pres) = self.last_presentation_frame.clone() {
-                pres.apply_to_ui_state(&mut ui_state);
+            // GameUIState is built from PresentationFrame only (no live object walks).
+            // Boot residual: update_ui_state when no frame is installed yet.
+            // ControlBar selection panel health is presentation-owned.
+            let mut ui_state = if let Some(pres) = self.last_presentation_frame.clone() {
+                let mut ui = crate::ui::GameUIState::default();
+                pres.apply_to_ui_state(&mut ui);
                 self.apply_presentation_to_huds(&pres);
                 // Presentation audio already dispatched; SFX dual-path retired.
                 self.sync_eva_messages_from_presentation(&pres);
@@ -9542,7 +9563,11 @@ impl CnCGameEngine {
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
                 }
-            }
+                ui
+            } else {
+                // Boot/loading residual only.
+                self.game_logic.update_ui_state(self.current_player_id)
+            };
             if !ui_state.radar_events.is_empty() {
                 for evt in &ui_state.radar_events {
                     self.game_hud
