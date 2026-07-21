@@ -1450,3 +1450,5 @@ Under CONSTRUCTION_AUTHORITY+shadow, GameWorld sole-ticks construction_percent v
 
 `executable_smoke.host_vertical_slice_ok`: WND start + InGame + select/move + construct + train + host_ok. Still not `playable_claim` (full retail WND tree).
 Team/Player dual-world bulk walks early-out when OBJECT_REGISTRY is empty (host path).
+
+Dual-world OBJECT_REGISTRY empty peels (host path): Team/Player bulk, InGameUI pick/select, selection_xlat/translators, action_manager, victory progress fail-closed (0.0), script named-cache/difficulty bonus.
