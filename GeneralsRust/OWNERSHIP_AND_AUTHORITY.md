@@ -1443,3 +1443,5 @@ GameClient host render update ticks local drawable_map only when OBJECT_REGISTRY
 Under GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY (default on), GameWorld ticks production queue progress; host only exit-delay + complete/spawn after writeback.
 
 Production sole-tick applies host `power_factor` residual (energy shortfall clamp) via progress log.
+
+Host skips production progress advance only when `gameworld_production_sole_tick_enabled()` (authority + shadow session); shadow-off falls back to host `update_production`.
