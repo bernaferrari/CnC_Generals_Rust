@@ -13236,6 +13236,7 @@ impl GameLogic {
                                             target_id,
                                             attacker_team,
                                             weapon_damage,
+                                            Some(attacker_id),
                                         );
                                     if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                         let xp = (kills as f32) * 15.0 + structure_dmg * 0.05;
@@ -13251,6 +13252,7 @@ impl GameLogic {
                                         target_id,
                                         attacker_team,
                                         weapon_damage,
+                                        Some(attacker_id),
                                     );
                                     if kills > 0 {
                                         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
@@ -16167,10 +16169,16 @@ impl GameLogic {
                             if booby {
                                 // Detonate trap residual damage on both.
                                 if let Some(t) = self.objects.get_mut(&special_target_id) {
-                                    let _ = t.take_damage(t.health.maximum.max(1.0));
+                                    let _ = t.take_damage_from(
+                                        t.health.maximum.max(1.0),
+                                        Some(object_id),
+                                    );
                                 }
                                 if let Some(b) = self.objects.get_mut(&object_id) {
-                                    let _ = b.take_damage(b.health.maximum.max(1.0));
+                                    let _ = b.take_damage_from(
+                                        b.health.maximum.max(1.0),
+                                        Some(special_target_id),
+                                    );
                                 }
                                 let t_dead = self
                                     .objects
@@ -22127,7 +22135,7 @@ impl GameLogic {
                             // Apply damage before ejection if configured.
                             if damage_pct > 0.0 {
                                 let dmg = unit.max_health * damage_pct;
-                                let destroyed = unit.take_damage(dmg);
+                                let destroyed = unit.take_damage_from(dmg, Some(event.id));
                                 if destroyed {
                                     unit.status.destroyed = true;
                                     self.mark_object_for_destruction(contained_id, event.killer);
@@ -30121,8 +30129,12 @@ impl GameLogic {
         // Skip splash so garrisoned occupants are not pre-killed outside contain bookkeeping.
         if bunker_buster_hit {
             if let Some(tid) = intended_target {
-                let (kills, _structure_dmg, destroyed) =
-                    self.apply_bunker_buster_to_target(tid, source_team, STEALTH_FIGHTER_DAMAGE);
+                let (kills, _structure_dmg, destroyed) = self.apply_bunker_buster_to_target(
+                    tid,
+                    source_team,
+                    STEALTH_FIGHTER_DAMAGE,
+                    source,
+                );
                 hits = hits.saturating_add(1).saturating_add(kills);
                 if destroyed {
                     any_destroyed = true;
@@ -33755,6 +33767,7 @@ impl GameLogic {
         target_id: ObjectId,
         attacker_team: Team,
         base_weapon_damage: f32,
+        attacker_id: Option<ObjectId>,
     ) -> (u32, f32, bool) {
         use crate::game_logic::host_bunker_buster::{
             bunker_buster_structure_damage, is_bunker_structure_name, BUNKER_BUSTER_AUDIO,
@@ -33804,12 +33817,15 @@ impl GameLogic {
                 occ.set_ai_state(AIState::Idle);
             }
             // Residual occupant damage (BunkerBusterAntiTunnel ~400) — lethal for infantry.
-            let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
+            let _ = occ.take_damage_from(
+                BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
+                attacker_id,
+            );
             if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);
                 destroy_ids.push(occ_id);
             } else {
-                let _ = occ.take_damage(999_999.0);
+                let _ = occ.take_damage_from(999_999.0, attacker_id);
                 kills = kills.saturating_add(1);
                 destroy_ids.push(occ_id);
             }
@@ -33823,7 +33839,7 @@ impl GameLogic {
             bunker_buster_structure_damage(base_weapon_damage, is_bunker, had_occupants);
         let mut destroyed = false;
         if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage(structure_dmg);
+            destroyed = target.take_damage_from(structure_dmg, attacker_id);
             if destroyed {
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
             }
@@ -33851,6 +33867,7 @@ impl GameLogic {
         target_id: ObjectId,
         attacker_team: Team,
         damage_amount: f32,
+        attacker_id: Option<ObjectId>,
     ) -> u32 {
         use crate::game_logic::host_bunker_buster::{
             kill_garrisoned_count, BUNKER_BUSTER_OCCUPANT_DAMAGE,
@@ -33888,12 +33905,15 @@ impl GameLogic {
             } else {
                 occ.set_ai_state(AIState::Idle);
             }
-            let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
+            let _ = occ.take_damage_from(
+                BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
+                attacker_id,
+            );
             if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);
                 destroy_ids.push(occ_id);
             } else {
-                let _ = occ.take_damage(999_999.0);
+                let _ = occ.take_damage_from(999_999.0, attacker_id);
                 kills = kills.saturating_add(1);
                 destroy_ids.push(occ_id);
             }
@@ -33976,13 +33996,13 @@ impl GameLogic {
             match effect {
                 NeutronEffect::KillInfantry => {
                     // Residual: kill infantry (take full health damage).
-                    let _ = obj.take_damage(obj.health.current.max(1.0) * 10.0);
+                    let _ = obj.take_damage_from(obj.health.current.max(1.0) * 10.0, caster_id);
                     if !obj.is_alive() || obj.health.current <= 0.0 {
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     } else {
                         // Force kill residual.
-                        let _ = obj.take_damage(999_999.0);
+                        let _ = obj.take_damage_from(999_999.0, caster_id);
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     }
@@ -33999,7 +34019,7 @@ impl GameLogic {
                     }
                 }
                 NeutronEffect::KillVehicle => {
-                    let _ = obj.take_damage(obj.health.current.max(1.0) * 10.0);
+                    let _ = obj.take_damage_from(obj.health.current.max(1.0) * 10.0, caster_id);
                     vehicle_kills = vehicle_kills.saturating_add(1);
                     destroy_ids.push(id);
                 }
@@ -37949,7 +37969,7 @@ impl GameLogic {
         damage: f32,
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
     ) -> (bool, bool) {
-        self.apply_host_hive_damage_from(id, damage, class, None)
+        self.apply_host_hive_damage_from(id, damage, class, None, None)
     }
 
     /// HiveStructureBody residual with optional shooter for getClosestSlave.
@@ -37966,6 +37986,7 @@ impl GameLogic {
         damage: f32,
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
         shooter_xz: Option<(f32, f32)>,
+        source_id: Option<ObjectId>,
     ) -> (bool, bool) {
         use crate::game_logic::host_base_defense::{
             is_stinger_site_structure, next_stinger_slave_respawn_frame,
@@ -38112,7 +38133,7 @@ impl GameLogic {
                 return (false, false);
             };
             let before = obj.status.stealthed && obj.stealth_breaks_on_damage;
-            let destroyed = obj.take_damage(damage);
+            let destroyed = obj.take_damage_from(damage, source_id);
             let revealed = before && (!obj.status.stealthed || obj.stealth_delay_pending);
             (destroyed, revealed)
         };
@@ -38352,7 +38373,7 @@ impl GameLogic {
             if let Some(victim) = self.objects.get_mut(&vid) {
                 damage_dealt += dmg.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage(dmg) {
+                if victim.take_damage_from(dmg, Some(truck_id)) {
                     destroy_ids.push((vid, truck_team));
                 }
             }
@@ -38689,7 +38710,7 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage(dmg) {
+                if victim.take_damage_from(dmg, Some(tank_id)) {
                     destroy_ids.push((vid, tank_team));
                 }
             }
@@ -38889,7 +38910,7 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 hits = hits.saturating_add(1);
-                if victim.take_damage(dmg) {
+                if victim.take_damage_from(dmg, Some(plant.planter_id)) {
                     destroy_ids.push((vid, plant.planter_team));
                 }
             }
@@ -39031,7 +39052,7 @@ impl GameLogic {
             if let Some(victim) = self.objects.get_mut(&vid) {
                 blast_damage += dmg.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage(dmg) {
+                if victim.take_damage_from(dmg, Some(source_object)) {
                     destroy_ids.push((vid, source_team));
                 }
             }
@@ -39175,7 +39196,7 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 damage_dealt += dmg.min(victim.health.current.max(0.0));
-                if victim.take_damage(dmg) {
+                if victim.take_damage_from(dmg, Some(car_id)) {
                     destroy_ids.push((vid, car_team));
                 }
             }
@@ -41888,7 +41909,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
-                if victim.take_damage(dmg) {
+                if victim.take_damage_from(dmg, Some(mine_id)) {
                     destroy_ids.push((vid, mine_team));
                 }
             }
@@ -43134,7 +43155,7 @@ impl GameLogic {
                     continue;
                 }
                 let dmg = plan.shockwave_damage;
-                let killed = target.take_damage(dmg);
+                let killed = target.take_damage_from(dmg, Some(plan.source_object));
                 shockwave_hits = shockwave_hits.saturating_add(1);
                 shockwave_damage_total += dmg;
                 if killed {
@@ -47844,7 +47865,7 @@ impl GameLogic {
             // We receive dt seconds so: maxHealth * percentPerSec * dt
             let dmg = max_hp * CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC * dt;
             if dmg > 0.0 {
-                let _ = obj.take_damage(dmg);
+                let _ = obj.take_damage_from(dmg, Some(id));
             }
             self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);
             let frac = obj.health.current / max_hp;
@@ -71794,6 +71815,7 @@ mod tests {
             40.0,
             HostHiveDamageClass::PropagateToSlaves,
             Some(shooter_near_0),
+            None,
         );
         assert!(!destroyed && !blocked);
         {
@@ -71816,6 +71838,7 @@ mod tests {
             25.0,
             HostHiveDamageClass::PropagateToSlaves,
             Some((sx2, sz2)),
+            None,
         );
         {
             let s = game_logic.find_object(stinger_id).unwrap();
@@ -71829,6 +71852,7 @@ mod tests {
             100.0,
             HostHiveDamageClass::PropagateToSlaves,
             Some(shooter_near_0),
+            None,
         );
         {
             let s = game_logic.find_object(stinger_id).unwrap();
