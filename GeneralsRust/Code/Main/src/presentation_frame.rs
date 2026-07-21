@@ -3871,101 +3871,100 @@ impl PresentationFrame {
             .map(|o| o.id)
     }
 
-    
     /// Hotkey residual: idle selectable friendly workers/dozers/chinooks/supply/hack.
     pub fn alive_selectable_friendly_idle_worker_ids(
-    &self,
-    player_team: crate::game_logic::Team,
+        &self,
+        player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
-    use crate::unit_control::UnitControlSystem;
-    let mut ids: Vec<ObjectId> = self
-        .objects
-        .iter()
-        .filter(|o| {
-            if o.team != player_team
-                || o.destroyed
-                || !UnitControlSystem::presentation_is_selectable(o)
-            {
-                return false;
-            }
-            if !Self::presentation_is_worker_like(o) {
-                return false;
-            }
-            // Prefer idle residual (no move dest / attack / construct busy).
-            o.move_destination.is_none()
-                && o.attack_target.is_none()
-                && !o.under_construction
-                && o.ai_state_ordinal == 0
-        })
-        .map(|o| o.id)
-        .collect();
-    ids.sort_by_key(|id| id.0);
-    ids
+        use crate::unit_control::UnitControlSystem;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                if o.team != player_team
+                    || o.destroyed
+                    || !UnitControlSystem::presentation_is_selectable(o)
+                {
+                    return false;
+                }
+                if !Self::presentation_is_worker_like(o) {
+                    return false;
+                }
+                // Prefer idle residual (no move dest / attack / construct busy).
+                o.move_destination.is_none()
+                    && o.attack_target.is_none()
+                    && !o.under_construction
+                    && o.ai_state_ordinal == 0
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
     }
 
     /// Hotkey residual: busy selectable friendly workers (non-idle worker-like).
     pub fn alive_selectable_friendly_busy_worker_ids(
-    &self,
-    player_team: crate::game_logic::Team,
+        &self,
+        player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
-    use crate::unit_control::UnitControlSystem;
-    let idle: std::collections::HashSet<_> = self
-        .alive_selectable_friendly_idle_worker_ids(player_team)
-        .into_iter()
-        .collect();
-    let mut ids: Vec<ObjectId> = self
-        .objects
-        .iter()
-        .filter(|o| {
-            o.team == player_team
-                && !o.destroyed
-                && UnitControlSystem::presentation_is_selectable(o)
-                && Self::presentation_is_worker_like(o)
-                && !idle.contains(&o.id)
-        })
-        .map(|o| o.id)
-        .collect();
-    ids.sort_by_key(|id| id.0);
-    ids
+        use crate::unit_control::UnitControlSystem;
+        let idle: std::collections::HashSet<_> = self
+            .alive_selectable_friendly_idle_worker_ids(player_team)
+            .into_iter()
+            .collect();
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && Self::presentation_is_worker_like(o)
+                    && !idle.contains(&o.id)
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
     }
 
     /// Hotkey residual: unfinished (under construction, not sold) friendly selectables.
     pub fn alive_selectable_friendly_unfinished_ids(
-    &self,
-    player_team: crate::game_logic::Team,
+        &self,
+        player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
-    use crate::unit_control::UnitControlSystem;
-    let mut ids: Vec<ObjectId> = self
-        .objects
-        .iter()
-        .filter(|o| {
-            o.team == player_team
-                && !o.destroyed
-                && UnitControlSystem::presentation_is_selectable(o)
-                && o.under_construction
-                && !o.sold
-        })
-        .map(|o| o.id)
-        .collect();
-    ids.sort_by_key(|id| id.0);
-    ids
+        use crate::unit_control::UnitControlSystem;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && o.under_construction
+                    && !o.sold
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
     }
 
     pub fn presentation_is_worker_like(o: &RenderableObject) -> bool {
-    use crate::game_logic::KindOf;
-    if Self::object_has_kind(o, KindOf::Worker) {
-        return true;
-    }
-    let n = o.template_name.to_ascii_lowercase();
-    n.contains("dozer")
-        || n.contains("worker")
-        || n.contains("chinook")
-        || n.contains("supply")
-        || n.contains("hack")
-        || n.contains("crane")
+        use crate::game_logic::KindOf;
+        if Self::object_has_kind(o, KindOf::Worker) {
+            return true;
+        }
+        let n = o.template_name.to_ascii_lowercase();
+        n.contains("dozer")
+            || n.contains("worker")
+            || n.contains("chinook")
+            || n.contains("supply")
+            || n.contains("hack")
+            || n.contains("crane")
     }
 
-/// Runtime-host residual: first friendly Command Center pose.
+    /// Runtime-host residual: first friendly Command Center pose.
     pub fn first_friendly_command_center_position(
         &self,
         player_team: crate::game_logic::Team,
@@ -3988,6 +3987,38 @@ impl PresentationFrame {
             .iter()
             .filter(|o| o.team == player_team && !o.destroyed && o.is_mobile)
             .count() as u32
+    }
+
+    /// Runtime-host residual: selected friendly count from snapshot.
+    pub fn count_selected_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
+        self.objects
+            .iter()
+            .filter(|o| o.team == player_team && !o.destroyed && o.selected)
+            .count() as u32
+    }
+
+    /// Runtime-host residual: under-construction friendly count from snapshot.
+    pub fn count_under_construction_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
+        self.objects
+            .iter()
+            .filter(|o| o.team == player_team && !o.destroyed && o.under_construction)
+            .count() as u32
+    }
+
+    /// Runtime-host residual: first alive friendly sample pose + name.
+    pub fn first_friendly_sample_label(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Option<String> {
+        self.objects
+            .iter()
+            .find(|o| o.team == player_team && !o.destroyed)
+            .map(|o| {
+                format!(
+                    "{:.1},{:.1},{:.1}:{}",
+                    o.position.x, o.position.y, o.position.z, o.template_name
+                )
+            })
     }
 
     pub fn centroid_of_ids(&self, ids: &[ObjectId]) -> Option<glam::Vec3> {
@@ -11751,4 +11782,3 @@ mod presentation_fow_own_team_residual_tests {
         assert_eq!(frame.count_mobile_friendlies(Team::USA), 1);
     }
 }
-

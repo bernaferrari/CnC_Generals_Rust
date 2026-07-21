@@ -19046,4 +19046,30 @@ mod tests {
             "presentation helpers required"
         );
     }
+
+    #[test]
+    fn runtime_host_status_snapshot_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng
+            .find("fn runtime_host_status_snapshot")
+            .expect("status snapshot");
+        let body = &eng[i..eng.len().min(i + 9000)];
+        assert!(
+            body.contains("count_mobile_friendlies")
+                && body.contains("count_under_construction_friendlies")
+                && body.contains("first_friendly_sample_label")
+                && body.contains("count_selected_friendlies"),
+            "status snapshot must prefer presentation counts/sample"
+        );
+        assert!(
+            body.contains("Boot residual only"),
+            "status snapshot must keep boot residual live dual-scans"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn count_under_construction_friendlies")
+                && pf.contains("fn first_friendly_sample_label"),
+            "presentation helpers required"
+        );
+    }
 }
