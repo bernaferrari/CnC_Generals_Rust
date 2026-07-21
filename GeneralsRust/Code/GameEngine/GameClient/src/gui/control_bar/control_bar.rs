@@ -1424,16 +1424,35 @@ impl ControlBar {
         context: &ControlBarContext,
         source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let button_id = self.resolve_command_button_id(button)?;
-        let cmd_source = Self::map_command_source(source);
-        for object_id in &context.selected_objects {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let _ = obj_guard.do_command_button(button_id, cmd_source);
+        // Dual-world residual: live modules via OBJECT_REGISTRY when bound.
+        let mut applied = 0usize;
+        if let Ok(button_id) = self.resolve_command_button_id(button) {
+            let cmd_source = Self::map_command_source(source);
+            for object_id in &context.selected_objects {
+                let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
+                    continue;
+                };
+                let Ok(obj_guard) = obj_arc.read() else {
+                    continue;
+                };
+                let _ = obj_guard.do_command_button(button_id, cmd_source);
+                applied += 1;
+            }
+        }
+        if applied > 0 {
+            return Ok(());
+        }
+        // Host/presentation residual: MSG_QUEUE_UNIT_CREATE (no OBJECT_REGISTRY).
+        let Some(logic_button) = self.resolve_logic_button(button) else {
+            return Ok(());
+        };
+        let Some(thing_template) = logic_button.get_thing_template() else {
+            return Ok(());
+        };
+        let template_id = thing_template.get_id();
+        let production_id = 0u32;
+        if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
+            stream.append_message(GameMessageType::QueueUnitCreate(template_id, production_id));
         }
         Ok(())
     }
@@ -1444,16 +1463,39 @@ impl ControlBar {
         context: &ControlBarContext,
         source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let button_id = self.resolve_command_button_id(button)?;
-        let cmd_source = Self::map_command_source(source);
-        for object_id in &context.selected_objects {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let _ = obj_guard.do_command_button(button_id, cmd_source);
+        let mut applied = 0usize;
+        if let Ok(button_id) = self.resolve_command_button_id(button) {
+            let cmd_source = Self::map_command_source(source);
+            for object_id in &context.selected_objects {
+                let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
+                    continue;
+                };
+                let Ok(obj_guard) = obj_arc.read() else {
+                    continue;
+                };
+                let _ = obj_guard.do_command_button(button_id, cmd_source);
+                applied += 1;
+            }
+        }
+        if applied > 0 {
+            return Ok(());
+        }
+        // Host/presentation residual: MSG_DO_SPECIAL_POWER without dual-world modules.
+        let Some(logic_button) = self.resolve_logic_button(button) else {
+            return Ok(());
+        };
+        let Some(sp_template) = logic_button.get_special_power_template() else {
+            return Ok(());
+        };
+        let sp_id = sp_template.get_id();
+        let options = logic_button.get_options_bits();
+        let source_obj_id = context.selected_objects.first().copied().unwrap_or(0);
+        if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
+            stream.append_message(GameMessageType::DoSpecialPower(
+                sp_id,
+                options,
+                source_obj_id,
+            ));
         }
         Ok(())
     }
@@ -1471,6 +1513,8 @@ impl ControlBar {
             return Ok(());
         }
 
+        // Dual-world residual only when registry objects actually accept the button.
+        let mut applied = 0usize;
         if let Ok(button_id) = self.resolve_command_button_id(button) {
             let cmd_source = Self::map_command_source(source);
             for object_id in &context.selected_objects {
@@ -1481,10 +1525,14 @@ impl ControlBar {
                     continue;
                 };
                 let _ = obj_guard.do_command_button(button_id, cmd_source);
+                applied += 1;
             }
+        }
+        if applied > 0 {
             return Ok(());
         }
 
+        // Host/presentation residual: queue typed Command with selected IDs.
         let mut command = Command::new(button.command_type);
         command.set_player_index(context.player_id as i32);
         for object_id in &context.selected_objects {
@@ -1513,7 +1561,22 @@ impl ControlBar {
             return Ok(false);
         };
 
-        Self::cancel_production_by_id(producer_id, entry.production_id);
+        // Dual-world residual when producer modules are bound.
+        if OBJECT_REGISTRY.get_object(producer_id).is_some() {
+            Self::cancel_production_by_id(producer_id, entry.production_id);
+            return Ok(true);
+        }
+        // Host/presentation residual: message-stream cancel (no OBJECT_REGISTRY modules).
+        if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
+            match entry.production_type {
+                QueueProductionType::Upgrade => {
+                    stream.append_message(GameMessageType::CancelUpgrade(entry.production_id));
+                }
+                _ => {
+                    stream.append_message(GameMessageType::CancelUnitCreate(entry.production_id));
+                }
+            }
+        }
         Ok(true)
     }
 
@@ -1527,7 +1590,10 @@ impl ControlBar {
             return Ok(());
         };
 
-        Self::set_object_production_paused(producer_id, paused);
+        // Dual-world residual only. Host production pause is driven by Main command path.
+        if OBJECT_REGISTRY.get_object(producer_id).is_some() {
+            Self::set_object_production_paused(producer_id, paused);
+        }
         Ok(())
     }
 

@@ -1426,3 +1426,6 @@ doUpgradesAndSkills → updateBridgeRepair.
 Skirmish doBase/doTeam tick structure/team timers, clamp to 3s max, and throttle
 process* via 2s delays (matching AISkirmishPlayer.cpp).
 
+
+
+ControlBar execute/cancel falls back to THE_MESSAGE_STREAM (QueueUnitCreate/DoSpecialPower/Cancel*) when OBJECT_REGISTRY is empty.
