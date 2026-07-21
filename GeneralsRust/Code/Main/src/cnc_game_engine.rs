@@ -6271,8 +6271,8 @@ impl CnCGameEngine {
                 info!("Loaded startup initial-file map: {}", active_map_name);
             }
 
-            Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
-            Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
+            Self::apply_heightmap_hint(&mut self.render_pipeline, Some(&self.game_logic));
+            Self::apply_skybox_hint(&mut self.render_pipeline, Some(&self.game_logic));
             Self::sync_render_terrain_visual(
                 &mut self.render_pipeline,
                 &self.graphics_system,
@@ -11421,8 +11421,8 @@ impl CnCGameEngine {
                 self.selected_objects.clear();
 
                 if !headless_host {
-                    Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
-                    Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
+                    Self::apply_heightmap_hint(&mut self.render_pipeline, Some(&self.game_logic));
+                    Self::apply_skybox_hint(&mut self.render_pipeline, Some(&self.game_logic));
                     Self::sync_render_terrain_visual(
                         &mut self.render_pipeline,
                         &self.graphics_system,
@@ -11552,8 +11552,8 @@ impl CnCGameEngine {
         self.selected_objects.clear();
 
         // Update minimap/world bounds and camera to the new map.
-        Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
-        Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
+        Self::apply_heightmap_hint(&mut self.render_pipeline, Some(&self.game_logic));
+        Self::apply_skybox_hint(&mut self.render_pipeline, Some(&self.game_logic));
         Self::sync_render_terrain_visual(
             &mut self.render_pipeline,
             &self.graphics_system,
@@ -11798,15 +11798,17 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline, game_logic: &GameLogic) {
+    fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline, game_logic: Option<&GameLogic>) {
         // Prefer presentation-frozen hint when available (no live path re-read).
         let path = render_pipeline
             .presentation_frame()
             .and_then(|p| p.world_env.heightmap_hint.clone())
             .or_else(|| {
-                game_logic
-                    .heightmap_hint()
-                    .and_then(|p| p.to_str().map(|s| s.to_string()))
+                game_logic.and_then(|logic| {
+                    logic
+                        .heightmap_hint()
+                        .and_then(|p| p.to_str().map(|s| s.to_string()))
+                })
             });
         if let Some(path) = path {
             // Keep renderer parity-safe: map-adjacent TGA companions are frequently preview art.
@@ -11894,7 +11896,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_skybox_hint(render_pipeline: &mut RenderPipeline, game_logic: &GameLogic) {
+    fn apply_skybox_hint(render_pipeline: &mut RenderPipeline, game_logic: Option<&GameLogic>) {
         // Prefer presentation env when already installed (map-load seeds a frame first).
         if let Some(pres) = render_pipeline.presentation_frame() {
             let enabled = pres.world_env.skybox_enabled;
@@ -11906,8 +11908,11 @@ impl CnCGameEngine {
             return;
         }
         // Boot residual without presentation snapshot.
-        render_pipeline.set_skybox_enabled(game_logic.is_skybox_enabled());
-        if let Some(meta) = game_logic.last_parsed_map_settings() {
+        let Some(logic) = game_logic else {
+            return;
+        };
+        render_pipeline.set_skybox_enabled(logic.is_skybox_enabled());
+        if let Some(meta) = logic.last_parsed_map_settings() {
             if let Some(textures) = meta.skybox_textures {
                 render_pipeline.set_skybox_hint(textures);
             }

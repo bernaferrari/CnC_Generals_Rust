@@ -62652,8 +62652,7 @@ mod tests {
             game_logic
                 .get_player(0)
                 .expect("player should exist")
-                .resources
-                .supplies,
+                .effective_supplies(),
             500,
             "queued AI production should charge exactly once"
         );
@@ -63104,8 +63103,7 @@ mod tests {
         let charged_supplies = game_logic
             .get_player(0)
             .expect("player should exist")
-            .resources
-            .supplies;
+            .effective_supplies();
         assert_eq!(
             charged_supplies,
             100_000 - (DEFAULT_PRODUCTION_QUEUE_LIMIT as u32 * 100)
@@ -63126,8 +63124,7 @@ mod tests {
             game_logic
                 .get_player(0)
                 .expect("player should exist")
-                .resources
-                .supplies,
+                .effective_supplies(),
             charged_supplies,
             "full production queues must not charge resources"
         );
@@ -63209,8 +63206,7 @@ mod tests {
             game_logic
                 .get_player(0)
                 .expect("USA player should exist")
-                .resources
-                .supplies,
+                .effective_supplies(),
             99_900,
             "queued production should charge the owner before destruction"
         );
@@ -63226,8 +63222,7 @@ mod tests {
             game_logic
                 .get_player(0)
                 .expect("USA player should exist")
-                .resources
-                .supplies,
+                .effective_supplies(),
             100_000,
             "producer death should refund queued production to the owner"
         );
@@ -63235,8 +63230,7 @@ mod tests {
             game_logic
                 .get_player(2)
                 .expect("GLA player should exist")
-                .resources
-                .supplies,
+                .effective_supplies(),
             100_000,
             "killer should not receive the destroyed producer's queue refund"
         );
