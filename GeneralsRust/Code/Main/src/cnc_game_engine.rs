@@ -9189,13 +9189,16 @@ impl CnCGameEngine {
                         log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
                     }
                 } else {
-                    if let Err(e) = self.game_client.update_drawables(visual_delta) {
-                        log::trace!("GameClient drawable update failed (non-fatal): {e}");
+                    // Boot/loading residual without presentation frame: still avoid
+                    // dual-world OBJECT_REGISTRY shroud/pose bind. Prefer the same
+                    // local shell tick as InGame presentation path (drawables local +
+                    // UI/message pump). update_drawables now early-outs on empty
+                    // registry, but shell tick covers UI residual more completely.
+                    if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
+                        log::trace!(
+                            "GameClient boot presentation shell update failed (non-fatal): {e}"
+                        );
                     }
-                    // Boot/loading residual without presentation frame.
-                    self.game_client.ensure_shell_visible().ok();
-                    self.game_client.update_pre_draw_ui().ok();
-                    self.game_client.update_post_draw_ui().ok();
                 }
             }
         }

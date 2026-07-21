@@ -10786,6 +10786,19 @@ mod tests {
     }
 
     #[test]
+    fn boot_client_tick_prefers_presentation_shell() {
+        let src = include_str!("cnc_game_engine.rs");
+        let marker = "Boot/loading residual without presentation frame";
+        let i = src.find(marker).expect("boot client residual marker");
+        let window = &src[i..src.len().min(i + 800)];
+        assert!(
+            window.contains("update_presentation_shell")
+                && !window.contains("self.game_client.update_drawables("),
+            "boot residual without frame must use presentation shell, not dual-world update_drawables"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
