@@ -5733,6 +5733,9 @@ impl GameLogic {
             Some(&mut self.countermeasures),
             self.frame,
         );
+        crate::game_logic::host_projectile_log::record_snapshot(
+            self.combat_system.projectiles_snapshot(),
+        );
         self.drain_historic_bonus_firestorms();
 
         if !projectile_hits.is_empty() {
