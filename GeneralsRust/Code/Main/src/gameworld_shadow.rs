@@ -17727,4 +17727,87 @@ mod tests {
             "PDL must log Attack under AI decision authority"
         );
     }
+
+    #[test]
+    fn explosion_detonation_damage_source_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for (fn_name, token) in [
+            ("fn apply_bunker_buster_to_target", "take_damage_from"),
+            ("fn apply_kill_garrisoned_to_target", "take_damage_from"),
+            ("fn apply_neutron_blast_at", "take_damage_from"),
+            (
+                "fn apply_bomb_truck_death_detonation_at",
+                "take_damage_from(dmg, Some(truck_id))",
+            ),
+            (
+                "fn apply_nuclear_tanks_death_detonation_at",
+                "take_damage_from(dmg, Some(tank_id))",
+            ),
+            (
+                "fn detonate_booby_trap_at",
+                "take_damage_from(dmg, Some(plant.planter_id))",
+            ),
+            (
+                "fn activate_helix_napalm_bomb",
+                "take_damage_from(dmg, Some(source_object))",
+            ),
+            (
+                "fn detonate_car_bomb",
+                "take_damage_from(dmg, Some(car_id))",
+            ),
+            (
+                "fn detonate_mine_internal",
+                "take_damage_from(dmg, Some(mine_id))",
+            ),
+            (
+                "fn update_sneak_attacks",
+                "take_damage_from(dmg, Some(plan.source_object))",
+            ),
+            (
+                "fn update_overcharge_drain",
+                "take_damage_from(dmg, Some(id))",
+            ),
+            (
+                "fn apply_host_hive_damage_from",
+                "take_damage_from(damage, source_id)",
+            ),
+            (
+                "fn process_destroy_list",
+                "take_damage_from(dmg, Some(event.id))",
+            ),
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains(token),
+                "{fn_name} must source-attribute damage via {token}"
+            );
+            // No anonymous take_damage(amount) residual in these paths.
+            assert!(
+                !w.contains(".take_damage(dmg)")
+                    && !w.contains(".take_damage(damage)")
+                    && !w.contains(".take_damage(structure_dmg)"),
+                "{fn_name} must not keep anonymous take_damage"
+            );
+        }
+    }
 }
