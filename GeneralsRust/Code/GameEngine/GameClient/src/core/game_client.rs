@@ -2360,10 +2360,10 @@ impl GameClient {
         // Dual-world residual: GameLogic objects registered in OBJECT_REGISTRY.
         // Host/presentation path keeps drawables only in `drawable_map` and does not
         // populate the registry — this becomes a no-op there (callers use local ticks).
-        let all_objects = OBJECT_REGISTRY.get_all_objects();
-        if all_objects.is_empty() {
+        if OBJECT_REGISTRY.is_empty() {
             return Ok(());
         }
+        let all_objects = OBJECT_REGISTRY.get_all_objects();
 
         // Iterate through objects and invoke callback for those with drawables
         for object_ref in all_objects {
@@ -4282,6 +4282,12 @@ impl Snapshotable for GameClient {
 
         // C++ scans the global drawable list; include GameLogic-owned drawables as well
         // so the next ID counter cannot regress after load.
+        // Host path: registry empty — drawable_map already drove next_drawable_id.
+        if OBJECT_REGISTRY.is_empty() {
+            self.next_drawable_id = DrawableId(next_drawable_id.max(1));
+            self.set_drawable_id_counter(self.next_drawable_id.0);
+            return Ok(());
+        }
         for obj_ref in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_ref.read() else {
                 continue;
