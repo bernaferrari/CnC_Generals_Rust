@@ -1435,3 +1435,5 @@ Beacon ControlBar residual prefers presentation command-set freeze when OBJECT_R
 Multi-select ControlBar rebuild prefers presentation_command_set_names before OBJECT_REGISTRY.
 
 ControlBar structure inventory prefers presentation_max_garrison residual when OBJECT_REGISTRY is empty.
+
+GameClient drawable xfer load does not require OBJECT_REGISTRY; dual-world bind is residual only.
