@@ -21681,24 +21681,43 @@ impl GameLogic {
     }
 
     fn find_nearest_supply_center(&self, team: Team, from_position: Vec3) -> Option<ObjectId> {
-        let mut nearest_id: Option<ObjectId> = None;
-        let mut nearest_dist = f32::MAX;
-
-        for (&obj_id, obj) in &self.objects {
-            if obj.team != team
-                || !obj.is_alive()
-                || !obj.is_constructed()
-                || !obj.is_kind_of(KindOf::SupplyCenter)
-            {
-                continue;
-            }
-            let dist = from_position.distance(obj.get_position());
-            if dist < nearest_dist {
-                nearest_dist = dist;
-                nearest_id = Some(obj_id);
-            }
-        }
-        nearest_id
+        // Pure residual acquire: nearest friendly constructed SupplyCenter (3D).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&obj_id, obj)| {
+                if obj.team != team
+                    || !obj.is_alive()
+                    || !obj.is_constructed()
+                    || !obj.is_kind_of(KindOf::SupplyCenter)
+                {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: obj_id,
+                        team: obj.team,
+                        position: obj.get_position(),
+                        is_alive: true,
+                        is_neutral: false,
+                        under_construction: false,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            ObjectId(u32::MAX),
+            team,
+            from_position,
+            candidates,
+            |_| f32::MAX,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
 
     /// Get all objects

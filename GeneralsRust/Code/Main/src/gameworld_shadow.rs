@@ -19189,6 +19189,19 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Nearest SupplyCenter residual (economy return path).
+        {
+            let name = "find_nearest_supply_center";
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 2500)];
+            assert!(
+                body.contains("pick_nearest_residual_target")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual acquire"
+            );
+        }
         // Jet return-to-base rearm airfield residual.
         {
             let name = "try_return_to_base_rearm";
