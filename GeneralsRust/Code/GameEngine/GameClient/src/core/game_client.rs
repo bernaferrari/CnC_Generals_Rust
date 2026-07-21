@@ -2328,8 +2328,13 @@ impl GameClient {
     where
         F: FnMut(&Arc<RwLock<GameLogicObject>>),
     {
-        // Get all registered GameLogic objects
+        // Dual-world residual: GameLogic objects registered in OBJECT_REGISTRY.
+        // Host/presentation path keeps drawables only in `drawable_map` and does not
+        // populate the registry — this becomes a no-op there (callers use local ticks).
         let all_objects = OBJECT_REGISTRY.get_all_objects();
+        if all_objects.is_empty() {
+            return Ok(());
+        }
 
         // Iterate through objects and invoke callback for those with drawables
         for object_ref in all_objects {
@@ -2499,22 +2504,24 @@ impl GameClient {
     /// # Ok::<(), game_client_rust::core::GameClientError>(())
     /// ```
     pub fn update_for_rendering(&mut self, timing: &FrameTiming) -> GameClientResult<()> {
-        // 1. Sync with GameLogic - ensure we know about all objects
-        self.sync_with_game_logic()?;
-
-        // 2. Update visibility based on shroud/fog of war
-        self.update_drawable_visibility(self.local_player_id)?;
-
-        // 3. Update animations for all drawables
         let visual_delta = if self.should_freeze_visual_time() {
             0.0
         } else {
             timing.delta_seconds()
         };
-        self.update_drawable_animations(visual_delta)?;
 
-        // 4. Read projectile stream state from GameLogic DRAWABLE_STATE and
-        //    submit to the render bridge for the Device renderer to consume.
+        // Host/presentation path: no dual-world OBJECT_REGISTRY. Main owns pose/shroud
+        // via PresentationFrame apply_*; only local drawable modules tick here.
+        if OBJECT_REGISTRY.get_all_objects().is_empty() {
+            self.update_drawables_local(visual_delta)?;
+            self.submit_projectile_streams_to_bridge()?;
+            return Ok(());
+        }
+
+        // Dual-world residual: sync pose/visibility from registry-bound objects.
+        self.sync_with_game_logic()?;
+        self.update_drawable_visibility(self.local_player_id)?;
+        self.update_drawable_animations(visual_delta)?;
         self.submit_projectile_streams_to_bridge()?;
 
         Ok(())
@@ -2541,6 +2548,7 @@ impl GameClient {
             drawable.update(delta_time);
         }
 
+        // Dual-world residual only — host drawables live solely in drawable_map above.
         self.iterate_objects_with_drawables(|obj_ref| {
             let Ok(mut obj) = obj_ref.write() else {
                 return;
@@ -2551,6 +2559,7 @@ impl GameClient {
                 }
             }
         })?;
+        let _ = frame;
         Ok(())
     }
 
@@ -3462,6 +3471,13 @@ impl GameClient {
 
         for drawable in self.drawable_map.values_mut() {
             drawable.update(delta_time);
+        }
+
+        // Host/presentation path: shroud comes from PresentationFrame apply_*;
+        // skip dual-world OBJECT_REGISTRY shroud bind when registry is empty.
+        if OBJECT_REGISTRY.get_all_objects().is_empty() {
+            let _ = (frame, local_player_index);
+            return Ok(());
         }
 
         // C++ parity: GameClient.cpp lines 660-700 iterates drawables with shroud check.
