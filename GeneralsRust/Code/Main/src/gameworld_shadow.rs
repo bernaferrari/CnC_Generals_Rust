@@ -19189,6 +19189,18 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // CommandIntegration mouse pick residual priority.
+        {
+            let ci = include_str!("command_integration.rs");
+            let i = ci
+                .find("fn find_object_at_position")
+                .expect("find_object_at_position");
+            let body = &ci[i..ci.len().min(i + 3500)];
+            assert!(
+                body.contains("pick_best_priority_residual_target"),
+                "command_integration mouse pick must use pure priority residual acquire"
+            );
+        }
         // Spectre orbit gattling residual nearest enemy.
         {
             let sp = include_str!("game_logic/special_power_strikes.rs");

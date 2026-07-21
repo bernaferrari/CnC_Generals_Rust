@@ -721,48 +721,59 @@ impl InputCommandProcessor {
             None => (None, false),
         };
 
-        // Priority-driven picking:
-        // - command targeting (units selected): prefer enemy attackable targets, then friendly/selectable.
-        // - pure selection (nothing selected): only allow own selectable objects.
-        let mut best: Option<(ObjectId, u8, f32)> = None; // (id, priority, distance)
-
-        for (&id, obj) in game_logic.objects.iter() {
-            if !obj.is_alive() {
-                continue;
-            }
-
-            let distance = (obj.get_position() - self.mouse_world_pos).length();
-            let radius = BASE_SELECTION_RADIUS.max(obj.selection_radius);
-            if distance > radius {
-                continue;
-            }
-
-            let priority = if has_selected_units {
-                match player_team {
-                    Some(team) if obj.team != team && obj.is_attackable() => 0,
-                    Some(team) if obj.team == team && obj.is_selectable() => 1,
-                    _ if obj.is_attackable() => 2,
-                    _ if obj.is_selectable() => 3,
-                    _ => continue,
+        // Pure residual acquire: priority bands + nearest 3D tiebreak.
+        // Per-object selection radius is applied when building candidates.
+        let origin = self.mouse_world_pos;
+        let cands: Vec<_> = game_logic
+            .objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if !obj.is_alive() {
+                    return None;
                 }
-            } else {
-                match player_team {
-                    Some(team) if obj.team == team && obj.is_selectable() => 0,
-                    Some(_) => continue,
-                    None if obj.is_selectable() => 0,
-                    None => continue,
+                let pos = obj.get_position();
+                let distance = (pos - origin).length();
+                let radius = BASE_SELECTION_RADIUS.max(obj.selection_radius);
+                if distance > radius {
+                    return None;
                 }
-            };
-
-            match best {
-                Some((_, best_priority, best_distance))
-                    if priority > best_priority
-                        || (priority == best_priority && distance >= best_distance) => {}
-                _ => best = Some((id, priority, distance)),
-            }
-        }
-
-        best.map(|(id, _, _)| id)
+                // Priority-driven picking:
+                // - command targeting (units selected): prefer enemy attackable, then friendly/selectable.
+                // - pure selection (nothing selected): only own selectable objects.
+                let priority = if has_selected_units {
+                    match player_team {
+                        Some(team) if obj.team != team && obj.is_attackable() => Some(0),
+                        Some(team) if obj.team == team && obj.is_selectable() => Some(1),
+                        _ if obj.is_attackable() => Some(2),
+                        _ if obj.is_selectable() => Some(3),
+                        _ => None,
+                    }
+                } else {
+                    match player_team {
+                        Some(team) if obj.team == team && obj.is_selectable() => Some(0),
+                        Some(_) => None,
+                        None if obj.is_selectable() => Some(0),
+                        None => None,
+                    }
+                };
+                Some(
+                    crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
+                        id,
+                        position: pos,
+                        is_alive: true,
+                        priority,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
+            ObjectId(0),
+            origin,
+            (origin.x, origin.z),
+            f32::MAX,
+            cands,
+        )
+        .map(|(id, _, _)| id)
     }
 
     /// Get currently selected units for the current player
