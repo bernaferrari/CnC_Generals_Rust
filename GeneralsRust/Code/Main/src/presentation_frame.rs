@@ -10647,6 +10647,24 @@ mod tests {
     }
 
     #[test]
+    fn game_client_xfer_allows_missing_object_registry() {
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        assert!(
+            !gc.contains("Cannot find object") && !gc.contains("references missing object ID"),
+            "GameClient xfer must not hard-fail drawable load when OBJECT_REGISTRY is empty"
+        );
+        assert!(
+            gc.contains("Host/presentation path: allow drawable load without dual-world registry")
+                || gc.contains("Host/presentation path: OBJECT_REGISTRY may be empty"),
+            "xfer load must document host residual without registry bind"
+        );
+        assert!(
+            gc.contains("Dual-world residual bind only"),
+            "bind_drawable_to_object must remain opt-in when registry has the object"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
