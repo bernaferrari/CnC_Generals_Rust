@@ -10521,6 +10521,27 @@ mod tests {
     }
 
     #[test]
+    fn control_bar_beacon_prefers_presentation_command_set() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        let beacon =
+            include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar_beacon.rs");
+        assert!(
+            cb.contains("presentation_primary_command_set"),
+            "ControlBar must retain presentation command-set residual for beacon path"
+        );
+        assert!(
+            beacon.contains("append_beacon_commands_with_presentation")
+                && beacon.contains("Host presentation residual"),
+            "beacon commands must accept presentation command-set without OBJECT_REGISTRY"
+        );
+        assert!(
+            cb.contains("beacon UI when command-set freeze says BEACON")
+                || cb.contains("presentation_primary_command_set"),
+            "update_context_beacon must not wipe host beacon residual"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation

@@ -1429,3 +1429,5 @@ process* via 2s delays (matching AISkirmishPlayer.cpp).
 
 
 ControlBar execute/cancel falls back to THE_MESSAGE_STREAM (QueueUnitCreate/DoSpecialPower/Cancel*) when OBJECT_REGISTRY is empty.
+
+Beacon ControlBar residual prefers presentation command-set freeze when OBJECT_REGISTRY is empty.
