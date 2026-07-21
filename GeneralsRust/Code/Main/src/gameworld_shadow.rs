@@ -15631,6 +15631,58 @@ mod tests {
     }
 
     #[test]
+    fn path_approach_with_state_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PathSt");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PsU") {
+            let mut t = ThingTemplate::new("PsU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("PsU".into(), t);
+        }
+        let oid = logic
+            .create_object("PsU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        logic.path_approach_with_state_for_test(
+            oid,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+            AIState::Gathering,
+        );
+        let events = host_ai_decision_log::drain();
+        let gathering_ord = GameWorldShadow::host_ai_state_ordinal(&AIState::Gathering);
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
+                    && e.host_object == oid
+                    && e.ai_state_ordinal == gathering_ord
+            }),
+            "path_approach must log SetAIState; got {events:?} ord={gathering_ord}"
+        );
+        assert_ne!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Gathering,
+            "host ai_state deferred under decision authority"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Gathering
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
