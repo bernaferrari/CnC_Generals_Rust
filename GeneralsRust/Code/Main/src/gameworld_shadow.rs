@@ -118,6 +118,13 @@ pub fn gameworld_economy_authority_enabled() -> bool {
     }
 }
 
+/// Economy last-writer is only meaningful while a shadow session can write back cash.
+/// Host-only matches must mutate supplies immediately (same coupling as damage/fire-spawn).
+#[inline]
+pub fn gameworld_economy_authority_live() -> bool {
+    gameworld_economy_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// When enabled, GameWorld integrates path/move targets after the host tick and
 /// writebacks pose/movement as last-writer. Host `update_movement` skips integrate.
 ///
@@ -7448,7 +7455,7 @@ pub fn shadow_session_after_host_tick(
         );
     }
     let mut econ_wb = 0usize;
-    if gameworld_economy_authority_enabled() {
+    if gameworld_economy_authority_live() {
         let econ_events = crate::game_logic::host_economy_log::drain();
         if !econ_events.is_empty() {
             // Keep pre-tick shadow supplies when re-applying absolute events.
@@ -14026,6 +14033,8 @@ mod tests {
 
     #[test]
     fn steal_cash_logs_economy_for_both_sides() {
+        let _env_guard = authority_env_lock();
+
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("StealLog");
@@ -14064,6 +14073,8 @@ mod tests {
 
     #[test]
     fn credit_supplies_logs_economy_channel() {
+        let _env_guard = authority_env_lock();
+
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("CreditLog");
@@ -14076,7 +14087,7 @@ mod tests {
             p.credit_supplies(123);
             // Economy authority parks gains in pending_supply_delta.
             assert_eq!(p.effective_supplies(), before.saturating_add(123));
-            if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_economy_authority_live() {
                 assert_eq!(p.resources.supplies, before);
             } else {
                 assert_eq!(p.resources.supplies, before.saturating_add(123));
@@ -14091,6 +14102,8 @@ mod tests {
 
     #[test]
     fn economy_authority_applies_logged_spend() {
+        let _env_guard = authority_env_lock();
+
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EconSpend");
@@ -14108,7 +14121,7 @@ mod tests {
         // Under economy authority host.resources is deferred; effective reflects spend.
         let after_host = logic.get_player(hid).unwrap().resources.supplies;
         let after_eff = logic.get_player(hid).unwrap().effective_supplies();
-        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
             assert_eq!(after_host, before, "host absolute deferred");
             assert_eq!(after_eff, before.saturating_sub(100), "effective supplies");
         } else {
@@ -14132,7 +14145,7 @@ mod tests {
             .player(gamelogic::world::PlayerId::from_index(0))
             .unwrap()
             .supplies;
-        let expect = if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+        let expect = if crate::gameworld_shadow::gameworld_economy_authority_live() {
             after_eff
         } else {
             after_host
@@ -14146,6 +14159,8 @@ mod tests {
 
     #[test]
     fn economy_authority_writeback_supplies() {
+        let _env_guard = authority_env_lock();
+
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EconAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -14174,7 +14189,11 @@ mod tests {
 
     #[test]
     fn economy_authority_pending_blocks_double_spend() {
+        let _env_guard = authority_env_lock();
+
         std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(gameworld_economy_authority_enabled());
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();
@@ -14206,8 +14225,51 @@ mod tests {
     }
 
     #[test]
-    fn credit_supplies_defers_under_economy_authority() {
+    fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
+        let _env_guard = authority_env_lock();
+        let prev_e = std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+        assert!(gameworld_economy_authority_enabled());
+        assert!(!gameworld_economy_authority_live());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EconNoShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
+        ids.sort_unstable();
+        let hid = ids[0];
+        {
+            let p = logic.get_player_mut(hid).unwrap();
+            p.resources.supplies = 100;
+            p.pending_supply_delta = 0;
+            p.add_resources(&crate::game_logic::Resources {
+                supplies: 25,
+                power: 0,
+            });
+            assert_eq!(
+                p.resources.supplies, 125,
+                "host supplies must apply immediately"
+            );
+            assert_eq!(p.pending_supply_delta, 0, "no pending when shadow off");
+        }
+        match prev_e {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
+    fn credit_supplies_defers_under_economy_authority() {
+        let _env_guard = authority_env_lock();
+
+        std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(gameworld_economy_authority_enabled());
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();

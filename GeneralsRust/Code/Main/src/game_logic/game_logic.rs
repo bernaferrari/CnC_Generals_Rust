@@ -539,7 +539,7 @@ impl Player {
         if bounty > 0 {
             self.statistics.resources_collected =
                 self.statistics.resources_collected.saturating_add(bounty);
-            if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_economy_authority_live() {
                 self.pending_supply_delta += bounty as i64;
                 crate::game_logic::host_economy_log::record(
                     self.id,
@@ -624,7 +624,7 @@ impl Player {
             return false;
         }
         let power_after = self.power_available + cost.power; // Negative for consumption
-        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
             self.pending_supply_delta -= cost.supplies as i64;
             self.power_available = power_after;
             if cost.supplies > 0 {
@@ -660,7 +660,7 @@ impl Player {
                 .resources_collected
                 .saturating_add(amount.supplies);
         }
-        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
             self.pending_supply_delta += amount.supplies as i64;
             crate::game_logic::host_economy_log::record(
                 self.id,
@@ -705,7 +705,7 @@ impl Player {
         if amount == 0 {
             return;
         }
-        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
             self.pending_supply_delta += amount as i64;
             crate::game_logic::host_economy_log::record(
                 self.id,
@@ -727,7 +727,7 @@ impl Player {
         if amount == 0 {
             return;
         }
-        if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
             self.pending_supply_delta -= amount as i64;
             crate::game_logic::host_economy_log::record(
                 self.id,
@@ -19056,7 +19056,7 @@ impl GameLogic {
                 if whole > 0 {
                     player.statistics.resources_collected =
                         player.statistics.resources_collected.saturating_add(whole);
-                    if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_economy_authority_live() {
                         player.pending_supply_delta += whole as i64;
                         crate::game_logic::host_economy_log::record(
                             player.id,
@@ -19076,7 +19076,7 @@ impl GameLogic {
             // Shadow economy channel: effective supplies + power after host tick residual.
             crate::game_logic::host_economy_log::record(
                 player.id,
-                if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_economy_authority_live() {
                     player.effective_supplies()
                 } else {
                     player.resources.supplies
