@@ -19184,14 +19184,30 @@ mod tests {
             assert!(
                 body.contains("pick_nearest_residual_target")
                     && body.contains("ResidualAcquireCandidate"),
-                "{name} must use pure residual acquire query"
+                "{name} must use pure residual combat acquire query"
+            );
+        }
+        for name in [
+            "try_auto_find_healing_residual",
+            "try_auto_find_repair_residual",
+            "try_auto_resume_construction_residual",
+        ] {
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 5000)];
+            assert!(
+                body.contains("pick_nearest_residual_service_target")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual service acquire query"
             );
         }
         let helper = include_str!("game_logic/host_residual_acquire.rs");
         assert!(
             helper.contains("fn pick_nearest_residual_target")
+                && helper.contains("fn pick_nearest_residual_service_target")
                 && helper.contains("Pure residual auto-fire target acquisition"),
-            "host_residual_acquire helper required"
+            "host_residual_acquire helpers required"
         );
     }
 }
