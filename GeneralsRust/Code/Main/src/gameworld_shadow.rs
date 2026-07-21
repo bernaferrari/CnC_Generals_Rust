@@ -19189,6 +19189,35 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // AI factory pick residual priority (idle preferred).
+        {
+            let ai = include_str!("ai.rs");
+            let i = ai
+                .find("fn find_factory_for_unit_ex")
+                .expect("find_factory_for_unit_ex");
+            let body = &ai[i..ai.len().min(i + 2500)];
+            assert!(
+                body.contains("pick_best_priority_residual_target"),
+                "AI factory finder must use pure priority residual acquire"
+            );
+        }
+        // Engine boot mouse pick residual priority (presentation delegates to unit_control).
+        {
+            let eng = include_str!("cnc_game_engine.rs");
+            let i = eng
+                .find("fn find_object_at_position")
+                .expect("engine find_object_at_position");
+            // Prefer the InGame/engine pick (not test helpers): scan for boot residual marker.
+            let boot = eng
+                .find("Boot residual only — pure priority residual acquire")
+                .expect("engine boot pick residual marker");
+            let body = &eng[boot..eng.len().min(boot + 2000)];
+            assert!(
+                body.contains("pick_best_priority_residual_target"),
+                "engine boot mouse pick must use pure priority residual acquire"
+            );
+            let _ = i;
+        }
         // UnitControl presentation mouse pick residual priority.
         {
             let uc = include_str!("unit_control.rs");
