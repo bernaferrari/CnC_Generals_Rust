@@ -9420,7 +9420,7 @@ mod tests {
             cost_supplies: 150,
             is_upgrade: false,
         }];
-        host_production_progress_log::record(oid, items.clone(), 0.0);
+        host_production_progress_log::record(oid, items.clone(), 0.0, 1.0);
 
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -13879,7 +13879,7 @@ mod tests {
                 bd.exit_delay_remaining = 2.5;
             }
         }
-        host_production_progress_log::record(oid, vec![], 2.5);
+        host_production_progress_log::record(oid, vec![], 2.5, 1.0);
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
