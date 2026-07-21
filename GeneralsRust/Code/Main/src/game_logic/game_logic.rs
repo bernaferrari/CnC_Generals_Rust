@@ -31038,22 +31038,41 @@ impl GameLogic {
         }
 
         for (_drone_id, dteam, dpos) in drones {
-            // Nearest same-team master residual.
-            let mut best: Option<(ObjectId, f32, f32)> = None; // id, dist, pct
-            for (mid, mteam, mpos, _mhp, mpct) in &masters {
-                if *mteam != dteam {
-                    continue;
-                }
-                let dx = dpos.x - mpos.x;
-                let dz = dpos.z - mpos.z;
-                let dist = (dx * dx + dz * dz).sqrt();
-                if best.map(|(_, bd, _)| dist < bd).unwrap_or(true) {
-                    best = Some((*mid, dist, *mpct));
-                }
-            }
-            let Some((mid, dist, mpct)) = best else {
+            // Pure residual acquire: nearest same-team master (XZ).
+            let master_cands: Vec<_> = masters
+                .iter()
+                .filter(|(_, mteam, _, _, _)| *mteam == dteam)
+                .map(|(mid, mteam, mpos, _, _)| {
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: *mid,
+                        team: *mteam,
+                        position: *mpos,
+                        is_alive: true,
+                        is_neutral: false,
+                        under_construction: false,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    }
+                })
+                .collect();
+            let Some((mid, dist, _)) =
+                crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                    None,
+                    (dpos.x, dpos.z),
+                    master_cands,
+                    f32::MAX,
+                    |_| true,
+                )
+            else {
                 continue;
             };
+            let Some((_, _, _, _, mpct)) = masters.iter().find(|(id, _, _, _, _)| *id == mid)
+            else {
+                continue;
+            };
+            let mpct = *mpct;
             if !battle_drone_should_repair_master(true, mpct, true, dist) {
                 continue;
             }
@@ -49187,36 +49206,44 @@ impl GameLogic {
         let pos = dozer.get_position();
         let team = dozer.team;
         let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
-        let range_sq = range * range;
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in &self.objects {
-            if *id == dozer_id || !obj.is_alive() {
-                continue;
-            }
-            if obj.team != team || !obj.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            if obj.status.under_construction || obj.status.sold {
-                continue;
-            }
-            if obj.health.current + 0.01 >= obj.health.maximum {
-                continue;
-            }
-            // 2D distance residual (FROM_CENTER_2D).
-            let d = obj.get_position();
-            let dx = d.x - pos.x;
-            let dz = d.z - pos.z;
-            let dist_sq = dx * dx + dz * dz;
-            if dist_sq > range_sq {
-                continue;
-            }
-            match best {
-                None => best = Some((*id, dist_sq)),
-                Some((_, best_d)) if dist_sq < best_d => best = Some((*id, dist_sq)),
-                _ => {}
-            }
-        }
-        best.map(|(id, _)| id)
+        // Pure residual service acquire (2D/XZ bored range).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if !obj.is_alive()
+                    || obj.team != team
+                    || !obj.is_kind_of(KindOf::Structure)
+                    || obj.status.under_construction
+                    || obj.status.sold
+                    || obj.health.current + 0.01 >= obj.health.maximum
+                {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team: obj.team,
+                        position: obj.get_position(),
+                        is_alive: true,
+                        is_neutral: false,
+                        under_construction: false,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+            Some(dozer_id),
+            (pos.x, pos.z),
+            candidates,
+            range,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
 
     /// C++ DozerAIUpdate findMine residual (enemy/neutral mines in BoredRange).
@@ -49232,40 +49259,49 @@ impl GameLogic {
         let pos = dozer.get_position();
         let team = dozer.team;
         let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
-        let range_sq = range * range;
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in &self.objects {
-            if *id == dozer_id || !obj.is_alive() {
-                continue;
-            }
-            // C++ ALLOW_ENEMIES | ALLOW_NEUTRAL only (not allies / own mines).
-            if obj.team == team {
-                continue;
-            }
-            let is_mine = obj.mine_data.is_some()
-                || crate::game_logic::host_mines::infer_mine_kind(&obj.template_name).is_some();
-            if !is_mine {
-                continue;
-            }
-            if let Some(md) = obj.mine_data.as_ref() {
-                if !can_clear_mine_kind(md.kind) {
-                    continue;
+        // Pure residual acquire (enemy/neutral mines in BoredRange, XZ).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if !obj.is_alive() || obj.team == team {
+                    return None;
                 }
-            }
-            let d = obj.get_position();
-            let dx = d.x - pos.x;
-            let dz = d.z - pos.z;
-            let dist_sq = dx * dx + dz * dz;
-            if dist_sq > range_sq {
-                continue;
-            }
-            match best {
-                None => best = Some((*id, dist_sq)),
-                Some((_, best_d)) if dist_sq < best_d => best = Some((*id, dist_sq)),
-                _ => {}
-            }
-        }
-        best.map(|(id, _)| id)
+                // C++ ALLOW_ENEMIES | ALLOW_NEUTRAL only (not allies / own mines).
+                let is_mine = obj.mine_data.is_some()
+                    || crate::game_logic::host_mines::infer_mine_kind(&obj.template_name).is_some();
+                if !is_mine {
+                    return None;
+                }
+                if let Some(md) = obj.mine_data.as_ref() {
+                    if !can_clear_mine_kind(md.kind) {
+                        return None;
+                    }
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team: obj.team,
+                        position: obj.get_position(),
+                        is_alive: true,
+                        is_neutral: obj.team == Team::Neutral,
+                        under_construction: false,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+            Some(dozer_id),
+            (pos.x, pos.z),
+            candidates,
+            range,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
 
     /// C++ DozerPrimaryIdleState bored residual: repair, else mine-clear.
