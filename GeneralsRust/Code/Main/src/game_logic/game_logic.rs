@@ -44159,23 +44159,51 @@ impl GameLogic {
         add_to_selection: bool,
     ) -> Option<ObjectId> {
         if let Some(player) = self.players.get_mut(&player_id) {
-            // Find closest selectable object within radius
-            let mut closest_object: Option<(ObjectId, f32)> = None;
-
-            for (id, obj) in &self.objects {
-                if obj.team == player.team && obj.is_selectable() {
-                    let distance = obj.get_position().distance(position);
-                    if distance <= selection_radius.max(obj.selection_radius) {
-                        if let Some((_, closest_distance)) = closest_object {
-                            if distance < closest_distance {
-                                closest_object = Some((*id, distance));
-                            }
-                        } else {
-                            closest_object = Some((*id, distance));
-                        }
+            let team = player.team;
+            // Pure residual acquire: nearest selectable friendly in click radius (3D).
+            // Per-object selection_radius expands the pick disk (C++ pick residual).
+            let candidates: Vec<_> = self
+                .objects
+                .iter()
+                .filter_map(|(&id, obj)| {
+                    if obj.team != team || !obj.is_selectable() {
+                        return None;
                     }
-                }
-            }
+                    Some((
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team: obj.team,
+                            position: obj.get_position(),
+                            is_alive: obj.is_alive(),
+                            is_neutral: false,
+                            under_construction: obj.status.under_construction,
+                            combat_kind: true,
+                            effectively_stealthed: false,
+                            is_air: false,
+                            eject_invulnerable: false,
+                        },
+                        obj.selection_radius,
+                    ))
+                })
+                .collect();
+            let closest_object =
+                crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+                    ObjectId(u32::MAX),
+                    team,
+                    position,
+                    candidates.iter().map(|(c, _)| c.clone()),
+                    |_| selection_radius + 256.0, // upper bound; legality enforces per-object radius
+                    |c| {
+                        let sel_r = candidates
+                            .iter()
+                            .find(|(cand, _)| cand.id == c.id)
+                            .map(|(_, r)| *r)
+                            .unwrap_or(0.0);
+                        let dist = position.distance(c.position);
+                        dist <= selection_radius.max(sel_r)
+                    },
+                )
+                .map(|(id, dist, _)| (id, dist));
 
             if let Some((selected_id, _)) = closest_object {
                 // Clear previous selection if not adding
@@ -92152,7 +92180,7 @@ mod tests {
     fn select_objects_flashes_selection_residual() {
         let src = include_str!("game_logic.rs");
         let start = src.find("pub fn select_objects").expect("select_objects");
-        let body = &src[start..start + 900];
+        let body = &src[start..src.len().min(start + 2500)];
         assert!(
             body.contains("flash_as_selected"),
             "select_objects must flashAsSelected residual on newly selected units"

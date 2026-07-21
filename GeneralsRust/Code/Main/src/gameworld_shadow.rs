@@ -19189,6 +19189,19 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Click-select nearest residual.
+        {
+            let name = "select_object_at_position";
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 3500)];
+            assert!(
+                body.contains("pick_nearest_residual_target")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual acquire"
+            );
+        }
         // Nearest SupplyCenter residual (economy return path).
         {
             let name = "find_nearest_supply_center";
