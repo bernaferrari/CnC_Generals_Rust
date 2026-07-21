@@ -7551,9 +7551,19 @@ impl GameLogic {
         }
         u.is_blocked = false;
         u.is_blocked_and_stuck = false;
-        u.target = Some(target_id);
-        // Face without full path — spin in place residual.
-        let _ = u.face_position(target_pos, 1.0 / 30.0);
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        if decision_auth {
+            // Drop mut borrow before logging.
+            drop(u);
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                let _ = u.face_position(target_pos, 1.0 / 30.0);
+            }
+        } else {
+            u.target = Some(target_id);
+            // Face without full path — spin in place residual.
+            let _ = u.face_position(target_pos, 1.0 / 30.0);
+        }
         true
     }
 
@@ -11866,10 +11876,14 @@ impl GameLogic {
                     // C++ AIStates AcceptableAimDelta residual: do not fire until facing
                     // is within aim delta; turn in place toward the target instead.
                     {
+                        let decision_auth =
+                            crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
                         let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            attacker.set_ai_state(AIState::Attacking);
-                            attacker.set_status_attacking(true);
-                            attacker.target = Some(target_id);
+                            if !decision_auth {
+                                attacker.set_ai_state(AIState::Attacking);
+                                attacker.set_status_attacking(true);
+                                attacker.target = Some(target_id);
+                            }
                             // Stationary / can-turn-in-place residual: complete the yaw
                             // this frame (fail-closed vs loco turn-rate matrix). Moving
                             // attackers use a bounded step so chase still turns gradually.
@@ -11915,10 +11929,12 @@ impl GameLogic {
                         if !pitch_ok {
                             // Out of pitch: keep engagement but do not fire this frame
                             // (C++ AI continues aiming / repositioning).
-                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                attacker.set_ai_state(AIState::Attacking);
-                                attacker.set_status_attacking(true);
-                                attacker.target = Some(target_id);
+                            if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    attacker.set_ai_state(AIState::Attacking);
+                                    attacker.set_status_attacking(true);
+                                    attacker.target = Some(target_id);
+                                }
                             }
                             continue;
                         }
@@ -11961,9 +11977,12 @@ impl GameLogic {
                                     attacker.activate_leech_range_for_slot(slot);
                                 }
                                 if current_time + 1e-6 < attacker.pre_attack_ready_at {
-                                    attacker.target = Some(target_id);
-                                    attacker.set_ai_state(AIState::Attacking);
-                                    attacker.set_status_attacking(true);
+                                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()
+                                    {
+                                        attacker.target = Some(target_id);
+                                        attacker.set_ai_state(AIState::Attacking);
+                                        attacker.set_status_attacking(true);
+                                    }
                                     true
                                 } else {
                                     false
