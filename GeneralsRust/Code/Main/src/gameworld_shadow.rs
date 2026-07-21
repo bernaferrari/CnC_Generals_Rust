@@ -223,6 +223,25 @@ pub fn gameworld_construction_sole_tick_enabled() -> bool {
     gameworld_construction_authority_enabled() && gameworld_shadow_enabled()
 }
 
+/// Env: `GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_special_power_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
+/// Host skips SP countdown advance only when authority AND shadow session run.
+pub fn gameworld_special_power_sole_tick_enabled() -> bool {
+    gameworld_special_power_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// When enabled (default), GameWorld shadow is last-writer for production queue
 /// identity (items/progress/rally/exit delay) via host progress logs + writeback.
 /// Host still *executes* production ticks (spawn completion residual); shadow owns
@@ -290,6 +309,8 @@ pub struct GameWorldShadow {
     production_power_factor_by_host: HashMap<u32, f32>,
     /// Last host construction effective_rate residual per host object id.
     construction_rate_by_host: HashMap<u32, f32>,
+    /// Host isDisabled/pauseCountdown freeze residual for SP sole-tick.
+    special_power_frozen_by_host: HashMap<u32, bool>,
 }
 
 impl GameWorldShadow {
@@ -302,6 +323,7 @@ impl GameWorldShadow {
             host_player_to_gw: HashMap::new(),
             production_power_factor_by_host: HashMap::new(),
             construction_rate_by_host: HashMap::new(),
+            special_power_frozen_by_host: HashMap::new(),
         }
     }
 
@@ -3489,6 +3511,8 @@ impl GameWorldShadow {
     ) -> usize {
         let mut n = 0usize;
         for ev in events {
+            self.special_power_frozen_by_host
+                .insert(ev.object.0, ev.frozen);
             if self.queue_set_special_power_for_host(
                 ev.object,
                 ev.ready,
@@ -3500,6 +3524,60 @@ impl GameWorldShadow {
         }
         if n > 0 {
             let _ = self.apply_pending();
+        }
+        n
+    }
+
+    /// Under SPECIAL_POWER_AUTHORITY: advance entity SP cooldown remaining by dt.
+    /// Host completes ready flip after writeback when remaining hits 0.
+    pub fn tick_special_power_cooldowns(&mut self, dt: f32) -> usize {
+        if !gameworld_special_power_sole_tick_enabled() || dt <= 0.0 {
+            return 0;
+        }
+        use gamelogic::world::entities::EntityId;
+        use gamelogic::world::WorldMutation;
+        let mut n = 0usize;
+        let mut updates: Vec<(EntityId, bool, f32, f32)> = Vec::new();
+        let host_ids: Vec<(u32, EntityId)> = self
+            .host_to_entity
+            .iter()
+            .map(|(&hid, &eid)| (hid, eid))
+            .collect();
+        for (hid, eid) in host_ids {
+            if self
+                .special_power_frozen_by_host
+                .get(&hid)
+                .copied()
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let rem = ent.special_power_cooldown_remaining;
+            let cd = ent.special_power_cooldown;
+            if rem <= 0.0 {
+                continue;
+            }
+            let new_rem = (rem - dt).max(0.0);
+            if (new_rem - rem).abs() < 1e-12 {
+                continue;
+            }
+            let ready = new_rem <= 0.0;
+            n += 1;
+            updates.push((eid, ready, new_rem, cd));
+        }
+        for (eid, ready, rem, cd) in updates {
+            self.world.queue_mutation(WorldMutation::SetSpecialPower {
+                target: eid,
+                ready,
+                cooldown_remaining: rem,
+                cooldown: cd,
+            });
+        }
+        if n > 0 {
+            let _ = self.world.apply_pending_mutations();
         }
         n
     }
@@ -6943,8 +7021,13 @@ pub fn shadow_session_after_host_tick(
     let _construction_tick = shadow
         .tick_construction_progress(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
     let _sp_applied = shadow.apply_host_special_power_events(&special_power_events);
-    // Host owns SP countdown execution; events update GameWorld for presentation.
-    // Writeback is available for explicit tests / authority peels — not every tick.
+    // Under SPECIAL_POWER_AUTHORITY, GameWorld sole-ticks SP countdown; host skips advance.
+    let _sp_tick = shadow.tick_special_power_cooldowns(
+        game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
+    );
+    if gameworld_special_power_sole_tick_enabled() {
+        let _sp_wb = shadow.writeback_special_power_to_host(logic);
+    }
 
     let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
     let _ai_applied = shadow.apply_host_ai_state_events(&ai_state_events);
@@ -8376,6 +8459,61 @@ mod tests {
         match prev_a {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
+    fn special_power_authority_sole_ticks_cooldown() {
+        let prev_a = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        assert!(gameworld_special_power_sole_tick_enabled());
+        use crate::game_logic::host_special_power_log::{self};
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("SoleTickSp");
+            t.add_kind_of(KindOf::Structure);
+            logic.templates.insert("SoleTickSp".into(), t);
+        }
+        let oid = logic
+            .create_object("SoleTickSp", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        if let Some(o) = logic.get_object_mut(oid) {
+            o.special_power_cooldown = 10.0;
+            o.special_power_cooldown_remaining = 4.0;
+            o.special_power_ready = false;
+        }
+        host_special_power_log::record(oid, false, 4.0, 10.0, false);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let events = host_special_power_log::drain();
+        assert!(shadow.apply_host_special_power_events(&events) >= 1);
+        let n = shadow.tick_special_power_cooldowns(1.5);
+        assert!(n >= 1, "sole-tick must advance SP cooldown");
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        let ent = shadow.world().entity(eid).expect("ent");
+        assert!(
+            (ent.special_power_cooldown_remaining - 2.5).abs() < 1e-4,
+            "got {}",
+            ent.special_power_cooldown_remaining
+        );
+        assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
+        let o = logic.get_object(oid).expect("obj");
+        assert!((o.special_power_cooldown_remaining - 2.5).abs() < 1e-4);
+        // Frozen residual: no advance while disabled.
+        host_special_power_log::record(oid, false, 2.5, 10.0, true);
+        let events = host_special_power_log::drain();
+        assert!(shadow.apply_host_special_power_events(&events) >= 1);
+        assert_eq!(shadow.tick_special_power_cooldowns(1.0), 0);
+        match prev_a {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
         }
         match prev_s {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
