@@ -185,6 +185,14 @@ Shadow session **defaults on** in the engine (`GENERALS_GAMEWORLD_SHADOW=0` to d
 
 Still not sole GameWorld production authority (host Main GameLogic remains match host; shadow is last-writer overlay).
 
+### Host authority log materialize (no-session path)
+
+When engine holds no `GameWorldShadow` session, `maybe_shadow_after_host_tick`
+calls `materialize_host_authority_logs` so DAMAGE/ECONOMY authority logs apply
+onto host HP/cash instead of being discarded. Engine dual-session path still
+uses `shadow_session_after_host_tick` as last-writer. Golden combat also
+materializes inside `fight_enemies_with_rangers`.
+
 ### Damage authority cutover (opt-in)
 
 Gates call `ensure_gate_damage_authority()` so damage authority defaults on (set `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0` to opt out). `GENERALS_GAMEWORLD_ECONOMY_AUTHORITY=1` (gates default-on): `host_economy_log (includes power from `update_player_resources`; income via `Player::credit_supplies / steal_cash_from_team`)` from Player spend/add/bounty/refund → SetSupplies/SetPower mutations → host writeback. `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=1` (implies shadow session): end-of-tick
