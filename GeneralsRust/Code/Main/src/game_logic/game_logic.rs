@@ -25618,14 +25618,17 @@ impl GameLogic {
             None
         };
 
-        let mut best: Option<(ObjectId, f32)> = None;
+        // Mood-prefer residual: keep engagee when still legal/in-range.
+        let mut best: Option<(ObjectId, f32, bool)> = None;
         if let Some(mid) = mood_prefer {
             if let Some(obj) = self.objects.get(&mid) {
-                let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                    || obj.is_kind_of(KindOf::Structure)
-                    || obj.is_kind_of(KindOf::Infantry)
-                    || obj.is_kind_of(KindOf::Vehicle)
-                    || obj.is_kind_of(KindOf::Aircraft);
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
                 let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
                 let dist = fire_pos.distance(obj.get_position());
                 if is_legal_strategy_center_gun_target(
@@ -25641,51 +25644,62 @@ impl GameLogic {
                     && dist >= min_range
                     && dist <= range
                 {
-                    best = Some((mid, dist));
+                    best = Some((mid, dist, is_air));
                 }
             }
         }
         if best.is_none() {
-            for (id, obj) in &self.objects {
-                if *id == center_id {
-                    continue;
-                }
-                let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                    || obj.is_kind_of(KindOf::Structure)
-                    || obj.is_kind_of(KindOf::Infantry)
-                    || obj.is_kind_of(KindOf::Vehicle)
-                    || obj.is_kind_of(KindOf::Aircraft);
-                let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
-                if !is_legal_strategy_center_gun_target(
-                    obj.is_alive(),
-                    obj.team == team,
-                    obj.team == Team::Neutral,
-                    obj.status.under_construction,
-                    combat_kind,
-                    is_air,
-                ) {
-                    continue;
-                }
-                // Stealthed + undetected residual: skip.
-                if obj.is_effectively_stealthed() && obj.team != team {
-                    continue;
-                }
-                // InvulnerableTime residual pilots: enemies treat as ALLIES (skip).
-                if obj.is_eject_invulnerable() && obj.team != team {
-                    continue;
-                }
-                let dist = fire_pos.distance(obj.get_position());
-                if strategy_center_gun_in_range(dist)
-                    && dist >= min_range
-                    && dist <= range
-                    && best.map(|(_, d)| dist < d).unwrap_or(true)
-                {
-                    best = Some((*id, dist));
-                }
-            }
+            // Pure residual acquire query (fire decision choice phase).
+            let candidates: Vec<_> = self
+                .objects
+                .iter()
+                .map(|(&id, obj)| {
+                    let combat_kind =
+                        crate::game_logic::host_residual_acquire::residual_combat_kind(
+                            obj.is_kind_of(KindOf::Attackable),
+                            obj.is_kind_of(KindOf::Structure),
+                            obj.is_kind_of(KindOf::Infantry),
+                            obj.is_kind_of(KindOf::Vehicle),
+                            obj.is_kind_of(KindOf::Aircraft),
+                        );
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team: obj.team,
+                        position: obj.get_position(),
+                        is_alive: obj.is_alive(),
+                        is_neutral: obj.team == Team::Neutral,
+                        under_construction: obj.status.under_construction,
+                        combat_kind,
+                        effectively_stealthed: obj.is_effectively_stealthed(),
+                        is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                        eject_invulnerable: obj.is_eject_invulnerable(),
+                    }
+                })
+                .collect();
+            best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+                center_id,
+                team,
+                fire_pos,
+                candidates,
+                |_| range,
+                |c| {
+                    let dist = fire_pos.distance(c.position);
+                    is_legal_strategy_center_gun_target(
+                        c.is_alive,
+                        c.team == team,
+                        c.is_neutral,
+                        c.under_construction,
+                        c.combat_kind,
+                        c.is_air,
+                    ) && !(c.eject_invulnerable && c.team != team)
+                        && strategy_center_gun_in_range(dist)
+                        && dist >= min_range
+                },
+            )
+            .map(|(id, dist, air)| (id, dist, air));
         }
 
-        let Some((target_id, _)) = best else {
+        let Some((target_id, _, _)) = best else {
             return;
         };
 
@@ -25942,6 +25956,7 @@ impl GameLogic {
                     combat_kind,
                     effectively_stealthed: obj.is_effectively_stealthed(),
                     is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
                 }
             })
             .collect();
@@ -33789,6 +33804,7 @@ impl GameLogic {
                     combat_kind,
                     effectively_stealthed: obj.is_effectively_stealthed(),
                     is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
                 }
             })
             .collect();
@@ -33949,6 +33965,7 @@ impl GameLogic {
                     combat_kind,
                     effectively_stealthed: obj.is_effectively_stealthed(),
                     is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
                 }
             })
             .collect();
@@ -34530,6 +34547,7 @@ impl GameLogic {
                     combat_kind,
                     effectively_stealthed: obj.is_effectively_stealthed(),
                     is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
                 }
             })
             .collect();
@@ -34661,6 +34679,7 @@ impl GameLogic {
                     combat_kind,
                     effectively_stealthed: obj.is_effectively_stealthed(),
                     is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
                 }
             })
             .collect();
@@ -38414,6 +38433,7 @@ impl GameLogic {
                     combat_kind: is_heal_pad,
                     effectively_stealthed: false,
                     is_air: false,
+                    eject_invulnerable: false,
                 }
             })
             .collect();
@@ -39003,6 +39023,7 @@ impl GameLogic {
                     combat_kind: is_pad,
                     effectively_stealthed: false,
                     is_air: false,
+                    eject_invulnerable: false,
                 }
             })
             .collect();
@@ -39071,6 +39092,7 @@ impl GameLogic {
                     combat_kind: st.is_kind_of(KindOf::Structure),
                     effectively_stealthed: false,
                     is_air: false,
+                    eject_invulnerable: false,
                 },
             )
             .collect();
