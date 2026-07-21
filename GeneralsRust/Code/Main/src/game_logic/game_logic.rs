@@ -11631,25 +11631,43 @@ impl GameLogic {
             return false;
         }
         const REARM_RANGE: f32 = 120.0;
-        let mut best: Option<(ObjectId, f32, glam::Vec3)> = None;
-        for obj in self.objects.values() {
-            if obj.id == jet_id {
-                continue;
-            }
-            if !Self::is_friendly_airfield(obj, jet_team) {
-                continue;
-            }
-            let d = obj.get_position().distance(jet_pos);
-            if d <= REARM_RANGE {
-                let better = best.map(|(_, bd, _)| d < bd).unwrap_or(true);
-                if better {
-                    best = Some((obj.id, d, obj.get_position()));
-                }
-            }
-        }
-        let Some((af_id, _, af_pos)) = best else {
+        // Pure residual acquire: nearest friendly airfield in rearm range (3D).
+        let candidates: Vec<_> = self
+            .objects
+            .values()
+            .filter(|obj| obj.id != jet_id && Self::is_friendly_airfield(obj, jet_team))
+            .map(
+                |obj| crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id: obj.id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind: true,
+                    effectively_stealthed: false,
+                    is_air: false,
+                    eject_invulnerable: false,
+                },
+            )
+            .collect();
+        let Some((af_id, _, _)) =
+            crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+                jet_id,
+                jet_team,
+                jet_pos,
+                candidates,
+                |_| REARM_RANGE,
+                |_| true,
+            )
+        else {
             return false;
         };
+        let af_pos = self
+            .objects
+            .get(&af_id)
+            .map(|o| o.get_position())
+            .unwrap_or(jet_pos);
         // Capacity residual: refuse dock if parking places full (unless already parked here).
         let already = self
             .objects
@@ -11747,14 +11765,18 @@ impl GameLogic {
         let heal = parking_place_heal_per_frame(PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC);
         // Docked jets with Countermeasures (ReloadTime=0 / MustReloadAtAirfield residual)
         // reload flares even when already at full HP.
+        // Parking heal residual keys off hangar association (contained_by airfield).
+        // Under AI_DECISION_AUTHORITY host AIState::Docked is writeback-owned; contained_by
+        // is still host-local after RTB rearm.
         let jet_ids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(_, o)| {
                 o.is_alive()
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
-                    && o.ai_state == AIState::Docked
                     && o.contained_by.is_some()
+                    && (o.ai_state == AIState::Docked
+                        || crate::gameworld_shadow::gameworld_ai_decision_authority_enabled())
                     && (o.health.current + 1e-3 < o.health.maximum
                         || o.needs_return_to_base_rearm()
                         || aircraft_has_countermeasures_upgrade(&o.applied_upgrades))
@@ -84628,13 +84650,32 @@ mod tests {
             jet.status.airborne_target = true;
         }
 
+        crate::game_logic::host_ai_decision_log::clear();
         assert!(logic.try_return_to_base_rearm(jet_id));
         {
             let jet = logic.objects.get(&jet_id).unwrap();
             assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(4));
-            assert_eq!(jet.ai_state, AIState::Docked);
             assert_eq!(jet.contained_by, Some(af_id));
             assert!(!jet.needs_return_to_base_rearm());
+            // Docked AI state last-write under AI_DECISION_AUTHORITY (default on).
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                assert_eq!(jet.ai_state, AIState::Idle);
+                let docked = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                    &AIState::Docked,
+                );
+                let events = crate::game_logic::host_ai_decision_log::snapshot();
+                assert!(
+                    events.iter().any(|e| {
+                        e.host_object == jet_id
+                            && e.kind
+                                == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
+                            && e.ai_state_ordinal == docked
+                    }),
+                    "RTB rearm must log SetAIState(Docked) under decision authority"
+                );
+            } else {
+                assert_eq!(jet.ai_state, AIState::Docked);
+            }
         }
         assert!(
             logic
@@ -84647,13 +84688,25 @@ mod tests {
         );
 
         let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
+        crate::game_logic::host_heal_log::clear();
         logic.tick_airfield_parking_heal();
         let hp_after = logic.objects.get(&jet_id).unwrap().health.current;
         let expected = parking_place_heal_per_frame(PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC);
-        assert!(
-            (hp_after - hp_before - expected).abs() < 1e-3,
-            "heal {hp_before} -> {hp_after}, want +{expected}"
-        );
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            let heals = crate::game_logic::host_heal_log::snapshot();
+            let logged = heals
+                .iter()
+                .any(|e| e.target == jet_id && (e.health - (hp_before + expected)).abs() < 1e-2);
+            assert!(
+                logged || (hp_after - hp_before - expected).abs() < 1e-3,
+                "parking heal must log absolute HP under damage authority (hp {hp_before}->{hp_after}, heals={heals:?}, expect +{expected})"
+            );
+        } else {
+            assert!(
+                (hp_after - hp_before - expected).abs() < 1e-3,
+                "heal {hp_before} -> {hp_after}, want +{expected}"
+            );
+        }
     }
 
     #[test]

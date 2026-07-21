@@ -27,6 +27,10 @@ pub fn record(target: ObjectId, health: f32) {
     });
 }
 
+pub fn snapshot() -> Vec<HostHealEvent> {
+    LOG.with(|log| log.borrow().clone())
+}
+
 pub fn drain() -> Vec<HostHealEvent> {
     let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
     // Keep last non-empty batch for PresentationFrame after shadow session.
