@@ -7574,6 +7574,11 @@ impl CnCGameEngine {
                     },
                 ..
             } => {
+                #[cfg(feature = "game_client")]
+                {
+                    let pressed = matches!(state, ElementState::Pressed);
+                    self.inject_game_client_key(physical_key, pressed);
+                }
                 let route_keyboard_to_legacy_ui =
                     matches!(self.current_state, GameState::InGame | GameState::Paused);
                 match state {
@@ -16456,6 +16461,100 @@ impl CnCGameEngine {
                 }
             }
         }
+    }
+
+    /// Feed Main-owned OS keyboard state into GameClient Keyboard device residual.
+    /// Main still owns command translation / hotkeys.
+    #[cfg(feature = "game_client")]
+    fn inject_game_client_key(&self, physical_key: &winit::keyboard::PhysicalKey, pressed: bool) {
+        if let Some(code) = Self::to_game_client_key_code(physical_key) {
+            game_client::input::keyboard::with_keyboard(|kb| {
+                let _ = kb.handle_key_simple(code, pressed);
+            });
+        }
+    }
+
+    /// Map winit physical keys to GameClient KeyCode without sharing winit types across crates.
+    #[cfg(feature = "game_client")]
+    fn to_game_client_key_code(
+        physical_key: &winit::keyboard::PhysicalKey,
+    ) -> Option<game_client::input::KeyCode> {
+        use game_client::input::KeyCode as Gk;
+        use winit::keyboard::{KeyCode as Wk, PhysicalKey};
+        let PhysicalKey::Code(code) = physical_key else {
+            return None;
+        };
+        Some(match code {
+            Wk::Escape => Gk::Escape,
+            Wk::Enter | Wk::NumpadEnter => Gk::Enter,
+            Wk::Space => Gk::Space,
+            Wk::Tab => Gk::Tab,
+            Wk::Backspace => Gk::Backspace,
+            Wk::Delete => Gk::Delete,
+            Wk::Home => Gk::Home,
+            Wk::End => Gk::End,
+            Wk::PageUp => Gk::PageUp,
+            Wk::PageDown => Gk::PageDown,
+            Wk::ArrowLeft => Gk::Left,
+            Wk::ArrowRight => Gk::Right,
+            Wk::ArrowUp => Gk::Up,
+            Wk::ArrowDown => Gk::Down,
+            Wk::ShiftLeft => Gk::LeftShift,
+            Wk::ShiftRight => Gk::RightShift,
+            Wk::ControlLeft => Gk::LeftCtrl,
+            Wk::ControlRight => Gk::RightCtrl,
+            Wk::AltLeft => Gk::LeftAlt,
+            Wk::AltRight => Gk::RightAlt,
+            Wk::KeyA => Gk::A,
+            Wk::KeyB => Gk::B,
+            Wk::KeyC => Gk::C,
+            Wk::KeyD => Gk::D,
+            Wk::KeyE => Gk::E,
+            Wk::KeyF => Gk::F,
+            Wk::KeyG => Gk::G,
+            Wk::KeyH => Gk::H,
+            Wk::KeyI => Gk::I,
+            Wk::KeyJ => Gk::J,
+            Wk::KeyK => Gk::K,
+            Wk::KeyL => Gk::L,
+            Wk::KeyM => Gk::M,
+            Wk::KeyN => Gk::N,
+            Wk::KeyO => Gk::O,
+            Wk::KeyP => Gk::P,
+            Wk::KeyQ => Gk::Q,
+            Wk::KeyR => Gk::R,
+            Wk::KeyS => Gk::S,
+            Wk::KeyT => Gk::T,
+            Wk::KeyU => Gk::U,
+            Wk::KeyV => Gk::V,
+            Wk::KeyW => Gk::W,
+            Wk::KeyX => Gk::X,
+            Wk::KeyY => Gk::Y,
+            Wk::KeyZ => Gk::Z,
+            Wk::Digit0 => Gk::Num0,
+            Wk::Digit1 => Gk::Num1,
+            Wk::Digit2 => Gk::Num2,
+            Wk::Digit3 => Gk::Num3,
+            Wk::Digit4 => Gk::Num4,
+            Wk::Digit5 => Gk::Num5,
+            Wk::Digit6 => Gk::Num6,
+            Wk::Digit7 => Gk::Num7,
+            Wk::Digit8 => Gk::Num8,
+            Wk::Digit9 => Gk::Num9,
+            Wk::F1 => Gk::F1,
+            Wk::F2 => Gk::F2,
+            Wk::F3 => Gk::F3,
+            Wk::F4 => Gk::F4,
+            Wk::F5 => Gk::F5,
+            Wk::F6 => Gk::F6,
+            Wk::F7 => Gk::F7,
+            Wk::F8 => Gk::F8,
+            Wk::F9 => Gk::F9,
+            Wk::F10 => Gk::F10,
+            Wk::F11 => Gk::F11,
+            Wk::F12 => Gk::F12,
+            _ => return None,
+        })
     }
 
     /// Feed Main-owned OS mouse state into GameClient Mouse device residual.
