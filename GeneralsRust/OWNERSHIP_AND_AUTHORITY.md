@@ -224,6 +224,14 @@ Executable smoke (`executable_smoke_gate` / behavior_gate step 8) boots the real
 `generals` binary via runtime host and proves Menu→InGame. `playable_claim`
 remains false (not full WND widget click / retail GPU match playthrough).
 
+### Presentation-first UI command identity
+
+InGame dozer/producer/selection/production-queue head checks on the engine UI
+path prefer `last_presentation_frame` (`presentation_ro` / `ui_object_*`
+helpers). Live `GameLogic` object walks are boot residual or command apply only.
+Producer fail-open live scan runs only when no presentation frame is installed.
+
+
 ### Honest reading (do not overclaim)
 
 - **Proves**: single-host GameLogic authority, skirmish config propagation, production command/combat/save APIs, presentation snapshot fields, retail map load when assets exist.
