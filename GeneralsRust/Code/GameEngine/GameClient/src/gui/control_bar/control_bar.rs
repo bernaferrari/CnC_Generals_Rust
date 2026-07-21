@@ -406,12 +406,22 @@ impl ControlBar {
         let Some(&first_id) = selected_objects.first() else {
             return Ok(());
         };
-        let obj_exists = OBJECT_REGISTRY
+        // Host/presentation path: Main feeds selection via
+        // sync_selection_display_from_presentation (no OBJECT_REGISTRY).
+        // Dual-world registry is opt-in; do not wipe context when registry empty.
+        let registry_exists = OBJECT_REGISTRY
             .get_object(first_id)
             .map(|arc| arc.read().is_ok())
             .unwrap_or(false);
-        if !obj_exists {
+        let presentation_selection_active =
+            self.portrait_state.is_visible && self.portrait_state.selected_count > 0;
+        if !registry_exists && !presentation_selection_active {
             self.switch_to_context(ControlBarState::None, None)?;
+            return Ok(());
+        }
+        // Without registry modules, skip live module context updates — presentation
+        // already owns portrait/health/queue residual.
+        if !registry_exists {
             return Ok(());
         }
 
@@ -519,7 +529,13 @@ impl ControlBar {
         };
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            context.current_state = ControlBarState::None;
+            // Presentation-only selection residual: keep Command context so
+            // Main-fed portrait/queue stay visible without dual-world registry.
+            if self.portrait_state.is_visible {
+                context.current_state = ControlBarState::Command;
+            } else {
+                context.current_state = ControlBarState::None;
+            }
             let mut guard = self
                 .context
                 .write()
