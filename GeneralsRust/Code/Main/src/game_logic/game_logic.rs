@@ -8500,6 +8500,11 @@ impl GameLogic {
             // Fail-closed: still parachute the rider without a container object.
             if let Some(r) = self.objects.get_mut(&rider_id) {
                 r.set_position(pos);
+                crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    crate::game_logic::host_move_log::record(rider_id, Some([pos.x, pos.y, pos.z]));
+                    r.record_host_movement();
+                }
                 r.apply_eject_parachuting();
             }
             return;
@@ -8534,6 +8539,11 @@ impl GameLogic {
                 r.set_ai_state(crate::game_logic::AIState::Docked);
             }
             r.set_position(pos);
+            crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
+            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                crate::game_logic::host_move_log::record(rider_id, Some([pos.x, pos.y, pos.z]));
+                r.record_host_movement();
+            }
             r.apply_eject_parachuting();
             // Still not selectable while in chute (partition restore already cleared
             // MASKED from vehicle ride; chute contain keeps soft-hide).
@@ -20042,6 +20052,13 @@ impl GameLogic {
             p.z = nz;
             p.y = new_y;
             obj.set_position(p);
+            crate::game_logic::host_ground_height_log::record(crate_id, ground, false);
+            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                if landed {
+                    crate::game_logic::host_move_log::record(crate_id, Some([p.x, p.y, p.z]));
+                }
+                obj.record_host_movement();
+            }
             if landed {
                 obj.clear_eject_parachuting();
             }
@@ -22245,6 +22262,14 @@ impl GameLogic {
                             let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
                             unit.stop_moving();
                             unit.set_position(eject_origin + offset);
+                            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                                let p = eject_origin + offset;
+                                crate::game_logic::host_move_log::record(
+                                    unit.id,
+                                    Some([p.x, p.y, p.z]),
+                                );
+                                unit.record_host_movement();
+                            }
                             if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
                                 crate::game_logic::host_ai_decision_log::record_stop_attack(
                                     contained_id,
@@ -37774,6 +37799,10 @@ impl GameLogic {
                     let open = chute.is_parachute_open();
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
                         r.set_position(cp);
+                        crate::game_logic::host_ground_height_log::record(pilot_id, cp.y, false);
+                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                            r.record_host_movement();
+                        }
                         if open && !r.is_parachute_open() {
                             r.open_eject_parachute();
                         }
@@ -37860,6 +37889,15 @@ impl GameLogic {
                 p.y = ground;
             }
             obj.set_position(p);
+            crate::game_logic::host_ground_height_log::record(pilot_id, ground, false);
+            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                // Freefall residual is not path-integrate; host pose stays residual,
+                // but landing destination is logged for GameWorld move channel.
+                if landed {
+                    crate::game_logic::host_move_log::record(pilot_id, Some([p.x, p.y, p.z]));
+                }
+                obj.record_host_movement();
+            }
             if let Some((np, nr, npr, nrr)) = sway {
                 obj.status.parachute_pitch = np;
                 obj.status.parachute_roll = nr;
@@ -37881,6 +37919,10 @@ impl GameLogic {
             for rid in ids {
                 if let Some(r) = self.objects.get_mut(&rid) {
                     r.set_position(land_pos);
+                    crate::game_logic::host_ground_height_log::record(rid, ground, false);
+                    if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                        r.record_host_movement();
+                    }
                     if open && !r.is_parachute_open() {
                         r.open_eject_parachute();
                     }
@@ -37902,6 +37944,14 @@ impl GameLogic {
                         r.set_ai_state(AIState::Idle);
                     }
                     r.set_position(land_pos);
+                    crate::game_logic::host_ground_height_log::record(*rid, ground, false);
+                    if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                        crate::game_logic::host_move_log::record(
+                            *rid,
+                            Some([land_pos.x, land_pos.y, land_pos.z]),
+                        );
+                        r.record_host_movement();
+                    }
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
                     r.set_status_masked(false);
@@ -48335,6 +48385,11 @@ impl GameLogic {
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
                 unit.set_position(pos + offset);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    let p = pos + offset;
+                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    unit.record_host_movement();
+                }
                 unit.set_target(None);
                 unit.set_contained_by(None);
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
@@ -48390,6 +48445,14 @@ impl GameLogic {
                             let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                             unit.stop_moving();
                             unit.set_position(pos + offset);
+                            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                                let p = pos + offset;
+                                crate::game_logic::host_move_log::record(
+                                    unit.id,
+                                    Some([p.x, p.y, p.z]),
+                                );
+                                unit.record_host_movement();
+                            }
                             unit.set_target(None);
                             unit.set_contained_by(None);
                             if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {

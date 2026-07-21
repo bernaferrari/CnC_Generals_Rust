@@ -18235,4 +18235,46 @@ mod tests {
             "factory exit spawn pose must honor movement authority logging"
         );
     }
+
+    #[test]
+    fn parachute_freefall_movement_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        let eject = src
+            .find("fn tick_eject_parachute_residual")
+            .expect("eject parachute");
+        let eject_body = &src[eject..src.len().min(eject + 12000)];
+        assert!(
+            eject_body.contains("host_ground_height_log::record")
+                && eject_body.contains("gameworld_movement_authority_enabled")
+                && eject_body.contains("host_move_log::record"),
+            "eject freefall must log ground height + landing move under movement authority"
+        );
+        let crate_i = src
+            .find("fn tick_crate_parachute_residual")
+            .expect("crate parachute");
+        let crate_body = &src[crate_i..src.len().min(crate_i + 5000)];
+        assert!(
+            crate_body.contains("host_ground_height_log::record")
+                && crate_body.contains("gameworld_movement_authority_enabled"),
+            "crate freefall must log ground height under movement authority"
+        );
+        let sell = src
+            .find("fn on_selling_container_residual")
+            .expect("sell residual");
+        let sell_body = &src[sell..src.len().min(sell + 6000)];
+        assert!(
+            sell_body.contains("host_move_log::record")
+                && sell_body.contains("gameworld_movement_authority_enabled"),
+            "sell eject dump must log move dest under movement authority"
+        );
+        let hijack = src
+            .find("fn put_hijacker_in_airborne_parachute")
+            .expect("hijacker chute");
+        let hijack_body = &src[hijack..src.len().min(hijack + 4000)];
+        assert!(
+            hijack_body.contains("host_ground_height_log::record")
+                && hijack_body.contains("host_move_log::record"),
+            "hijacker airborne put must log ground/move under authority"
+        );
+    }
 }
