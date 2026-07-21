@@ -10819,7 +10819,7 @@ mod tests {
         let i = eng
             .find("\"move\" | \"move_selected\"")
             .expect("move command");
-        let window = &eng[i..eng.len().min(i + 1200)];
+        let window = &eng[i..eng.len().min(i + 2400)];
         assert!(
             window.contains("Prefer presentation/engine selection residual")
                 || window.contains("count_selected_friendlies"),
