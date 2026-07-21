@@ -8470,20 +8470,36 @@ impl HostSpecialPowerStrikeRegistry {
             }
 
             if gattling_due {
-                let mut best: Option<(ObjectId, f32)> = None;
-                for &(id, pos, team, alive) in object_positions {
-                    if !alive || id == field.source_object || team == field.source_team {
-                        continue;
-                    }
-                    let dist = horizontal_distance(pos, field.position);
-                    if dist <= SPECTRE_ORBIT_RADIUS {
-                        match best {
-                            Some((_, bd)) if bd <= dist => {}
-                            _ => best = Some((id, dist)),
+                // Pure residual acquire: nearest enemy in orbit radius (XZ).
+                let cands: Vec<_> = object_positions
+                    .iter()
+                    .filter(|&&(id, _, team, alive)| {
+                        alive && id != field.source_object && team != field.source_team
+                    })
+                    .map(|&(id, pos, team, _)| {
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team,
+                            position: pos,
+                            is_alive: true,
+                            is_neutral: false,
+                            under_construction: false,
+                            combat_kind: true,
+                            effectively_stealthed: false,
+                            is_air: false,
+                            eject_invulnerable: false,
                         }
-                    }
-                }
-                if let Some((id, _)) = best {
+                    })
+                    .collect();
+                if let Some((id, _, _)) =
+                    crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                        Some(field.source_object),
+                        (field.position.x, field.position.z),
+                        cands,
+                        SPECTRE_ORBIT_RADIUS,
+                        |_| true,
+                    )
+                {
                     *dmg_map.entry(id).or_insert(0.0) += SPECTRE_GATTLING_DAMAGE;
                 }
             }
