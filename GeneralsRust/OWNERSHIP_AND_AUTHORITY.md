@@ -231,6 +231,7 @@ path prefer `last_presentation_frame` (`presentation_ro` / `ui_object_*`
 helpers). Live `GameLogic` object walks are boot residual or command apply only.
 Producer fail-open live scan runs only when no presentation frame is installed.
 Special-power ready/type residual also prefers presentation (`ui_special_power_*`).
+Startup/InGame camera ground samples prefer `PresentationFrame::world_env.sample_height` when a frame is installed.
 
 
 ### Honest reading (do not overclaim)
