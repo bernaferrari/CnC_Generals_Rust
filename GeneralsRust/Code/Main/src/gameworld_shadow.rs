@@ -18982,4 +18982,33 @@ mod tests {
             "presentation helper required"
         );
     }
+
+    #[test]
+    fn runtime_host_construct_train_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng.find("dozer_construct").expect("construct");
+        let body = &eng[i..eng.len().min(i + 7000)];
+        assert!(
+            body.contains("first_friendly_command_center_position"),
+            "construct dozer spawn/loc must prefer presentation CC pose"
+        );
+        let i = eng.find("train_unit").expect("train");
+        let body = &eng[i..eng.len().min(i + 5500)];
+        assert!(
+            body.contains("under_construction")
+                && body.contains("last_presentation_frame")
+                && body.contains("Boot residual only"),
+            "train unfinished barracks discovery must prefer presentation"
+        );
+        // Producer pick after force-complete stays live intentionally.
+        assert!(
+            body.contains("Prefer live barracks"),
+            "train producer pick must remain live after force-complete residual"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn first_friendly_command_center_position"),
+            "presentation CC helper required"
+        );
+    }
 }
