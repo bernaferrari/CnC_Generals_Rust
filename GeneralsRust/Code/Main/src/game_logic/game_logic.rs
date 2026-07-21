@@ -14557,9 +14557,10 @@ impl GameLogic {
         crate::game_logic::host_attack_log::record(attacker_id, Some(target_id));
 
         // Fire-spawn channel residual: under FIRE_SPAWN_AUTHORITY, log a projectile
-        // spawn for GameWorld (damage 0 — hitscan below owns residual damage so
-        // same-frame auto-fire honesty and update_combat-only tests stay green;
-        // full fire_at path still carries live damage on non-residual shots).
+        // spawn carrying live damage (parity with fire_at). Hitscan below still
+        // owns same-frame residual HP so update_combat-only honesty stays green;
+        // shadow zeroes damage on residual-hitscan pairs to prevent dual-tick
+        // double-dip when fire-spawns materialize after the host tick.
         if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
             let (speed, splash, homing, dtype, attack_range, min_attack_range) = match weapon {
                 Some(w) => {
@@ -14586,7 +14587,7 @@ impl GameLogic {
                 shooter_pos,
                 target_id: Some(target_id),
                 target_pos: self.objects.get(&target_id).map(|t| t.get_position()),
-                damage: 0.0,
+                damage,
                 speed,
                 splash_radius: splash,
                 is_homing: homing,
@@ -14620,7 +14621,16 @@ impl GameLogic {
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
+            // Same-frame residual honesty (update_combat-only tests) — fire-spawn
+            // channel carries live damage for dual-tick observe; shadow zeroes
+            // residual-hitscan pairs so dual-tick does not double-apply HP.
             destroyed = target.take_damage_from(damage, Some(attacker_id));
+            if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
+                crate::game_logic::host_fire_spawn_log::record_residual_hitscan(
+                    attacker_id,
+                    target_id,
+                );
+            }
             if destroyed {
                 kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
