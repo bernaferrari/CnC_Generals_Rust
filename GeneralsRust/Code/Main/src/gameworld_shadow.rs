@@ -135,6 +135,23 @@ pub fn gameworld_movement_authority_enabled() -> bool {
     }
 }
 
+/// When enabled (default), GameWorld SetAttackTarget + SetFireIntent writeback is the
+/// last-writer for host attack target / fire-intent residual after each shadow session.
+/// Host still *decides* and discharges weapons; opt out with `=0|false`.
+/// Env: `GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_ai_attack_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
 /// When enabled, host construction percent is last-written from GameWorld after
 /// progress logs (host still computes projected percent for completion side effects).
 /// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
@@ -1704,6 +1721,9 @@ impl GameWorldShadow {
     /// Write shadow Entity::attack_target back onto host Object::target (stable IDs).
     /// Completes the attack command channel: host log / set_target → shadow mutation → host writeback.
     pub fn writeback_attack_targets_to_host(&self, logic: &mut GameLogic) -> usize {
+        if !gameworld_ai_attack_authority_enabled() {
+            return 0;
+        }
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
@@ -5781,6 +5801,9 @@ impl GameWorldShadow {
     }
 
     pub fn writeback_fire_intent_to_host(&self, logic: &mut GameLogic) -> usize {
+        if !gameworld_ai_attack_authority_enabled() {
+            return 0;
+        }
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
@@ -14857,6 +14880,87 @@ mod tests {
         assert_eq!(o.fire_intent_count, 3);
         assert!((o.last_fire_damage - 42.0).abs() < 1e-5);
         assert_eq!(o.last_fire_slot, 1);
+    }
+
+    #[test]
+    fn ai_attack_authority_gates_fire_intent_writeback() {
+        use crate::game_logic::host_fire_intent_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_fire_intent_log::clear();
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
+        assert!(!gameworld_ai_attack_authority_enabled());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiAtkAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("AaU") {
+            let mut t = ThingTemplate::new("AaU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("AaU".into(), t);
+        }
+        let oid = logic
+            .create_object("AaU", Team::USA, glam::Vec3::new(250.0, 0.0, 250.0))
+            .expect("id");
+        host_fire_intent_log::record(oid, 9, 0, 10.0, 20.0, 1.0, 5, 1);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_host_fire_intent_events(&host_fire_intent_log::drain()) >= 1);
+        // Host still default zeros; writeback skipped when authority off.
+        assert_eq!(shadow.writeback_fire_intent_to_host(&mut logic), 0);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.fire_intent_count, 0);
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        assert!(gameworld_ai_attack_authority_enabled());
+        assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.fire_intent_count, 1);
+        assert_eq!(o.last_fire_victim_host, 9);
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn fire_at_records_fire_intent_residual() {
+        use crate::game_logic::host_fire_intent_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        host_fire_intent_log::clear();
+        crate::game_logic::host_historic_bonus::set_logic_frame(77);
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FireAtRec");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("FrU") {
+            let mut t = ThingTemplate::new("FrU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("FrU".into(), t);
+        }
+        let oid = logic
+            .create_object("FrU", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
+            .expect("id");
+        let vid = logic
+            .create_object("FrU", Team::China, glam::Vec3::new(12.0, 0.0, 10.0))
+            .expect("v");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.weapon = Some(Weapon {
+                damage: 15.0,
+                range: 200.0,
+                reload_time: 0.0,
+                ..Weapon::default()
+            });
+            o.status.weapons_jammed = false;
+            let fired = o.fire_at(vid, 1.0);
+            assert!(fired, "close-range fire_at should discharge");
+            assert_eq!(o.last_fire_victim_host, vid.0);
+            assert!(o.fire_intent_count >= 1);
+            assert_eq!(o.last_fire_frame, 77);
+            assert!((o.last_fire_damage - 15.0).abs() < 1e-5);
+        }
+        let evs = host_fire_intent_log::drain();
+        assert!(evs
+            .iter()
+            .any(|e| e.object == oid && e.last_fire_victim_host == vid.0));
     }
 
     #[test]
