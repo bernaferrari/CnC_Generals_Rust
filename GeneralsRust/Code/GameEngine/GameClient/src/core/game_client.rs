@@ -1396,7 +1396,7 @@ impl GameClient {
         // Host/presentation residual: Main owns OS WindowEvent→commands and sole
         // RenderPipeline 3D present. When OBJECT_REGISTRY is empty, skip dual-world
         // shroud bind and dual Display DRAW present.
-        let host_presentation_path = OBJECT_REGISTRY.get_all_objects().is_empty();
+        let host_presentation_path = OBJECT_REGISTRY.is_empty();
         if host_presentation_path {
             // Shared THE_MOUSE/THE_KEYBOARD may still be polled for shell widgets;
             // Main remains command authority. Prefer local drawable modules only.
@@ -2541,7 +2541,7 @@ impl GameClient {
 
         // Host/presentation path: no dual-world OBJECT_REGISTRY. Main owns pose/shroud
         // via PresentationFrame apply_*; only local drawable modules tick here.
-        if OBJECT_REGISTRY.get_all_objects().is_empty() {
+        if OBJECT_REGISTRY.is_empty() {
             self.update_drawables_local(visual_delta)?;
             self.submit_projectile_streams_to_bridge()?;
             return Ok(());
@@ -3504,7 +3504,7 @@ impl GameClient {
 
         // Host/presentation path: shroud comes from PresentationFrame apply_*;
         // skip dual-world OBJECT_REGISTRY shroud bind when registry is empty.
-        if OBJECT_REGISTRY.get_all_objects().is_empty() {
+        if OBJECT_REGISTRY.is_empty() {
             let _ = (frame, local_player_index);
             return Ok(());
         }
