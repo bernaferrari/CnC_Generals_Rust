@@ -1257,6 +1257,69 @@ impl GameWorld {
         self.ai_decisions.clear();
     }
 
+    /// Integrate in-flight projectile residuals (pose/lifetime/homing).
+    ///
+    /// Behavioral mirror of Main `Projectile::update` for GameWorld projectile-authority
+    /// frames. Homing refreshes `target_position` from entity pose when `target_host`
+    /// maps into the entity store via the provided host→entity lookup.
+    pub fn step_projectiles<F>(&mut self, dt: f32, mut host_pos: F) -> usize
+    where
+        F: FnMut(u32) -> Option<[f32; 3]>,
+    {
+        let dt = if dt.is_finite() && dt > 0.0 {
+            dt
+        } else {
+            1.0 / 30.0
+        };
+        let keys: Vec<u32> = self.projectiles.keys().copied().collect();
+        let mut stepped = 0usize;
+        let mut remove = Vec::new();
+        for id in keys {
+            let Some(p) = self.projectiles.get_mut(&id) else {
+                continue;
+            };
+            if !p.active {
+                remove.push(id);
+                continue;
+            }
+            // Homing: refresh aim from live host object pose when available.
+            if p.is_homing && p.target_host != 0 {
+                if let Some(tp) = host_pos(p.target_host) {
+                    p.target_position = tp;
+                }
+            }
+            p.lifetime += dt;
+            if p.lifetime >= p.max_lifetime {
+                remove.push(id);
+                continue;
+            }
+            if p.speed <= 0.0 {
+                p.position = p.target_position;
+                p.velocity = [0.0, 0.0, 0.0];
+                stepped += 1;
+                continue;
+            }
+            if p.is_homing {
+                let dx = p.target_position[0] - p.position[0];
+                let dy = p.target_position[1] - p.position[1];
+                let dz = p.target_position[2] - p.position[2];
+                let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                if len > 1e-6 {
+                    let inv = p.speed / len;
+                    p.velocity = [dx * inv, dy * inv, dz * inv];
+                }
+            }
+            p.position[0] += p.velocity[0] * dt;
+            p.position[1] += p.velocity[1] * dt;
+            p.position[2] += p.velocity[2] * dt;
+            stepped += 1;
+        }
+        for id in remove {
+            self.projectiles.remove(&id);
+        }
+        stepped
+    }
+
     /// Immutable access to the underlying world.
     pub fn world(&self) -> &World {
         &self.inner
