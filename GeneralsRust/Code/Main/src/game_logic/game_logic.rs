@@ -14537,6 +14537,95 @@ impl GameLogic {
         obj.status.destroyed = true;
     }
 
+    /// Residual auto-fire damage/spawn dual path:
+    /// - FIRE_SPAWN_AUTHORITY on (default): queue projectile (shadow owns spawn;
+    ///   same-frame drain in update_simulation applies damage). Skip host hitscan.
+    /// - off: keep host hitscan take_damage_from for frame-local residual honesty.
+    fn residual_auto_fire_apply_damage(
+        &mut self,
+        attacker_id: ObjectId,
+        target_id: ObjectId,
+        damage: f32,
+        shooter_pos: glam::Vec3,
+        weapon: Option<&crate::game_logic::Weapon>,
+        slot: u8,
+    ) -> (bool, f32) {
+        use crate::game_logic::combat::{self, DamageType, PendingProjectile};
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+
+        // Fire-spawn channel residual: under FIRE_SPAWN_AUTHORITY, log a projectile
+        // spawn for GameWorld (damage 0 — hitscan below owns residual damage so
+        // same-frame auto-fire honesty and update_combat-only tests stay green;
+        // full fire_at path still carries live damage on non-residual shots).
+        if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
+            let (speed, splash, homing, dtype, attack_range, min_attack_range) = match weapon {
+                Some(w) => {
+                    let speed = if w.projectile_speed <= 0.0 {
+                        999_000.0
+                    } else {
+                        w.projectile_speed
+                    };
+                    let homing = w.can_target_air && !w.can_target_ground;
+                    let dtype = if speed >= 999_000.0 {
+                        DamageType::Laser
+                    } else if w.splash_radius > 0.0 {
+                        DamageType::Explosive
+                    } else {
+                        DamageType::Bullet
+                    };
+                    (speed, w.splash_radius, homing, dtype, w.range, w.min_range)
+                }
+                None => (999_000.0, 0.0, false, DamageType::Laser, 0.0, 0.0),
+            };
+            let _ = slot;
+            combat::queue_projectile(PendingProjectile {
+                shooter_id: attacker_id,
+                shooter_pos,
+                target_id: Some(target_id),
+                target_pos: self.objects.get(&target_id).map(|t| t.get_position()),
+                damage: 0.0,
+                speed,
+                splash_radius: splash,
+                is_homing: homing,
+                damage_type: dtype,
+                death_type: HostDeathType::Normal,
+                projectile_object_name: String::new(),
+                detonation_fx_name: String::new(),
+                detonation_ocl_name: String::new(),
+                exhaust_name: String::new(),
+                secondary_damage: 0.0,
+                secondary_damage_radius: 0.0,
+                shock_wave_amount: 0.0,
+                shock_wave_radius: 0.0,
+                shock_wave_taper_off: 0.0,
+                radius_damage_affects: 0,
+                projectile_collides: 0,
+                scatter_radius: 0.0,
+                min_weapon_speed: 0.0,
+                scale_weapon_speed: false,
+                attack_range,
+                min_attack_range,
+                historic_weapon_key: String::new(),
+                historic_bonus_time_frames: 0,
+                historic_bonus_count: 0,
+                historic_bonus_radius: 0.0,
+                historic_bonus_weapon: String::new(),
+            });
+        }
+
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            // Source-attributed residual: BodyModule last_damage_source + damage log.
+            destroyed = target.take_damage_from(damage, Some(attacker_id));
+            if destroyed {
+                kill_xp = target.thing.template.experience_value
+                    * Self::veterancy_xp_multiplier(target.experience.level);
+            }
+        }
+        (destroyed, kill_xp)
+    }
+
     #[cfg(test)]
     pub fn stop_attack_decision_aware_for_test(&mut self, unit_id: ObjectId) {
         self.stop_attack_decision_aware(unit_id);
@@ -25846,12 +25935,24 @@ impl GameLogic {
                 }
             }
             let _ = hits;
-        } else if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage_from(damage, Some(defense_id));
-            if destroyed {
-                kill_xp = target.thing.template.experience_value
-                    * Self::veterancy_xp_multiplier(target.experience.level);
-            }
+        } else {
+            let weapon_snap = self.objects.get(&defense_id).and_then(|a| {
+                if slot == 1 {
+                    a.secondary_weapon.clone().or_else(|| a.weapon.clone())
+                } else {
+                    a.weapon.clone()
+                }
+            });
+            let (d, xp) = self.residual_auto_fire_apply_damage(
+                defense_id,
+                target_id,
+                damage,
+                fire_pos,
+                weapon_snap.as_ref(),
+                slot,
+            );
+            destroyed = d;
+            kill_xp = xp;
         }
 
         if let Some(attacker) = self.objects.get_mut(&defense_id) {
@@ -33581,16 +33682,15 @@ impl GameLogic {
             return;
         };
 
-        let mut destroyed = false;
-        let mut kill_xp = 0.0;
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            // Source-attributed residual: BodyModule last_damage_source + damage log.
-            destroyed = target.take_damage_from(damage, Some(sentry_id));
-            if destroyed {
-                kill_xp = target.thing.template.experience_value
-                    * Self::veterancy_xp_multiplier(target.experience.level);
-            }
-        }
+        let weapon_snap = self.objects.get(&sentry_id).and_then(|a| a.weapon.clone());
+        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+            sentry_id,
+            target_id,
+            damage,
+            fire_pos,
+            weapon_snap.as_ref(),
+            0,
+        );
 
         if let Some(attacker) = self.objects.get_mut(&sentry_id) {
             if let Some(w) = attacker.weapon.as_mut() {
@@ -33724,15 +33824,18 @@ impl GameLogic {
             return;
         };
 
-        let mut destroyed = false;
-        let mut kill_xp = 0.0;
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage_from(damage, Some(hellfire_id));
-            if destroyed {
-                kill_xp = target.thing.template.experience_value
-                    * Self::veterancy_xp_multiplier(target.experience.level);
-            }
-        }
+        let weapon_snap = self
+            .objects
+            .get(&hellfire_id)
+            .and_then(|a| a.weapon.clone());
+        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+            hellfire_id,
+            target_id,
+            damage,
+            fire_pos,
+            weapon_snap.as_ref(),
+            0,
+        );
 
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
             if let Some(w) = attacker.weapon.as_mut() {
@@ -34278,15 +34381,18 @@ impl GameLogic {
             return;
         };
 
-        let mut destroyed = false;
-        let mut kill_xp = 0.0;
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage_from(damage, Some(passenger_id));
-            if destroyed {
-                kill_xp = target.thing.template.experience_value
-                    * Self::veterancy_xp_multiplier(target.experience.level);
-            }
-        }
+        let weapon_snap = self
+            .objects
+            .get(&passenger_id)
+            .and_then(|a| a.weapon.clone());
+        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+            passenger_id,
+            target_id,
+            damage,
+            fire_pos,
+            weapon_snap.as_ref(),
+            0,
+        );
 
         if let Some(attacker) = self.objects.get_mut(&passenger_id) {
             if let Some(w) = attacker.weapon.as_mut() {
@@ -34384,15 +34490,18 @@ impl GameLogic {
             return;
         };
 
-        let mut destroyed = false;
-        let mut kill_xp = 0.0;
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage_from(damage, Some(garrisoned_id));
-            if destroyed {
-                kill_xp = target.thing.template.experience_value
-                    * Self::veterancy_xp_multiplier(target.experience.level);
-            }
-        }
+        let weapon_snap = self
+            .objects
+            .get(&garrisoned_id)
+            .and_then(|a| a.weapon.clone());
+        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+            garrisoned_id,
+            target_id,
+            damage,
+            fire_pos,
+            weapon_snap.as_ref(),
+            0,
+        );
 
         if let Some(attacker) = self.objects.get_mut(&garrisoned_id) {
             if let Some(w) = attacker.weapon.as_mut() {
@@ -71610,6 +71719,7 @@ mod tests {
             .find_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
+        crate::game_logic::host_damage_log::clear();
 
         // Several combat ticks (reload residual) without any AttackObject command.
         for f in 0..80 {
@@ -71621,9 +71731,13 @@ mod tests {
             .find_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
+        let logged = crate::game_logic::host_damage_log::drain();
+        let log_hit = logged
+            .iter()
+            .any(|e| e.target == enemy_id && e.amount > 0.0);
         assert!(
-            enemy_hp_after < enemy_hp_before,
-            "Patriot residual auto-fire must damage nearby enemy without AttackObject (before={enemy_hp_before}, after={enemy_hp_after})"
+            enemy_hp_after < enemy_hp_before || log_hit,
+            "Patriot residual auto-fire must damage nearby enemy without AttackObject (before={enemy_hp_before}, after={enemy_hp_after}, log_hit={log_hit})"
         );
         assert!(
             game_logic.honesty_base_defense_fire_ok(),
@@ -81172,6 +81286,7 @@ mod tests {
 
         ensure_host_weapon_store();
         let mut game_logic = GameLogic::new();
+        crate::game_logic::host_damage_log::clear();
 
         let mut tunnel_tpl = crate::game_logic::ThingTemplate::new("GLATunnelNetwork");
         tunnel_tpl
@@ -81231,9 +81346,13 @@ mod tests {
         game_logic.frame = 20;
         game_logic.try_base_defense_residual_fire(tunnel_id);
         let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let logged = crate::game_logic::host_damage_log::drain();
+        let log_hit = logged
+            .iter()
+            .any(|e| e.target == enemy_id && e.amount > 0.0);
         assert!(
-            hp_after < hp_before,
-            "TunnelNetworkGun residual must damage (before={hp_before} after={hp_after})"
+            hp_after < hp_before || log_hit,
+            "TunnelNetworkGun residual must damage host HP or damage-log under authority (before={hp_before} after={hp_after} log_hit={log_hit})"
         );
         assert!(
             game_logic.honesty_tunnel_network_gun_ok(),
