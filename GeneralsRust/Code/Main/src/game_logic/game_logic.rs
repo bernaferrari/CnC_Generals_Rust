@@ -8019,35 +8019,37 @@ impl GameLogic {
 
     /// Look up host ObjectId by unit name (named object tracker residual).
     pub fn find_object_id_by_name(&self, name: &str) -> Option<ObjectId> {
-        // Prefer engine named tracker.
-        let eng_id = gamelogic::scripting::engine::get_named_object_tracker()
-            .get_object_id(name)
-            .ok()
-            .flatten();
-        if let Some(id) = eng_id {
-            if let Some((hid, _)) = self
-                .objects
-                .iter()
-                .find(|(_, o)| o.engine_object_id == Some(id))
-            {
-                return Some(*hid);
-            }
-            let hid = ObjectId(id);
-            if self.objects.contains_key(&hid) {
-                return Some(hid);
+        // Prefer host object name residual (production path — no engine_object_id).
+        let lower = name.to_ascii_lowercase();
+        if let Some((id, _)) = self.objects.iter().find(|(_, o)| {
+            (!o.name.is_empty() && o.name.eq_ignore_ascii_case(name))
+                || o.thing.template.name.eq_ignore_ascii_case(name)
+                || o.template_name.eq_ignore_ascii_case(name)
+                || o.thing.template.name.to_ascii_lowercase().contains(&lower)
+        }) {
+            return Some(*id);
+        }
+        // Engine named tracker residual only when dual-world object bridge is enabled.
+        if crate::gameworld_shadow::engine_object_bridge_enabled() {
+            let eng_id = gamelogic::scripting::engine::get_named_object_tracker()
+                .get_object_id(name)
+                .ok()
+                .flatten();
+            if let Some(id) = eng_id {
+                if let Some((hid, _)) = self
+                    .objects
+                    .iter()
+                    .find(|(_, o)| o.engine_object_id == Some(id))
+                {
+                    return Some(*hid);
+                }
+                let hid = ObjectId(id);
+                if self.objects.contains_key(&hid) {
+                    return Some(hid);
+                }
             }
         }
-        // Fail-closed name match on template residual.
-        let lower = name.to_ascii_lowercase();
-        self.objects.iter().find_map(|(id, o)| {
-            if o.thing.template.name.eq_ignore_ascii_case(name)
-                || o.thing.template.name.to_ascii_lowercase().contains(&lower)
-            {
-                Some(*id)
-            } else {
-                None
-            }
-        })
+        None
     }
 
     /// C++ TAiData::m_enableRepulsors residual.
@@ -8654,14 +8656,17 @@ impl GameLogic {
         if let Some(f) = self.objects.get_mut(&from_id) {
             f.name.clear();
         }
-        // Register on tracker (engine id or host id residual).
-        let eng = self
-            .objects
-            .get(&to_id)
-            .and_then(|o| o.engine_object_id)
-            .unwrap_or(to_id.0);
+        // Register on tracker: host ObjectId by default; engine_object_id only when bridge on.
+        let tracker_id = if crate::gameworld_shadow::engine_object_bridge_enabled() {
+            self.objects
+                .get(&to_id)
+                .and_then(|o| o.engine_object_id)
+                .unwrap_or(to_id.0)
+        } else {
+            to_id.0
+        };
         let tracker = get_named_object_tracker();
-        let _ = tracker.register_named_object(n, eng);
+        let _ = tracker.register_named_object(n, tracker_id);
         true
     }
     pub fn execute_shroud_crate_behavior(&mut self, picker_id: ObjectId) -> bool {
@@ -9020,11 +9025,20 @@ impl GameLogic {
         // We need access to object_attack_priority_sets - use public get if exists.
         // Engine may only expose get_object_attack_priority_set per id.
 
-        // Sync all host objects that have engine IDs.
+        // Sync host objects: use host ObjectId as script-engine key by default.
+        // engine_object_id only when dual-world bridge is enabled.
+        let bridge = crate::gameworld_shadow::engine_object_bridge_enabled();
         let object_ids: Vec<(ObjectId, Option<u32>)> = self
             .objects
             .iter()
-            .map(|(id, o)| (*id, o.engine_object_id.or(Some(id.0))))
+            .map(|(id, o)| {
+                let eng = if bridge {
+                    o.engine_object_id.or(Some(id.0))
+                } else {
+                    Some(id.0)
+                };
+                (*id, eng)
+            })
             .collect();
 
         for (host_id, eng_opt) in object_ids {
