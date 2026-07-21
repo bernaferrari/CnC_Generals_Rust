@@ -18522,4 +18522,32 @@ mod tests {
             "play_sound_effect must not dual-write GameLogic audio queue on presentation path"
         );
     }
+
+    #[test]
+    fn residual_auto_fire_consume_ammo_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for name in [
+            "try_sentry_drone_residual_fire",
+            "try_hellfire_drone_residual_fire",
+            "try_garrison_residual_fire",
+            "try_transport_passenger_residual_fire",
+            "try_base_defense_residual_fire",
+            "try_strategy_center_bombardment_turret_fire",
+            "update_pending_patriot_assists",
+        ] {
+            let at = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[at..src.len().min(at + 14000)];
+            assert!(
+                body.contains("consume_ammo_on_fire"),
+                "{name} must stamp weapon via consume_ammo_on_fire (not last_fire-only)"
+            );
+            assert!(
+                !body.contains("last_fire_time = current_time")
+                    && !body.contains("last_fire_time = frame as f32"),
+                "{name} must not last_fire-only stamp residual"
+            );
+        }
+    }
 }

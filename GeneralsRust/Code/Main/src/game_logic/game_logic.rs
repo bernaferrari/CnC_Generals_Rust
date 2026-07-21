@@ -25720,7 +25720,8 @@ impl GameLogic {
 
         if let Some(attacker) = self.objects.get_mut(&center_id) {
             if let Some(w) = attacker.weapon.as_mut() {
-                w.last_fire_time = current_time;
+                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
@@ -26002,10 +26003,10 @@ impl GameLogic {
         if let Some(attacker) = self.objects.get_mut(&defense_id) {
             if slot == 1 {
                 if let Some(w) = attacker.secondary_weapon.as_mut() {
-                    w.last_fire_time = current_time;
+                    crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
                 }
             } else if let Some(w) = attacker.weapon.as_mut() {
-                w.last_fire_time = current_time;
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
@@ -26407,7 +26408,8 @@ impl GameLogic {
             if let Some(asst) = self.objects.get_mut(&clip.assistant_id) {
                 // Assist residual marks engagement; keeps primary on clip-reload honesty.
                 if let Some(w) = asst.weapon.as_mut() {
-                    w.last_fire_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
+                    let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
+                    crate::game_logic::Object::consume_ammo_on_fire(w, t);
                 }
                 // AI attack authority: residual fire-intent for GameWorld last-writer.
                 if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
@@ -33746,7 +33748,8 @@ impl GameLogic {
 
         if let Some(attacker) = self.objects.get_mut(&sentry_id) {
             if let Some(w) = attacker.weapon.as_mut() {
-                w.last_fire_time = current_time;
+                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
@@ -33891,7 +33894,8 @@ impl GameLogic {
 
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
             if let Some(w) = attacker.weapon.as_mut() {
-                w.last_fire_time = current_time;
+                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
@@ -34448,7 +34452,8 @@ impl GameLogic {
 
         if let Some(attacker) = self.objects.get_mut(&passenger_id) {
             if let Some(w) = attacker.weapon.as_mut() {
-                w.last_fire_time = current_time;
+                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
@@ -34557,7 +34562,8 @@ impl GameLogic {
 
         if let Some(attacker) = self.objects.get_mut(&garrisoned_id) {
             if let Some(w) = attacker.weapon.as_mut() {
-                w.last_fire_time = current_time;
+                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
