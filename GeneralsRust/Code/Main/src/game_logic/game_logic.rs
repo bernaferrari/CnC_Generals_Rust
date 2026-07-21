@@ -14556,6 +14556,15 @@ impl GameLogic {
         // Presentation AttackTargeted residual (WeaponFire audio / dual-tick observe).
         crate::game_logic::host_attack_log::record(attacker_id, Some(target_id));
 
+        // Fire *decision* residual: under AI_DECISION_AUTHORITY, emit AttackTarget so
+        // GameWorld last-writes host engagement target (parity with fire_at_ex).
+        // Host still *chooses* the residual target; this peels the decision channel.
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_attack(attacker_id, target_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
+            // Attacking
+        }
+
         // Fire-spawn channel residual: under FIRE_SPAWN_AUTHORITY, log a projectile
         // spawn carrying live damage (parity with fire_at). Hitscan below still
         // owns same-frame residual HP so update_combat-only honesty stays green;

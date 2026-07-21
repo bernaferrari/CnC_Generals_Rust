@@ -18344,7 +18344,7 @@ mod tests {
         let helper_i = src
             .find("fn residual_auto_fire_apply_damage")
             .expect("helper");
-        let helper = &src[helper_i..src.len().min(helper_i + 4500)];
+        let helper = &src[helper_i..src.len().min(helper_i + 6000)];
         assert!(
             helper.contains("gameworld_fire_spawn_authority_enabled")
                 && helper.contains("queue_projectile")
@@ -19135,6 +19135,21 @@ mod tests {
         assert!(
             hbody.contains("record_residual_hitscan"),
             "residual auto-fire must mark hitscan pairs for shadow"
+        );
+    }
+
+    #[test]
+    fn residual_auto_fire_records_ai_decision_source() {
+        let helper = include_str!("game_logic/game_logic.rs");
+        let i = helper
+            .find("fn residual_auto_fire_apply_damage")
+            .expect("helper");
+        let body = &helper[i..helper.len().min(i + 2000)];
+        assert!(
+            body.contains("host_ai_decision_log::record_attack")
+                && body.contains("gameworld_ai_decision_authority_enabled")
+                && body.contains("record_set_state"),
+            "residual auto-fire must emit AI decision AttackTarget under AI_DECISION_AUTHORITY"
         );
     }
 }
