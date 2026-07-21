@@ -17136,7 +17136,11 @@ mod tests {
             }),
             "guard engage must log decision; got {events:?}"
         );
-        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid), "host engage immediate");
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().target,
+            Some(vid),
+            "host engage immediate"
+        );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
@@ -17219,11 +17223,15 @@ mod tests {
                 .any(|e| e.kind == host_ai_decision_log::AI_DECISION_ATTACK),
             "expected AttackTarget decision: {events:?}"
         );
-        assert!(logic.get_objects().get(&usa_unit).unwrap().target.is_none());
+        assert_eq!(
+            logic.get_objects().get(&usa_unit).unwrap().target,
+            Some(enemy),
+            "launch_attack must engage host target immediately"
+        );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&usa_unit).unwrap().target,
             Some(enemy)

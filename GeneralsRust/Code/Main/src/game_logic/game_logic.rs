@@ -14789,7 +14789,8 @@ impl GameLogic {
         // Host engagement is same-frame so residual auto-fire / continue-after-kill
         // can shoot without waiting for shadow writeback.
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.target = Some(target_id);
+            // set_target records host_attack_log for shadow attack channel.
+            u.set_target(Some(target_id));
             u.set_ai_state(AIState::Attacking);
             u.set_status_attacking(true);
         }
@@ -14807,6 +14808,20 @@ impl GameLogic {
         target_id: ObjectId,
     ) {
         self.apply_engagement_decision_aware(unit_id, target_id);
+    }
+
+    /// AI / skirmish manager entry: host-immediate engagement + decision log.
+    pub fn apply_engagement_decision_aware_for_ai(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) {
+        self.apply_engagement_decision_aware(unit_id, target_id);
+    }
+
+    /// AI / skirmish manager entry: host-immediate AI state + decision log.
+    pub fn set_ai_state_decision_aware_for_ai(&mut self, unit_id: ObjectId, state: AIState) {
+        self.set_ai_state_decision_aware(unit_id, state);
     }
 
     fn engage_target_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
@@ -14832,64 +14847,34 @@ impl GameLogic {
     }
 
     fn apply_ai_command(&mut self, command: AICommand) {
-        // Always record into the frame decision log. When AI decision authority is on,
-        // GameWorld apply/writeback is last-writer — do not mutate host engagement/state
-        // here (MoveTo still pathfinds on host; destination is mirrored via decision log).
+        // Host applies immediately so AI aggression/combat is same-frame.
+        // Decision authority still logs every command for GameWorld last-write.
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         match command {
             AICommand::AttackTarget {
                 object_id,
                 target_id,
             } => {
-                crate::game_logic::host_ai_decision_log::record_attack(object_id, target_id);
-                if !decision_auth {
-                    if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.attack_target(target_id);
-                    }
-                }
+                // Prefer engagement helper (sets target even without weapon residual).
+                self.apply_engagement_decision_aware(object_id, target_id);
             }
             AICommand::StopAttack { object_id } => {
-                // stop_attack_decision_aware records + gates host clear.
+                // stop_attack_decision_aware clears host + logs.
                 self.stop_attack_decision_aware(object_id);
             }
             AICommand::MoveTo {
                 object_id,
                 position,
             } => {
-                crate::game_logic::host_ai_decision_log::record_move_to(object_id, position);
+                if decision_auth {
+                    crate::game_logic::host_ai_decision_log::record_move_to(object_id, position);
+                }
                 // Pathfinding stays host-side (movement authority peels integrate separately).
                 self.move_object_with_pathfinding(object_id, position, None);
             }
             AICommand::SetAIState { object_id, state } => {
-                let ordinal = match state {
-                    AIState::Idle => 0u8,
-                    AIState::Moving => 1,
-                    AIState::Attacking => 2,
-                    AIState::AttackMoving => 3,
-                    AIState::AttackingGround => 4,
-                    AIState::Gathering => 5,
-                    AIState::ReturningResources => 6,
-                    AIState::Constructing => 7,
-                    AIState::Repairing => 8,
-                    AIState::GuardingArea => 9,
-                    AIState::GuardingObject => 10,
-                    AIState::Patrolling => 11,
-                    AIState::Docked => 12,
-                    AIState::Garrisoned => 13,
-                    AIState::SpecialAbility => 14,
-                    AIState::SeekingRepair => 15,
-                    AIState::SeekingHealing => 16,
-                    AIState::Entering => 17,
-                    AIState::Docking => 18,
-                    AIState::Capturing => 19,
-                    AIState::GuardRetaliating => 20,
-                };
-                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
-                if !decision_auth {
-                    if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.set_ai_state(state);
-                    }
-                }
+                // set_ai_state_decision_aware mutates host + logs when auth live.
+                self.set_ai_state_decision_aware(object_id, state);
             }
         }
     }
