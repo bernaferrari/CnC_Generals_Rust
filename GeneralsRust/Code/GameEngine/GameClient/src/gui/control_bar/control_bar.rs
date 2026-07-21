@@ -661,7 +661,16 @@ impl ControlBar {
     // C++ ControlBarCommand.cpp:678-891
     // ---------------------------------------------------------------------------
 
-    fn get_object_production_info(obj_id: u32) -> (usize, bool) {
+    fn get_object_production_info(&self, obj_id: u32) -> (usize, bool) {
+        // Presentation residual first (host path has no dual-world registry modules).
+        if !self.build_queue_data.is_empty() {
+            return (self.build_queue_data.len(), true);
+        }
+        if self.portrait_state.production_progress.is_some()
+            || self.portrait_state.production_template.is_some()
+        {
+            return (self.displayed_queue_count.max(1), true);
+        }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return (0, false);
         };
@@ -678,7 +687,20 @@ impl ControlBar {
         (0, false)
     }
 
-    fn get_first_production_progress(obj_id: u32) -> Option<f32> {
+    fn get_first_production_progress(&self, obj_id: u32) -> Option<f32> {
+        // Presentation residual owns host InGame queue progress display.
+        if let Some(p) = self.portrait_state.production_progress {
+            if p > 0.0 {
+                return Some(p);
+            }
+        }
+        if let Ok(context) = self.context.read() {
+            if let Some(first) = context.construction_queue.first() {
+                if first.progress > 0.0 {
+                    return Some(first.progress);
+                }
+            }
+        }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return None;
         };
@@ -726,7 +748,14 @@ impl ControlBar {
         }
     }
 
-    fn get_object_has_production(obj_id: u32) -> bool {
+    fn get_object_has_production(&self, obj_id: u32) -> bool {
+        if !self.build_queue_data.is_empty()
+            || self.portrait_state.production_progress.is_some()
+            || self.portrait_state.production_template.is_some()
+            || self.displayed_queue_count > 0
+        {
+            return true;
+        }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return false;
         };
@@ -801,9 +830,11 @@ impl ControlBar {
             return Ok(());
         };
 
-        let has_production = Self::get_object_has_production(obj_id);
+        let has_production = self.get_object_has_production(obj_id);
+        let registry_producer = OBJECT_REGISTRY.get_object(obj_id).is_some();
 
-        if has_production {
+        if has_production && registry_producer {
+            // Dual-world residual: live production modules own queue when registry is bound.
             let mut context = {
                 let mut guard = self
                     .context
@@ -817,15 +848,19 @@ impl ControlBar {
                 .write()
                 .map_err(|_| "Failed to acquire context write lock")?;
             *guard = context;
-        } else if !self.build_queue_data.is_empty() {
-            self.build_queue_data.clear();
-            self.displayed_queue_count = 0;
-            if let Ok(mut context) = self.context.write() {
-                context.construction_queue.clear();
+        } else if !has_production && !self.portrait_state.is_visible {
+            // Only clear when neither registry nor presentation claims production.
+            if !self.build_queue_data.is_empty() {
+                self.build_queue_data.clear();
+                self.displayed_queue_count = 0;
+                if let Ok(mut context) = self.context.write() {
+                    context.construction_queue.clear();
+                }
             }
         }
+        // else: presentation-fed queue residual stays (host path).
 
-        let first_progress = Self::get_first_production_progress(obj_id);
+        let first_progress = self.get_first_production_progress(obj_id);
 
         if let Some(percent) = first_progress {
             if let Ok(mut context) = self.context.write() {
@@ -914,9 +949,17 @@ impl ControlBar {
         player_id: u32,
     ) -> Result<CommandAvailability, Box<dyn std::error::Error>> {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            // Host/presentation path: Main already filtered unit_command_buttons.
+            // Do not hide presentation-fed command sets solely for missing registry.
+            if self.portrait_state.is_visible {
+                return Ok(CommandAvailability::Available);
+            }
             return Ok(CommandAvailability::Hidden);
         };
         let Ok(obj) = obj_arc.read() else {
+            if self.portrait_state.is_visible {
+                return Ok(CommandAvailability::Available);
+            }
             return Ok(CommandAvailability::Hidden);
         };
 
@@ -2234,11 +2277,17 @@ impl ControlBar {
 
     fn update_portrait_for_object(&mut self, obj_id: u32) {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            self.portrait_state = PortraitDisplayState::default();
+            // Presentation residual already owns portrait/health/queue via
+            // sync_selection_display_from_presentation — do not wipe it.
+            if !self.portrait_state.is_visible {
+                self.portrait_state = PortraitDisplayState::default();
+            }
             return;
         };
         let Ok(obj) = obj_arc.read() else {
-            self.portrait_state = PortraitDisplayState::default();
+            if !self.portrait_state.is_visible {
+                self.portrait_state = PortraitDisplayState::default();
+            }
             return;
         };
 
