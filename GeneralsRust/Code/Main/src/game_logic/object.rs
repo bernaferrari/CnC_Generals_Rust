@@ -5675,16 +5675,17 @@ impl Object {
         // C++ DAMAGE_UNRESISTABLE bypasses ArmorTemplate + scalar armor residual.
         let typed =
             crate::game_logic::host_armor_residual::apply_residual_armor(self, damage_type, damage);
+        // C++ DAMAGE_UNRESISTABLE bypasses ArmorTemplate/scalar armor, but Strategy Center
+        // HoldTheLinePlanArmorDamageScalar still multiplies body damage (LESS is better).
+        let battle_plan_armor = self.battle_plan_armor_damage_scalar();
         let actual_damage = if matches!(
             damage_type,
             crate::game_logic::combat::DamageType::Unresistable
         ) {
-            typed
+            typed * battle_plan_armor
         } else {
             let armor_factor =
                 1.0 - (self.thing.template.armor / (self.thing.template.armor + 100.0));
-            // HoldTheLine residual: HoldTheLinePlanArmorDamageScalar 0.9 (LESS is better).
-            let battle_plan_armor = self.battle_plan_armor_damage_scalar();
             typed * armor_factor * battle_plan_armor
         };
 
