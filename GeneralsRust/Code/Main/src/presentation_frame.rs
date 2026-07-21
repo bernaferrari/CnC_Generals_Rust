@@ -10875,6 +10875,26 @@ mod tests {
     }
 
     #[test]
+    fn special_power_sole_tick_host_skips_advance() {
+        let obj = include_str!("game_logic/object.rs");
+        assert!(
+            obj.contains("gameworld_special_power_sole_tick_enabled()") && obj.contains("!sole_sp"),
+            "host tick_timers must skip SP advance under sole-tick"
+        );
+        let log = include_str!("game_logic/host_special_power_log.rs");
+        assert!(
+            log.contains("frozen: bool"),
+            "SP progress log must carry disabled/freeze residual"
+        );
+        let sw = include_str!("gameworld_shadow.rs");
+        assert!(
+            sw.contains("fn tick_special_power_cooldowns")
+                && sw.contains("writeback_special_power_to_host(logic)"),
+            "shadow session must sole-tick and writeback SP under authority"
+        );
+    }
+
+    #[test]
     fn train_unit_prefers_presentation_team() {
         let eng = include_str!("cnc_game_engine.rs");
         let i = eng.find("train_unit\" =>").expect("train_unit");
