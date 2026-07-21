@@ -169,6 +169,23 @@ pub fn gameworld_projectile_authority_enabled() -> bool {
     }
 }
 
+/// When enabled (default), host `update_ai` only *records* AICommand decisions;
+/// GameWorld applies attack/move/state mutations and writeback is last-writer.
+/// Combat runs before AI in the host tick, so deferred apply is next-frame parity.
+/// Env: `GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_ai_decision_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
 /// When enabled, host construction percent is last-written from GameWorld after
 /// progress logs (host still computes projected percent for completion side effects).
 /// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
@@ -281,7 +298,7 @@ impl GameWorldShadow {
         }
     }
 
-    pub(crate) fn host_ai_state_ordinal(s: &crate::game_logic::AIState) -> u8 {
+    pub fn host_ai_state_ordinal(s: &crate::game_logic::AIState) -> u8 {
         use crate::game_logic::AIState as A;
         match s {
             A::Idle => 0,
@@ -4014,6 +4031,87 @@ impl GameWorldShadow {
         n
     }
 
+    /// Apply ordered AICommand residuals as GameWorld mutations (attack/move/state).
+    ///
+    /// Used when [`gameworld_ai_decision_authority_enabled`] — host only logged
+    /// decisions; this is the authoritative apply path before writeback.
+    pub fn apply_ai_decisions_as_world_mutations(
+        &mut self,
+        events: &[crate::game_logic::host_ai_decision_log::HostAiDecisionEvent],
+    ) -> usize {
+        use crate::game_logic::host_ai_decision_log::{
+            AI_DECISION_ATTACK, AI_DECISION_MOVE_TO, AI_DECISION_SET_STATE, AI_DECISION_STOP_ATTACK,
+        };
+        let mut n = 0usize;
+        for ev in events {
+            // Always keep the ordered decision buffer residual.
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::PushAiDecision {
+                    host_object: ev.host_object.0,
+                    kind: ev.kind,
+                    target_host: ev.target_host,
+                    destination: ev.destination,
+                    ai_state_ordinal: ev.ai_state_ordinal,
+                });
+            let Some(eid) = self.entity_for_host(ev.host_object) else {
+                n += 1;
+                continue;
+            };
+            match ev.kind {
+                x if x == AI_DECISION_ATTACK => {
+                    let target = if ev.target_host == 0 {
+                        None
+                    } else {
+                        self.entity_for_host(crate::game_logic::ObjectId(ev.target_host))
+                    };
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetAttackTarget {
+                            attacker: eid,
+                            target,
+                        });
+                    // Attacking state residual.
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetAiState {
+                            target: eid,
+                            ordinal: 2, // Attacking
+                        });
+                }
+                x if x == AI_DECISION_STOP_ATTACK => {
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetAttackTarget {
+                            attacker: eid,
+                            target: None,
+                        });
+                }
+                x if x == AI_DECISION_MOVE_TO => {
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetMoveTarget {
+                            unit: eid,
+                            destination: ev.destination,
+                        });
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetAiState {
+                            target: eid,
+                            ordinal: 1, // Moving
+                        });
+                }
+                x if x == AI_DECISION_SET_STATE => {
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetAiState {
+                            target: eid,
+                            ordinal: ev.ai_state_ordinal,
+                        });
+                }
+                _ => {}
+            }
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_weapon_set_events(
         &mut self,
         events: &[crate::game_logic::host_weapon_set_log::HostWeaponSetEvent],
@@ -6635,8 +6733,17 @@ pub fn shadow_session_after_host_tick(
     let _mood_applied = shadow.apply_host_ai_mood_events(&ai_mood_events);
     let ai_req_events = crate::game_logic::host_ai_request_log::drain();
     let _ar_applied = shadow.apply_host_ai_request_events(&ai_req_events);
-    let ai_decision_events = crate::game_logic::host_ai_decision_log::drain();
-    let _ad_applied = shadow.apply_host_ai_decision_events(&ai_decision_events);
+    if gameworld_ai_decision_authority_enabled() {
+        let ai_decision_events = crate::game_logic::host_ai_decision_log::drain();
+        let _ad = shadow.apply_ai_decisions_as_world_mutations(&ai_decision_events);
+        // Last-write host attack target / AI state / move from GameWorld.
+        let _ = shadow.writeback_attack_targets_to_host(logic);
+        let _ = shadow.writeback_ai_state_to_host(logic);
+        let _ = shadow.writeback_movement_to_host(logic);
+    } else {
+        let _ =
+            shadow.apply_host_ai_decision_events(&crate::game_logic::host_ai_decision_log::drain());
+    }
     let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
@@ -15204,6 +15311,52 @@ mod tests {
             d.kind == host_ai_decision_log::AI_DECISION_MOVE_TO
                 && d.destination == Some([1.0, 0.0, 2.0])
         }));
+    }
+
+    #[test]
+    fn ai_decision_authority_applies_attack_via_gameworld() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        assert!(gameworld_ai_decision_authority_enabled());
+        // Attack writeback must also be on for last-write.
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiDecAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("AdaU") {
+            let mut t = ThingTemplate::new("AdaU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("AdaU".into(), t);
+        }
+        let oid = logic
+            .create_object("AdaU", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
+            .expect("id");
+        let vid = logic
+            .create_object("AdaU", Team::China, glam::Vec3::new(40.0, 0.0, 8.0))
+            .expect("v");
+        // Log-only path (authority on): record without host apply_ai_command.
+        host_ai_decision_log::record_attack(oid, vid);
+        let events = host_ai_decision_log::drain();
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        // Host still has no target until writeback.
+        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.target, Some(vid));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
     }
 
     #[test]
