@@ -2364,6 +2364,10 @@ impl AIPlayer {
         }
 
         let mut cash_floor = minimum_cash.max(0);
+        // Host path: dual-world factory empty — no supply-center residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return None;
+        }
         loop {
             let mut best: Option<(f32, Arc<RwLock<Object>>)> = None;
             for obj in OBJECT_REGISTRY.get_all_objects() {
@@ -5938,6 +5942,10 @@ impl AIPlayer {
 
         let Some(partition) = ThePartitionManager::get() else {
             // Fallback: any warehouse on map with boxes.
+            // Host path: empty dual-world registry → no warehouse residual.
+            if OBJECT_REGISTRY.is_empty() {
+                return false;
+            }
             return OBJECT_REGISTRY.get_all_objects().iter().any(|obj| {
                 obj.read()
                     .ok()
@@ -6320,27 +6328,31 @@ impl AIPlayer {
                         info.set_object_id(INVALID_ID);
                         info.set_object_timestamp(current_frame.saturating_add(1));
                         // C++ GLA hole scan by spawnerID.
-                        for hole_arc in OBJECT_REGISTRY.get_all_objects() {
-                            let Ok(hg) = hole_arc.read() else {
-                                continue;
-                            };
-                            if !hg.is_kind_of(KindOf::RebuildHole) {
-                                continue;
-                            }
-                            let mut matched = false;
-                            for behavior in hg.get_behavior_modules() {
-                                if let Ok(mut bg) = behavior.lock() {
-                                    if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
-                                        if rhbi.get_spawner_id() == prior_id {
-                                            matched = true;
+                        // Host path: empty dual-world registry → no rebuild-hole residual.
+                        if !OBJECT_REGISTRY.is_empty() {
+                            for hole_arc in OBJECT_REGISTRY.get_all_objects() {
+                                let Ok(hg) = hole_arc.read() else {
+                                    continue;
+                                };
+                                if !hg.is_kind_of(KindOf::RebuildHole) {
+                                    continue;
+                                }
+                                let mut matched = false;
+                                for behavior in hg.get_behavior_modules() {
+                                    if let Ok(mut bg) = behavior.lock() {
+                                        if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
+                                        {
+                                            if rhbi.get_spawner_id() == prior_id {
+                                                matched = true;
+                                            }
+                                            break;
                                         }
-                                        break;
                                     }
                                 }
-                            }
-                            if matched {
-                                info.set_object_id(hg.get_id());
-                                break;
+                                if matched {
+                                    info.set_object_id(hg.get_id());
+                                    break;
+                                }
                             }
                         }
                     }
@@ -6348,27 +6360,30 @@ impl AIPlayer {
                         let prior_id = obj_id;
                         info.set_object_id(INVALID_ID);
                         info.set_object_timestamp(current_frame.saturating_add(1));
-                        for hole_arc in OBJECT_REGISTRY.get_all_objects() {
-                            let Ok(hg) = hole_arc.read() else {
-                                continue;
-                            };
-                            if !hg.is_kind_of(KindOf::RebuildHole) {
-                                continue;
-                            }
-                            let mut matched = false;
-                            for behavior in hg.get_behavior_modules() {
-                                if let Ok(mut bg) = behavior.lock() {
-                                    if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
-                                        if rhbi.get_spawner_id() == prior_id {
-                                            matched = true;
+                        if !OBJECT_REGISTRY.is_empty() {
+                            for hole_arc in OBJECT_REGISTRY.get_all_objects() {
+                                let Ok(hg) = hole_arc.read() else {
+                                    continue;
+                                };
+                                if !hg.is_kind_of(KindOf::RebuildHole) {
+                                    continue;
+                                }
+                                let mut matched = false;
+                                for behavior in hg.get_behavior_modules() {
+                                    if let Ok(mut bg) = behavior.lock() {
+                                        if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
+                                        {
+                                            if rhbi.get_spawner_id() == prior_id {
+                                                matched = true;
+                                            }
+                                            break;
                                         }
-                                        break;
                                     }
                                 }
-                            }
-                            if matched {
-                                info.set_object_id(hg.get_id());
-                                break;
+                                if matched {
+                                    info.set_object_id(hg.get_id());
+                                    break;
+                                }
                             }
                         }
                     }

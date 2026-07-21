@@ -3213,6 +3213,10 @@ impl TheGlobalData {
         let mut guard = GLOBAL_TIME_OF_DAY.lock().unwrap();
         *guard = value;
 
+        // Host path: dual-world factory empty — Main presentation owns drawable TOD.
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.write() else {
                 continue;
@@ -3671,59 +3675,63 @@ impl ThePartitionManager {
                     .relationship_object_id
                     .and_then(|id| OBJECT_REGISTRY.get_object(id));
 
-                for obj_arc in OBJECT_REGISTRY.get_all_objects() {
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    let obj_id = obj_guard.get_id();
+                // Host path: empty dual-world registry — no object residual for path find.
+                if !OBJECT_REGISTRY.is_empty() {
+                    for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+                        let Ok(obj_guard) = obj_arc.read() else {
+                            continue;
+                        };
+                        let obj_id = obj_guard.get_id();
 
-                    if options.ignore_object_id == Some(obj_id) {
-                        continue;
-                    }
-                    if options.source_to_path_to_dest_id == Some(obj_id) {
-                        continue;
-                    }
+                        if options.ignore_object_id == Some(obj_id) {
+                            continue;
+                        }
+                        if options.source_to_path_to_dest_id == Some(obj_id) {
+                            continue;
+                        }
 
-                    if let Some(rel_arc) = &relation_obj {
-                        if let Ok(rel_guard) = rel_arc.read() {
-                            let relation = rel_guard.relationship_to(&obj_guard);
-                            let is_unit = obj_guard.is_kind_of(KindOf::Infantry)
-                                || obj_guard.is_kind_of(KindOf::Vehicle);
-                            let is_structure = obj_guard.is_kind_of(KindOf::Structure);
+                        if let Some(rel_arc) = &relation_obj {
+                            if let Ok(rel_guard) = rel_arc.read() {
+                                let relation = rel_guard.relationship_to(&obj_guard);
+                                let is_unit = obj_guard.is_kind_of(KindOf::Infantry)
+                                    || obj_guard.is_kind_of(KindOf::Vehicle);
+                                let is_structure = obj_guard.is_kind_of(KindOf::Structure);
 
-                            if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS) != 0
-                                && relation != Relationship::Enemies
-                                && is_unit
-                            {
-                                continue;
-                            }
-                            if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES) != 0
-                                && relation != Relationship::Enemies
-                                && is_structure
-                            {
-                                continue;
-                            }
-                            if (options.flags & FPF_IGNORE_ENEMY_UNITS) != 0
-                                && relation == Relationship::Enemies
-                                && is_unit
-                            {
-                                continue;
-                            }
-                            if (options.flags & FPF_IGNORE_ENEMY_STRUCTURES) != 0
-                                && relation == Relationship::Enemies
-                                && is_structure
-                            {
-                                continue;
+                                if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS) != 0
+                                    && relation != Relationship::Enemies
+                                    && is_unit
+                                {
+                                    continue;
+                                }
+                                if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES) != 0
+                                    && relation != Relationship::Enemies
+                                    && is_structure
+                                {
+                                    continue;
+                                }
+                                if (options.flags & FPF_IGNORE_ENEMY_UNITS) != 0
+                                    && relation == Relationship::Enemies
+                                    && is_unit
+                                {
+                                    continue;
+                                }
+                                if (options.flags & FPF_IGNORE_ENEMY_STRUCTURES) != 0
+                                    && relation == Relationship::Enemies
+                                    && is_structure
+                                {
+                                    continue;
+                                }
                             }
                         }
-                    }
 
-                    let obj_pos = obj_guard.get_position();
-                    let dx = obj_pos.x - pos.x;
-                    let dy = obj_pos.y - pos.y;
-                    let radius = obj_guard.get_geometry_info().get_bounding_circle_radius() + 5.0;
-                    if dx * dx + dy * dy <= radius * radius {
-                        return false;
+                        let obj_pos = obj_guard.get_position();
+                        let dx = obj_pos.x - pos.x;
+                        let dy = obj_pos.y - pos.y;
+                        let radius =
+                            obj_guard.get_geometry_info().get_bounding_circle_radius() + 5.0;
+                        if dx * dx + dy * dy <= radius * radius {
+                            return false;
+                        }
                     }
                 }
             }
