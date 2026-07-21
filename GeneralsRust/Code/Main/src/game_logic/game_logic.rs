@@ -4963,6 +4963,11 @@ impl GameLogic {
                 object.set_position(Vec3::new(x, y, z));
                 // y is world height after grounding; residual height sample = y when terrain present.
                 object.set_ground_height_residual(y, true);
+                crate::game_logic::host_ground_height_log::record(object_id, y, true);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    crate::game_logic::host_move_log::record(object_id, Some([x, y, z]));
+                    object.record_host_movement();
+                }
             }
         }
 
@@ -15381,6 +15386,18 @@ impl GameLogic {
                         obj.target = Some(container_id);
                         obj.set_contained_by(Some(container_id));
                         obj.set_position(container_pos);
+                        crate::game_logic::host_ground_height_log::record(
+                            obj.id,
+                            container_pos.y,
+                            false,
+                        );
+                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                            crate::game_logic::host_move_log::record(
+                                obj.id,
+                                Some([container_pos.x, container_pos.y, container_pos.z]),
+                            );
+                            obj.record_host_movement();
+                        }
                         let __ai_st = if container_is_structure {
                             AIState::Garrisoned
                         } else {
@@ -16758,6 +16775,18 @@ impl GameLogic {
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_contained_by(Some(container_id));
                         obj.set_position(container_pos);
+                        crate::game_logic::host_ground_height_log::record(
+                            obj.id,
+                            container_pos.y,
+                            false,
+                        );
+                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                            crate::game_logic::host_move_log::record(
+                                obj.id,
+                                Some([container_pos.x, container_pos.y, container_pos.z]),
+                            );
+                            obj.record_host_movement();
+                        }
                         obj.stop_moving();
                         obj.set_status_moving(false);
                     }
@@ -20252,6 +20281,11 @@ impl GameLogic {
                 let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
                 unit.stop_moving();
                 unit.set_position(building_pos + offset);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    let p = building_pos + offset;
+                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    unit.record_host_movement();
+                }
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
                     crate::game_logic::host_ai_decision_log::record_stop_attack(occ_id);
                 } else {

@@ -18294,4 +18294,48 @@ mod tests {
             "graphics mod must export particle_system_upload"
         );
     }
+
+    #[test]
+    fn map_ground_support_pose_movement_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        let ground = src
+            .find("fn ground_loaded_map_objects_to_terrain")
+            .expect("ground_loaded");
+        let ground_body = &src[ground..src.len().min(ground + 2500)];
+        assert!(
+            ground_body.contains("host_ground_height_log::record")
+                && ground_body.contains("gameworld_movement_authority_enabled")
+                && ground_body.contains("host_move_log::record"),
+            "map object terrain grounding must log ground height + move under movement authority"
+        );
+        let support = src
+            .find("fn update_support_states")
+            .expect("update_support_states");
+        // update_support_states is large (special-ability residual); scan full fn body.
+        let support_end = src[support + 1..]
+            .find(
+                "
+    fn ",
+            )
+            .map(|o| support + 1 + o)
+            .unwrap_or(src.len());
+        let support_body = &src[support..support_end];
+        assert!(
+            support_body.contains("set_position(container_pos)")
+                && support_body.contains("host_move_log::record")
+                && support_body.contains("host_ground_height_log::record")
+                && support_body.contains("gameworld_movement_authority_enabled"),
+            "contained support pose sync must log ground/move under authority"
+        );
+        let bldg = src
+            .find("fn check_building_damage_states")
+            .expect("building damage");
+        let bldg_body = &src[bldg..src.len().min(bldg + 8000)];
+        assert!(
+            bldg_body.contains("building_pos + offset")
+                && bldg_body.contains("gameworld_movement_authority_enabled")
+                && bldg_body.contains("host_move_log::record"),
+            "building rubble/eject dump must log move under movement authority"
+        );
+    }
 }
