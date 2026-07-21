@@ -15483,6 +15483,75 @@ mod tests {
     }
 
     #[test]
+    fn continue_attack_after_kill_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ContAtk");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["CaA", "CaD", "CaN"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let attacker = logic
+            .create_object("CaA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let dead = logic
+            .create_object("CaD", Team::GLA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("d");
+        let next = logic
+            .create_object("CaN", Team::GLA, glam::Vec3::new(8.0, 0.0, 0.0))
+            .expect("n");
+        let dead_pos = glam::Vec3::new(5.0, 0.0, 0.0);
+        let ok = logic.try_continue_attack_after_kill_for_test(
+            attacker,
+            dead,
+            dead_pos,
+            50.0,
+            Team::GLA,
+        );
+        assert!(ok, "must find next victim in continue range");
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                    && e.host_object == attacker
+                    && e.target_host == next.0
+            }),
+            "continue-attack must log AttackTarget on next victim; got {events:?}"
+        );
+        assert!(
+            logic.get_objects().get(&attacker).unwrap().target.is_none(),
+            "host target deferred under decision authority"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&attacker).unwrap().target,
+            Some(next)
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
