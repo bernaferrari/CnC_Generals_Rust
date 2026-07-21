@@ -3919,6 +3919,28 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_ai_decision_events(
+        &mut self,
+        events: &[crate::game_logic::host_ai_decision_log::HostAiDecisionEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::PushAiDecision {
+                    host_object: ev.host_object.0,
+                    kind: ev.kind,
+                    target_host: ev.target_host,
+                    destination: ev.destination,
+                    ai_state_ordinal: ev.ai_state_ordinal,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_weapon_set_events(
         &mut self,
         events: &[crate::game_logic::host_weapon_set_log::HostWeaponSetEvent],
@@ -6515,6 +6537,8 @@ pub fn shadow_session_after_host_tick(
     let _mood_applied = shadow.apply_host_ai_mood_events(&ai_mood_events);
     let ai_req_events = crate::game_logic::host_ai_request_log::drain();
     let _ar_applied = shadow.apply_host_ai_request_events(&ai_req_events);
+    let ai_decision_events = crate::game_logic::host_ai_decision_log::drain();
+    let _ad_applied = shadow.apply_host_ai_decision_events(&ai_decision_events);
     let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
@@ -11037,6 +11061,7 @@ mod tests {
         host_ai_attitude_log::clear();
         crate::game_logic::host_ai_mood_log::clear();
         crate::game_logic::host_ai_request_log::clear();
+        crate::game_logic::host_ai_decision_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.set_ai_attitude_i8(2);
@@ -14962,6 +14987,50 @@ mod tests {
         );
         assert!(shadow.apply_host_projectile_events(&host_projectile_log::drain()) >= 1);
         assert!(shadow.world().projectile(501).is_none());
+    }
+
+    #[test]
+    fn ai_decision_buffer_channel_via_push_ai_decision() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiDec");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("AdU") {
+            let mut t = ThingTemplate::new("AdU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("AdU".into(), t);
+        }
+        let oid = logic
+            .create_object("AdU", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        let vid = logic
+            .create_object("AdU", Team::China, glam::Vec3::new(25.0, 0.0, 5.0))
+            .expect("v");
+        logic.apply_ai_command_for_test(crate::game_logic::game_logic::AICommand::AttackTarget {
+            object_id: oid,
+            target_id: vid,
+        });
+        logic.apply_ai_command_for_test(crate::game_logic::game_logic::AICommand::MoveTo {
+            object_id: oid,
+            position: glam::Vec3::new(1.0, 0.0, 2.0),
+        });
+        let events = host_ai_decision_log::drain();
+        assert!(events.len() >= 2);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_host_ai_decision_events(&events) >= 2);
+        let dec = shadow.world().ai_decisions();
+        assert!(dec.iter().any(|d| {
+            d.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                && d.host_object == oid.0
+                && d.target_host == vid.0
+        }));
+        assert!(dec.iter().any(|d| {
+            d.kind == host_ai_decision_log::AI_DECISION_MOVE_TO
+                && d.destination == Some([1.0, 0.0, 2.0])
+        }));
     }
 
     #[test]
