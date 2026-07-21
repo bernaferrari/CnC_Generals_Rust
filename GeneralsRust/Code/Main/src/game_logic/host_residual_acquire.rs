@@ -124,6 +124,33 @@ pub fn pick_best_priority_residual_target(
     best
 }
 
+/// All residual targets in XZ range that pass `is_legal` (order: nearest first).
+/// Used by multi-fire residuals (Patriot assist) that engage every legal assistant.
+pub fn filter_residual_targets_xz(
+    exclude: Option<ObjectId>,
+    origin_xz: (f32, f32),
+    max_range: f32,
+    candidates: impl IntoIterator<Item = ResidualAcquireCandidate>,
+    is_legal: impl Fn(&ResidualAcquireCandidate) -> bool,
+) -> Vec<(ObjectId, f32, bool)> {
+    let mut out: Vec<(ObjectId, f32, bool)> = Vec::new();
+    let range_sq = max_range * max_range;
+    for c in candidates {
+        if exclude == Some(c.id) || !c.is_alive || !is_legal(&c) {
+            continue;
+        }
+        let dx = origin_xz.0 - c.position.x;
+        let dz = origin_xz.1 - c.position.z;
+        let dist_sq = dx * dx + dz * dz;
+        if dist_sq > range_sq {
+            continue;
+        }
+        out.push((c.id, dist_sq.sqrt(), c.is_air));
+    }
+    out.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
 pub fn pick_nearest_residual_target_xz(
     exclude: Option<ObjectId>,
     origin_xz: (f32, f32),
@@ -413,5 +440,19 @@ mod tests {
         let pick =
             pick_best_priority_residual_target(ObjectId(99), origin, (0.0, 0.0), 12.0, cands);
         assert_eq!(pick.map(|(id, p, _)| (id, p)), Some((ObjectId(2), 0)));
+    }
+
+    #[test]
+    fn filter_xz_returns_sorted_in_range() {
+        let cands = [
+            cand(1, Team::USA, Vec3::new(30.0, 0.0, 0.0), false),
+            cand(2, Team::USA, Vec3::new(10.0, 0.0, 0.0), false),
+            cand(3, Team::USA, Vec3::new(100.0, 0.0, 0.0), false),
+        ];
+        let got = filter_residual_targets_xz(Some(ObjectId(99)), (0.0, 0.0), 50.0, cands, |_| true);
+        assert_eq!(
+            got.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
+            vec![ObjectId(2), ObjectId(1)]
+        );
     }
 }

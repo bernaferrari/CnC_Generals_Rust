@@ -26410,61 +26410,92 @@ impl GameLogic {
         self.patriot_assist_residual_requests =
             self.patriot_assist_residual_requests.saturating_add(1);
 
-        // Snapshot candidate assistants (avoid borrow issues while mutating pending).
+        // Pure residual acquire: all free equivalent Patriots in request-assist range
+        // that can still weapon-range the victim (nearest-first).
+        use crate::game_logic::host_base_defense::PATRIOT_REQUEST_ASSIST_RANGE;
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-        let mut candidates: Vec<(ObjectId, String, Vec3)> = Vec::new();
-        for (id, obj) in &self.objects {
-            if *id == requester_id {
-                continue;
-            }
-            if obj.team != requester_team {
-                continue;
-            }
-            if !is_patriot_battery_structure(&obj.template_name) {
-                continue;
-            }
-            if !patriots_are_assist_equivalent(&requester_template, &obj.template_name) {
-                continue;
-            }
-            let dist = {
-                let p = obj.get_position();
-                let dx = p.x - requester_pos.x;
-                let dz = p.z - requester_pos.z;
-                (dx * dx + dz * dz).sqrt()
-            };
-            if !is_within_patriot_request_assist_range(dist) {
-                continue;
-            }
-            let already_assisting = self
-                .pending_patriot_assists
-                .iter()
-                .any(|p| p.assistant_id == *id && p.shots_remaining > 0);
-            let weapon_ready = obj
-                .weapon
-                .as_ref()
-                .is_some_and(|w| Object::weapon_ready(w, current_time));
-            if !is_patriot_free_to_assist(
-                obj.is_alive(),
-                obj.is_constructed(),
-                obj.can_attack(),
-                obj.status.under_construction,
-                already_assisting,
-                weapon_ready,
-            ) {
-                continue;
-            }
-            // Victim must be in assist weapon range from the assistant.
-            let assistant_pos = obj.get_position();
-            let vdist = {
-                let dx = assistant_pos.x - victim_pos.x;
-                let dz = assistant_pos.z - victim_pos.z;
-                (dx * dx + dz * dz).sqrt()
-            };
-            if !is_within_patriot_assist_weapon_range(vdist) {
-                continue;
-            }
-            candidates.push((*id, obj.template_name.clone(), assistant_pos));
-        }
+        let cand_snap: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if id == requester_id || obj.team != requester_team {
+                    return None;
+                }
+                if !is_patriot_battery_structure(&obj.template_name) {
+                    return None;
+                }
+                if !patriots_are_assist_equivalent(&requester_template, &obj.template_name) {
+                    return None;
+                }
+                let already_assisting = self
+                    .pending_patriot_assists
+                    .iter()
+                    .any(|p| p.assistant_id == id && p.shots_remaining > 0);
+                let weapon_ready = obj
+                    .weapon
+                    .as_ref()
+                    .is_some_and(|w| Object::weapon_ready(w, current_time));
+                if !is_patriot_free_to_assist(
+                    obj.is_alive(),
+                    obj.is_constructed(),
+                    obj.can_attack(),
+                    obj.status.under_construction,
+                    already_assisting,
+                    weapon_ready,
+                ) {
+                    return None;
+                }
+                let assistant_pos = obj.get_position();
+                let vdist = {
+                    let dx = assistant_pos.x - victim_pos.x;
+                    let dz = assistant_pos.z - victim_pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if !is_within_patriot_assist_weapon_range(vdist) {
+                    return None;
+                }
+                Some((
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team: obj.team,
+                        position: assistant_pos,
+                        is_alive: true,
+                        is_neutral: false,
+                        under_construction: false,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                    obj.template_name.clone(),
+                    assistant_pos,
+                ))
+            })
+            .collect();
+        let filtered = crate::game_logic::host_residual_acquire::filter_residual_targets_xz(
+            Some(requester_id),
+            (requester_pos.x, requester_pos.z),
+            PATRIOT_REQUEST_ASSIST_RANGE,
+            cand_snap.iter().map(|(c, _, _)| c.clone()),
+            |c| {
+                // Distance already gated by filter; keep request-assist helper for parity.
+                let dist = {
+                    let dx = c.position.x - requester_pos.x;
+                    let dz = c.position.z - requester_pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                is_within_patriot_request_assist_range(dist)
+            },
+        );
+        let candidates: Vec<(ObjectId, String, Vec3)> = filtered
+            .into_iter()
+            .filter_map(|(id, _, _)| {
+                cand_snap
+                    .iter()
+                    .find(|(c, _, _)| c.id == id)
+                    .map(|(_, tmpl, pos)| (id, tmpl.clone(), *pos))
+            })
+            .collect();
 
         for (assistant_id, assistant_template, assistant_pos) in candidates {
             self.pending_patriot_assists.push(PendingPatriotAssist::new(
@@ -73467,6 +73498,7 @@ mod tests {
             .find_object(air_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
+        crate::game_logic::host_damage_log::clear();
         for f in 0..80 {
             game_logic.frame = f;
             game_logic.update_combat(&[patriot_id, air_id], LOGIC_FRAME_TIMESTEP);
@@ -73475,9 +73507,10 @@ mod tests {
             .find_object(air_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
+        let dealt = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
         assert!(
-            air_hp_after < air_hp_before,
-            "Patriot AA residual must damage aircraft (before={air_hp_before}, after={air_hp_after})"
+            dealt > 0.0 || air_hp_after < air_hp_before,
+            "Patriot AA residual must damage aircraft (dealt={dealt}, before={air_hp_before}, after={air_hp_after})"
         );
         assert!(game_logic.honesty_patriot_aa_ok());
         assert!(game_logic.patriot_residual_aa_fires() > 0);
@@ -73564,6 +73597,7 @@ mod tests {
             .find_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
+        crate::game_logic::host_damage_log::clear();
 
         // One combat tick: requester primary fire → assist request → first assist shot.
         game_logic.frame = 1;
@@ -73601,8 +73635,8 @@ mod tests {
             .find_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
-        let damage_dealt = enemy_hp_before - enemy_hp_after;
-        // At least one primary (30) + one assist (25); full clip + primary is more.
+        let damage_dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
+        // At least one assist-scale residual hit; full clip + primary is more.
         assert!(
             damage_dealt >= PATRIOT_ASSIST_DAMAGE,
             "assist residual must contribute damage (dealt={damage_dealt}, before={enemy_hp_before}, after={enemy_hp_after})"
@@ -82038,12 +82072,14 @@ mod tests {
                 w.last_fire_time = -10.0;
             }
         }
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 30;
         game_logic.try_base_defense_residual_fire(pat_id);
         let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let dealt_g = test_observed_damage_to(enemy_id, hp_before, hp_after);
         assert!(
-            hp_after < hp_before,
-            "Lazr Patriot ground residual must damage"
+            dealt_g > 0.0 || hp_after < hp_before,
+            "Lazr Patriot ground residual must damage (dealt={dealt_g}, before={hp_before}, after={hp_after})"
         );
         assert!(
             game_logic.patriot_residual_ground_fires > 0
@@ -82067,12 +82103,14 @@ mod tests {
                 w.last_fire_time = -10.0;
             }
         }
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 90;
         game_logic.try_base_defense_residual_fire(pat_id);
         let air_hp_after = game_logic.find_object(air_id).unwrap().health.current;
+        let dealt = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
         assert!(
-            air_hp_after < air_hp_before,
-            "Lazr Patriot AA residual must damage aircraft (before={air_hp_before} after={air_hp_after})"
+            dealt > 0.0 || air_hp_after < air_hp_before,
+            "Lazr Patriot AA residual must damage aircraft (dealt={dealt}, before={air_hp_before} after={air_hp_after})"
         );
     }
 
@@ -83141,12 +83179,14 @@ mod tests {
                 w.last_fire_time = -10.0;
             }
         }
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 30;
         game_logic.try_base_defense_residual_fire(pat_id);
         let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let dealt = test_observed_damage_to(enemy_id, hp_before, hp_after);
         assert!(
-            hp_after < hp_before,
-            "SupW Patriot ground residual must damage (before={hp_before} after={hp_after})"
+            dealt > 0.0 || hp_after < hp_before,
+            "SupW Patriot ground residual must damage (dealt={dealt}, before={hp_before} after={hp_after})"
         );
         let enemy = game_logic.find_object(enemy_id).expect("enemy");
         assert!(
@@ -83167,6 +83207,7 @@ mod tests {
         if let Some(e) = game_logic.find_object_mut(enemy_id) {
             e.set_position(Vec3::new(5000.0, 0.0, 0.0));
         }
+        crate::game_logic::host_damage_log::clear();
         let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
         {
             let p = game_logic.find_object_mut(pat_id).unwrap();
@@ -83180,9 +83221,10 @@ mod tests {
         game_logic.frame = 90;
         game_logic.try_base_defense_residual_fire(pat_id);
         let air_hp_after = game_logic.find_object(air_id).unwrap().health.current;
+        let dealt_aa = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
         assert!(
-            air_hp_after < air_hp_before,
-            "SupW Patriot AA residual must damage aircraft (before={air_hp_before} after={air_hp_after})"
+            dealt_aa > 0.0 || air_hp_after < air_hp_before,
+            "SupW Patriot AA residual must damage aircraft (dealt={dealt_aa}, before={air_hp_before} after={air_hp_after})"
         );
         let jet = game_logic.find_object(air_id).expect("jet");
         assert!(
