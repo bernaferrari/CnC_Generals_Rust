@@ -8728,13 +8728,21 @@ impl Object {
         // pauseCountdown), availableOnFrame slides with the logic frame — countdown
         // does not advance. SharedNSync player timers are separate and keep ticking.
         let freeze_special_power = self.is_disabled();
-        if dt > 0.0 && !freeze_special_power && !self.special_power_cooldowns.is_empty() {
+        // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks countdown;
+        // host only refreshes ready aggregate after writeback.
+        let sole_sp = crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled();
+        if dt > 0.0 && !freeze_special_power && !sole_sp && !self.special_power_cooldowns.is_empty()
+        {
             for rem in self.special_power_cooldowns.values_mut() {
                 *rem = (*rem - dt).max(0.0);
             }
         }
         // Legacy single-timer residual (older paths / saves).
-        if dt > 0.0 && !freeze_special_power && self.special_power_cooldown_remaining > 0.0 {
+        if dt > 0.0
+            && !freeze_special_power
+            && !sole_sp
+            && self.special_power_cooldown_remaining > 0.0
+        {
             self.special_power_cooldown_remaining =
                 (self.special_power_cooldown_remaining - dt).max(0.0);
         }
@@ -9638,6 +9646,7 @@ impl Object {
             self.special_power_ready,
             self.special_power_cooldown_remaining,
             self.special_power_cooldown,
+            self.is_disabled(),
         );
     }
 
