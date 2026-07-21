@@ -10496,6 +10496,31 @@ mod tests {
     }
 
     #[test]
+    fn control_bar_execute_falls_back_without_registry() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("Host/presentation residual: MSG_QUEUE_UNIT_CREATE")
+                || cb.contains("MSG_QUEUE_UNIT_CREATE (no OBJECT_REGISTRY)"),
+            "production execute must message-stream when registry empty"
+        );
+        assert!(
+            cb.contains("Host/presentation residual: MSG_DO_SPECIAL_POWER")
+                || cb.contains("DoSpecialPower("),
+            "special-power execute must message-stream when registry empty"
+        );
+        assert!(
+            cb.contains("if applied > 0")
+                && cb.contains("Host/presentation residual: queue typed Command"),
+            "direct execute must not return early when registry applied zero objects"
+        );
+        assert!(
+            cb.contains("message-stream cancel (no OBJECT_REGISTRY modules)")
+                || cb.contains("CancelUnitCreate("),
+            "cancel_build_queue_item must message-stream without registry"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
