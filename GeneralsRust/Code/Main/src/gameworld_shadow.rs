@@ -3786,6 +3786,35 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_projectile_events(
+        &mut self,
+        events: &[crate::game_logic::host_projectile_log::HostProjectileEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetProjectileFlight {
+                    host_id: ev.host_id,
+                    position: ev.position,
+                    velocity: ev.velocity,
+                    target_position: ev.target_position,
+                    damage: ev.damage,
+                    shooter_host: ev.shooter_host,
+                    target_host: ev.target_host,
+                    speed: ev.speed,
+                    lifetime: ev.lifetime,
+                    max_lifetime: ev.max_lifetime,
+                    is_homing: ev.is_homing,
+                    active: ev.active,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_guard_events(
         &mut self,
         events: &[crate::game_logic::host_guard_log::HostGuardEvent],
@@ -6478,6 +6507,8 @@ pub fn shadow_session_after_host_tick(
     let _ca_applied = shadow.apply_host_combat_attack_events(&combat_attack_events);
     let fire_intent_events = crate::game_logic::host_fire_intent_log::drain();
     let _fi_applied = shadow.apply_host_fire_intent_events(&fire_intent_events);
+    let projectile_events = crate::game_logic::host_projectile_log::drain();
+    let _proj_applied = shadow.apply_host_projectile_events(&projectile_events);
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
@@ -11131,6 +11162,7 @@ mod tests {
         host_continuous_fire_log::clear();
         crate::game_logic::host_combat_attack_log::clear();
         crate::game_logic::host_fire_intent_log::clear();
+        crate::game_logic::host_projectile_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.continuous_fire_level = 2;
@@ -14880,6 +14912,56 @@ mod tests {
         assert_eq!(o.fire_intent_count, 3);
         assert!((o.last_fire_damage - 42.0).abs() < 1e-5);
         assert_eq!(o.last_fire_slot, 1);
+    }
+
+    #[test]
+    fn projectile_flight_channel_via_set_projectile_flight() {
+        use crate::game_logic::host_projectile_log;
+        host_projectile_log::clear();
+        let mut shadow = GameWorldShadow::new(64);
+        host_projectile_log::record(
+            501,
+            [10.0, 1.0, 20.0],
+            [5.0, 0.0, 0.0],
+            [100.0, 1.0, 20.0],
+            25.0,
+            7,
+            8,
+            200.0,
+            0.5,
+            3.0,
+            true,
+            true,
+        );
+        assert!(shadow.apply_host_projectile_events(&host_projectile_log::drain()) >= 1);
+        let p = shadow.world().projectile(501).expect("projectile residual");
+        assert_eq!(p.host_id, 501);
+        assert_eq!(p.position, [10.0, 1.0, 20.0]);
+        assert_eq!(p.velocity, [5.0, 0.0, 0.0]);
+        assert_eq!(p.target_position, [100.0, 1.0, 20.0]);
+        assert!((p.damage - 25.0).abs() < 1e-5);
+        assert_eq!(p.shooter_host, 7);
+        assert_eq!(p.target_host, 8);
+        assert!((p.speed - 200.0).abs() < 1e-5);
+        assert!(p.is_homing);
+        assert!(p.active);
+        // deactivate
+        host_projectile_log::record(
+            501,
+            [10.0, 1.0, 20.0],
+            [0.0, 0.0, 0.0],
+            [100.0, 1.0, 20.0],
+            25.0,
+            7,
+            8,
+            200.0,
+            3.0,
+            3.0,
+            true,
+            false,
+        );
+        assert!(shadow.apply_host_projectile_events(&host_projectile_log::drain()) >= 1);
+        assert!(shadow.world().projectile(501).is_none());
     }
 
     #[test]

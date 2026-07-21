@@ -976,6 +976,21 @@ pub enum WorldMutation {
         last_fire_frame: u32,
         fire_intent_count: u32,
     },
+    /// Host CombatSystem projectile flight residual.
+    SetProjectileFlight {
+        host_id: u32,
+        position: [f32; 3],
+        velocity: [f32; 3],
+        target_position: [f32; 3],
+        damage: f32,
+        shooter_host: u32,
+        target_host: u32,
+        speed: f32,
+        lifetime: f32,
+        max_lifetime: f32,
+        is_homing: bool,
+        active: bool,
+    },
     /// Host Movement velocity/path residual.
     SetMovement {
         target: EntityId,
@@ -1152,12 +1167,32 @@ pub enum WorldMutation {
 /// Policy: subsystems take `&mut GameWorld` (or `&GameWorld`) for one explicit phase.
 /// Cross-object references use [`EntityId`] / [`PlayerId`], never long-lived borrows.
 /// `Arc` is not part of this API surface.
+
+/// Host CombatSystem projectile residual (in-flight snapshot).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ProjectileFlightResidual {
+    pub host_id: u32,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub target_position: [f32; 3],
+    pub damage: f32,
+    pub shooter_host: u32,
+    pub target_host: u32,
+    pub speed: f32,
+    pub lifetime: f32,
+    pub max_lifetime: f32,
+    pub is_homing: bool,
+    pub active: bool,
+}
+
 #[derive(Debug)]
 pub struct GameWorld {
     inner: World,
     pending: Vec<WorldMutation>,
     /// Most recent entity created via `WorldMutation::Spawn` (shadow ID map).
     last_spawned_entity: Option<EntityId>,
+    /// Host CombatSystem in-flight projectile residual (keyed by host projectile id).
+    projectiles: std::collections::HashMap<u32, ProjectileFlightResidual>,
 }
 
 impl GameWorld {
@@ -1167,12 +1202,23 @@ impl GameWorld {
             inner: World::new(max_players),
             pending: Vec::new(),
             last_spawned_entity: None,
+            projectiles: std::collections::HashMap::new(),
         }
     }
 
     /// Take the entity id from the last applied Spawn mutation, if any.
     pub fn take_last_spawned_entity(&mut self) -> Option<EntityId> {
         self.last_spawned_entity.take()
+    }
+
+    /// Immutable projectile residual map (host CombatSystem mirror).
+    pub fn projectiles(&self) -> &std::collections::HashMap<u32, ProjectileFlightResidual> {
+        &self.projectiles
+    }
+
+    /// Lookup one projectile residual by host id.
+    pub fn projectile(&self, host_id: u32) -> Option<&ProjectileFlightResidual> {
+        self.projectiles.get(&host_id)
     }
 
     /// Immutable access to the underlying world.
@@ -2183,6 +2229,43 @@ impl GameWorld {
                         e.fire_intent_count = fire_intent_count;
                         applied += 1;
                     }
+                }
+                WorldMutation::SetProjectileFlight {
+                    host_id,
+                    position,
+                    velocity,
+                    target_position,
+                    damage,
+                    shooter_host,
+                    target_host,
+                    speed,
+                    lifetime,
+                    max_lifetime,
+                    is_homing,
+                    active,
+                } => {
+                    if active {
+                        self.projectiles.insert(
+                            host_id,
+                            ProjectileFlightResidual {
+                                host_id,
+                                position,
+                                velocity,
+                                target_position,
+                                damage,
+                                shooter_host,
+                                target_host,
+                                speed,
+                                lifetime,
+                                max_lifetime,
+                                is_homing,
+                                active,
+                            },
+                        );
+                    } else {
+                        self.projectiles.remove(&host_id);
+                    }
+                    applied += 1;
                 }
                 WorldMutation::SetMovement {
                     target,
