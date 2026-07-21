@@ -19189,6 +19189,18 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // UnitControl presentation mouse pick residual priority.
+        {
+            let uc = include_str!("unit_control.rs");
+            let i = uc
+                .find("fn pick_object_id_at_world_from_presentation")
+                .expect("pick_object_id_at_world_from_presentation");
+            let body = &uc[i..uc.len().min(i + 3500)];
+            assert!(
+                body.contains("pick_best_priority_residual_target"),
+                "unit_control presentation pick must use pure priority residual acquire"
+            );
+        }
         // CommandIntegration mouse pick residual priority.
         {
             let ci = include_str!("command_integration.rs");
@@ -19226,10 +19238,14 @@ mod tests {
             let i = eng
                 .find("fn find_nearest_friendly_dozer")
                 .expect("find_nearest_friendly_dozer");
-            let body = &eng[i..eng.len().min(i + 4000)];
+            let body = &eng[i..eng.len().min(i + 5000)];
             assert!(
                 body.contains("pick_nearest_residual_target_xz"),
-                "boot dozer finder must use pure residual XZ acquire"
+                "dozer finder must use pure residual XZ acquire"
+            );
+            assert!(
+                body.matches("pick_nearest_residual_target_xz").count() >= 2,
+                "dozer finder must use pure residual XZ on presentation and boot paths"
             );
         }
         // CommandExecutor residual nearest picks.

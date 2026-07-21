@@ -10168,23 +10168,45 @@ impl CnCGameEngine {
             .unwrap_or(crate::game_logic::Team::USA);
         let mut best: Option<(crate::game_logic::ObjectId, f32)> = None;
         if let Some(frame) = self.last_presentation_frame.as_ref() {
-            for o in &frame.objects {
-                if o.destroyed || o.team != team {
-                    continue;
-                }
-                let n = o.template_name.to_ascii_lowercase();
-                if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
-                    continue;
-                }
-                if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
-                    continue;
-                }
-                let d = (o.position.x - location.x).hypot(o.position.z - location.z);
-                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                    best = Some((o.id, d));
-                    // Boot residual only.
-                }
-            }
+            // Presentation residual — pure residual acquire (XZ).
+            let cands: Vec<_> = frame
+                .objects
+                .iter()
+                .filter_map(|o| {
+                    if o.destroyed || o.team != team {
+                        return None;
+                    }
+                    let n = o.template_name.to_ascii_lowercase();
+                    if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
+                        return None;
+                    }
+                    if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
+                        return None;
+                    }
+                    Some(
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id: o.id,
+                            team: o.team,
+                            position: o.position,
+                            is_alive: true,
+                            is_neutral: false,
+                            under_construction: o.under_construction,
+                            combat_kind: true,
+                            effectively_stealthed: false,
+                            is_air: false,
+                            eject_invulnerable: false,
+                        },
+                    )
+                })
+                .collect();
+            best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                None,
+                (location.x, location.z),
+                cands,
+                f32::MAX,
+                |_| true,
+            )
+            .map(|(id, dist, _)| (id, dist));
         } else {
             // Boot residual only — pure residual acquire (XZ).
             let cands: Vec<_> = self
