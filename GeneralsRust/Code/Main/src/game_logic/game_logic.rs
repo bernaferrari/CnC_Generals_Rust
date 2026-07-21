@@ -4319,9 +4319,19 @@ impl GameLogic {
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
-        unit.set_ai_state(AIState::Moving);
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
+        // Moving
+        } else {
+            unit.set_ai_state(AIState::Moving);
+        }
         unit.set_status_moving(true);
         true
+    }
+
+    #[cfg(test)]
+    pub fn append_unit_waypoint_for_test(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
+        self.append_unit_waypoint(unit_id, waypoint)
     }
 
     /// Update method - matching C++ GameLogic interface
@@ -8359,13 +8369,17 @@ impl GameLogic {
             }
             // C++ aiMoveToObject residual.
             u.move_to(pos);
-            u.set_ai_state(AIState::Moving);
-            // Remember crate as approach target via requested_victim residual optional.
             u.requested_victim_id = Some(crate_id);
-            true
         } else {
-            false
+            return false;
         }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
+        // Moving
+        } else if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.set_ai_state(AIState::Moving);
+        }
+        true
     }
 
     /// When an AI computer unit kills and a money crate is spawned nearby, notify.
@@ -10221,8 +10235,14 @@ impl GameLogic {
         }
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_status_aiming_weapon(true);
-            u.set_status_attacking(true);
-            u.set_ai_state(AIState::Attacking);
+            if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                u.set_status_attacking(true);
+                u.set_ai_state(AIState::Attacking);
+            }
+        }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            // Attacking
         }
         // C++ AIAttackAimAtTargetState sets turret target when tur != INVALID.
         if let Some(vid) = tid {
@@ -10319,15 +10339,23 @@ impl GameLogic {
     }
 
     pub fn attack_fire_weapon_enter(&mut self, unit_id: ObjectId) -> bool {
-        let Some(u) = self.objects.get_mut(&unit_id) else {
-            return false;
-        };
-        if !u.is_alive() {
-            return false;
+        {
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            if !u.is_alive() {
+                return false;
+            }
+            u.set_status_firing_weapon(true);
+            if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                u.set_status_attacking(true);
+                u.set_ai_state(AIState::Attacking);
+            }
         }
-        u.set_status_firing_weapon(true);
-        u.set_status_attacking(true);
-        u.set_ai_state(AIState::Attacking);
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            // Attacking
+        }
         true
     }
 
@@ -11131,8 +11159,13 @@ impl GameLogic {
             a.movement.current_path_index = 0;
             a.record_host_movement();
             a.movement.target_position = Some(dest);
-            a.set_ai_state(AIState::Attacking);
-            a.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
+            // Attacking
+            } else {
+                a.set_ai_state(AIState::Attacking);
+                a.set_status_attacking(true);
+            }
             a.set_status_moving(true);
             crate::game_logic::host_move_log::record(attacker_id, Some([dest.x, dest.y, dest.z]));
             return true;
@@ -11553,7 +11586,12 @@ impl GameLogic {
             } else {
                 // C++ setProducer + park residual: dock at airfield hangar.
                 jet.set_contained_by(Some(af_id));
-                jet.set_ai_state(AIState::Docked);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
+                // Docked
+                } else {
+                    jet.set_ai_state(AIState::Docked);
+                }
                 jet.set_status_moving(false);
                 jet.status.airborne_target = false;
                 jet.movement.path.clear();
@@ -47817,7 +47855,11 @@ impl GameLogic {
                 unit.set_position(pos + offset);
                 unit.set_target(None);
                 unit.set_contained_by(None);
-                unit.set_ai_state(AIState::Idle);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
+                } else {
+                    unit.set_ai_state(AIState::Idle);
+                }
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
             }
@@ -47868,7 +47910,11 @@ impl GameLogic {
                             unit.set_position(pos + offset);
                             unit.set_target(None);
                             unit.set_contained_by(None);
-                            unit.set_ai_state(AIState::Idle);
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
+                            } else {
+                                unit.set_ai_state(AIState::Idle);
+                            }
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
                         }
