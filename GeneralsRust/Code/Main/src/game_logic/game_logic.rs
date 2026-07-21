@@ -37891,91 +37891,74 @@ impl GameLogic {
         let (pilot_pos, pilot_team, pilot_radius, did_move_to_base, pilot_level) = snapshot;
         let levels_to_gain = pilot_levels_to_gain(pilot_level);
 
-        // Scan nearest recrewable unmanned vehicle in range with MinHealth +
-        // CollideModule wouldLikeToCollideWith + PartitionFilterPlayer residual.
-        let mut best: Option<(ObjectId, f32, Vec3)> = None;
-        let mut collide_rejects: u32 = 0;
-        let mut player_rejects: u32 = 0;
-        for (vid, vehicle) in &self.objects {
-            if *vid == pilot_id || !vehicle.is_alive() {
-                continue;
-            }
-            let is_vehicle =
-                vehicle.is_kind_of(KindOf::Vehicle) || vehicle.object_type == ObjectType::Vehicle;
-            let is_air = vehicle.is_kind_of(KindOf::Aircraft)
-                || vehicle.object_type == ObjectType::Aircraft
-                || vehicle.status.airborne_target;
-            let under_construction =
-                vehicle.status.under_construction || vehicle.construction_percent + 0.001 < 1.0;
-            let is_dozer =
-                vehicle.is_worker() || vehicle.template_name.to_ascii_lowercase().contains("dozer");
-            let recrewable = is_recrewable_unmanned_vehicle(
-                true,
-                is_vehicle,
-                is_air,
-                vehicle.is_unmanned(),
-                under_construction,
-                is_dozer,
+        // Pure residual pilot-vehicle acquire (recrew choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&vid, vehicle)| {
+                let is_vehicle = vehicle.is_kind_of(KindOf::Vehicle)
+                    || vehicle.object_type == ObjectType::Vehicle;
+                let is_air = vehicle.is_kind_of(KindOf::Aircraft)
+                    || vehicle.object_type == ObjectType::Aircraft
+                    || vehicle.status.airborne_target;
+                let under_construction =
+                    vehicle.status.under_construction || vehicle.construction_percent + 0.001 < 1.0;
+                let is_dozer = vehicle.is_worker()
+                    || vehicle.template_name.to_ascii_lowercase().contains("dozer");
+                let recrewable = is_recrewable_unmanned_vehicle(
+                    vehicle.is_alive(),
+                    is_vehicle,
+                    is_air,
+                    vehicle.is_unmanned(),
+                    under_construction,
+                    is_dozer,
+                );
+                let health_ok = vehicle_meets_pilot_find_min_health(
+                    vehicle.health.current,
+                    vehicle.max_health.max(vehicle.health.maximum),
+                    PILOT_FIND_VEHICLE_MIN_HEALTH,
+                );
+                let vpos = vehicle.get_position();
+                let same_team = vehicle.team == pilot_team;
+                let is_neutral = vehicle.team == Team::Neutral;
+                let owner_matches = vehicle
+                    .status
+                    .unmanned_owner_team
+                    .map(|t| t == pilot_team)
+                    .unwrap_or(false);
+                let same_player_ok =
+                    pilot_find_vehicle_same_player_ok(same_team, is_neutral, owner_matches);
+                let above_terrain = uses_air_eject_ocl(vpos.y, vehicle.status.airborne_target);
+                let airborne_locomotor = is_air;
+                let is_trainable = is_vehicle && !is_air;
+                let can_gain =
+                    vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
+                let collide_ok = pilot_collide_would_like_to_collide_with(
+                    true,
+                    is_vehicle,
+                    is_dozer,
+                    above_terrain,
+                    airborne_locomotor,
+                    is_trainable,
+                    can_gain,
+                );
+                crate::game_logic::host_residual_acquire::PilotVehicleCandidate {
+                    id: vid,
+                    position: vpos,
+                    recrewable,
+                    health_ok,
+                    same_player_ok,
+                    collide_ok,
+                }
+            })
+            .collect();
+        let (best, player_rejects, collide_rejects) =
+            crate::game_logic::host_residual_acquire::pick_nearest_pilot_vehicle_target(
+                pilot_id,
+                pilot_pos,
+                candidates,
+                PILOT_FIND_VEHICLE_SCAN_RANGE,
             );
-            let health_ok = vehicle_meets_pilot_find_min_health(
-                vehicle.health.current,
-                vehicle.max_health.max(vehicle.health.maximum),
-                PILOT_FIND_VEHICLE_MIN_HEALTH,
-            );
-            let vpos = vehicle.get_position();
-            // 2D range residual (FROM_CENTER_2D).
-            let dist = ((pilot_pos.x - vpos.x).powi(2) + (pilot_pos.z - vpos.z).powi(2)).sqrt();
-            let in_range = dist <= PILOT_FIND_VEHICLE_SCAN_RANGE;
-            // PartitionFilterPlayer residual (same player / Neutral + owner).
-            let same_team = vehicle.team == pilot_team;
-            let is_neutral = vehicle.team == Team::Neutral;
-            let owner_matches = vehicle
-                .status
-                .unmanned_owner_team
-                .map(|t| t == pilot_team)
-                .unwrap_or(false);
-            let same_player_ok =
-                pilot_find_vehicle_same_player_ok(same_team, is_neutral, owner_matches);
-            // CollideModule residual: isSignificantlyAboveTerrain / airborne /
-            // trainable / canGainExpForLevel.
-            let above_terrain = uses_air_eject_ocl(vpos.y, vehicle.status.airborne_target);
-            let airborne_locomotor = is_air;
-            // Host residual: ground vehicles are trainable by default (not full
-            // IsTrainable module matrix).
-            let is_trainable = is_vehicle && !is_air;
-            let can_gain =
-                vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
-            let collide_ok = pilot_collide_would_like_to_collide_with(
-                true,
-                is_vehicle,
-                is_dozer,
-                above_terrain,
-                airborne_locomotor,
-                is_trainable,
-                can_gain,
-            );
-            // Track PartitionFilterPlayer rejects that otherwise pass recrew/MinHealth/range.
-            if recrewable && health_ok && in_range && !same_player_ok {
-                player_rejects = player_rejects.saturating_add(1);
-                continue;
-            }
-            // Track CollideModule rejects that otherwise pass recrew/MinHealth/range
-            // (honesty for residual gate, not full matrix).
-            if recrewable && health_ok && in_range && same_player_ok && !collide_ok {
-                collide_rejects = collide_rejects.saturating_add(1);
-                continue;
-            }
-            if !same_player_ok
-                || !is_pilot_find_vehicle_collide_target(
-                    recrewable, health_ok, in_range, collide_ok,
-                )
-            {
-                continue;
-            }
-            if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
-                best = Some((*vid, dist, vpos));
-            }
-        }
         if collide_rejects > 0 {
             for _ in 0..collide_rejects {
                 self.usa_pilot.record_find_vehicle_collide_reject();
@@ -50704,7 +50687,7 @@ struct ShroudVisibilitySnapshot {
 
 #[cfg(test)]
 mod tests {
-    static HEAL_RESIDUAL_TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static HOST_STATE_RESIDUAL_TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     use super::*;
 
@@ -53393,7 +53376,7 @@ mod tests {
     /// Residual: HealPad GetHealed recovers infantry HP and records heal-pad honesty.
     #[test]
     fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
-        let _env_guard = HEAL_RESIDUAL_TEST_ENV_LOCK
+        let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
 
@@ -58164,6 +58147,14 @@ mod tests {
     /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
     #[test]
     fn pilot_find_vehicle_collide_module_would_like_residual() {
+        let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+
         use crate::game_logic::host_usa_pilot::{
             significantly_above_terrain_threshold, PILOT_FIND_VEHICLE_SCAN_FRAMES,
         };
@@ -58288,6 +58279,15 @@ mod tests {
                 .unwrap_or(true),
             "pilot consumed after CollideModule-gated auto-recrew residual"
         );
+
+        match prev_dec {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_dmg {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     /// Residual: OCL InvulnerableTime (2000ms → 60 frames) shields ejected pilot.
@@ -58402,6 +58402,14 @@ mod tests {
     /// recrewable unmanned vehicle meeting MinHealth, then recrew path completes.
     #[test]
     fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
+        let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+
         use crate::game_logic::host_usa_pilot::{
             is_pilot_template, PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_FRAMES,
         };
@@ -58554,6 +58562,15 @@ mod tests {
             !human_logic.honesty_pilot_recrew_ok(),
             "human residual must not recrew via PilotFindVehicle"
         );
+
+        match prev_dec {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_dmg {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     /// Residual: PilotFindVehicleUpdate base-center fallback when no vehicle found.
@@ -58563,6 +58580,14 @@ mod tests {
     /// Fail-closed: not full CollideModule matrix / repeated base retreats.
     #[test]
     fn pilot_find_vehicle_base_center_fallback_residual() {
+        let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+
         use crate::game_logic::host_usa_pilot::PILOT_FIND_VEHICLE_SCAN_FRAMES;
 
         let mut game_logic = GameLogic::new();
@@ -58694,6 +58719,15 @@ mod tests {
             "human pilot residual must not base-center fallback"
         );
         assert_eq!(human_logic.usa_pilot_residual().base_center_moves, 0);
+
+        match prev_dec {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_dmg {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     /// Residual: AutoFindHealingUpdate AI pilot auto-scan → SeekingHealing at HealPad.
@@ -58702,7 +58736,7 @@ mod tests {
     /// AI-only idle; human skips. Fail-closed: AlwaysHeal busy-interrupt path.
     #[test]
     fn pilot_auto_find_healing_hospital_path_residual() {
-        let _env_guard = HEAL_RESIDUAL_TEST_ENV_LOCK
+        let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
 
@@ -58880,7 +58914,7 @@ mod tests {
     /// Fail-closed: AlwaysHeal busy-interrupt still not claimed; China/GLA skip.
     #[test]
     fn usa_infantry_auto_find_healing_hospital_path_residual() {
-        let _env_guard = HEAL_RESIDUAL_TEST_ENV_LOCK
+        let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
 
@@ -59183,6 +59217,14 @@ mod tests {
     /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
     #[test]
     fn pilot_find_vehicle_same_player_partition_filter_residual() {
+        let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+
         use crate::game_logic::host_usa_pilot::PILOT_FIND_VEHICLE_SCAN_FRAMES;
         use crate::game_logic::VeterancyLevel;
 
@@ -59279,6 +59321,15 @@ mod tests {
                 .unwrap_or(true),
             "pilot consumed after same-player-gated auto-recrew residual"
         );
+
+        match prev_dec {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_dmg {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     /// Residual: AmericaParachute low-altitude open fudge + FreeFallDamage.

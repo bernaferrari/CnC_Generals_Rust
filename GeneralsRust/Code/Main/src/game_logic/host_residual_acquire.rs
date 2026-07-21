@@ -99,6 +99,58 @@ pub fn pick_nearest_residual_service_target(
     best
 }
 
+/// PilotFindVehicle residual candidate (recrew unmanned vehicle).
+#[derive(Debug, Clone, Copy)]
+pub struct PilotVehicleCandidate {
+    pub id: ObjectId,
+    pub position: Vec3,
+    pub recrewable: bool,
+    pub health_ok: bool,
+    pub same_player_ok: bool,
+    pub collide_ok: bool,
+}
+
+/// Nearest pilot recrew target plus PartitionFilterPlayer / CollideModule reject counts.
+///
+/// Reject counters match host residual honesty: counted only when recrewable +
+/// MinHealth + in-range hold, but player or collide gate fails.
+pub fn pick_nearest_pilot_vehicle_target(
+    self_id: ObjectId,
+    origin: Vec3,
+    candidates: impl IntoIterator<Item = PilotVehicleCandidate>,
+    max_range: f32,
+) -> (Option<(ObjectId, f32, Vec3)>, u32, u32) {
+    let mut best: Option<(ObjectId, f32, Vec3)> = None;
+    let mut player_rejects = 0u32;
+    let mut collide_rejects = 0u32;
+    if max_range <= 0.0 {
+        return (None, 0, 0);
+    }
+    for c in candidates {
+        if c.id == self_id {
+            continue;
+        }
+        let dist = ((origin.x - c.position.x).powi(2) + (origin.z - c.position.z).powi(2)).sqrt();
+        let in_range = dist <= max_range;
+        if c.recrewable && c.health_ok && in_range && !c.same_player_ok {
+            player_rejects = player_rejects.saturating_add(1);
+            continue;
+        }
+        if c.recrewable && c.health_ok && in_range && c.same_player_ok && !c.collide_ok {
+            collide_rejects = collide_rejects.saturating_add(1);
+            continue;
+        }
+        // Final gate: recrewable + health + range + same player + collide.
+        if !(c.same_player_ok && c.recrewable && c.health_ok && in_range && c.collide_ok) {
+            continue;
+        }
+        if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
+            best = Some((c.id, dist, c.position));
+        }
+    }
+    (best, player_rejects, collide_rejects)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +253,41 @@ mod tests {
             c.is_alive && !c.under_construction
         });
         assert_eq!(best.map(|(id, _, _)| id), Some(ObjectId(3)));
+    }
+
+    #[test]
+    fn pilot_vehicle_picks_nearest_and_counts_rejects() {
+        let origin = Vec3::ZERO;
+        let list = [
+            PilotVehicleCandidate {
+                id: ObjectId(2),
+                position: Vec3::new(40.0, 0.0, 0.0),
+                recrewable: true,
+                health_ok: true,
+                same_player_ok: false,
+                collide_ok: true,
+            },
+            PilotVehicleCandidate {
+                id: ObjectId(3),
+                position: Vec3::new(20.0, 0.0, 0.0),
+                recrewable: true,
+                health_ok: true,
+                same_player_ok: true,
+                collide_ok: true,
+            },
+            PilotVehicleCandidate {
+                id: ObjectId(4),
+                position: Vec3::new(30.0, 0.0, 0.0),
+                recrewable: true,
+                health_ok: true,
+                same_player_ok: true,
+                collide_ok: false,
+            },
+        ];
+        let (best, player_rej, collide_rej) =
+            pick_nearest_pilot_vehicle_target(ObjectId(1), origin, list, 100.0);
+        assert_eq!(best.map(|(id, _, _)| id), Some(ObjectId(3)));
+        assert_eq!(player_rej, 1);
+        assert_eq!(collide_rej, 1);
     }
 }
