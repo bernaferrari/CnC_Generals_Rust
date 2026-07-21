@@ -14553,6 +14553,9 @@ impl GameLogic {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
+        // Presentation AttackTargeted residual (WeaponFire audio / dual-tick observe).
+        crate::game_logic::host_attack_log::record(attacker_id, Some(target_id));
+
         // Fire-spawn channel residual: under FIRE_SPAWN_AUTHORITY, log a projectile
         // spawn for GameWorld (damage 0 — hitscan below owns residual damage so
         // same-frame auto-fire honesty and update_combat-only tests stay green;
@@ -34476,6 +34479,14 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(passenger_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(passenger_id, 2);
+            } else {
+                attacker.target = Some(target_id);
+                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_status_attacking(true);
+            }
             if destroyed {
                 attacker.gain_experience(kill_xp);
             }
@@ -34585,6 +34596,14 @@ impl GameLogic {
                     next_count,
                 );
                 attacker.fire_intent_count = next_count;
+            }
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(garrisoned_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(garrisoned_id, 2);
+            } else {
+                attacker.target = Some(target_id);
+                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_status_attacking(true);
             }
             if destroyed {
                 attacker.gain_experience(kill_xp);
