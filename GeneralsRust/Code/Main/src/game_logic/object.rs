@@ -7379,8 +7379,15 @@ impl Object {
                 self.activate_leech_range_for_slot(slot);
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
-                self.target = Some(target_id);
-                self.set_ai_state(AIState::Attacking);
+                // Decision authority: engagement state is GameWorld last-writer.
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_attack(self.id, target_id);
+                    crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
+                // Attacking
+                } else {
+                    self.target = Some(target_id);
+                    self.set_ai_state(AIState::Attacking);
+                }
                 self.status.attacking = true;
                 return false;
             }
