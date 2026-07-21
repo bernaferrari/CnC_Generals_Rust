@@ -4217,14 +4217,33 @@ impl GameLogic {
     }
 
     fn path_approach_with_state(&mut self, object_id: ObjectId, goal: Vec3, state: AIState) {
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         if self.assign_unit_path(object_id, goal, &[]) {
-            if let Some(obj) = self.objects.get_mut(&object_id) {
+            if decision_auth {
+                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
+            } else if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.set_ai_state(state);
             }
+        } else if decision_auth {
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.set_destination(goal);
+            }
+            crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
         } else if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_destination(goal);
             obj.set_ai_state(state);
         }
+    }
+
+    #[cfg(test)]
+    pub fn path_approach_with_state_for_test(
+        &mut self,
+        object_id: ObjectId,
+        goal: Vec3,
+        state: AIState,
+    ) {
+        self.path_approach_with_state(object_id, goal, state);
     }
 
     pub fn append_unit_waypoint(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
