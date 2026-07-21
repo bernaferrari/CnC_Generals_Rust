@@ -852,7 +852,7 @@ fn fight_enemies_with_rangers(
     // Matches boost_ranger_march_speed / SLICE_MARCH_SPEED.
     const MARCH_SPEED: f32 = SLICE_MARCH_SPEED;
     // Hard wall: large maps + multi-focus mini-marches hung the gate.
-    const MAX_FIGHT_SIM_FRAMES: usize = 6_000;
+    const MAX_FIGHT_SIM_FRAMES: usize = 3_000;
     let mut fight_sim_frames: usize = 0;
 
     // --- Initial pure march toward primary / first enemy ---
@@ -1720,7 +1720,7 @@ fn run_map_world_skirmish(
                 produced = true;
                 ranger_name_used = rname.clone();
                 // Prefer a full squad so store damage can clear multi-structure maps.
-                let _ = run_until(logic, 1200, |g| {
+                let _ = run_until(logic, 400, |g| {
                     g.get_objects()
                         .values()
                         .filter(|o| {
@@ -1729,7 +1729,7 @@ fn run_map_world_skirmish(
                                 && is_produced_ranger(&o.template_name)
                         })
                         .count()
-                        >= 10
+                        >= 8
                 });
                 break;
             }
@@ -1797,10 +1797,12 @@ fn run_map_world_skirmish(
     // Retail store damage ~5 (was floor 40); longer windows + more rangers compensate.
     // Large skirmish maps also need headroom for multi-base pure-march at 20 u/s.
     // Bounded rounds: uncapped 4k hung Lone Eagle (mini-march thrash).
+    // Bound for gate soak (dual RC runs): rangers are setup-warped near the primary
+    // enemy so 120 in-range AttackObject rounds suffice for store-damage kills.
     let fight_rounds = if is_retail_ranger_name(&ranger_name_used) {
-        240
+        120
     } else {
-        180
+        90
     };
     // Pause AI rebuild + clear enemy combat targets so pure-march rangers are
     // not racing production queues or structure auto-counterfire. set_ai_active
@@ -1859,7 +1861,7 @@ fn run_map_world_skirmish(
                     for _ in 0..12 {
                         let _ = logic.enqueue_production(bid, ranger_name_used.clone());
                     }
-                    let _ = run_until(logic, 180, |g| {
+                    let _ = run_until(logic, 120, |g| {
                         g.get_objects()
                             .values()
                             .filter(|o| {
