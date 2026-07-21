@@ -19174,11 +19174,13 @@ mod tests {
             "try_base_defense_residual_fire",
             "try_sentry_drone_residual_fire",
             "try_hellfire_drone_residual_fire",
+            "try_garrison_residual_fire",
+            "try_transport_passenger_residual_fire",
         ] {
             let i = src
                 .find(&format!("fn {name}"))
                 .unwrap_or_else(|| panic!("missing {name}"));
-            let body = &src[i..src.len().min(i + 5000)];
+            let body = &src[i..src.len().min(i + 8000)];
             assert!(
                 body.contains("pick_nearest_residual_target")
                     && body.contains("ResidualAcquireCandidate"),
