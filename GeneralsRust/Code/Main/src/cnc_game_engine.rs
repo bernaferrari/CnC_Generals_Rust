@@ -114,6 +114,8 @@ mod tests {
             "fn ui_object_can_produce",
             "fn ui_production_queue_head",
             "fn ui_selected_ids",
+            "fn ui_special_power_ready",
+            "fn ui_special_power_type_if_ready",
         ] {
             assert!(
                 eng.contains(token),
@@ -10376,6 +10378,42 @@ impl CnCGameEngine {
     }
 
     #[inline]
+    #[inline]
+    fn ui_special_power_ready(&self, id: crate::game_logic::ObjectId) -> bool {
+        if let Some(o) = self.presentation_ro(id) {
+            return o.special_power_ready
+                && !o.destroyed
+                && o.health_current > 0.0
+                && !o.under_construction;
+        }
+        self.game_logic
+            .get_object(id)
+            .is_some_and(|o| o.is_alive() && o.special_power_ready)
+    }
+
+    /// Prefer presentation special-power type residual when ready; else live host.
+    #[inline]
+    fn ui_special_power_type_if_ready(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> Option<crate::command_system::SpecialPowerType> {
+        if let Some(o) = self.presentation_ro(id) {
+            if !o.special_power_ready || o.destroyed || o.health_current <= 0.0 {
+                return None;
+            }
+            return crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
+                &o.template_name,
+            );
+        }
+        let obj = self.game_logic.get_object(id)?;
+        if !obj.is_alive() || !obj.special_power_ready {
+            return None;
+        }
+        crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
+            &obj.template_name,
+        )
+    }
+
     fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
         // Prefer engine selection residual, then player selection, then presentation.
         if !self.selected_objects.is_empty() {
@@ -10826,7 +10864,16 @@ impl CnCGameEngine {
                 let requested = power_type.clone();
                 let mut resolved = None;
                 // Pass 1: honor named button power when ready on selection.
+                // Prefer presentation special_power_ready residual; live host is fallback.
                 for id in &selected {
+                    if self.ui_special_power_ready(*id) {
+                        if let Some(p) = self.ui_special_power_type_if_ready(*id) {
+                            if std::mem::discriminant(&p) == std::mem::discriminant(&requested) {
+                                resolved = Some(requested.clone());
+                                break;
+                            }
+                        }
+                    }
                     if self.game_logic.is_special_power_ready_for(*id, &requested) {
                         resolved = Some(requested.clone());
                         break;
@@ -10835,6 +10882,11 @@ impl CnCGameEngine {
                 // Pass 2: any ready superweapon structure (generic Command_SpecialPower / V).
                 if resolved.is_none() {
                     for id in &selected {
+                        if let Some(p) = self.ui_special_power_type_if_ready(*id) {
+                            resolved = Some(p);
+                            break;
+                        }
+                        // Boot residual without presentation frame.
                         let Some(obj) = self.game_logic.get_object(*id) else {
                             continue;
                         };
