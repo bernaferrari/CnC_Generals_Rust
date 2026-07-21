@@ -6362,7 +6362,17 @@ impl GameLogic {
                     spawn_pos += jitter_dir * selection_radius;
                 }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
-                    unit.set_position(spawn_pos);
+                    if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                        crate::game_logic::host_move_log::record(
+                            new_id,
+                            Some([spawn_pos.x, spawn_pos.y, spawn_pos.z]),
+                        );
+                        // Factory exit residual still needs host pose for same-frame doors.
+                        unit.set_position(spawn_pos);
+                        unit.record_host_movement();
+                    } else {
+                        unit.set_position(spawn_pos);
+                    }
                 }
                 // C++ QueueProductionExitUpdate exit path residual:
                 // natural rally first; custom rally appended; else double natural
@@ -14484,6 +14494,34 @@ impl GameLogic {
         }
     }
 
+    /// Consume/suicide destroy residual: log lethal HP under damage authority.
+    /// Destroy flag stays host for process_destroy_list bookkeeping.
+    fn mark_destroyed_authority_aware(&mut self, object_id: ObjectId, source: Option<ObjectId>) {
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                let hp = obj.health.current.max(1.0);
+                crate::game_logic::host_damage_log::record(object_id, hp, source, true);
+            } else if obj.health.current > 0.0 {
+                obj.health.current = 0.0;
+            }
+            obj.status.destroyed = true;
+        }
+    }
+
+    /// Same as mark_destroyed_authority_aware while holding `&mut Object`.
+    fn mark_object_destroyed_authority_aware(
+        obj: &mut crate::game_logic::Object,
+        source: Option<ObjectId>,
+    ) {
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            let hp = obj.health.current.max(1.0);
+            crate::game_logic::host_damage_log::record(obj.id, hp, source, true);
+        } else if obj.health.current > 0.0 {
+            obj.health.current = 0.0;
+        }
+        obj.status.destroyed = true;
+    }
+
     #[cfg(test)]
     pub fn stop_attack_decision_aware_for_test(&mut self, unit_id: ObjectId) {
         self.stop_attack_decision_aware(unit_id);
@@ -15133,9 +15171,7 @@ impl GameLogic {
                                 let msg =
                                     localization::localize("hud.pilot.recrew", "Vehicle recrewed");
                                 self.queue_radar_message_for_team(pilot_team, msg);
-                                if let Some(pilot) = self.objects.get_mut(&object_id) {
-                                    pilot.status.destroyed = true;
-                                }
+                                self.mark_destroyed_authority_aware(object_id, None);
                                 self.mark_object_for_destruction(object_id, Some(pilot_team));
                                 continue;
                             }
@@ -15881,9 +15917,7 @@ impl GameLogic {
                                     h.begin_hijacker_in_vehicle(special_target_id);
                                 }
                             } else {
-                                if let Some(hijacker) = self.objects.get_mut(&object_id) {
-                                    hijacker.status.destroyed = true;
-                                }
+                                self.mark_destroyed_authority_aware(object_id, None);
                                 self.mark_object_for_destruction(object_id, Some(team));
                             }
                         }
@@ -16042,9 +16076,7 @@ impl GameLogic {
                                     );
                                     self.queue_radar_message_for_team(team, msg);
                                     // C++ CrateCollide: destroy saboteur (mobile crate).
-                                    if let Some(sab) = self.objects.get_mut(&object_id) {
-                                        sab.status.destroyed = true;
-                                    }
+                                    self.mark_destroyed_authority_aware(object_id, None);
                                     self.mark_object_for_destruction(object_id, Some(team));
                                     self.saboteur.record_consumed();
                                 } else if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -16278,9 +16310,7 @@ impl GameLogic {
                                 "Vehicle converted to car bomb",
                             );
                             self.queue_radar_message_for_team(team, msg);
-                            if let Some(bomber) = self.objects.get_mut(&object_id) {
-                                bomber.status.destroyed = true;
-                            }
+                            self.mark_destroyed_authority_aware(object_id, None);
                             self.mark_object_for_destruction(object_id, Some(team));
                         }
                         PendingSpecialAbility::DisableVehicleHack { .. } => {
@@ -16515,7 +16545,7 @@ impl GameLogic {
                             source.stored_resources.supplies.saturating_sub(taken),
                         );
                         if source.stored_resources.supplies == 0 {
-                            source.status.destroyed = true;
+                            Self::mark_object_destroyed_authority_aware(source, None);
                             self.mark_object_for_destruction(source_id, None);
                         }
                     }
@@ -32454,9 +32484,7 @@ impl GameLogic {
         }
 
         // Self-kill residual (TerroristSuicideWeapon SUICIDED + FireWeaponWhenDead).
-        if let Some(src) = self.objects.get_mut(&source_id) {
-            src.status.destroyed = true;
-        }
+        self.mark_destroyed_authority_aware(source_id, Some(source_id));
         self.mark_object_for_destruction(source_id, Some(source_team));
 
         self.terrorist_residual_detonations = self.terrorist_residual_detonations.saturating_add(1);
@@ -39301,7 +39329,7 @@ impl GameLogic {
         );
 
         if let Some(car) = self.objects.get_mut(&car_id) {
-            car.status.destroyed = true;
+            Self::mark_object_destroyed_authority_aware(car, Some(car_id));
             car.set_status_is_carbomb(false);
         }
         self.mark_object_for_destruction(car_id, Some(car_team));
@@ -46984,7 +47012,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.demo_suicided_detonating = true;
             obj.record_host_demo_mine_cheer();
-            obj.status.destroyed = true;
+            Self::mark_object_destroyed_authority_aware(obj, Some(unit_id));
         }
         self.demo_suicide_bomb.record_tertiary_suicide_issued();
         let _ = self.apply_demo_plus_fire_death_at(unit_id, source_team, source_pos);
