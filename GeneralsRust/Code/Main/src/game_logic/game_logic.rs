@@ -14142,33 +14142,62 @@ impl GameLogic {
         const GROUND_IMPACT_RADIUS: f32 = 12.0;
 
         let attacker = self.objects.get(&attacker_id)?;
-        let mut best: Option<(ObjectId, f32)> = None;
+        let force_attack = attacker.force_attack;
+        let attacker_team = attacker.team;
 
-        for (&candidate_id, candidate) in self.objects.iter() {
-            if candidate_id == attacker_id || !candidate.is_alive() || !candidate.is_attackable() {
-                continue;
-            }
+        // Pure residual acquire: nearest attackable victim near ground impact (3D).
+        let candidate_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(&candidate_id, candidate)| {
+                if candidate_id == attacker_id
+                    || !candidate.is_alive()
+                    || !candidate.is_attackable()
+                {
+                    return None;
+                }
+                if !force_attack && candidate.team == attacker_team {
+                    return None;
+                }
+                Some(candidate_id)
+            })
+            .collect();
 
-            if !attacker.force_attack && candidate.team == attacker.team {
-                continue;
-            }
+        let attacker = self.objects.get(&attacker_id)?;
+        let candidates: Vec<_> = candidate_ids
+            .into_iter()
+            .filter_map(|id| {
+                let candidate = self.objects.get(&id)?;
+                if !attacker.can_target(candidate) {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team: candidate.team,
+                        position: candidate.get_position(),
+                        is_alive: true,
+                        is_neutral: candidate.team == Team::Neutral,
+                        under_construction: candidate.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: candidate.is_effectively_stealthed(),
+                        is_air: candidate.is_kind_of(KindOf::Aircraft)
+                            || candidate.status.airborne_target,
+                        eject_invulnerable: candidate.is_eject_invulnerable(),
+                    },
+                )
+            })
+            .collect();
 
-            let impact_distance = candidate.get_position().distance(target_location);
-            if impact_distance > GROUND_IMPACT_RADIUS {
-                continue;
-            }
-
-            if !attacker.can_target(candidate) {
-                continue;
-            }
-
-            match best {
-                Some((_, best_distance)) if impact_distance >= best_distance => {}
-                _ => best = Some((candidate_id, impact_distance)),
-            }
-        }
-
-        best.map(|(id, _)| id)
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            attacker_id,
+            attacker_team,
+            target_location,
+            candidates,
+            |_| GROUND_IMPACT_RADIUS,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
 
     /// Process AI behavior for a single object
@@ -21522,40 +21551,61 @@ impl GameLogic {
     /// Nearest alive harvestable supply pile residual for gather re-target.
     fn find_nearest_harvestable_supply(&self, team: Team, from: Vec3) -> Option<ObjectId> {
         let _ = team; // supplies are neutral/shared residual
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (&id, obj) in &self.objects {
-            if !obj.is_alive() || obj.status.destroyed {
-                continue;
-            }
-            let name = obj.template_name.to_ascii_lowercase();
-            let harvestable = obj.is_kind_of(KindOf::Harvestable)
-                || obj.is_kind_of(KindOf::Resource)
-                || obj.object_type == ObjectType::Supply
-                || (name.contains("supply")
-                    && !name.contains("center")
-                    && !name.contains("dock")
-                    && !name.contains("dropzone"));
-            if !harvestable {
-                continue;
-            }
-            // Prefer piles that still have stored supplies when tracked.
-            if obj.stored_resources.supplies == 0
-                && (obj.is_kind_of(KindOf::Harvestable) || obj.object_type == ObjectType::Supply)
-            {
-                // Some piles use infinite residual); only skip if explicitly zero and Harvestable
-                // with supplies field used as stock. Fail-open if never depleted.
-                if obj.template_name.to_ascii_lowercase().contains("warehouse")
-                    || obj.template_name.to_ascii_lowercase().contains("dock")
-                {
-                    continue;
+                      // Pure residual acquire: nearest harvestable supply pile (3D distance).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if !obj.is_alive() || obj.status.destroyed {
+                    return None;
                 }
-            }
-            let d = from.distance(obj.get_position());
-            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                best = Some((id, d));
-            }
-        }
-        best.map(|(id, _)| id)
+                let name = obj.template_name.to_ascii_lowercase();
+                let harvestable = obj.is_kind_of(KindOf::Harvestable)
+                    || obj.is_kind_of(KindOf::Resource)
+                    || obj.object_type == ObjectType::Supply
+                    || (name.contains("supply")
+                        && !name.contains("center")
+                        && !name.contains("dock")
+                        && !name.contains("dropzone"));
+                if !harvestable {
+                    return None;
+                }
+                // Prefer piles that still have stored supplies when tracked.
+                if obj.stored_resources.supplies == 0
+                    && (obj.is_kind_of(KindOf::Harvestable)
+                        || obj.object_type == ObjectType::Supply)
+                {
+                    // Some piles use infinite residual; only skip if explicitly zero and
+                    // Harvestable with supplies field used as stock. Fail-open if never depleted.
+                    if name.contains("warehouse") || name.contains("dock") {
+                        return None;
+                    }
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team: obj.team,
+                        position: obj.get_position(),
+                        is_alive: true,
+                        is_neutral: obj.team == Team::Neutral,
+                        under_construction: obj.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            ObjectId(u32::MAX),
+            Team::Neutral,
+            from,
+            candidates,
+            |_| f32::MAX,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
 
     fn find_nearest_supply_center(&self, team: Team, from_position: Vec3) -> Option<ObjectId> {
@@ -57392,6 +57442,20 @@ mod tests {
     /// C++ BattlePlanUpdate::setBattlePlan → Player::changeBattlePlan after unpack ACTIVE:
     /// Bombardment DAMAGE 120%, HoldTheLine armor 0.9, SearchAndDestroy RANGE 120%.
     /// Fail-closed: not full turret pitch matrix / vision-object residual.
+
+    /// Observed residual damage under default DAMAGE_AUTHORITY (HP log) or host HP delta.
+    fn test_observed_damage_to(target: ObjectId, hp_before: f32, hp_after: f32) -> f32 {
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            crate::game_logic::host_damage_log::snapshot()
+                .into_iter()
+                .filter(|e| e.target == target)
+                .map(|e| e.amount)
+                .sum()
+        } else {
+            (hp_before - hp_after).max(0.0)
+        }
+    }
+
     #[test]
     fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -57577,13 +57641,14 @@ mod tests {
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
             enemy.thing.template.armor = 0.0;
         }
+        crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
         let enemy_hp_after = game_logic
             .find_object(enemy_id)
             .expect("enemy")
             .health
             .current;
-        let dealt = enemy_hp_before - enemy_hp_after;
+        let dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
         assert!(
             (dealt - 24.0).abs() < 0.05,
             "Bombardment residual must deal 120% damage (20 * 1.2 = 24), got {dealt}"
@@ -57656,9 +57721,11 @@ mod tests {
             ally.target = None;
             ally.set_status_attacking(false);
         }
+        crate::game_logic::host_damage_log::clear();
+        crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[enemy_id, ally_id], 1.0 / 30.0);
         let ally_hp_after = game_logic.find_object(ally_id).unwrap().health.current;
-        let taken = ally_hp_before - ally_hp_after;
+        let taken = test_observed_damage_to(ally_id, ally_hp_before, ally_hp_after);
         assert!(
             (taken - 18.0).abs() < 0.05,
             "HoldTheLine residual must take 90% damage (20 * 0.9 = 18), got {taken}"
@@ -57690,6 +57757,10 @@ mod tests {
         // Range residual: ally can hit target beyond base 100 range up to 120.
         // Plan-switch BattlePlanChangeParalyze residual freezes troops for 150 frames;
         // clear for combat observation of RANGE residual (paralyze tested separately).
+        // Flat synthetic LOS for range residual: clear coarse height samples and
+        // structure static blocks so AttackNeedsLineOfSight fails-open without a map.
+        game_logic.pathfinding_height_samples = None;
+        game_logic.pathfinding_system.clear_static_blocks();
         {
             let ally = game_logic.find_object_mut(ally_id).expect("ally");
             ally.set_status_disabled_paralyzed(false);
@@ -57705,6 +57776,9 @@ mod tests {
             ally.target = Some(enemy_id);
             ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
+            ally.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+            ally.status.is_aiming_weapon = false;
+            ally.status.is_firing_weapon = false;
         }
         {
             let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
@@ -57715,9 +57789,10 @@ mod tests {
             enemy.set_status_attacking(false);
         }
         let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
         let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
-        let sn_dealt = enemy_hp_before - enemy_hp_after;
+        let sn_dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
         assert!(
             sn_dealt > 0.5,
             "SearchAndDestroy residual RANGE 120% must allow fire at 110 (> base 100), dealt {sn_dealt}"
@@ -57842,12 +57917,13 @@ mod tests {
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
             enemy.thing.template.armor = 0.0;
         }
+        crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
         let enemy_hp_mid = game_logic.find_object(enemy_id).unwrap().health.current;
+        let dealt_mid = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_mid);
         assert!(
-            (enemy_hp_before - enemy_hp_mid).abs() < 0.05,
-            "paralyzed residual must block ally fire, dealt {}",
-            enemy_hp_before - enemy_hp_mid
+            dealt_mid.abs() < 0.05,
+            "paralyzed residual must block ally fire, dealt {dealt_mid}"
         );
 
         // Expire DISABLED_PARALYZED residual after 150 frames.
@@ -57878,11 +57954,13 @@ mod tests {
                 ..Weapon::default()
             });
         }
+        crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
         let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let dealt_after = test_observed_damage_to(enemy_id, enemy_hp_mid, enemy_hp_after);
         assert!(
-            enemy_hp_after < enemy_hp_mid - 0.5,
-            "after paralyze expiry ally must fire again"
+            dealt_after > 0.5,
+            "after paralyze expiry ally must fire again (dealt={dealt_after})"
         );
     }
 
@@ -97104,6 +97182,7 @@ mod tests {
             .get(&tgt)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        crate::game_logic::host_damage_log::clear();
         for _ in 0..30 {
             logic.update_combat(&[sc, tgt], 1.0 / 30.0);
         }
@@ -97112,9 +97191,10 @@ mod tests {
             .get(&tgt)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let dealt_flat = test_observed_damage_to(tgt, h0, h1);
         assert!(
-            (h1 - h0).abs() < 0.01,
-            "flat pitch must not deal damage (h0={h0} h1={h1})"
+            dealt_flat.abs() < 0.01,
+            "flat pitch must not deal damage (h0={h0} h1={h1} dealt={dealt_flat})"
         );
 
         // Elevate target into loft window (~60°) and allow fire.
@@ -97131,6 +97211,7 @@ mod tests {
             o.set_ai_state(AIState::Attacking);
             o.set_status_attacking(true);
         }
+        crate::game_logic::host_damage_log::clear();
         for _ in 0..30 {
             logic.update_combat(&[sc, tgt], 1.0 / 30.0);
         }
@@ -97139,9 +97220,10 @@ mod tests {
             .get(&tgt)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let dealt_loft = test_observed_damage_to(tgt, h0, h2);
         assert!(
-            h2 < h0 - 1.0,
-            "lofted pitch must allow fire (h0={h0} h2={h2})"
+            dealt_loft > 1.0,
+            "lofted pitch must allow fire (h0={h0} h2={h2} dealt={dealt_loft})"
         );
         let lim = host_target_pitch_limits_for_weapon_name("AmericaStrategyCenterArtillery");
         assert!(!is_pitch_within_limits(

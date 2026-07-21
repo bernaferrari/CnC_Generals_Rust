@@ -19189,6 +19189,21 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Harvest supply + ground-attack impact residual.
+        for name in [
+            "find_nearest_harvestable_supply",
+            "find_ground_attack_victim",
+        ] {
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 4000)];
+            assert!(
+                body.contains("pick_nearest_residual_target")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual acquire query"
+            );
+        }
         // Strategy Center mood-target residual (nearest enemy in vision).
         {
             let name = "tick_strategy_center_turret_mood_target";
