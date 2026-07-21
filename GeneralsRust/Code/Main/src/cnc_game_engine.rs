@@ -9070,6 +9070,14 @@ impl CnCGameEngine {
             } else {
                 None
             };
+            // Coupled host→shadow frame: sole-tick systems freeze host percent only
+            // while this is set AND the engine owns a live GameWorldShadow that will
+            // write back after the host tick. Host-only gates / missing shadow leave
+            // host construction/production advancing (fail-open).
+            let couple_shadow = self.gameworld_shadow.is_some();
+            if couple_shadow {
+                crate::gameworld_shadow::begin_shadow_coupled_tick();
+            }
             // Update game logic first
             for _ in 0..ff_steps {
                 if let Some(budget) = headless_step_budget {
@@ -9133,6 +9141,9 @@ impl CnCGameEngine {
                 }
             } else {
                 let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&mut self.game_logic);
+            }
+            if couple_shadow {
+                crate::gameworld_shadow::end_shadow_coupled_tick();
             }
 
             // Immutable presentation snapshot for client/render (borrow-first policy).
