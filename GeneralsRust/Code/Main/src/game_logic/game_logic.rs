@@ -7609,17 +7609,33 @@ impl GameLogic {
 
     /// C++ AIUpdateInterface::privateIdle residual.
     pub fn private_idle(&mut self, unit_id: ObjectId) -> bool {
-        let Some(u) = self.objects.get_mut(&unit_id) else {
+        let Some(u) = self.objects.get(&unit_id) else {
             return false;
         };
         if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
             return false;
         }
-        u.stop_moving();
-        u.set_status_attacking(false);
-        u.target = None;
-        u.set_ai_state(AIState::Idle);
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        if decision_auth {
+            // Stop movement residual stays host; engagement/state via decision log.
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                u.stop_moving();
+            }
+            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 0);
+        // Idle
+        } else if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.stop_moving();
+            u.set_status_attacking(false);
+            u.target = None;
+            u.set_ai_state(AIState::Idle);
+        }
         true
+    }
+
+    #[cfg(test)]
+    pub fn private_idle_for_test(&mut self, unit_id: ObjectId) -> bool {
+        self.private_idle(unit_id)
     }
 
     /// C++ AIAttackAimAtTargetState::onEnter residual.
@@ -14340,6 +14356,23 @@ impl GameLogic {
     /// Residual fire paths should use this instead of raw `target = Some` so
     /// GameWorld apply/writeback is last-writer when authority is on. Does not
     /// invoke full [`Object::attack_target`] (avoids takeoff/force-attack side effects).
+    /// Set AI state, honoring AI decision authority (log-only when GameWorld applies).
+    fn set_ai_state_decision_aware(&mut self, unit_id: ObjectId, state: AIState) {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
+            return;
+        }
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.set_ai_state(state);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn set_ai_state_decision_aware_for_test(&mut self, unit_id: ObjectId, state: AIState) {
+        self.set_ai_state_decision_aware(unit_id, state);
+    }
+
     fn apply_engagement_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
         if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
@@ -14669,8 +14702,18 @@ impl GameLogic {
                         Some(v) => v,
                         None => {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
-                                obj.set_ai_state(AIState::Idle);
+                                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
+                                ) {
+                                    crate::game_logic::host_ai_decision_log::record_stop_attack(
+                                        object_id,
+                                    );
+                                    crate::game_logic::host_ai_decision_log::record_set_state(
+                                        object_id, 0,
+                                    );
+                                } else {
+                                    obj.set_target(None);
+                                    obj.set_ai_state(AIState::Idle);
+                                }
                                 obj.set_actively_constructing(false);
                             }
                             continue;
@@ -14679,8 +14722,17 @@ impl GameLogic {
                     if !healed && !target_full {
                         // Another dozer owns sole-benefactor claim — cancel this dozer task.
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
-                            obj.set_ai_state(AIState::Idle);
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                crate::game_logic::host_ai_decision_log::record_stop_attack(
+                                    object_id,
+                                );
+                                crate::game_logic::host_ai_decision_log::record_set_state(
+                                    object_id, 0,
+                                );
+                            } else {
+                                obj.set_target(None);
+                                obj.set_ai_state(AIState::Idle);
+                            }
                             obj.set_actively_constructing(false);
                         }
                         self.sole_benefactor_repair_rejects =
@@ -14700,8 +14752,17 @@ impl GameLogic {
                         );
                         self.repair_complete_events = self.repair_complete_events.saturating_add(1);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
-                            obj.set_ai_state(AIState::Idle);
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                crate::game_logic::host_ai_decision_log::record_stop_attack(
+                                    object_id,
+                                );
+                                crate::game_logic::host_ai_decision_log::record_set_state(
+                                    object_id, 0,
+                                );
+                            } else {
+                                obj.set_target(None);
+                                obj.set_ai_state(AIState::Idle);
+                            }
                             obj.set_actively_constructing(false);
                         }
                     }
@@ -14818,6 +14879,15 @@ impl GameLogic {
                         }
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_target(None);
+                        } else if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()
+                        {
+                            let ordinal =
+                                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                                    &state,
+                                );
+                            crate::game_logic::host_ai_decision_log::record_set_state(
+                                object_id, ordinal,
+                            );
                         } else {
                             obj.set_ai_state(state);
                         }
@@ -15132,7 +15202,17 @@ impl GameLogic {
                         } else {
                             AIState::Docked
                         };
-                        obj.set_ai_state(__ai_st);
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            let ordinal =
+                                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                                    &__ai_st,
+                                );
+                            crate::game_logic::host_ai_decision_log::record_set_state(
+                                object_id, ordinal,
+                            );
+                        } else {
+                            obj.set_ai_state(__ai_st);
+                        }
                         obj.set_status_moving(false);
                     }
                     if container_is_tunnel_network {
@@ -15254,11 +15334,24 @@ impl GameLogic {
                     if can_move && position.distance(target_position) > capture_range {
                         if self.assign_unit_path(object_id, target_position, &[]) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_ai_state(AIState::Capturing);
+                                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
+                                ) {
+                                    crate::game_logic::host_ai_decision_log::record_set_state(
+                                        object_id, 19,
+                                    ); // Capturing
+                                } else {
+                                    obj.set_ai_state(AIState::Capturing);
+                                }
                             }
                         } else if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_destination(target_position);
-                            obj.set_ai_state(AIState::Capturing);
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                crate::game_logic::host_ai_decision_log::record_set_state(
+                                    object_id, 19,
+                                ); // Capturing
+                            } else {
+                                obj.set_ai_state(AIState::Capturing);
+                            }
                         }
                         continue;
                     }
@@ -16130,8 +16223,18 @@ impl GameLogic {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.apply_disguise(&tpl, as_team);
                                 obj.stop_moving();
-                                obj.set_target(None);
-                                obj.set_ai_state(AIState::Idle);
+                                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
+                                ) {
+                                    crate::game_logic::host_ai_decision_log::record_stop_attack(
+                                        object_id,
+                                    );
+                                    crate::game_logic::host_ai_decision_log::record_set_state(
+                                        object_id, 0,
+                                    );
+                                } else {
+                                    obj.set_target(None);
+                                    obj.set_ai_state(AIState::Idle);
+                                }
                             }
                             self.bomb_truck_disguise.record_disguise(object_id, &tpl);
                             self.bomb_truck_disguise.record_transition_start();
@@ -16212,9 +16315,7 @@ impl GameLogic {
                     const MAX_CARRY: u32 = 1000;
 
                     let Some(source_id) = target_id else {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_ai_state(AIState::Idle);
-                        }
+                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
                         continue;
                     };
 
@@ -16236,10 +16337,8 @@ impl GameLogic {
                                 continue;
                             }
                         }
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
-                            obj.set_ai_state(AIState::Idle);
-                        }
+                        self.stop_attack_decision_aware(object_id);
+                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
                         continue;
                     }
 
@@ -16407,9 +16506,9 @@ impl GameLogic {
                                         AIState::Gathering,
                                     );
                                 }
-                            } else if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
-                                obj.set_ai_state(AIState::Idle);
+                            } else {
+                                self.stop_attack_decision_aware(object_id);
+                                self.set_ai_state_decision_aware(object_id, AIState::Idle);
                             }
                         }
                     } else if can_move {

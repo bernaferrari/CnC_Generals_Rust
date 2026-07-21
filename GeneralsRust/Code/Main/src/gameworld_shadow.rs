@@ -16593,6 +16593,119 @@ mod tests {
     }
 
     #[test]
+    fn private_idle_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("IdleAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["IdU", "IdE"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let oid = logic
+            .create_object("IdU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("u");
+        let vid = logic
+            .create_object("IdE", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("e");
+        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+            o.target = Some(vid);
+            o.status.attacking = true;
+            o.set_ai_state(AIState::Attacking);
+        }
+        assert!(logic.private_idle_for_test(oid));
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == host_ai_decision_log::AI_DECISION_STOP_ATTACK),
+            "private_idle must log StopAttack; got {events:?}"
+        );
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE && e.ai_state_ordinal == 0
+            }),
+            "private_idle must log Idle; got {events:?}"
+        );
+        // Host still engaged until writeback.
+        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        // set_target(None) residual also idles host; either writeback path is enough.
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!(o.target.is_none());
+        assert_eq!(o.ai_state, AIState::Idle);
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn set_ai_state_decision_aware_writeback() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("StateAw");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SaU") {
+            let mut t = ThingTemplate::new("SaU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("SaU".into(), t);
+        }
+        let oid = logic
+            .create_object("SaU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        logic.set_ai_state_decision_aware_for_test(oid, AIState::Gathering);
+        let events = host_ai_decision_log::drain();
+        let ord = GameWorldShadow::host_ai_state_ordinal(&AIState::Gathering);
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
+                    && e.host_object == oid
+                    && e.ai_state_ordinal == ord
+            }),
+            "must log Gathering; got {events:?}"
+        );
+        assert_ne!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Gathering
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Gathering
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn death_type_channel_via_set_death_type() {
         use crate::game_logic::host_death_type_log;
         use crate::game_logic::host_usa_pilot::HostDeathType;
