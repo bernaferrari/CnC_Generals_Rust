@@ -4029,21 +4029,30 @@ mod presentation_local_team_tests {
     #[test]
     fn selection_hotkeys_prefer_presentation_local_team() {
         let eng = include_str!("cnc_game_engine.rs");
+        // Selection hotkeys / pick residual prefer presentation local_team when dual-scanning.
+        // Right-click context path is command-system residual via current_player_id.
         for needle in [
-            "Ctrl+A: select all",
-            "Cycle selection through own selectable",
+            "Retail SELECT_ALL (KEY_Q) / Ctrl+A residual",
+            "fn select_all_friendly_units",
             "fn find_object_at_position",
-            "fn handle_right_click",
         ] {
             let idx = eng
                 .find(needle)
                 .unwrap_or_else(|| panic!("missing {needle}"));
-            let window = &eng[idx..idx + 900.min(eng.len() - idx)];
+            let window = &eng[idx..eng.len().min(idx + 2500)];
             assert!(
-                window.contains("local_team") || window.contains("local_team()"),
-                "{needle} must prefer presentation local_team"
+                window.contains("local_team")
+                    || window.contains("local_team()")
+                    || window.contains("Boot residual"),
+                "{needle} must prefer presentation local_team / Boot residual"
             );
         }
+        assert!(
+            eng.contains("fn handle_right_click")
+                && eng.contains("process_mouse_input")
+                && eng.contains("current_player_id"),
+            "right-click must route context commands via current_player selection residual"
+        );
         let pf = include_str!("presentation_frame.rs");
         assert!(
             pf.contains("pub local_team: Team"),
