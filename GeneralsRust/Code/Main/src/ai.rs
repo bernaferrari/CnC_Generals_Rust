@@ -1164,10 +1164,11 @@ impl AIPlayer {
                 }
                 if game_logic.assign_unit_path(unit_id, enemy_base, &[]) {
                     game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
-                } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                } else {
                     // Fallback residual when A* fails (blocked goal).
-                    unit.move_to(enemy_base);
-                    drop(unit);
+                    if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                        unit.move_to(enemy_base);
+                    }
                     game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_move_to(

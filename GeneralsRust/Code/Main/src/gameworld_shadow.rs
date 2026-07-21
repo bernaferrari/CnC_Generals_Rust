@@ -71,6 +71,30 @@ pub fn engine_object_bridge_enabled() -> bool {
         || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some()
 }
 
+/// True only while the production engine couples host update → shadow_session.
+/// Host-only gates (golden/shell) never set this, so construction/production
+/// percent still advance without a dual-world writeback.
+static SHADOW_COUPLED_TICK_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Mark the current host frame as shadow-coupled (engine path only).
+#[inline]
+pub fn begin_shadow_coupled_tick() {
+    SHADOW_COUPLED_TICK_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Clear the shadow-coupled host-frame mark.
+#[inline]
+pub fn end_shadow_coupled_tick() {
+    SHADOW_COUPLED_TICK_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Host freeze of sole-tick systems is valid only on a coupled engine frame.
+#[inline]
+pub fn shadow_coupled_tick_active() -> bool {
+    SHADOW_COUPLED_TICK_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn gameworld_shadow_enabled() -> bool {
     match std::env::var("GENERALS_GAMEWORLD_SHADOW") {
         Ok(v) => {
@@ -264,12 +288,16 @@ pub fn gameworld_construction_authority_enabled() -> bool {
 /// Construction progress last-writer only while shadow can sole-tick percent.
 #[inline]
 pub fn gameworld_construction_authority_live() -> bool {
-    gameworld_construction_authority_enabled() && gameworld_shadow_enabled()
+    gameworld_construction_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// Host skips construction percent advance only when authority AND shadow session run.
 pub fn gameworld_construction_sole_tick_enabled() -> bool {
-    gameworld_construction_authority_enabled() && gameworld_shadow_enabled()
+    gameworld_construction_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// Env: `GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY=0|false` off; unset/`1` = **on**.
@@ -288,7 +316,9 @@ pub fn gameworld_special_power_authority_enabled() -> bool {
 
 /// Host skips SP countdown advance only when authority AND shadow session run.
 pub fn gameworld_special_power_sole_tick_enabled() -> bool {
-    gameworld_special_power_authority_enabled() && gameworld_shadow_enabled()
+    gameworld_special_power_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// When enabled (default), GameWorld shadow is last-writer for production queue
@@ -313,12 +343,16 @@ pub fn gameworld_production_authority_enabled() -> bool {
 /// Production queue last-writer only while shadow can sole-tick progress.
 #[inline]
 pub fn gameworld_production_authority_live() -> bool {
-    gameworld_production_authority_enabled() && gameworld_shadow_enabled()
+    gameworld_production_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// Host skips progress advance only when production authority AND shadow session run.
 pub fn gameworld_production_sole_tick_enabled() -> bool {
-    gameworld_production_authority_enabled() && gameworld_shadow_enabled()
+    gameworld_production_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// Gates/smoke: no-op when production defaults are already on.
@@ -2453,7 +2487,9 @@ impl GameWorldShadow {
     /// Under CONSTRUCTION_AUTHORITY: advance entity construction_percent by rate*dt.
     /// Host completes when writeback reaches 1.0 (or sell finish).
     pub fn tick_construction_progress(&mut self, dt: f32) -> usize {
-        if !gameworld_construction_sole_tick_enabled() {
+        // GameWorld advances whenever construction authority is on. Host sole-tick
+        // freeze is a separate coupled-frame gate (`gameworld_construction_sole_tick_enabled`).
+        if !gameworld_construction_authority_enabled() {
             return 0;
         }
         use gamelogic::world::WorldMutation;
@@ -14353,7 +14389,25 @@ mod tests {
         assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
     }
 
+    
     #[test]
+    fn construction_sole_tick_requires_coupled_frame() {
+        // Host-only gates (no begin_shadow_coupled_tick) must still advance builds.
+        assert!(
+            !shadow_coupled_tick_active(),
+            "tests start outside coupled engine frame"
+        );
+        assert!(
+            !gameworld_construction_sole_tick_enabled(),
+            "sole-tick freeze requires coupled engine frame"
+        );
+        begin_shadow_coupled_tick();
+        assert!(gameworld_construction_sole_tick_enabled() || !gameworld_shadow_enabled());
+        end_shadow_coupled_tick();
+        assert!(!gameworld_construction_sole_tick_enabled());
+    }
+
+#[test]
     fn construction_complete_heal_log_sets_full_hp_via_writeback() {
         use crate::game_logic::{
             host_construction_progress_log, host_heal_log, KindOf, Team, ThingTemplate,

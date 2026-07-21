@@ -1002,7 +1002,8 @@ fn fight_enemies_with_rangers(
         if !in_range {
             // Keep pure pathfinding march alive; avoid AttackObject until in range
             // so combat chase does not wipe the path.
-            if round % 10 == 0 {
+            // Repath less often — assign_unit_path is full A* on large map grids.
+            if round % 20 == 0 {
                 for (i, rid) in live.iter().enumerate() {
                     let dest = approach_point(ep, i);
                     let _ = logic.assign_unit_path(*rid, dest, &[]);
@@ -2308,7 +2309,9 @@ mod tests {
         );
     }
 
-    #[test]
+    
+
+#[test]
     fn load_map_start_vision_allows_build_residual() {
         crate::gameworld_shadow::ensure_gate_damage_authority();
         set_verification_single_authority(true);

@@ -13634,50 +13634,66 @@ impl GameLogic {
                     if combat_chase_ok {
                         // findAttackPath residual: path to in-range LOS cell, not target cell.
                         // Contact weapons path to the target; others stand off at range*0.9.
-                        let (wrange, wname) =
-                            self.objects
-                                .get(&attacker_id)
-                                .map(|a| {
-                                    let r = a
-                                        .weapon
-                                        .as_ref()
-                                        .map(|w| w.range)
-                                        .or_else(|| a.secondary_weapon.as_ref().map(|w| w.range))
-                                        .unwrap_or(50.0);
-                                    let n =
-                                        a.thing.template.primary_weapon_name.clone().or_else(
-                                            || a.thing.template.secondary_weapon_name.clone(),
-                                        );
-                                    (r, n)
-                                })
-                                .unwrap_or((50.0, None));
-                        let approach = self.approach_pos_for_attack(
-                            attacker_id,
-                            target_position,
-                            wrange,
-                            wname.as_deref(),
-                        );
-                        if !self.assign_unit_attack_path(attacker_id, Some(target_id), approach) {
-                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                // Fallback: direct march if A* / attack-path fails.
-                                attacker.movement.path.clear();
-                                attacker.movement.current_path_index = 0;
-                                attacker.movement.target_position = Some(approach);
-                                crate::game_logic::host_move_log::record(
-                                    attacker_id,
-                                    Some([approach.x, approach.y, approach.z]),
-                                );
-                                attacker.set_status_moving(true);
-                                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
-                                ) {
-                                    crate::game_logic::host_ai_decision_log::record_set_state(
+                        //
+                        // Repath throttle: A* every OOR frame thrash-hangs Lone Eagle
+                        // (hundreds of attackers × large static grid). Keep following an
+                        // existing path; repath periodically or when path is exhausted.
+                        let has_active_path = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                a.movement.current_path_index < a.movement.path.len()
+                                    || a.movement.target_position.is_some()
+                            })
+                            .unwrap_or(false);
+                        // ~0.5s at 30 Hz when already marching; always plan when idle/stuck.
+                        let repath_due = !has_active_path || (self.frame % 15 == 0);
+                        if repath_due {
+                            let (wrange, wname) =
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        let r = a
+                                            .weapon
+                                            .as_ref()
+                                            .map(|w| w.range)
+                                            .or_else(|| a.secondary_weapon.as_ref().map(|w| w.range))
+                                            .unwrap_or(50.0);
+                                        let n =
+                                            a.thing.template.primary_weapon_name.clone().or_else(
+                                                || a.thing.template.secondary_weapon_name.clone(),
+                                            );
+                                        (r, n)
+                                    })
+                                    .unwrap_or((50.0, None));
+                            let approach = self.approach_pos_for_attack(
+                                attacker_id,
+                                target_position,
+                                wrange,
+                                wname.as_deref(),
+                            );
+                            if !self.assign_unit_attack_path(attacker_id, Some(target_id), approach)
+                            {
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    // Fallback: direct march if A* / attack-path fails.
+                                    attacker.movement.path.clear();
+                                    attacker.movement.current_path_index = 0;
+                                    attacker.movement.target_position = Some(approach);
+                                    crate::game_logic::host_move_log::record(
                                         attacker_id,
-                                        2,
-                                    ); // Attacking
-                                } else {
+                                        Some([approach.x, approach.y, approach.z]),
+                                    );
+                                    attacker.set_status_moving(true);
                                     attacker.set_ai_state(AIState::Attacking);
+                                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
+                                    ) {
+                                        crate::game_logic::host_ai_decision_log::record_set_state(
+                                            attacker_id,
+                                            2,
+                                        ); // Attacking
+                                    }
+                                    attacker.set_status_attacking(true);
                                 }
-                                attacker.set_status_attacking(true);
                             }
                         }
                     }
