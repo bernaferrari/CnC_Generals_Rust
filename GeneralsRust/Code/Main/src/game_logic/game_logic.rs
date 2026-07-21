@@ -11060,6 +11060,13 @@ impl GameLogic {
         let Some((next_id, _)) = best else {
             return false;
         };
+        // Continue-attack residual: under AI decision authority, log AttackTarget
+        // (+ Attacking state) for GameWorld apply/writeback; host stays clean.
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_attack(attacker_id, next_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2); // Attacking
+            return true;
+        }
         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             attacker.target = Some(next_id);
             attacker.set_ai_state(AIState::Attacking);
@@ -11068,6 +11075,24 @@ impl GameLogic {
         } else {
             false
         }
+    }
+
+    #[cfg(test)]
+    pub fn try_continue_attack_after_kill_for_test(
+        &mut self,
+        attacker_id: ObjectId,
+        dead_victim_id: ObjectId,
+        original_victim_pos: glam::Vec3,
+        continue_range: f32,
+        victim_team: Team,
+    ) -> bool {
+        self.try_continue_attack_after_kill(
+            attacker_id,
+            dead_victim_id,
+            original_victim_pos,
+            continue_range,
+            victim_team,
+        )
     }
 
     /// After a combat kill: grant XP, ContinueAttackRange retarget, else stop.
