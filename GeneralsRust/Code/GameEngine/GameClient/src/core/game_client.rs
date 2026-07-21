@@ -512,9 +512,8 @@ pub(crate) fn xfer_live_game_client_state(
                     adapter
                         .xfer_unsigned_int(&mut object_id)
                         .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                    if object_id != INVALID_ID && OBJECT_REGISTRY.get_object(object_id).is_none() {
-                        return Err(RuntimeXferStatus::InvalidData);
-                    }
+                    // Host/presentation path: OBJECT_REGISTRY may be empty. Do not
+                    // fail xfer; bind_drawable_to_object runs only when present.
 
                     let mut reuse_id = None;
                     if object_id != INVALID_ID {
@@ -574,10 +573,9 @@ pub(crate) fn xfer_live_game_client_state(
                     adapter.end_block().map_err(common_status_to_runtime)?;
 
                     if object_id != INVALID_ID {
+                        // Dual-world residual bind only; host maps via drawable_object_map above.
                         if OBJECT_REGISTRY.get_object(object_id).is_some() {
                             let _ = client.bind_drawable_to_object(id, object_id);
-                        } else {
-                            return Err(RuntimeXferStatus::InvalidData);
                         }
                     }
                 }
@@ -4141,12 +4139,8 @@ impl Snapshotable for GameClient {
                 xfer.xfer_unsigned_int(&mut object_id)
                     .map_err(|e| e.to_string())?;
 
-                if object_id != INVALID_ID && OBJECT_REGISTRY.get_object(object_id).is_none() {
-                    return Err(format!(
-                        "GameClient::xfer - Cannot find object '{}' for drawable '{}'",
-                        object_id, toc_name
-                    ));
-                }
+                // Host/presentation path: allow drawable load without dual-world registry.
+                // object_id stays on the drawable; bind only when registry is populated.
 
                 let mut reuse_id = None;
                 if object_id != INVALID_ID {
@@ -4212,13 +4206,9 @@ impl Snapshotable for GameClient {
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
 
                 if object_id != INVALID_ID {
+                    // Dual-world residual bind only; host uses drawable_object_map.
                     if OBJECT_REGISTRY.get_object(object_id).is_some() {
                         let _ = self.bind_drawable_to_object(id, object_id);
-                    } else {
-                        return Err(format!(
-                            "GameClient::xfer - Drawable '{}' references missing object ID '{}'",
-                            toc_name, object_id
-                        ));
                     }
                 }
             }
