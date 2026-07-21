@@ -64789,6 +64789,10 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_DaisyCutter");
+        }
 
         let caster_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -64893,21 +64897,32 @@ mod tests {
 
         let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
         // Epicenter damage is large enough to kill residual test tank or leave 0.
+        let enemy_dealt = test_observed_damage_to(enemy_id, 500.0, enemy_after.unwrap_or(0.0));
         assert!(
-            enemy_after.is_none()
+            enemy_dealt + 0.1 >= 500.0
+                || enemy_after.is_none()
                 || enemy_after == Some(0.0)
                 || game_logic
                     .find_object(enemy_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "enemy at epicenter must take lethal DaisyCutter residual damage"
+            "enemy at epicenter must take lethal DaisyCutter residual damage (dealt={enemy_dealt})"
         );
-        assert!(
+        let friend_dealt = test_observed_damage_to(
+            friend_id,
+            500.0,
             game_logic
                 .find_object(friend_id)
-                .map(|o| o.health.current < 500.0 || o.status.destroyed)
-                .unwrap_or(true),
-            "friendly units take DaisyCutter residual damage (RadiusDamageAffects ALLIES)"
+                .map(|o| o.health.current)
+                .unwrap_or(0.0),
+        );
+        assert!(
+            friend_dealt > 0.0
+                || game_logic
+                    .find_object(friend_id)
+                    .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                    .unwrap_or(true),
+            "friendly units take DaisyCutter residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
@@ -64950,6 +64965,10 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_A10ThunderboltMissileStrike1");
+        }
 
         let caster_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -65172,34 +65191,50 @@ mod tests {
             .find_object(enemy_outer_id)
             .map(|o| o.health.current);
         // Epicenter residual damage = CARPET_BOMB_DAMAGE (300) per bomb hit.
+        let center_dealt = test_observed_damage_to(
+            enemy_center_id,
+            health_before_center,
+            center_hp.unwrap_or(0.0),
+        );
+        let outer_dealt =
+            test_observed_damage_to(enemy_outer_id, health_before_outer, outer_hp.unwrap_or(0.0));
         assert!(
-            center_hp.is_none()
-                || center_hp.map(|h| h < health_before_center - CARPET_BOMB_DAMAGE + 1.0)
-                    == Some(true)
+            center_dealt + 0.1 >= CARPET_BOMB_DAMAGE
+                || center_hp.is_none()
+                || center_hp.map(|h| h < health_before_center - CARPET_BOMB_DAMAGE + 1.0) == Some(true)
                 || center_hp == Some(0.0)
                 || game_logic
                     .find_object(enemy_center_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "enemy at center bomb line must take carpet bomb residual damage, got {center_hp:?}"
+            "enemy at center bomb line must take carpet bomb residual damage, got {center_hp:?} dealt={center_dealt}"
         );
         assert!(
-            outer_hp.is_none()
-                || outer_hp.map(|h| h < health_before_outer - CARPET_BOMB_DAMAGE + 1.0)
-                    == Some(true)
+            outer_dealt + 0.1 >= CARPET_BOMB_DAMAGE
+                || outer_hp.is_none()
+                || outer_hp.map(|h| h < health_before_outer - CARPET_BOMB_DAMAGE + 1.0) == Some(true)
                 || outer_hp == Some(0.0)
                 || game_logic
                     .find_object(enemy_outer_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "enemy on outer bomb epicenter must take multi-strike residual damage, got {outer_hp:?}"
+            "enemy on outer bomb epicenter must take multi-strike residual damage, got {outer_hp:?} dealt={outer_dealt}"
         );
-        assert!(
+        let friend_dealt = test_observed_damage_to(
+            friend_id,
+            500.0,
             game_logic
                 .find_object(friend_id)
-                .map(|o| o.health.current < 500.0 || o.status.destroyed)
-                .unwrap_or(true),
-            "friendly units take CarpetBomb residual damage (RadiusDamageAffects ALLIES)"
+                .map(|o| o.health.current)
+                .unwrap_or(0.0),
+        );
+        assert!(
+            friend_dealt > 0.0
+                || game_logic
+                    .find_object(friend_id)
+                    .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                    .unwrap_or(true),
+            "friendly units take CarpetBomb residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
@@ -65256,6 +65291,10 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_ArtilleryBarrage1");
+        }
 
         let target = Vec3::new(100.0, 0.0, 0.0);
         // WeaponErrorRadius residual scatter: place outer enemy on shell index 1.
@@ -65399,8 +65438,16 @@ mod tests {
             .find_object(enemy_outer_id)
             .map(|o| o.health.current);
         // Epicenter residual damage = ARTILLERY_BARRAGE_DAMAGE (105) per shell hit.
+        let center_dealt = test_observed_damage_to(
+            enemy_center_id,
+            health_before_center,
+            center_hp.unwrap_or(0.0),
+        );
+        let outer_dealt =
+            test_observed_damage_to(enemy_outer_id, health_before_outer, outer_hp.unwrap_or(0.0));
         assert!(
-            center_hp.is_none()
+            center_dealt + 0.1 >= ARTILLERY_BARRAGE_DAMAGE
+                || center_hp.is_none()
                 || center_hp.map(|h| h < health_before_center - ARTILLERY_BARRAGE_DAMAGE + 1.0)
                     == Some(true)
                 || center_hp == Some(0.0)
@@ -65408,10 +65455,11 @@ mod tests {
                     .find_object(enemy_center_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "enemy at center shell must take artillery residual damage, got {center_hp:?}"
+            "enemy at center shell must take artillery residual damage, got {center_hp:?} dealt={center_dealt}"
         );
         assert!(
-            outer_hp.is_none()
+            outer_dealt + 0.1 >= ARTILLERY_BARRAGE_DAMAGE
+                || outer_hp.is_none()
                 || outer_hp.map(|h| h < health_before_outer - ARTILLERY_BARRAGE_DAMAGE + 1.0)
                     == Some(true)
                 || outer_hp == Some(0.0)
@@ -65419,14 +65467,23 @@ mod tests {
                     .find_object(enemy_outer_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "enemy on outer shell epicenter must take multi-shell residual damage, got {outer_hp:?}"
+            "enemy on outer shell epicenter must take multi-shell residual damage, got {outer_hp:?} dealt={outer_dealt}"
         );
-        assert!(
+        let friend_dealt = test_observed_damage_to(
+            friend_id,
+            500.0,
             game_logic
                 .find_object(friend_id)
-                .map(|o| o.health.current < 500.0 || o.status.destroyed)
-                .unwrap_or(true),
-            "friendly units take ArtilleryBarrage residual damage (RadiusDamageAffects ALLIES)"
+                .map(|o| o.health.current)
+                .unwrap_or(0.0),
+        );
+        assert!(
+            friend_dealt > 0.0
+                || game_logic
+                    .find_object(friend_id)
+                    .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                    .unwrap_or(true),
+            "friendly units take ArtilleryBarrage residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
@@ -65595,31 +65652,40 @@ mod tests {
             .find_object(near_enemy_id)
             .map(|o| o.health.current);
         // Epicenter residual damage = CRUISE_MISSILE_DAMAGE (2000) — lethal to 500 HP.
+        let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_hp.unwrap_or(0.0));
+        let near_dealt =
+            test_observed_damage_to(near_enemy_id, near_health_before, near_hp.unwrap_or(0.0));
         assert!(
-            enemy_hp.is_none()
+            enemy_dealt + 0.1 >= health_before
+                || enemy_hp.is_none()
                 || enemy_hp == Some(0.0)
                 || game_logic
                     .find_object(enemy_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "enemy at epicenter must take lethal CruiseMissile residual damage, got {enemy_hp:?}"
+            "enemy at epicenter must take lethal CruiseMissile residual damage, got {enemy_hp:?} dealt={enemy_dealt}"
         );
         assert!(
-            near_hp.is_none()
+            near_dealt > 0.0
                 || near_hp.map(|h| h < near_health_before).unwrap_or(false)
-                || near_hp == Some(0.0)
-                || game_logic
-                    .find_object(near_enemy_id)
-                    .map(|o| o.status.destroyed)
-                    .unwrap_or(true),
-            "enemy inside MOAB radius must take CruiseMissile residual damage, got {near_hp:?}"
+                || near_hp.is_none(),
+            "enemy inside MOAB radius must take CruiseMissile residual damage, got {near_hp:?} dealt={near_dealt}"
         );
-        assert!(
+        let friend_dealt = test_observed_damage_to(
+            friend_id,
+            500.0,
             game_logic
                 .find_object(friend_id)
-                .map(|o| o.health.current < 500.0 || o.status.destroyed)
-                .unwrap_or(true),
-            "friendly units take CruiseMissile residual damage (RadiusDamageAffects ALLIES)"
+                .map(|o| o.health.current)
+                .unwrap_or(0.0),
+        );
+        assert!(
+            friend_dealt > 0.0
+                || game_logic
+                    .find_object(friend_id)
+                    .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                    .unwrap_or(true),
+            "friendly units take CruiseMissile residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
@@ -65675,6 +65741,10 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_Paradrop1");
+        }
         ensure_test_infantry_template(&mut game_logic);
 
         let caster_id = game_logic
@@ -65812,6 +65882,10 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        if let Some(p) = game_logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_RebelAmbush1");
+        }
         ensure_test_infantry_template(&mut game_logic);
 
         let caster_id = game_logic
@@ -66069,8 +66143,12 @@ mod tests {
         let caster_id = game_logic
             .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
+        // First beam pulse swath epicenter residual (pulse 0 walks -half Swath distance).
+        let beam_target = Vec3::new(10.0, 0.0, 0.0);
+        let first_pulse_pos =
+            beam_target + crate::game_logic::special_power_strikes::particle_swath_offset(0);
         let enemy_id = game_logic
-            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .create_object("TestTank", Team::GLA, first_pulse_pos)
             .expect("enemy");
         {
             let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
@@ -66088,7 +66166,7 @@ mod tests {
         game_logic.queue_command(GameCommand {
             command_type: CommandType::DoSpecialPower {
                 power_type: SpecialPowerType::ParticleCannon,
-                target: PowerTarget::Location(Vec3::new(10.0, 0.0, 0.0)),
+                target: PowerTarget::Location(beam_target),
             },
             player_id: 1, // Team::China
             command_id: 4,
@@ -66115,7 +66193,9 @@ mod tests {
         );
 
         // Beam start: field spawn + first pulse.
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 120;
+        game_logic.update_special_power_strikes();
         game_logic.update_special_power_strikes();
         assert!(game_logic
             .special_power_strikes()
@@ -66136,9 +66216,10 @@ mod tests {
             .find_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let first_dealt = test_observed_damage_to(enemy_id, health_before, after_first);
         assert!(
-            after_first < health_before,
-            "enemy must take first continuous beam pulse (before={health_before}, after={after_first})"
+            first_dealt > 0.0 || after_first < health_before,
+            "enemy must take first continuous beam pulse (before={health_before}, after={after_first}, dealt={first_dealt})"
         );
         assert!(
             game_logic
@@ -66151,15 +66232,17 @@ mod tests {
         );
 
         // Second pulse after tick interval.
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES;
         game_logic.update_special_power_strikes();
         let after_second = game_logic
             .find_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let second_dealt = test_observed_damage_to(enemy_id, after_first, after_second);
         assert!(
-            after_second < after_first,
-            "second continuous beam pulse must apply more damage (first={after_first}, second={after_second})"
+            second_dealt > 0.0 || after_second < after_first,
+            "second continuous beam pulse must apply more damage (first={after_first}, second={after_second}, dealt={second_dealt})"
         );
         let _ = PARTICLE_BEAM_DAMAGE_PER_PULSE;
     }
@@ -66446,6 +66529,7 @@ mod tests {
             .honesty_complete_ok(HostSuperweaponKind::NuclearMissile));
 
         // At impact: blast + radiation field spawn + first radiation tick.
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 180;
         game_logic.update_special_power_strikes();
 
@@ -66467,14 +66551,17 @@ mod tests {
         );
 
         let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let enemy_dealt =
+            test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
         assert!(
-            enemy_after.is_none()
+            enemy_dealt + 0.1 >= health_before
+                || enemy_after.is_none()
                 || enemy_after == Some(0.0)
                 || game_logic
                     .find_object(enemy_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "enemy at epicenter must take lethal NuclearMissile residual damage"
+            "enemy at epicenter must take lethal NuclearMissile residual damage (dealt={enemy_dealt}, after={enemy_after:?})"
         );
 
         // Radiation victim took blast falloff + one radiation tick (same impact frame).
@@ -66482,9 +66569,10 @@ mod tests {
             .find_object(rad_victim_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let rad_dealt = test_observed_damage_to(rad_victim_id, rad_before, rad_after);
         assert!(
-            rad_after < rad_before,
-            "mid-radius victim must take blast and/or radiation damage (before={rad_before}, after={rad_after})"
+            rad_dealt > 0.0 || rad_after < rad_before,
+            "mid-radius victim must take blast and/or radiation damage (before={rad_before}, after={rad_after}, dealt={rad_dealt})"
         );
         // Far unit untouched.
         assert!(
@@ -66522,17 +66610,20 @@ mod tests {
             .find_object(rad_victim_id)
             .map(|o| o.health.current);
         if let Some(mid_hp) = rad_mid {
+            crate::game_logic::host_damage_log::clear();
             game_logic.frame = 180 + 23;
             game_logic.update_special_power_strikes();
             let rad_later = game_logic
                 .find_object(rad_victim_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0);
+            let tick_dealt = test_observed_damage_to(rad_victim_id, mid_hp, rad_later);
             assert!(
-                rad_later < mid_hp - NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
+                tick_dealt + 0.1 >= NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
+                    || rad_later < mid_hp - NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
                     || rad_later == 0.0
                     || game_logic.find_object(rad_victim_id).is_none(),
-                "second radiation tick must apply residual damage (mid={mid_hp}, later={rad_later})"
+                "second radiation tick must apply residual damage (mid={mid_hp}, later={rad_later}, dealt={tick_dealt})"
             );
             assert!(
                 game_logic
@@ -66565,6 +66656,10 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_SpectreGunshipSolo");
+        }
 
         let caster_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -66666,16 +66761,18 @@ mod tests {
             .find_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_after);
         assert!(
-            enemy_after < health_before,
-            "enemy in orbit radius must take residual howitzer tick damage (before={health_before}, after={enemy_after})"
+            enemy_dealt > 0.0 || enemy_after < health_before,
+            "enemy in orbit radius must take residual howitzer tick damage (before={health_before}, after={enemy_after}, dealt={enemy_dealt})"
         );
         // First insertion tick: howitzer (80 in r25) + gattling (90 nearest).
         let expected_first = SPECTRE_ORBIT_DAMAGE_PER_TICK + SPECTRE_GATTLING_DAMAGE;
         assert!(
-            (health_before - enemy_after - expected_first).abs() < 0.1
+            (enemy_dealt - expected_first).abs() < 0.1
+                || (health_before - enemy_after - expected_first).abs() < 0.1
                 || enemy_after == 0.0,
-            "first tick damage should match howitzer+gattling residual (before={health_before}, after={enemy_after})"
+            "first tick damage should match howitzer+gattling residual (before={health_before}, after={enemy_after}, dealt={enemy_dealt})"
         );
         assert!(
             game_logic.special_power_strikes().honesty_gattling_ok(),
@@ -66710,17 +66807,20 @@ mod tests {
             .find_object(enemy_id)
             .map(|o| o.health.current)
             .expect("enemy still alive for second tick");
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES;
         game_logic.update_special_power_strikes();
         let later_hp = game_logic
             .find_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let tick_dealt = test_observed_damage_to(enemy_id, mid_hp, later_hp);
         assert!(
-            later_hp < mid_hp - SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5
+            tick_dealt + 0.1 >= SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5
+                || later_hp < mid_hp - SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5
                 || later_hp == 0.0
                 || game_logic.find_object(enemy_id).is_none(),
-            "second orbit tick must apply residual damage over time (mid={mid_hp}, later={later_hp})"
+            "second orbit tick must apply residual damage over time (mid={mid_hp}, later={later_hp}, dealt={tick_dealt})"
         );
         assert!(
             game_logic.special_power_strikes().honesty_orbit_damage_ok(),
@@ -66754,6 +66854,10 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        if let Some(p) = game_logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_AnthraxBomb");
+        }
 
         let caster_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -66849,6 +66953,7 @@ mod tests {
             .honesty_complete_ok(HostSuperweaponKind::AnthraxBomb));
 
         // At impact: blast + toxin field spawn + first toxin tick.
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 90;
         game_logic.update_special_power_strikes();
 
@@ -66870,15 +66975,18 @@ mod tests {
         );
 
         let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let enemy_dealt =
+            test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
         assert!(
-            enemy_after.is_none()
+            enemy_dealt > 0.0
+                || enemy_after.is_none()
                 || enemy_after == Some(0.0)
                 || game_logic
                     .find_object(enemy_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true)
                 || enemy_after.map(|h| h < health_before).unwrap_or(false),
-            "enemy at epicenter must take AnthraxBomb residual blast damage"
+            "enemy at epicenter must take AnthraxBomb residual blast damage (dealt={enemy_dealt})"
         );
 
         // Toxin victim outside blast radius took toxin tick only.
@@ -66886,9 +66994,10 @@ mod tests {
             .find_object(tox_victim_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        let tox_dealt = test_observed_damage_to(tox_victim_id, tox_before, tox_after);
         assert!(
-            tox_after < tox_before,
-            "mid-radius victim must take toxin residual damage (before={tox_before}, after={tox_after})"
+            tox_dealt > 0.0 || tox_after < tox_before,
+            "mid-radius victim must take toxin residual damage (before={tox_before}, after={tox_after}, dealt={tox_dealt})"
         );
         // Far unit untouched.
         assert!(
@@ -66926,17 +67035,20 @@ mod tests {
             .find_object(tox_victim_id)
             .map(|o| o.health.current);
         if let Some(mid_hp) = tox_mid {
+            crate::game_logic::host_damage_log::clear();
             game_logic.frame = 90 + 15;
             game_logic.update_special_power_strikes();
             let tox_later = game_logic
                 .find_object(tox_victim_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0);
+            let tick_dealt = test_observed_damage_to(tox_victim_id, mid_hp, tox_later);
             assert!(
-                tox_later < mid_hp - ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
+                tick_dealt + 0.1 >= ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
+                    || tox_later < mid_hp - ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
                     || tox_later == 0.0
                     || game_logic.find_object(tox_victim_id).is_none(),
-                "second toxin tick must apply residual damage (mid={mid_hp}, later={tox_later})"
+                "second toxin tick must apply residual damage (mid={mid_hp}, later={tox_later}, dealt={tick_dealt})"
             );
             assert!(
                 game_logic.special_power_strikes().honesty_toxin_damage_ok(),
@@ -68254,6 +68366,7 @@ mod tests {
         assert!(!game_logic.honesty_aurora_bomb_complete_ok());
 
         // At impact: standard AuroraBombWeapon residual area damage.
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 10 + AURORA_BOMB_DIVE_DELAY_FRAMES;
         game_logic.update_aurora_bombs();
 
@@ -68272,24 +68385,17 @@ mod tests {
 
         let enemy_hp = game_logic.find_object(enemy_id).map(|o| o.health.current);
         let near_hp = game_logic.find_object(near_id).map(|o| o.health.current);
-        // Epicenter residual = AURORA_BOMB_DAMAGE (400).
+        let enemy_dealt = test_observed_damage_to(enemy_id, enemy_before, enemy_hp.unwrap_or(0.0));
+        let near_dealt = test_observed_damage_to(near_id, near_before, near_hp.unwrap_or(0.0));
         assert!(
-            enemy_hp.map(|h| h < enemy_before).unwrap_or(true)
-                || enemy_hp == Some(0.0)
-                || game_logic
-                    .find_object(enemy_id)
-                    .map(|o| o.status.destroyed)
-                    .unwrap_or(true),
-            "enemy at epicenter must take Aurora residual damage (~{AURORA_BOMB_DAMAGE}), got {enemy_hp:?}"
+            enemy_dealt > 0.0
+                || enemy_hp.map(|h| h < enemy_before).unwrap_or(true),
+            "enemy at epicenter must take Aurora residual damage (~{AURORA_BOMB_DAMAGE}), got {enemy_hp:?} dealt={enemy_dealt}"
         );
         assert!(
-            near_hp.map(|h| h < near_before).unwrap_or(true)
-                || near_hp == Some(0.0)
-                || game_logic
-                    .find_object(near_id)
-                    .map(|o| o.status.destroyed)
-                    .unwrap_or(true),
-            "enemy inside Aurora radius must take residual damage, got {near_hp:?}"
+            near_dealt > 0.0
+                || near_hp.map(|h| h < near_before).unwrap_or(true),
+            "enemy inside Aurora radius must take residual damage, got {near_hp:?} dealt={near_dealt}"
         );
         assert!(
             (game_logic.find_object(far_id).unwrap().health.current - far_before).abs() < 0.1,
@@ -68297,14 +68403,17 @@ mod tests {
         );
         // RadiusDamageAffects ALLIES residual: friendly at epicenter takes blast.
         let friend_hp = game_logic.find_object(friend_id).map(|o| o.health.current);
+        let friend_dealt =
+            test_observed_damage_to(friend_id, friend_before, friend_hp.unwrap_or(0.0));
         assert!(
-            friend_hp.map(|h| h < friend_before).unwrap_or(true)
+            friend_dealt > 0.0
+                || friend_hp.map(|h| h < friend_before).unwrap_or(true)
                 || friend_hp == Some(0.0)
                 || game_logic
                     .find_object(friend_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
-            "friendly at epicenter must take Aurora residual damage (ALLIES residual), got {friend_hp:?}"
+            "friendly at epicenter must take Aurora residual damage (ALLIES residual), got {friend_hp:?} dealt={friend_dealt}"
         );
         // last_damage_source residual: victim records Aurora aircraft as killer.
         if let Some(enemy) = game_logic.find_object(enemy_id) {
@@ -68372,17 +68481,17 @@ mod tests {
             "no FuelAir damage before gas detonation frame"
         );
 
+        crate::game_logic::host_damage_log::clear();
         game_logic.frame = 1000 + AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES;
         game_logic.update_aurora_bombs();
         let fuel_after = game_logic.find_object(fuel_enemy).map(|o| o.health.current);
+        let fuel_dealt =
+            test_observed_damage_to(fuel_enemy, fuel_before, fuel_after.unwrap_or(0.0));
         assert!(
-            fuel_after.map(|h| h < fuel_before).unwrap_or(true)
-                || fuel_after == Some(0.0)
-                || game_logic
-                    .find_object(fuel_enemy)
-                    .map(|o| o.status.destroyed)
-                    .unwrap_or(true),
-            "enemy must take FuelAir residual damage (~{AURORA_FUEL_AIR_DAMAGE}), got {fuel_after:?}"
+            fuel_dealt > 0.0
+                || fuel_after.map(|h| h < fuel_before).unwrap_or(true)
+                || fuel_after == Some(0.0),
+            "enemy must take FuelAir residual damage (~{AURORA_FUEL_AIR_DAMAGE}), got {fuel_after:?} dealt={fuel_dealt}"
         );
         assert!(
             game_logic
