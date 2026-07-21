@@ -19202,10 +19202,22 @@ mod tests {
                 "{name} must use pure residual service acquire query"
             );
         }
+        {
+            let i = src
+                .find("fn try_pilot_find_vehicle_residual")
+                .expect("try_pilot_find_vehicle_residual");
+            let body = &src[i..src.len().min(i + 6000)];
+            assert!(
+                body.contains("pick_nearest_pilot_vehicle_target")
+                    && body.contains("PilotVehicleCandidate"),
+                "pilot find-vehicle must use pure residual pilot acquire query"
+            );
+        }
         let helper = include_str!("game_logic/host_residual_acquire.rs");
         assert!(
             helper.contains("fn pick_nearest_residual_target")
                 && helper.contains("fn pick_nearest_residual_service_target")
+                && helper.contains("fn pick_nearest_pilot_vehicle_target")
                 && helper.contains("Pure residual auto-fire target acquisition"),
             "host_residual_acquire helpers required"
         );
