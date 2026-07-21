@@ -2762,8 +2762,11 @@ impl Object {
     /// C++ HijackerUpdate enter-vehicle residual (hide hijacker with vehicle).
     pub fn begin_hijacker_in_vehicle(&mut self, vehicle_id: ObjectId) {
         self.hijack_vehicle_id = Some(vehicle_id);
+        self.record_host_hijacker();
         self.hijacker_in_vehicle = true;
+        self.record_host_hijacker();
         self.hijacker_update_active = true;
+        self.record_host_hijacker();
         self.set_status_no_collisions(true);
         self.set_status_masked(true);
         self.set_status_unselectable(true);
@@ -2778,13 +2781,18 @@ impl Object {
     /// C++ HijackerUpdate exit when vehicle dies residual.
     pub fn end_hijacker_in_vehicle(&mut self, eject_pos: glam::Vec3, was_airborne: bool) {
         self.hijack_vehicle_id = None;
+        self.record_host_hijacker();
         self.hijacker_in_vehicle = false;
+        self.record_host_hijacker();
         self.hijacker_update_active = false;
+        self.record_host_hijacker();
         self.set_status_no_collisions(false);
         self.set_status_masked(false);
         self.set_status_unselectable(false);
         self.hijacker_was_airborne = was_airborne;
+        self.record_host_hijacker();
         self.hijacker_eject_pos = Some(eject_pos);
+        self.record_host_hijacker();
         self.set_position(eject_pos);
         self.set_ai_state(AIState::Idle);
         self.stop_moving();
@@ -2804,7 +2812,9 @@ impl Object {
         }
         self.set_position(vehicle_pos);
         self.hijacker_was_airborne = vehicle_airborne;
+        self.record_host_hijacker();
         self.hijacker_eject_pos = Some(vehicle_pos);
+        self.record_host_hijacker();
         // MAX veterancy residual between jacker and vehicle.
         use crate::game_logic::VeterancyLevel;
         let rank = |l: VeterancyLevel| -> u8 {
@@ -9356,6 +9366,19 @@ impl Object {
     pub fn record_host_target_location(&self) {
         let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
         crate::game_logic::host_target_location_log::record(self.id, loc);
+    }
+
+    pub fn record_host_hijacker(&self) {
+        crate::game_logic::host_hijacker_log::record(
+            self.id,
+            self.hijack_vehicle_id.map(|id| id.0).unwrap_or(0),
+            self.hijacker_in_vehicle,
+            self.hijacker_update_active,
+            self.hijacker_was_airborne,
+            self.hijacker_eject_pos.map(|p| [p.x, p.y, p.z]),
+            self.hive_slave_respawn_frame,
+            self.next_detection_scan_frame,
+        );
     }
 
     pub fn record_host_ai_request(&self) {

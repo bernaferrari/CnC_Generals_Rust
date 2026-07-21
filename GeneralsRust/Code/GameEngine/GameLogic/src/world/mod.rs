@@ -882,6 +882,17 @@ pub enum WorldMutation {
         slave_count: u8,
         slave_hp: f32,
     },
+    /// Host HijackerUpdate / hive respawn residual.
+    SetHijacker {
+        target: EntityId,
+        hijack_vehicle_host: u32,
+        hijacker_in_vehicle: bool,
+        hijacker_update_active: bool,
+        hijacker_was_airborne: bool,
+        hijacker_eject_pos: Option<[f32; 3]>,
+        hive_slave_respawn_frame: u32,
+        next_detection_scan_frame: u32,
+    },
     /// Host Object stealth/tunnel/passenger-fire residual flags.
     SetStealthFlags {
         target: EntityId,
@@ -1980,6 +1991,27 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.hive_slave_count = slave_count;
                         e.hive_slave_hp = slave_hp.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetHijacker {
+                    target,
+                    hijack_vehicle_host,
+                    hijacker_in_vehicle,
+                    hijacker_update_active,
+                    hijacker_was_airborne,
+                    hijacker_eject_pos,
+                    hive_slave_respawn_frame,
+                    next_detection_scan_frame,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.hijack_vehicle_host = hijack_vehicle_host;
+                        e.hijacker_in_vehicle = hijacker_in_vehicle;
+                        e.hijacker_update_active = hijacker_update_active;
+                        e.hijacker_was_airborne = hijacker_was_airborne;
+                        e.hijacker_eject_pos = hijacker_eject_pos;
+                        e.hive_slave_respawn_frame = hive_slave_respawn_frame;
+                        e.next_detection_scan_frame = next_detection_scan_frame;
                         applied += 1;
                     }
                 }
