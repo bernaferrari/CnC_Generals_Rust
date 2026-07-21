@@ -8636,7 +8636,8 @@ impl CnCGameEngine {
         if self.current_state == GameState::InGame {
             if let Some(pres) = self.last_presentation_frame.clone() {
                 self.apply_presentation_to_huds(&pres);
-                self.play_presentation_event_sfx(&pres);
+                // Presentation audio already dispatched via dispatch_audio_events_direct
+                // (BuildingComplete/UnitReady/UpgradeComplete). Do not dual-play engine SFX.
                 self.sync_eva_messages_from_logic();
                 #[cfg(feature = "game_client")]
                 {
@@ -9440,24 +9441,17 @@ impl CnCGameEngine {
         }
     }
 
+    /// Retired dual-path residual: presentation events map to AudioManager via
+    /// `PresentationFrame::dispatch_audio_events_direct`. Kept for call-site
+    /// source tests; no-op so engine SFX does not double-play.
+    /// Retired dual-path residual: presentation events map to AudioManager via
+    /// `PresentationFrame::dispatch_audio_events_direct`. No-op so engine SFX
+    /// does not double-play construction/production/upgrade cues.
     fn play_presentation_event_sfx(
         &mut self,
-        frame: &crate::presentation_frame::PresentationFrame,
+        _frame: &crate::presentation_frame::PresentationFrame,
     ) {
-        for ev in &frame.events {
-            match ev {
-                crate::presentation_frame::PresentationEvent::ConstructionComplete { .. } => {
-                    self.play_sound_effect(SoundType::ConstructionComplete);
-                }
-                crate::presentation_frame::PresentationEvent::ProductionComplete { .. } => {
-                    self.play_sound_effect(SoundType::UnitReady);
-                }
-                crate::presentation_frame::PresentationEvent::UpgradeComplete { .. } => {
-                    self.play_sound_effect(SoundType::UpgradeComplete);
-                }
-                _ => {}
-            }
-        }
+        let _ = self;
     }
 
     fn apply_presentation_to_huds(&mut self, pres: &crate::presentation_frame::PresentationFrame) {
