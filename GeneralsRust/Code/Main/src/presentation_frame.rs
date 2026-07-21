@@ -10599,6 +10599,16 @@ mod tests {
     }
 
     #[test]
+    fn add_object_commands_prefers_presentation_command_set() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("Host/presentation residual — no OBJECT_REGISTRY modules")
+                && cb.contains("self.presentation_primary_command_set.clone()"),
+            "add_object_commands must use presentation command-set freeze without registry"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation

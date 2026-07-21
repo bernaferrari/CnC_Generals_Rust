@@ -1676,20 +1676,27 @@ impl ControlBar {
         let Some(first_id) = context.selected_objects.first().copied() else {
             return Ok(());
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(first_id) else {
-            return Ok(());
+        // Prefer dual-world registry command set when bound; otherwise presentation freeze.
+        let command_set_name = if let Some(obj_arc) = OBJECT_REGISTRY.get_object(first_id) {
+            let Ok(obj_guard) = obj_arc.read() else {
+                return Ok(());
+            };
+            let name = obj_guard.get_command_set_string().to_string();
+            if name.is_empty() {
+                self.presentation_primary_command_set.clone()
+            } else {
+                name
+            }
+        } else {
+            // Host/presentation residual — no OBJECT_REGISTRY modules.
+            self.presentation_primary_command_set.clone()
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(());
-        };
-
-        let command_set_name = obj_guard.get_command_set_string();
         if command_set_name.is_empty() {
             return Ok(());
         }
 
         let command_set = control_bar
-            .find_command_set_by_name(command_set_name)
+            .find_command_set_by_name(&command_set_name)
             .or_else(|| {
                 control_bar.find_command_set_by_name(&command_set_name.to_ascii_uppercase())
             });
