@@ -3980,11 +3980,10 @@ impl GameLogic {
             unit.movement.velocity = dir * unit.movement.max_speed;
             unit.record_host_movement();
         }
+        unit.set_ai_state(AIState::Moving);
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-        // Moving
-        } else {
-            unit.set_ai_state(AIState::Moving);
+            // Moving
         }
         unit.set_status_moving(true);
         true
@@ -4319,11 +4318,10 @@ impl GameLogic {
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
+        unit.set_ai_state(AIState::Moving);
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-        // Moving
-        } else {
-            unit.set_ai_state(AIState::Moving);
+            // Moving
         }
         unit.set_status_moving(true);
         true
@@ -8440,11 +8438,12 @@ impl GameLogic {
         } else {
             return false;
         }
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.set_ai_state(AIState::Moving);
+        }
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-        // Moving
-        } else if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.set_ai_state(AIState::Moving);
+            // Moving
         }
         true
     }
@@ -42563,10 +42562,9 @@ impl GameLogic {
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
+                    obj.set_ai_state(AIState::Moving);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, 1);
-                    } else {
-                        obj.set_ai_state(AIState::Moving);
                     }
                     obj.movement.target_position = Some(mine_pos);
                     crate::game_logic::host_move_log::record(
