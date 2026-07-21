@@ -5738,9 +5738,12 @@ impl Object {
 
         // GameWorld damage authority: host logs intent only; HP/destroyed last-write
         // via shadow session mutations + writeback_health_to_host (no mid-frame host HP mutate).
-        // Combat fire under DAMAGE_AUTHORITY defers HP; force_host_hp for superweapons.
-        let damage_auth =
-            crate::gameworld_shadow::gameworld_damage_authority_enabled() && !force_host_hp;
+        // Defer only when a live shadow session can consume the log. Otherwise host-only
+        // combat would record damage and never apply HP (authority without writeback).
+        // force_host_hp: superweapon/residual paths always mutate host immediately.
+        let damage_auth = crate::gameworld_shadow::gameworld_damage_authority_enabled()
+            && crate::gameworld_shadow::gameworld_shadow_enabled()
+            && !force_host_hp;
         let destroyed = if damage_auth {
             let projected = (self.health.current - actual_damage).max(0.0);
             let will_die = projected <= 0.0 || actual_damage >= self.health.current;

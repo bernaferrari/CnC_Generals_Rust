@@ -7332,6 +7332,35 @@ pub fn shadow_session_after_host_tick(
             let pair = shadow.apply_host_damage_events(&events);
             queued = pair.0;
             applied = pair.1;
+            // Host objects with no shadow entity mapping would otherwise lose combat HP.
+            // `ev.amount` is already post-armor — apply raw HP, do not re-run armor/log.
+            if queued < events.len() {
+                let mut fallback = 0usize;
+                for ev in &events {
+                    if shadow.entity_for_host(ev.target).is_some() {
+                        continue;
+                    }
+                    if let Some(obj) = logic.get_objects_mut().get_mut(&ev.target) {
+                        if obj.status.destroyed {
+                            continue;
+                        }
+                        obj.health.damage(ev.amount);
+                        if !obj.health.is_alive() {
+                            obj.status.destroyed = true;
+                            obj.set_ai_state(crate::game_logic::AIState::Idle);
+                            obj.target = None;
+                        }
+                        obj.refresh_model_condition_bits();
+                        fallback += 1;
+                    }
+                }
+                if fallback > 0 {
+                    log::trace!(
+                        "damage authority host fallback applied={fallback} unmapped of {}",
+                        events.len()
+                    );
+                }
+            }
         }
         if !events.is_empty() || !heal_events.is_empty() {
             writebacks = shadow.writeback_health_to_host(logic);
@@ -17780,6 +17809,46 @@ mod tests {
             (host_mid - pre).abs() < 0.01,
             "mid-frame host must stay deferred at pre"
         );
+    }
+
+    #[test]
+    fn damage_authority_applies_host_hp_when_shadow_disabled() {
+        // Without a live shadow session, deferred damage would never write back.
+        // Authority must couple to shadow_enabled so host-only combat still hits.
+        let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        let prev_auth = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        assert!(!gameworld_shadow_enabled());
+        assert!(gameworld_damage_authority_enabled());
+
+        crate::game_logic::host_damage_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DmgAuthNoShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "AuthUnit", 100.0);
+        let id = logic
+            .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit");
+        let pre = logic.get_objects().get(&id).unwrap().health.current;
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            let _ = obj.take_damage(25.0);
+        }
+        let mid = logic.get_objects().get(&id).unwrap().health.current;
+        assert!(
+            (mid - (pre - 25.0)).abs() < 0.01,
+            "host HP must apply immediately when shadow disabled; pre={pre} mid={mid}"
+        );
+
+        // restore env
+        match prev_shadow {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+        match prev_auth {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     #[test]
