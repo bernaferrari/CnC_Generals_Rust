@@ -18682,4 +18682,58 @@ mod tests {
             "SELECT_HERO must keep live GameLogic boot residual"
         );
     }
+
+    #[test]
+    fn filter_select_presentation_source() {
+        let pf = include_str!("presentation_frame.rs");
+        for name in [
+            "alive_selectable_friendly_combat_ids",
+            "alive_selectable_friendly_moving_ids",
+            "alive_selectable_friendly_attacking_ids",
+            "alive_selectable_friendly_guarding_ids",
+            "alive_selectable_friendly_patrolling_ids",
+            "alive_selectable_friendly_gathering_ids",
+            "alive_selectable_friendly_stealthed_ids",
+            "alive_selectable_friendly_veteran_ids",
+        ] {
+            assert!(
+                pf.contains(&format!("fn {name}")),
+                "PresentationFrame must expose {name}"
+            );
+        }
+        let eng = include_str!("cnc_game_engine.rs");
+        for (fn_name, call) in [
+            (
+                "select_all_friendly_combat",
+                "alive_selectable_friendly_combat_ids",
+            ),
+            (
+                "select_all_friendly_moving",
+                "alive_selectable_friendly_moving_ids",
+            ),
+            (
+                "select_all_friendly_attacking",
+                "alive_selectable_friendly_attacking_ids",
+            ),
+            (
+                "select_all_friendly_guarding",
+                "alive_selectable_friendly_guarding_ids",
+            ),
+            (
+                "select_all_friendly_stealthed",
+                "alive_selectable_friendly_stealthed_ids",
+            ),
+            (
+                "select_all_friendly_veterans",
+                "alive_selectable_friendly_veteran_ids",
+            ),
+        ] {
+            let at = eng.find(&format!("fn {fn_name}")).expect(fn_name);
+            let body = &eng[at..eng.len().min(at + 1500)];
+            assert!(
+                body.contains(call),
+                "{fn_name} must prefer presentation {call}"
+            );
+        }
+    }
 }
