@@ -5741,9 +5741,8 @@ impl Object {
         // Defer only when a live shadow session can consume the log. Otherwise host-only
         // combat would record damage and never apply HP (authority without writeback).
         // force_host_hp: superweapon/residual paths always mutate host immediately.
-        let damage_auth = crate::gameworld_shadow::gameworld_damage_authority_enabled()
-            && crate::gameworld_shadow::gameworld_shadow_enabled()
-            && !force_host_hp;
+        let damage_auth =
+            crate::gameworld_shadow::gameworld_damage_authority_live() && !force_host_hp;
         let destroyed = if damage_auth {
             let projected = (self.health.current - actual_damage).max(0.0);
             let will_die = projected <= 0.0 || actual_damage >= self.health.current;
@@ -7430,7 +7429,7 @@ impl Object {
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
                 // Decision authority: engagement state is GameWorld last-writer.
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_attack(self.id, target_id);
                     crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
                 // Attacking
@@ -7857,7 +7856,7 @@ impl Object {
                 let next_count = self.fire_intent_count.saturating_add(1);
                 // When AI attack authority is on, GameWorld SetFireIntent writeback is
                 // last-writer — log the intent without dual-writing host last_fire_*.
-                if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                     crate::game_logic::host_fire_intent_log::record(
                         self.id,
                         target_id.0,

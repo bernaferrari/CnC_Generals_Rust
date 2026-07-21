@@ -3980,7 +3980,7 @@ impl GameLogic {
             unit.movement.velocity = dir * unit.movement.max_speed;
             unit.record_host_movement();
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
         // Moving
         } else {
@@ -4073,7 +4073,7 @@ impl GameLogic {
                 }
             }
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         if let Some(full_path) = path {
             if full_path.len() >= 2 {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -4232,7 +4232,7 @@ impl GameLogic {
     }
 
     fn path_approach_with_state(&mut self, object_id: ObjectId, goal: Vec3, state: AIState) {
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         if self.assign_unit_path(object_id, goal, &[]) {
             if decision_auth {
@@ -4319,7 +4319,7 @@ impl GameLogic {
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
         // Moving
         } else {
@@ -5802,7 +5802,7 @@ impl GameLogic {
         // Instead, process diversion inside apply_projectile_countermeasures_pass
         // after projectiles update (combat still applies damage; we heal-back
         // diverted hits is wrong). Prefer combat-level hook:
-        let projectile_hits = if crate::gameworld_shadow::gameworld_projectile_authority_enabled() {
+        let projectile_hits = if crate::gameworld_shadow::gameworld_projectile_authority_live() {
             // Snapshot pre-step flight state for GameWorld integrate authority.
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),
@@ -6188,7 +6188,7 @@ impl GameLogic {
                     obj.stop_moving();
                     // Collect for decision-aware Idle after borrow ends.
                     // (set below via second pass if needed — apply inline with free log)
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
                     } else {
                         obj.set_ai_state(AIState::Idle);
@@ -6781,7 +6781,7 @@ impl GameLogic {
             None => return,
         };
 
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let apply_state = |logic: &mut Self, state: AIState| {
             if decision_auth {
                 let ordinal =
@@ -7104,7 +7104,7 @@ impl GameLogic {
         self.tick_hijacker_updates();
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         for command in ai_commands {
             if decision_auth {
                 // Record only — shadow applies SetAttackTarget/SetMoveTarget/SetAiState.
@@ -7637,7 +7637,7 @@ impl GameLogic {
         }
         u.is_blocked = false;
         u.is_blocked_and_stuck = false;
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         if decision_auth {
             // Drop mut borrow before logging.
             drop(u);
@@ -7675,7 +7675,7 @@ impl GameLogic {
         if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
             return false;
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         if decision_auth {
             // Stop movement residual stays host; engagement/state via decision log.
             if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -7770,7 +7770,7 @@ impl GameLogic {
         if !new_alive {
             return 0;
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let mut transferred = 0usize;
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
@@ -8432,7 +8432,7 @@ impl GameLogic {
         } else {
             return false;
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
         // Moving
         } else if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -8561,7 +8561,7 @@ impl GameLogic {
         // Rider: contained + parachuting residual (hidden inside chute).
         if let Some(r) = self.objects.get_mut(&rider_id) {
             r.set_contained_by(Some(chute_id));
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 12);
             // Docked
             } else {
@@ -9401,7 +9401,7 @@ impl GameLogic {
             return None;
         }
         let victim = self.get_next_mood_target(unit_id, true, true, is_player_controlled)?;
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             // Log-only apply path: shadow SetAttackTarget + SetAiState is last-writer.
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim);
             Some(victim)
@@ -9680,7 +9680,7 @@ impl GameLogic {
         if !self.choose_best_weapon_for_target(unit_id, Some(victim_id), t) {
             return AttackMachineResult::Failure;
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackMachineResult::Failure;
@@ -9895,7 +9895,7 @@ impl GameLogic {
         // Re-evaluate weapon choice every frame (C++ AIAttackState::update).
         let _ = self.choose_best_weapon_for_target(unit_id, Some(victim_id), current_time);
 
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
         } else if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -10321,12 +10321,12 @@ impl GameLogic {
         }
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_status_aiming_weapon(true);
-            if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if !crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 u.set_status_attacking(true);
                 u.set_ai_state(AIState::Attacking);
             }
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             // Attacking
         }
@@ -10379,7 +10379,7 @@ impl GameLogic {
                 return AttackAimResult::Failure;
             }
             u.set_status_aiming_weapon(true);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 // Log after drop — mark for post path via record here is ok (no u borrow conflict with free fn)
                 crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
             } else {
@@ -10433,12 +10433,12 @@ impl GameLogic {
                 return false;
             }
             u.set_status_firing_weapon(true);
-            if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if !crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 u.set_status_attacking(true);
                 u.set_ai_state(AIState::Attacking);
             }
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             // Attacking
         }
@@ -10504,7 +10504,7 @@ impl GameLogic {
                 return AttackFireResult::Failure;
             };
             u.set_status_firing_weapon(true);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             } else {
@@ -10603,7 +10603,7 @@ impl GameLogic {
         };
         u.stop_moving();
         u.set_status_attacking(false);
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
         } else {
             u.target = None;
@@ -11249,7 +11249,7 @@ impl GameLogic {
             a.movement.current_path_index = 0;
             a.record_host_movement();
             a.movement.target_position = Some(dest);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
             // Attacking
             } else {
@@ -11340,7 +11340,7 @@ impl GameLogic {
         };
         // Continue-attack residual: under AI decision authority, log AttackTarget
         // (+ Attacking state) for GameWorld apply/writeback; host stays clean.
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(attacker_id, next_id);
             crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2); // Attacking
             return true;
@@ -11715,7 +11715,7 @@ impl GameLogic {
             } else {
                 // C++ setProducer + park residual: dock at airfield hangar.
                 jet.set_contained_by(Some(af_id));
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
                 // Docked
                 } else {
@@ -11791,7 +11791,7 @@ impl GameLogic {
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
                     && o.contained_by.is_some()
                     && (o.ai_state == AIState::Docked
-                        || crate::gameworld_shadow::gameworld_ai_decision_authority_enabled())
+                        || crate::gameworld_shadow::gameworld_ai_decision_authority_live())
                     && (o.health.current + 1e-3 < o.health.maximum
                         || o.needs_return_to_base_rearm()
                         || aircraft_has_countermeasures_upgrade(&o.applied_upgrades))
@@ -12110,7 +12110,7 @@ impl GameLogic {
                     // is within aim delta; turn in place toward the target instead.
                     {
                         let decision_auth =
-                            crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+                            crate::gameworld_shadow::gameworld_ai_decision_authority_live();
                         let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                             if !decision_auth {
                                 attacker.set_ai_state(AIState::Attacking);
@@ -12162,7 +12162,7 @@ impl GameLogic {
                         if !pitch_ok {
                             // Out of pitch: keep engagement but do not fire this frame
                             // (C++ AI continues aiming / repositioning).
-                            if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if !crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     attacker.set_ai_state(AIState::Attacking);
                                     attacker.set_status_attacking(true);
@@ -12210,9 +12210,9 @@ impl GameLogic {
                                     attacker.activate_leech_range_for_slot(slot);
                                 }
                                 if current_time + 1e-6 < attacker.pre_attack_ready_at {
-                                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()
+                                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_live()
                                     {
-                                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                             crate::game_logic::host_ai_decision_log::record_attack(attacker_id, target_id);
                                             crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
                                         } else {
@@ -13734,7 +13734,7 @@ impl GameLogic {
                     // AcceptableAimDelta residual for force-attack-ground.
                     let ground_slot: u8 = if rocket_pod_ground { 1 } else { 0 };
                     let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             crate::game_logic::host_ai_decision_log::record_set_state(
                                 attacker_id,
                                 4,
@@ -14561,7 +14561,7 @@ impl GameLogic {
     ///
     /// Player `command_stop` should call [`Object::stop_attack`] directly for same-frame UX.
     fn stop_attack_decision_aware(&mut self, unit_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
             return;
         }
@@ -14575,7 +14575,7 @@ impl GameLogic {
     /// Prefer this over raw `set_target(None)` when the target is combat engagement
     /// (not harvest/heal/construction non-combat associations that stay host-owned).
     fn clear_target_decision_aware(&mut self, unit_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
             return;
         }
@@ -14658,7 +14658,7 @@ impl GameLogic {
         // Fire *decision* residual: under AI_DECISION_AUTHORITY, emit AttackTarget so
         // GameWorld last-writes host engagement target (parity with fire_at_ex).
         // Host still *chooses* the residual target; this peels the decision channel.
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(attacker_id, target_id);
             crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
             // Attacking
@@ -14732,9 +14732,7 @@ impl GameLogic {
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
             destroyed = target.take_damage_from(damage, Some(attacker_id));
-            if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled()
-                && crate::gameworld_shadow::gameworld_shadow_enabled()
-            {
+            if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
                 crate::game_logic::host_fire_spawn_log::record_residual_hitscan(
                     attacker_id,
                     target_id,
@@ -14760,7 +14758,7 @@ impl GameLogic {
     /// invoke full [`Object::attack_target`] (avoids takeoff/force-attack side effects).
     /// Set AI state, honoring AI decision authority (log-only when GameWorld applies).
     fn set_ai_state_decision_aware(&mut self, unit_id: ObjectId, state: AIState) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
             return;
@@ -14776,7 +14774,7 @@ impl GameLogic {
     }
 
     fn apply_engagement_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2); // Attacking
             return;
@@ -14798,7 +14796,7 @@ impl GameLogic {
     }
 
     fn engage_target_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
             return;
         }
@@ -14821,7 +14819,7 @@ impl GameLogic {
         // Always record into the frame decision log. When AI decision authority is on,
         // GameWorld apply/writeback is last-writer — do not mutate host engagement/state
         // here (MoveTo still pathfinds on host; destination is mirrored via decision log).
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         match command {
             AICommand::AttackTarget {
                 object_id,
@@ -15124,7 +15122,7 @@ impl GameLogic {
                     if !healed && !target_full {
                         // Another dozer owns sole-benefactor claim — cancel this dozer task.
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_stop_attack(
                                     object_id,
                                 );
@@ -15154,7 +15152,7 @@ impl GameLogic {
                         );
                         self.repair_complete_events = self.repair_complete_events.saturating_add(1);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_stop_attack(
                                     object_id,
                                 );
@@ -15288,8 +15286,7 @@ impl GameLogic {
                         }
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_target(None);
-                        } else if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()
-                        {
+                        } else if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             let ordinal =
                                 crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                                     &state,
@@ -15621,7 +15618,7 @@ impl GameLogic {
                         } else {
                             AIState::Docked
                         };
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             let ordinal =
                                 crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                                     &__ai_st,
@@ -15762,7 +15759,7 @@ impl GameLogic {
                             }
                         } else if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_destination(target_position);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_set_state(
                                     object_id, 19,
                                 ); // Capturing
@@ -20535,13 +20532,13 @@ impl GameLogic {
                     crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
                 }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_stop_attack(occ_id);
                 } else {
                     unit.set_target(None);
                 }
                 unit.set_contained_by(None);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
                 } else {
                     unit.set_ai_state(AIState::Idle);
@@ -22344,7 +22341,7 @@ impl GameLogic {
                                     if let Some(a) = self.objects.get_mut(&object_id) {
                                         a.set_position(stand);
                                         a.attack_target(target_id);
-                                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()
+                                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live()
                                         {
                                             crate::game_logic::host_ai_decision_log::record_set_state(
                                                 object_id, 2,
@@ -22622,7 +22619,7 @@ impl GameLogic {
                                 );
                                 unit.record_host_movement();
                             }
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_stop_attack(
                                     contained_id,
                                 );
@@ -22630,7 +22627,7 @@ impl GameLogic {
                                 unit.set_target(None);
                             }
                             unit.set_contained_by(None);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_set_state(
                                     contained_id,
                                     0,
@@ -22907,7 +22904,7 @@ impl GameLogic {
                     if other_obj.guard_target == Some(destroyed_id) {
                         other_obj.guard_target = None;
                         if other_obj.ai_state == AIState::GuardingObject {
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 guard_idle.push(*oid);
                             } else {
                                 other_obj.set_ai_state(AIState::Idle);
@@ -25536,7 +25533,7 @@ impl GameLogic {
                     hunter.weapon = Some(tank_hunter_missile_weapon());
                 }
                 hunter.set_contained_by(Some(outpost_id));
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(hunter_id, 12);
                 } else {
                     hunter.set_ai_state(AIState::Docked);
@@ -25628,7 +25625,7 @@ impl GameLogic {
                     });
                 }
                 guard.set_contained_by(Some(crawler_id));
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(guard_id, 12);
                 } else {
                     guard.set_ai_state(AIState::Docked);
@@ -25953,7 +25950,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 let (dmg, rng) = attacker
                     .weapon
                     .as_ref()
@@ -25981,7 +25978,7 @@ impl GameLogic {
                 // Non-mood fire residual: ensure flag stays clear.
                 attacker.turret_mood_target = false;
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(center_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(center_id, 2);
             } else {
@@ -26252,7 +26249,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 let (dmg, rng) = if slot == 1 {
                     attacker
                         .secondary_weapon
@@ -26283,7 +26280,7 @@ impl GameLogic {
             }
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(defense_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(defense_id, 2);
             } else {
@@ -26686,7 +26683,7 @@ impl GameLogic {
                     crate::game_logic::Object::consume_ammo_on_fire(w, t);
                 }
                 // AI attack authority: residual fire-intent for GameWorld last-writer.
-                if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                     let (dmg, rng) = asst
                         .weapon
                         .as_ref()
@@ -26706,7 +26703,7 @@ impl GameLogic {
                     );
                     asst.fire_intent_count = next_count;
                 }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_attack(
                         clip.assistant_id,
                         clip.victim_id,
@@ -26992,7 +26989,7 @@ impl GameLogic {
             self.point_defense_residual_intercepts =
                 self.point_defense_residual_intercepts.saturating_add(1);
             // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 if let Some(carrier) = self.objects.get_mut(&carrier_id) {
                     let next_count = carrier.fire_intent_count.saturating_add(1);
                     let sim_t = frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -27009,7 +27006,7 @@ impl GameLogic {
                     carrier.fire_intent_count = next_count;
                 }
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(carrier_id, target_id);
             }
 
@@ -34088,7 +34085,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 let (dmg, rng) = attacker
                     .weapon
                     .as_ref()
@@ -34108,7 +34105,7 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
             } else {
@@ -34252,7 +34249,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 let (dmg, rng) = attacker
                     .weapon
                     .as_ref()
@@ -34272,7 +34269,7 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(hellfire_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(hellfire_id, 2);
             } else {
@@ -34479,7 +34476,7 @@ impl GameLogic {
                 continue;
             }
             occ.set_contained_by(None);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
             } else {
                 occ.set_ai_state(AIState::Idle);
@@ -34568,7 +34565,7 @@ impl GameLogic {
                 continue;
             }
             occ.set_contained_by(None);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
             } else {
                 occ.set_ai_state(AIState::Idle);
@@ -34824,7 +34821,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 let (dmg, rng) = attacker
                     .weapon
                     .as_ref()
@@ -34844,7 +34841,7 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(passenger_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(passenger_id, 2);
             } else {
@@ -34956,7 +34953,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 let (dmg, rng) = attacker
                     .weapon
                     .as_ref()
@@ -34976,7 +34973,7 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(garrisoned_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(garrisoned_id, 2);
             } else {
@@ -35614,18 +35611,18 @@ impl GameLogic {
                     if let Some(o) = self.objects.get_mut(&cid) {
                         o.turret_mood_target = false;
                         o.set_status_attacking(false);
-                        if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if !crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             o.target = None;
                         }
                         if matches!(o.ai_state, AIState::Attacking) {
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_set_state(cid, 0);
                             } else {
                                 o.set_ai_state(AIState::Idle);
                             }
                         }
                     }
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_stop_attack(cid);
                     }
                     clears = clears.saturating_add(1);
@@ -35638,7 +35635,7 @@ impl GameLogic {
                         o.record_host_turret();
                         o.turret_pitch_deg = aim_p;
                         o.record_host_turret();
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             // Keep hold state authoritative in GameWorld; reassert via decision log.
                             crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
                         } else {
@@ -35745,12 +35742,12 @@ impl GameLogic {
             }
             if let Some((tid, _, tx, tz)) = best {
                 let (aim_a, aim_p) = strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_attack(cid, tid);
                     crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
                 }
                 if let Some(o) = self.objects.get_mut(&cid) {
-                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         o.target = Some(tid);
                     }
                     o.turret_mood_target = true;
@@ -35765,7 +35762,7 @@ impl GameLogic {
                     o.record_host_turret();
                     o.turret_hold_until_frame = 0;
                     o.turret_idle_recentering = false;
-                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         o.set_ai_state(AIState::Attacking);
                     }
                     o.set_status_attacking(true);
@@ -36163,7 +36160,7 @@ impl GameLogic {
 
         let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
             r.set_contained_by(None);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 0);
             } else {
                 r.set_ai_state(AIState::Idle);
@@ -38554,7 +38551,7 @@ impl GameLogic {
                 }
                 if let Some(r) = self.objects.get_mut(rid) {
                     r.set_contained_by(None);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(*rid, 0);
                     } else {
                         r.set_ai_state(AIState::Idle);
@@ -38869,7 +38866,7 @@ impl GameLogic {
                         obj.health.current = 0.0;
                         obj.status.destroyed = true;
                         let hid = obj.id;
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             crate::game_logic::host_ai_decision_log::record_set_state(hid, 0);
                         } else {
                             obj.set_ai_state(AIState::Idle);
@@ -41297,7 +41294,7 @@ impl GameLogic {
                 let first_target = plan.hits.first().map(|h| h.target_id);
                 if let Some(mob) = self.objects.get_mut(&plan.mob_id) {
                     mob.set_status_attacking(true);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         if let Some(tid) = first_target {
                             crate::game_logic::host_ai_decision_log::record_attack(
                                 plan.mob_id,
@@ -41886,7 +41883,7 @@ impl GameLogic {
                     ) {
                         continue;
                     }
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_attack(eid, rid);
                         crate::game_logic::host_ai_decision_log::record_set_state(eid, 2);
                     } else {
@@ -42557,7 +42554,7 @@ impl GameLogic {
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, 1);
                     } else {
                         obj.set_ai_state(AIState::Moving);
@@ -42628,7 +42625,7 @@ impl GameLogic {
                 clearer.target = None;
             }
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, 0);
                 } else {
                     clearer.set_ai_state(AIState::Idle);
@@ -44323,7 +44320,7 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_moving();
                     obj.stop_attack();
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
                     } else {
                         obj.set_ai_state(AIState::Idle);
@@ -48870,13 +48867,13 @@ impl GameLogic {
                             );
                             unit.record_host_movement();
                         }
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             crate::game_logic::host_ai_decision_log::record_stop_attack(uid);
                         } else {
                             unit.set_target(None);
                         }
                         unit.set_contained_by(None);
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
                         } else {
                             unit.set_ai_state(AIState::Idle);
@@ -48939,7 +48936,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_ai_state(AIState::Idle);
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             let ordinal =
                 crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Idle);
             crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
@@ -49038,13 +49035,13 @@ impl GameLogic {
                     crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
                 }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_stop_attack(uid);
                 } else {
                     unit.set_target(None);
                 }
                 unit.set_contained_by(None);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
                 } else {
                     unit.set_ai_state(AIState::Idle);
@@ -49118,7 +49115,7 @@ impl GameLogic {
                 }
                 unit.set_target(None);
                 unit.set_contained_by(None);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
                 } else {
                     unit.set_ai_state(AIState::Idle);
@@ -49181,7 +49178,7 @@ impl GameLogic {
                             }
                             unit.set_target(None);
                             unit.set_contained_by(None);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
                             } else {
                                 unit.set_ai_state(AIState::Idle);
@@ -49251,7 +49248,7 @@ impl GameLogic {
             obj.set_status_unselectable(true);
             obj.set_status_under_construction(false);
             obj.status.selected = false;
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
             } else {
                 obj.set_ai_state(AIState::Idle);
@@ -49397,7 +49394,7 @@ impl GameLogic {
             };
             if targeting || (constructing && nearby) {
                 obj.target = None;
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(id, 0);
                 } else {
                     obj.set_ai_state(AIState::Idle);
@@ -49458,7 +49455,7 @@ impl GameLogic {
             }
             if let Some(dozer) = self.objects.get_mut(&dozer_id) {
                 dozer.target = Some(structure_id); // non-combat build association stays host
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(dozer_id, 7);
                 } else {
                     dozer.set_ai_state(AIState::Constructing);
@@ -60238,7 +60235,7 @@ mod tests {
                 sc.turret_mood_target,
                 "idle mood-target residual must flag m_targetWasSetByIdleMood"
             );
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 // AttackTarget last-write via decision log; host target stays unset.
                 assert!(sc.target.is_none());
             } else {
@@ -60396,7 +60393,7 @@ mod tests {
                 sc.turret_mood_target,
                 "Passive WaitForAttack residual must retaliate vs last damage source"
             );
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 assert!(sc.target.is_none());
             } else {
                 assert_eq!(sc.target, Some(enemy_id));
@@ -72294,7 +72291,7 @@ mod tests {
                 "must have move target toward mine"
             );
             // AI state last-write under AI_DECISION_AUTHORITY (default on).
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 assert_eq!(dozer.ai_state, AIState::Idle);
                 let moving = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                     &AIState::Moving,
@@ -84894,7 +84891,7 @@ mod tests {
             assert_eq!(jet.contained_by, Some(af_id));
             assert!(!jet.needs_return_to_base_rearm());
             // Docked AI state last-write under AI_DECISION_AUTHORITY (default on).
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 assert_eq!(jet.ai_state, AIState::Idle);
                 let docked = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                     &AIState::Docked,
@@ -86269,7 +86266,7 @@ mod tests {
         assert!(logic.honesty_dozer_bored_mine_clear_ok());
         // Mine-clear engagement is decision-authority last-write (default on):
         // AttackTarget + SetAIState(Attacking) logged; host target/ai_state not mutated.
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             assert_eq!(d.target, None);
             assert_eq!(d.ai_state, AIState::Idle);
             let events = crate::game_logic::host_ai_decision_log::snapshot();
@@ -86355,7 +86352,7 @@ mod tests {
         assert!(logic.honesty_dozer_bored_repair_ok());
         // AI state last-write under AI_DECISION_AUTHORITY (default): host ai_state stays
         // Idle; SetAIState(Repairing) is logged for GameWorld writeback.
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             assert_eq!(d.ai_state, AIState::Idle);
             let events = crate::game_logic::host_ai_decision_log::snapshot();
             let repairing = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
@@ -97674,7 +97671,7 @@ mod tests {
         assert!(logic.try_continue_attack_after_kill(atk, mine1, pos, 100.0, team,));
         // Under AI_DECISION_AUTHORITY (default), continue-attack logs AttackTarget and
         // leaves host target untouched for GameWorld writeback.
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             let events = crate::game_logic::host_ai_decision_log::snapshot();
             assert!(
                 events.iter().any(|e| {
