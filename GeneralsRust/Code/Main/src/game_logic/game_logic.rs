@@ -26767,18 +26767,26 @@ impl GameLogic {
             if prio == 0 {
                 if let Some(target) = self.objects.get_mut(&target_id) {
                     impact_pos = target.get_position();
-                    // Instant destroy residual for interceptable missiles.
-                    let _ = target
-                        .take_damage_from(target.health.current.max(damage), Some(carrier_id));
-                    destroyed = !target.is_alive() || target.health.current <= 0.0;
-                    if !destroyed {
-                        // Force kill residual if armor residual blocked full clear.
-                        destroyed = target.take_damage_from(damage * 10.0, Some(carrier_id));
-                    }
                 }
+                // Instant destroy residual for interceptable missiles.
+                // Damage-authority aware: HP last-write via damage log; destroy flag host-local.
+                self.mark_destroyed_authority_aware(target_id, Some(carrier_id));
+                destroyed = self
+                    .objects
+                    .get(&target_id)
+                    .map(|t| t.status.destroyed || !t.is_alive() || t.health.current <= 0.0)
+                    .unwrap_or(true);
             } else if let Some(target) = self.objects.get_mut(&target_id) {
                 impact_pos = target.get_position();
                 destroyed = target.take_damage_from(damage, Some(carrier_id));
+                // Under damage authority take_damage does not zero host HP; project kill for
+                // mark_object_for_destruction when lethal residual is logged.
+                if !destroyed
+                    && crate::gameworld_shadow::gameworld_damage_authority_enabled()
+                    && damage >= target.health.current
+                {
+                    destroyed = true;
+                }
             }
 
             self.point_defense_next_ready_frame
