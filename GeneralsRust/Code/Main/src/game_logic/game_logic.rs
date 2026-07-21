@@ -14732,7 +14732,9 @@ impl GameLogic {
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
             destroyed = target.take_damage_from(damage, Some(attacker_id));
-            if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled()
+                && crate::gameworld_shadow::gameworld_shadow_enabled()
+            {
                 crate::game_logic::host_fire_spawn_log::record_residual_hitscan(
                     attacker_id,
                     target_id,
