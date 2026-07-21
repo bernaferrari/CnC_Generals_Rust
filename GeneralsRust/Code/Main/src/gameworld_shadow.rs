@@ -18853,4 +18853,31 @@ mod tests {
             "presentation path must iterate frame.objects for focus"
         );
     }
+
+    #[test]
+    fn runtime_host_select_attack_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng.find("select_local_unit").expect("select_local_unit");
+        let body = &eng[i..eng.len().min(i + 1800)];
+        assert!(
+            body.contains("alive_selectable_friendly_mobile_ids")
+                && body.contains("first_mobile_friendly_id")
+                && body.contains("Boot residual only"),
+            "select_local_unit must prefer presentation mobile ids"
+        );
+        let i = eng
+            .find("attack_nearest_enemy")
+            .expect("attack_nearest_enemy");
+        let body = &eng[i..eng.len().min(i + 2800)];
+        assert!(
+            body.contains("alive_selectable_friendly_combat_ids") && body.contains("has_weapon"),
+            "attack_nearest_enemy must arm attackers from presentation combat residual"
+        );
+        let i = eng.find("guard_position").expect("guard_position");
+        let body = &eng[i..eng.len().min(i + 2000)];
+        assert!(
+            body.contains("alive_selectable_friendly_mobile_ids"),
+            "guard_position empty pick must use presentation mobiles"
+        );
+    }
 }
