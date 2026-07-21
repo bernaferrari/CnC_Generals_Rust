@@ -3424,13 +3424,10 @@ impl GameClient {
             visual_delta * visual_speed as f32
         };
 
-        // Main owns OS event intake and injects into shared THE_MOUSE/THE_KEYBOARD.
-        // Shell ticks device update() on those shared handles (no second OS poll).
-        // Client-internal audio request queue may drain here.
+        // Main owns OS event intake and shared THE_MOUSE/THE_KEYBOARD (no shell
+        // update_input dual-tick). Audio/SFX dispatched by Main before shell tick (no update_audio dual-drain).
         // Presentation gameplay SFX is dispatched by Main via
         // PresentationFrame::dispatch_audio_events_direct before this shell tick.
-        self.update_input()?;
-        self.update_audio()?;
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         // Eva residual runs via update_post_draw_ui (no dual OS input ownership).

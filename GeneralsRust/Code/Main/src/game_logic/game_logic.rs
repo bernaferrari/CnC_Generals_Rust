@@ -56548,7 +56548,7 @@ mod tests {
         }
         let attacker_cash_before = game_logic
             .get_player_mut_by_team(Team::China)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
 
         let lotus_id = game_logic
@@ -56612,7 +56612,7 @@ mod tests {
             .players
             .values()
             .find(|p| p.team == Team::China)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         assert!(
             attacker_cash_after > attacker_cash_before,
@@ -56622,7 +56622,7 @@ mod tests {
             .players
             .values()
             .find(|p| p.team == Team::GLA)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         assert!(
             victim_cash < 5_000,
@@ -88025,7 +88025,8 @@ mod tests {
         assert!(p.has_unlocked_science("SCIENCE_DaisyCutter"));
         assert_eq!(p.science_purchase_points, 1);
         assert_eq!(
-            p.resources.supplies, supplies_before,
+            p.effective_supplies(),
+            supplies_before,
             "science purchase must not spend supplies residual"
         );
         // Cost 0 MOAB not purchasable.
@@ -89424,11 +89425,11 @@ mod tests {
         );
         assert_eq!(logic.last_cash_hack_stolen_amount(), stolen);
         assert_eq!(
-            logic.players.get(&0).unwrap().resources.supplies,
+            logic.players.get(&0).unwrap().effective_supplies(),
             CASH_HACK_MONEY_AMOUNT_TIER3
         );
         assert_eq!(
-            logic.players.get(&1).unwrap().resources.supplies,
+            logic.players.get(&1).unwrap().effective_supplies(),
             10_000 - CASH_HACK_MONEY_AMOUNT_TIER3
         );
 
