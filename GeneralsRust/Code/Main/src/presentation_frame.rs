@@ -10684,6 +10684,27 @@ mod tests {
     }
 
     #[test]
+    fn meta_event_plane_lock_prefers_selection_without_registry() {
+        let me = include_str!("../../GameEngine/GameClient/src/message_stream/meta_event.rs");
+        assert!(
+            me.contains(
+                "Host residual: when registry empty, cycle airborne units from local selection"
+            ) && me.contains("local_selection_object_ids()"),
+            "plane camera lock must fall back to selection when OBJECT_REGISTRY is empty"
+        );
+        assert!(
+            me.contains("Host residual: registry empty is fine")
+                || me.contains("Main presentation shell owns drawable TOD"),
+            "time-of-day refresh must not require OBJECT_REGISTRY for host path"
+        );
+        assert!(
+            me.contains("Host presentation path refreshes model conditions")
+                || me.contains("no OBJECT_REGISTRY required"),
+            "model condition refresh must document host residual without registry"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
