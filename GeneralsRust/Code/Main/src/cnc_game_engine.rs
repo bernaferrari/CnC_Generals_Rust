@@ -167,22 +167,29 @@ mod tests {
     #[test]
     fn render_ui_state_prefers_presentation_without_live_update() {
         let src = include_str!("cnc_game_engine.rs");
+        // Locate the render() consumer, not this test's string literal.
+        let marker = "GameUIState is built from PresentationFrame only";
         let i = src
-            .find("Production presentation consumer: when a post-logic snapshot exists")
-            .expect("render presentation UI consumer");
-        let window = &src[i..i + 900];
+            .find(marker)
+            .expect("render presentation UI consumer marker");
+        let window = &src[i..(i + 700).min(src.len())];
         assert!(
             window.contains("GameUIState::default()") && window.contains("pres.apply_to_ui_state"),
             "InGame render must build UI state from PresentationFrame default+apply"
         );
         assert!(
-            !window.contains("let mut ui_state = self.game_logic.update_ui_state"),
-            "must not always dual-read live update_ui_state when presentation exists"
-        );
-        assert!(
-            window.contains("Boot/loading residual")
-                || window.contains("update_ui_state(self.current_player_id)"),
+            window.contains("Boot/loading residual only")
+                && window.contains("update_ui_state(self.current_player_id)"),
             "boot residual may still call update_ui_state without presentation"
+        );
+        // Ensure the presentation branch does not call update_ui_state first.
+        let branch_end = window
+            .find("Boot/loading residual only")
+            .unwrap_or(window.len());
+        let presentation_branch = &window[..branch_end];
+        assert!(
+            !presentation_branch.contains("update_ui_state"),
+            "presentation branch must not call live update_ui_state"
         );
     }
 
