@@ -2082,6 +2082,8 @@ pub struct PresentationFrame {
     /// Local player team frozen at snapshot time (selection/hotkey residual).
     /// Prefer this over live `GameLogic::get_player` dual-reads when a frame is installed.
     pub local_team: Team,
+    /// Host team base / command-center pose residual for camera snap proximity.
+    pub local_team_base_position: Option<Vec3>,
     /// Full player roster frozen at snapshot time (defeat/alliance UI residual).
     pub players: Vec<PresentationPlayerInfo>,
     pub local_supplies: u32,
@@ -2262,6 +2264,8 @@ impl PresentationFrame {
             .get_player(local_player_id)
             .map(|p| p.team)
             .unwrap_or(Team::Neutral);
+        // Freeze team base proximity once (camera snap / host residual).
+        let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
         let fow_grid = FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
         let mut objects = Vec::with_capacity(logic.get_objects().len());
@@ -3111,6 +3115,7 @@ impl PresentationFrame {
             objects,
             local_player_id,
             local_team,
+            local_team_base_position,
             players,
             local_supplies,
             local_power,
@@ -4117,6 +4122,11 @@ impl PresentationFrame {
     #[inline]
     pub fn local_team(&self) -> Team {
         self.local_team
+    }
+
+    /// Frozen team base pose for camera snap proximity (None if unknown).
+    pub fn local_team_base_or_hint(&self, fallback: Vec3) -> Vec3 {
+        self.local_team_base_position.unwrap_or(fallback)
     }
 
     /// Look up frozen player roster entry by id.
@@ -10707,7 +10717,7 @@ mod tests {
     #[test]
     fn snap_camera_start_hint_prefers_presentation() {
         let src = include_str!("cnc_game_engine.rs");
-        let marker = "Prefer presentation structure centroid / camera target as proximity hint";
+        let marker = "Prefer presentation-frozen team base, else structure centroid, else camera";
         let i = src
             .find(marker)
             .expect("snap_camera presentation start_hint marker");
@@ -10738,6 +10748,22 @@ mod tests {
         assert!(
             window.contains("no presentation frame"),
             "must document live team base position as boot residual"
+        );
+    }
+
+    #[test]
+    fn presentation_freezes_local_team_base_position() {
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("pub local_team_base_position: Option<Vec3>")
+                && src.contains("logic.team_base_position(local_team)"),
+            "build_from_logic must freeze local_team_base_position from host"
+        );
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("frame.local_team_base_position")
+                || eng.contains("local_team_base_position.or_else"),
+            "snap_camera must prefer frozen local_team_base_position"
         );
     }
 

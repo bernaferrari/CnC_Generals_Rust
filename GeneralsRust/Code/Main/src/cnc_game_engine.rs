@@ -11895,15 +11895,19 @@ impl CnCGameEngine {
             };
             player.team
         };
-        // Prefer presentation structure centroid / camera target as proximity hint.
+        // Prefer presentation-frozen team base, else structure centroid, else camera.
         // Live team_base_position is boot residual only (no presentation frame).
         let start_hint = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame
-                .objects
-                .iter()
-                .filter(|o| o.team == team && !o.destroyed && o.is_structure)
-                .map(|o| o.position)
-                .next()
+                .local_team_base_position
+                .or_else(|| {
+                    frame
+                        .objects
+                        .iter()
+                        .filter(|o| o.team == team && !o.destroyed && o.is_structure)
+                        .map(|o| o.position)
+                        .next()
+                })
                 .or_else(|| {
                     // Centroid of first few friendly structures as proximity seed.
                     let mut sum = Vec3::ZERO;
