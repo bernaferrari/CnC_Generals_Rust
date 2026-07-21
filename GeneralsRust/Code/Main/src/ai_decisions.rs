@@ -61,35 +61,41 @@ impl AIDecisionSystem {
         team: Team,
         search_radius: f32,
     ) -> Option<(ObjectId, f32)> {
-        let mut nearest_enemy: Option<(ObjectId, f32)> = None;
-
-        for (object_id, object) in game_logic.get_objects() {
-            // Skip if not an enemy (includes stealthed-undetected residual gate).
-            if !object.is_targetable_by_enemy_of(team) {
-                continue;
-            }
-
-            // Calculate distance
-            let distance = object.get_position().distance(position);
-
-            // Check if within search radius
-            if distance > search_radius {
-                continue;
-            }
-
-            // Update nearest enemy if this is closer
-            match nearest_enemy {
-                Some((_, nearest_dist)) if distance < nearest_dist => {
-                    nearest_enemy = Some((*object_id, distance));
+        // Pure residual acquire: nearest enemy targetable by `team` within radius (3D).
+        let candidates: Vec<_> = game_logic
+            .get_objects()
+            .iter()
+            .filter_map(|(&object_id, object)| {
+                // Skip if not an enemy (includes stealthed-undetected residual gate).
+                if !object.is_targetable_by_enemy_of(team) {
+                    return None;
                 }
-                None => {
-                    nearest_enemy = Some((*object_id, distance));
-                }
-                _ => {}
-            }
-        }
-
-        nearest_enemy
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: object_id,
+                        team: object.team,
+                        position: object.get_position(),
+                        is_alive: object.is_alive(),
+                        is_neutral: object.team == Team::Neutral,
+                        under_construction: object.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: object.is_effectively_stealthed(),
+                        is_air: object.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                            || object.status.airborne_target,
+                        eject_invulnerable: object.is_eject_invulnerable(),
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            ObjectId(u32::MAX),
+            team,
+            position,
+            candidates,
+            |_| search_radius,
+            |_| true,
+        )
+        .map(|(id, dist, _)| (id, dist))
     }
 
     /// Find the best target based on multiple criteria (distance, health, threat level)

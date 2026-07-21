@@ -19189,6 +19189,29 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // AI decisions + resource gather nearest residual.
+        {
+            let ai = include_str!("ai_decisions.rs");
+            assert!(
+                ai.contains("fn find_nearest_enemy") && ai.contains("pick_nearest_residual_target"),
+                "ai_decisions find_nearest_enemy must use pure residual acquire"
+            );
+            let res = include_str!("game_logic/resources.rs");
+            assert!(
+                res.contains("fn find_nearest_supply_source")
+                    && res.contains("pick_nearest_residual_target"),
+                "resources find_nearest_supply_source must use pure residual acquire"
+            );
+            let eng = include_str!("cnc_game_engine.rs");
+            let i = eng
+                .find("fn find_nearest_friendly_dozer")
+                .expect("find_nearest_friendly_dozer");
+            let body = &eng[i..eng.len().min(i + 4000)];
+            assert!(
+                body.contains("pick_nearest_residual_target_xz"),
+                "boot dozer finder must use pure residual XZ acquire"
+            );
+        }
         // CommandExecutor residual nearest picks.
         {
             let src = include_str!("command_executor.rs");
