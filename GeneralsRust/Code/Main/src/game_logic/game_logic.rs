@@ -14567,9 +14567,11 @@ impl GameLogic {
 
         // Fire-spawn channel residual: under FIRE_SPAWN_AUTHORITY, log a projectile
         // spawn carrying live damage (parity with fire_at). Hitscan below still
-        // owns same-frame residual HP so update_combat-only honesty stays green;
-        // shadow zeroes damage on residual-hitscan pairs to prevent dual-tick
-        // double-dip when fire-spawns materialize after the host tick.
+        // owns same-frame residual HP so update_combat-only honesty stays green
+        // for both instant and ballistic residual weapons; residual-hitscan pairs
+        // are marked so shadow zeroes spawn damage (no dual-tick double-dip).
+        // Ballistic projectile-owned residual HP (no hitscan) remains deferred until
+        // dual-tick tests drive shadow materialize+resolve after host combat.
         if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
             let (speed, splash, homing, dtype, attack_range, min_attack_range) = match weapon {
                 Some(w) => {
@@ -14630,9 +14632,6 @@ impl GameLogic {
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
-            // Same-frame residual honesty (update_combat-only tests) — fire-spawn
-            // channel carries live damage for dual-tick observe; shadow zeroes
-            // residual-hitscan pairs so dual-tick does not double-apply HP.
             destroyed = target.take_damage_from(damage, Some(attacker_id));
             if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
                 crate::game_logic::host_fire_spawn_log::record_residual_hitscan(
