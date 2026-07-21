@@ -10413,6 +10413,26 @@ mod tests {
     }
 
     #[test]
+    fn control_bar_keeps_presentation_production_queue_without_registry() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("presentation-fed queue residual stays")
+                || cb.contains("Presentation residual owns host InGame queue progress"),
+            "update_context_command must not wipe presentation production queue"
+        );
+        assert!(
+            cb.contains("Main already filtered unit_command_buttons")
+                || cb.contains("Do not hide presentation-fed command sets"),
+            "get_command_availability must not hide all buttons without OBJECT_REGISTRY"
+        );
+        assert!(
+            cb.contains("sync_selection_display_from_presentation — do not wipe it")
+                || cb.contains("do not wipe it"),
+            "update_portrait_for_object must preserve presentation portrait"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
