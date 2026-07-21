@@ -18109,4 +18109,55 @@ mod tests {
             None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
         }
     }
+
+    #[test]
+    fn lethal_hp_and_rebuild_start_damage_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for (fn_name, token) in [
+            (
+                "fn apply_vehicle_crash_into_immobile",
+                "host_damage_log::record",
+            ),
+            (
+                "fn destroy_eject_parachute_midair",
+                "host_damage_log::record",
+            ),
+            (
+                "fn tick_eject_parachute_residual",
+                "host_damage_log::record",
+            ),
+            (
+                "fn update_rebuild_holes",
+                "write_object_health_authority_aware",
+            ),
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains(token)
+                    && (w.contains("gameworld_damage_authority_enabled")
+                        || token == "write_object_health_authority_aware"),
+                "{fn_name} must honor damage authority via {token}"
+            );
+        }
+    }
 }
