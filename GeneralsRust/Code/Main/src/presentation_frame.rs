@@ -10799,6 +10799,21 @@ mod tests {
     }
 
     #[test]
+    fn game_client_update_host_path_skips_dual_present() {
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        assert!(
+            gc.contains("host_presentation_path")
+                && gc.contains("No draw_display")
+                && gc.contains("update_drawables_local(visual_delta)"),
+            "GameClient::update must host-path skip dual Display present and registry shroud"
+        );
+        assert!(
+            gc.contains("Dual-world residual: full C++-ordered client tick"),
+            "dual-world full update path must remain when OBJECT_REGISTRY is populated"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
