@@ -17505,10 +17505,124 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let applied = shadow.apply_host_damage_events(&events);
-        assert!(applied.0 + applied.1 >= 1, "expected damage apply {applied:?}");
+        assert!(
+            applied.0 + applied.1 >= 1,
+            "expected damage apply {applied:?}"
+        );
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn private_stop_and_clear_target_decision_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        assert!(
+            src.contains("fn clear_target_decision_aware"),
+            "clear_target_decision_aware helper must exist"
+        );
+        for fn_name in [
+            "fn private_stop",
+            "fn process_destroy_list",
+            "fn on_capture_tunnel_network_residual",
+            "fn on_capture_kick_passengers",
+            "fn check_building_damage_states",
+            "fn tick_strategy_center_turret_mood_target",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("record_stop_attack")
+                    || w.contains("clear_target_decision_aware")
+                    || w.contains("stop_attack_decision_aware"),
+                "{fn_name} must clear combat targets via StopAttack decision channel"
+            );
+        }
+    }
+
+    #[test]
+    fn private_stop_decision_authority_clears_via_writeback() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PrivStop");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["PsU", "PsE"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let oid = logic
+            .create_object("PsU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("u");
+        let vid = logic
+            .create_object("PsE", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("e");
+        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+            o.target = Some(vid);
+            o.status.attacking = true;
+        }
+        assert!(logic.private_stop(oid));
+        // Host target deferred under decision authority.
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().target,
+            Some(vid),
+            "host target must remain until GameWorld writeback"
+        );
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_STOP_ATTACK && e.host_object == oid
+            }),
+            "private_stop must log StopAttack; got {events:?}"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        // Seed world attack target then apply stop.
+        assert!(shadow.queue_set_attack_target_for_host(oid, Some(vid)));
+        let _ = shadow.apply_pending();
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        let _ = shadow.apply_pending();
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert!(
+            logic.get_objects().get(&oid).unwrap().target.is_none(),
+            "writeback must clear host target"
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
         }
     }
 }
