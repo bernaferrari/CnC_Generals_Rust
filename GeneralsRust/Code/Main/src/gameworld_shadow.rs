@@ -18956,4 +18956,30 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn runtime_host_force_attack_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng.find("force_attack_object").expect("force_attack");
+        let body = &eng[i..eng.len().min(i + 2500)];
+        assert!(
+            body.contains("first_enemy_force_attack_id"),
+            "force_attack_object must pick enemy from presentation"
+        );
+        assert!(
+            body.contains("Boot residual only"),
+            "force_attack must keep boot residual live dual-scan"
+        );
+        let i = eng.find("attack_nearest_enemy").expect("attack_nearest");
+        let body = &eng[i..eng.len().min(i + 4500)];
+        assert!(
+            body.contains("first_enemy_force_attack_id"),
+            "attack_nearest_enemy must pick enemy from presentation without live or_else"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn first_enemy_force_attack_id"),
+            "presentation helper required"
+        );
+    }
 }
