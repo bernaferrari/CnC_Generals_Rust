@@ -5629,6 +5629,21 @@ impl Object {
         )
     }
 
+    /// Superweapon / strike residual: always mutate host HP (and still log for shadow).
+    /// Combat fire under DAMAGE_AUTHORITY defers HP to GameWorld writeback; strikes
+    /// call this path so host-only update_special_power_strikes still applies damage.
+    pub fn take_damage_from_immediate(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
+        self.take_damage_from_typed_death_with_host_hp(
+            damage,
+            source,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                crate::game_logic::combat::DamageType::Unresistable,
+            ),
+            true, // force host HP apply
+        )
+    }
+
     /// Apply damage with host combat DamageType for Armor.ini residual coefficients.
     pub fn take_damage_from_typed(
         &mut self,
@@ -5651,6 +5666,23 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
+        self.take_damage_from_typed_death_with_host_hp(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            false,
+        )
+    }
+
+    fn take_damage_from_typed_death_with_host_hp(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        force_host_hp: bool,
     ) -> bool {
         if self.status.destroyed {
             return false;
@@ -5706,7 +5738,9 @@ impl Object {
 
         // GameWorld damage authority: host logs intent only; HP/destroyed last-write
         // via shadow session mutations + writeback_health_to_host (no mid-frame host HP mutate).
-        let damage_auth = crate::gameworld_shadow::gameworld_damage_authority_enabled();
+        // Combat fire under DAMAGE_AUTHORITY defers HP; force_host_hp for superweapons.
+        let damage_auth =
+            crate::gameworld_shadow::gameworld_damage_authority_enabled() && !force_host_hp;
         let destroyed = if damage_auth {
             let projected = (self.health.current - actual_damage).max(0.0);
             let will_die = projected <= 0.0 || actual_damage >= self.health.current;

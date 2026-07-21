@@ -1456,3 +1456,5 @@ Dual-world OBJECT_REGISTRY empty peels (host path): Team/Player bulk, InGameUI p
 More empty-registry peels: crate AI supply/hole, async AI snapshot, stealth detector, helpers TOD/path, script conditions/executor bulk actions.
 
 Under GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY+shadow (default on), GameWorld sole-ticks object SP cooldown remaining (respecting host disabled freeze); host skips advance and writeback last-writes ready/remaining.
+
+Superweapon/strike residual uses `take_damage_from_immediate` so host HP mutates even under DAMAGE_AUTHORITY (combat fire still defers HP to GameWorld writeback).
