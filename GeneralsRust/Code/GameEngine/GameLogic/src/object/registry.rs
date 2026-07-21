@@ -79,6 +79,15 @@ impl ObjectRegistry {
         }
     }
 
+    /// Host/presentation path: true when no dual-world factory objects are registered.
+    pub fn is_empty(&self) -> bool {
+        if let Ok(guard) = self.store.read() {
+            guard.objects.is_empty() || guard.objects.values().all(|weak| weak.strong_count() == 0)
+        } else {
+            true
+        }
+    }
+
     /// Retrieve all live objects (dropping stale weak refs on the way).
     pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
         if let Ok(mut guard) = self.store.write() {
