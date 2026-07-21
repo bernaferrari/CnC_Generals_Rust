@@ -17396,4 +17396,119 @@ mod tests {
             "fire_at_ex pre-attack must honor AI decision authority"
         );
     }
+
+    #[test]
+    fn residual_auto_fire_damage_source_attribution_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for (fn_name, token) in [
+            (
+                "fn try_sentry_drone_residual_fire",
+                "take_damage_from(damage, Some(sentry_id))",
+            ),
+            (
+                "fn try_hellfire_drone_residual_fire",
+                "take_damage_from(damage, Some(hellfire_id))",
+            ),
+            (
+                "fn try_garrison_residual_fire",
+                "take_damage_from(damage, Some(garrisoned_id))",
+            ),
+            (
+                "fn try_transport_passenger_residual_fire",
+                "take_damage_from(damage, Some(passenger_id))",
+            ),
+            (
+                "fn try_base_defense_residual_fire",
+                "take_damage_from(damage, Some(defense_id))",
+            ),
+            (
+                "fn try_strategy_center_bombardment_turret_fire",
+                "take_damage_from(dmg, Some(center_id))",
+            ),
+            (
+                "fn update_pending_patriot_assists",
+                "take_damage_from(damage, Some(clip.assistant_id))",
+            ),
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains(token),
+                "{fn_name} must source-attribute residual damage via {token}"
+            );
+            // No anonymous take_damage(amount) residual left in these auto-fire paths.
+            assert!(
+                !w.contains("take_damage(damage)") && !w.contains("take_damage(dmg)"),
+                "{fn_name} must not use anonymous take_damage"
+            );
+        }
+    }
+
+    #[test]
+    fn residual_auto_fire_damage_source_writeback_channel() {
+        use crate::game_logic::host_damage_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_damage_log::clear();
+        let prev = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DmgSrc");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["SrcA", "SrcB"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                t.set_health(100.0);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let attacker = logic
+            .create_object("SrcA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let victim = logic
+            .create_object("SrcB", Team::China, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("v");
+        {
+            let v = logic.get_objects_mut().get_mut(&victim).unwrap();
+            let _ = v.take_damage_from(25.0, Some(attacker));
+            assert_eq!(v.last_damage_source, Some(attacker));
+            // Damage authority defers HP; projected destroy false.
+            assert!(v.health.current > 50.0 || gameworld_damage_authority_enabled());
+        }
+        let events = host_damage_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| { e.target == victim && e.source == Some(attacker) && e.amount >= 20.0 }),
+            "damage log must carry source; got {events:?}"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let applied = shadow.apply_host_damage_events(&events);
+        assert!(applied.0 + applied.1 >= 1, "expected damage apply {applied:?}");
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
+    }
 }
