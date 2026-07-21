@@ -11064,6 +11064,20 @@ mod tests {
     }
 
     #[test]
+    fn scripting_registry_empty_peels() {
+        let cond = include_str!("../../GameEngine/GameLogic/src/scripting/conditions/mod.rs");
+        assert!(
+            cond.contains("OBJECT_REGISTRY.is_empty()") && cond.contains("return Ok(false)"),
+            "script conditions object-type search must fail-closed on empty registry"
+        );
+        let ex = include_str!("../../GameEngine/GameLogic/src/scripting/executor.rs");
+        assert!(
+            ex.matches("Host path: empty dual-world registry").count() >= 3,
+            "script executor dual-world bulk actions must gate on empty registry"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(

@@ -4624,6 +4624,10 @@ impl ScriptActionDispatcher {
                 .and_then(|list| list.get_player(id as i32).cloned())
         });
 
+        // Host path: empty dual-world registry → no supply-center guard residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(ScriptActionResult::Success);
+        }
         let mut best_target: Option<(f32, ObjectID)> = None;
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj) = obj_arc.read() else {
@@ -12199,6 +12203,10 @@ impl ScriptActionDispatcher {
         &mut self,
         _action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Host path: empty dual-world registry → nothing unmanned to delete.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(ScriptActionResult::Success);
+        }
         let mut to_destroy = Vec::new();
         for obj in OBJECT_REGISTRY.get_all_objects() {
             if let Ok(guard) = obj.read() {
@@ -12663,6 +12671,10 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
+        // Host path: empty dual-world registry → no SP fire residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(ScriptActionResult::Success);
+        }
         let mut fired = false;
         for object_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(object_guard) = object_arc.read() else {

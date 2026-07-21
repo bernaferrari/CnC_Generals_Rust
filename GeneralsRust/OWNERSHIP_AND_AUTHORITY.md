@@ -1452,3 +1452,5 @@ Under CONSTRUCTION_AUTHORITY+shadow, GameWorld sole-ticks construction_percent v
 Team/Player dual-world bulk walks early-out when OBJECT_REGISTRY is empty (host path).
 
 Dual-world OBJECT_REGISTRY empty peels (host path): Team/Player bulk, InGameUI pick/select, selection_xlat/translators, action_manager, victory progress fail-closed (0.0), script named-cache/difficulty bonus.
+
+More empty-registry peels: crate AI supply/hole, async AI snapshot, stealth detector, helpers TOD/path, script conditions/executor bulk actions.
