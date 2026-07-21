@@ -10611,10 +10611,11 @@ impl GameLogic {
         };
         u.stop_moving();
         u.set_status_attacking(false);
+        // Always clear host engagement same-frame (player Stop / privateStop residual).
+        // Decision authority still logs so GameWorld can last-write idle/stop.
+        u.target = None;
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
-        } else {
-            u.target = None;
         }
         true
     }
@@ -14569,12 +14570,13 @@ impl GameLogic {
     ///
     /// Player `command_stop` should call [`Object::stop_attack`] directly for same-frame UX.
     fn stop_attack_decision_aware(&mut self, unit_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
-            return;
-        }
+        // Always clear host combat engagement immediately so mid-frame fire stops.
+        // Log under decision authority for GameWorld last-write parity.
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.stop_attack();
+        }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
         }
     }
 
@@ -14583,12 +14585,13 @@ impl GameLogic {
     /// Prefer this over raw `set_target(None)` when the target is combat engagement
     /// (not harvest/heal/construction non-combat associations that stay host-owned).
     fn clear_target_decision_aware(&mut self, unit_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
-            return;
-        }
+        // Combat engagement clear is host-immediate; non-combat associations should
+        // call set_target(None) directly without this helper.
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_target(None);
+        }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
         }
     }
 
