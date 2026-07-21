@@ -25317,6 +25317,13 @@ impl GameLogic {
                 hunter.set_status_attacking(false);
                 hunter.set_target(None);
                 hunter.set_position(position);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    crate::game_logic::host_move_log::record(
+                        hunter_id,
+                        Some([position.x, position.y, position.z]),
+                    );
+                    hunter.record_host_movement();
+                }
             }
 
             if let Some(outpost) = self.objects.get_mut(&outpost_id) {
@@ -25402,6 +25409,13 @@ impl GameLogic {
                 guard.set_status_attacking(false);
                 guard.set_target(None);
                 guard.set_position(position);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    crate::game_logic::host_move_log::record(
+                        guard_id,
+                        Some([position.x, position.y, position.z]),
+                    );
+                    guard.record_host_movement();
+                }
             }
 
             if let Some(crawler) = self.objects.get_mut(&crawler_id) {
@@ -25450,6 +25464,11 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&occ_id) {
                 unit.stop_moving();
                 unit.set_position(crawler_pos + offset);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    let p = crawler_pos + offset;
+                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    unit.record_host_movement();
+                }
                 unit.set_contained_by(None);
                 unit.set_status_moving(false);
             }
@@ -25655,22 +25674,33 @@ impl GameLogic {
 
         let mut hits = 0u32;
         let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let weapon_snap = self.objects.get(&center_id).and_then(|a| a.weapon.clone());
         for (id, dist, is_intended) in candidates {
             let dmg = strategy_center_gun_damage_at(if is_intended { 0.0 } else { dist });
             if dmg <= 0.0 {
                 continue;
             }
-            if let Some(obj) = self.objects.get_mut(&id) {
+            if self
+                .objects
+                .get(&id)
+                .map(|o| o.is_eject_invulnerable())
+                .unwrap_or(false)
+            {
                 // InvulnerableTime residual blocks damage.
-                if obj.is_eject_invulnerable() {
-                    self.usa_pilot.record_invulnerable_block();
-                    continue;
-                }
-                let destroyed = obj.take_damage_from(dmg, Some(center_id));
-                hits = hits.saturating_add(1);
-                if destroyed {
-                    destroy_ids.push((id, Some(team)));
-                }
+                self.usa_pilot.record_invulnerable_block();
+                continue;
+            }
+            let (destroyed, _) = self.residual_auto_fire_apply_damage(
+                center_id,
+                id,
+                dmg,
+                fire_pos,
+                weapon_snap.as_ref(),
+                0,
+            );
+            hits = hits.saturating_add(1);
+            if destroyed {
+                destroy_ids.push((id, Some(team)));
             }
         }
 
@@ -26340,15 +26370,23 @@ impl GameLogic {
 
             // Fire one assist residual shot.
             let damage = clip.damage();
-            let mut destroyed = false;
-            let mut kill_xp = 0.0;
-            if let Some(target) = self.objects.get_mut(&clip.victim_id) {
-                destroyed = target.take_damage_from(damage, Some(clip.assistant_id));
-                if destroyed {
-                    kill_xp = target.thing.template.experience_value
-                        * Self::veterancy_xp_multiplier(target.experience.level);
-                }
-            }
+            let asst_pos = self
+                .objects
+                .get(&clip.assistant_id)
+                .map(|a| a.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            let weapon_snap = self
+                .objects
+                .get(&clip.assistant_id)
+                .and_then(|a| a.weapon.clone());
+            let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+                clip.assistant_id,
+                clip.victim_id,
+                damage,
+                asst_pos,
+                weapon_snap.as_ref(),
+                0,
+            );
             if destroyed {
                 self.mark_object_for_destruction(clip.victim_id, Some(assistant_team));
             }
@@ -35687,6 +35725,14 @@ impl GameLogic {
                 r.set_ai_state(AIState::Idle);
             }
             r.set_position(eject_pos);
+            crate::game_logic::host_ground_height_log::record(rider_id, eject_pos.y, false);
+            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                crate::game_logic::host_move_log::record(
+                    rider_id,
+                    Some([eject_pos.x, eject_pos.y, eject_pos.z]),
+                );
+                r.record_host_movement();
+            }
             // Chute destroyed → freefall residual (chute closed, still parachuting sink).
             r.set_status_parachute_open(false);
             r.set_status_parachuting(true);

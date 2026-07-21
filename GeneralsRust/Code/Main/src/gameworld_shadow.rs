@@ -17414,6 +17414,8 @@ mod tests {
             "try_garrison_residual_fire",
             "try_transport_passenger_residual_fire",
             "try_base_defense_residual_fire",
+            "try_strategy_center_bombardment_turret_fire",
+            "update_pending_patriot_assists",
         ] {
             let at = src
                 .find(&format!("fn {name}"))
@@ -17422,25 +17424,6 @@ mod tests {
             assert!(
                 body.contains("residual_auto_fire_apply_damage"),
                 "{name} must use residual_auto_fire_apply_damage"
-            );
-        }
-        for (fn_name, token) in [
-            (
-                "fn try_strategy_center_bombardment_turret_fire",
-                "take_damage_from(dmg, Some(center_id))",
-            ),
-            (
-                "fn update_pending_patriot_assists",
-                "take_damage_from(damage, Some(clip.assistant_id))",
-            ),
-        ] {
-            let at = src
-                .find(fn_name)
-                .unwrap_or_else(|| panic!("missing {fn_name}"));
-            let body = &src[at..src.len().min(at + 8000)];
-            assert!(
-                body.contains(token),
-                "{fn_name} must keep source-attributed hitscan {token}"
             );
         }
     }
@@ -18358,6 +18341,35 @@ mod tests {
         assert!(
             helper.contains("damage: 0.0"),
             "fire-spawn residual from auto-fire must not double-apply damage"
+        );
+    }
+
+    #[test]
+    fn payload_pose_movement_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for name in [
+            "apply_listening_outpost_initial_payload",
+            "apply_troop_crawler_initial_payload",
+            "apply_troop_crawler_assault_deploy",
+            "apply_rider_free_fall_damage",
+        ] {
+            let at = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[at..src.len().min(at + 5000)];
+            assert!(
+                body.contains("gameworld_movement_authority_enabled")
+                    && body.contains("host_move_log::record"),
+                "{name} must log move dest under movement authority"
+            );
+        }
+        let free = src
+            .find("fn apply_rider_free_fall_damage")
+            .expect("freefall");
+        let body = &src[free..src.len().min(free + 3500)];
+        assert!(
+            body.contains("host_ground_height_log::record"),
+            "freefall residual must log ground height"
         );
     }
 }
