@@ -3980,9 +3980,24 @@ impl GameLogic {
             unit.movement.velocity = dir * unit.movement.max_speed;
             unit.record_host_movement();
         }
-        unit.set_ai_state(AIState::Moving);
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
+        // Moving
+        } else {
+            unit.set_ai_state(AIState::Moving);
+        }
         unit.set_status_moving(true);
         true
+    }
+
+    #[cfg(test)]
+    pub fn assign_unit_path_for_test(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+        waypoints: &[Vec3],
+    ) -> bool {
+        self.assign_unit_path(unit_id, destination, waypoints)
     }
 
     /// Pathfind to goal then set AI state. Falls back to set_destination if A* fails.
@@ -6717,13 +6732,24 @@ impl GameLogic {
             None => return,
         };
 
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+        let apply_state = |logic: &mut Self, state: AIState| {
+            if decision_auth {
+                let ordinal =
+                    crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
+                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
+            } else if let Some(obj) = logic.objects.get_mut(&object_id) {
+                obj.set_ai_state(state);
+            }
+        };
+
         // Short distance — skip pathfinding overhead and go direct.
         if start_pos.distance(target_position) < 20.0 {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.move_to(target_position);
-                if let Some(state) = ai_state_override {
-                    obj.set_ai_state(state);
-                }
+            }
+            if let Some(state) = ai_state_override {
+                apply_state(self, state);
             }
             return;
         }
@@ -6733,6 +6759,7 @@ impl GameLogic {
             .pathfinding_system
             .find_path(start_pos, target_position, &self.objects);
 
+        let mut state_to_apply: Option<AIState> = None;
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if let Some(waypoints) = path {
                 if waypoints.len() >= 2 {
@@ -6741,26 +6768,25 @@ impl GameLogic {
                     obj.movement.current_path_index = 1; // skip start node
                                                          // target_position will be set to path[1] by update_movement
                     obj.movement.target_position = Some(obj.movement.path[1]);
-                    obj.set_ai_state(ai_state_override.unwrap_or(AIState::Moving));
                     obj.set_status_moving(true);
                     // Final destination for shadow move channel (not intermediate waypoint).
                     crate::game_logic::host_move_log::record(
                         object_id,
                         Some([target_position.x, target_position.y, target_position.z]),
                     );
+                    state_to_apply = Some(ai_state_override.unwrap_or(AIState::Moving));
                 } else {
                     obj.move_to(target_position);
-                    if let Some(state) = ai_state_override {
-                        obj.set_ai_state(state);
-                    }
+                    state_to_apply = ai_state_override;
                 }
             } else {
                 // No path found — fall back to direct movement.
                 obj.move_to(target_position);
-                if let Some(state) = ai_state_override {
-                    obj.set_ai_state(state);
-                }
+                state_to_apply = ai_state_override;
             }
+        }
+        if let Some(state) = state_to_apply {
+            apply_state(self, state);
         }
     }
 
