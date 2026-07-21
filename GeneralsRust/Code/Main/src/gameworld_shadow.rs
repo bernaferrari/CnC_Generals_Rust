@@ -237,6 +237,11 @@ pub fn gameworld_production_authority_enabled() -> bool {
     }
 }
 
+/// Host skips progress advance only when production authority AND shadow session run.
+pub fn gameworld_production_sole_tick_enabled() -> bool {
+    gameworld_production_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// Gates/smoke: no-op when production defaults are already on.
 /// Still forces `1` if env was never set (explicit documentation for gate binaries).
 pub fn ensure_gate_damage_authority() {

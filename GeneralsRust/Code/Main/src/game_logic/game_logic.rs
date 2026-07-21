@@ -6232,7 +6232,7 @@ impl GameLogic {
                 // Under PRODUCTION_AUTHORITY, GameWorld ticks queue progress;
                 // host only exits delay + completes when writeback already finished the head.
                 let completed_prod =
-                    if crate::gameworld_shadow::gameworld_production_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
                         building.tick_exit_delay(dt);
                         building.try_complete_production()
                     } else {

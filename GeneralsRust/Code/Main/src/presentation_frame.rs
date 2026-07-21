@@ -10835,7 +10835,7 @@ mod tests {
     fn production_authority_host_skips_progress_advance() {
         let gl = include_str!("game_logic/game_logic.rs");
         assert!(
-            gl.contains("gameworld_production_authority_enabled()")
+            gl.contains("gameworld_production_sole_tick_enabled()")
                 && gl.contains("try_complete_production()")
                 && gl.contains("tick_exit_delay(dt)"),
             "host update_production under authority must exit-delay+complete only"
