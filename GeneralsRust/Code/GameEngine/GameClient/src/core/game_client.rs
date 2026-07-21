@@ -3411,6 +3411,7 @@ impl GameClient {
 
         // C++ visual freeze + script visual-speed residual (same as full update),
         // without Main-owned input/audio or Display DRAW dual-ownership.
+        // Device state is shared THE_MOUSE/THE_KEYBOARD (Main inject; no second OS poll).
         let mut visual_delta = if self.should_freeze_visual_time() {
             0.0
         } else {
@@ -3423,11 +3424,12 @@ impl GameClient {
             visual_delta * visual_speed as f32
         };
 
-        // Main owns OS input (CncGameEngine event loop). Presentation shell must not
-        // double-tick update_input — device poll remains on full update().
-        // Client-internal audio request queue may drain here (no OS device poll).
+        // Main owns OS event intake and injects into shared THE_MOUSE/THE_KEYBOARD.
+        // Shell ticks device update() on those shared handles (no second OS poll).
+        // Client-internal audio request queue may drain here.
         // Presentation gameplay SFX is dispatched by Main via
         // PresentationFrame::dispatch_audio_events_direct before this shell tick.
+        self.update_input()?;
         self.update_audio()?;
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).

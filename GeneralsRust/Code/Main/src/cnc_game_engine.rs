@@ -8577,7 +8577,9 @@ impl CnCGameEngine {
                 };
                 // Presentation path: deepened shell tick (frame/FX/UI/message pump)
                 // without OBJECT_REGISTRY shroud bind. Full GameClient::update remains
-                // disconnected (Main owns OS input→commands and sole RenderPipeline 3D draw).
+                // disconnected for command ownership (Main owns OS intake→commands and
+                // sole RenderPipeline 3D draw). Device state is shared via THE_MOUSE/
+                // THE_KEYBOARD inject; shell ticks update_input on those handles.
                 if self.last_presentation_frame.is_some() {
                     // C++ per-drawable shroud residual from frozen presentation FOW.
                     let shroud_entries: Vec<(u32, bool)> = self
