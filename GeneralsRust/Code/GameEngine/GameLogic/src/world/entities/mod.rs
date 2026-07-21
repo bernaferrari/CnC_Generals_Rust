@@ -482,6 +482,10 @@ pub struct Entity {
     pub path_waypoints: Vec<[f32; 3]>,
     /// Host secondary weapon range residual.
     pub secondary_weapon_range: f32,
+    /// Host Weapon leech residual `leech_range_active_primary`.
+    pub leech_range_active_primary: bool,
+    /// Host Weapon leech residual `leech_range_active_secondary`.
+    pub leech_range_active_secondary: bool,
     /// Host secondary weapon damage residual.
     pub secondary_weapon_damage: f32,
     /// Host Object::name residual (display/script name; empty if unset).
@@ -984,6 +988,8 @@ impl EntityStore {
             cell_is_underwater: false,
             path_waypoints: Vec::new(),
             secondary_weapon_range: 0.0,
+            leech_range_active_primary: false,
+            leech_range_active_secondary: false,
             secondary_weapon_damage: 0.0,
             display_name: String::new(),
             model_key: String::new(),
