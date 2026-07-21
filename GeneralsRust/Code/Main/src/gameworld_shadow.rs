@@ -3581,6 +3581,48 @@ impl GameWorldShadow {
         }
         n
     }
+    /// Under SPECIAL_POWER_AUTHORITY: advance GameWorld player shared SP cooldowns by dt.
+    pub fn tick_player_shared_special_power_cooldowns(&mut self, dt: f32) -> usize {
+        if !gameworld_special_power_sole_tick_enabled() || dt <= 0.0 {
+            return 0;
+        }
+        use gamelogic::world::WorldMutation;
+        let mut n = 0usize;
+        // Snapshot player ids from host map.
+        let players: Vec<_> = self.host_player_to_gw.values().copied().collect();
+        for pid in players {
+            let Some(pd) = self.world.player(pid) else {
+                continue;
+            };
+            if pd.shared_special_power_cooldowns.is_empty() {
+                continue;
+            }
+            let mut cds = pd.shared_special_power_cooldowns.clone();
+            let mut dirty = false;
+            for (_name, rem) in cds.iter_mut() {
+                if *rem > 0.0 {
+                    let next = (*rem - dt).max(0.0);
+                    if (next - *rem).abs() > 1e-12 {
+                        *rem = next;
+                        dirty = true;
+                    }
+                }
+            }
+            // Drop zeros optional - keep keys for host parity
+            if dirty {
+                n += 1;
+                self.world
+                    .queue_mutation(WorldMutation::SetPlayerCooldowns {
+                        player: pid,
+                        cooldowns: cds,
+                    });
+            }
+        }
+        if n > 0 {
+            let _ = self.world.apply_pending_mutations();
+        }
+        n
+    }
 
     pub fn writeback_special_power_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -7036,6 +7078,15 @@ pub fn shadow_session_after_host_tick(
     let _progress_applied = shadow.apply_host_player_progress_events(&player_progress_events);
     let _meta_applied = shadow.apply_host_player_meta_events(&player_meta_events);
     let _cd_applied = shadow.apply_host_player_cooldown_events(&player_cooldown_events);
+
+    // Shared SP sole-tick after host cooldown snapshot applied.
+    let _sp_player_tick = shadow.tick_player_shared_special_power_cooldowns(
+        game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
+    );
+    if gameworld_special_power_sole_tick_enabled() {
+        // Shared SP cds ride economy/player writeback residual.
+        let _ = shadow.writeback_economy_to_host(logic);
+    }
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
     let _heals = shadow.apply_host_heal_events(&heal_events);
@@ -8511,6 +8562,61 @@ mod tests {
         let events = host_special_power_log::drain();
         assert!(shadow.apply_host_special_power_events(&events) >= 1);
         assert_eq!(shadow.tick_special_power_cooldowns(1.0), 0);
+        match prev_a {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
+    fn shared_special_power_sole_ticks_player_cds() {
+        let prev_a = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        assert!(gameworld_special_power_sole_tick_enabled());
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_player_cooldown_log;
+        use crate::game_logic::GameLogic;
+        let mut logic = GameLogic::new();
+        let pid = 0u32;
+        let Some(p) = logic.get_player_mut(pid) else {
+            match prev_a {
+                Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+                None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+            }
+            match prev_s {
+                Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+                None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            }
+            return;
+        };
+        p.reset_shared_special_power_timer(&SpecialPowerType::Airstrike, 5.0);
+        p.record_host_cooldowns();
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let events = host_player_cooldown_log::drain();
+        assert!(
+            shadow.apply_host_player_cooldown_events(&events) >= 1,
+            "cooldown events applied"
+        );
+        let n = shadow.tick_player_shared_special_power_cooldowns(2.0);
+        assert!(n >= 1, "player shared SP must sole-tick");
+        let _ = shadow.writeback_economy_to_host(&mut logic);
+        let p = logic.get_player(pid).expect("player");
+        let rem = p
+            .shared_special_power_cooldowns
+            .get(&SpecialPowerType::Airstrike)
+            .copied()
+            .unwrap_or(-1.0);
+        assert!(
+            (rem - 3.0).abs() < 1e-3,
+            "expected ~3.0 remaining after 2s tick, got {rem}"
+        );
         match prev_a {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),

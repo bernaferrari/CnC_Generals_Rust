@@ -21943,6 +21943,14 @@ impl GameLogic {
         if dt <= 0.0 {
             return;
         }
+        // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks shared SP cds.
+        if crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled() {
+            // Still publish current cooldown snapshot for shadow apply.
+            for player in self.players.values() {
+                player.record_host_cooldowns();
+            }
+            return;
+        }
         let mut ready_events: Vec<(Team, String)> = Vec::new();
         for player in self.players.values_mut() {
             let team = player.team;
