@@ -1072,7 +1072,7 @@ impl AIPlayer {
     }
 
     /// Launch coordinated attack
-    fn launch_attack(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+    pub(crate) fn launch_attack(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         log::debug!(
             "AI Player {} ({}) launching attack!",
             self.player_id,
@@ -1125,9 +1125,13 @@ impl AIPlayer {
                     .map(|(id, _)| *id)
             });
 
+            let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
             for &unit_id in &attack_units {
                 if let Some(focus) = focus_enemy {
-                    if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                    if decision_auth {
+                        // Log-only: GameWorld apply/writeback is last-writer for targets.
+                        crate::game_logic::host_ai_decision_log::record_attack(unit_id, focus);
+                    } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
                         // set_target logs host_attack_log for shadow session.
                         unit.set_target(Some(focus));
                     }
@@ -1142,9 +1146,15 @@ impl AIPlayer {
                     continue;
                 }
                 if game_logic.assign_unit_path(unit_id, enemy_base, &[]) {
-                    if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                    if decision_auth {
+                        // AttackMoving residual after path assign (ordinal 3).
+                        crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 3);
+                    } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
                         unit.ai_state = AIState::AttackMoving;
                     }
+                } else if decision_auth {
+                    crate::game_logic::host_ai_decision_log::record_move_to(unit_id, enemy_base);
+                    crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 3);
                 } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
                     // Fallback residual when A* fails (blocked goal).
                     unit.move_to(enemy_base);
@@ -1821,11 +1831,16 @@ mod cpp_parity_tests {
 
     #[test]
     fn launch_attack_sets_target_and_logs_host_attack() {
+        use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::host_attack_log;
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
+        // Default AI_DECISION_AUTHORITY is on: launch_attack logs decisions only.
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         host_attack_log::clear();
+        host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AiAtk");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1866,26 +1881,55 @@ mod cpp_parity_tests {
             });
         }
         ai.launch_attack(&mut logic, 1000.0);
-        let logged = host_attack_log::drain();
+        let decisions = host_ai_decision_log::drain();
         let unit = logic
             .get_objects()
             .get(&usa_unit)
             .expect("usa unit after launch");
-        let has_target = unit.target.is_some();
         assert!(
-            has_target && !logged.is_empty(),
-            "launch_attack must set_target and host_attack_log (got target={has_target} log={})",
-            logged.len()
+            unit.target.is_none(),
+            "under AI decision authority host target stays unset until writeback"
         );
-        assert_eq!(
-            unit.ai_state,
-            AIState::AttackMoving,
-            "launch_attack must leave AttackMoving after path assign"
+        assert!(
+            decisions.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK && e.host_object == usa_unit
+            }),
+            "launch_attack must log AttackTarget decision; got {decisions:?}"
+        );
+        assert!(
+            decisions.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
+                    && e.host_object == usa_unit
+                    && e.ai_state_ordinal == 3
+            }),
+            "launch_attack must log AttackMoving state; got {decisions:?}"
         );
         assert!(
             !unit.movement.path.is_empty() || unit.movement.target_position.is_some(),
-            "launch_attack must pathfind (or fallback destination), not idle in place"
+            "launch_attack must still pathfind on host under decision authority"
         );
+        // Legacy residual path when decision authority is off.
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        host_attack_log::clear();
+        host_ai_decision_log::clear();
+        if let Some(o) = logic.get_objects_mut().get_mut(&usa_unit) {
+            o.target = None;
+            o.ai_state = AIState::Idle;
+            o.movement.path.clear();
+            o.movement.target_position = None;
+        }
+        ai.launch_attack(&mut logic, 2000.0);
+        let logged = host_attack_log::drain();
+        let unit = logic.get_objects().get(&usa_unit).expect("usa unit legacy");
+        assert!(
+            unit.target.is_some() && !logged.is_empty(),
+            "legacy launch_attack must set_target and host_attack_log"
+        );
+        assert_eq!(unit.ai_state, AIState::AttackMoving);
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
     }
 
     #[test]
@@ -1897,8 +1941,9 @@ mod cpp_parity_tests {
             .expect("launch_attack");
         let w = &src[i..i + 4500.min(src.len() - i)];
         assert!(
-            w.contains("assign_unit_path") && w.contains("AIState::AttackMoving"),
-            "AI launch_attack must pathfind then restore AttackMoving"
+            w.contains("assign_unit_path")
+                && (w.contains("AIState::AttackMoving") || w.contains("record_set_state")),
+            "AI launch_attack must pathfind then restore AttackMoving (host or decision log)"
         );
         // Fallback may call move_to after assign_unit_path fails; primary path
         // must call assign_unit_path first.
