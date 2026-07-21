@@ -10854,6 +10854,32 @@ mod tests {
     }
 
     #[test]
+    fn train_unit_prefers_presentation_team() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng.find("train_unit\" =>").expect("train_unit");
+        let window = &eng[i..eng.len().min(i + 900)];
+        assert!(
+            window.contains("Prefer presentation local team residual")
+                && window.contains("frame.local_team()"),
+            "train_unit must prefer presentation local_team over live player roster"
+        );
+    }
+
+    #[test]
+    fn production_progress_log_carries_power_factor() {
+        let log = include_str!("game_logic/host_production_progress_log.rs");
+        assert!(
+            log.contains("power_factor: f32") && log.contains("power_factor: power_factor"),
+            "production progress events must carry host power_factor"
+        );
+        let sw = include_str!("gameworld_shadow.rs");
+        assert!(
+            sw.contains("production_power_factor_by_host") && sw.contains("dt * pf"),
+            "shadow sole-tick must apply host power_factor residual"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
