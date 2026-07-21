@@ -452,7 +452,7 @@ impl GameWorldShadow {
                     e.selected = obj.selected;
                     e.destroyed = obj.status.destroyed;
                     e.death_type = obj.status.death_type.ordinal();
-                    e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
+                    e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
                     e.is_rebuild_hole = obj.is_rebuild_hole;
                     e.rebuild_template_name = obj.rebuild_template_name.clone().unwrap_or_default();
                     e.rebuild_ready_frame = obj.rebuild_ready_frame;
@@ -945,7 +945,7 @@ impl GameWorldShadow {
                 e.max_health = obj.max_health.max(obj.health.current).max(1.0);
                 e.selected = obj.selected;
                 e.destroyed = obj.status.destroyed;
-                e.construction_percent = obj.construction_percent.clamp(0.0, 1.0);
+                e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
                 e.team_ordinal = Self::host_team_ordinal(obj.team);
                 e.selection_radius = obj.selection_radius.max(5.0);
                 e.crusher_level = obj.crusher_level;
@@ -2287,7 +2287,8 @@ impl GameWorldShadow {
                 continue;
             };
             let mut dirty = false;
-            let pct = ent.construction_percent.clamp(0.0, 1.0);
+            // Sell deconstruction uses negative percent (finish <= -0.5); do not floor at 0.
+            let pct = ent.construction_percent.clamp(-1.0, 1.0);
             if (obj.construction_percent - pct).abs() > 1e-5 {
                 obj.construction_percent = pct;
                 dirty = true;
@@ -2977,7 +2978,7 @@ impl GameWorldShadow {
         self.world
             .queue_mutation(gamelogic::world::WorldMutation::SetConstruction {
                 target,
-                percent: percent.clamp(0.0, 1.0),
+                percent: percent.clamp(-1.0, 1.0),
                 under_construction,
             });
         true
@@ -18029,6 +18030,95 @@ mod tests {
                 .any(|e| e.object == oid && (e.percent - 0.999).abs() < 1e-4),
             "sell start must log 0.999 progress; got {evs:?}"
         );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
+        use crate::game_logic::host_construction_progress_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+        host_construction_progress_log::clear();
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SellNegPct");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SellPad") {
+            let mut t = ThingTemplate::new("SellPad");
+            t.add_kind_of(KindOf::Structure);
+            t.set_health(500.0);
+            logic.templates.insert("SellPad".into(), t);
+        }
+        let oid = logic
+            .create_object("SellPad", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("pad");
+        {
+            let o = logic.get_object_mut(oid).expect("o");
+            o.set_status_under_construction(false);
+            o.construction_percent = 1.0;
+        }
+        assert!(logic.start_sell_object(oid));
+
+        // Advance past scaffold into negative deconstruction via full host tick
+        // (frame + update_sell_list). Stop once percent is clearly negative.
+        for _ in 0..200 {
+            logic.update();
+            if logic.get_object(oid).is_none() {
+                break;
+            }
+            let pct = logic
+                .get_object(oid)
+                .map(|o| o.construction_percent)
+                .unwrap_or(-1.0);
+            if pct < -0.1 {
+                break;
+            }
+        }
+        let host_pct = logic
+            .get_object(oid)
+            .map(|o| o.construction_percent)
+            .expect("still selling");
+        assert!(
+            host_pct < 0.0,
+            "host sell percent should go negative, got {host_pct}"
+        );
+
+        host_construction_progress_log::clear();
+        host_construction_progress_log::record(oid, host_pct, true);
+        let events = host_construction_progress_log::drain();
+        assert_eq!(events.len(), 1);
+        assert!(
+            events[0].percent < 0.0,
+            "log must keep negative percent, got {}",
+            events[0].percent
+        );
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let n = shadow.apply_host_construction_progress_events(&events);
+        assert!(n >= 1);
+        let eid = shadow.entity_for_host(oid).expect("mapped");
+        let ent_pct = shadow.world().entity(eid).expect("e").construction_percent;
+        assert!(
+            (ent_pct - host_pct).abs() < 1e-4,
+            "shadow entity percent {ent_pct} vs host {host_pct}"
+        );
+        {
+            let o = logic.get_object_mut(oid).expect("o");
+            o.construction_percent = 0.5; // dirty host so writeback must restore
+        }
+        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        let after = logic.get_object(oid).expect("o").construction_percent;
+        assert!(
+            (after - host_pct).abs() < 1e-4,
+            "writeback must preserve negative sell percent: after={after} want={host_pct}"
+        );
+
+        host_construction_progress_log::clear();
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),

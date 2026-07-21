@@ -2587,7 +2587,7 @@ impl GameWorld {
                     under_construction,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
-                        e.construction_percent = percent.clamp(0.0, 1.0);
+                        e.construction_percent = percent.clamp(-1.0, 1.0);
                         e.under_construction = under_construction;
                         applied += 1;
                     }

@@ -49284,9 +49284,7 @@ impl GameLogic {
                 let projected = previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL;
                 obj.construction_percent = projected;
                 crate::game_logic::host_construction_progress_log::record(
-                    entry.id,
-                    projected.max(0.0),
-                    false,
+                    entry.id, projected, false,
                 );
                 // Cross from positive to <= 0 → MODELCONDITION_SOLD
                 if previous > 0.0 && projected <= 0.0 {
