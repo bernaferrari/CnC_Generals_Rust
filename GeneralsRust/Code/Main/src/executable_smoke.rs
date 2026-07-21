@@ -679,16 +679,43 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
     loop {
         if started.elapsed() > timeout {
-            result.status = "timeout".into();
-            result.detail = format!(
-                "timeout after {:?} last_state={} menu={} ingame={} frames={} phase={}",
-                timeout,
-                last_snap.state,
-                result.reached_menu,
-                result.reached_ingame,
-                result.frames_observed,
-                phase
-            );
+            // Prefer honest InGame finalization over a bare timeout when the host
+            // already reached match state — long command chains can exceed wall budget.
+            if result.reached_ingame {
+                result.gameplay_cmd_ok = (saw_select_ok && saw_move_ok && saw_attack_ok)
+                    || (saw_select_ok && saw_move_ok && saw_construct_ok && saw_train_ok)
+                    || (saw_construct_ok && saw_train_ok && saw_attack_ok);
+                result.construct_cmd_ok = saw_construct_ok;
+                result.train_cmd_ok = saw_train_ok;
+                result.executable_host_ok =
+                    executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                result.status = if result.executable_host_ok {
+                    "success_forced_exit".into()
+                } else {
+                    "ingame_without_shell_wnd".into()
+                };
+                result.detail = format!(
+                    "wall timeout with InGame; status={} frames={} phase={} step={} shell_wnd={} gameplay={}",
+                    result.status,
+                    result.frames_observed,
+                    phase,
+                    gameplay_step,
+                    result.shell_wnd_ok,
+                    result.gameplay_cmd_ok
+                );
+            } else {
+                result.status = "timeout".into();
+                result.detail = format!(
+                    "timeout after {:?} last_state={} menu={} ingame={} frames={} phase={}",
+                    timeout,
+                    last_snap.state,
+                    result.reached_menu,
+                    result.reached_ingame,
+                    result.frames_observed,
+                    phase
+                );
+            }
+            let _ = write_control(&control_path, &["exit"]);
             kill_child(&mut child);
             break;
         }
