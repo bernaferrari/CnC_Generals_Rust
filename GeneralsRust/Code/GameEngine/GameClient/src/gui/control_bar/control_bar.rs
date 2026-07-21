@@ -187,6 +187,10 @@ pub struct ControlBar {
     presentation_garrisoned_count: usize,
     /// Under-construction residual from PresentationFrame.
     presentation_under_construction: bool,
+    /// Construction percent residual from PresentationFrame (0..1).
+    presentation_construction_percent: f32,
+    /// OCL timer seconds residual from PresentationFrame.
+    presentation_ocl_timer_seconds: u32,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
     border_colors: CommandBarBorderColors,
@@ -307,6 +311,8 @@ impl ControlBar {
             presentation_max_garrison: 0,
             presentation_garrisoned_count: 0,
             presentation_under_construction: false,
+            presentation_construction_percent: 0.0,
+            presentation_ocl_timer_seconds: 0,
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             border_colors: CommandBarBorderColors::default(),
@@ -2272,24 +2278,39 @@ impl ControlBar {
         &mut self,
         _delta_time: Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let obj_id = {
+        let has_selection = {
             let context = self
                 .context
                 .read()
                 .map_err(|_| "Failed to acquire context read lock")?;
-            context.selected_objects.first().copied()
+            !context.selected_objects.is_empty()
         };
-        let Some(_obj_id) = obj_id else {
+        if !has_selection {
             return Ok(());
-        };
+        }
 
-        let Some(_obj_arc) = OBJECT_REGISTRY.get_object(_obj_id) else {
+        // Host/presentation residual owns construct percent display. Dual-world
+        // get_construct_percent() can overlay later when OBJECT_REGISTRY modules exist.
+        if !(self.presentation_under_construction
+            || self.portrait_state.is_visible
+            || OBJECT_REGISTRY
+                .get_object(
+                    self.context
+                        .read()
+                        .ok()
+                        .and_then(|c| c.selected_objects.first().copied())
+                        .unwrap_or(0),
+                )
+                .is_some())
+        {
             return Ok(());
-        };
+        }
 
-        // C++ reads construct percent from the object's status; we track it
-        // for display change detection. When get_construct_percent() is ported,
-        // wire it here.
+        let percent = self.presentation_construction_percent;
+        if (percent - self.displayed_construct_percent).abs() > 0.001 {
+            self.displayed_construct_percent = percent;
+            self.mark_ui_dirty();
+        }
         Ok(())
     }
 
@@ -2304,16 +2325,19 @@ impl ControlBar {
                 .map_err(|_| "Failed to acquire context read lock")?;
             context.selected_objects.first().copied()
         };
-        let Some(_obj_id) = obj_id else {
+        let Some(obj_id) = obj_id else {
             return Ok(());
         };
 
-        let Some(_obj_arc) = OBJECT_REGISTRY.get_object(_obj_id) else {
-            return Ok(());
-        };
-
-        // C++ reads OCL timer seconds from OCLUpdate module; tracked for display
-        // change detection. When get_ocl_timer_seconds() is ported, wire it here.
+        // Host/presentation residual: keep OCL display coherent without dual-world modules.
+        // Dual-world path may later read OCLUpdate; until then presentation freeze owns display.
+        let _registry_bound = OBJECT_REGISTRY.get_object(obj_id).is_some();
+        let _ = _registry_bound;
+        let seconds = self.presentation_ocl_timer_seconds;
+        if seconds != self.displayed_ocl_timer_seconds {
+            self.displayed_ocl_timer_seconds = seconds;
+            self.mark_ui_dirty();
+        }
         Ok(())
     }
 
@@ -2819,11 +2843,15 @@ impl ControlBar {
         max_garrison: usize,
         garrisoned_count: usize,
         under_construction: bool,
-        _construction_percent: f32,
+        construction_percent: f32,
     ) {
         self.presentation_max_garrison = max_garrison;
         self.presentation_garrisoned_count = garrisoned_count;
         self.presentation_under_construction = under_construction;
+        self.presentation_construction_percent = construction_percent.clamp(0.0, 1.0);
+        if under_construction {
+            self.displayed_construct_percent = self.presentation_construction_percent;
+        }
         if let Ok(mut context) = self.context.write() {
             context.last_recorded_inventory_count = garrisoned_count as u32;
             if under_construction {
