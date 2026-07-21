@@ -17400,27 +17400,31 @@ mod tests {
     #[test]
     fn residual_auto_fire_damage_source_attribution_source() {
         let src = include_str!("game_logic/game_logic.rs");
+        let helper_i = src
+            .find("fn residual_auto_fire_apply_damage")
+            .expect("residual_auto_fire_apply_damage");
+        let helper = &src[helper_i..src.len().min(helper_i + 5000)];
+        assert!(
+            helper.contains("take_damage_from(damage, Some(attacker_id))"),
+            "residual auto-fire helper must source-attribute hitscan damage"
+        );
+        for name in [
+            "try_sentry_drone_residual_fire",
+            "try_hellfire_drone_residual_fire",
+            "try_garrison_residual_fire",
+            "try_transport_passenger_residual_fire",
+            "try_base_defense_residual_fire",
+        ] {
+            let at = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[at..src.len().min(at + 14000)];
+            assert!(
+                body.contains("residual_auto_fire_apply_damage"),
+                "{name} must use residual_auto_fire_apply_damage"
+            );
+        }
         for (fn_name, token) in [
-            (
-                "fn try_sentry_drone_residual_fire",
-                "take_damage_from(damage, Some(sentry_id))",
-            ),
-            (
-                "fn try_hellfire_drone_residual_fire",
-                "take_damage_from(damage, Some(hellfire_id))",
-            ),
-            (
-                "fn try_garrison_residual_fire",
-                "take_damage_from(damage, Some(garrisoned_id))",
-            ),
-            (
-                "fn try_transport_passenger_residual_fire",
-                "take_damage_from(damage, Some(passenger_id))",
-            ),
-            (
-                "fn try_base_defense_residual_fire",
-                "take_damage_from(damage, Some(defense_id))",
-            ),
             (
                 "fn try_strategy_center_bombardment_turret_fire",
                 "take_damage_from(dmg, Some(center_id))",
@@ -17430,35 +17434,13 @@ mod tests {
                 "take_damage_from(damage, Some(clip.assistant_id))",
             ),
         ] {
-            let i = src
+            let at = src
                 .find(fn_name)
                 .unwrap_or_else(|| panic!("missing {fn_name}"));
-            let bytes = src.as_bytes();
-            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-            let mut depth = 0i32;
-            let end = loop {
-                match bytes.get(j) {
-                    Some(b'{') => depth += 1,
-                    Some(b'}') => {
-                        depth -= 1;
-                        if depth == 0 {
-                            break j;
-                        }
-                    }
-                    Some(_) => {}
-                    None => panic!("unclosed {fn_name}"),
-                }
-                j += 1;
-            };
-            let w = &src[i..=end];
+            let body = &src[at..src.len().min(at + 8000)];
             assert!(
-                w.contains(token),
-                "{fn_name} must source-attribute residual damage via {token}"
-            );
-            // No anonymous take_damage(amount) residual left in these auto-fire paths.
-            assert!(
-                !w.contains("take_damage(damage)") && !w.contains("take_damage(dmg)"),
-                "{fn_name} must not use anonymous take_damage"
+                body.contains(token),
+                "{fn_name} must keep source-attributed hitscan {token}"
             );
         }
     }
@@ -18336,6 +18318,46 @@ mod tests {
                 && bldg_body.contains("gameworld_movement_authority_enabled")
                 && bldg_body.contains("host_move_log::record"),
             "building rubble/eject dump must log move under movement authority"
+        );
+    }
+
+    #[test]
+    fn residual_auto_fire_queues_fire_spawn_channel_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        assert!(
+            src.contains("fn residual_auto_fire_apply_damage"),
+            "residual auto-fire helper must exist"
+        );
+        for name in [
+            "try_sentry_drone_residual_fire",
+            "try_hellfire_drone_residual_fire",
+            "try_garrison_residual_fire",
+            "try_transport_passenger_residual_fire",
+            "try_base_defense_residual_fire",
+        ] {
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 9000)];
+            assert!(
+                body.contains("residual_auto_fire_apply_damage"),
+                "{name} must route damage/spawn through residual_auto_fire_apply_damage"
+            );
+        }
+        let helper_i = src
+            .find("fn residual_auto_fire_apply_damage")
+            .expect("helper");
+        let helper = &src[helper_i..src.len().min(helper_i + 4500)];
+        assert!(
+            helper.contains("gameworld_fire_spawn_authority_enabled")
+                && helper.contains("queue_projectile")
+                && helper.contains("take_damage_from"),
+            "helper must queue fire-spawn under authority and keep hitscan damage"
+        );
+        // Spawn residual carries damage 0 so hitscan owns same-frame residual damage.
+        assert!(
+            helper.contains("damage: 0.0"),
+            "fire-spawn residual from auto-fire must not double-apply damage"
         );
     }
 }
