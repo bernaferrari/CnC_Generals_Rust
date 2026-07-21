@@ -336,6 +336,8 @@ impl SelectionRenderer {
             }
         }
 
+        // Control-group badges from snapshot positions (no live GameLogic).
+        commands.extend(self.render_control_group_numbers_from_presentation(unit_control, frame));
         commands
     }
 
@@ -687,6 +689,68 @@ impl SelectionRenderer {
     }
 
     /// Render control group numbers on units (C++ Generals style)
+    /// Control-group badges from presentation identity (preferred path).
+    ///
+    /// Positions come from the frozen `PresentationFrame` — not a live
+    /// `GameLogic` re-read. Unit→group membership stays client-side in
+    /// `UnitControlSystem`.
+    pub fn render_control_group_numbers_from_presentation(
+        &self,
+        unit_control: &UnitControlSystem,
+        frame: &PresentationFrame,
+    ) -> Vec<UIRenderCommand> {
+        let mut commands = Vec::new();
+        let by_id: std::collections::HashMap<
+            ObjectId,
+            &crate::presentation_frame::RenderableObject,
+        > = frame.objects.iter().map(|o| (o.id, o)).collect();
+
+        // Prefer control-system membership walk; fall back to every snapshot object.
+        let mut seen = std::collections::HashSet::new();
+        let mut candidates: Vec<ObjectId> = unit_control
+            .get_selected_objects()
+            .iter()
+            .copied()
+            .collect();
+        for o in &frame.objects {
+            candidates.push(o.id);
+        }
+        for object_id in candidates {
+            if !seen.insert(object_id) {
+                continue;
+            }
+            let groups = unit_control.get_unit_control_groups(object_id);
+            if groups.is_empty() {
+                continue;
+            }
+            let Some(obj) = by_id.get(&object_id) else {
+                continue;
+            };
+            if obj.destroyed || obj.health_current <= 0.0 {
+                continue;
+            }
+            let position = obj.position;
+            for (index, &group_num) in groups.iter().enumerate() {
+                let offset_x = index as f32 * 0.5;
+                let indicator_pos = Vec2::new(
+                    position.x + offset_x - (groups.len() as f32 * 0.25),
+                    position.z - 3.0,
+                );
+                let group_color = self.get_group_color(group_num);
+                commands.push(self.create_rectangle(
+                    indicator_pos,
+                    Vec2::new(0.4, 0.4),
+                    group_color,
+                ));
+            }
+        }
+        commands
+    }
+
+    /// Legacy live-logic control-group path (boot residual only).
+    ///
+    /// Prefer [`Self::render_control_group_numbers_from_presentation`] when a
+    /// presentation frame is installed.
     pub fn render_control_group_numbers(
         &self,
         unit_control: &UnitControlSystem,
@@ -694,17 +758,12 @@ impl SelectionRenderer {
     ) -> Vec<UIRenderCommand> {
         let mut commands = Vec::new();
 
-        // Get all objects in the game
         for (object_id, object) in game_logic.get_objects() {
-            // Check if this unit belongs to any control groups
             let groups = unit_control.get_unit_control_groups(*object_id);
 
             if !groups.is_empty() {
                 let position = object.get_position();
 
-                // Render control group numbers above the unit
-                // In a full implementation, this would render text/sprites showing "1", "2", etc.
-                // For now, we'll create a visual indicator (colored square)
                 for (index, &group_num) in groups.iter().enumerate() {
                     let offset_x = index as f32 * 0.5;
                     let indicator_pos = Vec2::new(
@@ -712,7 +771,6 @@ impl SelectionRenderer {
                         position.z - 3.0, // Above the unit
                     );
 
-                    // Create a small colored rectangle to indicate group membership
                     let group_color = self.get_group_color(group_num);
                     let rect_command =
                         self.create_rectangle(indicator_pos, Vec2::new(0.4, 0.4), group_color);
@@ -861,6 +919,54 @@ mod presentation_identity_tests {
         assert!(
             triangle_cmds > 0,
             "health/team triangles expected from snapshot health"
+        );
+    }
+
+    #[test]
+    fn control_group_numbers_use_presentation_positions() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        use crate::unit_control::UnitControlSystem;
+        use glam::Vec3;
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CtrlGrpPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let mut t = ThingTemplate::new("CtrlGrpUnit");
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        t.set_health(100.0);
+        logic.templates.insert("CtrlGrpUnit".into(), t);
+        let id = logic
+            .create_object("CtrlGrpUnit", Team::USA, Vec3::new(10.0, 0.0, 20.0))
+            .expect("u");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(Vec3::new(999.0, 0.0, 999.0));
+        }
+        let logic_arc = std::sync::Arc::new(std::sync::Mutex::new(logic));
+        let mut uc = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
+        uc.selected_objects = vec![id];
+        uc.set_presentation_frame(Some(snap.clone()));
+        futures::executor::block_on(uc.assign_control_group(1, &logic_arc));
+        assert!(
+            !uc.get_unit_control_groups(id).is_empty(),
+            "unit must be in control group 1"
+        );
+
+        let renderer = SelectionRenderer::new();
+        let cmds = renderer.render_control_group_numbers_from_presentation(&uc, &snap);
+        assert!(
+            !cmds.is_empty(),
+            "control group badges must render from presentation"
+        );
+        let any_near_snapshot = cmds.iter().any(|c| {
+            c.vertices
+                .iter()
+                .any(|v| (v.position[0] - 10.0).abs() < 5.0)
+        });
+        assert!(
+            any_near_snapshot,
+            "badge position must come from snapshot, not live 999"
         );
     }
 
