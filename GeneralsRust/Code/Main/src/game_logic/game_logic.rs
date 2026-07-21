@@ -9514,17 +9514,26 @@ impl GameLogic {
         if !self.choose_best_weapon_for_target(unit_id, Some(victim_id), t) {
             return AttackMachineResult::Failure;
         }
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
         {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackMachineResult::Failure;
             };
-            u.target = Some(victim_id);
-            u.set_status_attacking(true);
-            u.set_ai_state(AIState::Attacking);
+            // Nested SM bookkeeping stays host; engagement authority is log-only when on.
             u.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
             if u.max_shots_to_fire == 0 {
                 u.max_shots_to_fire = -1;
             }
+            if !decision_auth {
+                u.target = Some(victim_id);
+                u.set_status_attacking(true);
+                u.set_ai_state(AIState::Attacking);
+            }
+        }
+        if decision_auth {
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            // Attacking
         }
         let _ = self.attack_aim_at_target_enter(unit_id);
         AttackMachineResult::Continue
@@ -10546,6 +10555,16 @@ impl GameLogic {
         // Prefer attack path if out of range / LOS blocked residual handled by assign.
         let _ = self.request_attack_path(unit_id, Some(victim_id), victim_pos);
         true
+    }
+
+    #[cfg(test)]
+    pub fn private_attack_object_for_test(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        max_shots: i32,
+    ) -> bool {
+        self.private_attack_object(unit_id, victim_id, max_shots)
     }
 
     /// C++ AIUpdateInterface::requestPath residual.
