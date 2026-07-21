@@ -182,6 +182,9 @@ pub struct ControlBar {
     presentation_primary_command_set: String,
     /// Multi-select command-set names residual from PresentationFrame (ordered).
     presentation_command_set_names: Vec<String>,
+    /// Structure inventory residual from PresentationFrame.
+    presentation_max_garrison: usize,
+    presentation_garrisoned_count: usize,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
     border_colors: CommandBarBorderColors,
@@ -299,6 +302,8 @@ impl ControlBar {
             presentation_queued_upgrades: Vec::new(),
             presentation_primary_command_set: String::new(),
             presentation_command_set_names: Vec::new(),
+            presentation_max_garrison: 0,
+            presentation_garrisoned_count: 0,
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             border_colors: CommandBarBorderColors::default(),
@@ -1727,7 +1732,11 @@ impl ControlBar {
             }
         }
 
-        super::control_bar_structure_inventory::append_structure_inventory_commands(context)?;
+        super::control_bar_structure_inventory::append_structure_inventory_commands_with_presentation(
+            context,
+            self.presentation_max_garrison,
+            self.presentation_garrisoned_count,
+        )?;
         super::control_bar_beacon::append_beacon_commands_with_presentation(
             context,
             &self.presentation_primary_command_set,
@@ -1776,7 +1785,11 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        super::control_bar_structure_inventory::append_structure_inventory_commands(context)?;
+        super::control_bar_structure_inventory::append_structure_inventory_commands_with_presentation(
+            context,
+            self.presentation_max_garrison,
+            self.presentation_garrisoned_count,
+        )?;
         Ok(())
     }
 
@@ -2795,6 +2808,8 @@ impl ControlBar {
         under_construction: bool,
         _construction_percent: f32,
     ) {
+        self.presentation_max_garrison = max_garrison;
+        self.presentation_garrisoned_count = garrisoned_count;
         if let Ok(mut context) = self.context.write() {
             context.last_recorded_inventory_count = garrisoned_count as u32;
             if under_construction {
