@@ -18205,4 +18205,34 @@ mod tests {
             "command_attack must prefer path over snap under movement authority"
         );
     }
+
+    #[test]
+    fn suicide_consume_destroy_damage_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        assert!(
+            src.contains("fn mark_destroyed_authority_aware")
+                && src.contains("fn mark_object_destroyed_authority_aware"),
+            "destroy authority helpers must exist"
+        );
+        for token in [
+            "mark_destroyed_authority_aware(object_id, None)",
+            "mark_destroyed_authority_aware(source_id, Some(source_id))",
+            "mark_object_destroyed_authority_aware(car, Some(car_id))",
+            "mark_object_destroyed_authority_aware(obj, Some(unit_id))",
+            "mark_object_destroyed_authority_aware(source, None)",
+        ] {
+            assert!(
+                src.contains(token),
+                "expected destroy residual peel {token}"
+            );
+        }
+        // Production exit still sets pose but logs move under movement authority.
+        let i = src.find("fn update_production").expect("update_production");
+        let w = &src[i..src.len().min(i + 25000)];
+        assert!(
+            w.contains("gameworld_movement_authority_enabled")
+                && w.contains("host_move_log::record"),
+            "factory exit spawn pose must honor movement authority logging"
+        );
+    }
 }
