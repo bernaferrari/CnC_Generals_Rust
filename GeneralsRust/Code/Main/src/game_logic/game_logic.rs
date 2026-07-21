@@ -11510,15 +11510,14 @@ impl GameLogic {
                 // Simplified two-runway layout along X.
                 prep.x += (runway_idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
                 prep.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
+                // Host-immediate taxi prep snap; log for GameWorld pose last-write.
+                jet.set_position(prep);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(
                         jet_id,
                         Some([prep.x, prep.y, prep.z]),
                     );
-                    jet.movement.target_position = Some(prep);
                     jet.record_host_movement();
-                } else {
-                    jet.set_position(prep);
                 }
             }
         }
@@ -11730,13 +11729,12 @@ impl GameLogic {
                     pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
                 }
                 pad.y = af_pos.y;
+                // Host-immediate hangar dock snap; log for GameWorld pose last-write.
+                jet.set_position(pad);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
-                    // Keep path destination; GameWorld integrates. Instant dock snap only host-only.
                     jet.movement.target_position = Some(pad);
                     jet.record_host_movement();
-                } else {
-                    jet.set_position(pad);
                 }
                 true
             }
@@ -15281,15 +15279,18 @@ impl GameLogic {
                         }
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_target(None);
-                        } else if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                            let ordinal =
-                                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                                    &state,
-                                );
-                            crate::game_logic::host_ai_decision_log::record_set_state(
-                                object_id, ordinal,
-                            );
                         } else {
+                            // Host-immediate residual: keep SeekingRepair/Healing
+                            // authoritative on host; log for GameWorld last-write.
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                                let ordinal =
+                                    crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                                        &state,
+                                    );
+                                crate::game_logic::host_ai_decision_log::record_set_state(
+                                    object_id, ordinal,
+                                );
+                            }
                             obj.set_ai_state(state);
                         }
                     }
@@ -15613,6 +15614,7 @@ impl GameLogic {
                         } else {
                             AIState::Docked
                         };
+                        // Host-immediate garrison/dock residual under decision auth.
                         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                             let ordinal =
                                 crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
@@ -15621,9 +15623,8 @@ impl GameLogic {
                             crate::game_logic::host_ai_decision_log::record_set_state(
                                 object_id, ordinal,
                             );
-                        } else {
-                            obj.set_ai_state(__ai_st);
                         }
+                        obj.set_ai_state(__ai_st);
                         obj.set_status_moving(false);
                     }
                     if container_is_tunnel_network {
@@ -22332,13 +22333,14 @@ impl GameLogic {
                                     if let Some(a) = self.objects.get_mut(&object_id) {
                                         a.set_position(stand);
                                         a.attack_target(target_id);
+                                        // Host-immediate engagement residual (host-only
+                                        // path when movement auth is off).
+                                        a.set_ai_state(AIState::Attacking);
                                         if crate::gameworld_shadow::gameworld_ai_decision_authority_live()
                                         {
                                             crate::game_logic::host_ai_decision_log::record_set_state(
                                                 object_id, 2,
                                             );
-                                        } else {
-                                            a.set_ai_state(AIState::Attacking);
                                         }
                                         a.set_status_attacking(true);
                                         a.set_status_moving(false);
