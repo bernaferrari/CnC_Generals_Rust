@@ -10967,6 +10967,20 @@ mod tests {
     }
 
     #[test]
+    fn ingame_ui_registry_empty_early_out() {
+        let ui = include_str!("../../GameEngine/GameClient/src/gui/ingame_ui.rs");
+        assert!(
+            ui.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+            "InGameUI dual-world bulk scans must early-out when registry empty"
+        );
+        assert!(
+            ui.contains("no dual-world factory objects to pick")
+                || ui.contains("no dual-world objects"),
+            "host path comments for InGameUI registry peels"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(
