@@ -16659,6 +16659,96 @@ mod tests {
     }
 
     #[test]
+    fn residual_ai_state_paths_honor_decision_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn try_return_to_base_rearm",
+            "fn try_min_range_backup",
+            "fn append_unit_waypoint",
+            "fn attack_aim_at_target_enter",
+            "fn attack_fire_weapon_enter",
+            "fn try_idle_crate_pickup",
+            "fn on_selling_container_residual",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("gameworld_ai_decision_authority_enabled")
+                    || w.contains("host_ai_decision_log::record_set_state"),
+                "{fn_name} must honor AI decision authority for AI state"
+            );
+        }
+    }
+
+    #[test]
+    fn append_unit_waypoint_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("WpAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("WpU") {
+            let mut t = ThingTemplate::new("WpU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("WpU".into(), t);
+        }
+        let oid = logic
+            .create_object("WpU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+            o.movement.max_speed = 20.0;
+        }
+        assert!(logic.append_unit_waypoint_for_test(oid, glam::Vec3::new(30.0, 0.0, 0.0)));
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
+                    && e.host_object == oid
+                    && e.ai_state_ordinal == 1
+            }),
+            "waypoint must log Moving; got {events:?}"
+        );
+        assert_ne!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Moving
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Moving
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn set_ai_state_decision_aware_writeback() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
