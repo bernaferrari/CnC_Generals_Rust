@@ -1608,6 +1608,10 @@ impl InGameUI {
         let Some(world) = self.screen_to_world(screen_pos) else {
             return None;
         };
+        // Host/presentation path: no dual-world factory objects to pick.
+        if OBJECT_REGISTRY.is_empty() {
+            return None;
+        }
 
         let mut best: Option<(ObjectID, f32)> = None;
         for obj in OBJECT_REGISTRY.get_all_objects() {
