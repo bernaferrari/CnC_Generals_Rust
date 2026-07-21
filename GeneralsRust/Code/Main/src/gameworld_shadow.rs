@@ -19011,4 +19011,39 @@ mod tests {
             "presentation CC helper required"
         );
     }
+
+    #[test]
+    fn worker_unfinished_construction_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng
+            .find("fn cycle_friendly_worker_selection")
+            .expect("worker cycle");
+        let body = &eng[i..eng.len().min(i + 2200)];
+        assert!(
+            body.contains("alive_selectable_friendly_idle_worker_ids")
+                && body.contains("alive_selectable_friendly_busy_worker_ids"),
+            "worker cycle must prefer presentation idle/busy worker ids"
+        );
+        let i = eng
+            .find("fn cycle_unfinished_construction")
+            .expect("unfinished");
+        let body = &eng[i..eng.len().min(i + 1800)];
+        assert!(
+            body.contains("alive_selectable_friendly_unfinished_ids"),
+            "unfinished cycle must prefer presentation unfinished ids"
+        );
+        let i = eng.find("fn resume_selected_construction").expect("resume");
+        let body = &eng[i..eng.len().min(i + 5500)];
+        assert!(
+            body.contains("alive_selectable_friendly_unfinished_ids")
+                && body.contains("alive_selectable_friendly_idle_worker_ids"),
+            "resume construction must prefer presentation unfinished/idle workers"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn alive_selectable_friendly_idle_worker_ids")
+                && pf.contains("fn alive_selectable_friendly_unfinished_ids"),
+            "presentation helpers required"
+        );
+    }
 }
