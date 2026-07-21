@@ -7796,14 +7796,33 @@ impl Object {
                     .weapon_slot(slot)
                     .map(|w| (w.damage, w.range))
                     .unwrap_or((0.0, 0.0));
-                self.last_fire_victim_host = target_id.0;
-                self.last_fire_slot = slot;
-                self.last_fire_damage = dmg;
-                self.last_fire_range = rng;
-                self.last_fire_sim_time = current_time;
-                self.last_fire_frame = crate::game_logic::host_historic_bonus::logic_frame();
-                self.fire_intent_count = self.fire_intent_count.saturating_add(1);
-                self.record_host_fire_intent();
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = self.fire_intent_count.saturating_add(1);
+                // When AI attack authority is on, GameWorld SetFireIntent writeback is
+                // last-writer — log the intent without dual-writing host last_fire_*.
+                if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                    crate::game_logic::host_fire_intent_log::record(
+                        self.id,
+                        target_id.0,
+                        slot,
+                        dmg,
+                        rng,
+                        current_time,
+                        frame,
+                        next_count,
+                    );
+                    // Keep counter monotonic for subsequent shots this frame.
+                    self.fire_intent_count = next_count;
+                } else {
+                    self.last_fire_victim_host = target_id.0;
+                    self.last_fire_slot = slot;
+                    self.last_fire_damage = dmg;
+                    self.last_fire_range = rng;
+                    self.last_fire_sim_time = current_time;
+                    self.last_fire_frame = frame;
+                    self.fire_intent_count = next_count;
+                    self.record_host_fire_intent();
+                }
             }
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:

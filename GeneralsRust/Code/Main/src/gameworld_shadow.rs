@@ -16445,6 +16445,9 @@ mod tests {
     fn fire_at_records_fire_intent_residual() {
         use crate::game_logic::host_fire_intent_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        // Default path: authority on — log intent, host last_fire_* deferred to writeback.
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_fire_intent_log::clear();
         crate::game_logic::host_historic_bonus::set_logic_frame(77);
         let mut logic = GameLogic::new();
@@ -16472,15 +16475,50 @@ mod tests {
             o.status.weapons_jammed = false;
             let fired = o.fire_at(vid, 1.0);
             assert!(fired, "close-range fire_at should discharge");
-            assert_eq!(o.last_fire_victim_host, vid.0);
-            assert!(o.fire_intent_count >= 1);
-            assert_eq!(o.last_fire_frame, 77);
-            assert!((o.last_fire_damage - 15.0).abs() < 1e-5);
+            // Host last_fire_* deferred under AI attack authority.
+            assert_eq!(o.last_fire_victim_host, 0);
+            assert_eq!(o.last_fire_frame, 0);
+            assert!(o.fire_intent_count >= 1, "counter still advances");
         }
         let evs = host_fire_intent_log::drain();
-        assert!(evs
-            .iter()
-            .any(|e| e.object == oid && e.last_fire_victim_host == vid.0));
+        assert!(
+            evs.iter().any(|e| e.object == oid
+                && e.last_fire_victim_host == vid.0
+                && e.last_fire_frame == 77),
+            "fire_at must log intent; got {evs:?}"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_host_fire_intent_events(&evs) >= 1);
+        assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.last_fire_victim_host, vid.0);
+        assert_eq!(o.last_fire_frame, 77);
+        assert!((o.last_fire_damage - 15.0).abs() < 1e-5);
+
+        // Legacy path: authority off — host last_fire_* applied same-frame.
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
+        host_fire_intent_log::clear();
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.last_fire_victim_host = 0;
+            o.last_fire_frame = 0;
+            o.last_fire_damage = 0.0;
+            o.fire_intent_count = 0;
+            // Ensure weapon ready again.
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+            }
+            let fired = o.fire_at(vid, 2.0);
+            assert!(fired);
+            assert_eq!(o.last_fire_victim_host, vid.0);
+            assert!(o.fire_intent_count >= 1);
+        }
+        assert!(!host_fire_intent_log::drain().is_empty());
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
     }
 
     #[test]
