@@ -415,6 +415,8 @@ pub struct RenderableObject {
     pub last_damage_source_host: u32,
     /// Host Object::command_set_override residual (empty = template default).
     pub command_set_override: String,
+    /// Effective command-set name freeze (override or ThingFactory template).
+    pub command_set_name: String,
     /// Host Object::is_detector residual.
     pub is_detector: bool,
     /// Host Object::active_weapon_slot residual.
@@ -2566,6 +2568,11 @@ impl PresentationFrame {
                 turret_holding: obj.turret_holding,
                 last_damage_source_host: obj.last_damage_source.map(|id| id.0).unwrap_or(0),
                 command_set_override: obj.command_set_override.clone().unwrap_or_default(),
+                command_set_name: crate::ui::construction_panel::resolve_command_set_name(
+                    &obj.template_name,
+                    obj.command_set_override.as_deref(),
+                )
+                .unwrap_or_default(),
                 is_detector: obj.is_detector,
                 active_weapon_slot: obj.active_weapon_slot,
                 overcharge_enabled: obj.overcharge_enabled,
@@ -3461,6 +3468,9 @@ impl PresentationFrame {
                 .map(|o| o.id)
         })?;
         let o = self.objects.iter().find(|o| o.id == primary)?;
+        if !o.command_set_name.is_empty() {
+            return Some(o.command_set_name.as_str());
+        }
         if o.command_set_override.is_empty() {
             None
         } else {
@@ -3485,6 +3495,11 @@ impl PresentationFrame {
             let Some(ro) = self.objects.iter().find(|o| o.id == id && !o.destroyed) else {
                 continue;
             };
+            // Prefer freeze from build_from_logic; resolve only if older frames lack it.
+            if !ro.command_set_name.is_empty() {
+                names.push(ro.command_set_name.clone());
+                continue;
+            }
             let override_name = ro.command_set_override.as_str();
             if let Some(cs) = crate::ui::construction_panel::resolve_command_set_name(
                 &ro.template_name,
@@ -10559,6 +10574,27 @@ mod tests {
         assert!(
             cb.contains("Presentation residual first (host path has no dual-world registry)"),
             "host path multi-select rebuild must document presentation-first residual"
+        );
+    }
+
+    #[test]
+    fn renderable_freezes_effective_command_set_name() {
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("pub command_set_name: String")
+                && src.contains("resolve_command_set_name(")
+                && src.contains("&obj.template_name"),
+            "build_from_logic must freeze effective command_set_name onto RenderableObject"
+        );
+        assert!(
+            src.contains("Prefer freeze from build_from_logic")
+                || src.contains("!ro.command_set_name.is_empty()"),
+            "selected_command_set_names must prefer frozen command_set_name"
+        );
+        assert!(
+            src.contains("!o.command_set_name.is_empty()")
+                && src.contains("Some(o.command_set_name.as_str())"),
+            "selected_command_set_name must prefer frozen name over override-only"
         );
     }
 
