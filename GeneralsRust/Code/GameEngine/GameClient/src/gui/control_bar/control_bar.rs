@@ -2554,6 +2554,123 @@ impl ControlBar {
         self.mark_ui_dirty();
     }
 
+    /// Multi-select command intersection from presentation command-set names
+    /// (host path — no dual-world OBJECT_REGISTRY).
+    /// Mirrors `control_bar_multi_select::populate_multi_select_commands` slot rules.
+    pub fn sync_multi_select_command_sets_from_presentation(
+        &mut self,
+        command_set_names: &[String],
+    ) {
+        if command_set_names.len() < 2 {
+            return;
+        }
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return;
+        };
+        let Some(common_bar) = get_ini_control_bar() else {
+            return;
+        };
+
+        let mut common_slots: Vec<Option<gamelogic::command_button::CommandButton>> =
+            vec![None; gamelogic::command_button::MAX_COMMANDS_PER_SET];
+        let mut saw_first = false;
+
+        for name in command_set_names {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let command_set = control_bar
+                .find_command_set_by_name(name)
+                .or_else(|| control_bar.find_command_set_by_name(&name.to_ascii_uppercase()));
+            let Some(command_set) = command_set else {
+                common_slots.fill(None);
+                saw_first = true;
+                break;
+            };
+
+            if !saw_first {
+                for slot in 0..gamelogic::command_button::MAX_COMMANDS_PER_SET {
+                    let Some(button) = command_set
+                        .buttons
+                        .get(slot)
+                        .and_then(|button| button.as_ref())
+                    else {
+                        continue;
+                    };
+                    if (button.get_options_bits() & CommandOption::OkForMultiSelect as u32) != 0 {
+                        common_slots[slot] = Some(button.clone());
+                    }
+                }
+                saw_first = true;
+                continue;
+            }
+
+            for slot in 0..gamelogic::command_button::MAX_COMMANDS_PER_SET {
+                let command = command_set
+                    .buttons
+                    .get(slot)
+                    .and_then(|button| button.as_ref());
+                let common = common_slots[slot].as_ref();
+
+                let attack_move = command
+                    .map(|button| {
+                        button.get_command_type()
+                            == gamelogic::commands::CommandType::DoAttackMoveTo
+                    })
+                    .unwrap_or(false)
+                    || common
+                        .map(|button| {
+                            button.get_command_type()
+                                == gamelogic::commands::CommandType::DoAttackMoveTo
+                        })
+                        .unwrap_or(false);
+
+                if attack_move && common_slots[slot].is_none() {
+                    common_slots[slot] = command.cloned();
+                    continue;
+                }
+                if attack_move {
+                    continue;
+                }
+
+                let matches = match (command, common) {
+                    (Some(a), Some(b)) => a.get_id() == b.get_id(),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !matches {
+                    common_slots[slot] = None;
+                }
+            }
+        }
+
+        if !saw_first {
+            return;
+        }
+
+        let Ok(mut context) = self.context.write() else {
+            return;
+        };
+        context.current_state = ControlBarState::MultiSelect;
+        context.available_commands.clear();
+        for button in common_slots.into_iter().flatten() {
+            if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name())
+            {
+                context
+                    .available_commands
+                    .push(Self::command_from_definition(common_button));
+            } else {
+                context
+                    .available_commands
+                    .push(Self::command_from_logic_button(&button));
+            }
+        }
+        context.ui_dirty = true;
+        drop(context);
+        self.mark_ui_dirty();
+    }
+
     pub fn sync_structure_context_from_presentation(
         &mut self,
         max_garrison: usize,

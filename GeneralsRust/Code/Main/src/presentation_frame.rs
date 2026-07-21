@@ -3468,6 +3468,38 @@ impl PresentationFrame {
         }
     }
 
+    /// Command-set names for current multi-selection (override or ThingFactory template).
+    /// Empty entries omitted; used to populate ControlBar without OBJECT_REGISTRY.
+    pub fn selected_command_set_names(&self) -> Vec<String> {
+        let ids: Vec<ObjectId> = if !self.selected.is_empty() {
+            self.selected.clone()
+        } else {
+            self.objects
+                .iter()
+                .filter(|o| o.selected && !o.destroyed)
+                .map(|o| o.id)
+                .collect()
+        };
+        let mut names = Vec::new();
+        for id in ids {
+            let Some(ro) = self.objects.iter().find(|o| o.id == id && !o.destroyed) else {
+                continue;
+            };
+            let override_name = ro.command_set_override.as_str();
+            if let Some(cs) = crate::ui::construction_panel::resolve_command_set_name(
+                &ro.template_name,
+                if override_name.is_empty() {
+                    None
+                } else {
+                    Some(override_name)
+                },
+            ) {
+                names.push(cs);
+            }
+        }
+        names
+    }
+
     pub fn detector_object_count(&self) -> usize {
         self.objects
             .iter()
@@ -6678,7 +6710,20 @@ impl PresentationFrame {
             panel.special_power_ready,
             panel.special_power_cooldown_remaining,
         );
-        control_bar.sync_command_set_from_presentation(self.selected_command_set_name());
+        let selected_count = if !self.selected.is_empty() {
+            self.selected.len()
+        } else {
+            self.objects
+                .iter()
+                .filter(|o| o.selected && !o.destroyed)
+                .count()
+        };
+        if selected_count > 1 {
+            let names = self.selected_command_set_names();
+            control_bar.sync_multi_select_command_sets_from_presentation(&names);
+        } else {
+            control_bar.sync_command_set_from_presentation(self.selected_command_set_name());
+        }
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
         let ready_sp: Vec<String> = self
             .selected_unit_display_infos()
@@ -10429,6 +10474,24 @@ mod tests {
             cb.contains("sync_selection_display_from_presentation — do not wipe it")
                 || cb.contains("do not wipe it"),
             "update_portrait_for_object must preserve presentation portrait"
+        );
+    }
+
+    #[test]
+    fn control_bar_multi_select_prefers_presentation_command_sets() {
+        let src = include_str!("presentation_frame.rs");
+        assert!(
+            src.contains("sync_multi_select_command_sets_from_presentation"),
+            "apply_to_control_bar must feed multi-select command sets from presentation"
+        );
+        assert!(
+            src.contains("fn selected_command_set_names"),
+            "presentation must expose selected_command_set_names"
+        );
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("fn sync_multi_select_command_sets_from_presentation"),
+            "ControlBar must accept multi-select command sets without OBJECT_REGISTRY"
         );
     }
 

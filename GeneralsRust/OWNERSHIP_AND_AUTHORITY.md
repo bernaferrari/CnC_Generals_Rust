@@ -225,6 +225,7 @@ Executable smoke (`executable_smoke_gate` / behavior_gate step 8) boots the real
 remains false (not full WND widget click / retail GPU match playthrough).
 
 ### InGame render builds `GameUIState` from `PresentationFrame` (default+apply); live `GameLogic::update_ui_state` is boot residual only when no frame is installed.
+ControlBar multi-select command intersection is fed from presentation command-set names (no OBJECT_REGISTRY).
 
 Presentation-first UI command identity
 
